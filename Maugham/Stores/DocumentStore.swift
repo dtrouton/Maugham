@@ -35,7 +35,20 @@ public final class DocumentStore {
     @MainActor private var _inboxStore: InboxStore?
     @MainActor var inboxStore: InboxStore {
         if let s = _inboxStore { return s }
-        let s = InboxStore(projectURL: projectURL)
+        // **Built off the same identity source the document loads use**
+        // (`Document.loadIdentities`, `Document.registryCacheForTesting`)
+        // rather than `InboxStore`'s own `.current` defaults. In production
+        // the two are the same quartet and the same shared cache, so nothing
+        // moves; what it buys is that a store opened on a temp project cannot
+        // judge its CAPTURES by one set of keys and its CHAPTERS by another —
+        // which is a store whose `heldLinesByDevice` answers about two
+        // different books.
+        let s = InboxStore(
+            projectURL: projectURL,
+            deviceId: Document.loadIdentities.author.deviceId,
+            identity: Document.loadIdentities.author,
+            identities: Document.loadIdentities,
+            cache: Document.registryCacheForTesting)
         _inboxStore = s
         return s
     }
@@ -203,6 +216,35 @@ public final class DocumentStore {
             try RegistryPresence.ensureRootIfEmpty(
                 in: url, identities: Document.loadIdentities,
                 presenter: store.presenter)
+            // And then everyone this writer has already named (decision B2,
+            // spec §4.2). The sheet is worth putting up once per device; the
+            // second book it syncs into gets the remembered label without
+            // asking, and History says so. `admitRemembered` admits nobody
+            // unless this Mac is a root here, so on somebody else's book this
+            // writes nothing.
+            //
+            // Before the seal sweep and before any `Document.load`, so the
+            // first read of this project already judges by the admissions this
+            // open decided rather than holding a device's lines for the length
+            // of one session.
+            let admitted = try RegistryPresence.admitRemembered(
+                in: url, identities: Document.loadIdentities,
+                cache: Document.loadRegistryCache,
+                memory: Document.loadAdmissionMemory,
+                presenter: store.presenter)
+            for record in admitted {
+                documentStoreLog.info(
+                    "admitted \(DeviceCode.short(record.person), privacy: .public) as \(record.label, privacy: .public) in \(url.lastPathComponent, privacy: .public), remembered from an earlier book")
+            }
+            // Nothing is open yet, so this is a no-op in the ordinary case —
+            // said anyway, and through the one verb, because an admission that
+            // did not invalidate trust is the failure this whole path exists to
+            // avoid, and a later reader of this code should not have to work
+            // out that `open` is special.
+            if !admitted.isEmpty {
+                store.invalidateTrust()
+                MaughamEvent.postAdmissionSettled(projectURL: url)
+            }
         } catch {
             documentStoreLog.error(
                 "open-time registry presence failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -851,6 +893,85 @@ public final class DocumentStore {
 
     public func register(document: Document, for path: String) {
         openDocuments[path] = document
+        // **A load is how this window finds out somebody is waiting** (signed
+        // op log P2b, spec §4.1). The counts are a property of a load, and
+        // registering is the one moment a finished load becomes visible to
+        // anything outside the editor — so the sheet's *at project open*
+        // trigger is here rather than on a timer or a poll of the folder.
+        // Nothing is posted when nothing is held, which is every ordinary
+        // project.
+        announcePendingHistory(of: document)
+    }
+
+    /// Device fingerprints this store has already announced as waiting.
+    ///
+    /// What makes the post *once per stranger* rather than once per callback.
+    /// Never emptied: a device announced and then admitted must not be
+    /// announced again when another of its files syncs in, and a device the
+    /// writer said *Not now* to is the window's business (`dismissed`), not
+    /// this store's.
+    private var announcedPendingDevices: Set<String> = []
+
+    /// The presenter's path to `announcePendingHistory`, coalesced.
+    ///
+    /// A device syncing into this project delivers one callback per FILE, and a
+    /// device that has written as several actors across several chapters is
+    /// several files landing within a second or two of each other. The
+    /// newcomer guard already collapses that to one post *per fingerprint*, but
+    /// a phone and an iPad arriving together would still be two — so the
+    /// presenter's side waits a second and asks once for whatever the burst
+    /// turned out to contain. Built lazily for `DebounceScheduler`'s own reason:
+    /// it captures the store.
+    ///
+    /// `register`'s path is deliberately NOT debounced: a document finishing
+    /// its load is one event, the writer is looking at that document now, and a
+    /// second of silence before the question would be a second of them reading
+    /// a draft that is quietly missing somebody's notes.
+    /// Built on first use rather than `lazy`, which `@Observable` refuses, and
+    /// on the `_inboxStore` idiom this class already uses for the same reason.
+    private var _pendingAnnounceScheduler: DebounceScheduler<String>?
+    private var pendingAnnounceScheduler: DebounceScheduler<String> {
+        if let existing = _pendingAnnounceScheduler { return existing }
+        let scheduler = DebounceScheduler<String>(delay: .seconds(1)) { [weak self] docId in
+            guard let self, let document = self.document(forDocId: docId) else { return }
+            self.announcePendingHistory(of: document)
+        }
+        _pendingAnnounceScheduler = scheduler
+        return scheduler
+    }
+
+    /// Tell this project's windows that a device is waiting — **only when a
+    /// fingerprint nothing has announced yet turns up**.
+    ///
+    /// The predicate is `provenance`, never the registry: pending exists only
+    /// relative to a chain this device belongs to (decision B3), and the load
+    /// has already asked that question once. Asking it again here would be a
+    /// second opinion about who is a stranger.
+    ///
+    /// **Two guards, and the second is the review's Important 3.** A bare
+    /// `pendingLines > 0` posts on EVERY external-change callback — including
+    /// this device's own typing echoes, which is what the echo guard in
+    /// `handleExternalLogChange` exists for — and each post costs the receiving
+    /// window a detached `TrustResolution.resolveVerified`: a folder read plus
+    /// a P256 verification per record. For as long as anything was pending, the
+    /// writer's own keystrokes drove a registry re-verification per burst,
+    /// which is tripwire 3's shape.
+    ///
+    /// **Whether a new fingerprint is really a STRANGER is deliberately not
+    /// decided here.** `AdmissionDecision.requests` is the one authority on
+    /// that — it answers no request for a fingerprint carrying any person
+    /// record — and it already runs on the receiving side. Answering the same
+    /// question here would put a verified registry read back on the keystroke
+    /// path in order to duplicate a rule living one hop away. So this narrows
+    /// the post to *something not seen before is held*, and the window decides
+    /// whether there is anything to ask about.
+    private func announcePendingHistory(of document: Document) {
+        let waiting = Set((document.provenance?.pendingByDevice ?? [:])
+            .filter { $0.value > 0 }.keys)
+        let newcomers = waiting.subtracting(announcedPendingDevices)
+        guard !newcomers.isEmpty else { return }
+        announcedPendingDevices.formUnion(newcomers)
+        MaughamEvent.postAdmissionRequested(projectURL: projectURL)
     }
 
     public func unregister(path: String) {
@@ -863,6 +984,77 @@ public final class DocumentStore {
 
     public func document(forDocId docId: String) -> Document? {
         openDocuments.values.first(where: { $0.docId == docId })
+    }
+
+    // MARK: - Admission (signed op log P2b, spec §4.1)
+
+    /// **Let a device into this book, and apply what it had waiting** — the one
+    /// production path behind the admission sheet's Admit.
+    ///
+    /// Three acts, and the order is the contract:
+    ///
+    /// 1. `RegistryAdmission.admit` writes the person record, signed by this
+    ///    Mac's author key, and remembers the label (decision B2). It refuses
+    ///    rather than writing a record nobody accepts — this Mac not being a
+    ///    root here, or the device already being under another root — and the
+    ///    refusal is thrown, never swallowed: a sheet that closed on a write
+    ///    that did not happen is exactly the silence RULING-7 forbids.
+    /// 2. Every open document's store and the inbox forget the table they
+    ///    resolved, so the next read judges by the registry as it now stands.
+    ///    The signature check inside `OpLogStore.trust` would usually notice
+    ///    the folder changed; saying so outright is what makes spec §4.1's
+    ///    *the held ops apply immediately* a fact rather than a hope about a
+    ///    modification time.
+    /// 3. Every open document re-reads its log, so the notes appear in the
+    ///    draft the writer is looking at rather than the next time they open
+    ///    it. The re-read is the ordinary external-change path — nothing about
+    ///    admission rewrites a line.
+    ///
+    /// The write runs off the main actor: it is a folder read, a P256
+    /// signature and a verified re-read, and this class is `@MainActor`.
+    @discardableResult
+    public func admit(
+        device fingerprint: String, label: String, ownName: String
+    ) async throws -> PersonRecord {
+        let projectURL = self.projectURL
+        let author = Document.loadIdentities.author
+        let cache = Document.loadRegistryCache
+        let memory = Document.loadAdmissionMemory
+        let record = try await Task.detached(priority: .userInitiated) {
+            try RegistryAdmission.admit(
+                device: fingerprint, label: label, ownName: ownName,
+                in: projectURL, by: author, cache: cache, memory: memory)
+        }.value
+
+        invalidateTrust()
+        for document in openDocuments.values {
+            do { try await document.handleExternalLogChange() }
+            catch {
+                documentStoreLog.error(
+                    "re-read after admitting \(DeviceCode.short(fingerprint), privacy: .public) failed for \(document.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        MaughamEvent.postAdmissionSettled(projectURL: projectURL)
+        return record
+    }
+
+    /// Forget every resolved trust table in this project, so the next read of
+    /// anything builds a fresh one.
+    ///
+    /// The ONE verb for it, because an admission that reached some readers and
+    /// not others is a book where the same key is trusted in the editor and a
+    /// stranger in the Inbox. The inbox is refreshed rather than merely
+    /// invalidated: its rows carry a byline resolved from the table, and a row
+    /// already on screen would otherwise go on saying *not yet admitted* about
+    /// a device that now has a name.
+    func invalidateTrust() {
+        for document in openDocuments.values { document.opStore.invalidateTrust() }
+        // Only when one already exists: this is also called from `open`, where
+        // building an inbox store to tell it to forget nothing would be a
+        // whole subsystem started by a no-op.
+        guard let inbox = _inboxStore else { return }
+        inbox.invalidateTrust()
+        Task { await inbox.refresh() }
     }
 
     /// All currently-open `Document` instances. Used by `ProjectStore` for
@@ -893,6 +1085,14 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
                     // appends, and announcing here would put a project-wide
                     // walk on every typing burst (M3 P2 Task 9).
                     try? await doc.handleExternalLogChange()
+                    // **A stranger's file arriving through sync** (spec §4.1's
+                    // second trigger). The re-read above is what discovers it,
+                    // and the same predicate guards the post as at register
+                    // time — a fingerprint nothing has announced yet, never the
+                    // shape of a filename — so this stays silent on every one
+                    // of our own appends. Debounced, because a device arrives
+                    // as a burst of files rather than as one.
+                    self.pendingAnnounceScheduler.schedule(docId)
                 }
             } else {
                 // **The document is not open, so nothing else can notice.**

@@ -325,4 +325,40 @@ extension Notification.Name {
     /// `maughamDesignProposalsChanged`; a closed window reads nothing.
     public static let maughamStatementProposalsChanged = Notification.Name(
         "maugham.statement.proposals.changed")
+
+    /// **A device is waiting to be admitted to this book** (signed op log P2b,
+    /// spec §4.1) — a load found held lines from a key this Mac's chain says
+    /// nothing about, a stranger's file arrived through sync, or the writer
+    /// pressed History's *Admit…*.
+    ///
+    /// The payload carries only `maugham.admission.forced`: whether this is the
+    /// writer ASKING (History's button), which clears a sheet they dismissed
+    /// earlier in this window, or the book merely reporting a stranger, which a
+    /// *Not now* goes on suppressing until the next open (spec §4.1). WHICH
+    /// devices are waiting is the receiving window's own answer — it re-derives
+    /// them through `AdmissionDecision` from the provenance it already holds.
+    ///
+    /// Post via `MaughamEvent.postAdmissionRequested`, never by hand. Scope:
+    /// .project(id:) — trust is per project, and a closed window must put up no
+    /// sheet at all (the receive helper's liveness guard, ADR 0021).
+    public static let maughamAdmissionRequested = Notification.Name(
+        "maugham.admission.requested")
+
+    /// **A device was admitted to this book** (signed op log P2b) — a person
+    /// record was written, and every surface that reports on trust is now
+    /// describing a registry that has changed underneath it.
+    ///
+    /// A second name rather than a payload on `maughamAdmissionRequested`, for
+    /// `maughamFreshEyesCompiler`'s reason: the two are different promises. One
+    /// says *somebody is waiting* and may put a sheet up; the other says
+    /// *somebody is in* and must never do that. A receiver forced to read a
+    /// flag out of a `userInfo` dictionary to tell them apart is a receiver
+    /// that can put a sheet up about a device it just let in.
+    ///
+    /// No payload: which devices a surface cares about is its own answer (it
+    /// re-derives them). Post via `MaughamEvent.postAdmissionSettled`, never by
+    /// hand. Scope: .project(id:) — trust is per project, and a second window
+    /// on the same book must stop saying *14 notes waiting* too.
+    public static let maughamAdmissionSettled = Notification.Name(
+        "maugham.admission.settled")
 }

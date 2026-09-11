@@ -2,17 +2,20 @@ import Foundation
 
 /// What one seal's key is to THIS device.
 ///
-/// Six words, because the reader has six genuinely different things to do with
-/// a line: apply it as its own (`mine`), apply it as somebody's (`admitted`),
-/// HOLD it until the writer says (`stranger` — pending, spec §3), quarantine it
-/// by opId (`revoked`), quarantine it as another claimant's (`otherRoot`), or
-/// fall back to P1 and apply it as unsigned history because there is no chain
-/// to judge by (`noChain`, decision B3).
+/// One word per genuinely different thing the reader can do with a line — count
+/// the cases below, never a number in prose: apply it as its own (`mine`),
+/// apply it as somebody's (`admitted`), HOLD it until the writer says
+/// (`stranger` — pending, spec §3), refuse it and split the refusal by opId
+/// (`revoked`), refuse what a stopped machine wrote after it stopped
+/// (`retired`), refuse it as another claimant's (`otherRoot`), or fall back to
+/// P1 and apply it as unsigned history because there is no chain to judge by
+/// (`noChain`, decision B3).
 ///
 /// The payloads are the fingerprints a surface needs to name somebody: a person
 /// for the two admitted states, the device record naming the key for a stranger
 /// (nil when nothing on disk describes it), the claimant's own root for
-/// `otherRoot`.
+/// `otherRoot`, the device and the moment for `retired` — the one payload that
+/// is not a name, because that verdict is answered against the seal's own date.
 public enum TrustVerdict: Equatable, Hashable, Sendable {
     /// One of this device's own actor keys.
     case mine
@@ -28,6 +31,13 @@ public enum TrustVerdict: Equatable, Hashable, Sendable {
     /// Admitted, then revoked. `highestOpIdSeen` is the line between what the
     /// root had already applied and what arrived after (spec §5).
     case revoked(person: String, highestOpIdSeen: String?)
+    /// Admitted, and then the DEVICE said it had stopped (spec §5). Dated,
+    /// because this is the one verdict whose answer depends on WHEN a seal was
+    /// made: its past stays verified and its future is quarantined, so the
+    /// table carries the moment and the walk — which knows each seal's own
+    /// date — decides. A revocation outranks it: that is the root refusing,
+    /// and it is not softened by the machine having stopped politely.
+    case retired(device: String, retiredAt: Date)
     /// A second self-signed root, or anyone it admitted. Listed, never merged.
     case otherRoot(root: String)
     /// This device belongs to no chain here, so it judges nobody (B3).
@@ -46,26 +56,6 @@ public enum TrustVerdict: Equatable, Hashable, Sendable {
 /// argument, which is what lets every arm below be pinned as a value.
 public struct TrustTable: Equatable, Sendable {
 
-    /// Which of `resolve`'s four arms answered `myRoot`.
-    ///
-    /// The caller needs it for one decision and it is B1's: **only an
-    /// `.admitted` root is ever JOINED**. A Mac that is its own root has no
-    /// chain of somebody else's to be on, so joining itself would have every
-    /// surface that reads the join say *this Mac joined its own chain* — and,
-    /// since `RegistryCache.join` is write-once, would also mean the first
-    /// foreign root to name this device is filed as a claimant of a join that
-    /// was never anybody's.
-    public enum RootSource: Equatable, Sendable {
-        /// Arm 1: the root the caller remembers joining. Outranks everything.
-        case joined
-        /// Arm 2: a self-signed root record for one of this device's own keys.
-        case ownRecord
-        /// Arm 3: a root whose chain names one of this device's keys.
-        case admitted
-        /// Arm 4: no root at all (B3).
-        case none
-    }
-
     /// The root whose chain this device judges by, or `nil` — decision B3's
     /// *no chain*, in which every foreign key answers `.noChain`.
     ///
@@ -73,24 +63,14 @@ public struct TrustTable: Equatable, Sendable {
     /// stays) and hands it back on the next resolve.
     public let myRoot: String?
 
-    /// Where `myRoot` came from — **diagnostic**, not a decision.
-    ///
-    /// Nothing in production reads it yet; P2b's People & Devices pane is what
-    /// wants it, and a surface saying *this Mac joined a chain* needs to know
-    /// which arm answered. What the JOIN itself asks is `ownRootRecord` below,
-    /// which is a different question: `rootSource` says which arm WON, and it
-    /// answers `.joined` for a device that had both a join and a root of its
-    /// own — the exact case B1 turns on.
-    public let rootSource: RootSource
-
     /// This device's OWN self-signed root record, if it has one — whatever
     /// `myRoot` ended up being.
     ///
-    /// B1 has a half that `rootSource` cannot state on its own: **a device with
+    /// B1 has a half that `myRoot` cannot state on its own: **a device with
     /// its own root record is on its own root, and never switches.** A device
     /// that answers this non-nil must therefore never JOIN anybody, however
-    /// many other roots name it — each of those is a claimant. `rootSource`
-    /// says which arm won and would answer `.joined` for a device that had
+    /// many other roots name it — each of those is a claimant. `myRoot` is the
+    /// root that WON and would name the remembered join for a device that had
     /// both, so the join decision asks this instead.
     public let ownRootRecord: String?
 
@@ -111,12 +91,31 @@ public struct TrustTable: Equatable, Sendable {
     /// same, and `first` is arm 3 of `myRoot`.
     public let admittingRoots: [String]
 
+    /// Every OTHER root whose chain this device's root has adopted, sorted —
+    /// transitively, so a root adopted by a root I adopted is here too.
+    ///
+    /// **Adoption is the claim's primitive and it is symmetric** (plan decision
+    /// P2). A claim written by MY root naming R takes R's chain in under mine:
+    /// on a keyless restore that is the whole claim, and between two live Macs
+    /// it is each saying *this is also me*. What it never is is somebody else's
+    /// decision — a claim by R adopting me is R's word about R, and until this
+    /// device writes its own claim R stays exactly the claimant it was (B1).
+    ///
+    /// Here rather than left to a surface to re-derive, because the closure it
+    /// takes is the same one `verdict` judges by, and People & Devices draws
+    /// these roots as *merged* off it (P2b Task 6).
+    public let adoptedRoots: [String]
+
     /// This device's own actor keys.
     private let mine: Set<String>
     /// Actor key → the device record that names it. One hop, spelled once.
     private let deviceByActorKey: [String: String]
     /// Person fingerprint → the record, for the revoked/admitted split.
     private let personByFingerprint: [String: PersonRecord]
+    /// Device fingerprint → the moment that device said it had stopped. Keyed
+    /// on the DEVICE, because retirement is a machine's own act and every actor
+    /// key it holds retires with it.
+    private let retiredAtByDevice: [String: Date]
     /// Everyone under `myRoot`, transitively, the root included.
     private let myChain: Set<String>
     /// Person fingerprint → the OTHER root whose chain holds them.
@@ -142,6 +141,12 @@ public struct TrustTable: Equatable, Sendable {
     ///
     /// Ties inside (2) and (3) are broken by fingerprint, so a registry that
     /// arrives in a different order answers the same.
+    ///
+    /// **And then whose chain that root took in.** A `ClaimRecord` written by
+    /// my root adopting R admits R's chain under mine, transitively through R's
+    /// own adoptions (`adoptedRoots`). It moves none of the four answers above:
+    /// adoption says whose history this device VERIFIES, and the root it is on
+    /// is a different question with a different rule (B1).
     nonisolated public static func resolve(
         registry: Registry, mine: LocalIdentities, joinedRoot: String?
     ) -> TrustTable {
@@ -160,11 +165,6 @@ public struct TrustTable: Equatable, Sendable {
         }.map(\.person)
 
         let myRoot: String? = joinedRoot ?? ownRecord ?? admittingRoots.first
-        let rootSource: RootSource =
-            joinedRoot != nil ? .joined
-            : ownRecord != nil ? .ownRecord
-            : admittingRoots.first != nil ? .admitted
-            : .none
 
         var deviceByActorKey: [String: String] = [:]
         for device in registry.devices.sorted(by: { $0.device < $1.device }) {
@@ -179,7 +179,43 @@ public struct TrustTable: Equatable, Sendable {
             personByFingerprint[person.person] = person
         }
 
-        let myChain = myRoot.map { registry.chain(underRoot: $0) } ?? []
+        var retiredAtByDevice: [String: Date] = [:]
+        for device in registry.devices {
+            guard let retiredAt = device.retiredAt else { continue }
+            // The EARLIEST, where a folder somehow holds two records for one
+            // device: the moment it said it had stopped is the moment it
+            // stopped, and taking the later one would apply lines written after
+            // it said so.
+            if let known = retiredAtByDevice[device.device], known <= retiredAt { continue }
+            retiredAtByDevice[device.device] = retiredAt
+        }
+
+        // The roots MY root adopted, followed through their own adoptions. A
+        // root that adopted THIS one is not here: only claims written by a root
+        // in the closure widen it, which is what keeps the widening this
+        // device's own act.
+        var adoptedRoots: [String] = []
+        if let myRoot {
+            var reached: Set<String> = [myRoot]
+            var frontier: [String] = [myRoot]
+            while let root = frontier.popLast() {
+                for adopted in registry.adopted(by: root).sorted()
+                where reached.insert(adopted).inserted {
+                    adoptedRoots.append(adopted)
+                    frontier.append(adopted)
+                }
+            }
+            adoptedRoots.sort()
+        }
+
+        // Everyone under my root — and under every root it adopted. An adopted
+        // root that this registry holds no self-signed record for has no chain
+        // to take in (`chain(underRoot:)` answers empty for a non-root), so a
+        // claim naming a stranger admits nobody.
+        var myChain = myRoot.map { registry.chain(underRoot: $0) } ?? []
+        for adopted in adoptedRoots {
+            myChain.formUnion(registry.chain(underRoot: adopted))
+        }
 
         var otherRootByMember: [String: String] = [:]
         for root in roots where root.person != myRoot {
@@ -190,14 +226,27 @@ public struct TrustTable: Equatable, Sendable {
         }
 
         return TrustTable(
-            myRoot: myRoot, rootSource: rootSource, ownRootRecord: ownRecord,
-            admittingRoots: admittingRoots,
+            myRoot: myRoot, ownRootRecord: ownRecord,
+            admittingRoots: admittingRoots, adoptedRoots: adoptedRoots,
             mine: myKeys, deviceByActorKey: deviceByActorKey,
-            personByFingerprint: personByFingerprint, myChain: myChain,
+            personByFingerprint: personByFingerprint,
+            retiredAtByDevice: retiredAtByDevice, myChain: myChain,
             otherRootByMember: otherRootByMember)
     }
 
     // MARK: - Answering
+
+    /// **The line a revocation drew**: the highest opId the root had applied
+    /// from `person` when it revoked them (spec §5), or nil where it had
+    /// applied nothing and where nobody by that fingerprint is here at all.
+    ///
+    /// Asked by exactly one reader — `OpLogStore`'s tail classification, which
+    /// splits a refused span into what arrived after the revocation and what
+    /// was written before it and only reached this Mac later. Two lines, two
+    /// sentences, and the same refusal.
+    nonisolated public func highestOpIdSeen(forPerson person: String) -> String? {
+        personByFingerprint[person]?.highestOpIdSeen
+    }
 
     /// What the key that made this seal is to this device.
     ///
@@ -219,6 +268,12 @@ public struct TrustTable: Equatable, Sendable {
         if myChain.contains(person) {
             if let record = personByFingerprint[person], record.isRevoked {
                 return .revoked(person: person, highestOpIdSeen: record.highestOpIdSeen)
+            }
+            // Retirement is dated and revocation is not, so revocation is asked
+            // first: a device that stopped politely and was then shut out is
+            // shut out, whatever the date on the seal in hand.
+            if let retiredAt = retiredAtByDevice[person] {
+                return .retired(device: person, retiredAt: retiredAt)
             }
             return .admitted(person: person)
         }

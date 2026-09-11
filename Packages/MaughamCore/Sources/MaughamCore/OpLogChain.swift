@@ -523,6 +523,46 @@ public enum OpLogChain {
         case afterRevocation(person: String)
         /// A seal from a second self-signed root's chain: listed, never merged.
         case anotherClaimants(root: String)
+        /// A seal made at or after the moment that DEVICE said it had stopped
+        /// writing (spec §5). Its earlier spans are untouched — this is the one
+        /// cause whose subject is a date rather than a key.
+        case afterRetirement(device: String)
+        /// A line from a revoked key that the revocation had ALREADY applied —
+        /// its opId is at or below the `highestOpIdSeen` the root recorded. It
+        /// is refused like everything else that key sealed, and it is not the
+        /// same accusation: it may be late sync, or it may be backdated, and
+        /// the writer is owed the difference.
+        ///
+        /// Produced by `OpLogStore`'s tail classification and never by the walk
+        /// below, which sees seals and not opIds — the split is made from the
+        /// number the revocation recorded, one layer up (ADR 0032 §6).
+        case revocationLate(person: String)
+    }
+
+    /// **Held lines counted by the DEVICE whose seal holds them** — the one
+    /// derivation of that split, so every reader that asks *who is waiting*
+    /// gets the same answer.
+    ///
+    /// The op log's provenance (`OpLogStore.provenance`) and the inbox's
+    /// pending banner both ask it, of different streams, and two spellings of
+    /// the same count is how one surface comes to say a phone is waiting while
+    /// the other says nobody is. Keyed the way `Line.State.pending` is keyed:
+    /// on the device record's fingerprint, with a key no record names standing
+    /// for itself.
+    ///
+    /// **OP lines only.** A seal is held back with the span it closes, and it
+    /// is counted nowhere: every reader of this number puts a NOUN after it —
+    /// *3 captures waiting*, *2 notes from this iPhone* — and a seal is neither
+    /// a capture nor a note. Two ops under one seal read *3* before P2b's final
+    /// wave, which is a pane telling the writer they have something they have
+    /// not got (Task 6's review, ruling a).
+    nonisolated public static func pendingByDevice(of lines: [Line]) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for line in lines where line.kind == .op {
+            guard let device = line.state.pendingDevice else { continue }
+            counts[device, default: 0] += 1
+        }
+        return counts
     }
 
     public struct Verification: Equatable, Sendable {
@@ -704,7 +744,10 @@ public enum OpLogChain {
                 }
                 let verdict = trust(seal.key)
                 if verdict != .mine { foreignSealCount += 1 }
-                let settled = verdict.settling(sealKey: seal.key)
+                // The seal's own moment, because one verdict — `.retired` —
+                // answers differently before and after a date, and this is the
+                // only place that knows when a seal was made.
+                let settled = verdict.settling(sealKey: seal.key, sealedAt: seal.at)
                 if settled == .quarantined, cause == nil {
                     cause = verdict.refusal
                 }
@@ -777,13 +820,18 @@ extension TrustVerdict {
     /// as one switch: it is the only place a verdict becomes a line state, so
     /// a seventh verdict is a compile error here rather than a silent
     /// `unsignedHistory`.
-    nonisolated func settling(sealKey: String) -> OpLogChain.Line.State {
+    nonisolated func settling(sealKey: String, sealedAt: Date) -> OpLogChain.Line.State {
         switch self {
         case .mine, .admitted: .verified
         // The device the registry names for this key, and the key itself only
         // when no device record does.
         case let .stranger(device): .pending(device: device ?? sealKey)
         case .revoked, .otherRoot: .quarantined
+        // Spec §5: its past stays verified, its future is quarantined. AT the
+        // moment counts as after it — the device said it was done, and a seal
+        // bearing that same instant is not something it was still owed.
+        case let .retired(_, retiredAt):
+            sealedAt < retiredAt ? .verified : .quarantined
         case .noChain: .unsignedHistory
         }
     }
@@ -793,15 +841,28 @@ extension TrustVerdict {
         switch self {
         case let .revoked(person, _): .afterRevocation(person: person)
         case let .otherRoot(root): .anotherClaimants(root: root)
+        case let .retired(device, _): .afterRetirement(device: device)
         case .mine, .admitted, .stranger, .noChain: nil
         }
     }
 
     /// Whether a signature made under this verdict is a word this device stands
     /// behind — its own, or one its root admitted.
-    nonisolated public var isOurWord: Bool {
+    /// **The only form of this question, and it takes a moment** (fix round 1,
+    /// Minor 3). An undated twin stood beside it for one commit with no
+    /// production caller, and the next caller to reach for it would have
+    /// silently refused a retired device's pre-retirement segment — a signature
+    /// that IS that device's word, read as though it were nobody's. A `Date` is
+    /// always in hand where this is asked: a segment signature carries `at`,
+    /// and so does a seal.
+    ///
+    /// `sealedAt` is what makes `.retired` answerable at all: a segment signed
+    /// before its device stopped is still that device's word, and one signed
+    /// after it is not.
+    nonisolated public func isOurWord(sealedAt: Date) -> Bool {
         switch self {
         case .mine, .admitted: true
+        case let .retired(_, retiredAt): sealedAt < retiredAt
         case .stranger, .revoked, .otherRoot, .noChain: false
         }
     }

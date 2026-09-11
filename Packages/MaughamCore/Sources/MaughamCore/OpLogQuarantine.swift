@@ -90,6 +90,100 @@ public enum ReturnOutcome: Equatable, Sendable {
     case setAsideByProvenance
 }
 
+/// One run of set-aside lines and the cause they are filed under.
+///
+/// It exists because a single walk can hold lines back for two genuinely
+/// different reasons at once, and a `.lines` record carries ONE sentence. A
+/// revoked device's span is the case: everything in it is refused, and the half
+/// whose opIds the root had already applied is *may be late sync or may be
+/// backdated* while the half above the mark is *after revocation*. Two records,
+/// two sentences, one refusal.
+public struct QuarantineGroup: Equatable, Sendable {
+    /// Why these lines were held back. Nil where the walk had no cause of its
+    /// own to name, which is the shape `quarantineReason` already answers for.
+    public let cause: OpLogChain.QuarantineCause?
+    public let lines: [Data]
+
+    public init(cause: OpLogChain.QuarantineCause?, lines: [Data]) {
+        self.cause = cause
+        self.lines = lines
+    }
+}
+
+/// **Which side of a revocation each refused line falls on** (spec §5).
+///
+/// Pure, and deliberately one layer above the walk: `OpLogChain` sees seals and
+/// chains, not opIds, and the mark this splits on is a number the ROOT recorded
+/// when it revoked somebody. So the walk refuses the span whole and says why,
+/// and this refines that one cause into the two sentences the writer is owed
+/// (ADR 0032 §6 — a reason is derived, never passed in).
+public enum RevocationSplit {
+
+    /// The quarantined lines of `verification`, grouped by the cause each
+    /// earns.
+    ///
+    /// Everything but a revocation is ONE group under the walk's own cause —
+    /// there is nothing to split, and a broken chain has no *before*. A
+    /// revocation with no mark is also one group: the root had applied nothing
+    /// from that device, so nothing it wrote was ever *already here*.
+    ///
+    /// **A seal line goes with *after revocation*.** It carries no opId of its
+    /// own, and the strict side is the honest place for a line whose position
+    /// cannot be established — unless nothing else in the span is above the
+    /// mark, in which case there is no such group and the seal belongs with the
+    /// lines it sealed.
+    nonisolated public static func groups(
+        of verification: OpLogChain.Verification, highestOpIdSeen: String?
+    ) -> [QuarantineGroup] {
+        let whole = [QuarantineGroup(
+            cause: verification.quarantineCause, lines: verification.quarantined)]
+        guard case let .afterRevocation(person)? = verification.quarantineCause,
+              let mark = highestOpIdSeen, !verification.quarantined.isEmpty
+        else { return whole }
+
+        var after: [Data] = []
+        var late: [Data] = []
+        for line in verification.quarantined {
+            if let opId = opId(ofLine: line), opId <= mark {
+                late.append(line)
+            } else {
+                after.append(line)
+            }
+        }
+        guard !late.isEmpty else { return whole }
+        // Nothing above the mark but the seal itself: the span is entirely
+        // history this Mac had already applied, and calling the line that
+        // sealed it "written after the door closed" would be an accusation
+        // about the only line that is not an op.
+        guard !after.isEmpty, after.contains(where: { opId(ofLine: $0) != nil })
+        else {
+            return [QuarantineGroup(
+                cause: .revocationLate(person: person), lines: verification.quarantined)]
+        }
+        return [
+            QuarantineGroup(cause: .afterRevocation(person: person), lines: after),
+            QuarantineGroup(cause: .revocationLate(person: person), lines: late),
+        ]
+    }
+
+    /// The opId a raw op line carries — nil for a seal, and for anything that
+    /// does not parse, which is filed on the strict side by the rule above.
+    ///
+    /// Read off the OBJECT rather than by decoding an `Op`: the only field this
+    /// needs is the id, and a line a later build wrote — a new op kind, a field
+    /// this build has no property for — still has an opId that can be read off
+    /// it, where a full decode would fail and file a line as unplaceable on the
+    /// strength of something it does not turn on.
+    ///
+    /// The key is `Op`'s own (`op_id` on the wire), asked of its `CodingKeys`
+    /// rather than spelled again here: a second spelling would go on reading
+    /// nil, silently, the day that name changed.
+    nonisolated static func opId(ofLine line: Data) -> String? {
+        let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any]
+        return object?[Op.CodingKeys.opId.stringValue] as? String
+    }
+}
+
 /// The typed verb for setting an unreadable op-log file aside (Plan B,
 /// spec §5) — the recovery ladder's rung above read-only (Plan A). This IS
 /// tripwire 14's typed mover for op-log sidecar relocation: a raw

@@ -48,7 +48,7 @@ desk, and what the board governs is rounds.
 - **Click a chip** to open that piece through that pass — it becomes the
   piece's active pass, which is what the queue and the compiler read next.
 - **Right-click a chip** to ask that pass's editor for a round right
-  there — *Run \<Editor\>'s round* — or set one of the four states
+  there — *Run \<Editor\>'s round* — or set the pass's state
   directly, without opening the piece at all. Asking for a round takes you
   to the piece and starts the check once it's open; if it won't open, a
   capsule says **Couldn't open the piece — try again.** rather than leaving

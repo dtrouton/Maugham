@@ -452,6 +452,26 @@ struct ProjectWindow: View {
             isNoChromeOn: isNoChromeOn,
             onSelectPersona: Self.postPersona))
         .background(WindowAccessor(window: $window))
+        // Signed op log P2b: a device asking to be let into this book. Mounted
+        // on the whole window rather than inside an arm, because the question
+        // is the PROJECT's and arrives whichever persona the writer is in and
+        // whether or not the load has finished — the modifier's own guards
+        // decide when there is anything to ask.
+        .modifier(AdmissionModifier(
+            projectURL: url,
+            projectTitle: store?.manifest.title ?? url.lastPathComponent,
+            documentStore: documentStore,
+            window: $window))
+        // And the other question a registry can raise at an open: a book this
+        // Mac is holding and has no key in. Its own modifier because it is a
+        // question about the WHOLE book rather than about a device, and the
+        // two can never be asked at once — admission has nothing to ask
+        // without a chain, and this is asked only when there is none.
+        .modifier(ClaimModifier(
+            projectURL: url,
+            projectTitle: store?.manifest.title ?? url.lastPathComponent,
+            documentStore: documentStore,
+            window: $window))
         .task(id: url) { await load() }
         .onDisappear {
             mcpRegistry.unregister(url: url)

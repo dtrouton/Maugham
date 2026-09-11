@@ -17,6 +17,8 @@ final class RegistryPresenceTests: XCTestCase {
     private var mine: LocalIdentities!
     /// Somebody else's Mac, used to plant a registry this device is not in.
     private var stranger: DeviceIdentity!
+    /// Every device-local file a test in the B2 section made, swept together.
+    private var memoryFiles: [URL] = []
 
     override func setUp() {
         super.setUp()
@@ -26,10 +28,12 @@ final class RegistryPresenceTests: XCTestCase {
             at: projectURL, withIntermediateDirectories: true)
         mine = .softwareForTesting()
         stranger = .softwareForTesting()
+        memoryFiles = []
     }
 
     override func tearDown() {
         try? FileManager.default.removeItem(at: projectURL)
+        for url in memoryFiles { try? FileManager.default.removeItem(at: url) }
         super.tearDown()
     }
 
@@ -225,7 +229,6 @@ final class RegistryPresenceTests: XCTestCase {
             projectURL: projectURL, identities: mine, cache: cache)
 
         XCTAssertEqual(table.myRoot, mine.author.fingerprint)
-        XCTAssertEqual(table.rootSource, .ownRecord)
         // Task 7's fix round, on the controller's ruling: the JOIN records only
         // a foreign root that took this device in (B1). Being your own root is
         // not joining one — a Mac that joined itself would have every surface
@@ -343,5 +346,229 @@ final class RegistryPresenceTests: XCTestCase {
         XCTAssertEqual(record.actors[DeviceActor.author.rawValue], phone.fingerprint)
         XCTAssertTrue(try registry().malformed.isEmpty,
                       "and the signature over it verifies under that same key")
+    }
+
+    // MARK: - Silent admission at open (decision B2)
+
+    /// A device this writer has already named once is never asked about again.
+    /// `admitRemembered` is that promise at every project open: for each
+    /// stranger whose fingerprint is in admission memory, the Mac writes the
+    /// person record with the remembered label and says so in History, rather
+    /// than putting the same sheet up in every book the phone reaches.
+    ///
+    /// It admits nobody unless this device is a root here — an admission signed
+    /// by a non-root is a file every reader lists as malformed — and it never
+    /// touches a device the folder already has a record for.
+
+    private func rememberingMemory() -> AdmissionMemory {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("presence-memory-\(UUID().uuidString).json")
+        memoryFiles.append(url)
+        return AdmissionMemory(fileURL: url, identity: mine.author.fingerprint)
+    }
+
+    private func presenceCache() -> RegistryCache {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("presence-cache-\(UUID().uuidString).json")
+        memoryFiles.append(url)
+        return RegistryCache(fileURL: url, identity: mine.author.fingerprint)
+    }
+
+    /// This Mac declares itself and roots the empty book.
+    private func rootHere() throws {
+        try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: mine, name: "Denver's MacBook", kind: .mac)
+        try RegistryPresence.ensureRootIfEmpty(in: projectURL, identities: mine)
+    }
+
+    @discardableResult
+    private func declarePhone(named name: String = "Denver's iPhone") throws -> LocalIdentities {
+        let phone = LocalIdentities.softwareForTesting()
+        try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: phone, name: name, kind: .phone)
+        return phone
+    }
+
+    func test_aRememberedStrangerIsAdmittedAtOpenWithoutAsking() throws {
+        try rootHere()
+        let phone = try declarePhone()
+        let memory = rememberingMemory()
+        memory.remember(phone.author.fingerprint, label: "Denver",
+                        ownName: "Denver's iPhone",
+                        at: Date(timeIntervalSince1970: 100))
+
+        let admitted = try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: presenceCache(), memory: memory,
+            now: { Date(timeIntervalSince1970: 500) })
+
+        XCTAssertEqual(admitted.map(\.person), [phone.author.fingerprint])
+        let record = try XCTUnwrap(try registry().person(phone.author.fingerprint))
+        XCTAssertEqual(record.label, "Denver")
+        XCTAssertEqual(record.admittedBy, mine.author.fingerprint)
+        XCTAssertEqual(record.admittedAt, Date(timeIntervalSince1970: 500),
+                       "the label is remembered; the admission happens now")
+        XCTAssertTrue(try registry().malformed.isEmpty)
+    }
+
+    func test_silentAdmissionDoesNotRestampTheWritersDecision() throws {
+        try rootHere()
+        let phone = try declarePhone()
+        let memory = rememberingMemory()
+        memory.remember(phone.author.fingerprint, label: "Denver",
+                        ownName: "Denver's iPhone",
+                        at: Date(timeIntervalSince1970: 100))
+
+        try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: presenceCache(), memory: memory,
+            now: { Date(timeIntervalSince1970: 500) })
+
+        XCTAssertEqual(
+            memory.label(for: phone.author.fingerprint)?.labelledAt,
+            Date(timeIntervalSince1970: 100),
+            """
+            The writer decided in September. Using that decision in a new book             is not making it again, and History's *remembered from Playlist*             would be lying about when if it were.
+            """)
+    }
+
+    func test_anUnrememberedStrangerIsLeftForTheSheet() throws {
+        try rootHere()
+        let phone = try declarePhone()
+
+        let admitted = try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: presenceCache(),
+            memory: rememberingMemory())
+
+        XCTAssertTrue(admitted.isEmpty)
+        XCTAssertNil(try registry().person(phone.author.fingerprint),
+                     "an empty memory admits nobody — the sheet is where a new name is decided")
+    }
+
+    func test_adeviceAlreadyAdmittedIsNotAdmittedAgain() throws {
+        try rootHere()
+        let phone = try declarePhone()
+        let memory = rememberingMemory()
+        memory.remember(phone.author.fingerprint, label: "Denver",
+                        ownName: "Denver's iPhone")
+        try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: presenceCache(), memory: memory)
+        let bytes = try Data(contentsOf: RegistryWriter.url(
+            .people, fingerprint: phone.author.fingerprint, in: projectURL))
+
+        let again = try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: presenceCache(), memory: memory)
+
+        XCTAssertTrue(again.isEmpty, "the second open has nothing to admit and says so")
+        XCTAssertEqual(
+            try Data(contentsOf: RegistryWriter.url(
+                .people, fingerprint: phone.author.fingerprint, in: projectURL)),
+            bytes,
+            "and every open after the first leaves the folder alone")
+    }
+
+    func test_aDeviceThatIsNotARootHereAdmitsNobodySilently() throws {
+        // Somebody else's book: they are the root, this Mac merely declared
+        // itself. A remembered label is still this writer's word — it is not
+        // authority over a chain they are not the root of.
+        let owner = LocalIdentities.softwareForTesting()
+        try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: owner, name: "Their MacBook", kind: .mac)
+        try RegistryPresence.ensureRootIfEmpty(in: projectURL, identities: owner)
+        try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: mine, name: "Denver's MacBook", kind: .mac)
+        let phone = try declarePhone()
+        let memory = rememberingMemory()
+        memory.remember(phone.author.fingerprint, label: "Denver",
+                        ownName: "Denver's iPhone")
+
+        let admitted = try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: presenceCache(), memory: memory)
+
+        XCTAssertTrue(admitted.isEmpty)
+        XCTAssertNil(try registry().person(phone.author.fingerprint))
+    }
+
+    func test_theSilentAdmissionCarriesTheDevicesOwnNameAsItIsNow() throws {
+        try rootHere()
+        let phone = try declarePhone(named: "Denver's iPhone 17")
+        let memory = rememberingMemory()
+        memory.remember(phone.author.fingerprint, label: "Denver",
+                        ownName: "Denver's iPhone")
+
+        try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: presenceCache(), memory: memory)
+
+        XCTAssertEqual(
+            try registry().person(phone.author.fingerprint)?.ownName,
+            "Denver's iPhone 17",
+            """
+            `ownName` is the device's own name at admission, and the device             record in this folder is the device saying it. The memory's copy is             what a surface shows for a device whose record is not here at all.
+            """)
+    }
+
+    func test_aDeviceUnderAnotherRootIsNotSilentlyTakenOver() throws {
+        try rootHere()
+        let other = LocalIdentities.softwareForTesting()
+        try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: other, name: "Their MacBook", kind: .mac)
+        try RegistryWriter.write(
+            PersonRecord(
+                person: other.author.fingerprint, label: "Them", ownName: "Their MacBook",
+                admittedAt: Date(timeIntervalSince1970: 3),
+                admittedBy: other.author.fingerprint),
+            signedBy: other.author, in: projectURL)
+        let phone = try declarePhone()
+        try RegistryWriter.write(
+            PersonRecord(
+                person: phone.author.fingerprint, label: "Their word",
+                ownName: "Denver's iPhone",
+                admittedAt: Date(timeIntervalSince1970: 4),
+                admittedBy: other.author.fingerprint),
+            signedBy: other.author, in: projectURL)
+        let memory = rememberingMemory()
+        memory.remember(phone.author.fingerprint, label: "Denver",
+                        ownName: "Denver's iPhone")
+
+        let admitted = try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: presenceCache(), memory: memory)
+
+        XCTAssertTrue(
+            admitted.isEmpty,
+            """
+            A silent open must not throw on somebody else's admission, and must             not take it over: that is a second claimant, and merging chains is             the writer's own act at a surface.
+            """)
+        XCTAssertEqual(try registry().person(phone.author.fingerprint)?.admittedBy,
+                       other.author.fingerprint)
+    }
+
+    /// Fix round 1, I1 — the silent path is where this matters most, because
+    /// nobody is watching. A person record present on disk that did not verify
+    /// reads as absent through `Registry.person(_:)`, and writing over it at an
+    /// open would destroy another root's admission over a sync ordering.
+    func test_aPersonRecordPresentAndUnreadableIsSkippedRatherThanOverwritten() throws {
+        try rootHere()
+        let phone = try declarePhone()
+        let impostor = LocalIdentities.softwareForTesting()
+        try RegistryWriter.writeUnchecked(
+            PersonRecord(
+                person: phone.author.fingerprint, label: "Somebody's word",
+                ownName: "Denver's iPhone",
+                admittedAt: Date(timeIntervalSince1970: 6),
+                admittedBy: impostor.author.fingerprint),
+            signedBy: impostor.author, in: projectURL)
+        let bytes = try Data(contentsOf: RegistryWriter.url(
+            .people, fingerprint: phone.author.fingerprint, in: projectURL))
+        let memory = rememberingMemory()
+        memory.remember(phone.author.fingerprint, label: "Denver",
+                        ownName: "Denver's iPhone")
+
+        let admitted = try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: presenceCache(), memory: memory)
+
+        XCTAssertTrue(admitted.isEmpty)
+        XCTAssertEqual(
+            try Data(contentsOf: RegistryWriter.url(
+                .people, fingerprint: phone.author.fingerprint, in: projectURL)),
+            bytes,
+            "present and unreadable is not absent — the same rule ensureRootIfEmpty keeps")
     }
 }

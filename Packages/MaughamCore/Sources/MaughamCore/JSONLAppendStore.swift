@@ -93,9 +93,24 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     /// It writes NOTHING to this device's memory. Adopting a head is the op
     /// log's own decision (`OpLogStore.classifyTail`'s adopt rule), made where
     /// the provenance that justifies it is in hand.
-    public func loadVerifiedStrict() async throws -> (elements: [Element], diagnostics: ParseDiagnostics) {
+    ///
+    /// **`pendingByDevice` is the third answer, and it is not a diagnostic.**
+    /// The elements are what this device applied; the held lines are what it is
+    /// waiting on the writer to decide about, and a reader that got only the
+    /// first would present a stream missing another device's captures as
+    /// simply short. The op log carries the same number in `FileProvenance`;
+    /// this is where a stream with no provenance of its own — the inbox's
+    /// manifest — gets it. Empty for a store with no chain policy, which holds
+    /// nothing back.
+    public func loadVerifiedStrict() async throws -> (
+        elements: [Element], diagnostics: ParseDiagnostics,
+        pendingByDevice: [String: Int]
+    ) {
         let bytes = try readBytesStrict()
-        guard let chain else { return parseDiagnosed(bytes: bytes) }
+        guard let chain else {
+            let plain = parseDiagnosed(bytes: bytes)
+            return (plain.elements, plain.diagnostics, [:])
+        }
         let fileKey = OpLogDeviceState.fileKey(fileURL)
         let walked = OpLogChain.verify(
             bytes: bytes,
@@ -125,7 +140,8 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
                 \(String(describing: error), privacy: .public).
                 """)
         }
-        return (read.elements, read.diagnostics)
+        return (read.elements, read.diagnostics,
+                OpLogChain.pendingByDevice(of: read.verification.lines))
     }
 
     /// Verify, keep, parse — the pure middle of every chained read, callable on
@@ -140,8 +156,31 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         sortedBy: ((Element, Element) -> Bool)? = nil
     ) -> (elements: [Element], diagnostics: ParseDiagnostics,
           verification: OpLogChain.Verification) {
+        verifiedParse(
+            bytes: bytes,
+            trust: { trusted($0) ? .mine : .noChain },
+            rememberedHead: rememberedHead,
+            dedupKey: dedupKey, sortedBy: sortedBy)
+    }
+
+    /// `verifiedParse`, judging each seal by the **table's** verdict rather
+    /// than by a yes/no.
+    ///
+    /// The keyless form above answers `.noChain` for everything that is not
+    /// ours, which applies a stranger's history unread — P1's whole world, and
+    /// right only where there is no table to ask. A caller that HAS one owes
+    /// every seal the same six-way answer the live tail gets: a stranger's span
+    /// held, a revoked key's refused, this device's own settled `verified`.
+    nonisolated static func verifiedParse(
+        bytes: Data,
+        trust: (String) -> TrustVerdict,
+        rememberedHead: String?,
+        dedupKey: ((Element) -> String)? = nil,
+        sortedBy: ((Element, Element) -> Bool)? = nil
+    ) -> (elements: [Element], diagnostics: ParseDiagnostics,
+          verification: OpLogChain.Verification) {
         let verification = OpLogChain.verify(
-            bytes: bytes, trusted: trusted, rememberedHead: rememberedHead)
+            bytes: bytes, trust: trust, rememberedHead: rememberedHead)
         let parsed = parse(
             bytes: applied(verification, whole: bytes),
             dedupKey: dedupKey, sortedBy: sortedBy)
@@ -174,7 +213,8 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     }
 
     /// Record the lines a walk held back, in the writer's own words for why.
-    /// Answers nil — writing nothing — when the walk held nothing back.
+    /// Answers the records it wrote, and an empty array when the walk held
+    /// nothing back or every body was already on file.
     ///
     /// Every caller that sets lines aside goes through here: the chained
     /// append, the verified read, and the op log's own load. The REASON is
@@ -183,12 +223,32 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     @discardableResult
     nonisolated static func setAside(
         _ verification: OpLogChain.Verification,
+        groupedBy groups: [QuarantineGroup]? = nil,
         from fileURL: URL, docId: String, in projectURL: URL
-    ) throws -> QuarantineRecord? {
-        guard !verification.quarantined.isEmpty else { return nil }
-        return try OpLogQuarantine.setAsideLines(
-            verification.quarantined, from: fileURL, docId: docId,
-            reason: quarantineReason(verification.quarantineCause), in: projectURL)
+    ) throws -> [QuarantineRecord] {
+        guard !verification.quarantined.isEmpty else { return [] }
+        // One group is the ordinary case and the default: the whole refused
+        // span under the walk's own cause. A caller that can tell two halves
+        // apart — `OpLogStore`, splitting a revoked span by the opId the root
+        // had applied — hands the groups in, and each is filed under the
+        // sentence its own cause earns. The reason is still derived here and
+        // never passed in, which is what stops two callers filing one event
+        // under different words.
+        let groups = groups ?? [QuarantineGroup(
+            cause: verification.quarantineCause, lines: verification.quarantined)]
+        // EVERY record, not the first of them (fix round 1, Minor 5): a split
+        // revocation files two, and a signature that answered one would
+        // under-report what the call did to any caller that ever reads it.
+        // Content-deduped bodies answer nil, and those are not records.
+        var written: [QuarantineRecord] = []
+        for group in groups where !group.lines.isEmpty {
+            if let record = try OpLogQuarantine.setAsideLines(
+                group.lines, from: fileURL, docId: docId,
+                reason: quarantineReason(group.cause), in: projectURL) {
+                written.append(record)
+            }
+        }
+        return written
     }
 
     /// The strict twin of `readBytes`: absent is still empty, unreadable throws.
@@ -422,6 +482,15 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
             return "written by something that is not Maugham"
         case .afterRevocation:
             return "written after this device's access was withdrawn"
+        case .revocationLate:
+            // Refused like everything else that key sealed, and a different
+            // accusation: this line's opId is one the root had already applied
+            // when it revoked them, so it is either history arriving late or a
+            // line written to look older than it is. The writer is owed the
+            // difference; Maugham cannot tell which, and says so.
+            return "may be late sync, or may be backdated"
+        case .afterRetirement:
+            return "written after this device was retired"
         case .anotherClaimants:
             return "written under another claimant's copy of this book"
         default:

@@ -77,7 +77,30 @@ extension Document {
             try await flushBurstNow()
         }
         // Reload the log file (OpLogStore.load dedupes by op_id and sorts).
-        let ops = try await opStore.load(docId: docId)
+        //
+        // Through `loadDiagnosed`, because what this document is MADE OF can
+        // change without a single new op arriving (signed op log P2b): a
+        // stranger's file syncing in adds lines that are HELD, which produce no
+        // op at all, so the echo guard below would return with `provenance`
+        // still saying what the open-time load found. Everything downstream of
+        // that — History's *N notes waiting*, the admission sheet's trigger —
+        // would then be describing a folder that has moved on. It costs
+        // nothing: `load` is `loadDiagnosed(...).ops`.
+        //
+        // Stamped BEFORE the echo guard, for the same reason.
+        //
+        // **And only when it CHANGED** (the review's Important 2). `Document`
+        // is `@Observable` and `HistoryPane` reads `provenance` in `body`, so
+        // an unconditional assignment here is an observable write on every
+        // presenter callback — and this callback fires on THIS device's own
+        // appends, which is the whole reason the echo guard below exists. With
+        // the pane open, every typing burst invalidated it and recomputed the
+        // document's whole merged history on the main actor (tripwire 3's
+        // shape). `OpLogProvenance` is `Equatable`, so the guard costs one
+        // comparison and removes the churn entirely.
+        let loaded = try await opStore.loadDiagnosed(docId: docId)
+        let ops = loaded.ops
+        if provenance != loaded.provenance { provenance = loaded.provenance }
 
         // Echo guard: every op we ourselves appended is already in
         // _opLogMirror. If the disk log has no ops we haven't seen, this

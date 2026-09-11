@@ -70,7 +70,11 @@ private struct RootTabView: View {
                 .tabItem { Label("Annotations", systemImage: "bubble.left.and.bubble.right") }
                 .tag(Tab.annotations)
 
-            SettingsView(projectsRoot: projectsRoot, authGate: authGate)
+            SettingsView(
+                projectsRoot: projectsRoot,
+                projectsBrowser: projectsBrowser,
+                recents: recents,
+                authGate: authGate)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(Tab.settings)
         }

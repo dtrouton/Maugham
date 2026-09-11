@@ -28,6 +28,12 @@ public enum TrustResolution {
     /// memory are BOTH empty; otherwise every remembered record is put back and
     /// the resolution proceeds from what was restored.
     ///
+    /// **A claim this device REFUSED is still listed.** A record of ours that
+    /// the folder now shows under somebody else's key is kept out of the
+    /// registry by the same-authority rule, so it cannot reach
+    /// `table.admittingRoots` — `recordRefusedClaimants` reads those listings
+    /// so the writer is shown the claimant anyway (fix round 1, I1).
+    ///
     /// **A device never switches roots on its own** (B1), which decides the
     /// whole of the join. A device holding its own self-signed root record is
     /// already on a root — its own — so it JOINS nobody, and every other root
@@ -58,24 +64,35 @@ public enum TrustResolution {
         presenter: NSFilePresenter? = nil,
         cache: RegistryCache? = nil
     ) throws -> TrustTable {
+        try resolveVerified(
+            projectURL: projectURL, identities: identities,
+            presenter: presenter, cache: cache).table
+    }
+
+    /// `resolve`, with the verified registry it judged from.
+    ///
+    /// The table answers what a KEY is to this device; a surface that names
+    /// the device — the Inbox's *from Denver*, People & Devices' rows — needs
+    /// the records the answer came from as well. Handing both back is what
+    /// stops such a surface reading the folder a second time and, worse,
+    /// describing a device off a registry the verdicts were not resolved
+    /// against.
+    nonisolated public static func resolveVerified(
+        projectURL: URL,
+        identities: LocalIdentities,
+        presenter: NSFilePresenter? = nil,
+        cache: RegistryCache? = nil
+    ) throws -> (registry: Registry, table: TrustTable) {
         // The cheap answer first, because it is the ordinary one: no registry
         // directory at all. Three `fileExists` decide it, and only then is a
         // cache consulted — and only to tell a project that never joined a
         // chain apart from one whose registry something DELETED.
-        let folderPresent = hasRegistry(in: projectURL)
         let cache = cache ?? .shared
-        let remembered = cache.cached(for: projectURL)
-        guard folderPresent || remembered != nil else { return keyless(mine: identities) }
-
-        let folder = folderPresent
-            ? try RegistryReader.load(projectURL: projectURL, presenter: presenter)
-            : Registry()
-        // With no folder this restores every remembered record and reports it,
-        // which is the vanished-registry case above; with a folder it is the
-        // ordinary per-record restore.
-        let reconciled = try cache.reconcile(
-            folder: folder, cached: remembered,
-            in: projectURL, presenter: presenter).registry
+        guard hasRegistry(in: projectURL) || cache.cached(for: projectURL) != nil else {
+            return (Registry(), keyless(mine: identities))
+        }
+        let reconciled = try verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
 
         let table = TrustTable.resolve(
             registry: reconciled, mine: identities,
@@ -95,7 +112,88 @@ public enum TrustResolution {
             guard admitting != joined else { continue }
             cache.recordClaimant(root: admitting, for: projectURL)
         }
-        return table
+        recordRefusedClaimants(
+            in: reconciled, mine: identities, cache: cache, projectURL: projectURL)
+        return (reconciled, table)
+    }
+
+    /// **The folder, reconciled against what this device last verified** — the
+    /// one place those two are put together, and the only registry any
+    /// production decision is allowed to be made from.
+    ///
+    /// A raw `RegistryReader.load` is not this and must not stand in for it.
+    /// The folder is only ever half the story: a record present in the memory
+    /// and absent from the folder is one somebody DELETED, and it is restored
+    /// and reported here rather than read as never-was; a record the folder now
+    /// shows under a different signer is a takeover, refused here and listed,
+    /// which is B1 one record down. `reconcile` is also what REMEMBERS, on the
+    /// settled value — so handing the cache a raw folder read would both drop
+    /// the records it exists to restore and store somebody else's bytes as this
+    /// device's verified copy.
+    ///
+    /// Extracted so `resolveVerified` and `RegistryAdmission` share it rather
+    /// than each spelling a load (fix round 1, C1): an admission decides who
+    /// may write in a book, and deciding it off an unreconciled folder was the
+    /// same class of mistake one layer up.
+    ///
+    /// An absent folder with nothing remembered answers an empty registry
+    /// without touching the disk beyond the three existence checks.
+    nonisolated public static func verifiedRegistry(
+        projectURL: URL,
+        presenter: NSFilePresenter? = nil,
+        cache: RegistryCache? = nil
+    ) throws -> Registry {
+        let cache = cache ?? .shared
+        let folderPresent = hasRegistry(in: projectURL)
+        let remembered = cache.cached(for: projectURL)
+        guard folderPresent || remembered != nil else { return Registry() }
+
+        let folder = folderPresent
+            ? try RegistryReader.load(projectURL: projectURL, presenter: presenter)
+            : Registry()
+        // With no folder this restores every remembered record and reports it,
+        // which is the vanished-registry case; with a folder it is the ordinary
+        // per-record restore.
+        return try cache.reconcile(
+            folder: folder, cached: remembered,
+            in: projectURL, presenter: presenter).registry
+    }
+
+    /// **A record of ours the folder now shows under another key is a claim we
+    /// refused, and a claim refused is still a claim heard.**
+    ///
+    /// The same-authority rule (`RegistryCache.reconcile`) keeps another root
+    /// from taking over a record this device already verified — but it keeps it
+    /// out of the registry to do so, and the registry above is where
+    /// `table.admittingRoots` comes from. Without this, the very path B1 exists
+    /// for — a second Mac writing its own admission over the one this device is
+    /// on — would go by in silence: refused, correct, and invisible.
+    ///
+    /// It lives here rather than in the cache for the reason the loop above
+    /// does. *Me* is four actor keys (`LocalIdentities.fingerprints`, which
+    /// enumerates what is on disk and mints nothing), not the author key alone;
+    /// and a second place that records claimants, with a different idea of who
+    /// this device is, is the shape that drifts.
+    ///
+    /// **A device is nobody's claimant to itself.** A key of ours displacing a
+    /// record of ours is this device re-signing its own history — a root record
+    /// written over an admission, say — and listing ourselves as a claimant on
+    /// our own book would be a permanent, unanswerable warning.
+    nonisolated private static func recordRefusedClaimants(
+        in registry: Registry,
+        mine: LocalIdentities,
+        cache: RegistryCache,
+        projectURL: URL
+    ) {
+        let ours = mine.fingerprints
+        guard !ours.isEmpty else { return }
+        for fault in registry.malformed {
+            guard case .signerChanged(_, let found) = fault.reason,
+                  let ref = fault.ref, ref.directory == .people,
+                  ours.contains(ref.fingerprint), !ours.contains(found)
+            else { continue }
+            cache.recordClaimant(root: found, for: projectURL)
+        }
     }
 
     /// The table a reader uses when there is nothing to judge by: this device's

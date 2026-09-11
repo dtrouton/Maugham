@@ -73,6 +73,12 @@ public final class Document {
     /// be opened. `HistoryPane` is what says it out loud, and it says only the
     /// two things a writer can act on knowing — unsigned history, and lines
     /// set aside — never the ordinary unsealed tail.
+    ///
+    /// **Re-stamped by `handleExternalLogChange` as well as by the load** (P2b):
+    /// a stranger's file arriving through sync changes what this document is
+    /// made of without producing a single applied op, and a count frozen at
+    /// open would have every surface reading it describe a folder that has
+    /// moved on.
     public internal(set) var provenance: OpLogProvenance?
 
     /// The pending file `load` found but could not recover (RULING-54,
@@ -493,6 +499,18 @@ public final class Document {
     internal static var localIdentitiesForTesting: LocalIdentities? = nil
     internal static var deviceStateForTesting: OpLogDeviceState? = nil
 
+    /// Test-only overrides for the two device-local memories admission reads and
+    /// writes: what this device last verified of a project's registry, and what
+    /// it calls each device it has let in (signed op log P2b, spec §2.4).
+    ///
+    /// Both are process-wide files beside this machine's real keys, and both
+    /// are WRITTEN by an admission — so a suite that admitted a fixture's
+    /// throwaway key would leave a label for it in the writer's own memory
+    /// forever. Same rule as the two seams above: a test that sets one clears
+    /// it in `tearDown`.
+    internal static var registryCacheForTesting: RegistryCache? = nil
+    internal static var admissionMemoryForTesting: AdmissionMemory? = nil
+
     /// The ONE construction of an `OpLogStore` on a load path, so the two
     /// doors (strict and read-only recovery) cannot end up with different
     /// identities — which would mean one of them vouching for lines the other
@@ -504,7 +522,23 @@ public final class Document {
             projectURL: projectURL,
             presenter: presenter,
             identities: loadIdentities,
-            state: deviceStateForTesting ?? .shared)
+            state: deviceStateForTesting ?? .shared,
+            cache: loadRegistryCache)
+    }
+
+    /// This device's memory of the registries it has verified — the injected
+    /// one when a suite has it, the process-wide one otherwise. Passing it
+    /// explicitly rather than leaving `OpLogStore`'s `cache: nil` default is
+    /// behaviour-identical in production (`TrustResolution` falls back to
+    /// `.shared`), and is what lets a suite's admission and its loads reason
+    /// about ONE memory instead of two.
+    internal static var loadRegistryCache: RegistryCache {
+        registryCacheForTesting ?? .shared
+    }
+
+    /// What this writer calls each device they have admitted (decision B2).
+    internal static var loadAdmissionMemory: AdmissionMemory {
+        admissionMemoryForTesting ?? .shared
     }
 
     /// This device's four writers — the injected quartet when a suite has one,

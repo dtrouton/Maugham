@@ -14,5 +14,6 @@
   { "slug": "publishing",          "title": "Publishing to PDF & EPUB","order": 13 },
   { "slug": "translation-review",  "title": "Translating Your Manuscript", "order": 14 },
   { "slug": "publish-department",  "title": "The Publish Department", "order": 15 },
-  { "slug": "reference",           "title": "Reference",              "order": 16 }
+  { "slug": "people-and-devices",  "title": "People & Devices",       "order": 16 },
+  { "slug": "reference",           "title": "Reference",              "order": 17 }
 ]

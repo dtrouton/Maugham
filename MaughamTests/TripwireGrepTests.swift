@@ -7497,6 +7497,102 @@ final class TripwireGrepTests: XCTestCase {
             + "Offenders:\n" + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - The registry's writers are a census (P2b Task 10)
+
+    /// The four verbs that put bytes into the registry folder.
+    ///
+    /// `write` signs a record and refuses an identity that is not the one the
+    /// record names; `writeUnchecked` skips that check; `restore` puts already
+    /// signed bytes back; `resign` re-signs a record from the FILE object so a
+    /// later build's unknown fields survive. Each is a way to change what a
+    /// reader will believe about who may write in this book.
+    static let registryWriterVerbs = [
+        "RegistryWriter.write(", "RegistryWriter.writeUnchecked(",
+        "RegistryWriter.restore(", "RegistryWriter.resign(",
+    ]
+
+    /// The THREE production files that may call one, and what each is for.
+    ///
+    /// - `RegistryPresence.swift` — a device announcing itself, and the silent
+    ///   admission of a device the writer has already named elsewhere.
+    /// - `RegistryAdmission.swift` — the writer's own admit / revoke / retire /
+    ///   re-admit, each with its authority check in front of it.
+    /// - `RegistryCache.swift` — `restore` alone: putting back a record this
+    ///   device verified and the folder has lost.
+    ///
+    /// `RegistryWriter.swift` and `RegistryWriter+Restore.swift` are the verbs'
+    /// own files and are not callers.
+    static let registryWriterCallers: Set<String> = [
+        "RegistryPresence.swift", "RegistryAdmission.swift", "RegistryCache.swift",
+        "RegistryWriter.swift", "RegistryWriter+Restore.swift",
+    ]
+
+    /// **A fourth caller is a fourth opinion about who may write in this book.**
+    ///
+    /// Tripwire 40 already says every record goes through `RegistryWriter`;
+    /// this is the other half, and it is the half that matters for admission.
+    /// The writer's authority is not checked inside `write` for every case —
+    /// `RegistryAdmission` is where *only the root that admitted them may
+    /// revoke them* lives, and `RegistryPresence` is where *a device signs its
+    /// own record* lives. A call from anywhere else reaches the signing without
+    /// reaching the rule, and what it produces is a perfectly valid record
+    /// nobody was entitled to write.
+    func test_theRegistrysWritersAreThreeFiles() throws {
+        var offenders: [String] = []
+        for root in admissionRoots {
+            offenders += try grepSwift(
+                in: root,
+                patterns: Self.registryWriterVerbs,
+                allowed: Self.registryWriterCallers,
+                excludeLine: Self.admissionExcludeLine)
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file outside RegistryPresence.swift, "
+            + "RegistryAdmission.swift and RegistryCache.swift writes a "
+            + "registry record. The authority rules live in the first two "
+            + "(who may revoke, who may sign a device record); a call that "
+            + "skips them reaches the signature without reaching the rule. "
+            + "Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// **No not-yet flag is left standing in production.**
+    ///
+    /// P2a drew several controls it could not yet wire and gated each on a
+    /// constant — `admitIsAvailable` was the pattern. P2b wired them, and a
+    /// gate that is now a constant `true` is worse than no gate: it draws as
+    /// conditionally live, cannot be anything but live, and the next writer of
+    /// the file has to prove it is dead before touching it. One left at
+    /// `false` is worse still — a control the writer can see and never press,
+    /// with no sentence saying why.
+    func test_noAvailabilityFlagIsLeftStandingInProduction() throws {
+        var offenders: [String] = []
+        for root in admissionRoots {
+            offenders += try grepSwift(
+                in: root,
+                patterns: [],
+                excludeLine: Self.admissionExcludeLine,
+                extraOffender: Self.isAvailabilityFlagDeclaration)
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file declares a static `…IsAvailable` constant. "
+            + "A milestone's not-yet flag is deleted when the wiring lands, "
+            + "along with the `.disabled(!…)` it fed — a control is live or it "
+            + "is not drawn. Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// A `static let|var <name>IsAvailable = true|false` declaration, which is
+    /// the shape a milestone's not-yet flag takes. A `.isAvailable` READ of a
+    /// system API (`SecureEnclave.isAvailable`, a speech recogniser's) is not
+    /// this and must pass: it is a fact about the machine, asked at the moment
+    /// it matters.
+    static func isAvailabilityFlagDeclaration(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("static let ") || trimmed.hasPrefix("static var ")
+        else { return false }
+        guard trimmed.contains("IsAvailable") else { return false }
+        return trimmed.contains("= true") || trimmed.contains("= false")
+    }
+
     /// CONTROL for both P2a censuses: the SAME patterns and the SAME
     /// exclusions, over planted files, catch every offender, let the three
     /// sanctioned trust spellings and the sanctioned `directoryURL` call
@@ -7598,5 +7694,82 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(allowedRegistry.isEmpty,
             "Self-check: an allow-listed file is skipped whole. Caught:\n"
             + allowedRegistry.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the two P2b Task 10 censuses: the same patterns and the same
+    /// exclusions, over planted files, catch every offender and honour the
+    /// allow-list by name.
+    func test_theRegistryWriterAndAvailabilityCensusesFireOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-writers-selfcheck-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may name RegistryWriter.write( and RegistryWriter.resign(.
+        try RegistryWriter.write(record, signedBy: identity, in: projectURL)
+        try RegistryWriter.writeUnchecked(record, signedBy: identity, in: projectURL)
+        _ = try RegistryWriter.restore(rawBytes: bytes, to: .people, fingerprint: fp)
+        try RegistryWriter.resign(file, signedBy: identity, in: projectURL)
+        let read = RegistryWriter.directoryURL(.people, in: projectURL)
+        """.write(to: tmp.appendingPathComponent("FourthRegistryWriter.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let writers = try grepSwift(
+            in: tmp,
+            patterns: Self.registryWriterVerbs,
+            allowed: Self.registryWriterCallers,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(writers.count, 4,
+            "Self-check: all four write verbs should be caught, and neither the "
+            + "comment nor the `directoryURL` read. Caught:\n"
+            + writers.joined(separator: "\n"))
+        XCTAssertFalse(writers.contains(where: { $0.contains("let read") }),
+            "reading where a record lives is not writing one")
+
+        try fm.moveItem(at: tmp.appendingPathComponent("FourthRegistryWriter.swift"),
+                        to: tmp.appendingPathComponent("RegistryAdmission.swift"))
+        let allowedWriters = try grepSwift(
+            in: tmp,
+            patterns: Self.registryWriterVerbs,
+            allowed: Self.registryWriterCallers,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(allowedWriters.isEmpty,
+            "Self-check: an allow-listed caller is skipped whole. Caught:\n"
+            + allowedWriters.joined(separator: "\n"))
+
+        // The availability-flag census, over its own planted file. A system
+        // API's `isAvailable` is a fact about the machine and must pass.
+        let flags = tmp.appendingPathComponent("flags")
+        try fm.createDirectory(at: flags, withIntermediateDirectories: true)
+        try """
+        // A comment may say static let admitIsAvailable = false.
+        static let admitIsAvailable = true
+        static var mergeIsAvailable = false
+        guard SecureEnclave.isAvailable else { return nil }
+        if recognizer.isAvailable { start() }
+        static let admitTitle = "Admit…"
+        """.write(to: flags.appendingPathComponent("StillGated.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let stale = try grepSwift(
+            in: flags,
+            patterns: [],
+            excludeLine: Self.admissionExcludeLine,
+            extraOffender: Self.isAvailabilityFlagDeclaration)
+        XCTAssertEqual(stale.count, 2,
+            "Self-check: both declared flags should be caught — the `true` as "
+            + "well as the `false`, since a constant `true` gate is the shape "
+            + "P2b's wiring leaves behind — and neither the comment, the two "
+            + "system-API reads, nor the unrelated constant. Caught:\n"
+            + stale.joined(separator: "\n"))
+        XCTAssertTrue(stale.contains(where: { $0.contains("admitIsAvailable") }))
+        XCTAssertTrue(stale.contains(where: { $0.contains("mergeIsAvailable") }))
+        XCTAssertFalse(stale.contains(where: { $0.contains("SecureEnclave") }),
+            "asking the machine whether it has an enclave is not a not-yet flag")
+        XCTAssertFalse(stale.contains(where: { $0.contains("recognizer") }))
+        XCTAssertFalse(stale.contains(where: { $0.contains("admitTitle") }))
     }
 }

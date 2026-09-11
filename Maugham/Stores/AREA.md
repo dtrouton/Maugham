@@ -260,6 +260,13 @@ Path/filename matching (`research/palette`, `craft-intent.md`) was fragile: rena
 - **Lazy healing, no migration.** A lookup that falls back to path identity stamps the role on that item and saves the manifest (`ProjectStore.healRole`/`stampRole`, fire-and-forget `Task`, idempotent) — the item is role-identified from then on, so renaming the palette group through any Research affordance no longer detaches it. Mac-only: the phone never writes the manifest, so it consumes `PaletteLookup` read-only with no healing. **The craft-intent doc's lazy heal is gone**: it lived inside `craftIntentItem(forPieceId:)`, which M1A Task 8 deleted, and nothing on the Mac performs that lookup any more. What survives is the EAGER load-time heal (`healPaletteRolesEagerly`), and it survives for adoption alone — see the adoption section above.
 - **Live title everywhere.** `ProjectStore.paletteGroupDisplayTitle` reads the group's actual (possibly renamed) title with no side effect, so the wall header/sidebar always show what the writer renamed it to, not the frozen default.
 
+## Admission — `DocumentStore`'s registry verbs (signed op log P2b, 2026-09-11)
+
+- **Admission (signed op log P2b).** `DocumentStore.admit(device:label:ownName:)` is the one production path behind the sheet's Admit, and its three acts are ordered: `RegistryAdmission.admit` writes the signed person record off the main actor and **throws** its refusals (a sheet that closed on a write that did not happen is the silence RULING-7 forbids); `invalidateTrust()` — the ONE verb, covering every open document's `OpLogStore` **and** the inbox's own resolution plus a refresh, because an admission that reached some readers and not others is a book where one key is trusted in the editor and a stranger in the Inbox; then a re-read of every open document, so the held notes reach the draft on screen. `open` calls `RegistryPresence.admitRemembered` right after `ensureRootIfEmpty` (decision B2: one sheet per device, then silently into every later book), before the seal sweep and before any `Document.load`. `register(document:for:)` and the presenter's `.opLog` arm both call `announcePendingHistory`, whose predicate is the document's **provenance** and never the registry — pending exists only relative to a chain (B3), and the load has already asked that question once.
+- **The other three verbs live in `DocumentStore+Registry.swift`**, a peer file rather than an edit to `DocumentStore.swift`: `revoke(person:)`, `retire(device:)` and `claim(adopting:)`, each writing off the main actor and then running `settle` — which is `admit`'s own three acts in `admit`'s own order, factored so a fourth verb cannot invent a different order. Beside them, the two questions the surfaces ask of the store: `heldLinesByDevice()` (the open documents' `FileProvenance.pendingByDevice` unioned with the capture stream's, so People & Devices and the admission sheet cannot disagree about who is a stranger with lines waiting) and `highestOpIdApplied(fromPerson:)` (the mark a revocation records — **computed from OPEN documents only**, so a chapter nobody has opened since that device wrote in it can hold ops above it, which are then filed on the strict side).
+- **The pending count is live because `Document.handleExternalLogChange` re-stamps `provenance`**, above the echo guard and only when it differs. A stranger's file syncing in adds lines that are HELD, and a held line produces no op — so the echo guard returned and the count stayed at whatever the open-time load found, which made History's waiting line stale and the presenter's own trigger unreachable. The read is `loadDiagnosed`, which is the read that was already happening (`load` is defined over it), so this costs nothing; assigning only on a change is what keeps an `@Observable` invalidation off every keystroke's echo.
+- **Announcing is once per stranger and debounced on the presenter's path.** `announcePendingHistory` posts only when `pendingByDevice` gains a fingerprint it has not seen, and the presenter's path goes through a 1 s debounce so a device arriving as a burst of files asks once. `register`'s path is deliberately not debounced — a load finishing is one event and the writer is looking at that document now. Whether there is anything to ASK about stays `AdmissionDecision.requests`' question on the receiving side, so no verified registry read lands on the keystroke path.
+
 ## The inbox manifest is chained history (signed op log P1, task 7)
 
 Every manifest stream — this Mac's own and every sibling device's — is read and
@@ -288,6 +295,35 @@ written through a `JSONLAppendStore<InboxEntry>` carrying a `ChainPolicy`
 
 The phone writes the same bytes into its own stream through the same store —
 see `MaughamPhone/AREA.md`'s `Capture/` bullet (tripwire 19).
+
+**The rows say who a capture is from** (P2b, spec §6). `InboxStore.bylines` is
+`deviceId → "from <name>"`, resolved ONCE per `refresh` off the SAME verified
+registry the trust table came from (`TrustResolution.resolveVerified`, which
+answers with both — a second `RegistryReader.load` would be a second opinion
+about who wrote this book, and a per-row read would be one per capture). The
+composition is `Views/InboxByline.swift`, a pure static over
+`(deviceId, registry, table)`: an admitted device is named by its LABEL, one
+with a record of its own and no admission by its own name plus *(not yet
+admitted)*, one with no record at all by its four-character CODE — the same
+four characters that phone's Settings screen shows, which is what the writer
+compares. Three things it deliberately says NOTHING about: this Mac's own
+captures, every capture in a book on no chain (B3 — under P1 nothing is
+waiting, so *not yet admitted* would name a state the project is not in), and a
+stranger's SEALED rows, which never become rows at all because a stranger's
+span is held back (`JSONLAppendStore`) — the row a writer meets under a *not
+yet admitted* byline is one that arrived as unsigned history.
+
+**And what a stranger's held rows amount to is counted, because they are rows
+nothing draws** (P2b Task 6). `InboxStore.pendingByDevice` sums the held-line
+counts the verified read itself already computed
+(`JSONLAppendStore.loadVerifiedStrict`'s third answer), keyed on the DEVICE
+fingerprint the chain keys `.pending` on, with `pendingDeviceNames` beside it
+resolved off the same registry — a pending device appears in no row at all, so
+`bylines` cannot answer for it. Both are emptied when the registry read refuses.
+`InboxPane.pendingNotice(counts:names:)` turns them into the pane's one banner
+that carries a control, and Project Settings' People & Devices section reads the
+same two properties for its pending rows.
+
 
 ## Promote-into-card seam (2026-07-11)
 

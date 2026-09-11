@@ -11,6 +11,30 @@ import MaughamCore
 @MainActor
 final class MCPResponseBudgetTests: XCTestCase {
 
+    /// The fixture directories this suite made, removed when it ends
+    /// (whole-branch review, I4).
+    ///
+    /// This suite was the worst of the leakers: four `MRB-*` directories a run,
+    /// each holding a deliberately oversized manuscript at about 2.2 MB, and no
+    /// `tearDown` at all. `$TMPDIR` is shared with the whole machine and the
+    /// test host sweeps it at launch, before an XCTest worker connects — at
+    /// 543,002 entries that stopped being slow and started killing workers with
+    /// no assertion failure and nothing to read.
+    private var temporaries: [URL] = []
+
+    /// Remember a fixture root so it is removed whatever the test does next.
+    @discardableResult
+    private func track(_ url: URL) -> URL {
+        temporaries.append(url)
+        return url
+    }
+
+    override func tearDown() async throws {
+        let fm = FileManager.default
+        for url in temporaries { try? fm.removeItem(at: url) }
+        temporaries = []
+    }
+
     // MARK: - Helpers
 
     /// Write a manuscript `.md` whose materialized (anchored) body is safely
@@ -19,8 +43,8 @@ final class MCPResponseBudgetTests: XCTestCase {
     /// the project. Returns the project id for the MCP request.
     private func makeOversizedManuscriptProject(bodyBytes: Int) async throws
         -> (url: URL, reg: ProjectRegistry, id: String) {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MRB-\(UUID())")
+        let tmp = track(FileManager.default.temporaryDirectory
+            .appendingPathComponent("MRB-\(UUID())"))
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
@@ -92,8 +116,8 @@ final class MCPResponseBudgetTests: XCTestCase {
     }
 
     func test_readDocument_normalManuscript_passesThrough() async throws {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MRB-ok-\(UUID())")
+        let tmp = track(FileManager.default.temporaryDirectory
+            .appendingPathComponent("MRB-ok-\(UUID())"))
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
@@ -129,8 +153,8 @@ final class MCPResponseBudgetTests: XCTestCase {
     // MARK: - read_publish_file — the survey's next-most-at-risk text emitter
 
     func test_readPublishFile_oversized_throwsPayloadTooLarge() async throws {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MRB-pub-\(UUID())")
+        let tmp = track(FileManager.default.temporaryDirectory
+            .appendingPathComponent("MRB-pub-\(UUID())"))
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent(".maugham/publish/build"),
             withIntermediateDirectories: true)
@@ -158,8 +182,8 @@ final class MCPResponseBudgetTests: XCTestCase {
     }
 
     func test_readPublishFile_normal_passesThrough() async throws {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MRB-pub-ok-\(UUID())")
+        let tmp = track(FileManager.default.temporaryDirectory
+            .appendingPathComponent("MRB-pub-ok-\(UUID())"))
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent(".maugham/publish"),
             withIntermediateDirectories: true)

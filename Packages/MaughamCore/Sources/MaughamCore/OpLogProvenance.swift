@@ -99,6 +99,19 @@ public struct OpLogProvenance: Equatable, Sendable {
         }
     }
 
+    /// **The held OP lines** — what every surface that puts a NOUN after the
+    /// number must count (signed op log P2b Task 6's ruling (a)).
+    ///
+    /// `pendingLines` is the line tally, and a held span's own seal line is one
+    /// of those lines: two held ops under one signature are three held lines.
+    /// That is the right answer to *how much of this file was not applied* and
+    /// the wrong answer to *how many notes are waiting*, because a seal is
+    /// neither a note nor a capture. Derived from `pendingByDevice`, which
+    /// `OpLogChain` already filters to `kind == .op`, so there is ONE rule
+    /// about what counts and History cannot disagree with the admission sheet
+    /// about the same device.
+    public var pendingOpLines: Int { pendingByDevice.values.reduce(0, +) }
+
     /// Is anything waiting on the writer to admit a device? The one question
     /// the pending state exists to let a surface ask.
     public var hasPendingHistory: Bool { pendingLines > 0 }

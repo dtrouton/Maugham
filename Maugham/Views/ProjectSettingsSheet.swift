@@ -27,6 +27,21 @@ struct ProjectSettingsSheet: View {
     @State private var firstReaderDraft: String = ""
     @FocusState private var firstReaderNameFocused: Bool
 
+    /// Who may write in this book, as of the last read (spec §6). Nil until the
+    /// first resolve lands: a registry read is a directory walk plus a P256
+    /// verification per record, so it happens in a `.task` off the main actor
+    /// and the section simply is not there until it answers.
+    @State private var peopleAndDevices: PeopleAndDevicesModel?
+    /// What the last People & Devices verb said when it refused. Cleared on the
+    /// next press, so it describes the act the writer just performed and never
+    /// an older one.
+    @State private var peopleNotice: String?
+    /// The act the writer has asked for and not yet confirmed (fix round 1,
+    /// Important 3a). Revoke and Retire are irreversible enough to be worth a
+    /// sentence first; the alert is presented here because a section is not the
+    /// presenter of its own dialogs.
+    @State private var confirming: PeopleAndDevicesConfirmation?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -84,9 +99,40 @@ struct ProjectSettingsSheet: View {
                 screenplaySection()
                 coachSection()
                 firstReaderSection()
+                if let peopleAndDevices {
+                    PeopleAndDevicesSection(
+                        model: peopleAndDevices,
+                        admit: {
+                            // The window opens the sheet; a settings sheet is
+                            // not a presenter of another sheet, and only the
+                            // window knows which device is waiting on it now.
+                            MaughamEvent.postAdmissionRequested(
+                                projectURL: store.url, forced: true)
+                            dismiss()
+                        },
+                        forget: forgetDevice,
+                        revoke: confirmRevoke,
+                        retire: confirmRetire,
+                        readmit: readmitDevice,
+                        merge: confirmMerge,
+                        notice: peopleNotice)
+                }
                 reviewPassesSection()
             }
             .formStyle(.grouped)
+            // **The consequence, before the act** (fix round 1, Important 3a).
+            // `item:` rather than a bool, so the alert cannot be up about a
+            // device the writer has since scrolled past: the value IS the
+            // question, and dismissing it drops the question.
+            .alert(item: $confirming) { confirmation in
+                Alert(
+                    title: Text(confirmation.title),
+                    message: Text(confirmation.message),
+                    primaryButton: .destructive(Text(confirmation.confirmTitle)) {
+                        perform(confirmation)
+                    },
+                    secondaryButton: .cancel())
+            }
 
             HStack {
                 Spacer()
@@ -118,6 +164,7 @@ struct ProjectSettingsSheet: View {
         }
         .frame(minWidth: 540, minHeight: 360)
         .task { initializeDraft() }
+        .task { await loadPeopleAndDevices() }
     }
 
     private func curatedFonts() -> [TypographySettings.CuratedFont] {
@@ -324,6 +371,174 @@ struct ProjectSettingsSheet: View {
     /// `.onDisappear` — both read the pre-write value and both save. The same
     /// string either way, so this is a redundant file write rather than a lost
     /// or reordered one, and it is why the four callers are safe to have.
+    // MARK: - People & Devices
+
+    /// Resolve who may write in this book, off the main actor.
+    ///
+    /// **The registry read and the trust table are one act**
+    /// (`TrustResolution.resolveVerified`), for its own stated reason: a
+    /// surface that read the folder a second time would describe a device off a
+    /// registry the verdicts were not taken from.
+    ///
+    /// **It refuses out loud** (RULING-54). A record present and unreadable
+    /// answers `DeviceStanding.refused`, whose sentence names the file and says
+    /// what Maugham will not do over it — never an empty list of people, which
+    /// would read as *nobody may write in this book*.
+    ///
+    /// **What is waiting is everything this window is holding** — the open
+    /// documents' own loads and the project's capture stream, unioned by
+    /// `DocumentStore.heldLinesByDevice` and turned into requests by
+    /// `AdmissionDecision.requests`, which is the list the admission sheet
+    /// queues. One derivation, because a pane counting only captures would say
+    /// nobody is waiting while a chapter holds forty lines (Task 6's review).
+    /// The inbox is refreshed first: its count is whatever its last read held.
+    private func loadPeopleAndDevices() async {
+        await store.documentStore?.inboxStore.refresh()
+        let pending = store.documentStore?.heldLinesByDevice() ?? [:]
+        let url = store.url
+        peopleAndDevices = await Task.detached(priority: .userInitiated) {
+            let mine = LocalIdentities.current
+            let remembered = AdmissionMemory.shared.remembered
+            let claimants = RegistryCache.shared.claimants(for: url)
+            do {
+                let resolved = try TrustResolution.resolveVerified(
+                    projectURL: url, identities: mine)
+                // Read AFTER the resolve, because the resolve is what restores:
+                // a record this open put back must be marked on the row this
+                // open draws, not on the next one.
+                let restores = RegistryCache.shared.restores(for: url)
+                return PeopleAndDevicesModel.make(
+                    registry: resolved.registry, table: resolved.table,
+                    remembered: remembered,
+                    requests: AdmissionDecision.requests(
+                        pending: pending, registry: resolved.registry,
+                        memory: remembered, myRoot: resolved.table.myRoot),
+                    claimants: claimants,
+                    restores: restores,
+                    standing: DeviceStanding.resolve(
+                        registry: resolved.registry, cache: .shared,
+                        mine: mine, for: url),
+                    me: mine.author.fingerprint)
+            } catch {
+                // A registry this Mac could not read judges nobody, so there is
+                // no chain to be a stranger to and no request to make of the
+                // writer — the refusal below is the whole of what this section
+                // says (RULING-54).
+                return PeopleAndDevicesModel.make(
+                    registry: Registry(), table: TrustResolution.keyless(mine: mine),
+                    remembered: remembered, requests: [], claimants: claimants,
+                    standing: DeviceStanding.refused(mine: mine, error: error),
+                    me: mine.author.fingerprint)
+            }
+        }.value
+    }
+
+    /// Ask first. The row hands back the fingerprint; the name comes from the
+    /// model the row was drawn from, so the alert says who it is about in the
+    /// words the writer gave them.
+    private func confirmRevoke(_ fingerprint: String) {
+        peopleNotice = nil
+        let name = peopleAndDevices?.people
+            .first { $0.fingerprint == fingerprint }?.title
+            ?? DeviceCode.short(fingerprint)
+        confirming = .revoke(person: fingerprint, named: name)
+    }
+
+    private func confirmRetire(_ fingerprint: String) {
+        peopleNotice = nil
+        let device = peopleAndDevices?.people
+            .flatMap(\.devices)
+            .first { $0.fingerprint == fingerprint }
+        confirming = .retire(
+            device: fingerprint,
+            named: device?.name ?? DeviceCode.short(fingerprint),
+            kind: device?.kind ?? "Mac")
+    }
+
+    /// **Is that root also you?** The claimant row's own question, asked before
+    /// a chain of somebody's devices starts applying here (Task 8).
+    private func confirmMerge(_ fingerprint: String) {
+        peopleNotice = nil
+        let name = peopleAndDevices?.claimants
+            .first { $0.fingerprint == fingerprint }?.name
+            ?? DeviceCode.short(fingerprint)
+        confirming = .merge(root: fingerprint, named: name)
+    }
+
+    /// The writer confirmed. One switch, so a fourth act cannot be added to the
+    /// value without being given a verb here.
+    private func perform(_ confirmation: PeopleAndDevicesConfirmation) {
+        switch confirmation.verb {
+        case .revoke: revokeDevice(confirmation.fingerprint)
+        case .retire: retireThisMac(confirmation.fingerprint)
+        case .merge: mergeRoot(confirmation.fingerprint)
+        }
+    }
+
+    /// **This is also me** (spec §5, plan decision P2) — a claim record
+    /// adopting that root's chain, written by this Mac's own root. It is the
+    /// same verb the claim sheet performs on a book this Mac has no key in, and
+    /// the other Mac presses it too: adoption is symmetric, and until it does
+    /// this device is still a claimant over there.
+    private func mergeRoot(_ fingerprint: String) {
+        Task { @MainActor in
+            guard let store = store.documentStore else { return }
+            do { try await store.claim(adopting: [fingerprint]) }
+            catch { peopleNotice = AdmissionDecision.refusal(error) }
+            await loadPeopleAndDevices()
+        }
+    }
+
+    /// **Let a device back in** (fix round 1, Important 3b) — the same
+    /// admission door, under the label and the name the record already holds,
+    /// so re-admitting is not also a rename.
+    private func readmitDevice(_ person: PeopleAndDevicesModel.Person) {
+        peopleNotice = nil
+        Task { @MainActor in
+            guard let store = store.documentStore else { return }
+            do {
+                try await store.admit(
+                    device: person.fingerprint, label: person.label,
+                    ownName: person.recordedOwnName)
+            } catch {
+                peopleNotice = AdmissionDecision.refusal(error)
+            }
+            await loadPeopleAndDevices()
+        }
+    }
+
+    /// **Stop applying what a device writes** (spec §5). The store writes the
+    /// record, forgets every resolved table and re-reads what is open; this
+    /// only reloads the rows and says so when it refuses.
+    private func revokeDevice(_ fingerprint: String) {
+        Task { @MainActor in
+            guard let store = store.documentStore else { return }
+            do { try await store.revoke(person: fingerprint) }
+            catch { peopleNotice = AdmissionDecision.refusal(error) }
+            await loadPeopleAndDevices()
+        }
+    }
+
+    /// **Say this Mac has stopped writing in this book.** Offered on this Mac's
+    /// own row alone — a device signs its own retirement — and refused by
+    /// `RegistryAdmission` for anything else, which is where the rule lives.
+    private func retireThisMac(_ fingerprint: String) {
+        Task { @MainActor in
+            guard let store = store.documentStore else { return }
+            do { try await store.retire(device: fingerprint) }
+            catch { peopleNotice = AdmissionDecision.refusal(error) }
+            await loadPeopleAndDevices()
+        }
+    }
+
+    /// Clear this Mac's memory of the name it gave a device the folder no
+    /// longer describes. It touches no registry record — there is none left to
+    /// touch, which is the whole reason the row is offered.
+    private func forgetDevice(_ fingerprint: String) {
+        AdmissionMemory.shared.forget(fingerprint)
+        Task { await loadPeopleAndDevices() }
+    }
+
     private func commitFirstReaderName() {
         guard Self.nameNeedsCommitting(
             draft: firstReaderDraft, stored: store.manifest.firstReaderName) else { return }

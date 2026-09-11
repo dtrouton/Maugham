@@ -23,8 +23,9 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
         /// A valid signature, from the wrong key: not the device's own author
         /// key, not the root the record names.
         case signerIsNotTheExpectedKey(expected: String, found: String)
-        /// A person admitted by someone who is not a root of this registry.
-        /// Anybody can sign; only a root can admit.
+        /// A person admitted — or a chain adopted — by someone who is not a
+        /// root of this registry. Anybody can sign; only a root admits, and
+        /// only a root claims (P2b Task 2).
         case signerIsNotARoot(named: String)
         /// A device record whose `actors["author"]` is not the device itself
         /// (`nil` when it lists no author at all). The author key's fingerprint
@@ -33,6 +34,28 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
         /// and admitting a device admits every actor its record lists (spec
         /// §4.4), which is what makes this worth refusing rather than ignoring.
         case authorActorIsNotTheDevice(named: String?)
+        /// A record for a fingerprint this device already verified, signed by
+        /// a DIFFERENT key than the one that signed the copy it remembers.
+        ///
+        /// Not a fault in the file — it is a well-formed record on its own
+        /// terms, which is precisely the danger. A person record's expected
+        /// signer is the root it NAMES, so another root can write a valid
+        /// admission of somebody this device already knows and, on the folder's
+        /// word alone, take over their record and the whole chain hanging off
+        /// it. A record changes hands only under the same key; anything else is
+        /// a claim, and a claim is listed (`RegistryCache.reconcile`, spec §2.4
+        /// P4, B1).
+        case signerChanged(expected: String, found: String)
+        /// The bytes are not a JSON object, so there is nothing that could have
+        /// been signed — the canonical form has no object to take a signature
+        /// slot out of (`RegistryCanonicalError.notAJSONObject`).
+        ///
+        /// Near-unreachable through `load`, because `decode` runs first and
+        /// answers such a file `.undecodable`. It is named anyway rather than
+        /// folded into `.signatureDoesNotVerify`: *was changed after it was
+        /// signed* is a sentence about somebody's edit, and this file was never
+        /// a record at all (fix round 1, M7).
+        case notAJSONObject
 
         /// One sentence a surface can print.
         public var sentence: String {
@@ -52,6 +75,10 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
             case .authorActorIsNotTheDevice(let named):
                 return named.map { "names \($0) as its own author key, which is another device" }
                     ?? "names no author key of its own"
+            case .signerChanged(let expected, let found):
+                return "is now signed by \(found), where this device verified \(expected)"
+            case .notAJSONObject:
+                return "isn't a record at all — its bytes are not a JSON object"
             }
         }
     }
@@ -93,6 +120,26 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
     }
 }
 
+extension MalformedRecord {
+
+    /// The listing for a record whose file is PRESENT and whose signature holds
+    /// — but under a key other than the one that signed the copy this device
+    /// verified (`RegistryCache.reconcile`, spec §2.4 P4).
+    ///
+    /// It is minted here rather than at the point that decides it, because
+    /// naming a record's file is `RegistryWriter`'s one spelling and this is the
+    /// file that may ask for it (tripwire 40). The cache decides WHETHER; where
+    /// the file is stays one answer.
+    nonisolated static func signerChanged(
+        _ ref: RecordRef, expected: String, found: String, in projectURL: URL
+    ) -> MalformedRecord {
+        MalformedRecord(
+            url: RegistryWriter.url(
+                ref.directory, fingerprint: ref.fingerprint, in: projectURL),
+            reason: .signerChanged(expected: expected, found: found))
+    }
+}
+
 /// Everything a project's registry says, once every signature has been checked:
 /// the devices, the people, the claims — and, separately, what could not be
 /// vouched for.
@@ -105,15 +152,29 @@ public struct Registry: Equatable, Sendable {
     public let people: [PersonRecord]
     public let claims: [ClaimRecord]
     public let malformed: [MalformedRecord]
+    /// Each verified record's own bytes as they were on disk, by ref.
+    ///
+    /// Present because a record is not always something this build can write
+    /// back: one from a later build carries a field it has no property for, and
+    /// re-encoding it would rewrite another build's record into this one's
+    /// vocabulary and break the signature it was passing through. The bytes are
+    /// what was signed, so they are what a memory of this registry keeps
+    /// (`RegistryCache`) and what a restore puts down.
+    ///
+    /// Empty on a registry built in memory rather than read from disk; a caller
+    /// that finds no entry falls back to encoding the record it holds.
+    public let sourceBytes: [RecordRef: Data]
 
     public init(
         devices: [DeviceRecord] = [], people: [PersonRecord] = [],
-        claims: [ClaimRecord] = [], malformed: [MalformedRecord] = []
+        claims: [ClaimRecord] = [], malformed: [MalformedRecord] = [],
+        sourceBytes: [RecordRef: Data] = [:]
     ) {
         self.devices = devices
         self.people = people
         self.claims = claims
         self.malformed = malformed
+        self.sourceBytes = sourceBytes
     }
 
     /// The self-signed person records: everyone who admitted themselves. More
@@ -169,6 +230,22 @@ public struct Registry: Equatable, Sendable {
     public func person(_ fingerprint: String) -> PersonRecord? {
         people.first { $0.person == fingerprint }
     }
+
+    /// The roots this root has ADOPTED — the fingerprints named in the claims
+    /// it signed (spec §5, plan decision P2).
+    ///
+    /// **Directly, not transitively.** Adoption composes, but composing it is a
+    /// decision about whose chain THIS device verifies, and that decision is
+    /// `TrustTable`'s. This answers only what the folder says: these are the
+    /// roots that root wrote down.
+    ///
+    /// **One-way, by construction.** A claim is signed by its own `newRoot`, so
+    /// asking this of a root answers with what that root said about others and
+    /// never with what others said about it — which is the whole of B1 at the
+    /// level of a projection: nothing widens on somebody else's say-so.
+    public func adopted(by root: String) -> Set<String> {
+        Set(claims.filter { $0.newRoot == root }.flatMap(\.adopted))
+    }
 }
 
 /// The one reader of the registry's three directories.
@@ -185,72 +262,109 @@ public enum RegistryReader {
         projectURL: URL, presenter: NSFilePresenter? = nil
     ) throws -> Registry {
         var malformed: [MalformedRecord] = []
+        // Every verified record's own file bytes, carried out with it. What
+        // was signed and what a memory of this registry must restore are the
+        // same bytes, and neither is anything this build could re-encode.
+        var sourceBytes: [RecordRef: Data] = [:]
+        func keep(_ record: some RegistryRecordProtocol, _ bytes: Data) {
+            sourceBytes[RecordRef(directory: type(of: record).directory,
+                                  fingerprint: record.fingerprint)] = bytes
+        }
 
         // Devices vouch for themselves: each is signed by its own author key.
         var devices: [DeviceRecord] = []
         for url in try files(in: .devices, projectURL: projectURL) {
             let record: DeviceRecord
+            let bytes: Data
             switch try decode(DeviceRecord.self, at: url, presenter: presenter) {
             case .malformed(let fault): malformed.append(fault); continue
-            case .record(let decoded): record = decoded
+            case .record(let decoded, let read): record = decoded; bytes = read
             }
-            if let fault = verify(record, at: url) { malformed.append(fault); continue }
+            if let fault = verify(record, bytes: bytes, at: url) {
+                malformed.append(fault); continue
+            }
             devices.append(record)
+            keep(record, bytes)
         }
 
         // People are read in two passes, because a non-root record is only a
         // record if a ROOT signed it — and which fingerprints are roots is not
         // known until every self-signed record has been verified.
-        var candidates: [(url: URL, record: PersonRecord)] = []
+        var candidates: [(url: URL, record: PersonRecord, bytes: Data)] = []
         for url in try files(in: .people, projectURL: projectURL) {
             switch try decode(PersonRecord.self, at: url, presenter: presenter) {
             case .malformed(let fault): malformed.append(fault)
-            case .record(let decoded): candidates.append((url, decoded))
+            case .record(let decoded, let bytes): candidates.append((url, decoded, bytes))
             }
         }
         var people: [PersonRecord] = []
         var rootFingerprints: Set<String> = []
-        for (url, record) in candidates where record.isRoot {
-            if let fault = verify(record, at: url) { malformed.append(fault); continue }
+        for (url, record, bytes) in candidates where record.isRoot {
+            if let fault = verify(record, bytes: bytes, at: url) {
+                malformed.append(fault); continue
+            }
             people.append(record)
+            keep(record, bytes)
             rootFingerprints.insert(record.person)
         }
-        for (url, record) in candidates where !record.isRoot {
-            if let fault = verify(record, at: url) { malformed.append(fault); continue }
+        for (url, record, bytes) in candidates where !record.isRoot {
+            if let fault = verify(record, bytes: bytes, at: url) {
+                malformed.append(fault); continue
+            }
             guard rootFingerprints.contains(record.admittedBy) else {
                 malformed.append(.init(
                     url: url, reason: .signerIsNotARoot(named: record.admittedBy)))
                 continue
             }
             people.append(record)
+            keep(record, bytes)
         }
 
         var claims: [ClaimRecord] = []
         for url in try files(in: .claims, projectURL: projectURL) {
             let record: ClaimRecord
+            let bytes: Data
             switch try decode(ClaimRecord.self, at: url, presenter: presenter) {
             case .malformed(let fault): malformed.append(fault); continue
-            case .record(let decoded): record = decoded
+            case .record(let decoded, let read): record = decoded; bytes = read
             }
-            if let fault = verify(record, at: url) { malformed.append(fault); continue }
+            if let fault = verify(record, bytes: bytes, at: url) {
+                malformed.append(fault); continue
+            }
+            // A claim ADOPTS a chain — it widens whose history a device
+            // verifies — so the rule that governs admission governs it too:
+            // only a root claims. Without this, anybody who can write the
+            // folder mints a key, signs a claim adopting the book's real root,
+            // and every reader of that claim takes in the chain hanging off a
+            // fingerprint nobody vouched for. Read after the people, because
+            // which fingerprints are roots is not known until every self-signed
+            // record has been verified.
+            guard rootFingerprints.contains(record.newRoot) else {
+                malformed.append(.init(
+                    url: url, reason: .signerIsNotARoot(named: record.newRoot)))
+                continue
+            }
             claims.append(record)
+            keep(record, bytes)
         }
 
         return Registry(
             devices: devices.sorted { $0.device < $1.device },
             people: people.sorted { $0.person < $1.person },
             claims: claims.sorted { $0.newRoot < $1.newRoot },
-            malformed: malformed.sorted { $0.url.path < $1.url.path })
+            malformed: malformed.sorted { $0.url.path < $1.url.path },
+            sourceBytes: sourceBytes)
     }
 
     // MARK: - One record
 
     /// The three checks every record answers on its own terms: it is named by
     /// the fingerprint it carries, it is signed, and the signature holds
-    /// together over these exact bytes under the key the record's own shape
-    /// expects. Whether that key is TRUSTED is not asked here.
+    /// together over these exact bytes — the FILE's, canonicalized — under the
+    /// key the record's own shape expects. Whether that key is TRUSTED is not
+    /// asked here.
     nonisolated private static func verify(
-        _ record: some RegistryRecordProtocol, at url: URL
+        _ record: some RegistryRecordProtocol, bytes: Data, at url: URL
     ) -> MalformedRecord? {
         let named = url.deletingPathExtension().lastPathComponent
         guard named == record.fingerprint else {
@@ -260,8 +374,18 @@ public enum RegistryReader {
         guard let credentials = record.sig else {
             return .init(url: url, reason: .unsigned)
         }
-        guard let digest = try? RegistryCanonical.digestHex(ofRecord: record),
-              OpLogChain.credentialsVerify(credentials, over: digest) else {
+        // Over the FILE's bytes, never over a re-encode of what was decoded: a
+        // record from a later build carries a field this one has no property
+        // for, and hashing this build's vocabulary of it would refuse an honest
+        // record (P2b Task 1).
+        //
+        // The two failures are kept apart: bytes that are not an object were
+        // never a record, and saying *changed after it was signed* about one
+        // would name an edit nobody made.
+        let digest: String
+        do { digest = try RegistryCanonical.digestHex(ofJSON: bytes) }
+        catch { return .init(url: url, reason: .notAJSONObject) }
+        guard OpLogChain.credentialsVerify(credentials, over: digest) else {
             return .init(url: url, reason: .signatureDoesNotVerify)
         }
         guard credentials.key == record.expectedSigner else {
@@ -291,16 +415,25 @@ public enum RegistryReader {
         _ type: R.Type, at url: URL, presenter: NSFilePresenter?
     ) throws -> Decoded<R> {
         let bytes = try readCoordinated(url: url, presenter: presenter)
-        do { return .record(try RegistryCanonical.decoder().decode(R.self, from: bytes)) }
-        catch {
+        do {
+            return .record(try RegistryCanonical.decoder().decode(R.self, from: bytes),
+                           bytes: bytes)
+        } catch {
             return .malformed(.init(url: url, reason: .undecodable(shortReason(error))))
         }
     }
 
-    /// A record, or the listing that stands in for it. Not a `Result`, because
-    /// a malformed record is not an error — it is a fact the registry carries.
+    /// A record — **with the bytes it was read from** — or the listing that
+    /// stands in for it. Not a `Result`, because a malformed record is not an
+    /// error: it is a fact the registry carries.
+    ///
+    /// The bytes travel with the record for two reasons and both are about
+    /// losing nothing. The signature is checked over them, so a field this
+    /// build has no property for is still part of what was signed; and they are
+    /// what `RegistryCache` remembers, so a record this build could not
+    /// re-encode faithfully is still restored faithfully.
     private enum Decoded<R: RegistryRecordProtocol> {
-        case record(R)
+        case record(R, bytes: Data)
         case malformed(MalformedRecord)
     }
 
@@ -349,7 +482,12 @@ public enum RegistryReader {
     /// unreadable file throws, by name — the op log's own rule and its own
     /// error, so the writer meets one sentence for one condition wherever
     /// Maugham reads a file it must not read only half of.
-    nonisolated private static func readCoordinated(
+    ///
+    /// `internal` rather than private since P2b Task 7: `RegistryWriter.resign`
+    /// reads a record's file before editing its object, and a second spelling
+    /// of *read one record's bytes* is a second answer to what a half-read
+    /// registry file means.
+    nonisolated static func readCoordinated(
         url: URL, presenter: NSFilePresenter?
     ) throws -> Data {
         let coordinator = NSFileCoordinator(filePresenter: presenter)

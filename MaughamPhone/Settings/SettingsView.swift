@@ -10,6 +10,15 @@ import MaughamCore
 @MainActor
 struct SettingsView: View {
     let projectsRoot: ProjectsRoot
+    /// The projects this phone has manifests for — where the per-book standing
+    /// rows come from. Read-only here: Settings browses nothing and refreshes
+    /// nothing; the launch sequence and the Read tab own the browser's state.
+    let projectsBrowser: ProjectsBrowser
+    /// Which books this phone has actually been in. A standing is per PROJECT
+    /// (a chain is a project's, not a device's), and listing every folder under
+    /// the root would be a wall of *not yet admitted* for books this phone has
+    /// never opened.
+    let recents: RecentsTracker
     /// Shared launch gate (also drives the Annotations tab); the Security toggle
     /// binds to its `requireFaceId`. `@Bindable` so `$authGate.requireFaceId`
     /// works against the `@Observable` class.
@@ -17,15 +26,29 @@ struct SettingsView: View {
 
     @State private var showFolderPicker = false
 
+    /// This phone's standing in each recent book, by project id, and its own
+    /// code. Resolved off the main actor in `.task`: a registry read is a
+    /// directory walk plus a signature check per record.
+    @State private var standings: [ProjectId: DeviceStanding] = [:]
+    @State private var code: String = ""
+    @State private var resolvedStandings = false
+
     var body: some View {
         NavigationStack {
             Form {
+                thisDeviceSection
                 projectsFolderSection
                 permissionsSection
                 securitySection
                 aboutSection
             }
             .navigationTitle("Settings")
+            .task { await resolveStandings() }
+            // The standing changes on the MAC — the writer admits this phone
+            // there and comes back here to check. A pull re-reads rather than
+            // making them relaunch; it is a refresh, not a control over
+            // admission (§4.11).
+            .refreshable { await resolveStandings() }
         }
         .sheet(isPresented: $showFolderPicker) {
             DocumentPickerView { url in
@@ -39,6 +62,100 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    // MARK: - This device (spec §4.3, §4.11)
+
+    /// **What this phone is, in each book it has been in.** Facts and no
+    /// control: admission is a Mac act in this milestone, and a button here
+    /// would promise the writer something this device cannot do.
+    ///
+    /// The code is first and on its own, because its whole job is to be
+    /// compared with the code on the Mac's admission sheet — one screen read
+    /// against another. The per-book lines are the same sentence People &
+    /// Devices draws for the Mac itself (`DeviceStanding`, MaughamCore), so
+    /// the two surfaces cannot describe one state in two ways.
+    private var thisDeviceSection: some View {
+        Section {
+            LabeledContent("Code", value: code.isEmpty ? "—" : code)
+            ForEach(standingRows, id: \.project.id) { row in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(row.project.manifest.title)
+                    Text(row.standing.sentence)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    // **What retirement means, on the machine that did it**
+                    // (P2b Task 10, from Task 7's Important 2). A retired
+                    // device goes on writing and applying its own lines while
+                    // every peer sets them aside, and this phone is one of the
+                    // two machines that can see both halves. The words are
+                    // `DeviceStanding`'s, with this phone's own noun, so the
+                    // Mac's People & Devices row and this one cannot drift
+                    // (tripwire 19).
+                    if let notice = row.standing.retirementNotice(device: "iPhone") {
+                        Text(notice)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } header: {
+            Text("This Device")
+        } footer: {
+            Text(standingFooter)
+        }
+    }
+
+    /// One row per book this phone has opened or captured into, by title.
+    private var standingRows: [(project: BrowsedProject, standing: DeviceStanding)] {
+        let recent = recents.recents
+        return projectsBrowser.projects
+            .filter { recent.contains($0.id) }
+            .compactMap { project in
+                standings[project.id].map { (project, $0) }
+            }
+            .sorted { $0.project.manifest.title.localizedCaseInsensitiveCompare(
+                $1.project.manifest.title) == .orderedAscending }
+    }
+
+    private var standingFooter: String {
+        if !standingRows.isEmpty {
+            return "Admission happens on your Mac. Until it does, what you write "
+                 + "here waits rather than being lost."
+        }
+        if !resolvedStandings { return "Reading this phone\u{2019}s standing\u{2026}" }
+        return "Open a book on this phone to see whether it is on that book\u{2019}s chain."
+    }
+
+    /// Resolve this phone's standing in each recent book. A registry that will
+    /// not READ is never answered *not yet admitted* (RULING-54) — the standing
+    /// carries the read's own sentence instead, so a permissions error cannot
+    /// read as a Mac that has not got round to it.
+    private func resolveStandings() async {
+        let recent = recents.recents
+        let projects = projectsBrowser.projects
+            .filter { recent.contains($0.id) }
+            .map { (id: $0.id, url: $0.url) }
+
+        let resolved = await Task.detached(priority: .userInitiated) {
+            () -> (code: String, standings: [ProjectId: DeviceStanding]) in
+            let mine = LocalIdentities.current
+            var answers: [ProjectId: DeviceStanding] = [:]
+            for project in projects {
+                do {
+                    let registry = try RegistryReader.load(projectURL: project.url)
+                    answers[project.id] = DeviceStanding.resolve(
+                        registry: registry, cache: .shared, mine: mine, for: project.url)
+                } catch {
+                    answers[project.id] = DeviceStanding.refused(mine: mine, error: error)
+                }
+            }
+            return (DeviceCode.short(mine.author.fingerprint), answers)
+        }.value
+
+        code = resolved.code
+        standings = resolved.standings
+        resolvedStandings = true
     }
 
     // MARK: - Projects folder

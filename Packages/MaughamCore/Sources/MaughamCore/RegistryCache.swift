@@ -24,6 +24,25 @@ public struct RecordRef: Equatable, Hashable, Sendable {
     }
 }
 
+/// **A record this device put back, and the day it did** (P2b Task 10).
+///
+/// A restoration is the loudest thing `RegistryCache.reconcile` does — it
+/// writes a file back onto shared storage — and until this existed it was
+/// reported only to whoever happened to be calling. History could name the kind
+/// (`TrustEvent.Kind.recordRestored`) and had nothing to date it with, so a
+/// deletion somebody made last week either went unmentioned or would have been
+/// stamped with the moment the pane was opened. The cache keeps the fact
+/// because the cache is what noticed it.
+public struct RestoredRecord: Equatable, Sendable {
+    public let ref: RecordRef
+    public let restoredAt: Date
+
+    public init(ref: RecordRef, restoredAt: Date) {
+        self.ref = ref
+        self.restoredAt = restoredAt
+    }
+}
+
 /// What this device remembers of the registry it last verified, per project —
 /// and the root it joined (decision B1).
 ///
@@ -76,8 +95,21 @@ public final class RegistryCache: @unchecked Sendable {
         var records: [Entry] = []
         /// B1: the root whose chain first named this device here. Written once.
         var joinedRoot: String?
+        /// When that join happened — the FIRST one, written once beside the
+        /// root it stamps, because the sentence a surface makes of it (*on
+        /// <label>'s chain since 9 Sep*) is about the day this device joined
+        /// and not about the day a later claimant turned up.
+        ///
+        /// Optional for a second reason as well as the obvious one: a memory
+        /// written before this field existed has a join and no date, and it
+        /// must load rather than fail — a cache that failed to decode would
+        /// take every record this device can restore down with it.
+        var joinedAt: Date?
         /// Every other root that has since named it. Listed, never merged.
         var claimants: [String] = []
+        /// What this device has put back here, and when. Oldest first, capped
+        /// at `restoreLimit`.
+        var restores: [Restore] = []
 
         init() {}
 
@@ -86,19 +118,35 @@ public final class RegistryCache: @unchecked Sendable {
             root = try container.decodeIfPresent(String.self, forKey: .root) ?? ""
             records = try container.decodeIfPresent([Entry].self, forKey: .records) ?? []
             joinedRoot = try container.decodeIfPresent(String.self, forKey: .joinedRoot)
+            joinedAt = try container.decodeIfPresent(Date.self, forKey: .joinedAt)
             claimants = try container.decodeIfPresent([String].self, forKey: .claimants) ?? []
+            restores = try container.decodeIfPresent([Restore].self, forKey: .restores) ?? []
         }
+    }
+
+    /// One restoration, kept so a surface can say WHEN it happened.
+    ///
+    /// The directory is a string for `Entry`'s reason: a directory a later
+    /// build adds must cost this row and not the whole decode.
+    private struct Restore: Codable, Equatable {
+        var directory: String
+        var fingerprint: String
+        var restoredAt: Date
     }
 
     /// One remembered record: where it lives, what names it, and the bytes.
     ///
-    /// **The bytes are stored, not the fields.** They are produced by the one
-    /// canonical encoder (`RegistryCanonical.bytes`), which is the same
-    /// function `RegistryWriter` writes with, so what is kept here is what is on
-    /// disk — pinned byte-for-byte by
-    /// `RegistryCacheTests.test_aDeletedPersonRecordIsRestoredByteIdenticalAndReported`.
-    /// Keeping bytes rather than fields means a later build of this code cannot
-    /// re-encode a record into something its own signature no longer covers.
+    /// **The bytes are the FILE's, not a re-encode.** `RegistryReader` carries
+    /// each verified record's own bytes out of the read (`Registry.sourceBytes`)
+    /// and they are what is kept here — pinned byte-for-byte by
+    /// `RegistryCacheTests.test_aDeletedPersonRecordIsRestoredByteIdenticalAndReported`
+    /// and, for the case that makes it matter, by
+    /// `test_aRecordFromALaterBuildIsRememberedAndRestoredByteIdentical`.
+    /// A record written by a later build carries a field this one has no
+    /// property for; remembering the decoded fields would have this device
+    /// quietly rewrite that record into its own vocabulary, and the signature it
+    /// restored would then verify nowhere. Encoding the record is the fallback,
+    /// for a registry assembled in memory rather than read from a folder.
     private struct Entry: Codable, Equatable {
         /// `RegistryDirectory.rawValue`. A string, so a directory a later build
         /// adds survives a read here rather than failing the whole decode.
@@ -109,34 +157,112 @@ public final class RegistryCache: @unchecked Sendable {
 
     public let fileURL: URL
     /// The fingerprint this memory belongs to.
-    public let identity: String
-    private let lock = NSLock()
-    private var stored: Stored
+    /// The fingerprint this memory belongs to, resolved on the first question
+    /// that actually needs it. See `resolveIdentity`.
+    public var identity: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return resolveIdentityLocked()
+    }
 
-    /// Loads whatever is at `fileURL` **and belongs to `identity`**, or starts
-    /// empty. An unreadable or undecodable file starts empty: this is a memory,
-    /// not a source of truth, and an empty memory simply restores nothing.
-    public init(fileURL: URL, identity: String = DeviceIdentity.author.fingerprint) {
+    private let identitySource: () -> String
+    private var resolvedIdentity: String?
+    private let lock = NSLock()
+    /// Nil until `loadLocked()` has run. **Not an empty memory** — the two are
+    /// different, and conflating them is how a device forgets what it verified.
+    private var loaded: Stored?
+
+    /// A memory of whatever is at `fileURL` **that belongs to `identity`**, or
+    /// an empty one. An unreadable or undecodable file starts empty: this is a
+    /// memory, not a source of truth, and an empty memory simply restores
+    /// nothing.
+    ///
+    /// **Nothing is read and no identity is resolved here** (P2b Task 10). The
+    /// identity is this device's author fingerprint, and asking for it MINTS an
+    /// enclave key if there is not one — `LocalIdentities`' lazy rule, where
+    /// naming an actor is the writer's act. Constructing this type is not the
+    /// writer naming anybody: `TrustResolution` reaches for the shared memory
+    /// on the way past every project it opens, including the overwhelming
+    /// majority that have no registry and never will. So the file is read on
+    /// the first real question (`loadLocked`), and the identity is resolved
+    /// only where the answer turns on it — a file that decoded, or a write.
+    /// A project with no registry and no cache file resolves it never.
+    ///
+    /// A caller that already HOLDS the fingerprint hands it over, and there is
+    /// nothing lazy left to do about an identity that has been resolved. The
+    /// file is still read on first use — a memory nothing asks a question of
+    /// reads nothing.
+    public init(fileURL: URL, identity: String) {
         self.fileURL = fileURL
-        self.identity = identity
-        let bytes = try? Data(contentsOf: fileURL)  // adr-0018-ok: this device's own registry memory — derived bookkeeping, never manuscript text
-        let decoded = bytes.flatMap { try? JSONDecoder().decode(Stored.self, from: $0) }
-        if let decoded, decoded.identity == identity {
-            self.stored = decoded
-            if Self.prune(&self.stored) { persistLocked() }
-            return
-        }
-        var fresh = Stored()
-        fresh.identity = identity
-        self.stored = fresh
-        if bytes != nil { persistLocked() }
+        self.identitySource = { identity }
+        self.resolvedIdentity = identity
+    }
+
+    /// The lazy form. `shared` is the only production caller — a memory
+    /// constructed on the way past a project, whose identity must not be asked
+    /// for until a question turns on it.
+    ///
+    /// `internal` rather than private so a test can hand in a COUNTING closure
+    /// and assert the count: *a project with no registry resolves no identity*
+    /// is a claim about what is never called, and nothing but a seam can pin
+    /// one (`RegistryCacheTests.test_aProjectWithNoRegistryNeverReachesForTheEnclave`).
+    init(fileURL: URL, resolvingIdentity: @escaping () -> String) {
+        self.fileURL = fileURL
+        self.identitySource = resolvingIdentity
     }
 
     /// The process-wide memory, beside this device's key material and the
-    /// op-log heads.
+    /// op-log heads. Constructing it costs nothing; see `init`.
     public static let shared = RegistryCache(
         fileURL: DeviceState.directory.appendingPathComponent("registry-cache.json"),
-        identity: DeviceIdentity.author.fingerprint)
+        resolvingIdentity: { DeviceIdentity.author.fingerprint })
+
+    /// Call with `lock` held. Resolves the identity once and remembers it, so
+    /// a memory that has been written to does not ask the enclave again.
+    private func resolveIdentityLocked() -> String {
+        if let resolvedIdentity { return resolvedIdentity }
+        let identity = identitySource()
+        resolvedIdentity = identity
+        return identity
+    }
+
+    /// Call with `lock` held. Reads the file at most once per instance.
+    ///
+    /// The order is the load-bearing part: the BYTES are read first, and the
+    /// identity is asked for only when there are bytes that decoded. A missing
+    /// file is the ordinary case and it needs no identity at all — the empty
+    /// memory it starts is not persisted, so there is nothing to stamp.
+    @discardableResult
+    private func loadLocked() -> Stored {
+        if let loaded { return loaded }
+        let bytes = try? Data(contentsOf: fileURL)  // adr-0018-ok: this device's own registry memory — derived bookkeeping, never manuscript text
+        let decoded = bytes.flatMap { try? JSONDecoder().decode(Stored.self, from: $0) }
+        if let decoded, decoded.identity == resolveIdentityLocked() {
+            var stored = decoded
+            let pruned = Self.prune(&stored)
+            loaded = stored
+            if pruned { persistLocked() }
+            return stored
+        }
+        var fresh = Stored()
+        // A file that is there and is somebody else's is TAKEN OVER, which is a
+        // write, so this one does resolve the identity — as the old eager init
+        // did. A file that is not there is not.
+        if bytes != nil {
+            fresh.identity = resolveIdentityLocked()
+            loaded = fresh
+            persistLocked()
+            return fresh
+        }
+        loaded = fresh
+        return fresh
+    }
+
+    /// Call with `lock` held. The memory as it stands, loading it if need be.
+    private var storedLocked: Stored {
+        get { loadLocked() }
+        set { loaded = newValue }
+    }
 
     // MARK: - The key
 
@@ -159,7 +285,7 @@ public final class RegistryCache: @unchecked Sendable {
     public func cached(for projectURL: URL) -> Registry? {
         lock.lock()
         defer { lock.unlock() }
-        guard let project = stored.projects[Self.projectKey(projectURL)],
+        guard let project = storedLocked.projects[Self.projectKey(projectURL)],
               !project.records.isEmpty
         else { return nil }
         return Self.registry(from: project.records)
@@ -169,7 +295,7 @@ public final class RegistryCache: @unchecked Sendable {
     public func rawBytes(of ref: RecordRef, for projectURL: URL) -> Data? {
         lock.lock()
         defer { lock.unlock() }
-        return stored.projects[Self.projectKey(projectURL)]?
+        return storedLocked.projects[Self.projectKey(projectURL)]?
             .records.first { $0.directory == ref.directory.rawValue
                              && $0.fingerprint == ref.fingerprint }?.bytes
     }
@@ -191,12 +317,12 @@ public final class RegistryCache: @unchecked Sendable {
         let entries = Self.entries(of: registry)
         lock.lock()
         defer { lock.unlock() }
-        var project = stored.projects[Self.projectKey(projectURL)] ?? Project()
+        var project = storedLocked.projects[Self.projectKey(projectURL)] ?? Project()
         let root = projectURL.standardizedFileURL.path
         guard project.root != root || project.records != entries else { return }
         project.root = root
         project.records = entries
-        stored.projects[Self.projectKey(projectURL)] = project
+        storedLocked.projects[Self.projectKey(projectURL)] = project
         persistLocked()
     }
 
@@ -206,7 +332,7 @@ public final class RegistryCache: @unchecked Sendable {
     public func forget(_ projectURL: URL) {
         lock.lock()
         defer { lock.unlock() }
-        stored.projects.removeValue(forKey: Self.projectKey(projectURL))
+        storedLocked.projects.removeValue(forKey: Self.projectKey(projectURL))
         persistLocked()
     }
 
@@ -217,7 +343,15 @@ public final class RegistryCache: @unchecked Sendable {
     public func joinedRoot(for projectURL: URL) -> String? {
         lock.lock()
         defer { lock.unlock() }
-        return stored.projects[Self.projectKey(projectURL)]?.joinedRoot
+        return storedLocked.projects[Self.projectKey(projectURL)]?.joinedRoot
+    }
+
+    /// When this device joined the root it is on, if it has joined one. The
+    /// first join's date: `join` writes it once, beside the root.
+    public func joinedAt(for projectURL: URL) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedLocked.projects[Self.projectKey(projectURL)]?.joinedAt
     }
 
     /// Every other root that has since named this device here. Listed, never
@@ -226,7 +360,63 @@ public final class RegistryCache: @unchecked Sendable {
     public func claimants(for projectURL: URL) -> [String] {
         lock.lock()
         defer { lock.unlock() }
-        return stored.projects[Self.projectKey(projectURL)]?.claimants ?? []
+        return storedLocked.projects[Self.projectKey(projectURL)]?.claimants ?? []
+    }
+
+    // MARK: - What this device has put back
+
+    /// How many restorations one project keeps. A restoration is rare and a
+    /// storm of them is one event — an iCloud folder that came back empty —
+    /// so the cap is about the FILE and not about the history: fifty rows is a
+    /// pane full, and the oldest go first.
+    static let restoreLimit = 50
+
+    /// Every record this device has put back here, oldest first.
+    ///
+    /// Read by History (`TrustEvents.derive`, which dates its
+    /// `.recordRestored` from this) and by People & Devices, which marks the
+    /// rows whose record it holds only because it restored one. Two surfaces,
+    /// one list: a second place that decided what *restored* means would let
+    /// the timeline and the row disagree about the same record.
+    public func restores(for projectURL: URL) -> [RestoredRecord] {
+        lock.lock()
+        defer { lock.unlock() }
+        return (storedLocked.projects[Self.projectKey(projectURL)]?.restores ?? [])
+            .compactMap { restore in
+                guard let directory = RegistryDirectory(rawValue: restore.directory)
+                else { return nil }
+                return RestoredRecord(
+                    ref: RecordRef(directory: directory, fingerprint: restore.fingerprint),
+                    restoredAt: restore.restoredAt)
+            }
+    }
+
+    /// Record that `refs` were put back into `projectURL` at `when`.
+    ///
+    /// **A record restored twice is listed twice**, because it was deleted
+    /// twice: the second deletion is the news, and collapsing the two would
+    /// leave the writer reading a month-old date for something that happened
+    /// this morning.
+    ///
+    /// `when` is an argument rather than a clock read inside, so the stamp can
+    /// be pinned as a value; production passes nothing.
+    private func recordRestores(
+        _ refs: [RecordRef], in projectURL: URL, at when: Date
+    ) {
+        guard !refs.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        var project = storedLocked.projects[Self.projectKey(projectURL)] ?? Project()
+        project.root = projectURL.standardizedFileURL.path
+        project.restores.append(contentsOf: refs.map {
+            Restore(directory: $0.directory.rawValue,
+                    fingerprint: $0.fingerprint, restoredAt: when)
+        })
+        if project.restores.count > Self.restoreLimit {
+            project.restores.removeFirst(project.restores.count - Self.restoreLimit)
+        }
+        storedLocked.projects[Self.projectKey(projectURL)] = project
+        persistLocked()
     }
 
     /// Record that `root` names this device in this project, and answer the
@@ -237,18 +427,23 @@ public final class RegistryCache: @unchecked Sendable {
     /// cannot prove which Mac signed it, so a device that switched roots on the
     /// strength of one would be handing its history to whoever wrote last. The
     /// writer is shown the claimant and decides.
+    ///
+    /// **The date is written once with it**, so History can say *since 9 Sep*
+    /// (spec §6). `at` is defaulted rather than read from a clock inside, which
+    /// is what lets the stamp be pinned as a value; production passes nothing.
     @discardableResult
-    public func join(root: String, for projectURL: URL) -> String {
+    public func join(root: String, for projectURL: URL, at when: Date = Date()) -> String {
         lock.lock()
         defer { lock.unlock() }
-        var project = stored.projects[Self.projectKey(projectURL)] ?? Project()
+        var project = storedLocked.projects[Self.projectKey(projectURL)] ?? Project()
         project.root = projectURL.standardizedFileURL.path
         defer {
-            stored.projects[Self.projectKey(projectURL)] = project
+            storedLocked.projects[Self.projectKey(projectURL)] = project
             persistLocked()
         }
         guard let joined = project.joinedRoot else {
             project.joinedRoot = root
+            project.joinedAt = when
             return root
         }
         if root != joined, !project.claimants.contains(root) {
@@ -271,13 +466,13 @@ public final class RegistryCache: @unchecked Sendable {
     public func recordClaimant(root: String, for projectURL: URL) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        var project = stored.projects[Self.projectKey(projectURL)] ?? Project()
+        var project = storedLocked.projects[Self.projectKey(projectURL)] ?? Project()
         guard project.joinedRoot != root, !project.claimants.contains(root) else {
             return false
         }
         project.root = projectURL.standardizedFileURL.path
         project.claimants.append(root)
-        stored.projects[Self.projectKey(projectURL)] = project
+        storedLocked.projects[Self.projectKey(projectURL)] = project
         persistLocked()
         return true
     }
@@ -293,17 +488,38 @@ public final class RegistryCache: @unchecked Sendable {
     ///   present beside the verified refs.
     /// - A record that is present and does NOT verify is reported malformed and
     ///   **left exactly as it is**. A device cannot tell *tampered with* from
-    ///   *written by a later build* — the signature is checked over a re-encode
-    ///   of the decoded record, so one unknown field is enough to make an
-    ///   honest record fail — and overwriting it would silently downgrade a
-    ///   newer device's signed record on shared storage. The defence would buy
-    ///   nothing anyway: a malformed record already contributes nothing to the
-    ///   registry. The malformed listing is carried out untouched, and
-    ///   Integrity shows it.
-    /// - A record the folder holds wins over the remembered one, always. The
-    ///   folder's copy has already been verified by `RegistryReader`, and a
-    ///   record legitimately changes: a device re-signs its own record when it
-    ///   mints an actor key, a root re-signs a person's to revoke them.
+    ///   *damaged in transit*, and overwriting it would silently downgrade
+    ///   another device's signed record on shared storage. The defence would
+    ///   buy nothing anyway: a malformed record already contributes nothing to
+    ///   the registry. The malformed listing is carried out untouched, and
+    ///   Integrity shows it. (A record from a LATER build is no longer in this
+    ///   population — the digest is over the file's own bytes since P2b Task 1,
+    ///   so an unfamiliar field verifies rather than failing.)
+    /// - A record the folder holds wins over the remembered one **when the
+    ///   same key signed both**. A record legitimately changes: a device
+    ///   re-signs its own record when it mints an actor key, a root re-signs a
+    ///   person's to revoke them. What is not legitimate is a record changing
+    ///   HANDS. A person record's expected signer is the root it names, so
+    ///   another root can write a perfectly valid admission of somebody this
+    ///   device already verified — and on the folder's word alone the second
+    ///   Mac to open the book would take over the first one's record and the
+    ///   whole chain hanging off it. So a folder record for a remembered
+    ///   fingerprint under a DIFFERENT `sig.key` is listed
+    ///   `malformed(.signerChanged)`, the remembered record stands, and the
+    ///   folder's file is left exactly where it is (it is present; only an
+    ///   absent record is restored). The claimant is shown, never merged — B1's
+    ///   rule, one record down.
+    ///
+    ///   **The listing is where this ends.** Refusing the folder's copy takes it
+    ///   out of the registry, and the registry is where `TrustResolution` looks
+    ///   to find the roots that name this device — so a refusal that said
+    ///   nothing would close the hole and silence B1's claimant list in the same
+    ///   stroke. But recording the claimant is not this function's act: which
+    ///   fingerprints are THIS device's is a question about four actor keys
+    ///   (`LocalIdentities`), and this type holds one. `TrustResolution.resolve`
+    ///   reads these listings beside the loop where it already decides the join
+    ///   and the claimants, so there is one place that records a claimant rather
+    ///   than two with different ideas of *me* (fix round 1, I1).
     /// - Whatever it settles on is then remembered, so the next reconcile
     ///   starts from what this device last verified rather than from something
     ///   older than the folder.
@@ -319,7 +535,8 @@ public final class RegistryCache: @unchecked Sendable {
         folder: Registry,
         cached: Registry?,
         in projectURL: URL,
-        presenter: NSFilePresenter? = nil
+        presenter: NSFilePresenter? = nil,
+        at when: Date = Date()
     ) throws -> (registry: Registry, restored: [URL], removedBySomeone: [RecordRef]) {
         guard let cached else {
             remember(folder, for: projectURL)
@@ -332,44 +549,106 @@ public final class RegistryCache: @unchecked Sendable {
         let present = Set(Self.refs(of: folder) + folder.malformed.compactMap(\.ref))
         var restored: [URL] = []
         var removed: [RecordRef] = []
+        var displaced: [MalformedRecord] = []
         var devices = folder.devices
         var people = folder.people
         var claims = folder.claims
+        var sourceBytes = folder.sourceBytes
 
         for entry in Self.entries(of: cached) {
             guard let directory = RegistryDirectory(rawValue: entry.directory) else { continue }
             let ref = RecordRef(directory: directory, fingerprint: entry.fingerprint)
-            guard !present.contains(ref) else { continue }
-            // The bytes this device kept when it verified the record, which
-            // are the bytes that were on disk; `cached` is decoded from them.
-            let bytes = rawBytes(of: ref, for: projectURL) ?? entry.bytes
-            restored.append(try RegistryWriter.restore(
-                rawBytes: bytes, to: directory, fingerprint: entry.fingerprint,
-                in: projectURL, presenter: presenter))
-            removed.append(ref)
-            switch directory {
-            case .devices:
-                if let record = cached.devices.first(where: { $0.device == ref.fingerprint }) {
-                    devices.append(record)
-                }
-            case .people:
-                if let record = cached.people.first(where: { $0.person == ref.fingerprint }) {
-                    people.append(record)
-                }
-            case .claims:
-                if let record = cached.claims.first(where: { $0.newRoot == ref.fingerprint }) {
-                    claims.append(record)
-                }
+
+            guard present.contains(ref) else {
+                // Gone from the folder: put it back, byte for byte, and say so.
+                // The bytes this device kept when it verified the record, which
+                // are the bytes that were on disk; `cached` is decoded from them.
+                let bytes = rawBytes(of: ref, for: projectURL) ?? entry.bytes
+                restored.append(try RegistryWriter.restore(
+                    rawBytes: bytes, to: directory, fingerprint: entry.fingerprint,
+                    in: projectURL, presenter: presenter))
+                removed.append(ref)
+                sourceBytes[ref] = bytes
+                Self.take(ref, from: cached, into: &devices, &people, &claims)
+                continue
             }
+
+            // Present. The only question left is whose it is now.
+            guard let mine = Self.signer(of: ref, in: cached),
+                  let theirs = Self.signer(of: ref, in: folder),
+                  mine != theirs
+            else { continue }
+
+            displaced.append(.signerChanged(
+                ref, expected: mine, found: theirs, in: projectURL))
+            Self.drop(ref, from: &devices, &people, &claims)
+            sourceBytes[ref] = entry.bytes
+            Self.take(ref, from: cached, into: &devices, &people, &claims)
         }
 
         let resolved = Registry(
             devices: devices.sorted { $0.device < $1.device },
             people: people.sorted { $0.person < $1.person },
             claims: claims.sorted { $0.newRoot < $1.newRoot },
-            malformed: folder.malformed)
+            malformed: (folder.malformed + displaced).sorted { $0.url.path < $1.url.path },
+            sourceBytes: sourceBytes)
         remember(resolved, for: projectURL)
+        // Dated AFTER the writes, and only for what actually went back: a
+        // restore that threw took the whole reconcile with it, and a list
+        // claiming a record was put back that is not on disk would send the
+        // writer looking for a file nothing wrote.
+        recordRestores(removed, in: projectURL, at: when)
         return (resolved, restored, removed)
+    }
+
+    /// Whose signature stands on the copy of `ref` this registry holds, if it
+    /// holds one at all. A record with no signature never got this far — the
+    /// reader lists it `.unsigned` — so nil here means *no such record*.
+    private static func signer(of ref: RecordRef, in registry: Registry) -> String? {
+        switch ref.directory {
+        case .devices:
+            return registry.devices.first { $0.device == ref.fingerprint }?.sig?.key
+        case .people:
+            return registry.people.first { $0.person == ref.fingerprint }?.sig?.key
+        case .claims:
+            return registry.claims.first { $0.newRoot == ref.fingerprint }?.sig?.key
+        }
+    }
+
+    /// Move the remembered copy of `ref` into the answer being assembled.
+    private static func take(
+        _ ref: RecordRef, from cached: Registry,
+        into devices: inout [DeviceRecord], _ people: inout [PersonRecord],
+        _ claims: inout [ClaimRecord]
+    ) {
+        switch ref.directory {
+        case .devices:
+            if let record = cached.devices.first(where: { $0.device == ref.fingerprint }) {
+                devices.append(record)
+            }
+        case .people:
+            if let record = cached.people.first(where: { $0.person == ref.fingerprint }) {
+                people.append(record)
+            }
+        case .claims:
+            if let record = cached.claims.first(where: { $0.newRoot == ref.fingerprint }) {
+                claims.append(record)
+            }
+        }
+    }
+
+    /// Take the folder's copy of `ref` out of the answer. The FILE is untouched
+    /// — this decides only what the registry says, and the bytes on shared
+    /// storage are somebody else's to explain.
+    private static func drop(
+        _ ref: RecordRef, from devices: inout [DeviceRecord],
+        _ people: inout [PersonRecord], _ claims: inout [ClaimRecord]
+    ) {
+        switch ref.directory {
+        case .devices: devices.removeAll { $0.device == ref.fingerprint }
+        case .people: people.removeAll { $0.person == ref.fingerprint }
+        case .claims: claims.removeAll { $0.newRoot == ref.fingerprint }
+        }
     }
 
     // MARK: - Records ↔ entries
@@ -381,13 +660,21 @@ public final class RegistryCache: @unchecked Sendable {
     /// worse than no memory of that record at all.
     private static func entries(of registry: Registry) -> [Entry] {
         var entries: [Entry] = []
-        entries.append(contentsOf: registry.devices.compactMap(entry(of:)))
-        entries.append(contentsOf: registry.people.compactMap(entry(of:)))
-        entries.append(contentsOf: registry.claims.compactMap(entry(of:)))
+        entries.append(contentsOf: registry.devices.compactMap { entry(of: $0, in: registry) })
+        entries.append(contentsOf: registry.people.compactMap { entry(of: $0, in: registry) })
+        entries.append(contentsOf: registry.claims.compactMap { entry(of: $0, in: registry) })
         return entries
     }
 
-    private static func entry(of record: some RegistryRecordProtocol) -> Entry? {
+    private static func entry(
+        of record: some RegistryRecordProtocol, in registry: Registry
+    ) -> Entry? {
+        let ref = RecordRef(directory: type(of: record).directory,
+                            fingerprint: record.fingerprint)
+        if let onDisk = registry.sourceBytes[ref] {
+            return Entry(directory: ref.directory.rawValue,
+                         fingerprint: ref.fingerprint, bytes: onDisk)
+        }
         do {
             return Entry(
                 directory: type(of: record).directory.rawValue,
@@ -420,14 +707,21 @@ public final class RegistryCache: @unchecked Sendable {
         var devices: [DeviceRecord] = []
         var people: [PersonRecord] = []
         var claims: [ClaimRecord] = []
+        // The remembered bytes travel back out with the records they decode to,
+        // so a registry that came from this memory is as byte-faithful as one
+        // that came from the folder — and remembering it again keeps the same
+        // bytes rather than re-encoding them.
+        var sourceBytes: [RecordRef: Data] = [:]
         for entry in entries {
+            guard let directory = RegistryDirectory(rawValue: entry.directory) else { continue }
             do {
-                switch RegistryDirectory(rawValue: entry.directory) {
+                switch directory {
                 case .devices: devices.append(try decoder.decode(DeviceRecord.self, from: entry.bytes))
                 case .people: people.append(try decoder.decode(PersonRecord.self, from: entry.bytes))
                 case .claims: claims.append(try decoder.decode(ClaimRecord.self, from: entry.bytes))
-                case nil: continue
                 }
+                sourceBytes[RecordRef(directory: directory,
+                                      fingerprint: entry.fingerprint)] = entry.bytes
             } catch {
                 registryCacheLog.error("""
                     A remembered registry record (\(entry.fingerprint, privacy: .public)) \
@@ -438,7 +732,8 @@ public final class RegistryCache: @unchecked Sendable {
         return Registry(
             devices: devices.sorted { $0.device < $1.device },
             people: people.sorted { $0.person < $1.person },
-            claims: claims.sorted { $0.newRoot < $1.newRoot })
+            claims: claims.sorted { $0.newRoot < $1.newRoot },
+            sourceBytes: sourceBytes)
     }
 
     // MARK: - Pruning
@@ -460,10 +755,19 @@ public final class RegistryCache: @unchecked Sendable {
 
     /// Call with `lock` held. Atomic, so a crash mid-write leaves the previous
     /// memory rather than a truncated one.
+    ///
+    /// **The identity is stamped HERE**, which is the one place it is certainly
+    /// needed: a file on disk under no name would be read back by any identity
+    /// at all, so writing is exactly when this device has to say whose memory
+    /// this is. A memory that is only ever read resolves no identity and mints
+    /// no key.
     private func persistLocked() {
         do {
+            var out = loaded ?? Stored()
+            out.identity = resolveIdentityLocked()
+            loaded = out
             try DeviceState.ensureDirectory(fileURL.deletingLastPathComponent())
-            try JSONEncoder().encode(stored).write(to: fileURL, options: .atomic)
+            try JSONEncoder().encode(out).write(to: fileURL, options: .atomic)
         } catch {
             registryCacheLog.error("""
                 Could not persist the registry cache at \

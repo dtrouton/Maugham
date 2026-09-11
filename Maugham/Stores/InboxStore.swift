@@ -67,6 +67,41 @@ final class InboxStore {
     /// the store. Read once, on `refresh`.
     private(set) var setAsideRecords: [QuarantineRecord] = []
 
+    /// **Who each capture is from**, by the `deviceId` its row carries (spec
+    /// §6). Resolved ONCE per refresh, off the same verified registry the
+    /// trust table was built from — a second read would be a second opinion
+    /// about who wrote this book, and a per-row read would be one per capture.
+    ///
+    /// A device id with no entry has nothing worth saying about it: this Mac's
+    /// own capture, or any capture in a book this device is on no chain of
+    /// (B3, where P1's behaviour is the correct one).
+    private(set) var bylines: [String: String] = [:]
+
+    /// **How many manifest lines this book is HOLDING, by the device whose
+    /// seal holds them** (spec §3, §6). Keyed on the device record's
+    /// fingerprint, with a key no record names standing for itself — the
+    /// chain's own keying, so an Admit… raised here is about the same device an
+    /// admission would name.
+    ///
+    /// It is not a diagnostic and it is not `entries`: a held capture is
+    /// neither applied nor refused, so without this the pane would present a
+    /// stranger's captures as simply absent — the writer would see an inbox
+    /// with nothing in it and no reason given, which is the one shape a refusal
+    /// may not take.
+    ///
+    /// Counted over every manifest by the verified read itself
+    /// (`JSONLAppendStore.loadVerifiedStrict`), so nothing here re-verifies a
+    /// file to answer it.
+    private(set) var pendingByDevice: [String: Int] = [:]
+
+    /// What to call each device in `pendingByDevice` — its own record's name,
+    /// else its code. Resolved on the same refresh, off the same verified
+    /// registry, for `bylines`' reason: a per-row read would be one read per
+    /// capture, and a second read would be a second opinion about who wrote
+    /// this book. A pending device's captures are held, so it appears in NO
+    /// row and `bylines` cannot answer for it.
+    private(set) var pendingDeviceNames: [String: String] = [:]
+
     private let projectURL: URL
     private let inboxDir: URL
     /// This Mac's own device identifier — the same string the op-log `device`
@@ -110,7 +145,7 @@ final class InboxStore {
     /// two reasons: the inbox is read on every `refresh`, and admitting a
     /// device must apply what it was holding on the next read rather than on
     /// the next window.
-    private var resolvedTrust: (signature: String, table: TrustTable)?
+    private var resolvedTrust: (signature: String, registry: Registry, table: TrustTable)?
 
     /// The table, re-resolved whenever the registry folder has changed, and
     /// **off the main actor** — this class is `@MainActor` and the resolution
@@ -124,19 +159,25 @@ final class InboxStore {
     /// it could not read, and the write paths let it out through the throwing
     /// channel they already have.
     private func trust() async throws -> TrustTable {
+        try await verifiedTrust().table
+    }
+
+    /// The table AND the registry it was resolved from — the byline names a
+    /// device, and only the records can say what it is called.
+    private func verifiedTrust() async throws -> (registry: Registry, table: TrustTable) {
         let signature = TrustResolution.signature(of: projectURL)
         if let resolvedTrust, resolvedTrust.signature == signature {
-            return resolvedTrust.table
+            return (resolvedTrust.registry, resolvedTrust.table)
         }
         let projectURL = self.projectURL
         let identities = self.identities
         let cache = self.registryCache
-        let table = try await Task.detached(priority: .userInitiated) {
-            try TrustResolution.resolve(
+        let resolved = try await Task.detached(priority: .userInitiated) {
+            try TrustResolution.resolveVerified(
                 projectURL: projectURL, identities: identities, cache: cache)
         }.value
-        resolvedTrust = (signature, table)
-        return table
+        resolvedTrust = (signature, resolved.registry, resolved.table)
+        return resolved
     }
 
     /// Forget the resolved table, so the next read builds a fresh one — for the
@@ -175,8 +216,9 @@ final class InboxStore {
         let urls = manifestURLs()
         var rows: [InboxEntry] = []
         var unreadable: [String] = []
+        let registry: Registry
         let table: TrustTable
-        do { table = try await trust() }
+        do { (registry, table) = try await verifiedTrust() }
         catch {
             // RULING-54, and the strictest place it bites: a registry record
             // that is present and cannot be read is NAMED, and nothing is
@@ -188,11 +230,15 @@ final class InboxStore {
             unreadableManifests = []
             entries = []
             trashedEntries = []
+            bylines = [:]
+            pendingByDevice = [:]
+            pendingDeviceNames = [:]
             setAsideRecords = setAsideLineRecords()
             inboxStoreLog.error(
                 "inbox read refused: \(OpLogStore.unreadableName(error), privacy: .public) is present and unreadable: \(error.localizedDescription, privacy: .public)")
             return
         }
+        var held: [String: Int] = [:]
         for url in urls {
             // The verified read (spec §4.2): seal lines never reach the entry
             // decoder, and a run of lines this device cannot vouch for is set
@@ -200,7 +246,13 @@ final class InboxStore {
             // parsed — the same three steps the op log's tails take, in the
             // same implementation.
             let store = manifestStore(at: url, trust: table)
-            do { rows.append(contentsOf: try await store.loadVerifiedStrict().elements) }
+            do {
+                let read = try await store.loadVerifiedStrict()
+                rows.append(contentsOf: read.elements)
+                for (device, count) in read.pendingByDevice {
+                    held[device, default: 0] += count
+                }
+            }
             catch {
                 // Unreadable is RECORDED, never presented as empty (RULING-7):
                 // the device's captures are intact in the file; the pane says
@@ -243,6 +295,25 @@ final class InboxStore {
         trashedEntries = trashed
             .filter { ($0.resolvedAt ?? writeTime($0)) >= cutoff }
             .sorted { writeTime($0) > writeTime($1) }
+        bylines = Self.bylines(
+            for: entries + trashedEntries, registry: registry, table: table)
+        pendingByDevice = held
+        pendingDeviceNames = held.keys.reduce(into: [:]) { names, device in
+            names[device] = InboxByline.name(forDevice: device, registry: registry)
+        }
+    }
+
+    /// One byline per DEVICE, not per row: a phone that sent forty captures is
+    /// one lookup and one answer.
+    nonisolated private static func bylines(
+        for entries: [InboxEntry], registry: Registry, table: TrustTable
+    ) -> [String: String] {
+        var answers: [String: String] = [:]
+        for deviceId in Set(entries.map(\.deviceId)) {
+            answers[deviceId] = InboxByline.text(
+                forDeviceId: deviceId, registry: registry, table: table)
+        }
+        return answers
     }
 
     /// The `.lines` records filed under the inbox's own stream name.

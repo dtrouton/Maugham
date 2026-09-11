@@ -127,12 +127,14 @@ struct HistoryPane: View {
     /// return actually succeeded, so this list is only ever the genuine
     /// article: history the writer cannot currently see.
     @State private var heldQuarantineRecords: [QuarantineRecord] = []
-    /// How many CHANGES were set aside because something that is not Maugham
-    /// wrote them into one of this doc's op-log files (signed op log P1) **and
-    /// the writer has not yet acknowledged** (P2a, D2). A count rather than the
-    /// records, because the notice is pure over the count and reading the
-    /// archives is `reload()`'s job, not `body`'s.
-    @State private var setAsideLineCount: Int = 0
+    /// How many CHANGES were set aside, by the REASON each was set aside for
+    /// (signed op log P1; the reasons are P2b's), counting only what the writer
+    /// has not yet acknowledged (P2a, D2). Counts rather than the records,
+    /// because the notice is pure over them and reading the archives is
+    /// `reload()`'s job, not `body`'s — and by reason rather than one total,
+    /// because four of the six causes describe lines Maugham itself wrote on
+    /// the writer's other machine (whole-branch review, I3).
+    @State private var setAsideLinesByReason: [String: Int] = [:]
     /// Every set-aside record for this doc, acknowledged or not, by the name it
     /// is acknowledged under. The disclosure below the sentence lists these
     /// REGARDLESS: what an Acknowledge press puts down is the sentence, not the
@@ -152,6 +154,15 @@ struct HistoryPane: View {
     /// because both halves it is built from (this device's registry memory and
     /// the people records) are resolved in the same off-actor read.
     @State private var joinedChainLine: String?
+    /// **What retirement means, on the machine that did it** (fix round 1,
+    /// Important 2). Nil until this Mac has retired itself in this book; a
+    /// standing fact afterwards, drawn with no control, because there is
+    /// nothing to press — a device cannot be un-retired.
+    @State private var retirementLine: String?
+    /// The project's dated trust events, already as drawn rows (signed op log
+    /// P2b, ruling C). Resolved in `reloadChain` beside the names they are told
+    /// in, because both come out of the same off-actor registry read.
+    @State private var trustEventLines: [TrustEventLine] = []
     @State private var isRetryingQuarantine: Bool = false
     /// The report from the most recently completed Retry, kept only long
     /// enough for the writer to view or dismiss it — cleared when the sheet
@@ -311,25 +322,63 @@ struct HistoryPane: View {
     /// is nothing to bring back, so this notice carries no Retry — unlike
     /// `quarantineNotice`, whose subject is a whole file that may yet read.
     ///
-    /// Pure over the count, so the copy pins without a window and without disk.
-    /// The count itself comes from `setAsideLineCount`, which is the half that
-    /// has to read files.
-    static func setAsideLinesNotice(lineCount: Int) -> String? {
-        guard lineCount > 0 else { return nil }
-        let subject = lineCount == 1
-            ? "1 change was written"
-            : "\(lineCount) changes were written"
-        return "\(subject) to this document by something that is not Maugham; "
-             + "kept in backup, not applied."
+    /// **The sentence says WHY, because since revocation there are six whys**
+    /// (whole-branch review, I3).
+    ///
+    /// Until P2b every `.lines` record meant one thing — a line something other
+    /// than Maugham had written into a file — and this sentence said so
+    /// unconditionally. Revocation, retirement, the late/backdated split and
+    /// another claimant's chain are four more causes, and every one of them
+    /// describes lines MAUGHAM wrote, on the writer's own other machine. A
+    /// writer who revokes their old Mac and is then told *something that is not
+    /// Maugham* wrote those changes has been misinformed about their own book
+    /// by the one screen that exists to tell them the truth about it.
+    ///
+    /// So the reasons come in and each gets its own clause. The words are
+    /// `JSONLAppendStore.quarantineReason`'s, which the records already carry —
+    /// derived from the cause and never spelled twice, so this pane cannot file
+    /// an event under a sentence of its own.
+    ///
+    /// Ordered by count, then alphabetically, so one folder answers one way
+    /// however its sidecars happened to be enumerated.
+    ///
+    /// Pure over the counts, so the copy pins without a window and without
+    /// disk. The counts come from `setAsideLinesByReason`, which is the half
+    /// that has to read files.
+    static func setAsideLinesNotice(byReason: [String: Int]) -> String? {
+        let groups = byReason
+            .filter { $0.value > 0 }
+            .sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
+        guard !groups.isEmpty else { return nil }
+        let total = groups.reduce(0) { $0 + $1.value }
+        func changes(_ count: Int) -> String {
+            count == 1 ? "1 change" : "\(count) changes"
+        }
+        if groups.count == 1, let only = groups.first {
+            let verb = only.value == 1 ? "was" : "were"
+            return "\(changes(only.value)) to this document \(verb) set aside "
+                 + "(\(only.key)); kept in backup, not applied."
+        }
+        let clauses = groups.map { "\(changes($0.value)) \($0.key)" }
+        return "\(changes(total)) to this document were set aside: "
+             + clauses.joined(separator: "; ") + ". Kept in backup, not applied."
     }
 
-    /// How many CHANGES were set aside. One line, because the counting is
+    /// How many CHANGES were set aside, **under each reason they were set aside
+    /// for**. One line per group, because the counting is
     /// `OpLogQuarantine.setAsideLineCount`'s — the Inbox pane asks the same
     /// question of the manifest stream, and two copies would be two answers.
-    static func setAsideLineCount(
+    static func setAsideLinesByReason(
         records: [QuarantineRecord], in projectURL: URL
-    ) -> Int {
-        OpLogQuarantine.setAsideLineCount(records: records, in: projectURL)
+    ) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for reason in Set(records.map(\.reason)) {
+            let count = OpLogQuarantine.setAsideLineCount(
+                records: records.filter { $0.reason == reason }, in: projectURL)
+            guard count > 0 else { continue }
+            counts[reason] = count
+        }
+        return counts
     }
 
     /// The notice shown after a Retry completes. Zero orphans is
@@ -363,30 +412,33 @@ struct HistoryPane: View {
 
     // MARK: - The chain (signed op log P2a)
 
-    /// The pending line's control, as three constants `body` reads rather than
-    /// three literals inside it.
+    /// The pending line's control, as constants `body` reads rather than
+    /// literals inside it.
     ///
     /// It is the ONE History line that carries a control (spec §6), because
     /// held history is the one thing on this list the writer can act on: every
     /// other sentence here is a statement of fact. P2a DRAWS it; P2b wires it
     /// to the admission sheet, and flipping `admitIsAvailable` is what that
-    /// costs here. Constants because the decision — drawn, disabled, and what
-    /// it says instead — is then pinnable with no window at all (tripwire 33:
-    /// no test presses a mounted control and waits for its effect).
-    static let admitTitle = "Admit…"
-    static let admitUnavailableHelp = "Admission arrives with the next update"
-    static let admitIsAvailable = false
-
-    /// A fingerprint as the writer sees it: the first four characters, the
-    /// "code" a device shows for itself. Shown wherever the record that would
-    /// give a name is missing — uppercased, because a code exists to be
-    /// compared against another screen and hex reads better in capitals.
+    /// costs here. Constants because the decision — drawn, live, and what it
+    /// says — is then pinnable with no window at all (tripwire 33: no test
+    /// presses a mounted control and waits for its effect).
     ///
-    /// P2b's People & Devices shows codes too; when it lands, this is the
-    /// helper it should reach for rather than a second spelling.
-    nonisolated static func shortCode(_ fingerprint: String) -> String {
-        fingerprint.prefix(4).uppercased()
-    }
+    /// P2b's wiring is what the press does: it asks this window to put the
+    /// admission sheet up (`MaughamEvent.postAdmissionRequested(forced:)`),
+    /// which is the writer's own ask and therefore reopens a sheet they
+    /// dismissed earlier in this session. The disabled shape's own sentence is
+    /// GONE (P2b Task 4's minor (c)): it was kept for a test that never read it
+    /// and for a day that has arrived the other way round, and a constant
+    /// nothing reads is a sentence nobody maintains.
+    ///
+    /// **`admitIsAvailable` went the same way** (P2b Task 10). It was the
+    /// not-yet flag, and once the wiring landed it was a `true` gating a
+    /// `.disabled(!true)` — a control that reads as conditionally live and
+    /// cannot be anything but live. A flag whose every reader is its own
+    /// constant is worse than none: the next writer of this file has to prove
+    /// it is still dead before touching it.
+    static let admitTitle = "Admit…"
+    static let admitHelp = "Say who this device belongs to, and apply what it wrote"
 
     /// What is HELD — history written by a device this book's chain says
     /// nothing about, kept out of the draft until the writer admits it (spec
@@ -418,7 +470,20 @@ struct HistoryPane: View {
         provenance: OpLogProvenance?, names: [String: String]
     ) -> String? {
         guard let provenance, provenance.hasPendingHistory else { return nil }
-        let total = provenance.pendingLines
+        // **The OP lines, not the line tally** (whole-branch review, I1). This
+        // sentence puts the word "notes" after its number and the admission
+        // sheet puts "notes waiting" after its own, and the two were counting
+        // different things: `pendingLines` includes the seal line that holds a
+        // span, so two held ops read as *3 notes* here and as *2 notes* on the
+        // sheet about the same device. `pendingOpLines` is the sum of the very
+        // map `AdmissionDecision.requests` is built from, so the agreement is
+        // by construction rather than by two files staying in step.
+        let total = provenance.pendingOpLines
+        // A pending span that is nothing but a seal (two adjacent seal lines)
+        // is held history with no note in it. There is no number to say and no
+        // device to name, and Admit… would find nothing — so this goes quiet
+        // rather than reporting *1 note from another device*.
+        guard total > 0 else { return nil }
         let noun = total == 1 ? "note" : "notes"
         let verb = total == 1 ? "is" : "are"
         let devices = provenance.pendingByDevice.keys.sorted()
@@ -426,12 +491,12 @@ struct HistoryPane: View {
         if devices.count > 1 {
             who = "\(devices.count) devices"
         } else if let device = devices.first {
-            who = names[device] ?? shortCode(device)
+            who = names[device] ?? DeviceCode.short(device)
         } else {
-            // Held lines nothing attributes to a device. Structurally unlikely
-            // — the tally is built off the same lines the count is — but the
-            // COUNT is what matters here, and going quiet about history that is
-            // not in the draft would be the one unacceptable answer.
+            // Unreachable while `total` comes from the same map — a positive
+            // sum has at least one key. Kept because going quiet about history
+            // that is not in the draft would be the one unacceptable answer if
+            // that ever stopped being true.
             who = "another device"
         }
         return "\(total) \(noun) from \(who) \(verb) waiting for admission."
@@ -439,28 +504,104 @@ struct HistoryPane: View {
 
     /// Whose chain this Mac is on — nil when it has joined nobody's.
     ///
-    /// A Mac that is its own root joins nothing (B1, `TrustTable.RootSource`'s
-    /// arm 2): there is no chain of somebody else's for it to be on, and the
-    /// cache records only a FOREIGN root. So the ordinary single-Mac project
-    /// never sees this line, and a Mac admitted to another's book always does.
+    /// A Mac that is its own root joins nothing (B1, asked as
+    /// `TrustTable.ownRootRecord` — the record, never which arm of the root
+    /// order won): there is no chain of somebody else's for it to be on, and
+    /// the cache records only a FOREIGN root. So the ordinary single-Mac
+    /// project never sees this line, and a Mac admitted to another's book
+    /// always does. `DeviceStanding` is the same fact said in full, and is what
+    /// People & Devices and the phone's Settings row both draw.
     ///
     /// A second root that names this device is a CLAIMANT, not a new chain
     /// (`RegistryCache.join` is write-once), so this goes on naming the chain
     /// this Mac is actually on however many roots claim it. The claimants are
     /// P2b's People & Devices to show.
     ///
-    /// **No date, and that is a gap rather than a decision.** The spec's
-    /// sentence carries one (*…on 9 Sep*); the cache records the root it
-    /// joined and not when, and adding a field to it is not this task's. When
-    /// P2b stamps the join, the date belongs at the end of this sentence.
+    /// **A fact, not an event** (Denver's ruling C, 2026-09-10). P2a wrote this
+    /// as *This Mac JOINED …*, which is something that happened on a day; the
+    /// banner is for what holds NOW, so it says *is on*, and the joining — with
+    /// its date — is a `TrustEvent` in the section below. The two are the same
+    /// fact told in the two shapes ruling C separates, which is why this line
+    /// stays here rather than being replaced by the entry.
     ///
     /// `labels` maps a person fingerprint to the label its record gives them,
     /// for the same reason `pendingNotice` takes `names`.
+    /// **What retirement means, told to the machine that did it** (fix round 1,
+    /// Important 2).
+    ///
+    /// A pure function of this device's own standing, so the pane's decision —
+    /// draw it, and in whose words — is assertable with no window and no disk.
+    /// The noun is `"Mac"` because this app IS one; the phone asks the same
+    /// value for the same sentence with its own noun (tripwire 19), which is
+    /// why the words live in `DeviceStanding` and not here.
+    ///
+    /// Nil while this Mac is still at work — the ordinary case. The banner is a
+    /// standing FACT and carries no control: there is nothing to press, because
+    /// a device cannot be un-retired.
+    nonisolated static func retirementNotice(standing: DeviceStanding) -> String? {
+        standing.retirementNotice(device: "Mac")
+    }
+
     nonisolated static func joinedChainNotice(
         cache: RegistryCache, projectURL: URL, labels: [String: String]
     ) -> String? {
         guard let root = cache.joinedRoot(for: projectURL) else { return nil }
-        return "This Mac joined \(labels[root] ?? shortCode(root))’s chain."
+        return "This Mac is on \(labels[root] ?? DeviceCode.short(root))’s chain."
+    }
+
+    // MARK: - The project's trust log (signed op log P2b, ruling C)
+
+    /// The heading over History's project-scope section.
+    ///
+    /// One word, because the timeline below it is this DOCUMENT's and these
+    /// entries are the BOOK's: who was let in, who was shown out, which Macs
+    /// claim it. They do not change when the writer opens another chapter, and
+    /// the heading is what says so.
+    static let projectSectionTitle = "Project"
+
+    /// One drawn row: the sentence, the day it happened on where anything
+    /// stamps one, and an icon.
+    ///
+    /// Built once per reload rather than per row (tripwire 4) — and, more to
+    /// the point, built OFF the main actor with the registry read that supplies
+    /// its names, so `body` does no work at all beyond drawing it.
+    struct TrustEventLine: Identifiable, Equatable {
+        let id: String
+        let sentence: String
+        /// Nil for the two honestly undated events — a claimant, and a join
+        /// from a memory written before P2b stamped one. The row draws no date
+        /// rather than inventing one.
+        let date: Date?
+        let symbol: String
+    }
+
+    /// Events → rows. Pure, so the whole section is pinnable with no window.
+    nonisolated static func trustEventLines(
+        _ events: [TrustEvent], labels: [String: String]
+    ) -> [TrustEventLine] {
+        events.map { event in
+            TrustEventLine(
+                id: event.id,
+                sentence: TrustEventSentence.sentence(for: event, labels: labels),
+                date: event.date,
+                symbol: symbol(for: event.kind))
+        }
+    }
+
+    /// The icon for one kind. Exhaustive over `TrustEvent.Kind` on purpose: a
+    /// kind added later has to be given a face here rather than defaulting into
+    /// somebody else's.
+    nonisolated static func symbol(for kind: TrustEvent.Kind) -> String {
+        switch kind {
+        case .admitted, .silentlyAdmitted: return "person.badge.plus"
+        case .revoked: return "person.badge.minus"
+        case .retired: return "moon.zzz"
+        case .claimed: return "flag"
+        case .adopted: return "arrow.triangle.merge"
+        case .joined: return "link"
+        case .anotherClaimant: return "exclamationmark.triangle"
+        case .recordRestored: return "arrow.uturn.backward.circle"
+        }
     }
 
     var body: some View {
@@ -510,7 +651,7 @@ struct HistoryPane: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
-            if let notice = Self.setAsideLinesNotice(lineCount: setAsideLineCount) {
+            if let notice = Self.setAsideLinesNotice(byReason: setAsideLinesByReason) {
                 // The one control this statement of fact carries (P2a, D2):
                 // there is still nothing to bring back, but a sentence that
                 // could never be put down was an accusation the writer could
@@ -541,22 +682,43 @@ struct HistoryPane: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                     Spacer(minLength: 4)
-                    // The one History line with a control. It does nothing in
-                    // P2a — the admission sheet is P2b — so it is drawn
-                    // disabled and says when it will work, rather than being
-                    // left out and leaving the writer with a count they cannot
-                    // answer.
-                    Button(Self.admitTitle) {}
+                    // The one History line with a control. It asks the WINDOW
+                    // to put the sheet up rather than presenting one itself: a
+                    // pane is a column, the sheet belongs to the project
+                    // window, and the same request arrives from two other
+                    // places (a load that held lines, a stranger's file
+                    // syncing in) that this pane knows nothing about.
+                    //
+                    // `forced`, because this is the writer asking — a *Not
+                    // now* earlier in this session must not silence their own
+                    // press.
+                    Button(Self.admitTitle) {
+                        MaughamEvent.postAdmissionRequested(
+                            projectURL: projectURL, forced: true)
+                    }
                         .controlSize(.small)
                         .buttonStyle(.bordered)
-                        .disabled(!Self.admitIsAvailable)
-                        .help(Self.admitUnavailableHelp)
+                        .help(Self.admitHelp)
                         // .help is hover-only; the WHY must reach VoiceOver.
-                        .accessibilityHint(Text(Self.admitUnavailableHelp))
+                        .accessibilityHint(Text(Self.admitHelp))
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+            }
+            if let notice = retirementLine {
+                // Orange, unlike the joined-chain fact beneath it: this one is
+                // a DIVERGENCE the writer can see from nowhere else. This Mac
+                // goes on applying what it writes (`.mine` outranks `.retired`)
+                // and every peer sets those lines aside, so the machine holding
+                // the words is the only one that can be told.
+                Label(notice, systemImage: "moon.zzz")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
             if let notice = joinedChainLine {
@@ -609,7 +771,7 @@ struct HistoryPane: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
-            if entries.isEmpty {
+            if entries.isEmpty && trustEventLines.isEmpty {
                 ContentUnavailableView(
                     emptyTitle,
                     systemImage: emptySymbol,
@@ -621,34 +783,47 @@ struct HistoryPane: View {
                     // never per row (tripwire 4: no per-row computation in
                     // list rows without caching).
                     let predecessors = Self.predecessorIndex(ops: ops)
-                    LazyVStack(spacing: 0) {
-                        ForEach(entries) { entry in
-                            HistoryRow(
-                                entry: entry,
-                                expanded: expanded.contains(entry.id),
-                                lookupOp: { id in opsByOpId[id] },
-                                rewindTarget: {
-                                    if case .op(let op) = entry {
-                                        return predecessors[op.opId]
-                                    }
-                                    return nil
-                                }(),
-                                onToggle: {
-                                    if expanded.contains(entry.id) {
-                                        expanded.remove(entry.id)
-                                    } else {
-                                        expanded.insert(entry.id)
-                                    }
-                                },
-                                onJump: { jump(entry) },
-                                onRevert: {
-                                    if case .checkpoint(let cp) = entry {
-                                        selectedCheckpoint = cp
-                                        showingRestorePicker = true
-                                    }
-                                },
-                                projectURL: projectURL)
-                            Divider()
+                    // The book's own entries lead the document's (ruling C).
+                    // They are FEW — an admission, a revocation, a claim — and
+                    // they are the context every entry below them is written
+                    // in, so they sit above rather than interleaved by date
+                    // into a timeline whose other rows are one document's.
+                    //
+                    // The outer `VStack` is load-bearing: a `ScrollView` does
+                    // not stack its children, so two views handed to it
+                    // directly would be drawn ON TOP of one another. The inner
+                    // stack stays lazy, which is where the rows are.
+                    VStack(spacing: 0) {
+                        projectSection
+                        LazyVStack(spacing: 0) {
+                            ForEach(entries) { entry in
+                                HistoryRow(
+                                    entry: entry,
+                                    expanded: expanded.contains(entry.id),
+                                    lookupOp: { id in opsByOpId[id] },
+                                    rewindTarget: {
+                                        if case .op(let op) = entry {
+                                            return predecessors[op.opId]
+                                        }
+                                        return nil
+                                    }(),
+                                    onToggle: {
+                                        if expanded.contains(entry.id) {
+                                            expanded.remove(entry.id)
+                                        } else {
+                                            expanded.insert(entry.id)
+                                        }
+                                    },
+                                    onJump: { jump(entry) },
+                                    onRevert: {
+                                        if case .checkpoint(let cp) = entry {
+                                            selectedCheckpoint = cp
+                                            showingRestorePicker = true
+                                        }
+                                    },
+                                    projectURL: projectURL)
+                                Divider()
+                            }
                         }
                     }
                 }
@@ -670,6 +845,15 @@ struct HistoryPane: View {
         // this the standing notice went stale and its Retry re-attempted a
         // record that had already come back (the review's I2).
         .onProjectEvent(.maughamQuarantineRecordsChanged, url: projectURL, window: window) { _ in
+            Task { await reload() }
+        }
+        // A device was let in (signed op log P2b) — by this window's sheet, by
+        // a second window on the same book, or silently at open. Both halves of
+        // what this pane says about the chain have changed: the pending count
+        // is smaller or gone, and there is a new dated entry saying who joined.
+        // Without this the banner went on offering Admit… for a device that was
+        // already in.
+        .onProjectEvent(.maughamAdmissionSettled, url: projectURL, window: window) { _ in
             Task { await reload() }
         }
         .sheet(isPresented: $showingRestorePicker) {
@@ -700,6 +884,45 @@ struct HistoryPane: View {
                     report: report,
                     document: documentStore?.document(forDocId: activeDocId),
                     onDismiss: { showingRecoveredHistorySheet = false })
+            }
+        }
+    }
+
+    /// History's project-scope section: what happened to this book's people,
+    /// dated, above the document's own timeline (ruling C).
+    ///
+    /// Absent entirely when nothing has happened — which is every project that
+    /// has never joined a chain, admitted anybody or been claimed, and so is
+    /// most of them. A heading over an empty list would be a permanent reminder
+    /// of a feature the writer is not using.
+    @ViewBuilder
+    private var projectSection: some View {
+        if !trustEventLines.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(Self.projectSectionTitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(trustEventLines) { line in
+                    HStack(spacing: 6) {
+                        Label(line.sentence, systemImage: line.symbol)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 4)
+                        if let date = line.date {
+                            Text(date.formatted(date: .abbreviated, time: .omitted))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Divider()
+                }
             }
         }
     }
@@ -767,7 +990,7 @@ struct HistoryPane: View {
         setAsideRecordNames = setAside.map {
             SetAsideAcknowledgement.name(for: $0, in: projectURL)
         }
-        setAsideLineCount = Self.setAsideLineCount(
+        setAsideLinesByReason = Self.setAsideLinesByReason(
             records: SetAsideAcknowledgement.unacknowledged(
                 records: setAside,
                 acknowledged: documentStore?.uiState.acknowledgedSetAsideRecords ?? [],
@@ -801,20 +1024,43 @@ struct HistoryPane: View {
         guard TrustResolution.hasRegistry(in: url) else {
             chainDeviceNames = [:]
             joinedChainLine = nil
+            retirementLine = nil
+            trustEventLines = []
             return
         }
         let resolved = await Task.detached(priority: .userInitiated) {
-            () -> (names: [String: String], joined: String?) in
+            () -> (names: [String: String], joined: String?, retired: String?,
+                   events: [TrustEventLine]) in
             let registry = try? RegistryReader.load(projectURL: url)
             var names: [String: String] = [:]
             var labels: [String: String] = [:]
             for device in registry?.devices ?? [] { names[device.device] = device.name }
             for person in registry?.people ?? [] { labels[person.person] = person.label }
-            return (names, HistoryPane.joinedChainNotice(
-                cache: .shared, projectURL: url, labels: labels))
+            // The events are derived from whatever the read could vouch for —
+            // an unreadable registry costs the writer names, never the pane
+            // (RULING-54's trade, as P2a made it for the two banners). What a
+            // device REMEMBERS is still read: the join and the claimants are
+            // this Mac's own facts and survive a folder nobody can read.
+            let events = TrustEvents.derive(
+                registry: registry ?? Registry(), cache: .shared,
+                mine: .current, for: url)
+            // This Mac's own standing, for the one fact on it that the machine
+            // itself has to be told: `DeviceStanding` owns the sentence so the
+            // pane and People & Devices cannot word it differently (tripwire
+            // 19), and the noun is this app's — a Mac.
+            let standing = DeviceStanding.resolve(
+                registry: registry ?? Registry(), cache: .shared,
+                mine: .current, for: url)
+            return (names,
+                    HistoryPane.joinedChainNotice(
+                        cache: .shared, projectURL: url, labels: labels),
+                    HistoryPane.retirementNotice(standing: standing),
+                    HistoryPane.trustEventLines(events, labels: labels))
         }.value
         chainDeviceNames = resolved.names
         joinedChainLine = resolved.joined
+        retirementLine = resolved.retired
+        trustEventLines = resolved.events
     }
 
     /// Put the set-aside sentence down: every record it could be about is

@@ -480,4 +480,75 @@ final class OpLogQuarantineTests: XCTestCase {
         let record = try JSONDecoder().decode(QuarantineRecord.self, from: json)
         XCTAssertEqual(record.kind, .file)
     }
+
+    // MARK: - The revocation split (P2b Task 7, spec §5)
+
+    /// Only a revocation splits. A broken chain has no *before*, so its lines
+    /// stay one group under the walk's own cause and one `.lines` record.
+    func test_acauseThatIsNotARevocationIsOneGroupWhateverTheMark() {
+        let lines = [opLine("01K5Q8ZJ3M0000000000000001"),
+                     opLine("01K5Q8ZJ3M0000000000000009")]
+        let verification = quarantinedVerification(
+            lines, cause: .chainBroke(.prevMismatch(lineIndex: 0)))
+
+        let groups = RevocationSplit.groups(
+            of: verification, highestOpIdSeen: "01K5Q8ZJ3M0000000000000005")
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups.first?.cause, .chainBroke(.prevMismatch(lineIndex: 0)))
+        XCTAssertEqual(groups.first?.lines, lines)
+    }
+
+    /// **A line whose opId cannot be read — a seal, or a shape this build
+    /// cannot parse — follows the ops it sits among.** With something above the
+    /// mark it is filed on the STRICT side, because the gentler sentence claims
+    /// a position nobody can establish; with every op below the mark there is
+    /// no strict side to join, and calling the line that SEALED history this
+    /// Mac had already applied "written after the door closed" would be an
+    /// accusation about the only line in the span that is not an op.
+    func test_alineWithNoReadableOpIdFollowsTheOpsAroundIt() {
+        let unplaceable = Data("{not json at all".utf8)
+        let late = opLine("01K5Q8ZJ3M0000000000000001")
+        let after = opLine("01K5Q8ZJ3M0000000000000009")
+        let mark = "01K5Q8ZJ3M0000000000000005"
+
+        let split = RevocationSplit.groups(
+            of: quarantinedVerification(
+                [unplaceable, late, after], cause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: mark)
+
+        XCTAssertEqual(split.count, 2)
+        XCTAssertEqual(split.first?.cause, .afterRevocation(person: "aaaa"))
+        XCTAssertEqual(split.first?.lines, [unplaceable, after],
+                       "the unplaceable line goes with what came after")
+        XCTAssertEqual(split.last?.cause, .revocationLate(person: "aaaa"))
+        XCTAssertEqual(split.last?.lines, [late])
+
+        let allLate = RevocationSplit.groups(
+            of: quarantinedVerification(
+                [late, unplaceable], cause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: mark)
+
+        XCTAssertEqual(allLate.count, 1)
+        XCTAssertEqual(allLate.first?.cause, .revocationLate(person: "aaaa"))
+        XCTAssertEqual(allLate.first?.lines, [late, unplaceable],
+                       "with no op above the mark there is no strict side to join")
+    }
+
+    private func opLine(_ opId: String) -> Data {
+        Data(#"{"op_id":"\#(opId)","doc_id":"doc-1"}"#.utf8)
+    }
+
+    /// A verification carrying nothing but the quarantined lines and their
+    /// cause — the two inputs the split reads. Built by hand rather than walked,
+    /// because what is under test is the split and not the walk.
+    private func quarantinedVerification(
+        _ lines: [Data], cause: OpLogChain.QuarantineCause
+    ) -> OpLogChain.Verification {
+        OpLogChain.Verification(
+            lines: lines.map { OpLogChain.Line(bytes: $0, kind: .op, state: .quarantined) },
+            head: nil, legacyCount: 0, verifiedCount: 0, unsealedCount: 0,
+            pendingCount: 0, foreignSealCount: 0, quarantined: lines,
+            breakReason: nil, quarantineCause: cause)
+    }
 }
