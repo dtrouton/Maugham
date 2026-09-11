@@ -73,6 +73,34 @@ struct InboxPane: View {
              + "kept in backup, not shown."
     }
 
+    /// **What this book is holding, and from whom** (signed op log P2, spec
+    /// §6's Inbox line, ruled on in Task 9's review).
+    ///
+    /// A pending capture is HELD: it is neither applied nor refused, so it is
+    /// not a row here and never will be until the writer admits the device that
+    /// wrote it. That is exactly why it needs a banner — a phone syncing
+    /// captures into a book that shows none of them, with nothing said, is the
+    /// writer waiting on an admission nobody has asked them for.
+    ///
+    /// Pure over the counts and the names, so the copy pins with no window and
+    /// no disk. Both come from `InboxStore`'s own refresh.
+    static func pendingNotice(
+        counts: [String: Int], names: [String: String]
+    ) -> String? {
+        let total = counts.values.reduce(0, +)
+        guard total > 0 else { return nil }
+        let captures = total == 1 ? "1 capture" : "\(total) captures"
+        let verb = total == 1 ? "is" : "are"
+        let devices = counts.keys.sorted()
+        let from: String
+        if devices.count == 1, let only = devices.first {
+            from = names[only] ?? DeviceCode.short(only)
+        } else {
+            from = "\(devices.count) devices"
+        }
+        return "\(captures) from \(from) \(verb) waiting for admission."
+    }
+
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .abbreviated
@@ -83,6 +111,29 @@ struct InboxPane: View {
         VStack(spacing: 0) {
             header
             Divider()
+            if let pending = Self.pendingNotice(
+                counts: store.pendingByDevice, names: store.pendingDeviceNames) {
+                // The one banner in this pane that carries a control, because
+                // it is the one that asks the writer a question rather than
+                // reporting a refusal. The sheet belongs to the WINDOW — a pane
+                // is not a presenter, and only the window knows which device is
+                // waiting on it now — so the button posts and the window asks.
+                HStack(spacing: 8) {
+                    Label(pending, systemImage: "person.badge.clock")
+                        .font(.caption)
+                    Spacer(minLength: 4)
+                    Button("Admit\u{2026}") {
+                        MaughamEvent.postAdmissionRequested(
+                            projectURL: projectStore.url, forced: true)
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+            }
             if let registryNotice = store.unreadableRegistry {
                 // A registry record, not a capture. Its own sentence, because
                 // wrapping it in "some captures can't be read" would name a

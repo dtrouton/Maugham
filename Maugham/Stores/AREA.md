@@ -306,6 +306,17 @@ stranger's SEALED rows, which never become rows at all because a stranger's
 span is held back (`JSONLAppendStore`) — the row a writer meets under a *not
 yet admitted* byline is one that arrived as unsigned history.
 
+**And what a stranger's held rows amount to is counted, because they are rows
+nothing draws** (P2b Task 6). `InboxStore.pendingByDevice` sums the held-line
+counts the verified read itself already computed
+(`JSONLAppendStore.loadVerifiedStrict`'s third answer), keyed on the DEVICE
+fingerprint the chain keys `.pending` on, with `pendingDeviceNames` beside it
+resolved off the same registry — a pending device appears in no row at all, so
+`bylines` cannot answer for it. Both are emptied when the registry read refuses.
+`InboxPane.pendingNotice(counts:names:)` turns them into the pane's one banner
+that carries a control, and Project Settings' People & Devices section reads the
+same two properties for its pending rows.
+
 
 ## Promote-into-card seam (2026-07-11)
 

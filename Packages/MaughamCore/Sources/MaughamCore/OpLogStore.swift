@@ -739,16 +739,19 @@ public final class OpLogStore {
     ) -> FileProvenance {
         var legacy = 0, verified = 0, unsealed = 0, unsignedHistory = 0, quarantined = 0
         var pending = 0
-        var pendingByDevice: [String: Int] = [:]
+        // The split by device is `OpLogChain`'s own derivation, asked for here
+        // rather than repeated: the inbox's pending banner asks the same
+        // question of a different stream, and two spellings of one count is how
+        // two surfaces come to disagree about who is waiting.
+        let pendingByDevice = OpLogChain.pendingByDevice(of: lines)
         for line in lines {
             switch line.state {
             case .legacy: legacy += 1
             case .verified: verified += 1
             case .unsealed: unsealed += 1
             case .unsignedHistory: unsignedHistory += 1
-            case let .pending(device):
+            case .pending:
                 pending += 1
-                pendingByDevice[device, default: 0] += 1
             // A torn last line is in no provenance class: it was never
             // applied as history and it was never held back either. The
             // element decoder reports it in `diagnostics.skipped`, which is

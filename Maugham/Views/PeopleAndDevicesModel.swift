@@ -1,0 +1,333 @@
+import Foundation
+import MaughamCore
+
+/// **Who may write in this book, on which devices, and what is waiting**
+/// (signed op log P2, spec §6) — as a value.
+///
+/// The registry is three directories of signed records; the trust table turns
+/// them into verdicts; this device's own memory holds the labels it gave and
+/// the claimants it has heard. A writer asking *who is in my book* needs all
+/// three put together, and the putting-together is the part with the judgment
+/// in it: which row is a question and which is a fact, which root is this Mac,
+/// which claimant has already been answered. So it is decided here, once, as a
+/// pure function, and the section below it draws exactly what it is handed.
+///
+/// **Nothing here reads a folder, a clock or a shared cache.** Every input is
+/// an argument, which is what lets each rule be pinned as a value —
+/// `TrustTable`'s own discipline, for its own reason.
+///
+/// **A refusal is a state of its own** (RULING-54). A registry record present
+/// and unreadable answers with the read's own sentence and NO rows: empty rows
+/// would tell the writer that nobody may write in this book, which is a trust
+/// decision nobody made.
+struct PeopleAndDevicesModel: Equatable {
+
+    /// The one sentence that says what this section can and cannot do. Removing
+    /// a device here is Maugham's decision about what it applies; it is not a
+    /// lock on the folder, and a writer who thought otherwise would leave a
+    /// machine they meant to shut out still writing into the share.
+    static let shareSentence =
+        "Removing a device here stops Maugham applying what it writes. "
+        + "To stop it writing at all, remove it from the iCloud share."
+
+    /// What the three controls this section draws but does not yet wire say
+    /// when the writer hovers them. Drawn disabled rather than hidden, so the
+    /// shape of the section does not change under the writer when the verbs
+    /// arrive (P2a's Admit… pattern).
+    static let mergeSoon = "Merging arrives with the next update"
+    static let revokeSoon = "Revoking arrives with the next update"
+    static let retireSoon = "Retiring arrives with the next update"
+
+    // MARK: - Rows
+
+    /// A device whose writes this book is HOLDING — the only row that asks the
+    /// writer for something, which is why they come first.
+    struct PendingRequest: Equatable, Identifiable {
+        /// The device record's fingerprint, or the seal key itself when no
+        /// record on disk names it. It is what an Admit… is about.
+        let fingerprint: String
+        /// The device's own name, or its code when the book knows no name.
+        let name: String
+        /// The four characters the device shows on its own Settings screen —
+        /// the whole of how an admission is checked.
+        let code: String
+        let heldLines: Int
+
+        var id: String { fingerprint }
+
+        var sentence: String {
+            let held = heldLines == 1 ? "1 line" : "\(heldLines) lines"
+            return "\(name) (\(code)) — \(held) waiting"
+        }
+    }
+
+    /// One machine, as its own record describes it.
+    struct Device: Equatable, Identifiable {
+        let fingerprint: String
+        let name: String
+        /// *Mac*, *iPhone*, or whatever an unfamiliar record calls itself.
+        let kind: String
+        /// The actors this device holds, as words, in the order `DeviceActor`
+        /// declares them. A count of keys would say nothing about what the
+        /// machine may write.
+        let actors: [String]
+        let addedAt: Date
+        let retiredAt: Date?
+        let isThisMac: Bool
+
+        var id: String { fingerprint }
+
+        var detail: String {
+            var parts = [kind]
+            if !actors.isEmpty { parts.append(actors.joined(separator: ", ")) }
+            parts.append("added \(PeopleAndDevicesModel.day(addedAt))")
+            if let retiredAt {
+                parts.append("retired \(PeopleAndDevicesModel.day(retiredAt))")
+            }
+            return parts.joined(separator: " · ")
+        }
+    }
+
+    /// One admitted person — under labels-only, one author key with a name the
+    /// root gave it.
+    struct Person: Equatable, Identifiable {
+        let fingerprint: String
+        let label: String
+        /// The device's own name, when it differs from the label. A writer who
+        /// called both machines "Denver" needs to know which is which before
+        /// they revoke one.
+        let ownName: String?
+        let role: String
+        let admittedAt: Date
+        let revokedAt: Date?
+        /// *this Mac*, or *<label>'s Mac* for a root somebody else owns. Nil
+        /// for everyone who is not the root of this book's chain.
+        let mark: String?
+        let devices: [Device]
+
+        var id: String { fingerprint }
+
+        var title: String {
+            guard let ownName else { return label }
+            return "\(label) (\(ownName))"
+        }
+
+        var detail: String {
+            if let revokedAt {
+                return "\(role) · revoked \(PeopleAndDevicesModel.day(revokedAt))"
+            }
+            return "\(role) · admitted \(PeopleAndDevicesModel.day(admittedAt))"
+        }
+    }
+
+    /// A root this device has something to say about but nothing to nest under
+    /// it: a claimant, an adopted chain, or a device this Mac remembers
+    /// labelling whose record is no longer in the folder.
+    struct Named: Equatable, Identifiable {
+        let fingerprint: String
+        let name: String
+        let code: String
+
+        var id: String { fingerprint }
+    }
+
+    // MARK: - The model
+
+    /// The registry read's own sentence, when it refused. Everything else is
+    /// empty in that case, deliberately.
+    let refusal: String?
+    /// What this device is to this book, in `DeviceStanding`'s one sentence —
+    /// the same words the phone's Settings row shows, so the two screens can be
+    /// compared (tripwire 19).
+    let standing: String
+    /// This device's own four-character code.
+    let code: String
+    let pending: [PendingRequest]
+    let people: [Person]
+    /// Roots this device's own root has adopted: listed as *merged*, because
+    /// the writer has already answered the question a claimant asks.
+    let merged: [Named]
+    /// Roots that name this device without being the one it is on. Listed,
+    /// never merged (B1).
+    let claimants: [Named]
+    /// Devices this Mac remembers labelling whose record is not in the folder —
+    /// the only thing left naming them, and **Forget this device** clears it.
+    let absent: [Named]
+
+    // MARK: - Making it
+
+    /// The rows for one project.
+    ///
+    /// - Parameters:
+    ///   - registry: the verified records, as `TrustResolution` resolved them.
+    ///   - table: the verdicts resolved from exactly that registry — a second
+    ///     read here would let this section describe a device off a folder the
+    ///     verdicts were not taken from.
+    ///   - remembered: `AdmissionMemory`'s labels, by fingerprint.
+    ///   - pending: held lines by device, as the last read counted them.
+    ///   - claimants: `RegistryCache.claimants(for:)`.
+    ///   - standing: this device's own sentence, and the carrier of a refusal.
+    ///   - me: this device's author fingerprint.
+    static func make(
+        registry: Registry,
+        table: TrustTable,
+        remembered: [String: AdmissionMemory.Label],
+        pending: [String: Int],
+        claimants: [String],
+        standing: DeviceStanding,
+        me: String
+    ) -> PeopleAndDevicesModel {
+        if let refusal = standing.refusal {
+            return PeopleAndDevicesModel(
+                refusal: refusal, standing: standing.sentence, code: standing.code,
+                pending: [], people: [], merged: [], claimants: [], absent: [])
+        }
+
+        let deviceByFingerprint = Dictionary(
+            registry.devices.map { ($0.device, $0) }, uniquingKeysWith: { first, _ in first })
+
+        func name(_ fingerprint: String) -> String {
+            registry.person(fingerprint)?.label
+                ?? deviceByFingerprint[fingerprint]?.name
+                ?? DeviceCode.short(fingerprint)
+        }
+
+        func named(_ fingerprint: String) -> Named {
+            Named(fingerprint: fingerprint, name: name(fingerprint),
+                  code: DeviceCode.short(fingerprint))
+        }
+
+        // **Pending is asked of the TABLE, not only of the count.** The counts
+        // are what the last read held; the verdicts are the registry as it
+        // stands now. Admitting somebody has to take their row away rather than
+        // leave a button that would do nothing.
+        var requests: [PendingRequest] = []
+        for (fingerprint, count) in pending {
+            guard count > 0 else { continue }
+            guard case .stranger = table.verdict(forSealKey: fingerprint) else { continue }
+            requests.append(PendingRequest(
+                fingerprint: fingerprint,
+                // The inbox banner's own naming rule, asked for rather than
+                // repeated: the two surfaces name the same device about the
+                // same decision.
+                name: InboxByline.name(forDevice: fingerprint, registry: registry),
+                code: DeviceCode.short(fingerprint),
+                heldLines: count))
+        }
+        requests.sort { left, right in
+            left.heldLines == right.heldLines
+                ? left.fingerprint < right.fingerprint
+                : left.heldLines > right.heldLines
+        }
+
+        // Everyone on the chain this device judges by, and nobody else: a
+        // person under another root is that root's business, and is listed —
+        // if it concerns this device at all — as a claimant below.
+        let members: Set<String> = table.myRoot.map { registry.chain(underRoot: $0) } ?? []
+        var memberRecords: [PersonRecord] = registry.people.filter {
+            members.contains($0.person)
+        }
+        memberRecords.sort { left, right in
+            left.admittedAt == right.admittedAt
+                ? left.label < right.label
+                : left.admittedAt < right.admittedAt
+        }
+        let people: [Person] = memberRecords.map { record in
+            person(record, in: registry, myRoot: table.myRoot, me: me)
+        }
+
+        let adopted = Set(table.adoptedRoots)
+        let merged: [Named] = table.adoptedRoots.map(named)
+        // A claimant this device has ADOPTED is merged, not claiming: it has
+        // been answered, and listing it in both places would ask the writer a
+        // question they have already settled (Task 2's carry).
+        let stillClaiming: [Named] = claimants
+            .filter { !adopted.contains($0) }
+            .sorted()
+            .map(named)
+        var absent: [Named] = []
+        for fingerprint in remembered.keys.sorted() {
+            guard registry.person(fingerprint) == nil,
+                  deviceByFingerprint[fingerprint] == nil else { continue }
+            absent.append(Named(
+                fingerprint: fingerprint,
+                name: remembered[fingerprint]?.label ?? DeviceCode.short(fingerprint),
+                code: DeviceCode.short(fingerprint)))
+        }
+
+        return PeopleAndDevicesModel(
+            refusal: nil,
+            standing: standing.sentence,
+            code: standing.code,
+            pending: requests,
+            people: people,
+            merged: merged,
+            claimants: stillClaiming,
+            absent: absent)
+    }
+
+    /// One person's row, with the devices whose records name them nested under
+    /// it. Under labels-only a person IS a device's author key, so that is at
+    /// most one machine today; it is a list because the shape this milestone
+    /// leaves room for is a person key with several.
+    private static func person(
+        _ record: PersonRecord, in registry: Registry, myRoot: String?, me: String
+    ) -> Person {
+        let devices: [Device] = registry.devices
+            .filter { $0.device == record.person }
+            .map { device in
+                Device(
+                    fingerprint: device.device, name: device.name,
+                    kind: word(for: device.kind), actors: actorWords(of: device),
+                    addedAt: device.madeAt, retiredAt: device.retiredAt,
+                    isThisMac: device.device == me)
+            }
+        return Person(
+            fingerprint: record.person, label: record.label,
+            ownName: record.ownName == record.label ? nil : record.ownName,
+            role: record.role, admittedAt: record.admittedAt,
+            revokedAt: record.revokedAt,
+            mark: mark(for: record, myRoot: myRoot, me: me),
+            devices: devices)
+    }
+
+    /// *this Mac* for the root that is this device, *<label>'s Mac* for a root
+    /// somebody else owns, nothing for anyone who is not the root. Saying "this
+    /// Mac" of a foreign root would be a lie about whose machine holds the book.
+    private static func mark(
+        for record: PersonRecord, myRoot: String?, me: String
+    ) -> String? {
+        guard record.person == myRoot else { return nil }
+        return record.person == me ? "this Mac" : "\(record.label)\u{2019}s Mac"
+    }
+
+    private static func word(for kind: DeviceKind) -> String {
+        switch kind {
+        case .mac: return "Mac"
+        case .phone: return "iPhone"
+        case .unknown(let raw): return raw
+        }
+    }
+
+    /// The actors a device holds, in the order `DeviceActor` declares them,
+    /// with anything an unfamiliar build named appended in its own order — a
+    /// record is a wire format and a word this build does not know is still
+    /// something the writer is owed.
+    private static func actorWords(of device: DeviceRecord) -> [String] {
+        let known = DeviceActor.allCases.map(\.rawValue)
+        let held = Set(device.actors.keys)
+        return known.filter(held.contains)
+            + held.subtracting(known).sorted()
+    }
+
+    /// *9 Sep* — `DeviceStanding`'s own formatting, for its reason: a date a
+    /// writer is reading off a settings row is the day it happened, never a
+    /// timestamp.
+    static func day(_ date: Date) -> String { dayFormatter.string(from: date) }
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("dMMM")
+        return formatter
+    }()
+}

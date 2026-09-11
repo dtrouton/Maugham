@@ -27,6 +27,12 @@ struct ProjectSettingsSheet: View {
     @State private var firstReaderDraft: String = ""
     @FocusState private var firstReaderNameFocused: Bool
 
+    /// Who may write in this book, as of the last read (spec §6). Nil until the
+    /// first resolve lands: a registry read is a directory walk plus a P256
+    /// verification per record, so it happens in a `.task` off the main actor
+    /// and the section simply is not there until it answers.
+    @State private var peopleAndDevices: PeopleAndDevicesModel?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -84,6 +90,19 @@ struct ProjectSettingsSheet: View {
                 screenplaySection()
                 coachSection()
                 firstReaderSection()
+                if let peopleAndDevices {
+                    PeopleAndDevicesSection(
+                        model: peopleAndDevices,
+                        admit: {
+                            // The window opens the sheet; a settings sheet is
+                            // not a presenter of another sheet, and only the
+                            // window knows which device is waiting on it now.
+                            MaughamEvent.postAdmissionRequested(
+                                projectURL: store.url, forced: true)
+                            dismiss()
+                        },
+                        forget: forgetDevice)
+                }
                 reviewPassesSection()
             }
             .formStyle(.grouped)
@@ -118,6 +137,7 @@ struct ProjectSettingsSheet: View {
         }
         .frame(minWidth: 540, minHeight: 360)
         .task { initializeDraft() }
+        .task { await loadPeopleAndDevices() }
     }
 
     private func curatedFonts() -> [TypographySettings.CuratedFont] {
@@ -324,6 +344,62 @@ struct ProjectSettingsSheet: View {
     /// `.onDisappear` — both read the pre-write value and both save. The same
     /// string either way, so this is a redundant file write rather than a lost
     /// or reordered one, and it is why the four callers are safe to have.
+    // MARK: - People & Devices
+
+    /// Resolve who may write in this book, off the main actor.
+    ///
+    /// **The registry read and the trust table are one act**
+    /// (`TrustResolution.resolveVerified`), for its own stated reason: a
+    /// surface that read the folder a second time would describe a device off a
+    /// registry the verdicts were not taken from.
+    ///
+    /// **It refuses out loud** (RULING-54). A record present and unreadable
+    /// answers `DeviceStanding.refused`, whose sentence names the file and says
+    /// what Maugham will not do over it — never an empty list of people, which
+    /// would read as *nobody may write in this book*.
+    ///
+    /// **What is waiting comes from the project's own capture stream.** The
+    /// inbox already resolves this book's trust on every refresh and counts the
+    /// lines it held, so this asks it rather than re-verifying every manifest
+    /// here. A document's held OPS are not in this number: those are per
+    /// document and belong to the window that has one open.
+    private func loadPeopleAndDevices() async {
+        let inbox = store.documentStore?.inboxStore
+        await inbox?.refresh()
+        let pending = inbox?.pendingByDevice ?? [:]
+        let url = store.url
+        peopleAndDevices = await Task.detached(priority: .userInitiated) {
+            let mine = LocalIdentities.current
+            let remembered = AdmissionMemory.shared.remembered
+            let claimants = RegistryCache.shared.claimants(for: url)
+            do {
+                let resolved = try TrustResolution.resolveVerified(
+                    projectURL: url, identities: mine)
+                return PeopleAndDevicesModel.make(
+                    registry: resolved.registry, table: resolved.table,
+                    remembered: remembered, pending: pending, claimants: claimants,
+                    standing: DeviceStanding.resolve(
+                        registry: resolved.registry, cache: .shared,
+                        mine: mine, for: url),
+                    me: mine.author.fingerprint)
+            } catch {
+                return PeopleAndDevicesModel.make(
+                    registry: Registry(), table: TrustResolution.keyless(mine: mine),
+                    remembered: remembered, pending: pending, claimants: claimants,
+                    standing: DeviceStanding.refused(mine: mine, error: error),
+                    me: mine.author.fingerprint)
+            }
+        }.value
+    }
+
+    /// Clear this Mac's memory of the name it gave a device the folder no
+    /// longer describes. It touches no registry record — there is none left to
+    /// touch, which is the whole reason the row is offered.
+    private func forgetDevice(_ fingerprint: String) {
+        AdmissionMemory.shared.forget(fingerprint)
+        Task { await loadPeopleAndDevices() }
+    }
+
     private func commitFirstReaderName() {
         guard Self.nameNeedsCommitting(
             draft: firstReaderDraft, stored: store.manifest.firstReaderName) else { return }

@@ -525,6 +525,25 @@ public enum OpLogChain {
         case anotherClaimants(root: String)
     }
 
+    /// **Held lines counted by the DEVICE whose seal holds them** — the one
+    /// derivation of that split, so every reader that asks *who is waiting*
+    /// gets the same answer.
+    ///
+    /// The op log's provenance (`OpLogStore.provenance`) and the inbox's
+    /// pending banner both ask it, of different streams, and two spellings of
+    /// the same count is how one surface comes to say a phone is waiting while
+    /// the other says nobody is. Keyed the way `Line.State.pending` is keyed:
+    /// on the device record's fingerprint, with a key no record names standing
+    /// for itself.
+    nonisolated public static func pendingByDevice(of lines: [Line]) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for line in lines {
+            guard let device = line.state.pendingDevice else { continue }
+            counts[device, default: 0] += 1
+        }
+        return counts
+    }
+
     public struct Verification: Equatable, Sendable {
         /// Every non-blank line, in file order, classified.
         public let lines: [Line]

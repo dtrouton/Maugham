@@ -93,9 +93,24 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     /// It writes NOTHING to this device's memory. Adopting a head is the op
     /// log's own decision (`OpLogStore.classifyTail`'s adopt rule), made where
     /// the provenance that justifies it is in hand.
-    public func loadVerifiedStrict() async throws -> (elements: [Element], diagnostics: ParseDiagnostics) {
+    ///
+    /// **`pendingByDevice` is the third answer, and it is not a diagnostic.**
+    /// The elements are what this device applied; the held lines are what it is
+    /// waiting on the writer to decide about, and a reader that got only the
+    /// first would present a stream missing another device's captures as
+    /// simply short. The op log carries the same number in `FileProvenance`;
+    /// this is where a stream with no provenance of its own — the inbox's
+    /// manifest — gets it. Empty for a store with no chain policy, which holds
+    /// nothing back.
+    public func loadVerifiedStrict() async throws -> (
+        elements: [Element], diagnostics: ParseDiagnostics,
+        pendingByDevice: [String: Int]
+    ) {
         let bytes = try readBytesStrict()
-        guard let chain else { return parseDiagnosed(bytes: bytes) }
+        guard let chain else {
+            let plain = parseDiagnosed(bytes: bytes)
+            return (plain.elements, plain.diagnostics, [:])
+        }
         let fileKey = OpLogDeviceState.fileKey(fileURL)
         let walked = OpLogChain.verify(
             bytes: bytes,
@@ -125,7 +140,8 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
                 \(String(describing: error), privacy: .public).
                 """)
         }
-        return (read.elements, read.diagnostics)
+        return (read.elements, read.diagnostics,
+                OpLogChain.pendingByDevice(of: read.verification.lines))
     }
 
     /// Verify, keep, parse — the pure middle of every chained read, callable on

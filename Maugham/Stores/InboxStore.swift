@@ -77,6 +77,31 @@ final class InboxStore {
     /// (B3, where P1's behaviour is the correct one).
     private(set) var bylines: [String: String] = [:]
 
+    /// **How many manifest lines this book is HOLDING, by the device whose
+    /// seal holds them** (spec §3, §6). Keyed on the device record's
+    /// fingerprint, with a key no record names standing for itself — the
+    /// chain's own keying, so an Admit… raised here is about the same device an
+    /// admission would name.
+    ///
+    /// It is not a diagnostic and it is not `entries`: a held capture is
+    /// neither applied nor refused, so without this the pane would present a
+    /// stranger's captures as simply absent — the writer would see an inbox
+    /// with nothing in it and no reason given, which is the one shape a refusal
+    /// may not take.
+    ///
+    /// Counted over every manifest by the verified read itself
+    /// (`JSONLAppendStore.loadVerifiedStrict`), so nothing here re-verifies a
+    /// file to answer it.
+    private(set) var pendingByDevice: [String: Int] = [:]
+
+    /// What to call each device in `pendingByDevice` — its own record's name,
+    /// else its code. Resolved on the same refresh, off the same verified
+    /// registry, for `bylines`' reason: a per-row read would be one read per
+    /// capture, and a second read would be a second opinion about who wrote
+    /// this book. A pending device's captures are held, so it appears in NO
+    /// row and `bylines` cannot answer for it.
+    private(set) var pendingDeviceNames: [String: String] = [:]
+
     private let projectURL: URL
     private let inboxDir: URL
     /// This Mac's own device identifier — the same string the op-log `device`
@@ -206,11 +231,14 @@ final class InboxStore {
             entries = []
             trashedEntries = []
             bylines = [:]
+            pendingByDevice = [:]
+            pendingDeviceNames = [:]
             setAsideRecords = setAsideLineRecords()
             inboxStoreLog.error(
                 "inbox read refused: \(OpLogStore.unreadableName(error), privacy: .public) is present and unreadable: \(error.localizedDescription, privacy: .public)")
             return
         }
+        var held: [String: Int] = [:]
         for url in urls {
             // The verified read (spec §4.2): seal lines never reach the entry
             // decoder, and a run of lines this device cannot vouch for is set
@@ -218,7 +246,13 @@ final class InboxStore {
             // parsed — the same three steps the op log's tails take, in the
             // same implementation.
             let store = manifestStore(at: url, trust: table)
-            do { rows.append(contentsOf: try await store.loadVerifiedStrict().elements) }
+            do {
+                let read = try await store.loadVerifiedStrict()
+                rows.append(contentsOf: read.elements)
+                for (device, count) in read.pendingByDevice {
+                    held[device, default: 0] += count
+                }
+            }
             catch {
                 // Unreadable is RECORDED, never presented as empty (RULING-7):
                 // the device's captures are intact in the file; the pane says
@@ -263,6 +297,10 @@ final class InboxStore {
             .sorted { writeTime($0) > writeTime($1) }
         bylines = Self.bylines(
             for: entries + trashedEntries, registry: registry, table: table)
+        pendingByDevice = held
+        pendingDeviceNames = held.keys.reduce(into: [:]) { names, device in
+            names[device] = InboxByline.name(forDevice: device, registry: registry)
+        }
     }
 
     /// One byline per DEVICE, not per row: a phone that sent forty captures is

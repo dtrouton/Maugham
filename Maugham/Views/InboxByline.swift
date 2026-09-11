@@ -21,6 +21,24 @@ import MaughamCore
 /// would invent a state the project is not in.
 enum InboxByline {
 
+    /// **What to call a device that has written into this book**, admitted or
+    /// not: the name its own record gives, and otherwise the four-character
+    /// code its Settings screen shows.
+    ///
+    /// One spelling, because two surfaces ask it of the same device and about
+    /// the same decision — the Inbox's pending banner, and People & Devices'
+    /// pending row — and a writer comparing *N captures from The old iPhone*
+    /// with a row naming that phone something else has no way to tell whether
+    /// they are looking at one machine or two.
+    ///
+    /// Keyed on the DEVICE fingerprint (what a held line carries), never on a
+    /// capture's `deviceId`, which is the actor form `text(forDeviceId:…)`
+    /// below takes.
+    static func name(forDevice fingerprint: String, registry: Registry) -> String {
+        registry.devices.first { $0.device == fingerprint }?.name
+            ?? DeviceCode.short(fingerprint)
+    }
+
     /// The line for one capture's `deviceId`, or nil when there is nothing
     /// worth saying: this Mac's own capture, and any capture in a book this
     /// device is on no chain of.
