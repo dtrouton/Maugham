@@ -66,6 +66,32 @@ extension DocumentStore {
         return record
     }
 
+    /// **Claim this book, and adopt the history it holds** (spec §5, P2b Task
+    /// 8). Answers the claim record that now stands for this Mac.
+    ///
+    /// Two surfaces reach it and they are the same act: the sheet a Mac in no
+    /// chain is shown at open, which adopts every root it found, and People &
+    /// Devices' *Merge: this is also me*, which adopts one claimant. Adoption
+    /// is symmetric — the other Mac makes the same call naming this one — and
+    /// neither half moves anybody's root (B1).
+    ///
+    /// The settle afterwards is what makes it visible: every table in flight
+    /// was resolved while this device had no chain at all, so the adopted
+    /// history would otherwise go on reading as unsigned until the next open.
+    @discardableResult
+    public func claim(adopting roots: [String]) async throws -> ClaimRecord {
+        let projectURL = self.projectURL
+        let author = Document.loadIdentities.author
+        let cache = Document.loadRegistryCache
+        let record = try await Task.detached(priority: .userInitiated) {
+            try RegistryAdmission.claim(
+                adopting: roots, in: projectURL, by: author, cache: cache)
+        }.value
+
+        await settle(after: "claiming", DeviceCode.short(record.newRoot))
+        return record
+    }
+
     /// Forget every resolved table, re-read every open document, and say so —
     /// `admit`'s own third act, shared rather than spelled twice.
     ///

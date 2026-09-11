@@ -8,14 +8,10 @@ import MaughamCore
 /// has been answered — is made in that value and asserted with nothing mounted.
 /// What is left here is layout and four verbs.
 ///
-/// **Revoke and Retire are live as of P2b Task 7**; Merge is still drawn
-/// disabled with a tooltip saying when it arrives. Drawn rather than hidden,
-/// for P2a's Admit… reason: a control that appears later moves everything under
-/// it, and a writer who has learned where Merge lives should find it in the
-/// same place when it starts working. A live verb that this Mac may not perform
-/// on a given row is disabled with the reason in its tooltip — never hidden,
-/// for the same reason and one more: *why can I not revoke this* is a question
-/// an absent button answers with silence.
+/// **Every verb here is live**: Revoke and Retire as of P2b Task 7, Merge as of
+/// Task 8. A live verb that this Mac may not perform on a given row is disabled
+/// with the reason in its tooltip — never hidden, because *why can I not revoke
+/// this* is a question an absent button answers with silence.
 ///
 /// **Forget this device** is live and touches no registry record — it clears
 /// this Mac's own memory of a label.
@@ -42,6 +38,10 @@ struct PeopleAndDevicesSection: View {
     /// Let a device this Mac revoked write again — the revocation's inverse,
     /// through the admission door (fix round 1, Important 3b).
     var readmit: (PeopleAndDevicesModel.Person) -> Void = { _ in }
+    /// Take another root's chain in: *this is also me* (Task 8). The argument
+    /// is the claimant ROOT's fingerprint, and the act is a claim record
+    /// adopting it — never a change to which root this device is on (B1).
+    var merge: (String) -> Void = { _ in }
     /// What the last verb said when it refused, or nil.
     var notice: String?
 
@@ -209,18 +209,27 @@ struct PeopleAndDevicesSection: View {
     }
 
     private func claimantRow(_ root: PeopleAndDevicesModel.Named) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(root.name) (\(root.code))")
-                Text("Claims this book as its own. Nothing it writes is applied here.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(root.name) (\(root.code))")
+                    Text("Claims this book as its own. Nothing it writes is applied here.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Button("Merge: this is also me") { merge(root.fingerprint) }
+                    .controlSize(.small)
+                    .help(PeopleAndDevicesModel.mergeHelp)
+                    .accessibilityHint(Text(PeopleAndDevicesModel.mergeHelp))
             }
-            Spacer(minLength: 8)
-            Button("Merge: this is also me") {}
-                .controlSize(.small)
-                .disabled(true)
-                .help(PeopleAndDevicesModel.mergeSoon)
+            // What a merge is and is not, beside the button rather than in the
+            // footer: a writer who read it as *switch this book to that Mac*
+            // would be answering a different question.
+            Text(PeopleAndDevicesModel.mergeSentence)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

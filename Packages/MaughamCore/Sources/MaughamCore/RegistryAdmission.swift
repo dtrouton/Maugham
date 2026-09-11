@@ -35,6 +35,14 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// Mac re-signing somebody else’s own word about themselves — which
     /// is the change of hands `RegistryCache` refuses one layer down.
     case cannotRevokeARoot(fingerprint: String)
+    /// A claim whose `adopted` list names the claimant itself. A root cannot
+    /// adopt its own chain: the record would say nothing, and the only way to
+    /// arrive here is a surface offering *this is also me* on the writer's own
+    /// row — a question about a row that should never have asked it. Refused
+    /// with the rest of the list untouched, because a claim is one act and
+    /// silently dropping the offending half would write something the writer
+    /// did not ask for.
+    case cannotAdoptItself(root: String)
     /// A retirement signed by something that is not that device. A device
     /// record is signed by the device it describes, so any other signature
     /// makes a file every reader lists as malformed — a machine’s whole
@@ -355,6 +363,130 @@ public enum RegistryAdmission {
         guard let record = verified.devices.first(where: { $0.device == fingerprint })
         else {
             throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
+        }
+        return record
+    }
+
+    // MARK: - The claim, and the two-roots exit (spec §5)
+
+    /// **This book is mine** — the one act by which a Mac that is in no chain
+    /// here takes the history it is holding (parent spec §4.7, spec §5).
+    ///
+    /// Two writes, and the order is the contract:
+    ///
+    /// 1. This device's own **self-signed root record**, when it has none.
+    ///    `RegistryPresence.ensureRootIfEmpty` refuses a book that already has
+    ///    people in it, which is right for an OPEN — adopting somebody's book
+    ///    is never something an open decides — and this is the one path that
+    ///    roots a device in a registry that is not empty, because here the
+    ///    writer has been asked and has answered. The label and the own name
+    ///    are this device's own name, from the device record it wrote when it
+    ///    declared itself; a device with no record here falls back to its code,
+    ///    so the row a reader draws says something a human can check against a
+    ///    screen rather than nothing at all.
+    /// 2. A **`ClaimRecord`** naming the roots taken in. It has no
+    ///    cryptographic authority over the old chain and does not pretend to:
+    ///    it is why the history stays attributed and why every surviving device
+    ///    can say *a new Mac claimed this book on 9 Sep*.
+    ///
+    /// The root record must land FIRST, because `RegistryReader` refuses a
+    /// claim whose `newRoot` is not a verified root here (Task 2). A claim
+    /// written before it would be listed malformed and adopt nobody — and the
+    /// writer would be looking at a book that had accepted their claim and gone
+    /// on quarantining everything in it.
+    ///
+    /// **Adoption is symmetric, and that is the whole of the two-roots exit**
+    /// (plan decision P2, P2a review I3). Two Macs that both rooted an empty
+    /// book before sync converged quarantine each other, and nothing may
+    /// overwrite either root record — that is the change of hands this layer
+    /// refuses everywhere. So each Mac calls THIS SAME FUNCTION naming the
+    /// other: *this is also me*. A root I adopted is in my chain; a root that
+    /// adopted me without my reciprocating is exactly the claimant it was
+    /// (B1 — nothing here ever moves `joinedRoot`, and the surfaces draw the
+    /// unreciprocated half as a claimant with the offer still open).
+    ///
+    /// **Idempotent**, for admission's reason one directory over: adopting a
+    /// root already adopted writes nothing at all. A root adopted LATER joins
+    /// the claim this device already wrote — one claim record per root, since
+    /// the file is named by the root — and `claimedAt` stays the day the book
+    /// was claimed, because that is what the date means.
+    ///
+    /// **Three refusals.** A list naming this device itself; a device already
+    /// admitted under somebody ELSE's root, whose record the root write would
+    /// go straight over; and a record of this device's own that is present and
+    /// will not read (RULING-54), which is the sync ordering that fixes itself.
+    ///
+    /// **The caller invalidates trust**, exactly as after an admission: every
+    /// table in flight was resolved before this device had a chain at all.
+    @discardableResult
+    nonisolated public static func claim(
+        adopting roots: [String],
+        in projectURL: URL,
+        by me: DeviceIdentity,
+        cache: RegistryCache,
+        now: () -> Date = { Date() },
+        presenter: NSFilePresenter? = nil
+    ) throws -> ClaimRecord {
+        let adopting = Set(roots)
+        guard !adopting.contains(me.fingerprint) else {
+            throw RegistryAdmissionError.cannotAdoptItself(root: me.fingerprint)
+        }
+        let registry = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+
+        if let existing = registry.person(me.fingerprint) {
+            // Already on somebody's chain: there is no root record to write
+            // that would not be written over theirs, and a device that is not a
+            // root signs no claim any reader takes (`signerIsNotARoot`). The
+            // honest answer is the takeover refusal, not a file.
+            guard existing.isRoot else {
+                throw RegistryAdmissionError.alreadyAdmittedElsewhere(
+                    root: existing.admittedBy)
+            }
+        } else {
+            if unreadablePeople(in: registry).contains(me.fingerprint) {
+                throw RegistryAdmissionError.recordUnreadable(fingerprint: me.fingerprint)
+            }
+            let name = registry.devices.first { $0.device == me.fingerprint }?.name
+                ?? DeviceCode.short(me.fingerprint)
+            try RegistryWriter.write(
+                PersonRecord(
+                    person: me.fingerprint, label: name, ownName: name, role: "author",
+                    admittedAt: now(), admittedBy: me.fingerprint),
+                signedBy: me, in: projectURL, presenter: presenter)
+        }
+
+        if let standing = registry.claims.first(where: { $0.newRoot == me.fingerprint }) {
+            let already = Set(standing.adopted)
+            guard !adopting.isSubset(of: already) else { return standing }
+            let widened = already.union(adopting).sorted()
+            // `resign` rather than a fresh record, for Task 1's reason: a claim
+            // a LATER build wrote carries fields this one has no property for,
+            // and re-encoding what this build decoded would quietly drop them.
+            // The FILE's object is what is edited, and `claimedAt` is not part
+            // of the edit.
+            try RegistryWriter.resign(
+                standing, signedBy: me, in: projectURL, presenter: presenter
+            ) { object in
+                object["adopted"] = widened
+            }
+        } else {
+            try RegistryWriter.write(
+                ClaimRecord(
+                    newRoot: me.fingerprint, adopted: adopting.sorted(),
+                    claimedAt: now()),
+                signedBy: me, in: projectURL, presenter: presenter)
+        }
+
+        // The re-read refreshes this device's memory of the folder and turns
+        // the record this function DECIDED into the record a reader VERIFIES.
+        // A claim that did not read back is the one shape that must not be
+        // reported as success: the writer would believe a book was theirs.
+        let verified = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        guard let record = verified.claims.first(where: { $0.newRoot == me.fingerprint })
+        else {
+            throw RegistryAdmissionError.recordUnreadable(fingerprint: me.fingerprint)
         }
         return record
     }

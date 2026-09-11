@@ -462,6 +462,16 @@ struct ProjectWindow: View {
             projectTitle: store?.manifest.title ?? url.lastPathComponent,
             documentStore: documentStore,
             window: $window))
+        // And the other question a registry can raise at an open: a book this
+        // Mac is holding and has no key in. Its own modifier because it is a
+        // question about the WHOLE book rather than about a device, and the
+        // two can never be asked at once — admission has nothing to ask
+        // without a chain, and this is asked only when there is none.
+        .modifier(ClaimModifier(
+            projectURL: url,
+            projectTitle: store?.manifest.title ?? url.lastPathComponent,
+            documentStore: documentStore,
+            window: $window))
         .task(id: url) { await load() }
         .onDisappear {
             mcpRegistry.unregister(url: url)

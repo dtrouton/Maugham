@@ -216,15 +216,22 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
                       "the refusal reaches the writer: \(texts)")
     }
 
-    func test_aclaimantOffersMergeAndItIsDisabled() throws {
+    /// **Live as of Task 8.** A claimant is another root that names this
+    /// device, and the writer is the only one who can say whether that root is
+    /// also them.
+    func test_aclaimantOffersMergeAndItIsLive() throws {
         let window = mount(model())
         let buttons = try axButtons(labelled: "Merge: this is also me", in: window)
         let labels = try axButtonLabels(in: window)
+        let texts = try axTexts(in: window)
 
         XCTAssertFalse(buttons.isEmpty, "the claimant's one control: \(labels)")
         for button in buttons {
-            XCTAssertEqual(axEnabled(button), false, "merging arrives with Task 8")
+            XCTAssertEqual(axEnabled(button), true, "merging shipped with Task 8")
         }
+        XCTAssertTrue(
+            texts.contains { $0.contains("keep their own root") },
+            "and the row says what a merge is not — neither root gives way: \(texts)")
     }
 
     /// A root this device has adopted is a fact, not a question: it is drawn as
@@ -296,6 +303,18 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
     /// Each verb hands back the fingerprint it is about — the PERSON's for
     /// Revoke, the DEVICE's for Retire, which under labels-only are the same
     /// key and are not the same argument.
+    /// The third live verb hands back the claimant ROOT it is about — never
+    /// this device's own root, and never a device inside that chain.
+    func test_mergeHandsBackTheRootItIsAbout() {
+        var merged: [String] = []
+        let section = PeopleAndDevicesSection(
+            model: model(), merge: { merged.append($0) })
+
+        section.mergeForTesting(claimant)
+
+        XCTAssertEqual(merged, [claimant])
+    }
+
     func test_revokeAndRetireHandBackWhatTheyAreAbout() {
         var revoked: [String] = []
         var retired: [String] = []
@@ -351,4 +370,5 @@ private extension PeopleAndDevicesSection {
     func revokeForTesting(_ fingerprint: String) { revoke(fingerprint) }
     func retireForTesting(_ fingerprint: String) { retire(fingerprint) }
     func readmitForTesting(_ person: PeopleAndDevicesModel.Person) { readmit(person) }
+    func mergeForTesting(_ fingerprint: String) { merge(fingerprint) }
 }

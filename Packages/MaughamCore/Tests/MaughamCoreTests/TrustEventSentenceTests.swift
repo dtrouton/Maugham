@@ -130,6 +130,41 @@ final class TrustEventSentenceTests: XCTestCase {
             "Denver’s MacBook adopted 9C8B’s history.")
     }
 
+    /// **The keyless claim, as the Mac that made it reads it back** (P2b Task
+    /// 8). This is the whole of what the writer sees after answering *yes, it
+    /// is mine*: a book that says so.
+    func test_aClaimByThisMacSaysThisMac() {
+        XCTAssertEqual(
+            TrustEventSentence.sentence(
+                for: event(.claimed, subject: root, label: "Denver’s new MacBook",
+                           isMine: true),
+                labels: [:]),
+            "This Mac claimed this book.")
+    }
+
+    /// **The merge, from the Mac that pressed it**: two roots, each adopting
+    /// the other, and this is the half this device wrote.
+    func test_aMergeReadsAsThisMacsRootTakingTheOtherChainIn() {
+        XCTAssertEqual(
+            TrustEventSentence.sentence(
+                for: event(.adopted, subject: phone, label: "The studio Mac",
+                           by: root),
+                labels: [root: "Denver’s MacBook"]),
+            "Denver’s MacBook adopted The studio Mac’s history.")
+    }
+
+    /// **And from the other Mac**, where the adopted chain is this device's
+    /// own. The subject is not sentence-initial in this arm — the claimant
+    /// leads — so *This Mac* is said in the middle of a sentence, and the one
+    /// place that reads wrong is fixed here rather than in every caller.
+    func test_anAdoptionOfThisMacsOwnHistoryReadsInTheMiddleOfTheSentence() {
+        XCTAssertEqual(
+            TrustEventSentence.sentence(
+                for: event(.adopted, subject: phone, by: root, isMine: true),
+                labels: [root: "Denver’s MacBook"]),
+            "Denver’s MacBook adopted this Mac’s history.")
+    }
+
     func test_anAdoptionWithNoClaimantNamedStillReads() {
         XCTAssertEqual(
             TrustEventSentence.sentence(

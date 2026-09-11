@@ -114,6 +114,7 @@ struct ProjectSettingsSheet: View {
                         revoke: confirmRevoke,
                         retire: confirmRetire,
                         readmit: readmitDevice,
+                        merge: confirmMerge,
                         notice: peopleNotice)
                 }
                 reviewPassesSection()
@@ -454,12 +455,37 @@ struct ProjectSettingsSheet: View {
             kind: device?.kind ?? "Mac")
     }
 
-    /// The writer confirmed. One switch, so a third act cannot be added to the
+    /// **Is that root also you?** The claimant row's own question, asked before
+    /// a chain of somebody's devices starts applying here (Task 8).
+    private func confirmMerge(_ fingerprint: String) {
+        peopleNotice = nil
+        let name = peopleAndDevices?.claimants
+            .first { $0.fingerprint == fingerprint }?.name
+            ?? DeviceCode.short(fingerprint)
+        confirming = .merge(root: fingerprint, named: name)
+    }
+
+    /// The writer confirmed. One switch, so a fourth act cannot be added to the
     /// value without being given a verb here.
     private func perform(_ confirmation: PeopleAndDevicesConfirmation) {
         switch confirmation.verb {
         case .revoke: revokeDevice(confirmation.fingerprint)
         case .retire: retireThisMac(confirmation.fingerprint)
+        case .merge: mergeRoot(confirmation.fingerprint)
+        }
+    }
+
+    /// **This is also me** (spec §5, plan decision P2) — a claim record
+    /// adopting that root's chain, written by this Mac's own root. It is the
+    /// same verb the claim sheet performs on a book this Mac has no key in, and
+    /// the other Mac presses it too: adoption is symmetric, and until it does
+    /// this device is still a claimant over there.
+    private func mergeRoot(_ fingerprint: String) {
+        Task { @MainActor in
+            guard let store = store.documentStore else { return }
+            do { try await store.claim(adopting: [fingerprint]) }
+            catch { peopleNotice = AdmissionDecision.refusal(error) }
+            await loadPeopleAndDevices()
         }
     }
 

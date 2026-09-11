@@ -468,15 +468,19 @@ final class PeopleAndDevicesModelTests: XCTestCase {
     // MARK: - Claimants and merged roots
 
     /// Somebody claiming a book this device already belongs to another copy of.
-    /// Listed, never merged — and the one control on the row is disabled until
-    /// merging ships.
-    func test_aclaimantIsListedWithNothingToPressYet() {
+    /// Listed, never merged — and the row's one control is *this is also me*,
+    /// which is the writer's answer and nobody else's (Task 8).
+    func test_aclaimantIsListedWithTheOneQuestionOnlyTheWriterCanAnswer() {
         let model = model(registry(), claimants: [otherRoot.fingerprint])
 
         XCTAssertEqual(model.claimants.map(\.fingerprint), [otherRoot.fingerprint])
         XCTAssertEqual(model.claimants.first?.code,
                        DeviceCode.short(otherRoot.fingerprint))
-        XCTAssertFalse(PeopleAndDevicesModel.mergeSoon.isEmpty)
+        XCTAssertFalse(PeopleAndDevicesModel.mergeHelp.isEmpty)
+        XCTAssertTrue(
+            PeopleAndDevicesModel.mergeSentence.contains("keep their own root"),
+            "the sentence says the thing a writer would otherwise assume: "
+            + "adopting is not switching")
     }
 
     /// **A claimant this device has adopted is MERGED, not a claimant** (Task

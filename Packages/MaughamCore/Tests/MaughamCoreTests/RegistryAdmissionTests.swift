@@ -25,6 +25,10 @@ final class RegistryAdmissionTests: XCTestCase {
 
     private var projectURL: URL!
     private var cacheURL: URL!
+    /// A second Mac's memory of the same folder — the two-roots exit is two
+    /// devices, and one cache file holding both would be one device pretending
+    /// to be two.
+    private var otherCacheURL: URL!
     private var memoryURL: URL!
     /// This Mac: four software keys, so a device record lists four actors.
     private var mine: LocalIdentities!
@@ -41,6 +45,8 @@ final class RegistryAdmissionTests: XCTestCase {
             at: projectURL, withIntermediateDirectories: true)
         cacheURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("admission-cache-\(UUID().uuidString).json")
+        otherCacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("admission-cache-other-\(UUID().uuidString).json")
         memoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("admission-memory-\(UUID().uuidString).json")
         mine = .softwareForTesting()
@@ -51,6 +57,7 @@ final class RegistryAdmissionTests: XCTestCase {
     override func tearDown() {
         try? FileManager.default.removeItem(at: projectURL)
         try? FileManager.default.removeItem(at: cacheURL)
+        try? FileManager.default.removeItem(at: otherCacheURL)
         try? FileManager.default.removeItem(at: memoryURL)
         super.tearDown()
     }
@@ -98,6 +105,10 @@ final class RegistryAdmissionTests: XCTestCase {
 
     private func bytesOfPersonFile(_ fingerprint: String) throws -> Data {
         try Data(contentsOf: personFile(fingerprint))
+    }
+
+    private func claimFile(_ fingerprint: String) -> URL {
+        RegistryWriter.url(.claims, fingerprint: fingerprint, in: projectURL)
     }
 
     @discardableResult
@@ -853,6 +864,241 @@ final class RegistryAdmissionTests: XCTestCase {
         XCTAssertEqual(object["future"] as? Int, 1)
         XCTAssertNotNil(object["retiredAt"])
         XCTAssertTrue(try registry().malformed.isEmpty)
+    }
+
+    // MARK: - The claim, and the two-roots exit (spec §5, plan decision P2)
+
+    /// **A Mac holding a book it has no key in claims it — and the ORDER of the
+    /// two writes is the contract.**
+    ///
+    /// The root record goes down first, because `RegistryReader` refuses a
+    /// claim whose `newRoot` is not a verified root here (Task 2): a claim
+    /// written first would be listed malformed, the adoption would never
+    /// happen, and the writer would be looking at a book that had accepted
+    /// their claim and gone on quarantining everything in it.
+    func test_aKeylessMacClaimsTheBookByRootingItselfFirst() throws {
+        try becomeRootBeside(otherRoot, name: "The old MacBook")
+        try declare(mine, name: "Denver's new MacBook", kind: .mac)
+
+        let claim = try RegistryAdmission.claim(
+            adopting: [otherRoot.author.fingerprint], in: projectURL,
+            by: mine.author, cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 100) })
+
+        let registry = try self.registry()
+        let root = try XCTUnwrap(registry.person(mine.author.fingerprint))
+        XCTAssertTrue(root.isRoot, "this Mac vouched for itself")
+        XCTAssertEqual(root.label, "Denver's new MacBook")
+        XCTAssertEqual(root.ownName, "Denver's new MacBook")
+        XCTAssertEqual(claim.newRoot, mine.author.fingerprint)
+        XCTAssertEqual(claim.adopted, [otherRoot.author.fingerprint])
+        XCTAssertEqual(claim.claimedAt, Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(
+            registry.claims.map(\.newRoot), [mine.author.fingerprint],
+            "and the claim VERIFIED, which is only true of a claim written after the root record")
+        XCTAssertTrue(registry.malformed.isEmpty, "\(registry.malformed)")
+    }
+
+    /// What the claim is FOR: the history this Mac was holding stops being
+    /// unsigned prose it cannot judge and becomes somebody's, attributed.
+    func test_whatWasAdoptedIsVerifiedAndAttributedAfterwards() throws {
+        try becomeRootBeside(otherRoot, name: "The old MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try RegistryWriter.write(
+            PersonRecord(
+                person: phone.author.fingerprint, label: "Denver",
+                ownName: "Denver's iPhone",
+                admittedAt: Date(timeIntervalSince1970: 5),
+                admittedBy: otherRoot.author.fingerprint),
+            signedBy: otherRoot.author, in: projectURL)
+        try declare(mine, name: "Denver's new MacBook", kind: .mac)
+        let cache = makeCache()
+
+        let before = try TrustResolution.resolve(
+            projectURL: projectURL, identities: mine, cache: cache)
+        XCTAssertNil(before.myRoot, "no key of this Mac's is named anywhere (B3)")
+        XCTAssertEqual(before.verdict(forSealKey: phone.author.fingerprint), .noChain)
+
+        try RegistryAdmission.claim(
+            adopting: [otherRoot.author.fingerprint], in: projectURL,
+            by: mine.author, cache: cache, now: { Date(timeIntervalSince1970: 100) })
+
+        let after = try TrustResolution.resolve(
+            projectURL: projectURL, identities: mine, cache: cache)
+        XCTAssertEqual(after.myRoot, mine.author.fingerprint)
+        XCTAssertEqual(after.adoptedRoots, [otherRoot.author.fingerprint])
+        XCTAssertEqual(
+            after.verdict(forSealKey: phone.author.fingerprint),
+            .admitted(person: phone.author.fingerprint),
+            "the old chain's devices are the writer's own, and their history is theirs")
+    }
+
+    /// A `roots` list naming this device is a claim that adopts itself: it
+    /// would write a record saying nothing, and the writer pressing Merge on
+    /// their own row is a question about a row that should never have offered
+    /// it.
+    func test_thisMacCannotAdoptItself() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+
+        XCTAssertThrowsError(try RegistryAdmission.claim(
+            adopting: [otherRoot.author.fingerprint, mine.author.fingerprint],
+            in: projectURL, by: mine.author, cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 100) })
+        ) { error in
+            XCTAssertEqual(
+                error as? RegistryAdmissionError,
+                .cannotAdoptItself(root: mine.author.fingerprint))
+        }
+        XCTAssertTrue(try registry().claims.isEmpty,
+                      "and the whole act is refused — not the offending half of it")
+    }
+
+    /// Idempotent for admission's reason, one directory over: re-signing a
+    /// claim that already says what it should is a new file for iCloud to carry
+    /// and a new signature for every peer to check, for no change at all.
+    func test_adoptingARootThisMacAlreadyAdoptedWritesNothing() throws {
+        try becomeRootBeside(otherRoot, name: "The old MacBook")
+        try declare(mine, name: "Denver's new MacBook", kind: .mac)
+        let cache = makeCache()
+        try RegistryAdmission.claim(
+            adopting: [otherRoot.author.fingerprint], in: projectURL,
+            by: mine.author, cache: cache, now: { Date(timeIntervalSince1970: 100) })
+        let bytes = try Data(contentsOf: claimFile(mine.author.fingerprint))
+
+        let again = try RegistryAdmission.claim(
+            adopting: [otherRoot.author.fingerprint], in: projectURL,
+            by: mine.author, cache: cache, now: { Date(timeIntervalSince1970: 200) })
+
+        XCTAssertEqual(try Data(contentsOf: claimFile(mine.author.fingerprint)), bytes)
+        XCTAssertEqual(again.claimedAt, Date(timeIntervalSince1970: 100))
+    }
+
+    /// A second root adopted later joins the claim this Mac already wrote — one
+    /// claim record per root, because the file is named by the root — and the
+    /// day the book was claimed does not move.
+    func test_adoptingASecondRootKeepsTheDayTheBookWasClaimed() throws {
+        let borrowed = LocalIdentities.softwareForTesting()
+        try becomeRootBeside(otherRoot, name: "The old MacBook")
+        try becomeRootBeside(borrowed, name: "A borrowed Mac")
+        try declare(mine, name: "Denver's new MacBook", kind: .mac)
+        let cache = makeCache()
+        try RegistryAdmission.claim(
+            adopting: [otherRoot.author.fingerprint], in: projectURL,
+            by: mine.author, cache: cache, now: { Date(timeIntervalSince1970: 100) })
+
+        let claim = try RegistryAdmission.claim(
+            adopting: [borrowed.author.fingerprint], in: projectURL,
+            by: mine.author, cache: cache, now: { Date(timeIntervalSince1970: 200) })
+
+        XCTAssertEqual(
+            claim.adopted,
+            [otherRoot.author.fingerprint, borrowed.author.fingerprint].sorted())
+        XCTAssertEqual(claim.claimedAt, Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(try registry().claims.count, 1)
+    }
+
+    /// **The two-roots exit, end to end** (P2a review I3, plan decision P1).
+    ///
+    /// Two Macs both opened this book before sync converged and each wrote
+    /// itself a root. Nothing may overwrite either record — that is the change
+    /// of hands the whole layer refuses — so they quarantine each other, and
+    /// the way out is each saying *this is also me*. Adoption is symmetric and
+    /// the reciprocal half is THIS SAME CALL, made on the other Mac.
+    func test_twoRootsLeaveMutualQuarantineByAdoptingEachOther() throws {
+        try becomeRootBeside(mine, name: "Denver's MacBook")
+        try becomeRootBeside(otherRoot, name: "The studio Mac")
+        let cacheA = makeCache()
+        let cacheB = RegistryCache(
+            fileURL: otherCacheURL, identity: otherRoot.author.fingerprint)
+
+        let beforeA = try TrustResolution.resolve(
+            projectURL: projectURL, identities: mine, cache: cacheA)
+        let beforeB = try TrustResolution.resolve(
+            projectURL: projectURL, identities: otherRoot, cache: cacheB)
+        XCTAssertEqual(
+            beforeA.verdict(forSealKey: otherRoot.author.fingerprint),
+            .otherRoot(root: otherRoot.author.fingerprint))
+        XCTAssertEqual(
+            beforeB.verdict(forSealKey: mine.author.fingerprint),
+            .otherRoot(root: mine.author.fingerprint))
+
+        try RegistryAdmission.claim(
+            adopting: [otherRoot.author.fingerprint], in: projectURL,
+            by: mine.author, cache: cacheA, now: { Date(timeIntervalSince1970: 100) })
+        try RegistryAdmission.claim(
+            adopting: [mine.author.fingerprint], in: projectURL,
+            by: otherRoot.author, cache: cacheB,
+            now: { Date(timeIntervalSince1970: 101) })
+
+        let afterA = try TrustResolution.resolve(
+            projectURL: projectURL, identities: mine, cache: cacheA)
+        let afterB = try TrustResolution.resolve(
+            projectURL: projectURL, identities: otherRoot, cache: cacheB)
+        XCTAssertEqual(
+            afterA.verdict(forSealKey: otherRoot.author.fingerprint),
+            .admitted(person: otherRoot.author.fingerprint))
+        XCTAssertEqual(
+            afterB.verdict(forSealKey: mine.author.fingerprint),
+            .admitted(person: mine.author.fingerprint))
+        XCTAssertEqual(afterA.adoptedRoots, [otherRoot.author.fingerprint])
+        XCTAssertEqual(afterB.adoptedRoots, [mine.author.fingerprint])
+        XCTAssertEqual(afterA.myRoot, mine.author.fingerprint)
+        XCTAssertEqual(afterB.myRoot, otherRoot.author.fingerprint)
+        XCTAssertNil(
+            cacheA.joinedRoot(for: projectURL),
+            "B1: a merge widens whose history I verify and moves nobody's root")
+        XCTAssertNil(cacheB.joinedRoot(for: projectURL))
+    }
+
+    /// A Mac already on somebody's chain has no root record of its own to
+    /// write, and the one the claim would write would go straight over the
+    /// record that admitted it. Refused where the takeover is refused
+    /// everywhere else in this layer.
+    func test_aMacSomebodyElseAdmittedDoesNotRootItselfOverTheirRecord() throws {
+        try becomeRootBeside(otherRoot, name: "The old MacBook")
+        try declare(mine, name: "Denver's other Mac", kind: .mac)
+        try RegistryWriter.write(
+            PersonRecord(
+                person: mine.author.fingerprint, label: "Denver",
+                ownName: "Denver's other Mac",
+                admittedAt: Date(timeIntervalSince1970: 4),
+                admittedBy: otherRoot.author.fingerprint),
+            signedBy: otherRoot.author, in: projectURL)
+        let bytes = try bytesOfPersonFile(mine.author.fingerprint)
+
+        XCTAssertThrowsError(try RegistryAdmission.claim(
+            adopting: [otherRoot.author.fingerprint], in: projectURL,
+            by: mine.author, cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 100) })
+        ) { error in
+            XCTAssertEqual(
+                error as? RegistryAdmissionError,
+                .alreadyAdmittedElsewhere(root: otherRoot.author.fingerprint))
+        }
+        XCTAssertEqual(try bytesOfPersonFile(mine.author.fingerprint), bytes)
+    }
+
+    /// RULING-54 at the claim, for the reason it holds at every other write
+    /// here: a person record for this device that is PRESENT and did not verify
+    /// is not one that is absent, and rooting over it would destroy somebody's
+    /// admission over a sync ordering that fixes itself.
+    func test_theClaimRefusesOverARecordOfItsOwnThatWillNotRead() throws {
+        try becomeRootBeside(otherRoot, name: "The old MacBook")
+        try declare(mine, name: "Denver's new MacBook", kind: .mac)
+        try plantUnreadablePersonRecord(for: mine)
+        let bytes = try bytesOfPersonFile(mine.author.fingerprint)
+
+        XCTAssertThrowsError(try RegistryAdmission.claim(
+            adopting: [otherRoot.author.fingerprint], in: projectURL,
+            by: mine.author, cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 100) })
+        ) { error in
+            XCTAssertEqual(
+                error as? RegistryAdmissionError,
+                .recordUnreadable(fingerprint: mine.author.fingerprint))
+        }
+        XCTAssertEqual(try bytesOfPersonFile(mine.author.fingerprint), bytes)
+        XCTAssertTrue(try registry().claims.isEmpty)
     }
 
     // MARK: - Fixtures for the two verbs

@@ -43,9 +43,15 @@ public enum TrustEventSentence {
             return "\(subject) claimed this book."
         case .adopted:
             // The claimant leads: it is the one who acted, and the subject is
-            // the history it took in.
-            return actor.map { "\($0) adopted \(possessive(subject)) history." }
-                ?? "\(possessive(subject)) history was adopted."
+            // the history it took in. **The one arm where the subject is not
+            // sentence-initial** (P2b Task 8), which is why *This Mac* is said
+            // in lower case here: the reciprocal half of a merge reads
+            // *Denver's MacBook adopted this Mac's history* on the other
+            // machine, and a capital in the middle of that sentence is the
+            // shape a writer reads twice.
+            let inSentence = event.isMine ? "this Mac" : subject
+            return actor.map { "\($0) adopted \(possessive(inSentence)) history." }
+                ?? "\(possessive(inSentence)) history was adopted."
         case .joined:
             return "This Mac joined \(possessive(subject)) chain."
         case .anotherClaimant:

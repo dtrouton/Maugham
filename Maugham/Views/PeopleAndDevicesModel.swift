@@ -30,11 +30,19 @@ struct PeopleAndDevicesModel: Equatable {
         "Removing a device here stops Maugham applying what it writes. "
         + "To stop it writing at all, remove it from the iCloud share."
 
-    /// What the one control this section still draws without wiring says when
-    /// the writer hovers it. Drawn disabled rather than hidden, so the shape of
-    /// the section does not change under the writer when the verb arrives
-    /// (P2a's Admit… pattern).
-    static let mergeSoon = "Merging arrives with the next update"
+    /// **What Merge says, and what it is** (P2b Task 8, spec §5). A claimant
+    /// is another root that names this device, and the writer is the only one
+    /// who can say whether that root is also them. Pressing it writes a claim
+    /// adopting their chain; it moves nobody's root, and the other Mac makes
+    /// the same press to see this one's history (plan decision P2).
+    static let mergeHelp = "Adopt this root’s history into this book’s chain"
+
+    /// The sentence beside Merge, which says the thing a writer would
+    /// otherwise assume: adopting is not switching. This device stays on its
+    /// own chain and that Mac stays on its.
+    static let mergeSentence =
+        "This Mac will apply everything that root’s devices wrote. "
+        + "They keep their own root, and this Mac keeps its own."
 
     /// **The sentence beside Revoke** (spec §5). It says exactly what the verb
     /// is and, more importantly, what it is not: Maugham decides what it

@@ -12,6 +12,11 @@ import MaughamCore
 /// CONSEQUENCE rather than a restatement of the verb — *are you sure* tells a
 /// writer nothing they did not know when they pressed.
 ///
+/// **Merge is the third** (Task 8), for the same reason from the other
+/// direction: it is not destructive, it is ADMITTING — a whole chain of
+/// somebody's devices begins applying in this book at once — and there is no
+/// un-adopt verb anywhere in this milestone.
+///
 /// **A value, not a sheet.** Everything on the alert is decided here and
 /// compared in a test with nothing mounted (tripwire 33: no test presses a
 /// mounted control and waits for its effect). The host presents it and calls
@@ -23,6 +28,7 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
     enum Verb: String, Equatable {
         case revoke
         case retire
+        case merge
     }
 
     let verb: Verb
@@ -48,6 +54,19 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
             message: PeopleAndDevicesModel.revokeSentence
                 + " You can let them back in from this Mac.",
             confirmTitle: "Revoke")
+    }
+
+    /// **Merge**, carrying the consequence in the words the row uses for it
+    /// afterwards: what this Mac will start applying, and the thing a writer
+    /// might otherwise assume it means — that one of the two roots gives way.
+    /// Neither does (B1).
+    static func merge(root fingerprint: String, named name: String) -> Self {
+        PeopleAndDevicesConfirmation(
+            verb: .merge,
+            fingerprint: fingerprint,
+            title: "Is \(name) also you?",
+            message: PeopleAndDevicesModel.mergeSentence,
+            confirmTitle: "Merge")
     }
 
     /// **Retire**, carrying `DeviceStanding`'s own consequence — the same

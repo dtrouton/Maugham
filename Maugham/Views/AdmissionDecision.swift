@@ -239,6 +239,14 @@ enum AdmissionDecision {
             return "The device with code \(DeviceCode.short(fingerprint)) is this "
                 + "book’s root, and a root answers to itself. To take a book away "
                 + "from it, claim the book on the Mac you want to keep."
+        case .cannotAdoptItself(let root):
+            // Unreachable from either surface as they stand — the claim sheet
+            // adopts the roots this Mac is NOT, and a claimant row is by
+            // definition somebody else — so this sentence exists for the day a
+            // third caller gets the list wrong, and says what it would mean
+            // rather than what went wrong.
+            return "This Mac (code \(DeviceCode.short(root))) is already its own "
+                + "root here, so there is nothing of its own for it to take in."
         case .notThatDevice(let device):
             return "Only the device with code \(DeviceCode.short(device)) can retire "
                 + "itself — a retirement signed by anything else is a record no other "
