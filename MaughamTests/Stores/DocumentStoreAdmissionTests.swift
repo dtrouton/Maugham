@@ -240,6 +240,116 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         XCTAssertEqual(record.admittedBy, mine.author.fingerprint)
     }
 
+    // MARK: - A device that has only CAPTURED (whole-branch review, C1)
+
+    /// The stranger's own capture stream: chained and sealed under a key
+    /// nothing in this book names, written into `inbox.<slug>.jsonl` and into
+    /// no chapter at all. This is the ordinary paired-release phone — the
+    /// capture tab is its first one.
+    private func writeStrangerCaptures(_ ids: [String]) async throws {
+        try FileManager.default.createDirectory(
+            at: projectURL.appendingPathComponent(".maugham/inbox"),
+            withIntermediateDirectories: true)
+        let manifest = InboxManifest.inboxManifestURL(
+            forDeviceSlug: DeviceSlug.make(from: "stranger-phone"), in: projectURL)
+        let store = JSONLAppendStore<InboxEntry>(
+            fileURL: manifest,
+            chain: ChainPolicy(
+                identity: stranger, state: strangerState,
+                docId: InboxManifest.chainDocId, projectURL: projectURL))
+        for (index, id) in ids.enumerated() {
+            try await store.append(InboxEntry(
+                id: id, createdAt: Date(timeIntervalSince1970: 100 + Double(index)),
+                deviceId: stranger.deviceId, kind: .text, inlineText: id))
+        }
+        try await store.appendSeal()
+    }
+
+    /// **A phone used only for capture can be admitted** — the seam between the
+    /// inbox half (Task 7) and the sheet half (Task 1), which no per-task
+    /// review could see.
+    ///
+    /// Before the fix, `AdmissionModifier.recompute` built its pending map from
+    /// the open documents alone. This writer has no open document holding a
+    /// line — their phone writes captures and nothing else — so the queue came
+    /// back empty and all three *Admit…* controls did nothing: no sheet, no
+    /// error, no log line, with the captures held and invisible.
+    ///
+    /// Pinned at the store's own seam rather than through a window, because
+    /// that is where the defect was: `heldLinesByDevice` is the union both
+    /// surfaces read, and `AdmissionDecision.requests` is the one authority on
+    /// who is a stranger.
+    func test_anInboxOnlyStrangerIsAskedAboutAndAdmitting_appliesItsCaptures() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        try await writeStrangerCaptures(["c1", "c2"])
+        await store.inboxStore.refresh()
+
+        XCTAssertTrue(store.allOpenDocuments().isEmpty,
+                      "no chapter is open, and none of this writer's are holding a line")
+        XCTAssertTrue(store.inboxStore.entries.isEmpty,
+                      "held is not applied: \(store.inboxStore.entries.map(\.id))")
+
+        let held = store.heldLinesByDevice()
+        XCTAssertEqual(held[stranger.fingerprint], 2,
+                       """
+                       the window's union sees the capture stream as well as \
+                       the open documents; built from the documents alone this \
+                       was empty and every Admit… in the app was inert. Got \
+                       \(held)
+                       """)
+
+        let verified = try TrustResolution.resolveVerified(
+            projectURL: projectURL, identities: Document.loadIdentities, cache: cache)
+        let requests = AdmissionDecision.requests(
+            pending: held, registry: verified.registry,
+            memory: memory.remembered, myRoot: verified.table.myRoot)
+        XCTAssertEqual(requests.map(\.fingerprint), [stranger.fingerprint],
+                       "so the sheet's queue has exactly this device in it")
+        XCTAssertEqual(requests.first?.waitingCount, 2)
+
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Denver", ownName: "Denver’s iPhone")
+        await store.inboxStore.refresh()
+
+        XCTAssertEqual(store.inboxStore.entries.map(\.id).sorted(), ["c1", "c2"],
+                       "and Admit puts the writer's captures in the inbox")
+        XCTAssertTrue(store.heldLinesByDevice().isEmpty,
+                      "with nothing left waiting: \(store.heldLinesByDevice())")
+    }
+
+    /// **And the window's own queue is built from that union, not from the
+    /// open documents** — the half the store test above cannot see, because
+    /// `AdmissionModifier.recompute` is a private method of a `ViewModifier`.
+    ///
+    /// Read off the source rather than mounted (tripwire 33: no test presses a
+    /// control and waits for its effect). The defect was one expression: a
+    /// `reduce` over `allOpenDocuments()`'s provenance, with the capture stream
+    /// nowhere in it.
+    func test_theAdmissionQueueIsBuiltFromTheStoresUnionAndNotFromOpenDocumentsAlone() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Maugham/Views/AdmissionModifier.swift"),
+            encoding: .utf8)
+
+        XCTAssertTrue(
+            source.contains("documentStore.heldLinesByDevice()"),
+            "the queue reads the one union both surfaces read")
+        XCTAssertFalse(
+            source.contains("allOpenDocuments()"),
+            """
+            …and nothing here derives its own pending map from the open \
+            documents. Built that way, a phone used only for capture produced \
+            an empty queue and all three Admit… controls did nothing.
+            """)
+        XCTAssertTrue(
+            source.contains("await documentStore.inboxStore.refresh()"),
+            "and the writer's own press measures against a current count")
+    }
+
     func test_openAdmitsNobodyItHasNotNamed() async throws {
         beThisMac()
         try RegistryWriter.write(

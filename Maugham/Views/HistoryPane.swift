@@ -127,12 +127,14 @@ struct HistoryPane: View {
     /// return actually succeeded, so this list is only ever the genuine
     /// article: history the writer cannot currently see.
     @State private var heldQuarantineRecords: [QuarantineRecord] = []
-    /// How many CHANGES were set aside because something that is not Maugham
-    /// wrote them into one of this doc's op-log files (signed op log P1) **and
-    /// the writer has not yet acknowledged** (P2a, D2). A count rather than the
-    /// records, because the notice is pure over the count and reading the
-    /// archives is `reload()`'s job, not `body`'s.
-    @State private var setAsideLineCount: Int = 0
+    /// How many CHANGES were set aside, by the REASON each was set aside for
+    /// (signed op log P1; the reasons are P2b's), counting only what the writer
+    /// has not yet acknowledged (P2a, D2). Counts rather than the records,
+    /// because the notice is pure over them and reading the archives is
+    /// `reload()`'s job, not `body`'s — and by reason rather than one total,
+    /// because four of the six causes describe lines Maugham itself wrote on
+    /// the writer's other machine (whole-branch review, I3).
+    @State private var setAsideLinesByReason: [String: Int] = [:]
     /// Every set-aside record for this doc, acknowledged or not, by the name it
     /// is acknowledged under. The disclosure below the sentence lists these
     /// REGARDLESS: what an Acknowledge press puts down is the sentence, not the
@@ -320,25 +322,63 @@ struct HistoryPane: View {
     /// is nothing to bring back, so this notice carries no Retry — unlike
     /// `quarantineNotice`, whose subject is a whole file that may yet read.
     ///
-    /// Pure over the count, so the copy pins without a window and without disk.
-    /// The count itself comes from `setAsideLineCount`, which is the half that
-    /// has to read files.
-    static func setAsideLinesNotice(lineCount: Int) -> String? {
-        guard lineCount > 0 else { return nil }
-        let subject = lineCount == 1
-            ? "1 change was written"
-            : "\(lineCount) changes were written"
-        return "\(subject) to this document by something that is not Maugham; "
-             + "kept in backup, not applied."
+    /// **The sentence says WHY, because since revocation there are six whys**
+    /// (whole-branch review, I3).
+    ///
+    /// Until P2b every `.lines` record meant one thing — a line something other
+    /// than Maugham had written into a file — and this sentence said so
+    /// unconditionally. Revocation, retirement, the late/backdated split and
+    /// another claimant's chain are four more causes, and every one of them
+    /// describes lines MAUGHAM wrote, on the writer's own other machine. A
+    /// writer who revokes their old Mac and is then told *something that is not
+    /// Maugham* wrote those changes has been misinformed about their own book
+    /// by the one screen that exists to tell them the truth about it.
+    ///
+    /// So the reasons come in and each gets its own clause. The words are
+    /// `JSONLAppendStore.quarantineReason`'s, which the records already carry —
+    /// derived from the cause and never spelled twice, so this pane cannot file
+    /// an event under a sentence of its own.
+    ///
+    /// Ordered by count, then alphabetically, so one folder answers one way
+    /// however its sidecars happened to be enumerated.
+    ///
+    /// Pure over the counts, so the copy pins without a window and without
+    /// disk. The counts come from `setAsideLinesByReason`, which is the half
+    /// that has to read files.
+    static func setAsideLinesNotice(byReason: [String: Int]) -> String? {
+        let groups = byReason
+            .filter { $0.value > 0 }
+            .sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
+        guard !groups.isEmpty else { return nil }
+        let total = groups.reduce(0) { $0 + $1.value }
+        func changes(_ count: Int) -> String {
+            count == 1 ? "1 change" : "\(count) changes"
+        }
+        if groups.count == 1, let only = groups.first {
+            let verb = only.value == 1 ? "was" : "were"
+            return "\(changes(only.value)) to this document \(verb) set aside "
+                 + "(\(only.key)); kept in backup, not applied."
+        }
+        let clauses = groups.map { "\(changes($0.value)) \($0.key)" }
+        return "\(changes(total)) to this document were set aside: "
+             + clauses.joined(separator: "; ") + ". Kept in backup, not applied."
     }
 
-    /// How many CHANGES were set aside. One line, because the counting is
+    /// How many CHANGES were set aside, **under each reason they were set aside
+    /// for**. One line per group, because the counting is
     /// `OpLogQuarantine.setAsideLineCount`'s — the Inbox pane asks the same
     /// question of the manifest stream, and two copies would be two answers.
-    static func setAsideLineCount(
+    static func setAsideLinesByReason(
         records: [QuarantineRecord], in projectURL: URL
-    ) -> Int {
-        OpLogQuarantine.setAsideLineCount(records: records, in: projectURL)
+    ) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for reason in Set(records.map(\.reason)) {
+            let count = OpLogQuarantine.setAsideLineCount(
+                records: records.filter { $0.reason == reason }, in: projectURL)
+            guard count > 0 else { continue }
+            counts[reason] = count
+        }
+        return counts
     }
 
     /// The notice shown after a Retry completes. Zero orphans is
@@ -430,7 +470,20 @@ struct HistoryPane: View {
         provenance: OpLogProvenance?, names: [String: String]
     ) -> String? {
         guard let provenance, provenance.hasPendingHistory else { return nil }
-        let total = provenance.pendingLines
+        // **The OP lines, not the line tally** (whole-branch review, I1). This
+        // sentence puts the word "notes" after its number and the admission
+        // sheet puts "notes waiting" after its own, and the two were counting
+        // different things: `pendingLines` includes the seal line that holds a
+        // span, so two held ops read as *3 notes* here and as *2 notes* on the
+        // sheet about the same device. `pendingOpLines` is the sum of the very
+        // map `AdmissionDecision.requests` is built from, so the agreement is
+        // by construction rather than by two files staying in step.
+        let total = provenance.pendingOpLines
+        // A pending span that is nothing but a seal (two adjacent seal lines)
+        // is held history with no note in it. There is no number to say and no
+        // device to name, and Admit… would find nothing — so this goes quiet
+        // rather than reporting *1 note from another device*.
+        guard total > 0 else { return nil }
         let noun = total == 1 ? "note" : "notes"
         let verb = total == 1 ? "is" : "are"
         let devices = provenance.pendingByDevice.keys.sorted()
@@ -440,10 +493,10 @@ struct HistoryPane: View {
         } else if let device = devices.first {
             who = names[device] ?? DeviceCode.short(device)
         } else {
-            // Held lines nothing attributes to a device. Structurally unlikely
-            // — the tally is built off the same lines the count is — but the
-            // COUNT is what matters here, and going quiet about history that is
-            // not in the draft would be the one unacceptable answer.
+            // Unreachable while `total` comes from the same map — a positive
+            // sum has at least one key. Kept because going quiet about history
+            // that is not in the draft would be the one unacceptable answer if
+            // that ever stopped being true.
             who = "another device"
         }
         return "\(total) \(noun) from \(who) \(verb) waiting for admission."
@@ -598,7 +651,7 @@ struct HistoryPane: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
-            if let notice = Self.setAsideLinesNotice(lineCount: setAsideLineCount) {
+            if let notice = Self.setAsideLinesNotice(byReason: setAsideLinesByReason) {
                 // The one control this statement of fact carries (P2a, D2):
                 // there is still nothing to bring back, but a sentence that
                 // could never be put down was an accusation the writer could
@@ -937,7 +990,7 @@ struct HistoryPane: View {
         setAsideRecordNames = setAside.map {
             SetAsideAcknowledgement.name(for: $0, in: projectURL)
         }
-        setAsideLineCount = Self.setAsideLineCount(
+        setAsideLinesByReason = Self.setAsideLinesByReason(
             records: SetAsideAcknowledgement.unacknowledged(
                 records: setAside,
                 acknowledged: documentStore?.uiState.acknowledgedSetAsideRecords ?? [],

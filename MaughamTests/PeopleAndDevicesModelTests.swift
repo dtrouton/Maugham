@@ -483,6 +483,61 @@ final class PeopleAndDevicesModelTests: XCTestCase {
             + "adopting is not switching")
     }
 
+    /// **Merge is live on a Mac that has a root of its own** — the ordinary
+    /// case, and the half a gate must not take away (whole-branch review, I2).
+    func test_aclaimantIsMergeableWhenThisMacHasARootOfItsOwn() {
+        let model = model(registry(), claimants: [otherRoot.fingerprint])
+
+        let claimant = model.claimants.first
+        XCTAssertEqual(claimant?.canMerge, true)
+        XCTAssertNil(claimant?.whyNotMergeable,
+                     "nil exactly when the verb is offered")
+    }
+
+    /// **And refused, in words, on a Mac that joined somebody else's root.**
+    ///
+    /// A claim is signed by the root record making it, so arm 3 —
+    /// `ownRootRecord == nil` — has nothing to sign one with and
+    /// `RegistryAdmission.claim` throws `alreadyAdmittedElsewhere`. Drawn live,
+    /// the button answered the writer's press with *two chains are merged by
+    /// claiming the book, never by admitting into both*, which is the app
+    /// telling them to do the thing they just did.
+    func test_aclaimantIsNotMergeableWhenThisMacIsOnAnotherRootsChain() {
+        let thirdRoot = DeviceIdentity.softwareForTesting()
+        // No self-signed record for this Mac: two other roots admitted it, so
+        // it JOINED one of them and has no root record of its own.
+        let joined = Registry(
+            devices: [deviceRecord(mac, name: "Denver's MacBook", kind: .mac)],
+            people: [
+                person(otherRoot, label: "Amelia", ownName: "Amelia's MacBook",
+                       admittedBy: otherRoot),
+                person(thirdRoot, label: "Ruth", ownName: "Ruth's MacBook",
+                       admittedBy: thirdRoot),
+                person(mac, label: "Denver", ownName: "Denver's MacBook",
+                       admittedBy: otherRoot),
+                person(mac, label: "Denver", ownName: "Denver's MacBook",
+                       admittedBy: thirdRoot),
+            ])
+        let table = TrustTable.resolve(
+            registry: joined, mine: .forAuthor(mac), joinedRoot: nil)
+        XCTAssertNil(table.ownRootRecord,
+                     "the premise: this Mac has no root record of its own")
+
+        let model = PeopleAndDevicesModel.make(
+            registry: joined, table: table, remembered: [:], requests: [],
+            claimants: [thirdRoot.fingerprint],
+            standing: standing(), me: mac.fingerprint)
+
+        let claimant = try! XCTUnwrap(model.claimants.first)
+        XCTAssertFalse(claimant.canMerge,
+                       "there is no root here to sign a claim with")
+        XCTAssertEqual(claimant.whyNotMergeable,
+                       PeopleAndDevicesModel.mergeNoRootOfMyOwn)
+        XCTAssertFalse(
+            PeopleAndDevicesModel.mergeNoRootOfMyOwn.lowercased().contains("merged by"),
+            "and the reason does not tell them to merge")
+    }
+
     /// **A claimant this device has adopted is MERGED, not a claimant** (Task
     /// 2's carry). Listing it in both places would ask the writer to answer a
     /// question they have already answered.

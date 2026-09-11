@@ -208,7 +208,7 @@ struct PeopleAndDevicesSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func claimantRow(_ root: PeopleAndDevicesModel.Named) -> some View {
+    private func claimantRow(_ root: PeopleAndDevicesModel.Claimant) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -218,15 +218,25 @@ struct PeopleAndDevicesSection: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
+                // Disabled with the reason beside it, never absent — Revoke's
+                // and Retire's own shape (whole-branch review, I2). A Mac on
+                // another root's chain can only be refused here, and being
+                // refused in words that say *merge by claiming the book* is
+                // the app arguing with the button the writer just pressed.
                 Button("Merge: this is also me") { merge(root.fingerprint) }
                     .controlSize(.small)
-                    .help(PeopleAndDevicesModel.mergeHelp)
-                    .accessibilityHint(Text(PeopleAndDevicesModel.mergeHelp))
+                    .disabled(!root.canMerge)
+                    .help(root.whyNotMergeable ?? PeopleAndDevicesModel.mergeHelp)
+                    .accessibilityHint(Text(
+                        root.whyNotMergeable ?? PeopleAndDevicesModel.mergeHelp))
             }
             // What a merge is and is not, beside the button rather than in the
             // footer: a writer who read it as *switch this book to that Mac*
-            // would be answering a different question.
-            Text(PeopleAndDevicesModel.mergeSentence)
+            // would be answering a different question. Where the verb is
+            // refused, the refusal takes that place instead — describing what
+            // a merge would do beside a button that cannot do it is the same
+            // fault one line up.
+            Text(root.whyNotMergeable ?? PeopleAndDevicesModel.mergeSentence)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)

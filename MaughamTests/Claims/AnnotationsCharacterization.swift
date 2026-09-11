@@ -18,13 +18,36 @@ import MaughamCore
 @MainActor
 final class AnnotationsCharacterization: XCTestCase {
 
+    /// The fixture directories this suite made, removed when it ends
+    /// (whole-branch review, I4).
+    ///
+    /// `$TMPDIR` is shared with the whole machine and the test host sweeps it
+    /// at launch, before an XCTest worker connects. A suite that leaves its
+    /// fixtures behind makes every later gate slower, and at 543,002 entries
+    /// it stopped being slower and started killing workers with no assertion
+    /// failure and nothing to read.
+    private var temporaries: [URL] = []
+
+    /// Remember a fixture root so it is removed whatever the test does next.
+    @discardableResult
+    private func track(_ url: URL) -> URL {
+        temporaries.append(url)
+        return url
+    }
+
+    override func tearDown() async throws {
+        let fm = FileManager.default
+        for url in temporaries { try? fm.removeItem(at: url) }
+        temporaries = []
+    }
+
     // MARK: - Harness
 
     private struct Harness { let doc: Document; let pid: String; let url: URL }
 
     private func makeHarness(_ initialMd: String = "One.") async throws -> Harness {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AnnChar-\(UUID().uuidString)")
+        let tmp = track(FileManager.default.temporaryDirectory
+            .appendingPathComponent("AnnChar-\(UUID().uuidString)"))
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
         let relativePath = "manuscript/c1.md"

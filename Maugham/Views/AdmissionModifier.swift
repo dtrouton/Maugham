@@ -119,34 +119,48 @@ struct AdmissionModifier: ViewModifier {
 
     // MARK: - Who is waiting
 
-    /// Re-derive the queue from what the open documents' loads found, the
-    /// registry as it stands, and this device's label memory.
+    /// Re-derive the queue from everything this window can see holding lines,
+    /// the registry as it stands, and this device's label memory.
     ///
     /// The registry read is disk work and a signature verification per record,
     /// so it goes to a detached task (`TrustResolution`'s own rule). The
     /// pending counts do NOT: they are already in hand, stamped on each open
-    /// `Document` by its load and re-stamped by every external-change merge.
+    /// `Document` by its load and re-stamped by every external-change merge,
+    /// and counted by the inbox on its own refresh.
     ///
-    /// **Open documents only.** A closed document's held lines would cost a
-    /// full read of its log to discover, and this runs at every project open —
-    /// so a book whose stranger has written only in chapters nobody has opened
-    /// yet is asked about when one of them is opened, not before. The load
-    /// itself is what announces (`DocumentStore.register`), so no chapter can
-    /// be opened without the question being put.
+    /// **The open documents AND the capture stream** — one computation,
+    /// `DocumentStore.heldLinesByDevice()`, the same union People & Devices
+    /// lists its pending rows from. Built from the open documents alone this
+    /// asked about nobody in the ordinary paired-release case: a phone used
+    /// for capture writes into `inbox.<slug>.jsonl` and into no chapter, so
+    /// the queue came back empty and all three *Admit…* controls — the Inbox
+    /// banner's, History's, and Project Settings' — did nothing at all, with
+    /// the captures held and no recourse from any surface.
+    ///
+    /// **Open documents only, on the manuscript half.** A closed document's
+    /// held lines would cost a full read of its log to discover, and this runs
+    /// at every project open — so a book whose stranger has written only in
+    /// chapters nobody has opened yet is asked about when one of them is
+    /// opened, not before. The load itself is what announces
+    /// (`DocumentStore.register`), so no chapter can be opened without the
+    /// question being put.
     @MainActor
     private func recompute(forced: Bool) async {
         if forced { dismissed = [] }
         guard let documentStore else { return }
-        let pending = documentStore.allOpenDocuments()
-            .compactMap(\.provenance)
-            .reduce(into: [String: Int]()) { total, provenance in
-                for (device, count) in provenance.pendingByDevice {
-                    total[device, default: 0] += count
-                }
-            }
+        // A forced recompute is the writer pressing Admit…, and the press they
+        // made was on a count the inbox last read. Re-read the stream first so
+        // the queue is measured against what is there now rather than what was
+        // there when the pane drew — the same order Project Settings uses
+        // before it asks (`loadPeopleAndDevices`). The unforced call is the
+        // book reporting a load it has just done, and re-reading every manifest
+        // on every document open would be disk work for an answer already in
+        // hand.
+        if forced { await documentStore.inboxStore.refresh() }
+        let pending = documentStore.heldLinesByDevice()
         guard !pending.isEmpty else {
-            // Nothing is held on any open document any more, so nobody is
-            // waiting — including whoever this window is currently asking
+            // Nothing is held anywhere this window can see any more, so nobody
+            // is waiting — including whoever this window is currently asking
             // about, which is how an admission made in a SECOND window reaches
             // this one's sheet.
             queue = []
@@ -194,9 +208,9 @@ struct AdmissionModifier: ViewModifier {
     /// window's field deciding a name nobody asked it about.
     ///
     /// Only when the request is gone from a queue that was actually rebuilt —
-    /// the early return above leaves `queue` alone when there is nothing
-    /// pending on any open document, which is the ordinary state of a window
-    /// whose chapter simply has no held lines of its own.
+    /// the early return above empties `queue` when there is nothing pending
+    /// anywhere this window can see, which is the ordinary state of a window
+    /// whose chapters and capture stream simply hold no lines of anybody's.
     private func takeDownAVanishedSheet() {
         guard let shown,
               !queue.contains(where: { $0.fingerprint == shown.fingerprint })

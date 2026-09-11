@@ -16,6 +16,29 @@ import XCTest
 @MainActor
 final class CompilerRunCommandTests: XCTestCase {
 
+    /// The fixture directories this suite made, removed when it ends
+    /// (whole-branch review, I4).
+    ///
+    /// `$TMPDIR` is shared with the whole machine and the test host sweeps it
+    /// at launch, before an XCTest worker connects. A suite that leaves its
+    /// fixtures behind makes every later gate slower, and at 543,002 entries
+    /// it stopped being slower and started killing workers with no assertion
+    /// failure and nothing to read.
+    private var temporaries: [URL] = []
+
+    /// Remember a fixture root so it is removed whatever the test does next.
+    @discardableResult
+    private func track(_ url: URL) -> URL {
+        temporaries.append(url)
+        return url
+    }
+
+    override func tearDown() async throws {
+        let fm = FileManager.default
+        for url in temporaries { try? fm.removeItem(at: url) }
+        temporaries = []
+    }
+
     // MARK: - Fixtures
 
     /// A runner that records what it was asked and answers what the test says.
@@ -156,8 +179,8 @@ final class CompilerRunCommandTests: XCTestCase {
     }
 
     private func makeProjectRoot() throws -> URL {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CompilerRunCommand-\(UUID())")
+        let root = track(FileManager.default.temporaryDirectory
+            .appendingPathComponent("CompilerRunCommand-\(UUID())"))
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
     }

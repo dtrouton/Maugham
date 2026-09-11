@@ -105,9 +105,22 @@ enum TestHost {
         // macOS does not always let run. Sweep yesterday's, so seven files a
         // gate do not become the next 235-file directory. A day's floor cannot
         // reach a sibling worker's live socket — a gate is ninety seconds.
-        StaleFileSweep.sweep(
-            in: FileManager.default.temporaryDirectory,
-            prefix: hostSocketPrefix, suffix: hostSocketSuffix)
+        //
+        // **Off this thread, and off this moment** (whole-branch review, I4).
+        // This runs inside `MaughamApp.init()`, before the XCTest worker has
+        // connected, and `$TMPDIR` is shared with the whole machine: at
+        // 543,002 entries the enumeration alone outlasted the worker's connect
+        // timeout and the run died with no assertion failure and nothing to
+        // read. The sweep is now bounded as well (`StaleFileSweep`'s two
+        // budgets), so this is the second of two independent guards — a
+        // reaper of yesterday's orphans has no claim on the launch path at
+        // all, whatever it costs.
+        let temp = FileManager.default.temporaryDirectory
+        let prefix = hostSocketPrefix
+        let suffix = hostSocketSuffix
+        DispatchQueue.global(qos: .utility).async {
+            StaleFileSweep.sweep(in: temp, prefix: prefix, suffix: suffix)
+        }
     }
 
     /// The hidden-window configuration every test-host window ends up with.

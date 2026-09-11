@@ -409,7 +409,16 @@ filed under the manifest stream's own id (`InboxManifest.chainDocId`) and
 `HistoryPane` only ever asks for a DOCUMENT's, so they were written and shown to
 nobody. Both panes count through `OpLogQuarantine.setAsideLineCount`, one
 implementation, because one record can hold a run of lines and the writer's
-question is how many CHANGES. **And the sentence is ACKNOWLEDGED, per device per
+question is how many CHANGES. **History's sentence says WHICH reason** (the
+final wave's I3, `HistoryPane.setAsideLinesByReason` grouping the records and
+`setAsideLinesNotice(byReason:)` giving each group a clause): P1 had one cause
+and said it unconditionally, and four of P2b's six describe lines Maugham wrote
+on the writer's other machine, so a revoked Mac's history was reported to them
+as *written by something that is not Maugham*. The words are
+`JSONLAppendStore.quarantineReason`'s, which the records already carry.
+`InboxPane.setAsideNotice(lineCount:)` is the same shape and has NOT been given
+the same treatment — its sentence still says *by something that is not Maugham*
+over every reason, which is the same defect one stream over. **And the sentence is ACKNOWLEDGED, per device per
 record** (P2a, D2, `SetAsideAcknowledgement.swift`): what P1 shipped summed every
 record forever, so one foreign line found once was a standing accusation the
 writer could only silence by deleting the forensics it was about. An
@@ -542,7 +551,9 @@ P1's behaviour exactly** — this device's keys answer `.mine`, every other key
 answers `.noChain` — which is why the whole P1 suite passes unchanged.
 
 **The root order, and the rule that a device never switches chains.** `myRoot`
-resolves in four arms, and the order is load-bearing:
+resolves in the arms below, and the order is load-bearing — they are numbered
+because `TrustTable`'s own comments cite them by number (*arm 3 of `myRoot`*),
+so the numbering is a name and not a count:
 
 1. the root this device already **joined** (`RegistryCache.joinedRoot`,
    write-once — B1);
@@ -695,7 +706,7 @@ device-local, identity-scoped like the cache, and has **no project key at all**
 not about a folder. `labelledAt` moves only when the label actually changes,
 which is what keeps History's *remembered from Playlist* true.
 
-**The table gained two verdicts' worth of consequence.** `.retired(device:retiredAt:)`
+**The table gained a verdict whose answer depends on a DATE, and adoption.** `.retired(device:retiredAt:)`
 is the one verdict whose answer depends on WHEN a seal was made — hence
 `settling(sealKey:sealedAt:)` — and `.mine` outranks it, so a Mac that retired
 itself still reads its own history as its own word. `TrustTable.adoptedRoots`
@@ -737,6 +748,12 @@ surfaces telling the writer they have something they have not got. The LINE
 tallies (`FileProvenance.pending`, `pendingLines`) still count the seal, because
 it is a line and it is held; the two answer different questions and both are
 pinned (`PendingLoadTests.test_heldSealsAreNotCountedAsThingsTheWriterIsWaitingFor`).
+**`OpLogProvenance.pendingOpLines` is the sum every noun-bearing sentence reads**
+(the final wave's I1): it is `pendingByDevice`'s own total, so History's *N notes
+waiting* banner and the admission sheet's request are the same number by
+construction. History printed `pendingLines` until then and said *3 notes* about
+a device the sheet described as holding 2, and a pending span that is nothing but
+a seal now draws no sentence at all rather than *1 note from another device*.
 
 **`RegistryCache` keeps a dated restore list**, bounded at
 `RegistryCache.restoreLimit` (50) per project and written by `reconcile` on what

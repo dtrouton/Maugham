@@ -243,7 +243,7 @@ document's history was written before this book was signed" stops appearing once
 that legacy tail has been rotated into a signed segment. Nothing was rewritten;
 the sentence became false.
 
-### 6. Three states, of which P1 builds two (P2a builds the third)
+### 6. The verification states, and which of them P1 builds
 
 The spec's verification states are **verified**, **pending** and
 **quarantined**, with legacy as *unsigned history* beside them. P1 has no
@@ -266,11 +266,11 @@ event under different words: *written by something that is not Maugham* for a
 line after the remembered head or an unchained line after the chain began, and
 *the history's chain is broken* for everything else.
 
-**Amended 2026-09-10 (P2a): pending exists, and the rule between the three
-states is a verdict.** With a registry there is somebody to be un-admitted, so
-`Line.State` gained `pending(device:)` and the walk takes a `TrustVerdict`
-rather than a Bool. The mapping lives in exactly one switch,
-`TrustVerdict.settling(sealKey:)`, so a seventh verdict is a compile error and
+**Amended 2026-09-10 (P2a): pending exists, and the rule between the
+verification states is a verdict.** With a registry there is somebody to be
+un-admitted, so `Line.State` gained `pending(device:)` and the walk takes a
+`TrustVerdict` rather than a Bool. The mapping lives in exactly one switch,
+`TrustVerdict.settling(sealKey:)`, so a new verdict is a compile error and
 never a silent *unsigned history*:
 
 | verdict | state | applied? | `.lines` record? |
@@ -371,7 +371,8 @@ throws (`ReadError.unreadableFile(kind: .registry)`) rather than quietly
 un-admitting somebody. `RegistryCache` is this device's own byte-faithful memory
 of the last verified registry, restoring — loudly — a record that was deleted or
 tampered with, and a registry deleted wholesale with it. `TrustTable`/
-`TrustResolution` answer the six verdicts; `RegistryPresence` writes this
+`TrustResolution` answer the verdicts (count `TrustVerdict`'s cases, not a
+sentence); `RegistryPresence` writes this
 device's record at `DocumentStore.open` (and, on the phone, at the first write),
 with the first Mac in an empty book writing the root. History says what is held
 and whose chain this Mac joined.
@@ -517,16 +518,20 @@ registry. P2b adds three things to it:
 
 ### The trust table
 
-Six verdicts — `.mine`, `.admitted(person:)`, `.stranger(device:)`,
+The verdicts are `.mine`, `.admitted(person:)`, `.stranger(device:)`,
 `.revoked(person:highestOpIdSeen:)`, `.retired(device:retiredAt:)`,
-`.otherRoot(root:)`, `.noChain`; count `TrustVerdict`'s cases rather than this
-sentence, which is why it does not give a number. The mapping from verdict to
-line state lives in one switch, `TrustVerdict.settling(sealKey:sealedAt:)`, so a
-seventh verdict is a compile error and never a silent *unsigned history*.
+`.otherRoot(root:)` and `.noChain` — count `TrustVerdict`'s cases, not this
+sentence, which is why it gives no number. (It gave one until P2b's final wave,
+and that number had been wrong since Task 7 added `.retired` directly beneath
+it.) The mapping from verdict to line state lives in one switch,
+`TrustVerdict.settling(sealKey:sealedAt:)`, so a new verdict is a compile error
+and never a silent *unsigned history*.
 
-**The root order is unchanged and is still four arms**: the root already joined
-(write-once); else this device's own self-signed root record; else a foreign
-root whose chain names one of this device's keys; else `nil`. **A device that
+**The root order is unchanged**, and the arms are numbered because the code
+cites them by number (`TrustTable`'s own comments say *arm 3 of `myRoot`*):
+(1) the root already joined, write-once; (2) else this device's own self-signed
+root record; (3) else a foreign root whose chain names one of this device's
+keys; (4) else `nil`. **A device that
 holds its own root record never joins another** — a foreign root naming it is a
 claimant, and its spans read `.otherRoot`.
 
@@ -988,7 +993,7 @@ re-keys all four. P2's registry admits a person, a device **and an actor**.
   `AdmissionDecisionTests`, `AdmissionSheetTests`, `ClaimDecisionTests`,
   `PeopleAndDevicesModelTests`, `DocumentStoreAdmissionTests`,
   `InboxPendingTests`, `DeviceStandingTests` — admission and its refusals, the
-  same-authority rule, the six verdicts and the retirement date, the derived
+  same-authority rule, the verdicts and the retirement date, the derived
   events, a stranger's held tail and held segment, the revocation split, the
   sheet's copy and its queue, the claim and the two-roots exit end to end, the
   section's rows and which verbs this Mac may press, and the phone's standing.

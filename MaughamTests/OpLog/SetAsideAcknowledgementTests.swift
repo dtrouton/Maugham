@@ -102,7 +102,7 @@ final class SetAsideAcknowledgementTests: XCTestCase {
         let records = try threeRecords(in: project)   // 3 + 2 + 1 lines
 
         XCTAssertEqual(
-            HistoryPane.setAsideLineCount(records: records, in: project), 6,
+            OpLogQuarantine.setAsideLineCount(records: records, in: project), 6,
             "premise: six set-aside changes across three records")
 
         let acknowledged: Set<String> = [
@@ -112,14 +112,15 @@ final class SetAsideAcknowledgementTests: XCTestCase {
             records: records, acknowledged: acknowledged, in: project)
 
         XCTAssertEqual(
-            HistoryPane.setAsideLineCount(records: standing, in: project), 3,
+            HistoryPane.setAsideLinesByReason(records: standing, in: project),
+            ["written by something that is not Maugham": 3],
             "the three lines of the acknowledged record stop being counted")
         XCTAssertEqual(
             HistoryPane.setAsideLinesNotice(
-                lineCount: HistoryPane.setAsideLineCount(
+                byReason: HistoryPane.setAsideLinesByReason(
                     records: standing, in: project)),
-            "3 changes were written to this document by something that is not "
-            + "Maugham; kept in backup, not applied.")
+            "3 changes to this document were set aside (written by something "
+            + "that is not Maugham); kept in backup, not applied.")
     }
 
     func test_everyRecordAcknowledgedSilencesTheSentenceEntirely() throws {
@@ -134,7 +135,7 @@ final class SetAsideAcknowledgementTests: XCTestCase {
         XCTAssertTrue(standing.isEmpty)
         XCTAssertNil(
             HistoryPane.setAsideLinesNotice(
-                lineCount: HistoryPane.setAsideLineCount(
+                byReason: HistoryPane.setAsideLinesByReason(
                     records: standing, in: project)),
             "the writer has seen all of it; the notice goes away")
         XCTAssertNil(
@@ -166,10 +167,10 @@ final class SetAsideAcknowledgementTests: XCTestCase {
         XCTAssertEqual(standing, [fresh])
         XCTAssertEqual(
             HistoryPane.setAsideLinesNotice(
-                lineCount: HistoryPane.setAsideLineCount(
+                byReason: HistoryPane.setAsideLinesByReason(
                     records: standing, in: project)),
-            "4 changes were written to this document by something that is not "
-            + "Maugham; kept in backup, not applied.",
+            "4 changes to this document were set aside (written by something "
+            + "that is not Maugham); kept in backup, not applied.",
             "the sentence returns for the new finding and counts only it")
     }
 
@@ -304,7 +305,8 @@ final class SetAsideAcknowledgementPaneTests: XCTestCase {
         let source = try Self.source(of: "Views/HistoryPane.swift")
         let body = try XCTUnwrap(Self.declaration(named: "var body: some View {", in: source))
 
-        XCTAssertTrue(body.contains("Self.setAsideLinesNotice(lineCount: setAsideLineCount)"),
+        XCTAssertTrue(
+            body.contains("Self.setAsideLinesNotice(byReason: setAsideLinesByReason)"),
                       "premise: the sentence is still drawn. Got:\n\(body)")
         XCTAssertTrue(body.contains("Button(\"Acknowledge\", action: acknowledgeSetAside)"),
                       "\u{2026}and the writer can put it down. Got:\n\(body)")

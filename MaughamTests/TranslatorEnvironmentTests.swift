@@ -14,6 +14,29 @@ import MaughamCore
 @MainActor
 final class TranslatorEnvironmentTests: XCTestCase {
 
+    /// The fixture directories this suite made, removed when it ends
+    /// (whole-branch review, I4).
+    ///
+    /// `$TMPDIR` is shared with the whole machine and the test host sweeps it
+    /// at launch, before an XCTest worker connects. A suite that leaves its
+    /// fixtures behind makes every later gate slower, and at 543,002 entries
+    /// it stopped being slower and started killing workers with no assertion
+    /// failure and nothing to read.
+    private var temporaries: [URL] = []
+
+    /// Remember a fixture root so it is removed whatever the test does next.
+    @discardableResult
+    private func track(_ url: URL) -> URL {
+        temporaries.append(url)
+        return url
+    }
+
+    override func tearDown() async throws {
+        let fm = FileManager.default
+        for url in temporaries { try? fm.removeItem(at: url) }
+        temporaries = []
+    }
+
     // MARK: - Harness
 
     private struct Harness {
@@ -31,8 +54,8 @@ final class TranslatorEnvironmentTests: XCTestCase {
     /// shape `TranslationStatusToolTests` uses, for its reason: a real
     /// `Document.load` is what mints the `¶id`s every id in this file names.
     private func makeHarness() async throws -> Harness {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("TranslatorEnv-\(UUID().uuidString)")
+        let root = track(FileManager.default.temporaryDirectory
+            .appendingPathComponent("TranslatorEnv-\(UUID().uuidString)"))
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent("manuscript"), withIntermediateDirectories: true)

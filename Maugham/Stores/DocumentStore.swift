@@ -35,7 +35,20 @@ public final class DocumentStore {
     @MainActor private var _inboxStore: InboxStore?
     @MainActor var inboxStore: InboxStore {
         if let s = _inboxStore { return s }
-        let s = InboxStore(projectURL: projectURL)
+        // **Built off the same identity source the document loads use**
+        // (`Document.loadIdentities`, `Document.registryCacheForTesting`)
+        // rather than `InboxStore`'s own `.current` defaults. In production
+        // the two are the same quartet and the same shared cache, so nothing
+        // moves; what it buys is that a store opened on a temp project cannot
+        // judge its CAPTURES by one set of keys and its CHAPTERS by another —
+        // which is a store whose `heldLinesByDevice` answers about two
+        // different books.
+        let s = InboxStore(
+            projectURL: projectURL,
+            deviceId: Document.loadIdentities.author.deviceId,
+            identity: Document.loadIdentities.author,
+            identities: Document.loadIdentities,
+            cache: Document.registryCacheForTesting)
         _inboxStore = s
         return s
     }

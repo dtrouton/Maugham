@@ -69,6 +69,19 @@ struct PeopleAndDevicesModel: Equatable {
     static let retireNotThisDevice = "A device retires itself"
     static let alreadyRetired = "Already retired"
 
+    /// **Why Merge is refused** (whole-branch review, I2).
+    ///
+    /// A claim is signed by the root record making it, so a Mac that JOINED
+    /// somebody else's root — arm 3, `ownRootRecord == nil` — has no root of
+    /// its own to sign one with, and `RegistryAdmission.claim` refuses it.
+    /// Drawn live, that button told the writer to merge by claiming the book
+    /// immediately after they pressed the merge button, which reads as the app
+    /// arguing with itself. Gated, the sentence is simply never reached from
+    /// this surface.
+    static let mergeNoRootOfMyOwn =
+        "This Mac is on another root’s chain, so it has no root of its own to "
+        + "merge with. Claim this book first."
+
     // MARK: - When a verb refuses
 
     /// **A refusal is `AdmissionDecision.sentence(for:)`'s** (the team lead's
@@ -219,6 +232,28 @@ struct PeopleAndDevicesModel: Equatable {
         var id: String { fingerprint }
     }
 
+    /// A claimant row — a `Named` plus whether this Mac can actually answer it
+    /// (whole-branch review, I2).
+    ///
+    /// Its own type rather than two more fields on `Named`, because merged and
+    /// absent rows have no such question and a defaulted flag on a shared row
+    /// is a claim about them that nobody made. The shape is `Person.canRevoke`
+    /// and `Device.canRetire`'s, for their reason: a refused verb keeps its
+    /// button, disabled, with the reason in the tooltip, because *why can I not
+    /// merge this* is a question an absent button answers with silence.
+    struct Claimant: Equatable, Identifiable {
+        let root: Named
+        /// Whether pressing Merge could write a claim at all.
+        let canMerge: Bool
+        /// Why not, when it could not. Nil exactly when `canMerge`.
+        let whyNotMergeable: String?
+
+        var id: String { root.fingerprint }
+        var fingerprint: String { root.fingerprint }
+        var name: String { root.name }
+        var code: String { root.code }
+    }
+
     // MARK: - The model
 
     /// The registry read's own sentence, when it refused. Everything else is
@@ -236,8 +271,8 @@ struct PeopleAndDevicesModel: Equatable {
     /// the writer has already answered the question a claimant asks.
     let merged: [Named]
     /// Roots that name this device without being the one it is on. Listed,
-    /// never merged (B1).
-    let claimants: [Named]
+    /// never merged (B1). Each carries whether this Mac can answer it.
+    let claimants: [Claimant]
     /// Devices this Mac remembers labelling whose record is not in the folder —
     /// the only thing left naming them, and **Forget this device** clears it.
     let absent: [Named]
@@ -347,10 +382,18 @@ struct PeopleAndDevicesModel: Equatable {
         // A claimant this device has ADOPTED is merged, not claiming: it has
         // been answered, and listing it in both places would ask the writer a
         // question they have already settled (Task 2's carry).
-        let stillClaiming: [Named] = claimants
+        // **Whether Merge can do anything is this Mac's state, not the row's**
+        // (whole-branch review, I2) — but it is carried on the row, because
+        // the row is what draws the button and a view deciding for itself
+        // would be a second authority on a trust question. A Mac that joined
+        // another root has no root record to sign a claim with, so every one
+        // of these buttons can only refuse.
+        let canMerge = table.ownRootRecord != nil
+        let stillClaiming: [Claimant] = claimants
             .filter { !adopted.contains($0) }
             .sorted()
-            .map(named)
+            .map { Claimant(root: named($0), canMerge: canMerge,
+                            whyNotMergeable: canMerge ? nil : mergeNoRootOfMyOwn) }
         var absent: [Named] = []
         for fingerprint in remembered.keys.sorted() {
             guard registry.person(fingerprint) == nil,

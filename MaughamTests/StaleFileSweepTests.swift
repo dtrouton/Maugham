@@ -111,4 +111,82 @@ final class StaleFileSweepTests: XCTestCase {
     func test_theDefaultFloorIsADay() {
         XCTAssertEqual(StaleFileSweep.defaultAge, 24 * 60 * 60)
     }
+
+    // MARK: - The sweep is bounded (whole-branch review, I4)
+
+    /// **A big directory costs a bounded amount of work.**
+    ///
+    /// `$TMPDIR` is shared with the whole machine and this sweep runs in
+    /// `MaughamApp.init()`, before an XCTest worker can connect. At 543,002
+    /// entries the enumeration alone outlasted the connect timeout and the run
+    /// died with no assertion failure and nothing to read (P2b Task 10's
+    /// diagnosis). So the budget is the contract, and it is asserted by what
+    /// the sweep DID rather than by a clock: five thousand old, matching files
+    /// and a budget of a hundred entries can take at most a hundred of them.
+    func test_theSweepStopsAtItsEntryBudget() throws {
+        for index in 0..<5_000 {
+            _ = try write("compiler-mcp-\(index).json", ageInHours: 48)
+        }
+
+        let started = Date()
+        let removed = StaleFileSweep.sweep(
+            in: dir, prefix: "compiler-mcp-", suffix: ".json",
+            entryBudget: 100)
+        let elapsed = Date().timeIntervalSince(started)
+
+        XCTAssertEqual(removed.count, 100,
+                       "every entry it looked at matched, and it looked at its "
+                       + "budget's worth: \(removed.count)")
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: dir.path).count,
+            4_900,
+            "the rest are still there — the next launch sweeps again")
+        // Lenient on purpose: the deterministic assertion above is the guard,
+        // and a wall clock under seven parallel workers is not. What this
+        // catches is the regression that matters — a sweep that enumerates the
+        // whole directory before honouring its budget.
+        XCTAssertLessThan(elapsed, 5.0, "and it returned rather than enumerating 5,000")
+    }
+
+    /// The clock is the second bound, for the directory that is slow rather
+    /// than large. A budget of zero is a sweep that does nothing at all, which
+    /// is the honest reading of *no time to do this*.
+    func test_asweepWithNoTimeOrNoEntriesToSpendDoesNothing() throws {
+        let old = try write("compiler-mcp-\(UUID().uuidString).json", ageInHours: 48)
+
+        XCTAssertTrue(StaleFileSweep.sweep(
+            in: dir, prefix: "compiler-mcp-", suffix: ".json", timeBudget: 0).isEmpty)
+        XCTAssertTrue(StaleFileSweep.sweep(
+            in: dir, prefix: "compiler-mcp-", suffix: ".json", entryBudget: 0).isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: old.path))
+    }
+
+    /// And the budgets are defaults a caller never has to think about: both
+    /// are declared, and the entry one is small enough that no directory can
+    /// make the launch path wait on it.
+    func test_theBudgetsAreDeclaredAndSmall() {
+        XCTAssertEqual(StaleFileSweep.defaultEntryBudget, 2_000)
+        XCTAssertEqual(StaleFileSweep.defaultTimeBudget, 0.25)
+    }
+
+    /// **The launch path does not wait for the sweep.** Bounding it is one
+    /// guard; the other is that a reaper of yesterday's orphans has no claim
+    /// on the moment before an XCTest worker connects. Read off the source,
+    /// because the alternative is timing a process launch.
+    func test_theTestHostSweepsOffTheConnectPath() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Maugham/TestHost.swift"),
+            encoding: .utf8)
+        let call = try XCTUnwrap(
+            source.range(of: "StaleFileSweep.sweep("),
+            "premise: the host still sweeps its own sockets")
+        let before = String(source[source.startIndex..<call.lowerBound].suffix(200))
+        XCTAssertTrue(
+            before.contains("DispatchQueue.global("),
+            "the sweep is dispatched, not run inline in `MaughamApp.init()`. "
+            + "Got:\n\(before)")
+    }
 }
