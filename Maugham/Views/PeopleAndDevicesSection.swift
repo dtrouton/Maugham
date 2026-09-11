@@ -8,12 +8,21 @@ import MaughamCore
 /// has been answered — is made in that value and asserted with nothing mounted.
 /// What is left here is layout and four verbs.
 ///
-/// **Three of the four verbs are drawn disabled** (Revoke, Retire, Merge), with
-/// a tooltip saying when they arrive. Drawn rather than hidden, for P2a's
-/// Admit… reason: a control that appears later moves everything under it, and a
-/// writer who has learned where Revoke lives should find it in the same place
-/// when it starts working. **Forget this device** is live — it clears this
-/// Mac's own memory of a label and touches no registry record.
+/// **Revoke and Retire are live as of P2b Task 7**; Merge is still drawn
+/// disabled with a tooltip saying when it arrives. Drawn rather than hidden,
+/// for P2a's Admit… reason: a control that appears later moves everything under
+/// it, and a writer who has learned where Merge lives should find it in the
+/// same place when it starts working. A live verb that this Mac may not perform
+/// on a given row is disabled with the reason in its tooltip — never hidden,
+/// for the same reason and one more: *why can I not revoke this* is a question
+/// an absent button answers with silence.
+///
+/// **Forget this device** is live and touches no registry record — it clears
+/// this Mac's own memory of a label.
+///
+/// A verb that REFUSES says so in `notice`, drawn under the header: the writer
+/// pressed something and it did not happen, and a control that looks dead is
+/// worse than a refusal (RULING-7).
 struct PeopleAndDevicesSection: View {
 
     let model: PeopleAndDevicesModel
@@ -23,6 +32,15 @@ struct PeopleAndDevicesSection: View {
     /// Clear this Mac's memory of a label for a device the folder no longer
     /// describes.
     var forget: (String) -> Void = { _ in }
+    /// Stop applying what a device writes. The argument is the PERSON's
+    /// fingerprint — under labels-only that is the device's author key, and it
+    /// is the record the root re-signs.
+    var revoke: (String) -> Void = { _ in }
+    /// Say this Mac has stopped writing in this book. Offered on this Mac's own
+    /// row alone: a device signs its own retirement.
+    var retire: (String) -> Void = { _ in }
+    /// What the last verb said when it refused, or nil.
+    var notice: String?
 
     var body: some View {
         Section {
@@ -36,6 +54,12 @@ struct PeopleAndDevicesSection: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 thisMac
+                if let notice {
+                    Label(notice, systemImage: "exclamationmark.triangle")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 ForEach(model.pending) { request in
                     pendingRow(request)
                 }
@@ -109,10 +133,21 @@ struct PeopleAndDevicesSection: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                Button("Revoke") {}
+                Button("Revoke") { revoke(person.fingerprint) }
                     .controlSize(.small)
-                    .disabled(true)
-                    .help(PeopleAndDevicesModel.revokeSoon)
+                    .disabled(!person.canRevoke)
+                    .help(person.whyNotRevocable ?? PeopleAndDevicesModel.revokeHelp)
+                    // .help is hover-only; the WHY must reach VoiceOver too.
+                    .accessibilityHint(Text(
+                        person.whyNotRevocable ?? PeopleAndDevicesModel.revokeHelp))
+            }
+            if person.canRevoke {
+                // Spec §5's own sentence, beside the button rather than in the
+                // footer: what Revoke does, and the thing it does not do.
+                Text(PeopleAndDevicesModel.revokeSentence)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             ForEach(person.devices) { device in
                 deviceRow(device)
@@ -138,10 +173,12 @@ struct PeopleAndDevicesSection: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            Button("Retire") {}
+            Button("Retire") { retire(device.fingerprint) }
                 .controlSize(.small)
-                .disabled(true)
-                .help(PeopleAndDevicesModel.retireSoon)
+                .disabled(!device.canRetire)
+                .help(device.whyNotRetirable ?? PeopleAndDevicesModel.retireHelp)
+                .accessibilityHint(Text(
+                    device.whyNotRetirable ?? PeopleAndDevicesModel.retireHelp))
         }
         .padding(.leading, 16)
         .frame(maxWidth: .infinity, alignment: .leading)

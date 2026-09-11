@@ -2,17 +2,20 @@ import Foundation
 
 /// What one seal's key is to THIS device.
 ///
-/// Six words, because the reader has six genuinely different things to do with
-/// a line: apply it as its own (`mine`), apply it as somebody's (`admitted`),
-/// HOLD it until the writer says (`stranger` — pending, spec §3), quarantine it
-/// by opId (`revoked`), quarantine it as another claimant's (`otherRoot`), or
-/// fall back to P1 and apply it as unsigned history because there is no chain
-/// to judge by (`noChain`, decision B3).
+/// One word per genuinely different thing the reader can do with a line — count
+/// the cases below, never a number in prose: apply it as its own (`mine`),
+/// apply it as somebody's (`admitted`), HOLD it until the writer says
+/// (`stranger` — pending, spec §3), refuse it and split the refusal by opId
+/// (`revoked`), refuse what a stopped machine wrote after it stopped
+/// (`retired`), refuse it as another claimant's (`otherRoot`), or fall back to
+/// P1 and apply it as unsigned history because there is no chain to judge by
+/// (`noChain`, decision B3).
 ///
 /// The payloads are the fingerprints a surface needs to name somebody: a person
 /// for the two admitted states, the device record naming the key for a stranger
 /// (nil when nothing on disk describes it), the claimant's own root for
-/// `otherRoot`.
+/// `otherRoot`, the device and the moment for `retired` — the one payload that
+/// is not a name, because that verdict is answered against the seal's own date.
 public enum TrustVerdict: Equatable, Hashable, Sendable {
     /// One of this device's own actor keys.
     case mine
@@ -28,6 +31,13 @@ public enum TrustVerdict: Equatable, Hashable, Sendable {
     /// Admitted, then revoked. `highestOpIdSeen` is the line between what the
     /// root had already applied and what arrived after (spec §5).
     case revoked(person: String, highestOpIdSeen: String?)
+    /// Admitted, and then the DEVICE said it had stopped (spec §5). Dated,
+    /// because this is the one verdict whose answer depends on WHEN a seal was
+    /// made: its past stays verified and its future is quarantined, so the
+    /// table carries the moment and the walk — which knows each seal's own
+    /// date — decides. A revocation outranks it: that is the root refusing,
+    /// and it is not softened by the machine having stopped politely.
+    case retired(device: String, retiredAt: Date)
     /// A second self-signed root, or anyone it admitted. Listed, never merged.
     case otherRoot(root: String)
     /// This device belongs to no chain here, so it judges nobody (B3).
@@ -132,6 +142,10 @@ public struct TrustTable: Equatable, Sendable {
     private let deviceByActorKey: [String: String]
     /// Person fingerprint → the record, for the revoked/admitted split.
     private let personByFingerprint: [String: PersonRecord]
+    /// Device fingerprint → the moment that device said it had stopped. Keyed
+    /// on the DEVICE, because retirement is a machine's own act and every actor
+    /// key it holds retires with it.
+    private let retiredAtByDevice: [String: Date]
     /// Everyone under `myRoot`, transitively, the root included.
     private let myChain: Set<String>
     /// Person fingerprint → the OTHER root whose chain holds them.
@@ -200,6 +214,17 @@ public struct TrustTable: Equatable, Sendable {
             personByFingerprint[person.person] = person
         }
 
+        var retiredAtByDevice: [String: Date] = [:]
+        for device in registry.devices {
+            guard let retiredAt = device.retiredAt else { continue }
+            // The EARLIEST, where a folder somehow holds two records for one
+            // device: the moment it said it had stopped is the moment it
+            // stopped, and taking the later one would apply lines written after
+            // it said so.
+            if let known = retiredAtByDevice[device.device], known <= retiredAt { continue }
+            retiredAtByDevice[device.device] = retiredAt
+        }
+
         // The roots MY root adopted, followed through their own adoptions. A
         // root that adopted THIS one is not here: only claims written by a root
         // in the closure widen it, which is what keeps the widening this
@@ -239,11 +264,24 @@ public struct TrustTable: Equatable, Sendable {
             myRoot: myRoot, rootSource: rootSource, ownRootRecord: ownRecord,
             admittingRoots: admittingRoots, adoptedRoots: adoptedRoots,
             mine: myKeys, deviceByActorKey: deviceByActorKey,
-            personByFingerprint: personByFingerprint, myChain: myChain,
+            personByFingerprint: personByFingerprint,
+            retiredAtByDevice: retiredAtByDevice, myChain: myChain,
             otherRootByMember: otherRootByMember)
     }
 
     // MARK: - Answering
+
+    /// **The line a revocation drew**: the highest opId the root had applied
+    /// from `person` when it revoked them (spec §5), or nil where it had
+    /// applied nothing and where nobody by that fingerprint is here at all.
+    ///
+    /// Asked by exactly one reader — `OpLogStore`'s tail classification, which
+    /// splits a refused span into what arrived after the revocation and what
+    /// was written before it and only reached this Mac later. Two lines, two
+    /// sentences, and the same refusal.
+    nonisolated public func highestOpIdSeen(forPerson person: String) -> String? {
+        personByFingerprint[person]?.highestOpIdSeen
+    }
 
     /// What the key that made this seal is to this device.
     ///
@@ -265,6 +303,12 @@ public struct TrustTable: Equatable, Sendable {
         if myChain.contains(person) {
             if let record = personByFingerprint[person], record.isRevoked {
                 return .revoked(person: person, highestOpIdSeen: record.highestOpIdSeen)
+            }
+            // Retirement is dated and revocation is not, so revocation is asked
+            // first: a device that stopped politely and was then shut out is
+            // shut out, whatever the date on the seal in hand.
+            if let retiredAt = retiredAtByDevice[person] {
+                return .retired(device: person, retiredAt: retiredAt)
             }
             return .admitted(person: person)
         }

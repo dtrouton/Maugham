@@ -89,9 +89,17 @@ final class PeopleAndDevicesModelTests: XCTestCase {
         claimants: [String] = [],
         table overrideTable: TrustTable? = nil
     ) -> PeopleAndDevicesModel {
-        PeopleAndDevicesModel.make(
-            registry: registry, table: overrideTable ?? table(registry),
-            remembered: remembered, pending: pending, claimants: claimants,
+        let table = overrideTable ?? table(registry)
+        return PeopleAndDevicesModel.make(
+            registry: registry, table: table,
+            remembered: remembered,
+            // The counts go through the SAME derivation the admission sheet
+            // queues (Task 7): who is a stranger with lines waiting is decided
+            // once, and this pane draws that decision rather than a second one.
+            requests: AdmissionDecision.requests(
+                pending: pending, registry: registry,
+                memory: remembered, myRoot: table.myRoot),
+            claimants: claimants,
             standing: standing(), me: mac.fingerprint)
     }
 
@@ -226,6 +234,89 @@ final class PeopleAndDevicesModelTests: XCTestCase {
                       "the row says what happened: \(phoneRow.detail)")
     }
 
+    // MARK: - Who may revoke, and who may retire (P2b Task 7, spec §5)
+
+    /// **Only the root that admitted them.** A person record is signed by the
+    /// root it names, so a Mac that is not that root would write a file every
+    /// reader lists as malformed — a device un-admitted in silence rather than
+    /// revoked.
+    func test_thedeviceThisMacAdmittedMayBeRevoked() throws {
+        let model = model(registry())
+        let person = try XCTUnwrap(model.people.first { $0.fingerprint == phone.fingerprint })
+
+        XCTAssertTrue(person.canRevoke)
+        XCTAssertNil(person.whyNotRevocable)
+    }
+
+    /// A root answers to itself: it is claimed over, never revoked (spec §5).
+    func test_arootIsNotRevocableAndSaysWhy() throws {
+        let model = model(registry())
+        let root = try XCTUnwrap(model.people.first { $0.fingerprint == mac.fingerprint })
+
+        XCTAssertFalse(root.canRevoke)
+        XCTAssertEqual(root.whyNotRevocable, PeopleAndDevicesModel.revokeARoot)
+    }
+
+    /// Revoking twice would move the line the first revocation drew, so the
+    /// second press is refused before it is offered.
+    func test_analreadyRevokedPersonIsNotRevokedAgain() throws {
+        let model = model(registry(revoked: true))
+        let person = try XCTUnwrap(model.people.first { $0.fingerprint == phone.fingerprint })
+
+        XCTAssertFalse(person.canRevoke)
+        XCTAssertEqual(person.whyNotRevocable, PeopleAndDevicesModel.alreadyRevoked)
+    }
+
+    /// **A person somebody else's root admitted is their record to change.**
+    ///
+    /// The case is this Mac having JOINED another root's chain: everyone on it
+    /// is listed here, because they are who may write in this book, and the
+    /// records are signed by the root that admitted them — so revoking one from
+    /// here would write a file every reader lists as malformed. A person under
+    /// a root this Mac is NOT on is a different thing again: they are not in
+    /// this Mac's chain, so they are not a row at all, and the claimant line
+    /// above is what says so.
+    func test_apersonAdmittedByAnotherRootIsNotThisMacsToRevoke() throws {
+        let registry = Registry(
+            devices: [deviceRecord(mac, name: "Denver's MacBook", kind: .mac),
+                      deviceRecord(phone, name: "Denver's iPhone")],
+            people: [person(otherRoot, label: "Amelia", ownName: "Amelia's MacBook",
+                            admittedBy: otherRoot),
+                     person(mac, label: "Denver", ownName: "Denver's MacBook",
+                            admittedBy: otherRoot),
+                     person(phone, label: "Denver", ownName: "Denver's iPhone",
+                            admittedBy: otherRoot)])
+        let table = TrustTable.resolve(
+            registry: registry, mine: .forAuthor(mac), joinedRoot: nil)
+        XCTAssertEqual(table.myRoot, otherRoot.fingerprint,
+                       "this Mac is on somebody else's chain")
+
+        let model = PeopleAndDevicesModel.make(
+            registry: registry, table: table, remembered: [:], requests: [],
+            claimants: [], standing: standing(), me: mac.fingerprint)
+
+        let theirs = try XCTUnwrap(
+            model.people.first { $0.fingerprint == phone.fingerprint },
+            "everyone on the chain this Mac judges by is listed")
+        XCTAssertFalse(theirs.canRevoke)
+        XCTAssertEqual(theirs.whyNotRevocable, PeopleAndDevicesModel.revokeNotMine)
+    }
+
+    /// **A device signs its own retirement** (spec §5), so exactly one row
+    /// offers it: this Mac's.
+    func test_onlyThisMacsOwnRowMayRetire() throws {
+        let model = model(registry())
+        let devices = model.people.flatMap(\.devices)
+
+        let mine = try XCTUnwrap(devices.first { $0.fingerprint == mac.fingerprint })
+        XCTAssertTrue(mine.canRetire)
+        XCTAssertNil(mine.whyNotRetirable)
+
+        let theirs = try XCTUnwrap(devices.first { $0.fingerprint == phone.fingerprint })
+        XCTAssertFalse(theirs.canRetire)
+        XCTAssertEqual(theirs.whyNotRetirable, PeopleAndDevicesModel.retireNotThisDevice)
+    }
+
     // MARK: - Claimants and merged roots
 
     /// Somebody claiming a book this device already belongs to another copy of.
@@ -310,7 +401,10 @@ final class PeopleAndDevicesModelTests: XCTestCase {
                 NSLocalizedDescriptionKey: "people/deadbeef.json is present and unreadable"]))
         let model = PeopleAndDevicesModel.make(
             registry: registry(), table: table(registry()), remembered: [:],
-            pending: [stranger.fingerprint: 4], claimants: [otherRoot.fingerprint],
+            requests: AdmissionDecision.requests(
+                pending: [stranger.fingerprint: 4], registry: registry(),
+                memory: [:], myRoot: mac.fingerprint),
+            claimants: [otherRoot.fingerprint],
             standing: refusal, me: mac.fingerprint)
 
         XCTAssertEqual(model.refusal, refusal.sentence)
@@ -330,7 +424,7 @@ final class PeopleAndDevicesModelTests: XCTestCase {
             registry: empty,
             table: TrustTable.resolve(registry: empty, mine: .forAuthor(mac),
                                       joinedRoot: nil),
-            remembered: [:], pending: [:], claimants: [],
+            remembered: [:], requests: [], claimants: [],
             standing: DeviceStanding(code: DeviceCode.short(mac.fingerprint)),
             me: mac.fingerprint)
 

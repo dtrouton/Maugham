@@ -104,6 +104,17 @@ final class PendingLoadTests: XCTestCase {
         try RegistryWriter.write(record, signedBy: root.author, in: projectURL)
     }
 
+    /// The stranger's own device record, self-signed, optionally saying it has
+    /// stopped writing.
+    private func writeStrangerDeviceRecord(retiredAt: Date? = nil) throws {
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: stranger.fingerprint, name: "Denver's other Mac", kind: .mac,
+                actors: [DeviceActor.author.rawValue: stranger.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 5), retiredAt: retiredAt),
+            signedBy: stranger, in: projectURL)
+    }
+
     /// `person` admitted under `rootIdentity`'s chain — self-signed when the
     /// two are the same key, which is what makes `rootIdentity` a root.
     private func admit(
@@ -249,6 +260,103 @@ final class PendingLoadTests: XCTestCase {
 
         let record = linesRecords().first
         XCTAssertEqual(record?.reason, "written after this device's access was withdrawn")
+    }
+
+    /// **The split** (spec §5). A revoked device's span is refused whole, and
+    /// the writer is owed which half is which: a line whose opId the root had
+    /// already applied may be late sync or may be backdated, and a line above
+    /// that mark was written after the door closed. Two records, two sentences,
+    /// one refusal.
+    func test_aRevokedSpanIsSplitByTheOpIdTheRootHadApplied() async throws {
+        let first = "01K5Q8ZJ3M0000000000000001"
+        let second = "01K5Q8ZJ3M0000000000000002"
+        try writeRootRecord()
+        try await writeMyOwnFile(["01K5Q8ZJ3M0000000000000000"])
+        try await writeStrangerFile([first, second])
+        try writeStrangerRecord(
+            revokedAt: Date(timeIntervalSince1970: 30), highestOpIdSeen: first)
+
+        let load = try await reader().loadDiagnosed(docId: docId)
+
+        XCTAssertEqual(load.ops.map(\.opId), ["01K5Q8ZJ3M0000000000000000"],
+                       "every line of a revoked key is refused, both sides of the line")
+        XCTAssertEqual(load.provenance.quarantinedLines, 3)
+
+        let reasons = Set(linesRecords().map(\.reason))
+        XCTAssertEqual(reasons, [
+            "written after this device's access was withdrawn",
+            "may be late sync, or may be backdated",
+        ], "\(linesRecords().map(\.reason))")
+    }
+
+    /// The mark is what makes the split; with no mark there is no *before*.
+    func test_aRevocationWithNoMarkPutsEverythingAfterIt() async throws {
+        try writeRootRecord()
+        try await writeStrangerFile(["01K5Q8ZJ3M0000000000000001"])
+        try writeStrangerRecord(
+            revokedAt: Date(timeIntervalSince1970: 30), highestOpIdSeen: nil)
+
+        _ = try await reader().loadDiagnosed(docId: docId)
+
+        XCTAssertEqual(linesRecords().map(\.reason),
+                       ["written after this device's access was withdrawn"])
+    }
+
+    /// Everything the stranger wrote is at or below the mark: one record, and
+    /// it is the gentler sentence.
+    func test_aRevokedSpanEntirelyBelowTheMarkIsOnlyEverLate() async throws {
+        try writeRootRecord()
+        try await writeStrangerFile(["01K5Q8ZJ3M0000000000000001"])
+        try writeStrangerRecord(
+            revokedAt: Date(timeIntervalSince1970: 30),
+            highestOpIdSeen: "01K5Q8ZJ3M0000000000000009")
+
+        _ = try await reader().loadDiagnosed(docId: docId)
+
+        let reasons = linesRecords().map(\.reason)
+        XCTAssertEqual(
+            reasons.filter { $0 == "may be late sync, or may be backdated" }.count, 1)
+        XCTAssertFalse(
+            reasons.contains("written after this device's access was withdrawn"),
+            "the seal line goes with the ops it sealed when none of them is late")
+    }
+
+    // MARK: - Retired
+
+    /// **A retired device's future is set aside in its own words** (spec §5).
+    /// Nothing it wrote before it stopped is touched; this file was sealed
+    /// after, so the whole of it is refused — and the record says *retired*
+    /// rather than *withdrawn*, because nobody withdrew anything.
+    func test_aRetiredDevicesLaterSpanIsSetAsideAsAfterRetirement() async throws {
+        try writeRootRecord()
+        try await writeMyOwnFile(["01K5Q8ZJ3M0000000000000000"])
+        try await writeStrangerFile(["01K5Q8ZJ3M0000000000000001"])
+        try writeStrangerRecord()
+        try writeStrangerDeviceRecord(retiredAt: Date(timeIntervalSince1970: 1))
+
+        let load = try await reader().loadDiagnosed(docId: docId)
+
+        XCTAssertEqual(load.ops.map(\.opId), ["01K5Q8ZJ3M0000000000000000"])
+        XCTAssertGreaterThan(load.provenance.quarantinedLines, 0)
+        XCTAssertEqual(linesRecords().map(\.reason),
+                       ["written after this device was retired"])
+    }
+
+    /// And its past is its own: a device admitted, writing, and only then
+    /// retiring keeps every line it sealed before the date.
+    func test_aRetiredDevicesEarlierSpanStaysVerified() async throws {
+        try writeRootRecord()
+        try await writeStrangerFile(["01K5Q8ZJ3M0000000000000001"])
+        try writeStrangerRecord()
+        try writeStrangerDeviceRecord(
+            retiredAt: Date(timeIntervalSince1970: 4_000_000_000))
+
+        let load = try await reader().loadDiagnosed(docId: docId)
+
+        XCTAssertEqual(load.ops.map(\.opId), ["01K5Q8ZJ3M0000000000000001"],
+                       "sealed long before it retired")
+        XCTAssertEqual(load.provenance.quarantinedLines, 0)
+        XCTAssertTrue(linesRecords().isEmpty)
     }
 
     // MARK: - Held lines are counted per DEVICE

@@ -199,12 +199,27 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     @discardableResult
     nonisolated static func setAside(
         _ verification: OpLogChain.Verification,
+        groupedBy groups: [QuarantineGroup]? = nil,
         from fileURL: URL, docId: String, in projectURL: URL
     ) throws -> QuarantineRecord? {
         guard !verification.quarantined.isEmpty else { return nil }
-        return try OpLogQuarantine.setAsideLines(
-            verification.quarantined, from: fileURL, docId: docId,
-            reason: quarantineReason(verification.quarantineCause), in: projectURL)
+        // One group is the ordinary case and the default: the whole refused
+        // span under the walk's own cause. A caller that can tell two halves
+        // apart — `OpLogStore`, splitting a revoked span by the opId the root
+        // had applied — hands the groups in, and each is filed under the
+        // sentence its own cause earns. The reason is still derived here and
+        // never passed in, which is what stops two callers filing one event
+        // under different words.
+        let groups = groups ?? [QuarantineGroup(
+            cause: verification.quarantineCause, lines: verification.quarantined)]
+        var first: QuarantineRecord?
+        for group in groups where !group.lines.isEmpty {
+            let record = try OpLogQuarantine.setAsideLines(
+                group.lines, from: fileURL, docId: docId,
+                reason: quarantineReason(group.cause), in: projectURL)
+            if first == nil { first = record }
+        }
+        return first
     }
 
     /// The strict twin of `readBytes`: absent is still empty, unreadable throws.
@@ -438,6 +453,15 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
             return "written by something that is not Maugham"
         case .afterRevocation:
             return "written after this device's access was withdrawn"
+        case .revocationLate:
+            // Refused like everything else that key sealed, and a different
+            // accusation: this line's opId is one the root had already applied
+            // when it revoked them, so it is either history arriving late or a
+            // line written to look older than it is. The writer is owed the
+            // difference; Maugham cannot tell which, and says so.
+            return "may be late sync, or may be backdated"
+        case .afterRetirement:
+            return "written after this device was retired"
         case .anotherClaimants:
             return "written under another claimant's copy of this book"
         default:

@@ -74,9 +74,22 @@ public struct DeviceIdentity: Sendable {
     ) {
         self.actor = actor
         self.fingerprint = fingerprint
-        self.deviceId = "\(actor.rawValue)-\(fingerprint.prefix(16))"
+        self.deviceId = Self.deviceId(actor: actor.rawValue, fingerprint: fingerprint)
         self.publicKey = publicKey
         self.signer = signer
+    }
+
+    /// **The id an actor key writes its ops under**, for a key that is not this
+    /// device's: `<actor>-<first 16 of the fingerprint>`.
+    ///
+    /// The format lives in this type and nowhere else (tripwire 35). A reader
+    /// asking *which of these ops did that phone write* has a registry record's
+    /// actor keys in hand and needs the id the ops carry; spelling the join
+    /// there would be a second opinion about what a device id is, and it fails
+    /// by matching nothing — silently, with the answer looking like *that
+    /// device has written nothing here*.
+    nonisolated public static func deviceId(actor: String, fingerprint: String) -> String {
+        "\(actor)-\(fingerprint.prefix(16))"
     }
 
     /// Sign a 32-byte digest, answering the 64-byte **raw** representation of

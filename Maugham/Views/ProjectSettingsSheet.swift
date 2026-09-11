@@ -32,6 +32,10 @@ struct ProjectSettingsSheet: View {
     /// verification per record, so it happens in a `.task` off the main actor
     /// and the section simply is not there until it answers.
     @State private var peopleAndDevices: PeopleAndDevicesModel?
+    /// What the last People & Devices verb said when it refused. Cleared on the
+    /// next press, so it describes the act the writer just performed and never
+    /// an older one.
+    @State private var peopleNotice: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -101,7 +105,10 @@ struct ProjectSettingsSheet: View {
                                 projectURL: store.url, forced: true)
                             dismiss()
                         },
-                        forget: forgetDevice)
+                        forget: forgetDevice,
+                        revoke: revokeDevice,
+                        retire: retireThisMac,
+                        notice: peopleNotice)
                 }
                 reviewPassesSection()
             }
@@ -358,15 +365,16 @@ struct ProjectSettingsSheet: View {
     /// what Maugham will not do over it — never an empty list of people, which
     /// would read as *nobody may write in this book*.
     ///
-    /// **What is waiting comes from the project's own capture stream.** The
-    /// inbox already resolves this book's trust on every refresh and counts the
-    /// lines it held, so this asks it rather than re-verifying every manifest
-    /// here. A document's held OPS are not in this number: those are per
-    /// document and belong to the window that has one open.
+    /// **What is waiting is everything this window is holding** — the open
+    /// documents' own loads and the project's capture stream, unioned by
+    /// `DocumentStore.heldLinesByDevice` and turned into requests by
+    /// `AdmissionDecision.requests`, which is the list the admission sheet
+    /// queues. One derivation, because a pane counting only captures would say
+    /// nobody is waiting while a chapter holds forty lines (Task 6's review).
+    /// The inbox is refreshed first: its count is whatever its last read held.
     private func loadPeopleAndDevices() async {
-        let inbox = store.documentStore?.inboxStore
-        await inbox?.refresh()
-        let pending = inbox?.pendingByDevice ?? [:]
+        await store.documentStore?.inboxStore.refresh()
+        let pending = store.documentStore?.heldLinesByDevice() ?? [:]
         let url = store.url
         peopleAndDevices = await Task.detached(priority: .userInitiated) {
             let mine = LocalIdentities.current
@@ -377,19 +385,53 @@ struct ProjectSettingsSheet: View {
                     projectURL: url, identities: mine)
                 return PeopleAndDevicesModel.make(
                     registry: resolved.registry, table: resolved.table,
-                    remembered: remembered, pending: pending, claimants: claimants,
+                    remembered: remembered,
+                    requests: AdmissionDecision.requests(
+                        pending: pending, registry: resolved.registry,
+                        memory: remembered, myRoot: resolved.table.myRoot),
+                    claimants: claimants,
                     standing: DeviceStanding.resolve(
                         registry: resolved.registry, cache: .shared,
                         mine: mine, for: url),
                     me: mine.author.fingerprint)
             } catch {
+                // A registry this Mac could not read judges nobody, so there is
+                // no chain to be a stranger to and no request to make of the
+                // writer — the refusal below is the whole of what this section
+                // says (RULING-54).
                 return PeopleAndDevicesModel.make(
                     registry: Registry(), table: TrustResolution.keyless(mine: mine),
-                    remembered: remembered, pending: pending, claimants: claimants,
+                    remembered: remembered, requests: [], claimants: claimants,
                     standing: DeviceStanding.refused(mine: mine, error: error),
                     me: mine.author.fingerprint)
             }
         }.value
+    }
+
+    /// **Stop applying what a device writes** (spec §5). The store writes the
+    /// record, forgets every resolved table and re-reads what is open; this
+    /// only reloads the rows and says so when it refuses.
+    private func revokeDevice(_ fingerprint: String) {
+        peopleNotice = nil
+        Task { @MainActor in
+            guard let store = store.documentStore else { return }
+            do { try await store.revoke(person: fingerprint) }
+            catch { peopleNotice = AdmissionDecision.refusal(error) }
+            await loadPeopleAndDevices()
+        }
+    }
+
+    /// **Say this Mac has stopped writing in this book.** Offered on this Mac's
+    /// own row alone — a device signs its own retirement — and refused by
+    /// `RegistryAdmission` for anything else, which is where the rule lives.
+    private func retireThisMac(_ fingerprint: String) {
+        peopleNotice = nil
+        Task { @MainActor in
+            guard let store = store.documentStore else { return }
+            do { try await store.retire(device: fingerprint) }
+            catch { peopleNotice = AdmissionDecision.refusal(error) }
+            await loadPeopleAndDevices()
+        }
     }
 
     /// Clear this Mac's memory of the name it gave a device the folder no

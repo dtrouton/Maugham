@@ -445,4 +445,316 @@ final class RegistryAdmissionTests: XCTestCase {
             renamed.admittedAt, Date(timeIntervalSince1970: 10),
             "which is a re-signing, not a re-admission")
     }
+
+    // MARK: - Revocation is the root's (spec §5)
+
+    /// The shape of the act: the person record keeps everything it said and
+    /// gains three facts — when, by whom, and where the line falls between what
+    /// this Mac had already applied and what arrived after.
+    func test_revokingRewritesThePersonRecordWithTheRootsOwnSignature() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+
+        let record = try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: "01J0000000000000000000000A",
+            cache: makeCache(), now: { Date(timeIntervalSince1970: 100) })
+
+        XCTAssertEqual(record.revokedAt, Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(record.revokedBy, mine.author.fingerprint)
+        XCTAssertEqual(record.highestOpIdSeen, "01J0000000000000000000000A")
+        XCTAssertEqual(record.label, "Denver", "a revocation is not a rename")
+        XCTAssertEqual(record.admittedAt, Date(timeIntervalSince1970: 10),
+                       "nor a re-admission")
+
+        let onDisk = try XCTUnwrap(try registry().person(phone.author.fingerprint))
+        XCTAssertEqual(onDisk, record,
+                       "and what a reader verifies is what came back")
+        XCTAssertTrue(try registry().malformed.isEmpty,
+                      "the re-signed record still verifies")
+    }
+
+    /// `highestOpIdSeen` is genuinely optional: a device admitted whose ops
+    /// this Mac has never applied is revoked with no line at all, and every
+    /// line it wrote is *after revocation* (the split's own rule).
+    func test_revokingWithNothingApplledYetRecordsNoLine() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+
+        let record = try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: nil, cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 100) })
+
+        XCTAssertNil(record.highestOpIdSeen)
+        XCTAssertEqual(record.revokedAt, Date(timeIntervalSince1970: 100))
+    }
+
+    /// **Only a root revokes.** A device that is not this book's root can
+    /// produce a perfectly well-formed record, and no reader will take it —
+    /// the writer would watch themselves shut a device out that goes on
+    /// writing everywhere.
+    func test_aDeviceThatIsNotTheRootCannotRevokeAnybody() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        let bytes = try bytesOfPersonFile(phone.author.fingerprint)
+
+        XCTAssertThrowsError(try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: otherRoot.author,
+            highestOpIdSeen: nil, cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 100) })
+        ) { error in
+            XCTAssertEqual(error as? RegistryAdmissionError, .notARoot)
+        }
+        XCTAssertEqual(try bytesOfPersonFile(phone.author.fingerprint), bytes,
+                       "and nothing was written")
+    }
+
+    /// **A root is claimed over, never revoked** (spec §5). Its record is
+    /// self-signed, so revoking one would be this Mac re-signing somebody
+    /// else's own word about themselves.
+    func test_aRootIsNotSomebodyThisMacCanRevoke() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try becomeRootBeside(otherRoot, name: "Somebody else's MacBook")
+        let bytes = try bytesOfPersonFile(otherRoot.author.fingerprint)
+
+        XCTAssertThrowsError(try RegistryAdmission.revoke(
+            person: otherRoot.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: nil, cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 100) })
+        ) { error in
+            XCTAssertEqual(error as? RegistryAdmissionError,
+                           .cannotRevokeARoot(fingerprint: otherRoot.author.fingerprint))
+        }
+        XCTAssertEqual(try bytesOfPersonFile(otherRoot.author.fingerprint), bytes)
+    }
+
+    /// Present and unreadable is not absent (RULING-54, and `admit`'s own
+    /// rule): a record this Mac could not verify is one it must not write over.
+    func test_revokingRefusesOverARecordThisMacCannotRead() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try plantUnreadablePersonRecord(for: phone)
+        let bytes = try bytesOfPersonFile(phone.author.fingerprint)
+
+        XCTAssertThrowsError(try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: nil, cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 100) })
+        ) { error in
+            XCTAssertEqual(error as? RegistryAdmissionError,
+                           .recordUnreadable(fingerprint: phone.author.fingerprint))
+        }
+        XCTAssertEqual(try bytesOfPersonFile(phone.author.fingerprint), bytes)
+    }
+
+    /// Nobody to revoke is its own refusal rather than a record minted out of
+    /// nothing: writing one would admit the device in the act of shutting it
+    /// out.
+    func test_revokingSomebodyNeverAdmittedRefuses() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+
+        XCTAssertThrowsError(try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: nil, cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 100) })
+        ) { error in
+            XCTAssertEqual(error as? RegistryAdmissionError,
+                           .notAdmitted(fingerprint: phone.author.fingerprint))
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: personFile(phone.author.fingerprint).path),
+            "and no record was minted for them")
+    }
+
+    /// Revoking twice writes once. A second press would re-sign the record with
+    /// a later date, moving the line the first revocation drew.
+    func test_revokingTwiceKeepsTheFirstRevocationsOwnWords() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: "01J0000000000000000000000A",
+            cache: makeCache(), now: { Date(timeIntervalSince1970: 100) })
+        let bytes = try bytesOfPersonFile(phone.author.fingerprint)
+
+        let again = try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: "01J0000000000000000000000Z",
+            cache: makeCache(), now: { Date(timeIntervalSince1970: 900) })
+
+        XCTAssertEqual(again.revokedAt, Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(again.highestOpIdSeen, "01J0000000000000000000000A")
+        XCTAssertEqual(try bytesOfPersonFile(phone.author.fingerprint), bytes,
+                       "the file was not touched")
+    }
+
+    /// **A re-sign canonicalizes the FILE's object, not this build's decoded
+    /// copy.** A record a later build wrote carries fields this one has no
+    /// property for; a digest over what this build decoded would drop them, and
+    /// the record would fail to verify on every device that understands them —
+    /// a silent, permanent un-admission the moment anybody upgrades.
+    func test_aRevocationKeepsAFieldThisBuildHasNoNameFor() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        try plantUnknownField("future", 1, inPersonRecordOf: phone)
+
+        try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: nil, cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 100) })
+
+        let object = try jsonObjectOfPersonFile(phone.author.fingerprint)
+        XCTAssertEqual(object["future"] as? Int, 1,
+                       "the unknown field survived the re-sign")
+        XCTAssertNotNil(object["revokedAt"])
+        XCTAssertTrue(try registry().malformed.isEmpty,
+                      "and the signature still covers the whole object")
+        XCTAssertTrue(try registry().person(phone.author.fingerprint)?.isRevoked == true)
+    }
+
+    // MARK: - Retirement is the device's own (spec §5)
+
+    func test_aDeviceRetiresItself() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+
+        let record = try RegistryAdmission.retire(
+            device: mine.author.fingerprint, in: projectURL, by: mine.author,
+            cache: makeCache(), now: { Date(timeIntervalSince1970: 100) })
+
+        XCTAssertEqual(record.retiredAt, Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(record.device, mine.author.fingerprint)
+        let onDisk = try XCTUnwrap(
+            try registry().devices.first { $0.device == mine.author.fingerprint })
+        XCTAssertEqual(onDisk, record)
+        XCTAssertTrue(try registry().malformed.isEmpty)
+    }
+
+    /// **A device signs its own retirement.** The root cannot retire the
+    /// phone: the device record is signed by the device, so a root's signature
+    /// on one is a record every reader lists as malformed — the device's whole
+    /// history left unattributable by an act meant to be orderly.
+    func test_aRootCannotRetireSomebodyElsesDevice() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        let bytes = try Data(contentsOf: RegistryWriter.url(
+            .devices, fingerprint: phone.author.fingerprint, in: projectURL))
+
+        XCTAssertThrowsError(try RegistryAdmission.retire(
+            device: phone.author.fingerprint, in: projectURL, by: mine.author,
+            cache: makeCache(), now: { Date(timeIntervalSince1970: 100) })
+        ) { error in
+            XCTAssertEqual(error as? RegistryAdmissionError,
+                           .notThatDevice(device: phone.author.fingerprint))
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: RegistryWriter.url(
+                .devices, fingerprint: phone.author.fingerprint, in: projectURL)),
+            bytes)
+    }
+
+    func test_retiringADeviceWithNoRecordHereRefuses() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+
+        XCTAssertThrowsError(try RegistryAdmission.retire(
+            device: phone.author.fingerprint, in: projectURL, by: phone.author,
+            cache: makeCache(), now: { Date(timeIntervalSince1970: 100) })
+        ) { error in
+            XCTAssertEqual(error as? RegistryAdmissionError,
+                           .notAdmitted(fingerprint: phone.author.fingerprint))
+        }
+    }
+
+    func test_retiringTwiceKeepsTheFirstRetirementsDate() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try RegistryAdmission.retire(
+            device: mine.author.fingerprint, in: projectURL, by: mine.author,
+            cache: makeCache(), now: { Date(timeIntervalSince1970: 100) })
+        let bytes = try Data(contentsOf: RegistryWriter.url(
+            .devices, fingerprint: mine.author.fingerprint, in: projectURL))
+
+        let again = try RegistryAdmission.retire(
+            device: mine.author.fingerprint, in: projectURL, by: mine.author,
+            cache: makeCache(), now: { Date(timeIntervalSince1970: 900) })
+
+        XCTAssertEqual(again.retiredAt, Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(
+            try Data(contentsOf: RegistryWriter.url(
+                .devices, fingerprint: mine.author.fingerprint, in: projectURL)),
+            bytes)
+    }
+
+    func test_aRetirementKeepsAFieldThisBuildHasNoNameFor() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try plantUnknownField("future", 1, inDeviceRecordOf: mine)
+
+        try RegistryAdmission.retire(
+            device: mine.author.fingerprint, in: projectURL, by: mine.author,
+            cache: makeCache(), now: { Date(timeIntervalSince1970: 100) })
+
+        let object = try jsonObject(at: RegistryWriter.url(
+            .devices, fingerprint: mine.author.fingerprint, in: projectURL))
+        XCTAssertEqual(object["future"] as? Int, 1)
+        XCTAssertNotNil(object["retiredAt"])
+        XCTAssertTrue(try registry().malformed.isEmpty)
+    }
+
+    // MARK: - Fixtures for the two verbs
+
+    /// Put a field this build has no property for into a record already on
+    /// disk, and re-sign it the way the later build that wrote it would have —
+    /// over the whole object, unknown field included.
+    private func plantUnknownField(
+        _ key: String, _ value: Int, inPersonRecordOf device: LocalIdentities
+    ) throws {
+        try plantUnknownField(
+            key, value,
+            at: personFile(device.author.fingerprint), signedBy: mine.author)
+    }
+
+    private func plantUnknownField(
+        _ key: String, _ value: Int, inDeviceRecordOf device: LocalIdentities
+    ) throws {
+        try plantUnknownField(
+            key, value,
+            at: RegistryWriter.url(
+                .devices, fingerprint: device.author.fingerprint, in: projectURL),
+            signedBy: device.author)
+    }
+
+    private func plantUnknownField(
+        _ key: String, _ value: Int, at url: URL, signedBy identity: DeviceIdentity
+    ) throws {
+        var object = try jsonObject(at: url)
+        object[key] = value
+        object.removeValue(forKey: "sig")
+        let unsigned = try JSONSerialization.data(
+            withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
+        let credentials = try OpLogChain.credentials(
+            signing: try RegistryCanonical.digestHex(ofJSON: unsigned),
+            identity: identity)
+        object["sig"] = try JSONSerialization.jsonObject(
+            with: try RegistryCanonical.bytes(of: credentials))
+        try JSONSerialization.data(
+            withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]
+        ).write(to: url, options: .atomic)
+    }
+
+    private func jsonObject(at url: URL) throws -> [String: Any] {
+        try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: url))
+                as? [String: Any])
+    }
+
+    private func jsonObjectOfPersonFile(_ fingerprint: String) throws -> [String: Any] {
+        try jsonObject(at: personFile(fingerprint))
+    }
 }

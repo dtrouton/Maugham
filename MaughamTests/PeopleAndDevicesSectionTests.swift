@@ -7,10 +7,11 @@ import AppKit
 /// **People & Devices reaches the screen** (signed op log P2, spec §6).
 ///
 /// What each row MEANS is pinned windowlessly in `PeopleAndDevicesModelTests`;
-/// this suite's whole job is that the model's rows, the three controls that are
-/// drawn-but-not-yet-wired, and the share sentence are actually drawn. So
-/// nothing here presses a control and waits for its effect (tripwire 33): the
-/// two live verbs are closures the host supplies and are called directly.
+/// this suite's whole job is that the model's rows, the controls each row
+/// carries — live, and disabled-with-a-reason — and the share sentence are
+/// actually drawn. So nothing here presses a control and waits for its effect
+/// (tripwire 33): the live verbs are closures the host supplies and are called
+/// directly, and what is on screen is asserted as enabled-ness alone.
 @MainActor
 final class PeopleAndDevicesSectionTests: XCTestCase {
 
@@ -72,16 +73,19 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
         } ?? DeviceStanding(
             code: DeviceCode.short(root), label: "Denver", rootLabel: "Denver",
             admitted: true, isRoot: true)
+        let table = TrustTable.resolve(
+            registry: registry, mine: .forAuthor(rootIdentity), joinedRoot: nil)
+        let remembered: [String: AdmissionMemory.Label] = absent
+            ? [absentDevice: .init(label: "The lost phone", ownName: "iPhone",
+                                   labelledAt: admitted)]
+            : [:]
         return PeopleAndDevicesModel.make(
             registry: registry,
-            table: TrustTable.resolve(
-                registry: registry, mine: .forAuthor(rootIdentity),
-                joinedRoot: nil),
-            remembered: absent
-                ? [absentDevice: .init(label: "The lost phone", ownName: "iPhone",
-                                       labelledAt: admitted)]
-                : [:],
-            pending: pending ? [stranger: 14] : [:],
+            table: table,
+            remembered: remembered,
+            requests: AdmissionDecision.requests(
+                pending: pending ? [stranger: 14] : [:], registry: registry,
+                memory: remembered, myRoot: table.myRoot),
             claimants: claimants ? [claimant] : [],
             standing: standing,
             me: root)
@@ -90,12 +94,14 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
     private func mount(
         _ model: PeopleAndDevicesModel,
         admit: @escaping () -> Void = {},
-        forget: @escaping (String) -> Void = { _ in }
+        forget: @escaping (String) -> Void = { _ in },
+        notice: String? = nil
     ) -> NSWindow {
         let window = TestWindow.mount(
             AnyView(
                 Form {
-                    PeopleAndDevicesSection(model: model, admit: admit, forget: forget)
+                    PeopleAndDevicesSection(
+                        model: model, admit: admit, forget: forget, notice: notice)
                 }
                 .formStyle(.grouped)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)),
@@ -152,21 +158,57 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
                       "the one sentence about what this section cannot do: \(texts)")
     }
 
-    // MARK: - The controls that do not work yet
+    // MARK: - Revoke and Retire (P2b Task 7)
 
-    /// Drawn, and drawn DISABLED. Hiding them would move everything under them
-    /// when the verbs arrive; a live one would promise something no code does.
-    func test_revokeAndRetireAreDrawnDisabled() throws {
+    /// **Both are drawn on every row, and live on the rows where this Mac may
+    /// act.** Two people here: this Mac's own root record, which is claimed
+    /// over rather than revoked, and the phone it admitted, which it may. Two
+    /// devices: this Mac, which may retire itself, and the phone, which is not
+    /// this Mac's to retire.
+    ///
+    /// Enabled-ness only — nothing is pressed and nothing is waited on
+    /// (tripwire 33); what the verbs DO is pinned on the closures below and on
+    /// `RegistryAdmission` in the package suite.
+    func test_revokeIsLiveOnTheDeviceThisMacAdmittedAndRefusedOnTheRoot() throws {
         let window = mount(model())
 
         let labels = try axButtonLabels(in: window)
-        for label in ["Revoke", "Retire"] {
-            let buttons = try axButtons(labelled: label, in: window)
-            XCTAssertFalse(buttons.isEmpty, "\(label) is drawn: \(labels)")
-            for button in buttons {
-                XCTAssertEqual(axEnabled(button), false, "\(label) cannot be pressed")
-            }
-        }
+        let buttons = try axButtons(labelled: "Revoke", in: window)
+        XCTAssertEqual(buttons.count, 2, "one per person: \(labels)")
+        let enabled = buttons.filter { axEnabled($0) == true }
+        XCTAssertEqual(enabled.count, 1,
+                       "the admitted phone may be revoked; the root may not")
+    }
+
+    func test_retireIsLiveOnThisMacsOwnRowAlone() throws {
+        let window = mount(model())
+
+        let buttons = try axButtons(labelled: "Retire", in: window)
+        XCTAssertEqual(buttons.count, 2, "one per device")
+        XCTAssertEqual(buttons.filter { axEnabled($0) == true }.count, 1,
+                       "a device signs its own retirement")
+    }
+
+    /// Spec §5's sentence, beside the button that earns it: what Revoke does,
+    /// and the thing it does not do.
+    func test_theRevokeSentenceSaysWhatItDoesNotDo() throws {
+        let window = mount(model())
+        let texts = try axTexts(in: window)
+
+        XCTAssertTrue(
+            texts.contains { $0.contains("stops Maugham applying what this device writes") },
+            "\(texts)")
+        XCTAssertTrue(texts.contains { $0.contains("remove it from the iCloud share") })
+    }
+
+    /// A refusal is drawn where the writer pressed, in the verb's own words.
+    func test_arefusedVerbSaysSoInTheSection() throws {
+        let window = mount(
+            model(), notice: AdmissionDecision.refusal(RegistryAdmissionError.notARoot))
+        let texts = try axTexts(in: window)
+
+        XCTAssertTrue(texts.contains { $0.contains("root") && $0.contains("started the book") },
+                      "the refusal reaches the writer: \(texts)")
     }
 
     func test_aclaimantOffersMergeAndItIsDisabled() throws {
@@ -204,6 +246,22 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
         section.forgetForTesting(absentDevice)
 
         XCTAssertEqual(forgotten, [absentDevice])
+    }
+
+    /// Each verb hands back the fingerprint it is about — the PERSON's for
+    /// Revoke, the DEVICE's for Retire, which under labels-only are the same
+    /// key and are not the same argument.
+    func test_revokeAndRetireHandBackWhatTheyAreAbout() {
+        var revoked: [String] = []
+        var retired: [String] = []
+        let section = PeopleAndDevicesSection(
+            model: model(), revoke: { revoked.append($0) }, retire: { retired.append($0) })
+
+        section.revokeForTesting(phone)
+        section.retireForTesting(root)
+
+        XCTAssertEqual(revoked, [phone])
+        XCTAssertEqual(retired, [root])
     }
 
     func test_admitAsksWithoutNamingADevice() {
@@ -245,4 +303,6 @@ private extension PeopleAndDevicesSection {
     /// call and the answer (tripwire 33).
     func forgetForTesting(_ fingerprint: String) { forget(fingerprint) }
     func admitForTesting() { admit() }
+    func revokeForTesting(_ fingerprint: String) { revoke(fingerprint) }
+    func retireForTesting(_ fingerprint: String) { retire(fingerprint) }
 }

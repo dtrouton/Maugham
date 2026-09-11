@@ -14,6 +14,11 @@ import Foundation
 /// DEVICE rather than about this record.
 public enum RegistryWriteError: Error, Equatable {
     case wrongSigner(expected: String, found: String)
+    /// `resign` was asked to edit a record whose file is not there. Separate
+    /// from a refusal of authority: nothing on disk to re-sign is a fact about
+    /// the folder, and the caller that asked has already decided the record
+    /// exists — so this is the race, not the judgment.
+    case recordMissing(fingerprint: String)
 }
 
 public enum RegistryWriter {
@@ -96,6 +101,56 @@ public enum RegistryWriter {
 
         let bytes = try RegistryCanonical.bytes(of: signed)
         try writeCoordinated(bytes, to: url, presenter: presenter)
+        return url
+    }
+
+    /// **Re-sign a record already on disk, editing its JSON OBJECT.**
+    ///
+    /// The door revocation and retirement go through, and the reason it takes
+    /// bytes rather than a record is the whole of P2b Task 1's rule: a record a
+    /// LATER build wrote carries fields this one has no property for, and a
+    /// signature made over what this build *decoded* would drop them. Every
+    /// device that understands those fields would then read this record as
+    /// forged — a silent, permanent un-admission the moment anybody upgrades.
+    /// So the FILE's object is what the caller edits, and the digest is taken
+    /// over the whole of what is about to be written — both of them
+    /// `RegistryCanonical.resigned`'s doing, because what a signature covers is
+    /// that type's decision and nobody else's.
+    ///
+    /// `record` is the DECODED record only for what this function must check
+    /// without trusting the caller: where the file lives, and whose signature
+    /// it must carry. Nothing of it is written — `edit` changes the object the
+    /// file actually holds.
+    ///
+    /// The signer check is `write`'s own, for `write`'s own reason: a record
+    /// signed by the wrong actor is one every reader lists as malformed, and a
+    /// device un-admitted that way is un-admitted in silence.
+    @discardableResult
+    nonisolated public static func resign(
+        _ record: some RegistryRecordProtocol,
+        signedBy identity: DeviceIdentity,
+        in projectURL: URL,
+        presenter: NSFilePresenter? = nil,
+        editing edit: (inout [String: Any]) throws -> Void
+    ) throws -> URL {
+        guard identity.fingerprint == record.expectedSigner else {
+            throw RegistryWriteError.wrongSigner(
+                expected: record.expectedSigner, found: identity.fingerprint)
+        }
+        let url = url(type(of: record).directory,
+                      fingerprint: record.fingerprint, in: projectURL)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw RegistryWriteError.recordMissing(fingerprint: record.fingerprint)
+        }
+        // The READER's own coordinated read, not a second one: a record's file
+        // may be arriving through iCloud while this runs, and what a half-read
+        // registry file means is a question with one answer in this module.
+        let bytes = try RegistryReader.readCoordinated(url: url, presenter: presenter)
+        let resigned = try RegistryCanonical.resigned(
+            fileBytes: bytes,
+            editing: edit,
+            signing: { try OpLogChain.credentials(signing: $0, identity: identity) })
+        try writeCoordinated(resigned, to: url, presenter: presenter)
         return url
     }
 

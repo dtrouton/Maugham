@@ -526,8 +526,10 @@ registry deleted WHOLESALE is restored record by record, which is the case spec
 §2.4 says must be loud rather than a silent reversion to P1 trust.
 
 **The table** (`TrustTable`, `TrustVerdict`) is who a seal's key is to this
-device, in six words: `.mine`, `.admitted(person:)`, `.stranger(device:)`,
-`.revoked(person:highestOpIdSeen:)`, `.otherRoot(root:)`, `.noChain`. It is a
+device — count `TrustVerdict`'s own cases, not this sentence: `.mine`,
+`.admitted(person:)`, `.stranger(device:)`,
+`.revoked(person:highestOpIdSeen:)`, `.retired(device:retiredAt:)`,
+`.otherRoot(root:)`, `.noChain`. It is a
 pure function of a `Registry`, this device's `LocalIdentities` and the root it
 has joined — no I/O, no clock — and `verdict(forSealKey:)` is O(1) because
 `resolve` precomputes its lookups. `.mine` is answered before the chain, so a
@@ -562,13 +564,36 @@ book you created.
 `verified`, `unsealed`, `unsignedHistory`, `quarantined` and `tornTail` — read
 the enum, not this sentence — and the mapping
 from verdict to state lives in exactly one switch,
-`TrustVerdict.settling(sealKey:)`: `.mine`/`.admitted` verify and apply;
+`TrustVerdict.settling(sealKey:sealedAt:)`: `.mine`/`.admitted` verify and apply;
 `.stranger` is **pending** — not applied, not quarantined, and **no `.lines`
 record**, because nothing is wrong with it and it may be admitted five minutes
 from now; `.revoked` and `.otherRoot` quarantine, in their own words (*written
 after this device's access was withdrawn* / *written under another claimant's
 copy of this book*), derived in the walk as every quarantine reason is;
-`.noChain` is unsigned history, applied, which **is** P1 (decision B3). A
+`.retired` quarantines **by date** — that is what the `sealedAt` argument is
+for, and it is the seal's own moment: a span sealed before the device said it
+had stopped stays verified, and one sealed at or after it is set aside as
+*written after this device was retired* (spec §5, P2b Task 7). `.mine`
+outranks retirement, so a Mac that retired itself still reads its own history as
+its own word — a table that answered otherwise would have the chained write's
+truncating rewrite set aside the file this device wrote — and revocation
+outranks it too, because that is the root refusing rather than the machine
+stopping politely.
+`.noChain` is unsigned history, applied, which **is** P1 (decision B3).
+
+**A revoked span is refused whole and filed in two halves** (spec §5, P2b Task
+7). The walk sees seals and chains, never opIds, so it refuses the span under
+one cause and `OpLogStore.classifyTail` — which has the parse in hand — splits
+it against `TrustTable.highestOpIdSeen(forPerson:)`, the mark the ROOT recorded
+when it revoked somebody: a line above the mark is *written after this device's
+access was withdrawn*, one at or below it is *may be late sync, or may be
+backdated*, and a seal line (no opId of its own) goes with the strict half
+unless nothing else is there. `RevocationSplit.groups` is the pure derivation
+and `QuarantineGroup` is what it answers; `JSONLAppendStore.setAside` takes the
+groups and files one `.lines` record per cause, deriving each sentence exactly
+as it derives the single-cause one. **Nothing is applied either way** — the
+split is about the words, not about the refusal — and the two halves are the
+difference the writer is owed. A
 refused span does not break the chain — a verdict is about whose word a span is,
 not about whether the bytes follow from each other — so a later span from an
 admitted key still applies and held-back lines are no longer necessarily a

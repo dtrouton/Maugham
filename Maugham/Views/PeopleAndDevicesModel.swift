@@ -30,13 +30,42 @@ struct PeopleAndDevicesModel: Equatable {
         "Removing a device here stops Maugham applying what it writes. "
         + "To stop it writing at all, remove it from the iCloud share."
 
-    /// What the three controls this section draws but does not yet wire say
-    /// when the writer hovers them. Drawn disabled rather than hidden, so the
-    /// shape of the section does not change under the writer when the verbs
-    /// arrive (P2a's Admit… pattern).
+    /// What the one control this section still draws without wiring says when
+    /// the writer hovers it. Drawn disabled rather than hidden, so the shape of
+    /// the section does not change under the writer when the verb arrives
+    /// (P2a's Admit… pattern).
     static let mergeSoon = "Merging arrives with the next update"
-    static let revokeSoon = "Revoking arrives with the next update"
-    static let retireSoon = "Retiring arrives with the next update"
+
+    /// **The sentence beside Revoke** (spec §5). It says exactly what the verb
+    /// is and, more importantly, what it is not: Maugham decides what it
+    /// applies, and it does not hold the door of the share. A writer who
+    /// thought otherwise would leave a machine they meant to shut out still
+    /// writing into the folder every other device reads.
+    static let revokeSentence =
+        "This stops Maugham applying what this device writes. "
+        + "To stop it writing at all, remove it from the iCloud share."
+
+    /// What Revoke says when it is offered, and why it is not.
+    static let revokeHelp = "Stop applying what this device writes"
+    static let revokeNotMine =
+        "Only the Mac that admitted this device can revoke it"
+    static let revokeARoot = "A root is claimed over, never revoked"
+    static let alreadyRevoked = "Already revoked"
+
+    /// And Retire, which is a device’s word about itself.
+    static let retireHelp = "Say this Mac has stopped writing in this book"
+    static let retireNotThisDevice = "A device retires itself"
+    static let alreadyRetired = "Already retired"
+
+    // MARK: - When a verb refuses
+
+    /// **A refusal is `AdmissionDecision.sentence(for:)`'s** (the team lead's
+    /// ruling, 2026-09-11). Revoke and Retire throw the same
+    /// `RegistryAdmissionError` admission throws, and one enum with two
+    /// vocabularies would have the same refusal read two ways depending on
+    /// which surface the writer was standing in — with the arm nobody
+    /// remembered to write twice falling back to an error domain. So this
+    /// section has no sentences of its own; its host asks there.
 
     // MARK: - Rows
 
@@ -74,6 +103,11 @@ struct PeopleAndDevicesModel: Equatable {
         let addedAt: Date
         let retiredAt: Date?
         let isThisMac: Bool
+        /// **A device signs its own retirement** (spec §5), so this is true on
+        /// exactly one row: this Mac's, and only while it has not already said
+        /// so.
+        let canRetire: Bool
+        let whyNotRetirable: String?
 
         var id: String { fingerprint }
 
@@ -100,6 +134,14 @@ struct PeopleAndDevicesModel: Equatable {
         let role: String
         let admittedAt: Date
         let revokedAt: Date?
+        /// Whether THIS Mac may revoke them — it is the root that admitted
+        /// them, they are not a root themselves, and they are not already
+        /// revoked. Decided here rather than in the view, so the rule is
+        /// assertable with nothing mounted.
+        let canRevoke: Bool
+        /// Why not, when not. The button is drawn either way (P2a's Admit…
+        /// pattern) and says what would make it live.
+        let whyNotRevocable: String?
         /// *this Mac*, or *<label>'s Mac* for a root somebody else owns. Nil
         /// for everyone who is not the root of this book's chain.
         let mark: String?
@@ -164,7 +206,11 @@ struct PeopleAndDevicesModel: Equatable {
     ///     read here would let this section describe a device off a folder the
     ///     verdicts were not taken from.
     ///   - remembered: `AdmissionMemory`'s labels, by fingerprint.
-    ///   - pending: held lines by device, as the last read counted them.
+    ///   - requests: who is waiting, as `AdmissionDecision.requests` decided —
+    ///     the SAME list the admission sheet queues, built from the same held
+    ///     counts. Two derivations of *who is a stranger with lines waiting*
+    ///     would let this pane list a device the sheet never asks about, or
+    ///     offer an Admit… about one it has already let in.
     ///   - claimants: `RegistryCache.claimants(for:)`.
     ///   - standing: this device's own sentence, and the carrier of a refusal.
     ///   - me: this device's author fingerprint.
@@ -172,7 +218,7 @@ struct PeopleAndDevicesModel: Equatable {
         registry: Registry,
         table: TrustTable,
         remembered: [String: AdmissionMemory.Label],
-        pending: [String: Int],
+        requests: [AdmissionRequest],
         claimants: [String],
         standing: DeviceStanding,
         me: String
@@ -197,24 +243,24 @@ struct PeopleAndDevicesModel: Equatable {
                   code: DeviceCode.short(fingerprint))
         }
 
-        // **Pending is asked of the TABLE, not only of the count.** The counts
-        // are what the last read held; the verdicts are the registry as it
-        // stands now. Admitting somebody has to take their row away rather than
-        // leave a button that would do nothing.
-        var requests: [PendingRequest] = []
-        for (fingerprint, count) in pending {
-            guard count > 0 else { continue }
-            guard case .stranger = table.verdict(forSealKey: fingerprint) else { continue }
-            requests.append(PendingRequest(
-                fingerprint: fingerprint,
-                // The inbox banner's own naming rule, asked for rather than
-                // repeated: the two surfaces name the same device about the
-                // same decision.
-                name: InboxByline.name(forDevice: fingerprint, registry: registry),
-                code: DeviceCode.short(fingerprint),
-                heldLines: count))
+        // **Who is waiting is the admission sheet's own answer** (Task 7). The
+        // membership rules — a device with no person record, a Mac with a chain
+        // to judge by at all — are `AdmissionDecision.requests`'s, so admitting
+        // somebody takes their row away here for the same reason it takes the
+        // sheet down there, and neither surface can list a device the other
+        // does not.
+        //
+        // The NAME is still this pane's: the inbox banner's rule, asked for
+        // rather than repeated, so the two surfaces name one device one way.
+        var pendingRows: [PendingRequest] = requests.map { request in
+            PendingRequest(
+                fingerprint: request.fingerprint,
+                name: InboxByline.name(
+                    forDevice: request.fingerprint, registry: registry),
+                code: request.code,
+                heldLines: request.waitingCount)
         }
-        requests.sort { left, right in
+        pendingRows.sort { left, right in
             left.heldLines == right.heldLines
                 ? left.fingerprint < right.fingerprint
                 : left.heldLines > right.heldLines
@@ -259,7 +305,7 @@ struct PeopleAndDevicesModel: Equatable {
             refusal: nil,
             standing: standing.sentence,
             code: standing.code,
-            pending: requests,
+            pending: pendingRows,
             people: people,
             merged: merged,
             claimants: stillClaiming,
@@ -276,19 +322,45 @@ struct PeopleAndDevicesModel: Equatable {
         let devices: [Device] = registry.devices
             .filter { $0.device == record.person }
             .map { device in
-                Device(
+                let isThisMac = device.device == me
+                return Device(
                     fingerprint: device.device, name: device.name,
                     kind: word(for: device.kind), actors: actorWords(of: device),
                     addedAt: device.madeAt, retiredAt: device.retiredAt,
-                    isThisMac: device.device == me)
+                    isThisMac: isThisMac,
+                    // A device record is signed by the device it describes, so
+                    // this is the only row where Retire could write anything a
+                    // reader would accept (spec §5).
+                    canRetire: isThisMac && device.retiredAt == nil,
+                    whyNotRetirable: !isThisMac ? retireNotThisDevice
+                        : device.retiredAt != nil ? alreadyRetired : nil)
             }
         return Person(
             fingerprint: record.person, label: record.label,
             ownName: record.ownName == record.label ? nil : record.ownName,
             role: record.role, admittedAt: record.admittedAt,
             revokedAt: record.revokedAt,
+            canRevoke: revocable(record, me: me),
+            whyNotRevocable: whyNotRevocable(record, me: me),
             mark: mark(for: record, myRoot: myRoot, me: me),
             devices: devices)
+    }
+
+    /// **Only the root that admitted them, and only once** (spec §5). A person
+    /// record is signed by the root it names as its admitter, so a Mac that is
+    /// not that root would write a file every reader lists as malformed — a
+    /// device un-admitted in silence rather than revoked. A root answers to
+    /// itself and is claimed over, never revoked. And a second revocation would
+    /// move the line the first one drew.
+    private static func revocable(_ record: PersonRecord, me: String) -> Bool {
+        whyNotRevocable(record, me: me) == nil
+    }
+
+    private static func whyNotRevocable(_ record: PersonRecord, me: String) -> String? {
+        if record.isRoot { return revokeARoot }
+        if record.isRevoked { return alreadyRevoked }
+        if record.admittedBy != me { return revokeNotMine }
+        return nil
     }
 
     /// *this Mac* for the root that is this device, *<label>'s Mac* for a root

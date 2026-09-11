@@ -482,7 +482,12 @@ public enum RegistryReader {
     /// unreadable file throws, by name — the op log's own rule and its own
     /// error, so the writer meets one sentence for one condition wherever
     /// Maugham reads a file it must not read only half of.
-    nonisolated private static func readCoordinated(
+    ///
+    /// `internal` rather than private since P2b Task 7: `RegistryWriter.resign`
+    /// reads a record's file before editing its object, and a second spelling
+    /// of *read one record's bytes* is a second answer to what a half-read
+    /// registry file means.
+    nonisolated static func readCoordinated(
         url: URL, presenter: NSFilePresenter?
     ) throws -> Data {
         let coordinator = NSFileCoordinator(filePresenter: presenter)

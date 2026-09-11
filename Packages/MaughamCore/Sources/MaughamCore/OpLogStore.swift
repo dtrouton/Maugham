@@ -497,7 +497,8 @@ public final class OpLogStore {
            let docId = docId(fromOpLogFilename: url.lastPathComponent) {
             do {
                 try JSONLAppendStore<Op>.setAside(
-                    verification, from: url, docId: docId,
+                    verification, groupedBy: classified.setAsideGroups,
+                    from: url, docId: docId,
                     in: projectRoot(of: url))
             } catch {
                 // Mirrors `Document+Load.swift`'s stance on a forensic write
@@ -545,6 +546,11 @@ public final class OpLogStore {
         /// hands it to `JSONLAppendStore.setAside`, which owns both the record
         /// and the words for it.
         let verification: OpLogChain.Verification?
+        /// The refused lines grouped by the sentence each earns, when the
+        /// walk's one cause has two halves — a revoked key's span, split by the
+        /// opId the root had already applied (spec §5). Nil everywhere else,
+        /// which is `setAside`'s own default: the whole span under one cause.
+        let setAsideGroups: [QuarantineGroup]?
         /// Non-nil when this device may now adopt the file's head as its own
         /// (the crash window: a remembered head no line in the file hashes to,
         /// in a file that holds together and whose every seal is ours).
@@ -609,6 +615,18 @@ public final class OpLogStore {
             bytes: JSONLAppendStore<Op>.applied(verification, whole: bytes),
             dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
 
+        // **The revocation split, after the parse** (plan decision P5). The
+        // walk refuses a revoked key's span whole and says why; the two halves
+        // are told apart by opId, which is a number the ROOT recorded when it
+        // revoked somebody and which the walk — seals and chains, never ops —
+        // is deliberately ignorant of. Here is where both are in hand.
+        var setAsideGroups: [QuarantineGroup]?
+        if case let .afterRevocation(person)? = verification.quarantineCause {
+            setAsideGroups = RevocationSplit.groups(
+                of: verification,
+                highestOpIdSeen: trust?.highestOpIdSeen(forPerson: person))
+        }
+
         return FileClassification(
             ops: parsed.elements,
             diagnostics: parsed.diagnostics,
@@ -616,6 +634,7 @@ public final class OpLogStore {
                 name: url.lastPathComponent, lines: verification.lines,
                 isSealedSegment: false, segmentVerified: nil),
             verification: verification,
+            setAsideGroups: setAsideGroups,
             adoptedHead: adopted,
             verifiedSegmentDigest: nil)
     }
@@ -647,6 +666,7 @@ public final class OpLogStore {
                     name: url.lastPathComponent,
                     isSealedSegment: true, segmentVerified: false),
                 verification: nil,
+                setAsideGroups: nil,
                 adoptedHead: nil, verifiedSegmentDigest: nil)
         }
 
@@ -668,7 +688,8 @@ public final class OpLogStore {
                       // the keyless walk below rather than being held: holding
                       // is a per-SPAN decision the walk makes, and a segment
                       // that never settled is walked line by line anyway.
-                      trust.verdict(forSealKey: signature.key).isOurWord,
+                      trust.verdict(forSealKey: signature.key)
+                          .isOurWord(sealedAt: signature.at),
                       signature.verifies() {
                 settled = true
                 toRemember = digest
@@ -690,6 +711,7 @@ public final class OpLogStore {
                     name: url.lastPathComponent, verified: lines,
                     isSealedSegment: true, segmentVerified: true),
                 verification: nil,
+                setAsideGroups: nil,
                 adoptedHead: nil, verifiedSegmentDigest: toRemember)
         }
 
@@ -706,6 +728,7 @@ public final class OpLogStore {
                 name: url.lastPathComponent, lines: read.verification.lines,
                 isSealedSegment: true, segmentVerified: false),
             verification: read.verification,
+            setAsideGroups: nil,
             adoptedHead: nil, verifiedSegmentDigest: nil)
     }
 

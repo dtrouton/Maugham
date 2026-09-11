@@ -24,6 +24,22 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// admission. It is a refusal that resolves itself the moment the missing
     /// record arrives.
     case recordUnreadable(fingerprint: String)
+    /// There is no verified record for that fingerprint at all — nobody to
+    /// revoke, no device to retire. A refusal rather than a record minted out
+    /// of nothing: writing one would admit the device in the same act that was
+    /// meant to shut it out, and would name a device this book has never heard
+    /// of as having been here.
+    case notAdmitted(fingerprint: String)
+    /// The target is a self-signed ROOT. A root answers to itself (spec §5:
+    /// *a root is claimed over, never revoked*), so revoking one would be this
+    /// Mac re-signing somebody else’s own word about themselves — which
+    /// is the change of hands `RegistryCache` refuses one layer down.
+    case cannotRevokeARoot(fingerprint: String)
+    /// A retirement signed by something that is not that device. A device
+    /// record is signed by the device it describes, so any other signature
+    /// makes a file every reader lists as malformed — a machine’s whole
+    /// history left unattributable by an act meant to be orderly.
+    case notThatDevice(device: String)
 }
 
 /// **The author's key names a device** (spec §4).
@@ -195,6 +211,140 @@ public enum RegistryAdmission {
         return record
     }
 
+    // MARK: - Revocation and retirement (spec §5)
+
+    /// **Revoke a person: the root’s act** (spec §5).
+    ///
+    /// The person record keeps every word it had and gains three facts —
+    /// `revokedAt`, `revokedBy`, and `highestOpIdSeen`, the highest opId this
+    /// Mac had APPLIED from that device when the writer pressed the button.
+    /// The third is what lets a reader tell two genuinely different things
+    /// apart afterwards: a line that arrived after the revocation, and a line
+    /// that was written before it and only reached this Mac later. Both are
+    /// refused; they are not the same accusation, and the split is
+    /// `OpLogStore`’s to make from this number.
+    ///
+    /// **It is idempotent, and that matters more here than for admission.** A
+    /// second press would re-sign with a later date and a newer
+    /// `highestOpIdSeen` — moving the line the first revocation drew, which is
+    /// the one fact the record exists to hold still.
+    ///
+    /// Four refusals, each a refusal of AUTHORITY rather than of form: this
+    /// Mac is not the root here; the target is a root (claimed over, never
+    /// revoked); the target was admitted by somebody else’s root, whose
+    /// record is not mine to re-sign; and the record is present on disk and
+    /// unreadable, which is not absent (RULING-54).
+    ///
+    /// **The caller invalidates trust**, exactly as after an admission, and for
+    /// the same reason: the tables in flight were resolved before the record
+    /// said this.
+    @discardableResult
+    nonisolated public static func revoke(
+        person fingerprint: String,
+        in projectURL: URL,
+        by root: DeviceIdentity,
+        highestOpIdSeen: String?,
+        cache: RegistryCache,
+        now: () -> Date = { Date() },
+        presenter: NSFilePresenter? = nil
+    ) throws -> PersonRecord {
+        let registry = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        guard registry.roots.contains(where: { $0.person == root.fingerprint }) else {
+            throw RegistryAdmissionError.notARoot
+        }
+        guard let existing = registry.person(fingerprint) else {
+            // Present and unreadable is not absent, and it is the reachable
+            // case: another Mac admitted them and its own root record has not
+            // landed yet. Writing here would destroy their admission.
+            if unreadablePeople(in: registry).contains(fingerprint) {
+                throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
+            }
+            throw RegistryAdmissionError.notAdmitted(fingerprint: fingerprint)
+        }
+        guard !existing.isRoot else {
+            throw RegistryAdmissionError.cannotRevokeARoot(fingerprint: fingerprint)
+        }
+        guard existing.admittedBy == root.fingerprint else {
+            throw RegistryAdmissionError.alreadyAdmittedElsewhere(root: existing.admittedBy)
+        }
+        // Already revoked: the line is drawn, and drawing it again would move
+        // it. The record that stands is the answer.
+        guard !existing.isRevoked else { return existing }
+
+        let at = try RegistryCanonical.dateString(now())
+        try RegistryWriter.resign(
+            existing, signedBy: root, in: projectURL, presenter: presenter
+        ) { object in
+            object["revokedAt"] = at
+            object["revokedBy"] = root.fingerprint
+            if let highestOpIdSeen {
+                object["highestOpIdSeen"] = highestOpIdSeen
+            } else {
+                object.removeValue(forKey: "highestOpIdSeen")
+            }
+        }
+
+        let verified = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        guard let record = verified.person(fingerprint) else {
+            // The record was written and did not read back: the one shape that
+            // must not be reported as success, because the device would go on
+            // being applied while the writer believed it stopped.
+            throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
+        }
+        return record
+    }
+
+    /// **Retire a device: the device’s own act** (spec §5).
+    ///
+    /// A device record is signed by the device it describes, so this is the one
+    /// verb in the registry that nobody else can perform on your behalf — a
+    /// root cannot retire a phone, and a phone cannot retire a Mac. What it
+    /// writes is one date. Its past stays verified on every reader; its future
+    /// seals are quarantined as *after retirement*, which is `TrustTable`’s
+    /// reading of that date against the moment each seal was made.
+    ///
+    /// Idempotent for revocation’s reason: the date is the line.
+    @discardableResult
+    nonisolated public static func retire(
+        device fingerprint: String,
+        in projectURL: URL,
+        by identity: DeviceIdentity,
+        cache: RegistryCache,
+        now: () -> Date = { Date() },
+        presenter: NSFilePresenter? = nil
+    ) throws -> DeviceRecord {
+        guard identity.fingerprint == fingerprint else {
+            throw RegistryAdmissionError.notThatDevice(device: fingerprint)
+        }
+        let registry = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        guard let existing = registry.devices.first(where: { $0.device == fingerprint })
+        else {
+            if unreadableDevices(in: registry).contains(fingerprint) {
+                throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
+            }
+            throw RegistryAdmissionError.notAdmitted(fingerprint: fingerprint)
+        }
+        guard existing.retiredAt == nil else { return existing }
+
+        let at = try RegistryCanonical.dateString(now())
+        try RegistryWriter.resign(
+            existing, signedBy: identity, in: projectURL, presenter: presenter
+        ) { object in
+            object["retiredAt"] = at
+        }
+
+        let verified = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        guard let record = verified.devices.first(where: { $0.device == fingerprint })
+        else {
+            throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
+        }
+        return record
+    }
+
     /// The fingerprints whose person record is **present on disk and did not
     /// verify** — named by the FILE, because what the bytes claim is exactly
     /// what a malformed listing cannot tell you.
@@ -204,8 +354,21 @@ public enum RegistryAdmission {
     /// opinion about it would be a second answer to whether a thing that is
     /// present is absent, which is the whole of the ruling it serves.
     nonisolated static func unreadablePeople(in registry: Registry) -> Set<String> {
+        unreadable(in: registry, directory: .people)
+    }
+
+    /// The same question of the DEVICES directory, which retirement asks: a
+    /// device record present and unverified is a record this Mac must not write
+    /// over, for the reason its person twin must not be.
+    nonisolated static func unreadableDevices(in registry: Registry) -> Set<String> {
+        unreadable(in: registry, directory: .devices)
+    }
+
+    nonisolated private static func unreadable(
+        in registry: Registry, directory: RegistryDirectory
+    ) -> Set<String> {
         Set(registry.malformed.compactMap { fault in
-            guard let ref = fault.ref, ref.directory == .people else { return nil }
+            guard let ref = fault.ref, ref.directory == directory else { return nil }
             return ref.fingerprint
         })
     }

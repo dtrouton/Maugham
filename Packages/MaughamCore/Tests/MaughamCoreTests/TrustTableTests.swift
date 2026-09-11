@@ -51,6 +51,17 @@ final class TrustTableTests: XCTestCase {
             madeAt: Date(timeIntervalSince1970: 5))
     }
 
+    /// A device record that says it has stopped writing.
+    private func retiredDeviceRecord(
+        _ fingerprint: String, at retiredAt: Date, actors extra: [String: String] = [:],
+        name: String = "Denver's iPhone", kind: DeviceKind = .phone
+    ) -> DeviceRecord {
+        DeviceRecord(
+            device: fingerprint, name: name, kind: kind,
+            actors: extra.merging([DeviceActor.author.rawValue: fingerprint]) { a, _ in a },
+            madeAt: Date(timeIntervalSince1970: 5), retiredAt: retiredAt)
+    }
+
     private func claimRecord(
         _ newRoot: String, adopting adopted: [String], at seconds: TimeInterval = 30
     ) -> ClaimRecord {
@@ -239,6 +250,139 @@ final class TrustTableTests: XCTestCase {
         XCTAssertEqual(
             table.verdict(forSealKey: phone),
             .revoked(person: phone, highestOpIdSeen: "01J0000000000000000000000A"))
+    }
+
+    /// **A retired device is a fact about a DEVICE, and it is dated.** Spec §5:
+    /// its past stays verified, its future seals are quarantined. So the
+    /// verdict carries the moment rather than deciding on its own — the walk
+    /// knows when each seal was made, and this table does not.
+    func test_aRetiredDeviceCarriesTheMomentItRetired() {
+        let phone = foreignKey()
+        let registry = Registry(
+            devices: [retiredDeviceRecord(phone, at: Date(timeIntervalSince1970: 99))],
+            people: [rootRecord(mine.author.fingerprint),
+                     admittedRecord(phone, under: mine.author.fingerprint)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(
+            table.verdict(forSealKey: phone),
+            .retired(device: phone, retiredAt: Date(timeIntervalSince1970: 99)))
+    }
+
+    /// Every actor key of a retired device is retired: the machine stopped, not
+    /// one of its hands.
+    func test_everyActorKeyOfARetiredDeviceIsRetired() {
+        let phone = foreignKey()
+        let assistant = foreignKey()
+        let registry = Registry(
+            devices: [retiredDeviceRecord(
+                phone, at: Date(timeIntervalSince1970: 99),
+                actors: [DeviceActor.assistant.rawValue: assistant])],
+            people: [rootRecord(mine.author.fingerprint),
+                     admittedRecord(phone, under: mine.author.fingerprint)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(
+            table.verdict(forSealKey: assistant),
+            .retired(device: phone, retiredAt: Date(timeIntervalSince1970: 99)))
+    }
+
+    /// **Revocation outranks retirement.** A device that retired itself and was
+    /// then revoked is refused whatever the date on its seal says: retirement
+    /// is the machine's own orderly stop, revocation is the root's refusal, and
+    /// the second is not softened by the first.
+    func test_aRevokedDeviceThatAlsoRetiredIsRevoked() {
+        let phone = foreignKey()
+        let registry = Registry(
+            devices: [retiredDeviceRecord(phone, at: Date(timeIntervalSince1970: 50))],
+            people: [rootRecord(mine.author.fingerprint),
+                     admittedRecord(
+                        phone, under: mine.author.fingerprint,
+                        revokedAt: Date(timeIntervalSince1970: 99),
+                        revokedBy: mine.author.fingerprint,
+                        highestOpIdSeen: "01J-SEEN")])
+
+        XCTAssertEqual(
+            TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+                .verdict(forSealKey: phone),
+            .revoked(person: phone, highestOpIdSeen: "01J-SEEN"))
+    }
+
+    /// **This device's own keys are its own, retired or not.** A Mac that
+    /// retired itself still reads its own history as its own word — the
+    /// chained write's rewrite judges by `.mine`, and a table that answered
+    /// otherwise would have this Mac set aside and truncate the file it wrote
+    /// itself. The retirement is a fact every OTHER reader acts on.
+    func test_thisDevicesOwnRetirementDoesNotUnmakeItsOwnWord() {
+        let registry = Registry(
+            devices: [retiredDeviceRecord(
+                mine.author.fingerprint, at: Date(timeIntervalSince1970: 99),
+                actors: [DeviceActor.assistant.rawValue: mine.assistant.fingerprint])],
+            people: [rootRecord(mine.author.fingerprint)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.verdict(forSealKey: mine.author.fingerprint), .mine)
+        XCTAssertEqual(table.verdict(forSealKey: mine.assistant.fingerprint), .mine)
+    }
+
+    /// A stranger that says it retired is still a stranger: retirement is
+    /// something a device says about itself, and this Mac holds nothing of
+    /// theirs either way until it admits them.
+    func test_aRetiredStrangerIsStillAStranger() {
+        let phone = foreignKey()
+        let registry = Registry(
+            devices: [retiredDeviceRecord(phone, at: Date(timeIntervalSince1970: 99))],
+            people: [rootRecord(mine.author.fingerprint)])
+
+        XCTAssertEqual(
+            TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+                .verdict(forSealKey: phone),
+            .stranger(device: phone))
+    }
+
+    // MARK: - What a verdict does to a span, over time
+
+    /// The whole of the dated rule, as the walk asks it: a seal made BEFORE the
+    /// retirement settles its span exactly as an admitted device's does, and
+    /// one made at or after it quarantines.
+    func test_aRetiredDevicesSpanSettlesByWhenItsSealWasMade() {
+        let phone = foreignKey()
+        let verdict = TrustVerdict.retired(
+            device: phone, retiredAt: Date(timeIntervalSince1970: 100))
+
+        XCTAssertEqual(
+            verdict.settling(sealKey: phone, sealedAt: Date(timeIntervalSince1970: 99)),
+            .verified)
+        XCTAssertEqual(
+            verdict.settling(sealKey: phone, sealedAt: Date(timeIntervalSince1970: 100)),
+            .quarantined,
+            "at the moment itself is after it: the device said it was done")
+        XCTAssertEqual(
+            verdict.settling(sealKey: phone, sealedAt: Date(timeIntervalSince1970: 101)),
+            .quarantined)
+        XCTAssertEqual(verdict.refusal, .afterRetirement(device: phone))
+    }
+
+    /// The highest opId the root had applied, asked of the table by the one
+    /// reader that splits a revoked span in two.
+    func test_theTableAnswersTheLineARevocationDrew() {
+        let phone = foreignKey()
+        let registry = Registry(
+            devices: [deviceRecord(phone)],
+            people: [rootRecord(mine.author.fingerprint),
+                     admittedRecord(
+                        phone, under: mine.author.fingerprint,
+                        revokedAt: Date(timeIntervalSince1970: 99),
+                        revokedBy: mine.author.fingerprint,
+                        highestOpIdSeen: "01J-SEEN")])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.highestOpIdSeen(forPerson: phone), "01J-SEEN")
+        XCTAssertNil(table.highestOpIdSeen(forPerson: foreignKey()))
     }
 
     // MARK: - `.otherRoot`

@@ -523,6 +523,20 @@ public enum OpLogChain {
         case afterRevocation(person: String)
         /// A seal from a second self-signed root's chain: listed, never merged.
         case anotherClaimants(root: String)
+        /// A seal made at or after the moment that DEVICE said it had stopped
+        /// writing (spec §5). Its earlier spans are untouched — this is the one
+        /// cause whose subject is a date rather than a key.
+        case afterRetirement(device: String)
+        /// A line from a revoked key that the revocation had ALREADY applied —
+        /// its opId is at or below the `highestOpIdSeen` the root recorded. It
+        /// is refused like everything else that key sealed, and it is not the
+        /// same accusation: it may be late sync, or it may be backdated, and
+        /// the writer is owed the difference.
+        ///
+        /// Produced by `OpLogStore`'s tail classification and never by the walk
+        /// below, which sees seals and not opIds — the split is made from the
+        /// number the revocation recorded, one layer up (ADR 0032 §6).
+        case revocationLate(person: String)
     }
 
     /// **Held lines counted by the DEVICE whose seal holds them** — the one
@@ -723,7 +737,10 @@ public enum OpLogChain {
                 }
                 let verdict = trust(seal.key)
                 if verdict != .mine { foreignSealCount += 1 }
-                let settled = verdict.settling(sealKey: seal.key)
+                // The seal's own moment, because one verdict — `.retired` —
+                // answers differently before and after a date, and this is the
+                // only place that knows when a seal was made.
+                let settled = verdict.settling(sealKey: seal.key, sealedAt: seal.at)
                 if settled == .quarantined, cause == nil {
                     cause = verdict.refusal
                 }
@@ -796,13 +813,18 @@ extension TrustVerdict {
     /// as one switch: it is the only place a verdict becomes a line state, so
     /// a seventh verdict is a compile error here rather than a silent
     /// `unsignedHistory`.
-    nonisolated func settling(sealKey: String) -> OpLogChain.Line.State {
+    nonisolated func settling(sealKey: String, sealedAt: Date) -> OpLogChain.Line.State {
         switch self {
         case .mine, .admitted: .verified
         // The device the registry names for this key, and the key itself only
         // when no device record does.
         case let .stranger(device): .pending(device: device ?? sealKey)
         case .revoked, .otherRoot: .quarantined
+        // Spec §5: its past stays verified, its future is quarantined. AT the
+        // moment counts as after it — the device said it was done, and a seal
+        // bearing that same instant is not something it was still owed.
+        case let .retired(_, retiredAt):
+            sealedAt < retiredAt ? .verified : .quarantined
         case .noChain: .unsignedHistory
         }
     }
@@ -812,6 +834,7 @@ extension TrustVerdict {
         switch self {
         case let .revoked(person, _): .afterRevocation(person: person)
         case let .otherRoot(root): .anotherClaimants(root: root)
+        case let .retired(device, _): .afterRetirement(device: device)
         case .mine, .admitted, .stranger, .noChain: nil
         }
     }
@@ -821,8 +844,20 @@ extension TrustVerdict {
     nonisolated public var isOurWord: Bool {
         switch self {
         case .mine, .admitted: true
-        case .stranger, .revoked, .otherRoot, .noChain: false
+        // A retirement is dated and this question is not, so the honest answer
+        // without a moment in hand is the safe one: ask `isOurWord(sealedAt:)`,
+        // which every production caller does.
+        case .stranger, .revoked, .otherRoot, .retired, .noChain: false
         }
+    }
+
+    /// The same question about a signature made at a known moment — what a
+    /// SEGMENT's signature is, and the form `.retired` needs: a segment signed
+    /// before its device stopped is still that device's word, and one signed
+    /// after it is not.
+    nonisolated public func isOurWord(sealedAt: Date) -> Bool {
+        if case let .retired(_, retiredAt) = self { return sealedAt < retiredAt }
+        return isOurWord
     }
 }
 

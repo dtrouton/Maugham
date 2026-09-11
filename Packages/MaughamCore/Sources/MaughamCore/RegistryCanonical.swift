@@ -88,6 +88,69 @@ public enum RegistryCanonical {
         Hex.encode(Data(SHA256.hash(data: try canonicalBytes(ofJSON: bytes))))
     }
 
+    /// **A record's file bytes, edited and re-signed** — the canonicalization's
+    /// own answer to *change one field and sign what is actually there*.
+    ///
+    /// It lives here rather than in the writer because everything it does is
+    /// this type's decision: which bytes a signature covers, what the signature
+    /// slot is called, and how an object becomes a file. A second spelling of
+    /// any of the three, anywhere, is a second opinion about what was signed —
+    /// and it fails in the direction that costs a device its admission rather
+    /// than the direction that shouts (`RegistryCanonicalCensusTests`).
+    ///
+    /// The edit is handed the OBJECT the file holds, not a decoded record, so a
+    /// field a later build wrote survives into the digest and into the file.
+    /// The signing is a closure because the identity belongs to the writer:
+    /// this function decides what is signed, never who signs.
+    nonisolated public static func resigned(
+        fileBytes: Data,
+        editing edit: (inout [String: Any]) throws -> Void,
+        signing sign: (_ digestHex: String) throws -> OpLogChain.Credentials
+    ) throws -> Data {
+        guard var object = (try? JSONSerialization.jsonObject(with: fileBytes))
+                as? [String: Any] else { throw RegistryCanonicalError.notAJSONObject }
+        try edit(&object)
+        // Removed by name, exactly as `canonicalBytes` removes it: the digest
+        // is over the record WITHOUT its signature slot, and the signature the
+        // file arrived with is not what the new one is made over.
+        object.removeValue(forKey: "sig")
+        // The digest is taken by the function the READER will use on this very
+        // file, over the bytes that are about to be in it — not by a hash
+        // spelled here that happens to agree today.
+        let credentials = try sign(try digestHex(ofJSON: try serialize(object)))
+        // The credentials' own wire form, asked of the encoder rather than
+        // spelled as three keys: a hand-written `sig` is a record no reader can
+        // verify, written by the one type whose job is that they can.
+        object["sig"] = try JSONSerialization.jsonObject(with: try bytes(of: credentials))
+        return try serialize(object)
+    }
+
+    /// The one serialization of a record's object: sorted keys, unescaped
+    /// slashes — `canonicalBytes`' own two choices, so the file a re-sign
+    /// writes and the bytes its signature covers differ in the signature alone.
+    nonisolated private static func serialize(_ object: [String: Any]) throws -> Data {
+        try JSONSerialization.data(
+            withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
+    }
+
+    /// One date, in the form every registry record already writes: the store's
+    /// own ISO8601 string.
+    ///
+    /// It exists for the RE-SIGN path, which edits a record's JSON OBJECT
+    /// rather than a decoded copy (`RegistryWriter.resign`) and so needs the
+    /// string a `Date` would have become had the encoder written it. Made BY
+    /// that encoder — a second formatter here would be a second answer to what
+    /// a date looks like on disk, and the two would diverge at exactly the
+    /// fractional second nobody looks at.
+    nonisolated public static func dateString(_ date: Date) throws -> String {
+        let encoded = try encoder().encode([date])
+        let decoded = (try? JSONSerialization.jsonObject(with: encoded)) as? [String]
+        guard let string = decoded?.first else {
+            throw RegistryCanonicalError.notAJSONObject
+        }
+        return string
+    }
+
     /// The same digest for a record in hand — the writer's side of it. The
     /// record is encoded once and then canonicalized, so the writer signs
     /// exactly what the reader will hash out of the file it is about to write.

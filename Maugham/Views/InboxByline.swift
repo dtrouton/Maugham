@@ -77,6 +77,12 @@ enum InboxByline {
             return "from \(label(person))"
         case .revoked(let person, _):
             return "from \(label(person)) (revoked)"
+        case .retired(let device, _):
+            // A retired device's PAST is verified and only what it wrote after
+            // it stopped is refused, so the word here is the device's state
+            // rather than a verdict on this entry: *retired* says why an old
+            // capture reads normally and a new one does not arrive.
+            return "from \(label(device)) (retired)"
         case .stranger:
             return "from \(record.name) (not yet admitted)"
         case .otherRoot:
