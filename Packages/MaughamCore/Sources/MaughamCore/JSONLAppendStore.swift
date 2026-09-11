@@ -156,8 +156,31 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         sortedBy: ((Element, Element) -> Bool)? = nil
     ) -> (elements: [Element], diagnostics: ParseDiagnostics,
           verification: OpLogChain.Verification) {
+        verifiedParse(
+            bytes: bytes,
+            trust: { trusted($0) ? .mine : .noChain },
+            rememberedHead: rememberedHead,
+            dedupKey: dedupKey, sortedBy: sortedBy)
+    }
+
+    /// `verifiedParse`, judging each seal by the **table's** verdict rather
+    /// than by a yes/no.
+    ///
+    /// The keyless form above answers `.noChain` for everything that is not
+    /// ours, which applies a stranger's history unread — P1's whole world, and
+    /// right only where there is no table to ask. A caller that HAS one owes
+    /// every seal the same six-way answer the live tail gets: a stranger's span
+    /// held, a revoked key's refused, this device's own settled `verified`.
+    nonisolated static func verifiedParse(
+        bytes: Data,
+        trust: (String) -> TrustVerdict,
+        rememberedHead: String?,
+        dedupKey: ((Element) -> String)? = nil,
+        sortedBy: ((Element, Element) -> Bool)? = nil
+    ) -> (elements: [Element], diagnostics: ParseDiagnostics,
+          verification: OpLogChain.Verification) {
         let verification = OpLogChain.verify(
-            bytes: bytes, trusted: trusted, rememberedHead: rememberedHead)
+            bytes: bytes, trust: trust, rememberedHead: rememberedHead)
         let parsed = parse(
             bytes: applied(verification, whole: bytes),
             dedupKey: dedupKey, sortedBy: sortedBy)

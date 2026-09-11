@@ -100,8 +100,14 @@ final class InboxPendingTests: XCTestCase {
 
         XCTAssertTrue(inbox.entries.isEmpty,
                       "held is not applied: \(inbox.entries.map(\.id))")
-        XCTAssertEqual(inbox.pendingByDevice[stranger.fingerprint], 3,
-                       "two rows and the seal that holds them: \(inbox.pendingByDevice)")
+        XCTAssertEqual(inbox.pendingByDevice[stranger.fingerprint], 2,
+                       """
+                       TWO captures are waiting, not three: the seal is held \
+                       with the rows it closes and is counted nowhere, because \
+                       the banner puts the word "captures" after this number \
+                       and a seal is not one (P2b Task 10). Got \
+                       \(inbox.pendingByDevice)
+                       """)
         XCTAssertEqual(inbox.pendingDeviceNames[stranger.fingerprint],
                        DeviceCode.short(stranger.fingerprint),
                        "with nothing on disk naming it, its code is what it is called")

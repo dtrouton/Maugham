@@ -154,6 +154,161 @@ final class RegistryCacheTests: XCTestCase {
         XCTAssertTrue(reread.people.contains { $0.person == self.phone.fingerprint })
     }
 
+    // MARK: - The dated restore list (P2b Task 10)
+
+    /// **A restoration leaves a trace that outlives it.** Once the record is
+    /// back, the folder looks exactly as it did before somebody deleted it —
+    /// so the only place the fact can live is the memory that noticed it.
+    /// History dates its `.recordRestored` from this list, and People &
+    /// Devices marks the row from the same one.
+    func test_aRestorationIsRememberedWithTheDayItHappened() throws {
+        let registry = try writeASmallRegistry()
+        let cache = makeCache()
+        cache.remember(registry, for: projectURL)
+        XCTAssertEqual(cache.restores(for: projectURL), [],
+                       "nothing has been put back yet")
+
+        let url = RegistryWriter.url(.people, fingerprint: phone.fingerprint, in: projectURL)
+        try FileManager.default.removeItem(at: url)
+        let when = Date(timeIntervalSince1970: 900)
+        _ = try cache.reconcile(
+            folder: try RegistryReader.load(projectURL: projectURL),
+            cached: cache.cached(for: projectURL), in: projectURL, at: when)
+
+        XCTAssertEqual(
+            cache.restores(for: projectURL),
+            [RestoredRecord(
+                ref: RecordRef(directory: .people, fingerprint: phone.fingerprint),
+                restoredAt: when)])
+    }
+
+    /// **Twice deleted is twice listed.** The second deletion is the news, and
+    /// collapsing the two would leave a surface showing a month-old date for
+    /// something that happened this morning.
+    func test_aRecordDeletedTwiceIsListedTwice() throws {
+        let registry = try writeASmallRegistry()
+        let cache = makeCache()
+        cache.remember(registry, for: projectURL)
+        let url = RegistryWriter.url(.people, fingerprint: phone.fingerprint, in: projectURL)
+
+        for seconds in [900.0, 1_900.0] {
+            try FileManager.default.removeItem(at: url)
+            _ = try cache.reconcile(
+                folder: try RegistryReader.load(projectURL: projectURL),
+                cached: cache.cached(for: projectURL), in: projectURL,
+                at: Date(timeIntervalSince1970: seconds))
+        }
+
+        XCTAssertEqual(cache.restores(for: projectURL).map(\.restoredAt),
+                       [Date(timeIntervalSince1970: 900),
+                        Date(timeIntervalSince1970: 1_900)],
+                       "oldest first, both kept")
+    }
+
+    /// The list is bounded: a folder that comes back empty over and over is one
+    /// event repeated, and this is a memory rather than an audit log.
+    func test_theRestoreListIsCappedAtTheLimit() throws {
+        let registry = try writeASmallRegistry()
+        let cache = makeCache()
+        cache.remember(registry, for: projectURL)
+        let url = RegistryWriter.url(.people, fingerprint: phone.fingerprint, in: projectURL)
+
+        for i in 0..<(RegistryCache.restoreLimit + 10) {
+            try FileManager.default.removeItem(at: url)
+            _ = try cache.reconcile(
+                folder: try RegistryReader.load(projectURL: projectURL),
+                cached: cache.cached(for: projectURL), in: projectURL,
+                at: Date(timeIntervalSince1970: TimeInterval(1_000 + i)))
+        }
+
+        let restores = cache.restores(for: projectURL)
+        XCTAssertEqual(restores.count, RegistryCache.restoreLimit)
+        XCTAssertEqual(restores.last?.restoredAt,
+                       Date(timeIntervalSince1970: TimeInterval(1_000 + RegistryCache.restoreLimit + 9)),
+                       "the newest is kept; the oldest go")
+    }
+
+    func test_theRestoreListSurvivesAReload() throws {
+        let registry = try writeASmallRegistry()
+        let cache = makeCache()
+        cache.remember(registry, for: projectURL)
+        let url = RegistryWriter.url(.people, fingerprint: phone.fingerprint, in: projectURL)
+        try FileManager.default.removeItem(at: url)
+        _ = try cache.reconcile(
+            folder: try RegistryReader.load(projectURL: projectURL),
+            cached: cache.cached(for: projectURL), in: projectURL,
+            at: Date(timeIntervalSince1970: 900))
+
+        XCTAssertEqual(makeCache().restores(for: projectURL),
+                       cache.restores(for: projectURL),
+                       "it is persisted, like every other thing this remembers")
+    }
+
+    /// A reconcile that put nothing back records nothing.
+    func test_aFolderThatLostNothingRecordsNoRestoration() throws {
+        let registry = try writeASmallRegistry()
+        let cache = makeCache()
+        cache.remember(registry, for: projectURL)
+        _ = try cache.reconcile(
+            folder: try RegistryReader.load(projectURL: projectURL),
+            cached: cache.cached(for: projectURL), in: projectURL)
+        XCTAssertEqual(cache.restores(for: projectURL), [])
+    }
+
+    // MARK: - The shared memory is lazy about the enclave (P2b Task 10)
+
+    /// **A project with no registry and no cache file resolves no identity.**
+    ///
+    /// `TrustResolution` reaches for the shared memory on the way past every
+    /// project it opens, and the identity behind it is this device's author
+    /// fingerprint — asking for which MINTS an enclave key if there is not one.
+    /// Most projects have no registry and never will, so the ordinary open must
+    /// cost nothing: the file is read first, and the identity is asked for only
+    /// where the answer turns on it.
+    func test_aProjectWithNoRegistryNeverReachesForTheEnclave() throws {
+        let counter = IdentityCounter()
+        let cache = RegistryCache(fileURL: cacheURL, resolvingIdentity: counter.next)
+        XCTAssertEqual(counter.count, 0, "constructing it asks nothing")
+
+        let table = try TrustResolution.resolve(
+            projectURL: projectURL, identities: .softwareForTesting(), cache: cache)
+
+        XCTAssertNil(table.myRoot, "there is no chain here")
+        XCTAssertEqual(counter.count, 0,
+                       """
+                       and resolving a project with no registry and no cache \
+                       file asked the enclave nothing at all
+                       """)
+    }
+
+    /// The converse, so the seam above cannot pass by being inert: a memory
+    /// that is WRITTEN to stamps itself, which is exactly when this device has
+    /// to say whose memory it is.
+    func test_writingToTheMemoryDoesResolveTheIdentity() throws {
+        let counter = IdentityCounter()
+        let cache = RegistryCache(fileURL: cacheURL, resolvingIdentity: counter.next)
+        cache.join(root: "a-root", for: projectURL)
+
+        XCTAssertGreaterThan(counter.count, 0,
+                             "a file written under no name would be read back by anybody")
+        XCTAssertEqual(counter.count, 1, "and it is asked once, then remembered")
+    }
+
+    /// Counts how often the identity behind a cache is actually asked for.
+    private final class IdentityCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var asked = 0
+        var count: Int {
+            lock.lock(); defer { lock.unlock() }
+            return asked
+        }
+        func next() -> String {
+            lock.lock(); defer { lock.unlock() }
+            asked += 1
+            return "device-under-test"
+        }
+    }
+
     func test_aDeletedDeviceRecordIsRestoredToTheDevicesDirectory() throws {
         let registry = try writeASmallRegistry()
         let cache = makeCache()

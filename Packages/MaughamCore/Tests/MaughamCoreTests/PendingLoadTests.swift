@@ -178,9 +178,46 @@ final class PendingLoadTests: XCTestCase {
         let strangersFile = load.provenance.files.first {
             $0.name.contains(stranger.slug.raw)
         }
-        XCTAssertEqual(strangersFile?.pendingByDevice[stranger.fingerprint],
-                       strangerLines,
-                       "held lines are counted under the key that sealed them")
+        XCTAssertEqual(strangersFile?.pendingByDevice[stranger.fingerprint], 2,
+                       """
+                       held OPS are counted under the key that sealed them — \
+                       two, not the three lines the file holds. The seal is \
+                       held with the span it closes and is counted nowhere: \
+                       every reader of this number puts a noun after it, and a \
+                       seal is neither a capture nor a note (P2b Task 10).
+                       """)
+        XCTAssertEqual(strangersFile?.pending, strangerLines,
+                       "while the LINE tally still counts the seal, because it "
+                       + "is a line and it is held")
+    }
+
+    /// **N ops and M seals count N** (P2b Task 10, from Task 6's review).
+    ///
+    /// The count is read as a noun — *3 captures waiting*, *2 notes from this
+    /// iPhone* — and a seal is neither. A two-op file with one seal read *3*
+    /// under P2b's first draft, which is three surfaces telling the writer they
+    /// have something they have not got.
+    func test_heldSealsAreNotCountedAsThingsTheWriterIsWaitingFor() async throws {
+        try writeRootRecord()
+        // Three ops in one file, sealed twice: the seal after the first two,
+        // and the seal after the third.
+        let store = OpLogStore(
+            projectURL: projectURL, identity: stranger, state: strangerState)
+        try await store.append(op("02", device: stranger))
+        try await store.append(op("03", device: stranger))
+        var sealed = try await store.sealChain(docId: docId)
+        XCTAssertTrue(sealed)
+        try await store.append(op("04", device: stranger))
+        sealed = try await store.sealChain(docId: docId)
+        XCTAssertTrue(sealed)
+
+        let load = try await reader().loadDiagnosed(docId: docId)
+
+        XCTAssertEqual(load.provenance.pendingLines, 5,
+                       "five lines are held: three ops and two seals")
+        XCTAssertEqual(load.provenance.pendingByDevice,
+                       [stranger.fingerprint: 3],
+                       "and the writer is waiting on THREE of them")
     }
 
     func test_holdingALineRecordsNothingAnywhere() async throws {
@@ -391,8 +428,83 @@ final class PendingLoadTests: XCTestCase {
         XCTAssertEqual(load.provenance.pendingLines, 4,
                        "two ops and two seals, over two files")
         XCTAssertEqual(load.provenance.pendingByDevice,
-                       [stranger.fingerprint: 4],
-                       "one device is waiting, not two")
+                       [stranger.fingerprint: 2],
+                       "one device is waiting, not two — and it is waiting "
+                       + "with two OPS, not with four lines (P2b Task 10)")
+    }
+
+    // MARK: - A rotated segment is judged like a live tail (P2b Task 10)
+
+    /// **A stranger's ROTATED history is held, exactly as its live tail is.**
+    ///
+    /// A `.mzseg` whose container signature this device cannot call its own
+    /// falls through to a line-by-line walk, and until P2b's final wave that
+    /// walk was KEYLESS: every seal inside it answered `.noChain` and its span
+    /// was applied as unsigned history. So a stranger's `.jsonl` was held and
+    /// the same stranger's segment was applied unread — rotation, which is
+    /// maintenance a device performs on itself, silently admitted it. This is
+    /// a P1 behaviour change and ADR 0032 §6 records it.
+    func test_aStrangersRotatedSegmentIsHeldJustAsItsTailIs() async throws {
+        try writeRootRecord()
+        let store = OpLogStore(
+            projectURL: projectURL, identity: stranger, state: strangerState)
+        try await store.append(op("02", device: stranger))
+        try await store.append(op("03", device: stranger))
+        let sealed = try await store.sealChain(docId: docId)
+        XCTAssertTrue(sealed)
+        // Rotate the sealed tail into a segment. The signature beside it is the
+        // stranger's, so it cannot settle this device's read.
+        let segment = try await store.sealTailIfNeeded(
+            docId: docId, deviceSlug: stranger.slug, threshold: 0)
+        XCTAssertEqual(segment?.pathExtension, "mzseg",
+                       "the stranger's history is rotated into a segment")
+
+        let load = try await reader().loadDiagnosed(docId: docId)
+
+        XCTAssertEqual(load.ops.count, 0,
+                       "a stranger's rotated history is no more applied than its tail")
+        XCTAssertEqual(load.provenance.unsignedHistoryLines, 0,
+                       "and it is not quietly filed as unsigned history, which "
+                       + "is what the keyless fallback walk used to do")
+        XCTAssertEqual(load.provenance.pendingByDevice,
+                       [stranger.fingerprint: 2],
+                       "the same two ops are waiting, in the same device's name")
+    }
+
+    /// The converse, and the half a keyless walk could not answer either:
+    /// **this device's OWN inner seals settle `verified`.**
+    ///
+    /// A segment whose container signature is gone — the sidecar deleted, a
+    /// segment minted before signatures existed — is walked rather than
+    /// settled. The lines inside it are still sealed by this device's own key,
+    /// and under the keyless walk they came back as somebody else's unsigned
+    /// history: this Mac's own work, in the History pane, attributed to nobody.
+    func test_thisDevicesOwnInnerSealsSettleVerifiedInAWalkedSegment() async throws {
+        try writeRootRecord()
+        let store = reader()
+        try await store.append(op("01", device: root.author))
+        try await store.append(op("02", device: root.author))
+        let sealed = try await store.sealChain(docId: docId)
+        XCTAssertTrue(sealed)
+        let segment = try await store.sealTailIfNeeded(
+            docId: docId, deviceSlug: root.author.slug, threshold: 0)
+        let url = try XCTUnwrap(segment)
+        // Take the container signature away: the segment can no longer settle
+        // whole, so the fallback walk is what judges its lines.
+        try FileManager.default.removeItem(at: OpLogStore.segmentSignatureURL(for: url))
+
+        let load = try await reader().loadDiagnosed(docId: docId)
+
+        XCTAssertEqual(load.ops.map(\.opId), ["01", "02"],
+                       "this device's own ops are applied either way")
+        XCTAssertEqual(load.provenance.unsignedHistoryLines, 0,
+                       "and they are NOT unsigned history — this Mac wrote them "
+                       + "and holds the key that sealed them")
+        XCTAssertEqual(load.provenance.pendingLines, 0,
+                       "nor is this device's own hand held from itself")
+        XCTAssertGreaterThan(load.provenance.verifiedLines, 0,
+                             "the walk recognises the seal as ours and settles "
+                             + "the span verified")
     }
 
     // MARK: - Resolving
@@ -407,7 +519,6 @@ final class PendingLoadTests: XCTestCase {
             projectURL: projectURL, identities: root, cache: cache)
 
         XCTAssertEqual(table.myRoot, root.author.fingerprint)
-        XCTAssertEqual(table.rootSource, .ownRecord)
         XCTAssertEqual(table.ownRootRecord, root.author.fingerprint)
         XCTAssertEqual(table.admittingRoots, [])
         XCTAssertNil(cache.joinedRoot(for: projectURL),
@@ -447,7 +558,6 @@ final class PendingLoadTests: XCTestCase {
         let second = try TrustResolution.resolve(
             projectURL: projectURL, identities: root, cache: cache)
         XCTAssertEqual(second.myRoot, root.author.fingerprint)
-        XCTAssertEqual(second.rootSource, .ownRecord)
         XCTAssertEqual(second.verdict(forSealKey: stranger.fingerprint),
                        .admitted(person: stranger.fingerprint),
                        "and this device's own admittee is still admitted")
@@ -467,7 +577,6 @@ final class PendingLoadTests: XCTestCase {
 
         let joined = try TrustResolution.resolve(
             projectURL: projectURL, identities: root, cache: cache)
-        XCTAssertEqual(joined.rootSource, .admitted)
         XCTAssertEqual(joined.myRoot, first.fingerprint)
         XCTAssertEqual(cache.joinedRoot(for: projectURL), first.fingerprint,
                        "the root that took this device in is the one it is on")
@@ -481,7 +590,6 @@ final class PendingLoadTests: XCTestCase {
             projectURL: projectURL, identities: root, cache: cache)
         XCTAssertEqual(claimed.myRoot, first.fingerprint,
                        "a device never switches roots on its own (B1)")
-        XCTAssertEqual(claimed.rootSource, .joined)
         XCTAssertEqual(cache.claimants(for: projectURL), [second.fingerprint],
                        "the second claimant is recorded, loudly, and never merged")
     }

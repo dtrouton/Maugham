@@ -618,7 +618,6 @@ final class TrustTableTests: XCTestCase {
         let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
 
         XCTAssertEqual(table.myRoot, mine.author.fingerprint)
-        XCTAssertEqual(table.rootSource, .ownRecord)
         XCTAssertEqual(table.ownRootRecord, mine.author.fingerprint)
         XCTAssertEqual(table.admittingRoots, [otherRoot],
                        "a root that named this device is still recorded as having done so")

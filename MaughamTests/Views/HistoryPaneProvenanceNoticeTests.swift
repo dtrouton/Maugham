@@ -317,9 +317,6 @@ final class HistoryPaneChainNoticeTests: XCTestCase {
             HistoryPane.pendingNotice(provenance: provenance, names: [phone: "iPhone"]),
             "the sentence is what draws the row the control sits in")
         XCTAssertEqual(HistoryPane.admitTitle, "Admit…")
-        XCTAssertTrue(
-            HistoryPane.admitIsAvailable,
-            "P2b wired it: pressing it asks the window for the admission sheet")
         XCTAssertFalse(
             HistoryPane.admitHelp.isEmpty,
             "and it says what admitting will do, for the hover and for VoiceOver")

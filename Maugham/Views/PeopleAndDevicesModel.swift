@@ -119,6 +119,12 @@ struct PeopleAndDevicesModel: Equatable {
         /// a lie told about somebody else's desk. `DeviceStanding`'s own
         /// sentence, so History and this row cannot drift (tripwire 19).
         let retirementNotice: String?
+        /// **When this Mac last put this record back** (P2b Task 10), from
+        /// `RegistryCache.restores`. Non-nil means the folder had lost the
+        /// record and this device restored it from its own memory — a fact
+        /// nothing in the folder carries afterwards, because the file is back
+        /// and looks untouched.
+        let restoredAt: Date?
 
         var id: String { fingerprint }
 
@@ -128,6 +134,9 @@ struct PeopleAndDevicesModel: Equatable {
             parts.append("added \(PeopleAndDevicesModel.day(addedAt))")
             if let retiredAt {
                 parts.append("retired \(PeopleAndDevicesModel.day(retiredAt))")
+            }
+            if let restoredAt {
+                parts.append("put back \(PeopleAndDevicesModel.day(restoredAt))")
             }
             return parts.joined(separator: " · ")
         }
@@ -165,6 +174,9 @@ struct PeopleAndDevicesModel: Equatable {
         /// *this Mac*, or *<label>'s Mac* for a root somebody else owns. Nil
         /// for everyone who is not the root of this book's chain.
         let mark: String?
+        /// **When this Mac last put this record back** (P2b Task 10). See
+        /// `Device.restoredAt`: the same fact, one directory over.
+        let restoredAt: Date?
         let devices: [Device]
 
         var id: String { fingerprint }
@@ -175,10 +187,16 @@ struct PeopleAndDevicesModel: Equatable {
         }
 
         var detail: String {
+            var parts = [role]
             if let revokedAt {
-                return "\(role) · revoked \(PeopleAndDevicesModel.day(revokedAt))"
+                parts.append("revoked \(PeopleAndDevicesModel.day(revokedAt))")
+            } else {
+                parts.append("admitted \(PeopleAndDevicesModel.day(admittedAt))")
             }
-            return "\(role) · admitted \(PeopleAndDevicesModel.day(admittedAt))"
+            if let restoredAt {
+                parts.append("put back \(PeopleAndDevicesModel.day(restoredAt))")
+            }
+            return parts.joined(separator: " · ")
         }
     }
 
@@ -232,6 +250,9 @@ struct PeopleAndDevicesModel: Equatable {
     ///     would let this pane list a device the sheet never asks about, or
     ///     offer an Admit… about one it has already let in.
     ///   - claimants: `RegistryCache.claimants(for:)`.
+    ///   - restores: `RegistryCache.restores(for:)` — the SAME dated list
+    ///     History reads, so a record marked *put back* in a row and an event
+    ///     saying so in the timeline are one fact rather than two derivations.
     ///   - standing: this device's own sentence, and the carrier of a refusal.
     ///   - me: this device's author fingerprint.
     static func make(
@@ -240,6 +261,7 @@ struct PeopleAndDevicesModel: Equatable {
         remembered: [String: AdmissionMemory.Label],
         requests: [AdmissionRequest],
         claimants: [String],
+        restores: [RestoredRecord] = [],
         standing: DeviceStanding,
         me: String
     ) -> PeopleAndDevicesModel {
@@ -247,6 +269,15 @@ struct PeopleAndDevicesModel: Equatable {
             return PeopleAndDevicesModel(
                 refusal: refusal, standing: standing.sentence, code: standing.code,
                 pending: [], people: [], merged: [], claimants: [], absent: [])
+        }
+
+        // The LATEST restoration of each record: a record put back twice is two
+        // events in History, which is a timeline, and one mark on a row, which
+        // is a state.
+        var restoredAt: [RecordRef: Date] = [:]
+        for restore in restores {
+            if let known = restoredAt[restore.ref], known >= restore.restoredAt { continue }
+            restoredAt[restore.ref] = restore.restoredAt
         }
 
         let deviceByFingerprint = Dictionary(
@@ -299,7 +330,8 @@ struct PeopleAndDevicesModel: Equatable {
                 : left.admittedAt < right.admittedAt
         }
         let people: [Person] = memberRecords.map { record in
-            person(record, in: registry, myRoot: table.myRoot, me: me)
+            person(record, in: registry, myRoot: table.myRoot,
+                   restoredAt: restoredAt, me: me)
         }
 
         let adopted = Set(table.adoptedRoots)
@@ -337,7 +369,8 @@ struct PeopleAndDevicesModel: Equatable {
     /// most one machine today; it is a list because the shape this milestone
     /// leaves room for is a person key with several.
     private static func person(
-        _ record: PersonRecord, in registry: Registry, myRoot: String?, me: String
+        _ record: PersonRecord, in registry: Registry, myRoot: String?,
+        restoredAt: [RecordRef: Date], me: String
     ) -> Person {
         let devices: [Device] = registry.devices
             .filter { $0.device == record.person }
@@ -359,7 +392,9 @@ struct PeopleAndDevicesModel: Equatable {
                             DeviceStanding.retirementNotice(
                                 device: word(for: device.kind), retiredAt: $0)
                         }
-                        : nil)
+                        : nil,
+                    restoredAt: restoredAt[RecordRef(
+                        directory: .devices, fingerprint: device.device)])
             }
         return Person(
             fingerprint: record.person, label: record.label,
@@ -374,6 +409,8 @@ struct PeopleAndDevicesModel: Equatable {
             canReadmit: record.isRevoked && !record.isRoot && record.admittedBy == me,
             recordedOwnName: record.ownName,
             mark: mark(for: record, myRoot: myRoot, me: me),
+            restoredAt: restoredAt[RecordRef(
+                directory: .people, fingerprint: record.person)],
             devices: devices)
     }
 

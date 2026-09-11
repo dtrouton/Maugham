@@ -84,6 +84,19 @@ struct SettingsView: View {
                     Text(row.standing.sentence)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                    // **What retirement means, on the machine that did it**
+                    // (P2b Task 10, from Task 7's Important 2). A retired
+                    // device goes on writing and applying its own lines while
+                    // every peer sets them aside, and this phone is one of the
+                    // two machines that can see both halves. The words are
+                    // `DeviceStanding`'s, with this phone's own noun, so the
+                    // Mac's People & Devices row and this one cannot drift
+                    // (tripwire 19).
+                    if let notice = row.standing.retirementNotice(device: "iPhone") {
+                        Text(notice)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         } header: {

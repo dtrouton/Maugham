@@ -379,14 +379,47 @@ final class TrustEventsTests: XCTestCase {
 
     // MARK: - The carry
 
-    /// **Not derived, and deliberately.** A record put back from this device's
-    /// memory is an event ruling C names, but `RegistryCache.reconcile` reports
-    /// its restorations to its caller and persists none of them — so there is
-    /// nothing on disk for a pure derivation to read, and inventing one at
-    /// read time would date the restore to whenever History was last opened.
-    /// The kind exists and its sentence is pinned; what is missing is a small
-    /// dated list in the cache, which is not this task's to add.
-    func test_noRestoredRecordEventIsDerivedYet() {
+/// **A restoration is a dated event** (P2b Task 10). `RegistryCache.reconcile`
+    /// writes what it put back into a small bounded list, and this is the one
+    /// place that reads it: a restoration leaves no trace in the folder — the
+    /// file is back and looks untouched — so the memory that noticed it is the
+    /// only thing that can say it happened, or when.
+    func test_aRestoredRecordIsADatedEvent() throws {
+        let rootIdentity = DeviceIdentity.softwareForTesting()
+        let phone = DeviceIdentity.softwareForTesting()
+        try RegistryWriter.write(
+            rootRecord(rootIdentity.fingerprint), signedBy: rootIdentity, in: project)
+        try RegistryWriter.write(
+            admittedRecord(phone.fingerprint, under: rootIdentity.fingerprint),
+            signedBy: rootIdentity, in: project)
+
+        let store = cache()
+        let folder = try RegistryReader.load(projectURL: project)
+        store.remember(folder, for: project)
+
+        // Somebody deletes the phone's admission.
+        try FileManager.default.removeItem(
+            at: RegistryWriter.url(.people, fingerprint: phone.fingerprint, in: project))
+        let reconciled = try store.reconcile(
+            folder: try RegistryReader.load(projectURL: project),
+            cached: store.cached(for: project), in: project,
+            at: at(900)).registry
+
+        let events = TrustEvents.derive(
+            registry: reconciled, cache: store, mine: mine, for: project)
+            .filter { $0.kind == .recordRestored }
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events[0].subject, phone.fingerprint)
+        XCTAssertEqual(events[0].date, at(900),
+                       "dated by the day it was put back, not by the day the "
+                       + "pane was opened")
+        XCTAssertEqual(events[0].label, "iPhone",
+                       "named from the record that came back")
+    }
+
+    /// A project where nothing has been restored derives no such event.
+    func test_aProjectThatLostNothingHasNoRestoredEvent() {
         let root = foreignKey()
         let store = cache()
         store.remember(Registry(people: [rootRecord(root)]), for: project)

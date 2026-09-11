@@ -229,7 +229,6 @@ final class RegistryPresenceTests: XCTestCase {
             projectURL: projectURL, identities: mine, cache: cache)
 
         XCTAssertEqual(table.myRoot, mine.author.fingerprint)
-        XCTAssertEqual(table.rootSource, .ownRecord)
         // Task 7's fix round, on the controller's ruling: the JOIN records only
         // a foreign root that took this device in (B1). Being your own root is
         // not joining one — a Mac that joined itself would have every surface

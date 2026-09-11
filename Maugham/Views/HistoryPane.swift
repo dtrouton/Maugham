@@ -390,8 +390,14 @@ struct HistoryPane: View {
     /// GONE (P2b Task 4's minor (c)): it was kept for a test that never read it
     /// and for a day that has arrived the other way round, and a constant
     /// nothing reads is a sentence nobody maintains.
+    ///
+    /// **`admitIsAvailable` went the same way** (P2b Task 10). It was the
+    /// not-yet flag, and once the wiring landed it was a `true` gating a
+    /// `.disabled(!true)` — a control that reads as conditionally live and
+    /// cannot be anything but live. A flag whose every reader is its own
+    /// constant is worse than none: the next writer of this file has to prove
+    /// it is still dead before touching it.
     static let admitTitle = "Admit…"
-    static let admitIsAvailable = true
     static let admitHelp = "Say who this device belongs to, and apply what it wrote"
 
     /// What is HELD — history written by a device this book's chain says
@@ -636,7 +642,6 @@ struct HistoryPane: View {
                     }
                         .controlSize(.small)
                         .buttonStyle(.bordered)
-                        .disabled(!Self.admitIsAvailable)
                         .help(Self.admitHelp)
                         // .help is hover-only; the WHY must reach VoiceOver.
                         .accessibilityHint(Text(Self.admitHelp))

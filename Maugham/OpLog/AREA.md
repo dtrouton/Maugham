@@ -631,6 +631,41 @@ the table carries none.
 
 **Two tripwires, both censuses** — see items 10 and 11 below.
 
+### Three hygiene facts P2b's final wave settled (Task 10)
+
+**`OpLogChain.pendingByDevice` counts OP lines only.** A seal is held back with
+the span it closes, and it is counted nowhere. Every reader of this number puts
+a noun after it — *3 captures waiting*, *14 notes from iPhone* — and a seal is
+neither a capture nor a note, so two ops under one seal reading *3* was three
+surfaces telling the writer they have something they have not got. The LINE
+tallies (`FileProvenance.pending`, `pendingLines`) still count the seal, because
+it is a line and it is held; the two answer different questions and both are
+pinned (`PendingLoadTests.test_heldSealsAreNotCountedAsThingsTheWriterIsWaitingFor`).
+
+**`RegistryCache` keeps a dated restore list**, bounded at
+`RegistryCache.restoreLimit` (50) per project and written by `reconcile` on what
+it actually put back. A restoration leaves NO trace in the folder afterwards —
+the file is back and looks exactly as it did before somebody deleted it — so
+this is the only place the fact survives, and dating it at read time would stamp
+a week-old deletion with the moment a pane was opened. Two surfaces read the one
+list: `TrustEvents.derive` dates its `.recordRestored` from it, and
+`PeopleAndDevicesModel` marks the row (*put back 9 Sep*). A record deleted twice
+is two events and one row mark, because a timeline is what happened and a row is
+what holds.
+
+**`RegistryCache.shared` is lazy about the enclave.** `TrustResolution` reaches
+for it on the way past every project it opens, and the identity behind it is
+this device's author fingerprint — asking for which MINTS an enclave key if
+there is not one (`LocalIdentities`' lazy rule: naming an actor is the writer's
+act). Most projects have no registry and never will, so the file is read on the
+first real question and the identity is resolved only where the answer turns on
+it: a file that decoded, or a write (`persistLocked` stamps it, which is exactly
+when this device has to say whose memory this is). **A project with no registry
+and no cache file resolves no identity at all**, pinned through a counting seam
+in `RegistryCacheTests.test_aProjectWithNoRegistryNeverReachesForTheEnclave`.
+The public `init(fileURL:identity:)` is unchanged for a caller that already
+holds the fingerprint.
+
 ## Sealed segments (ADR 0016, M2)
 
 When a device's own live tail `<docId>.<slug>.jsonl` exceeds
@@ -679,10 +714,23 @@ keylessly. A settled segment's lines count as
 signed those exact bytes, which is the whole claim a seal makes. The
 consequence is that a document's "written before this book was signed" sentence
 DISAPPEARS once its legacy tail has been rotated into a signed segment —
-nothing was rewritten, the sentence simply became false. **Keyless walk** — a foreign signature, no
+nothing was rewritten, the sentence simply became false. **The fallback walk** — a foreign signature, no
 signature at all, or a segment minted before this milestone: every line is
-walked with `trusted: { _ in false }` and no remembered head, counted by the
-state the walk gives it, and a break still quarantines. Only a container that
+walked with no remembered head, counted by the
+state the walk gives it, and a break still quarantines.
+**That walk goes through the TABLE since P2b Task 10, and this is a P1
+behaviour change** (ADR 0032 §6). It used to be keyless — `trusted: { _ in
+false }`, so every seal inside answered `.noChain` and its span was applied as
+unsigned history — which made a device's ROTATED history a different thing from
+its live tail: a stranger's `.jsonl` was held and the same stranger's `.mzseg`
+was applied unread, so rotation, which is maintenance a device performs on
+itself, silently admitted it. Now a stranger's inner seals hold their spans
+`pending` exactly as its tail's do, a revoked key's are refused, and this
+device's own inner seals settle `verified` rather than being filed under
+somebody else's unsigned history. With no table there is still nothing to ask
+and the keyless walk stands, which is P1 exactly. Pinned both ways by
+`PendingLoadTests.test_aStrangersRotatedSegmentIsHeldJustAsItsTailIs` and
+`test_thisDevicesOwnInnerSealsSettleVerifiedInAWalkedSegment`. Only a container that
 itself verified may be keyed on, since the stored digest is the one a tamperer
 would leave alone.
 
@@ -828,11 +876,15 @@ Failure modes:
 
 9. **A production `Document.load` names an actor, never a device string.** `Document.load(url:actor:session:presenter:)` is the production door; the `device: String` overloads are `internal` and test-only. A literal names no key, so `OpLogStore.append` takes the plain unchained path and the op is signed by nobody — which is exactly what happened to everything Claude wrote through MCP (`"mcp"`), both automations of the writer's hand (`"wiki-rename"`, `"find-replace"`) and the task rebalance (`"rebalance"`) under P1. `TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad` is the census; `test_theDocumentLoadActorCensusFiresOnAPlantedOffender` is its control. CLAUDE.md tripwire 38.
 
-10. **Every trust closure is built from a `TrustTable`.** The walk takes a `TrustVerdict`; the Bool `trusted:` overload is P1's shape and can only say *mine* or *nobody*, and the middle of that range is the whole of P2a — an admitted device's sealed span applied as this device's own, or a stranger's applied as unsigned history instead of HELD. Both failures are silent: the words land in the manuscript and nothing goes red. Three keyless sites survive, each allow-listed by file AND spelling in `TripwireGrepTests.trustClosureAllowedSpellings` — two `trusted: { _ in false }` in `OpLogStore.swift` (the keyless reader `ProjectIntegrity.check` passes no table; the fallback walk of an unsettled segment's inner seals) and `trusted: { chain.trust($0) == .mine }` in `JSONLAppendStore.swift` (the chained write, which must not widen past this device's own hand). `ChainPolicy.trustedFingerprints` is gone. Census: `TripwireGrepTests.test_everyTrustClosureIsBuiltFromTheTrustTable` + `test_theAdmissionCensusesFireOnPlantedOffenders`; phone twin `TripwirePhoneGrepTest.test_noTrustDecisionOrRegistryWriteOnThePhone`. CLAUDE.md tripwire 39.
+10. **Every trust closure is built from a `TrustTable`.** The walk takes a `TrustVerdict`; the Bool `trusted:` overload is P1's shape and can only say *mine* or *nobody*, and the middle of that range is the whole of P2a — an admitted device's sealed span applied as this device's own, or a stranger's applied as unsigned history instead of HELD. Both failures are silent: the words land in the manuscript and nothing goes red. Three keyless sites survive, each allow-listed by file AND spelling in `TripwireGrepTests.trustClosureAllowedSpellings` — two `trusted: { _ in false }` in `OpLogStore.swift`, both of them the *no table was given* arm (the keyless reader `ProjectIntegrity.check` passes none; and the same arm of an unsettled segment's fallback walk, which since P2b Task 10 goes through the table whenever there IS one) and `trusted: { chain.trust($0) == .mine }` in `JSONLAppendStore.swift` (the chained write, which must not widen past this device's own hand). `ChainPolicy.trustedFingerprints` is gone. Census: `TripwireGrepTests.test_everyTrustClosureIsBuiltFromTheTrustTable` + `test_theAdmissionCensusesFireOnPlantedOffenders`; phone twin `TripwirePhoneGrepTest.test_noTrustDecisionOrRegistryWriteOnThePhone`. CLAUDE.md tripwire 39.
 
 11. **Registry records are written through `RegistryWriter` only.** Every record is signed, and a record written any other way is one no reader can vouch for — the reader's honest answer to it is *malformed*, which is a device silently un-admitted and its whole history left pending. One writer is what makes the signer check a door rather than call-site discipline, and one place spelling the three directory paths is what stops a second opinion about where a record lives. `RegistryWriter.swift`, `RegistryWriter+Restore.swift` and `RegistryReader.swift` are the allow-list; everything else asks `RegistryWriter.directoryURL`, which is a read. Census: `TripwireGrepTests.test_registryRecordsAreWrittenThroughRegistryWriterOnly` + the same planted-offender control; phone twin as above. CLAUDE.md tripwire 40.
 
 12. **One canonicalization, and it takes BYTES.** `RegistryCanonical.canonicalBytes(ofJSON:)` is the only place that decides what a registry record's signature was made over: parse the JSON object, remove `"sig"` by name, re-serialize with `.sortedKeys` and `.withoutEscapingSlashes`, SHA-256 the result. The writer canonicalizes the record it just encoded; the reader canonicalizes the FILE it just read, never a re-encode of what it decoded — because `JSONDecoder` drops a member this build has no property for, and hashing this build's vocabulary of a record written by a later one refuses an honest record. That failure is permanent and silent in the worst direction: the first device to upgrade un-admits itself everywhere an older copy reads the folder. `RegistryWriter.swift`, `RegistryWriter+Restore.swift`, `RegistryReader.swift` and `RegistryRecord.swift` may not name `JSONEncoder(`, `JSONSerialization` or `SHA256` at all — they ask. Census: `RegistryCanonicalCensusTests` (in MaughamCore's own package tests) with its converse and its planted offender. The escaping choice is frozen: a slash is written as itself, on both sides of the write.
+
+13. **The registry's writers are three files.** Tripwire 11 says every record goes through `RegistryWriter`; this is the other half, and it is the half that matters for admission. The authority rules do not live inside `write` — *only the root that admitted them may revoke them* is `RegistryAdmission`'s, *a device signs its own record* is `RegistryPresence`'s — so a call from anywhere else reaches the signing without reaching the rule, and what it produces is a perfectly valid record nobody was entitled to write. `RegistryPresence.swift`, `RegistryAdmission.swift` and `RegistryCache.swift` (`restore` alone) are the callers; **the phone has none**, because admission is a Mac act and a phone that could sign a person record could admit itself. Census: `TripwireGrepTests.test_theRegistrysWritersAreThreeFiles` + `test_theRegistryWriterAndAvailabilityCensusesFireOnPlantedOffenders`; phone twin `TripwirePhoneGrepTest.test_thePhoneWritesNoRegistryRecord` + its own planted offender. (P2b Task 10.)
+
+14. **No not-yet flag is left standing in production.** P2a drew several controls it could not yet wire and gated each on a constant — `admitIsAvailable` was the pattern. P2b wired them, and a gate that is now a constant `true` feeding a `.disabled(!…)` is worse than no gate: it draws as conditionally live, cannot be anything but live, and the next writer of the file has to prove it is dead before touching it. A `static let|var <name>IsAvailable = true|false` declaration is the shape; a system API's `isAvailable` READ (`SecureEnclave.isAvailable`) is a fact about the machine and passes. Census: `TripwireGrepTests.test_noAvailabilityFlagIsLeftStandingInProduction` with the same planted-offender control. (P2b Task 10.)
 
 
 - **Cross-surface contracts:** if you touch op-log/inbox filenames, ids, formats, or Fountain rendering, you may be in shared phone↔Mac territory — the reach-around tripwires will tell you. Registry: `docs/superpowers/notes/cross-surface-contracts.md`.

@@ -41,7 +41,7 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
         /// Another root that has since named this device (B1). Undated.
         case anotherClaimant
         /// A record this device remembered and the folder had lost, put back
-        /// from the memory. **Not derived yet** — see `TrustEvents.derive`.
+        /// from the memory — dated from `RegistryCache.restores` (P2b Task 10).
         case recordRestored
     }
 
@@ -113,13 +113,13 @@ public enum TrustEvents {
     ///   `labelledAt` against the record's `admittedAt` — and the hook is here:
     ///   when that type lands, this is the one place that has to change, and
     ///   the sentence it needs is already written.
-    /// - `.recordRestored` has nothing on disk to read. `RegistryCache.reconcile`
-    ///   REPORTS its restorations to whoever called it and persists none of
-    ///   them, so a pure derivation has no dated list to draw from, and dating
-    ///   one at read time would stamp a restore with the moment History was
-    ///   opened. What it wants is a small dated list in the cache, which is not
-    ///   this task's to add. Until then the kind exists, its sentence is
-    ///   pinned, and Integrity is where a restoration is shown.
+    /// - `.recordRestored` is dated from `RegistryCache.restores(for:)`, the
+    ///   bounded list `reconcile` writes as it puts records back (P2b Task 10).
+    ///   Reading it here rather than re-deriving it is the whole point: a
+    ///   restoration is not visible in the folder afterwards — the file is back,
+    ///   and looks exactly as it did before somebody deleted it — so this is the
+    ///   only place the fact survives, and dating it at read time would stamp a
+    ///   week-old deletion with the moment History was opened.
     nonisolated public static func derive(
         registry: Registry, cache: RegistryCache, mine: LocalIdentities, for projectURL: URL
     ) -> [TrustEvent] {
@@ -183,6 +183,22 @@ public enum TrustEvents {
                 date: nil, kind: .anotherClaimant, subject: claimant,
                 label: registry.person(claimant)?.label,
                 ownName: registry.person(claimant)?.ownName))
+        }
+
+        // Every restoration this device has made here, each dated by the day it
+        // made it. A record that was deleted and put back TWICE is two events,
+        // because it was two deletions.
+        for restore in cache.restores(for: projectURL) {
+            let fingerprint = restore.ref.fingerprint
+            events.append(TrustEvent(
+                date: restore.restoredAt, kind: .recordRestored, subject: fingerprint,
+                // A restored DEVICE record is named by the device, a person's
+                // by the person; either may be absent from a registry read
+                // later than the restore, and an unnamed subject draws by code.
+                label: registry.person(fingerprint)?.label
+                    ?? registry.devices.first { $0.device == fingerprint }?.name,
+                ownName: registry.person(fingerprint)?.ownName,
+                isMine: myKeys.contains(fingerprint)))
         }
 
         return sorted(events)

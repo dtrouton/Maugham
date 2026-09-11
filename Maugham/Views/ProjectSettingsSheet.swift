@@ -402,6 +402,10 @@ struct ProjectSettingsSheet: View {
             do {
                 let resolved = try TrustResolution.resolveVerified(
                     projectURL: url, identities: mine)
+                // Read AFTER the resolve, because the resolve is what restores:
+                // a record this open put back must be marked on the row this
+                // open draws, not on the next one.
+                let restores = RegistryCache.shared.restores(for: url)
                 return PeopleAndDevicesModel.make(
                     registry: resolved.registry, table: resolved.table,
                     remembered: remembered,
@@ -409,6 +413,7 @@ struct ProjectSettingsSheet: View {
                         pending: pending, registry: resolved.registry,
                         memory: remembered, myRoot: resolved.table.myRoot),
                     claimants: claimants,
+                    restores: restores,
                     standing: DeviceStanding.resolve(
                         registry: resolved.registry, cache: .shared,
                         mine: mine, for: url),

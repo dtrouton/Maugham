@@ -56,26 +56,6 @@ public enum TrustVerdict: Equatable, Hashable, Sendable {
 /// argument, which is what lets every arm below be pinned as a value.
 public struct TrustTable: Equatable, Sendable {
 
-    /// Which of `resolve`'s four arms answered `myRoot`.
-    ///
-    /// The caller needs it for one decision and it is B1's: **only an
-    /// `.admitted` root is ever JOINED**. A Mac that is its own root has no
-    /// chain of somebody else's to be on, so joining itself would have every
-    /// surface that reads the join say *this Mac joined its own chain* — and,
-    /// since `RegistryCache.join` is write-once, would also mean the first
-    /// foreign root to name this device is filed as a claimant of a join that
-    /// was never anybody's.
-    public enum RootSource: Equatable, Sendable {
-        /// Arm 1: the root the caller remembers joining. Outranks everything.
-        case joined
-        /// Arm 2: a self-signed root record for one of this device's own keys.
-        case ownRecord
-        /// Arm 3: a root whose chain names one of this device's keys.
-        case admitted
-        /// Arm 4: no root at all (B3).
-        case none
-    }
-
     /// The root whose chain this device judges by, or `nil` — decision B3's
     /// *no chain*, in which every foreign key answers `.noChain`.
     ///
@@ -83,24 +63,14 @@ public struct TrustTable: Equatable, Sendable {
     /// stays) and hands it back on the next resolve.
     public let myRoot: String?
 
-    /// Where `myRoot` came from — **diagnostic**, not a decision.
-    ///
-    /// Nothing in production reads it yet; P2b's People & Devices pane is what
-    /// wants it, and a surface saying *this Mac joined a chain* needs to know
-    /// which arm answered. What the JOIN itself asks is `ownRootRecord` below,
-    /// which is a different question: `rootSource` says which arm WON, and it
-    /// answers `.joined` for a device that had both a join and a root of its
-    /// own — the exact case B1 turns on.
-    public let rootSource: RootSource
-
     /// This device's OWN self-signed root record, if it has one — whatever
     /// `myRoot` ended up being.
     ///
-    /// B1 has a half that `rootSource` cannot state on its own: **a device with
+    /// B1 has a half that `myRoot` cannot state on its own: **a device with
     /// its own root record is on its own root, and never switches.** A device
     /// that answers this non-nil must therefore never JOIN anybody, however
-    /// many other roots name it — each of those is a claimant. `rootSource`
-    /// says which arm won and would answer `.joined` for a device that had
+    /// many other roots name it — each of those is a claimant. `myRoot` is the
+    /// root that WON and would name the remembered join for a device that had
     /// both, so the join decision asks this instead.
     public let ownRootRecord: String?
 
@@ -195,11 +165,6 @@ public struct TrustTable: Equatable, Sendable {
         }.map(\.person)
 
         let myRoot: String? = joinedRoot ?? ownRecord ?? admittingRoots.first
-        let rootSource: RootSource =
-            joinedRoot != nil ? .joined
-            : ownRecord != nil ? .ownRecord
-            : admittingRoots.first != nil ? .admitted
-            : .none
 
         var deviceByActorKey: [String: String] = [:]
         for device in registry.devices.sorted(by: { $0.device < $1.device }) {
@@ -261,7 +226,7 @@ public struct TrustTable: Equatable, Sendable {
         }
 
         return TrustTable(
-            myRoot: myRoot, rootSource: rootSource, ownRootRecord: ownRecord,
+            myRoot: myRoot, ownRootRecord: ownRecord,
             admittingRoots: admittingRoots, adoptedRoots: adoptedRoots,
             mine: myKeys, deviceByActorKey: deviceByActorKey,
             personByFingerprint: personByFingerprint,

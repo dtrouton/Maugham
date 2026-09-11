@@ -87,6 +87,7 @@ final class PeopleAndDevicesModelTests: XCTestCase {
         remembered: [String: AdmissionMemory.Label] = [:],
         pending: [String: Int] = [:],
         claimants: [String] = [],
+        restores: [RestoredRecord] = [],
         table overrideTable: TrustTable? = nil
     ) -> PeopleAndDevicesModel {
         let table = overrideTable ?? table(registry)
@@ -100,7 +101,48 @@ final class PeopleAndDevicesModelTests: XCTestCase {
                 pending: pending, registry: registry,
                 memory: remembered, myRoot: table.myRoot),
             claimants: claimants,
+            restores: restores,
             standing: standing(), me: mac.fingerprint)
+    }
+
+    // MARK: - A record somebody deleted is marked (P2b Task 10)
+
+    /// **The row says the record was put back.** A restoration leaves nothing
+    /// in the folder afterwards — the file is back, and looks exactly as it did
+    /// before somebody deleted it — so this mark is the only thing on this
+    /// screen that says the book's chain was interfered with. It reads the SAME
+    /// dated list History dates its own event from.
+    func test_aRestoredPersonRecordIsMarkedOnItsRow() throws {
+        let when = Date(timeIntervalSince1970: 900)
+        let model = model(registry(), restores: [
+            RestoredRecord(
+                ref: RecordRef(directory: .people, fingerprint: phone.fingerprint),
+                restoredAt: when)
+        ])
+
+        let row = try XCTUnwrap(model.people.first { $0.fingerprint == self.phone.fingerprint })
+        XCTAssertEqual(row.restoredAt, when)
+        XCTAssertTrue(row.detail.contains("put back"),
+                      "and the row says so: \(row.detail)")
+
+        let untouched = try XCTUnwrap(model.people.first { $0.fingerprint == self.mac.fingerprint })
+        XCTAssertNil(untouched.restoredAt,
+                     "a record nobody deleted carries no mark")
+        XCTAssertFalse(untouched.detail.contains("put back"))
+    }
+
+    /// The newest restoration is the one a ROW shows: a row is a state, and a
+    /// record put back twice is one record with a most-recent day. History is
+    /// where both events are.
+    func test_aRecordPutBackTwiceShowsTheNewerDay() throws {
+        let ref = RecordRef(directory: .people, fingerprint: phone.fingerprint)
+        let model = model(registry(), restores: [
+            RestoredRecord(ref: ref, restoredAt: Date(timeIntervalSince1970: 900)),
+            RestoredRecord(ref: ref, restoredAt: Date(timeIntervalSince1970: 1_900)),
+        ])
+
+        let row = try XCTUnwrap(model.people.first { $0.fingerprint == self.phone.fingerprint })
+        XCTAssertEqual(row.restoredAt, Date(timeIntervalSince1970: 1_900))
     }
 
     // MARK: - Pending requests come first

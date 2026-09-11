@@ -549,9 +549,16 @@ public enum OpLogChain {
     /// the other says nobody is. Keyed the way `Line.State.pending` is keyed:
     /// on the device record's fingerprint, with a key no record names standing
     /// for itself.
+    ///
+    /// **OP lines only.** A seal is held back with the span it closes, and it
+    /// is counted nowhere: every reader of this number puts a NOUN after it —
+    /// *3 captures waiting*, *2 notes from this iPhone* — and a seal is neither
+    /// a capture nor a note. Two ops under one seal read *3* before P2b's final
+    /// wave, which is a pane telling the writer they have something they have
+    /// not got (Task 6's review, ruling a).
     nonisolated public static func pendingByDevice(of lines: [Line]) -> [String: Int] {
         var counts: [String: Int] = [:]
-        for line in lines {
+        for line in lines where line.kind == .op {
             guard let device = line.state.pendingDevice else { continue }
             counts[device, default: 0] += 1
         }

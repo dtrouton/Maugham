@@ -765,4 +765,68 @@ final class TripwirePhoneGrepTest: XCTestCase {
         XCTAssertTrue(offenders.contains(where: { $0.contains("let digest") }))
         XCTAssertFalse(offenders.contains(where: { $0.contains("let good") }))
     }
+
+    // MARK: - The registry's writers are a census — the phone twin
+    //         (P2b Task 10)
+
+    /// The four verbs that put bytes into the registry folder. The Mac's twin
+    /// (`TripwireGrepTests.registryWriterVerbs`) allow-lists three Core files;
+    /// **the phone allow-lists none**, because the phone writes no registry
+    /// record at all. Admission is a Mac act at a Mac surface (spec §4.11), and
+    /// a phone that could sign a person record could admit itself.
+    private let registryWriterVerbs = [
+        "RegistryWriter.write(", "RegistryWriter.writeUnchecked(",
+        "RegistryWriter.restore(", "RegistryWriter.resign(",
+    ]
+
+    func test_thePhoneWritesNoRegistryRecord() throws {
+        let here = URL(fileURLWithPath: #filePath)
+        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
+        let sourceDir = repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)
+
+        let offenders = try grepSwiftDir(
+            in: sourceDir,
+            patterns: registryWriterVerbs,
+            excludeLine: admissionExcludeLine,
+            extraOffender: { _ in false })
+
+        XCTAssertTrue(offenders.isEmpty,
+            "A phone source writes a registry record. The phone shows its "
+            + "standing and offers nothing to press (spec §4.11): a phone that "
+            + "could sign a person record could admit itself to a book the "
+            + "writer never let it into. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    func test_theRegistryWriterPhoneCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-writer-selfcheck-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may name RegistryWriter.write( and RegistryWriter.resign(.
+        try RegistryWriter.write(record, signedBy: identity, in: projectURL)
+        try RegistryWriter.writeUnchecked(record, signedBy: identity, in: projectURL)
+        _ = try RegistryWriter.restore(rawBytes: bytes, to: .people, fingerprint: fp)
+        try RegistryWriter.resign(file, signedBy: identity, in: projectURL)
+        let read = RegistryWriter.directoryURL(.people, in: projectURL)
+        """.write(to: tmp.appendingPathComponent("PhoneAdmitsItself.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwiftDir(
+            in: tmp,
+            patterns: registryWriterVerbs,
+            excludeLine: admissionExcludeLine,
+            extraOffender: { _ in false })
+
+        XCTAssertEqual(offenders.count, 4,
+            "Self-check: all four write verbs should be caught, and neither the "
+            + "comment nor the `directoryURL` read. Caught:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertFalse(offenders.contains(where: { $0.contains("let read") }),
+            "reading where a record lives is not writing one")
+    }
 }

@@ -42,10 +42,19 @@ final class RegistryCanonicalCensusTests: XCTestCase {
     /// A registry or trust source file, by name. The registry's own files are
     /// `Registry*`, the trust layer's are `Trust*`, and both are places somebody
     /// would plausibly reach for a hash.
+    ///
+    /// **`AdmissionMemory.swift` is in the population by name** (P2b Task 10,
+    /// from Task 3's carry). It matches neither prefix and is the one other
+    /// device-local memory in this layer: it persists the writer's decision
+    /// about who a device is, which is what `RegistryPresence.admitRemembered`
+    /// writes a signed person record FROM. A hash rolled there would be an
+    /// opinion about a record's identity formed one step before the record, in
+    /// the file the census was not looking at.
     private static func isRegistryOrTrustSource(_ url: URL) -> Bool {
         guard url.pathExtension == "swift" else { return false }
         let name = url.lastPathComponent
         return name.hasPrefix("Registry") || name.hasPrefix("Trust")
+            || name == "AdmissionMemory.swift"
     }
 
     private static func swiftFiles(under root: URL) -> [URL] {
@@ -65,9 +74,14 @@ final class RegistryCanonicalCensusTests: XCTestCase {
     /// bytes, not a record — so it is let past `JSONEncoder(`/`JSONDecoder(`
     /// alone, and would still be caught reaching for `SHA256` or hand-rolling a
     /// canonical form.
+    ///
+    /// `AdmissionMemory.swift` is let past the same one spelling for the same
+    /// reason: its `Stored` blob is a memory of the writer's decisions, not a
+    /// record, and it would still be caught reaching for `SHA256`.
     private static let allowedSpellings: [String: Set<String>] = [
         "RegistryCanonical.swift": ["JSONEncoder(", "JSONSerialization", "SHA256"],
         "RegistryCache.swift": ["JSONEncoder("],
+        "AdmissionMemory.swift": ["JSONEncoder("],
     ]
 
     func test_onlyRegistryCanonicalDecidesWhatWasSigned() throws {

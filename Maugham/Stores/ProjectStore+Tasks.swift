@@ -241,6 +241,19 @@ extension ProjectStore {
         // closed-document tasks with nothing recorded anywhere. Keyless is P1's
         // behaviour exactly: this device's own seals verify and everything else
         // is unsigned history.
+        //
+        // **It stays on the main actor, and that is a decision** (P2b Task 10).
+        // A resolve is a directory read plus a P256 verify per registry record,
+        // and `TrustResolution`'s own note asks callers to run it off-main.
+        // This one cannot be: the method is a synchronous `@MainActor`
+        // accessor that every pane calls for a value, so moving the resolve
+        // off-main means making the method `async`, and an `async` accessor
+        // here is a redraw that arrives after the pane has already drawn —
+        // the very shape tripwire 3 is about. The walk it heads is already a
+        // main-actor synchronous disk read per closed document (see the note
+        // above), so the resolve is a small fraction of a cost that is
+        // deliberate and cached: the aggregation key folds every closed doc's
+        // op-log mtime, so nothing here runs again until something moved.
         let trust = (try? TrustResolution.resolve(projectURL: url, identities: .current))
             ?? TrustResolution.keyless(mine: .current)
         for item in Self.collectDocuments(in: manifest.structure) {

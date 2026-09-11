@@ -715,7 +715,26 @@ public final class OpLogStore {
                 adoptedHead: nil, verifiedSegmentDigest: toRemember)
         }
 
-        let read = JSONLAppendStore<Op>.verifiedParse(
+        // **The fallback walk judges by the TABLE too** (P2b Task 10).
+        //
+        // A segment that did not settle whole is walked line by line, and until
+        // now that walk was keyless — every seal inside it answered `.noChain`
+        // and its span was applied as unsigned history. That made a device's
+        // ROTATED history a different thing from its live tail: a stranger's
+        // `.jsonl` is held and the same stranger's `.mzseg`, once its container
+        // signature failed to settle, was applied unread. Rotation is not an
+        // admission, so the two must agree — and this device's own inner seals,
+        // which the keyless walk could not recognise either, settle `verified`
+        // rather than being filed under somebody else's unsigned history.
+        //
+        // With no table there is still nothing to ask, and the keyless walk is
+        // P1's behaviour exactly (ADR 0032 §6).
+        let read = trust.map { table in
+            JSONLAppendStore<Op>.verifiedParse(
+                bytes: jsonl, trust: { table.verdict(forSealKey: $0) },
+                rememberedHead: nil,
+                dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
+        } ?? JSONLAppendStore<Op>.verifiedParse(
             bytes: jsonl, trusted: { _ in false }, rememberedHead: nil,
             dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
         if decoded.isVerified {
