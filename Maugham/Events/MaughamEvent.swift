@@ -150,6 +150,32 @@ enum MaughamEvent {
                        "round": round.number])
     }
 
+    /// Whether an admission request is the WRITER asking (History's *Admit…*)
+    /// rather than the book reporting a stranger it has just noticed.
+    static let admissionForcedKey = "maugham.admission.forced"
+
+    /// **The one spelling of the admission-requested post** (signed op log
+    /// P2b). Three callers: a document registering with held lines, a
+    /// stranger's file arriving through the presenter, and History's *Admit…*.
+    ///
+    /// `forced` is the writer's own ask, which reopens a sheet dismissed with
+    /// *Not now* earlier in this window; the other two leave that dismissal
+    /// standing (spec §4.1: *Not now* dismisses until the next open).
+    /// `projectURL` is the project ROOT, matching what the `.onProjectEvent`
+    /// receivers subscribe with.
+    static func postAdmissionRequested(projectURL: URL, forced: Bool = false) {
+        post(.maughamAdmissionRequested, to: .project(for: projectURL),
+             payload: [admissionForcedKey: forced])
+    }
+
+    /// **The one spelling of the admission-settled post** (signed op log P2b) —
+    /// a person record was written, so every surface reporting on trust in this
+    /// book re-derives. Posted by `DocumentStore.admit` and by the silent
+    /// admission at open.
+    static func postAdmissionSettled(projectURL: URL) {
+        post(.maughamAdmissionSettled, to: .project(for: projectURL))
+    }
+
     /// Ask the key window's right column to show `segment`.
     ///
     /// **The one spelling of this post**, because there are now two kinds of

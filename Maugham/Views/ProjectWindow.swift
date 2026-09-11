@@ -452,6 +452,16 @@ struct ProjectWindow: View {
             isNoChromeOn: isNoChromeOn,
             onSelectPersona: Self.postPersona))
         .background(WindowAccessor(window: $window))
+        // Signed op log P2b: a device asking to be let into this book. Mounted
+        // on the whole window rather than inside an arm, because the question
+        // is the PROJECT's and arrives whichever persona the writer is in and
+        // whether or not the load has finished — the modifier's own guards
+        // decide when there is anything to ask.
+        .modifier(AdmissionModifier(
+            projectURL: url,
+            projectTitle: store?.manifest.title ?? url.lastPathComponent,
+            documentStore: documentStore,
+            window: $window))
         .task(id: url) { await load() }
         .onDisappear {
             mcpRegistry.unregister(url: url)

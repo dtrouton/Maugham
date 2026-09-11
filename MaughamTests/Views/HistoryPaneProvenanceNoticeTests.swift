@@ -305,10 +305,10 @@ final class HistoryPaneChainNoticeTests: XCTestCase {
 
     // MARK: - The one History line that carries a control
 
-    /// Drawn and DISABLED, never pressed (tripwire 33). The row is drawn
-    /// exactly when the sentence exists; the button says when it will work.
-    /// P2b flips `admitIsAvailable` and this test moves with it.
-    func test_theAdmitControlIsDrawnAndDisabledUntilAdmissionExists() {
+    /// Drawn and now LIVE, still never pressed (tripwire 33). The row is drawn
+    /// exactly when the sentence exists; P2a said when the button would work
+    /// and P2b is that, so this test moved with the constant.
+    func test_theAdmitControlIsDrawnAndLiveOnceAdmissionExists() {
         let provenance = OpLogProvenance(files: [
             FileProvenance(name: "doc-a.phone.jsonl", pending: 14,
                            pendingByDevice: [phone: 14])
@@ -317,12 +317,12 @@ final class HistoryPaneChainNoticeTests: XCTestCase {
             HistoryPane.pendingNotice(provenance: provenance, names: [phone: "iPhone"]),
             "the sentence is what draws the row the control sits in")
         XCTAssertEqual(HistoryPane.admitTitle, "Admit…")
-        XCTAssertFalse(
+        XCTAssertTrue(
             HistoryPane.admitIsAvailable,
-            "P2a draws the control; P2b wires it to the admission sheet")
-        XCTAssertEqual(
-            HistoryPane.admitUnavailableHelp,
-            "Admission arrives with the next update")
+            "P2b wired it: pressing it asks the window for the admission sheet")
+        XCTAssertFalse(
+            HistoryPane.admitHelp.isEmpty,
+            "and it says what admitting will do, for the hover and for VoiceOver")
     }
 
     // MARK: - joinedChainNotice

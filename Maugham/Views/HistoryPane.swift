@@ -379,7 +379,13 @@ struct HistoryPane: View {
     /// no test presses a mounted control and waits for its effect).
     static let admitTitle = "Admit…"
     static let admitUnavailableHelp = "Admission arrives with the next update"
-    static let admitIsAvailable = false
+    /// P2b wired it: pressing it asks this window to put the admission sheet up
+    /// (`MaughamEvent.postAdmissionRequested(forced:)`), which is the writer's
+    /// own ask and therefore reopens a sheet they dismissed earlier in this
+    /// session. `admitUnavailableHelp` stays for the disabled shape's test and
+    /// for the day another build has to draw it dead again.
+    static let admitIsAvailable = true
+    static let admitHelp = "Say who this device belongs to, and apply what it wrote"
 
     /// What is HELD — history written by a device this book's chain says
     /// nothing about, kept out of the draft until the writer admits it (spec
@@ -591,18 +597,26 @@ struct HistoryPane: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                     Spacer(minLength: 4)
-                    // The one History line with a control. It does nothing in
-                    // P2a — the admission sheet is P2b — so it is drawn
-                    // disabled and says when it will work, rather than being
-                    // left out and leaving the writer with a count they cannot
-                    // answer.
-                    Button(Self.admitTitle) {}
+                    // The one History line with a control. It asks the WINDOW
+                    // to put the sheet up rather than presenting one itself: a
+                    // pane is a column, the sheet belongs to the project
+                    // window, and the same request arrives from two other
+                    // places (a load that held lines, a stranger's file
+                    // syncing in) that this pane knows nothing about.
+                    //
+                    // `forced`, because this is the writer asking — a *Not
+                    // now* earlier in this session must not silence their own
+                    // press.
+                    Button(Self.admitTitle) {
+                        MaughamEvent.postAdmissionRequested(
+                            projectURL: projectURL, forced: true)
+                    }
                         .controlSize(.small)
                         .buttonStyle(.bordered)
                         .disabled(!Self.admitIsAvailable)
-                        .help(Self.admitUnavailableHelp)
+                        .help(Self.admitHelp)
                         // .help is hover-only; the WHY must reach VoiceOver.
-                        .accessibilityHint(Text(Self.admitUnavailableHelp))
+                        .accessibilityHint(Text(Self.admitHelp))
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
@@ -733,6 +747,15 @@ struct HistoryPane: View {
         // this the standing notice went stale and its Retry re-attempted a
         // record that had already come back (the review's I2).
         .onProjectEvent(.maughamQuarantineRecordsChanged, url: projectURL, window: window) { _ in
+            Task { await reload() }
+        }
+        // A device was let in (signed op log P2b) — by this window's sheet, by
+        // a second window on the same book, or silently at open. Both halves of
+        // what this pane says about the chain have changed: the pending count
+        // is smaller or gone, and there is a new dated entry saying who joined.
+        // Without this the banner went on offering Admit… for a device that was
+        // already in.
+        .onProjectEvent(.maughamAdmissionSettled, url: projectURL, window: window) { _ in
             Task { await reload() }
         }
         .sheet(isPresented: $showingRestorePicker) {

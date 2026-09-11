@@ -77,7 +77,20 @@ extension Document {
             try await flushBurstNow()
         }
         // Reload the log file (OpLogStore.load dedupes by op_id and sorts).
-        let ops = try await opStore.load(docId: docId)
+        //
+        // Through `loadDiagnosed`, because what this document is MADE OF can
+        // change without a single new op arriving (signed op log P2b): a
+        // stranger's file syncing in adds lines that are HELD, which produce no
+        // op at all, so the echo guard below would return with `provenance`
+        // still saying what the open-time load found. Everything downstream of
+        // that — History's *N notes waiting*, the admission sheet's trigger —
+        // would then be describing a folder that has moved on. It costs
+        // nothing: `load` is `loadDiagnosed(...).ops`.
+        //
+        // Stamped BEFORE the echo guard, for the same reason.
+        let loaded = try await opStore.loadDiagnosed(docId: docId)
+        let ops = loaded.ops
+        self.provenance = loaded.provenance
 
         // Echo guard: every op we ourselves appended is already in
         // _opLogMirror. If the disk log has no ops we haven't seen, this
