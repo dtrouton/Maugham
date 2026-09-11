@@ -93,6 +93,80 @@ The scoped re-review of the wave (sonnet) returned **all findings addressed, no 
    decision is the writer's; both files merge and the pane reads what it read
    before.
 
+### P2 — people and admission (extends the smoke above, 2026-09-11)
+
+**Step 0 first, and it is not optional. Wipe the dev registries.** P2b changed
+the canonical form a record's signature is taken over, deliberately, while
+nothing had shipped — so every record a P2a dev build wrote reads as tampered
+with. Tripwire 11: delete and recreate.
+
+```
+# in each dev project you will smoke
+rm -rf "<project>/.maugham/people" "<project>/.maugham/devices"
+# and the dev variant's own memories, in its Application Support directory
+rm -f "<dev support folder>/registry-cache.json" "<dev support folder>/admission-memory.json"
+```
+
+11. **The root is written at open, and nothing is asked.** Launch the dev app →
+    open a real project → `.maugham/devices/` gains this Mac's record and
+    `.maugham/people/` gains its self-signed root record, both named for the
+    fingerprint they carry. No panel, no banner. Project Settings → **People &
+    Devices** lists you, with this Mac nested under you.
+12. **The phone arrives as a stranger.** Capture a note on the phone (or accept
+    an annotation there) → **allow iCloud a few minutes**, as step 7 warns →
+    the Inbox shows a banner, *N captures from iPhone are waiting for
+    admission*, with **Admit…** beside it, and History (⌘⌥H) says the same
+    thing about a document the phone wrote into. **The capture is not a row
+    yet** — a held span never becomes one — which is exactly what the banner is
+    there to say. Check the phone's own **Settings → This device**: its
+    four-character code, and this book listed as *Not yet admitted — the Mac
+    will ask*.
+13. **The panel.** Press Admit… (or open a chapter the phone wrote into and let
+    it come up on its own) → the panel names the phone, shows the same four
+    characters the phone's Settings shows, says how much is waiting, and
+    proposes a label. **Compare the codes.** Type your own name → **Admit**.
+    The captures appear in the Inbox, the phone's notes appear in the draft and
+    the Annotations pane, both counts fall to zero, and People & Devices shows
+    the phone nested under your name. The phone's Settings row, on a pull, now
+    reads *on <your Mac>'s chain since today*.
+14. **Then silently.** Open a SECOND project the phone has also written into →
+    no panel at all, and the phone's work is already in. That is decision B2,
+    and it is the whole point of the one question.
+15. **Not now really means not now.** In a third project, press *Not now* or
+    Escape → nothing is written and nothing is applied. Reopen the project →
+    it asks again. History's **Admit…** puts it up on demand, without waiting
+    for a reopen.
+16. **Revoke, and back.** People & Devices → Revoke on a person → confirm →
+    what they wrote BEFORE is still in the manuscript, and anything after is
+    held, with History carrying a dated *revoked* entry. Press **Re-admit** →
+    it comes back. (Note the honest limit: the two events read as one admission
+    afterwards.)
+17. **Retire, on a Mac you can afford to.** Only this Mac's own row offers it.
+    Confirm → History carries a standing banner saying what you write here now
+    stays here, and the row says so too. **There is no un-retire**, so do this
+    on a throwaway project.
+18. **The claim, on a copy.** Duplicate a project in the Finder, then delete
+    the COPY's `.maugham/people` root record so this Mac has no key in it —
+    or, better, copy a project from a second Mac — and open it. The question is
+    *Is this book yours?* Press **Claim** → this Mac writes its own root record
+    and a claim adopting the one it found, and everything that was held is in
+    the draft immediately, without a reopen. Press *Not mine* in another copy →
+    nothing is written, and the book reads exactly as it did.
+19. **Two Macs, if a second one is available.** Open the same shared project on
+    both, each having rooted itself → each shows the other in People & Devices
+    as a **claimant**, and each holds the other's work. Press **Merge: this is
+    also me** on the claimant row on Mac A → A now has B's history. B still
+    sees A as a claimant until the same button is pressed there. Press it →
+    both have both, and **neither Mac's root has changed** (each Settings still
+    shows itself as the book's own root; nobody's book became a copy).
+20. **The rotated-history change, if you have a book that shows it.** On a
+    project where a second device has rotated its files (a `.mzseg` under
+    `.maugham/ops/`), history that was applied before this update reads as
+    *waiting for admission* after it. That is the intended change — admit the
+    device and all of it comes back. It is worth seeing once so it is never
+    diagnosed as a loss.
+
+
 ## Decisions owed
 
 0. **An unreadable translator file reads as absent, and P1b sharpened what that

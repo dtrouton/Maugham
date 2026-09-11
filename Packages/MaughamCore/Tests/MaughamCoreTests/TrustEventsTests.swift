@@ -379,7 +379,7 @@ final class TrustEventsTests: XCTestCase {
 
     // MARK: - The carry
 
-/// **A restoration is a dated event** (P2b Task 10). `RegistryCache.reconcile`
+    /// **A restoration is a dated event** (P2b Task 10). `RegistryCache.reconcile`
     /// writes what it put back into a small bounded list, and this is the one
     /// place that reads it: a restoration leaves no trace in the folder — the
     /// file is back and looks untouched — so the memory that noticed it is the

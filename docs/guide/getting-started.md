@@ -214,3 +214,33 @@ Your own words are never at risk from any of this. Maugham will always open a
 document; the worst it will do is decline to apply something it can't account
 for, and tell you it did.
 
+### When another machine writes into your book
+
+Your iPhone and a second Mac are not "something that isn't Maugham" — they're
+you, and Maugham asks you to say so once. The first time a machine writes into a
+book that doesn't know it, a small panel asks who it is; you give it a name, and
+from then on it goes in silently in every book. The full story is in
+[People & Devices](people-and-devices.md). What matters for reading the History
+pane is that it shows this in **two shapes, and they mean different things**:
+
+- **Banners at the top are facts that hold right now.** *"14 notes from iPhone
+  are waiting for admission"*, beside an **Admit…** button — those notes are not
+  in your draft, they have not been deleted, and admitting the phone brings them
+  in. *"This Mac is on Denver's chain"* — where this machine stands in the book,
+  absent in the ordinary one-Mac project.
+- **Dated entries, under a **Project** heading above the timeline, are things
+  that happened.** Admitted on 3 June. Revoked on 9 September. This book claimed.
+  A record put back. The timeline below is one document's; this section is the
+  whole book's, so it doesn't change as you move between chapters.
+
+"Waiting for admission" always means the same thing: work from a machine you
+haven't named yet, held in its own file, untouched, until you do. It is never a
+sign that anything was lost.
+
+One banner has no button and is worth recognising if you meet it: if you have
+**retired** this Mac (see [People & Devices](people-and-devices.md)), History
+says so, and says that what you write here now stays here. Retiring is something
+you do deliberately to a machine you're finished with, so it shouldn't be a
+surprise — but it's the one state where this Mac and every other one disagree
+about your work, and Maugham won't leave that unsaid.
+

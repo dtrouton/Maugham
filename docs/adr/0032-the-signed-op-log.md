@@ -304,6 +304,30 @@ state and never by position. The chained WRITE is unchanged and judges by
 `.mine` alone (ADR 0012 gives the file one writer, which is what licenses its
 truncating rewrite), so it cannot produce one.
 
+**Amended 2026-09-11 (P2b): a device's ROTATED history is judged by the same
+table as its tail, and that is a P1 behaviour change.** `OpLogStore.classifySegment`
+had one arm P2a never revisited. When a sealed `.mzseg` segment's own container
+signature does not settle — an unsettled segment — the reader falls back to
+walking the lines inside it, and that fallback walk was **keyless**
+(`trusted: { _ in false }`), so every inner seal answered `.noChain` and the
+whole span applied as unsigned history. The consequence was that rotation, which
+is maintenance a device performs on its own files, silently admitted the device
+that performed it: a stranger's live `.jsonl` was held, and the same stranger's
+`.mzseg` was applied unread. The fallback now passes the same
+`TrustVerdict` closure `classifyTail` does, so a stranger's rotated history is
+held exactly as its tail is. With no table in hand the keyless walk stands,
+which is P1 exactly.
+
+This is a visible change to a book that already exists. A writer upgrading a
+project in which a second device had rotated will see history that was applied
+before the upgrade read as **pending** afterwards — nothing is deleted, nothing
+is quarantined, and admitting that device applies all of it on the next read.
+Held-line counts are also a truer number for the same reason: a seal line is
+held with the span it closes but is counted in no *N notes waiting* sentence,
+because a seal is neither a note nor a capture (`OpLogChain.pendingByDevice`
+counts op lines only; the line tallies still count the seal, and the two answer
+different questions).
+
 ### 7. What the writer is told
 
 Two sentences in the History pane, both pure statics, neither with a control
@@ -364,28 +388,29 @@ is recorded as a claimant and its spans read `.otherRoot`. Otherwise any Mac
 that can write the folder writes itself a root plus an admission of you and
 takes over a book you created.
 
-**What P2b adds.** Admission itself — the Admit… control is drawn and disabled
-in P2a — plus revocation with its op-id split (*after revocation* versus *may be
-late sync*), the claim-and-adopt path, the People & Devices pane, and the
-phone joining a chain rather than signing alone. A known hole is carried into
-it: a person record is keyed by its own fingerprint, so a verified root can
-overwrite another root's self-signed record with an admission naming itself. The
-fix belongs with the claim path — a re-root goes through a claim record, never
-by overwriting.
+**What P2b built, 2026-09-11.** The prediction was admission, revocation, the
+claim, People & Devices and the phone joining a chain. All five shipped, and
+the rest of this section is what they turned out to be. The hole P2a carried
+into P2b — a person record is keyed by its own fingerprint, so a verified root
+can overwrite another root's self-signed record with an admission naming itself
+— is closed by the **same-authority rule** below rather than by the claim path,
+because the fix belongs where the record changes hands and not where a re-root
+is asked for; the claim is the writer's way BACK, not the guard.
 
-**No release may carry P2a without P2b.** Until the admission sheet exists, a
-Mac that has rooted itself holds every phone op as pending with no way to admit
-it: `ensureRootIfEmpty` writes this Mac a root at the first open of every
-existing project, which closes B3's escape hatch for all of them, and the
-phone's P1b-signed spans then classify `.stranger` → `.pending` → held. Every
-phone annotation leaves the Annotations pane, every phone capture leaves the
-Inbox, and History says *N notes are waiting for admission* beside a button
-that is drawn disabled. Nothing is lost — no `.lines` record is written, no
-file is rewritten, and admission re-reads — but for the length of such a build
-the writer's own phone history is invisible with no recourse. This is a
-stronger reason than the compatibility one the plan gives (that the phone
-learns to read records in P2a), and it binds the release on the Mac's side
-alone.
+**P2 ships whole: the first tag that carries P2a carries P2b.** P2a alone is a
+build in which a Mac that has rooted itself holds every phone op as pending with
+no way to admit it — `ensureRootIfEmpty` writes this Mac a root at the first
+open of every existing project, which closes B3's escape hatch for all of them,
+and the phone's P1b-signed spans then classify `.stranger` → `.pending` → held.
+Every phone annotation leaves the Annotations pane, every phone capture leaves
+the Inbox, and History says *N notes are waiting for admission* beside a button
+drawn disabled. Nothing is lost — no `.lines` record is written, no file is
+rewritten, and admission re-reads — but for the length of such a build the
+writer's own phone history is invisible with no recourse. That is a stronger
+reason than the compatibility one the plan gives (that the phone learns to read
+records in P2a), and it binds the release on the Mac's side alone. The Mac and
+the phone still ship as a pair for the ordinary reason: the phone reads the
+records the Mac writes.
 
 **One thing had to be fixed before the first tag that carries P2a: the canonical
 digest was lossy. Fixed in P2b Task 1, 2026-09-10.** A record's signature was
@@ -425,6 +450,259 @@ key other than the one that signed the remembered copy is listed
 the folder's file is left where it is. Where the refused record is the one about
 THIS device, the displacing key is recorded as a claimant — B1's list is fed by
 the refusal rather than silenced by it.
+
+## Addendum — admission, the claim and the two shapes, 2026-09-11 (P2b)
+
+P2a built the registry and the verdicts. P2b builds the acts: the writer says
+who a device is, and can say so later that it may stop. Nothing below changes
+the wire format, and nothing below refuses to open a manuscript.
+
+### The records, and what a signature covers
+
+Three shapes, unchanged from P2a: `DeviceRecord` (a machine declaring its own
+name, kind and actor keys, signed by itself), `PersonRecord` (a root saying a
+fingerprint is somebody, with the writer's own label, signed by that root — and,
+for a root, signed by itself) and `ClaimRecord` (a root saying whose chains it
+has adopted, signed by that root). Read `RegistryRecord.swift`, not a list here.
+
+**The digest is lossless, and it is frozen.**
+`RegistryCanonical.canonicalBytes(ofJSON:)` takes the FILE's bytes: parse the
+JSON object, remove the `"sig"` member **by name**, re-serialize with
+`.sortedKeys` and `.withoutEscapingSlashes`; the digest is hex SHA-256 over
+those bytes. The writer canonicalizes what it is about to write and the reader
+canonicalizes what it just read, so a member this build has no property for is
+part of what was signed on both sides and an honest record from a later build
+still verifies. This was the release blocker, and it was fixed first for that
+reason: once a shipped build writes records, changing the canonicalization
+invalidates every record on disk. Re-signing goes through the same door —
+`RegistryCanonical.resigned(fileBytes:editing:signing:)`, which edits the FILE's
+object rather than this build's decoded copy, so a revocation or a retirement
+written by an older build does not quietly drop a newer build's field. The
+one caveat worth recording: `JSONSerialization` normalizes numbers, and every
+field of every record today is a string, an array of strings, a dictionary of
+strings or an ISO date string — whoever adds the first numeric field inherits
+that question.
+
+**A record changes hands only under the same key** (the same-authority rule,
+above). Its effect on B1 is the non-obvious half: refusing the displacing copy
+would also hide the claim it represents, so the displacing key is recorded as a
+claimant — heard *because* the record was refused.
+
+**`MalformedRecord.Reason.signerChanged(expected:found:)`** is what that refusal
+is listed as, beside P2a's reasons. Count the enum, not this sentence.
+
+### The cache, and what it remembers
+
+`RegistryCache` is this device's byte-faithful memory of the last verified
+registry. P2b adds three things to it:
+
+- **A dated restore list.** `reconcile` writes what it actually put back into
+  `Project.restores`, bounded at `RegistryCache.restoreLimit` (50) per project,
+  oldest dropped first. A restoration leaves no trace in the folder afterwards
+  — the file is back and looks exactly as it did — so this list is the only
+  thing that can say it happened, or when; dating it at read time would stamp a
+  week-old deletion with the moment a pane was opened. Two surfaces read the one
+  list: History's `.recordRestored` events and People & Devices' *put back
+  9 Sep* row mark. A record deleted twice is two events and one row mark,
+  because a timeline is what happened and a row is what holds.
+- **`joinedRoot` is write-once, and now carries `joinedAt`.** The stamp is
+  written in the same arm as the root and never moves; a claimant arriving moves
+  neither. A memory written before this field loads with its join intact and a
+  nil date, which is why every sentence about a join has a dateless form.
+- **It is lazy about the enclave.** The identity behind the cache is this
+  device's author fingerprint, and asking for it MINTS a key if there is not
+  one. Most projects have no registry, so the file is read on the first real
+  question and the identity is resolved only where the answer turns on it — a
+  project with no registry and no cache file resolves none at all.
+
+### The trust table
+
+Six verdicts — `.mine`, `.admitted(person:)`, `.stranger(device:)`,
+`.revoked(person:highestOpIdSeen:)`, `.retired(device:retiredAt:)`,
+`.otherRoot(root:)`, `.noChain`; count `TrustVerdict`'s cases rather than this
+sentence, which is why it does not give a number. The mapping from verdict to
+line state lives in one switch, `TrustVerdict.settling(sealKey:sealedAt:)`, so a
+seventh verdict is a compile error and never a silent *unsigned history*.
+
+**The root order is unchanged and is still four arms**: the root already joined
+(write-once); else this device's own self-signed root record; else a foreign
+root whose chain names one of this device's keys; else `nil`. **A device that
+holds its own root record never joins another** — a foreign root naming it is a
+claimant, and its spans read `.otherRoot`.
+
+**Adoption widens what a device verifies and moves nobody's root.**
+`TrustTable.adoptedRoots` is every other root whose chain my root has adopted,
+transitively, and `myChain` is the union of my root's chain with each adopted
+root's. A root I adopted is mine. Adoption is **symmetric and not reciprocal**:
+each Mac adopts the other by its own act, and until the other one does, this
+device is still a claimant over there. A claim is a ROOT's act — a claim whose
+`newRoot` is not a verified root here is listed malformed and adopts nobody,
+which is why the claim path writes the root record first.
+
+### Admission
+
+**One device, one sheet.** A stranger's first held line raises a window sheet
+(not app-modal — spec §4.1's "non-modal to the project window" means exactly
+that), asking the writer who this machine is. The sheet says the device's own
+name, its four-character code and what is waiting; the writer types a **label**,
+and the label is the AUTHOR'S — a person is what the writer calls a machine, not
+what the machine calls itself. A typed label matching one already in the book
+merges under that label's existing spelling rather than minting a second person
+by the same name. Escape is *Not now*, and the dismissal lasts until the next
+open; History's own **Admit…** outranks it, because that is the writer asking.
+
+**`AdmissionMemory` is device-local and has no project key.** What the writer
+decided a machine is called is a fact about their decision, not about a folder,
+so it is remembered once and applies everywhere. The label's own `labelledAt`
+moves only when the label actually changes.
+
+**Silent admission at open.** After the first sheet for a device, every later
+project this Mac opens admits that device automatically, under the remembered
+label and the device's own current name (decision B2). It runs only where this
+device is a root, reads the folder once however many devices it admits, and
+skips a device already admitted under another root — a silent open must not
+fail over somebody else's admission and must not take it over.
+
+**A malformed-only registry is not an empty book** — no root is written beside a
+tampered one — and **a record that is present and unreadable refuses** rather
+than being treated as absent (RULING-54). Admission would otherwise launder a
+permissions error or a half-downloaded iCloud file into a new decision.
+
+**The three acts of an admission, in order**: write the signed person record off
+the main actor and **throw** any refusal (a sheet that closed on a write that
+did not happen is a silence); invalidate trust everywhere at once — every open
+document's store and the capture stream's own resolution, because an admission
+that reached some readers and not others is a book where one key is trusted in
+the editor and a stranger in the Inbox; then re-read every open document, so
+what was held reaches the draft in front of the writer rather than at the next
+open.
+
+**Pending is op lines only.** Every sentence built on this number puts a noun
+after it, and a seal is neither a note nor a capture.
+
+### The two shapes History draws (Denver's ruling C)
+
+**A banner is a fact that holds now; a dated entry is something that happened.**
+P2a had only the first shape, so a person admitted in June and revoked in
+September read exactly like a person who was never here.
+
+The banners are the pending count with its Admit…, *This Mac is on <label>'s
+chain* (re-worded from P2a's *joined*, which is an event), and the retired-Mac
+notice. The entries are `TrustEvents.derive(registry:cache:mine:for:)` in
+MaughamCore — pure over a verified registry and a loaded cache, no clock and no
+folder read, which is what makes every arm assertable as a value and safe to
+call from a surface — drawn under one **Project** heading at the top of the
+pane and never interleaved into the document timeline, because trust is the
+book's and the rows below are one document's.
+
+`TrustEvent.Kind`'s cases are the kinds; count them there. What is worth
+recording here is what each is derived FROM, since none of them is stored: an
+admission from a person record's `admittedAt`, a revocation from `revokedAt`, a
+retirement from a device record's `retiredAt`, a claim and its adoptions from a
+claim record, the join from this device's own cache, a claimant from the cache's
+claimant list, and `.recordRestored` from the cache's dated restore list. A
+root's self-signed record is deliberately not drawn as an admission: *Denver
+admitted by Denver* at the foot of every book is an event in which nothing
+happened. Newest first, undated last. **No sentence carries a date** — the row
+draws one when there is one, and two kinds are honestly undated (a claimant, and
+a join from a memory written before the stamp existed).
+
+**The derivation is over records, so clearing a field takes its event with it.**
+Re-admitting a revoked person clears `revokedAt`, and the revoked entry goes
+with it — revoked-then-re-admitted reads as one admission rather than two dated
+events. Accepted for P2b; a durable event log is P3's.
+
+### Revocation, retirement, and the way back
+
+**Revocation is the root's.** Only the root that admitted somebody may revoke
+them, a root is claimed over rather than revoked, and a second revocation would
+move the line the first drew. The record gains `revokedAt`, `revokedBy` and
+`highestOpIdSeen` — the mark of what this Mac had already applied — and both
+verbs confirm first, with the consequence in the alert rather than the verb.
+
+**A revoked span is refused whole and filed in two halves.** The walk sees seals
+and chains, never opIds, so it refuses the span under one cause and
+`classifyTail`, which has the parse in hand, splits it against the mark: above
+it is *written after this device's access was withdrawn*, at or below it is *may
+be late sync, or may be backdated*, and a seal line goes with the strict half
+unless nothing else is there. **Nothing is applied either way** — the split is
+about the words the writer is owed, not about the refusal. The mark is computed
+from OPEN documents only, so a chapter nobody has opened can hold ops above it.
+
+**There is no Apply on the late-sync half, and its absence is deliberate.** A
+`.lines` record has no return path at all (`attemptReturn` refuses one on its
+first guard) and nothing for one to return TO — the ops are still in the live
+per-device log, which is what the verdict is refusing. What refuses them is the
+verdict, which quarantines the whole span at every load regardless of opId. So
+an Apply built on the existing path would be a control that looked like it did
+something and did nothing. Making it real needs a durable **per-span exception**
+threaded through the trust table — new persisted state and a new trust input —
+and that is **a P3 decision for Denver**, not a switch.
+
+**Re-admission by the root is the inverse of revocation.** Admitting a revoked
+person under my root clears `revokedAt`/`revokedBy`/`highestOpIdSeen` and
+preserves the original `admittedAt`, because any admission written by the
+admitting root IS that root saying the device may write. People & Devices draws
+**Re-admit** where the revoked row would otherwise carry a dead Revoke.
+
+**Retirement is the device's own word about itself**, signed by its own key, and
+true whether or not anybody admitted it. Peers quarantine what it seals at or
+after that moment, by date, so a span sealed before it stays verified. **A
+retired Mac still applies its own later writes locally** — `.mine` outranks
+retirement, and a table that answered otherwise would have the chained write's
+truncating rewrite set aside the file this device wrote — so the machine is
+TOLD: a standing banner in History and a mark on its own row in People &
+Devices, in one set of words shared with the phone. **There is no un-retire.** A
+device that retired can only come back as a new key.
+
+### The claim — a keyless Mac, and the two-roots exit
+
+**A Mac holding a book it has no key in is asked one question, once per project
+per launch**: *is this book yours?* It is asked only where all three conditions
+hold — this device has joined nobody and is nobody's root, the book HAS a root,
+and this Mac can actually write the registry folder. The last is a probe and not
+a promise, which is why the claim still throws and the sheet still carries a
+refusal; what it buys is not asking a question this Mac could not act on.
+
+**Claiming is two writes and the order is the contract**: this device's own
+self-signed root record FIRST, then the `ClaimRecord` naming the roots it
+adopts. A claim written alone is malformed and adopts nobody. **A claim adopts
+every root it found**, because the question is about the whole book and
+answering it by halves is not something the writer was offered.
+
+**Two roots leave mutual quarantine by adopting each other**, and it is the same
+call made on each Mac. Afterwards each answers `.admitted` for the other's
+devices, `adoptedRoots` holds the other on each side, and **`joinedRoot` is nil
+on both** — a merge widens whose history a device verifies and moves nobody's
+root. *Not mine* writes nothing and leaves B3 exactly as it was.
+
+**A Mac already on somebody else's chain cannot merge.** It has no root record
+of its own to sign a claim with, and a non-root signs no claim any reader takes,
+so the verb refuses.
+
+**`claimedAt` does not move when a later root is adopted**, so History dates a
+later adoption on the day the book was claimed. The alternative moves the
+*claimed this book* event instead, which is worse.
+
+### What the phone does
+
+The phone reads and never writes a registry record, and it holds no root: a
+phone that could sign a person record could admit itself. Settings gains a
+**This device** section — this phone's four-character code, whose whole job is
+to be compared with the code on the Mac's sheet, then one line per book it has
+been in, in `DeviceStanding`'s words, which are the same words the Mac's People
+& Devices draws about itself. No control: admission is a Mac act in this
+milestone. A retired phone is told so in the same sentence the Mac uses about
+itself, with its own noun. The per-write memo is the phone's one optimisation —
+declaring itself is idempotent but not free, so the facts it declared are
+remembered per project, in process, and a declaration that threw is never
+remembered.
+
+### What P3 still owes
+
+Roles and the per-op-kind check; the per-span Apply exception ruled on above; a
+durable trust event log, so a revocation survives a re-admission as a dated
+fact; and more of this drawn on the phone than one line per book.
 
 ## Addendum — actors, 2026-09-08 (P1b)
 
@@ -685,6 +963,35 @@ re-keys all four. P2's registry admits a person, a device **and an actor**.
   cross-reader agreement between `loadFileDiagnosed` and `loadSyncMerged`, the
   inbox's chained rows, the seal-before-rotate ordering, the two History
   sentences, and the identity itself on both platforms.
+- `TripwireGrepTests.test_theRegistrysWritersAreThreeFiles` — every production
+  caller of `RegistryWriter.write` / `writeUnchecked` / `restore` / `resign` is
+  in `RegistryPresence.swift`, `RegistryAdmission.swift` or
+  `RegistryCache.swift`. The authority rules are not inside `write` — who may
+  revoke is `RegistryAdmission`'s, a device signing its own record is
+  `RegistryPresence`'s — so a fourth caller reaches the signature without
+  reaching the rule. `TripwirePhoneGrepTest.test_thePhoneWritesNoRegistryRecord`
+  is the phone's twin and allow-lists nobody at all, with planted offenders on
+  both sides.
+- `RegistryCanonicalCensusTests` — two censuses over
+  `Packages/MaughamCore/Sources`, `Maugham/` and `MaughamPhone/`. The first:
+  no registry/trust source may name `JSONEncoder(`, `JSONSerialization` or
+  `SHA256`, allow-listed by file **plus spelling** (`RegistryCanonical.swift`
+  all three; `RegistryCache.swift` and `AdmissionMemory.swift` the encoder
+  alone, for their own persisted stores, and still caught reaching for a hash).
+  The second, and the stronger: the set of production files naming `digestHex(`
+  is exactly the writer, the reader and `RegistryCanonical` itself. Its known
+  limit, stated so nobody has to rediscover it: a new file that hand-rolls
+  `JSONSerialization` plus `SHA256` without calling `digestHex` escapes both,
+  which is what the first census's spelling ban is there to catch.
+- `RegistryAdmissionTests`, `RegistryCacheTests`, `TrustTableTests`,
+  `TrustEventsTests`, `PendingLoadTests`, `OpLogQuarantineTests`,
+  `AdmissionDecisionTests`, `AdmissionSheetTests`, `ClaimDecisionTests`,
+  `PeopleAndDevicesModelTests`, `DocumentStoreAdmissionTests`,
+  `InboxPendingTests`, `DeviceStandingTests` — admission and its refusals, the
+  same-authority rule, the six verdicts and the retirement date, the derived
+  events, a stranger's held tail and held segment, the revocation split, the
+  sheet's copy and its queue, the claim and the two-roots exit end to end, the
+  section's rows and which verbs this Mac may press, and the phone's standing.
 - `OpLogChainCostTests` — pins structurally that a remembered segment's lines
   are not walked at all (a counting seam on the verifier is the only way to see
   it, since the ops come out the same either way), and prints the book-scale
@@ -697,6 +1004,11 @@ re-keys all four. P2's registry admits a person, a device **and an actor**.
   (what is signed and at what grain), §4.4 (the states), §4.8 (the slug is the
   key), §4.10 (the inbox and the palette aim), §8 (the three plans; P1 is its
   first bullet, exactly).
+- `docs/superpowers/specs/2026-09-09-signed-op-log-p2-people-and-admission-design.md`
+  — P2's own spec: §2 the records and the memory, §3 naming and presence, §4
+  admission and the sheet, §5 revocation, retirement and the claim, §6 the
+  surfaces.
+- `docs/guide/people-and-devices.md` — the same thing in the writer's words.
 - `docs/superpowers/notes/2026-09-07-signed-op-log-spike.md` — the enclave,
   keychain-sync, cost and propagation measurements this ADR budgets against.
 - [ADR 0012](0012-per-device-jsonl-partitioning.md) — the chain is per file and

@@ -105,6 +105,8 @@ The Maugham Companion iPhone app can't run Claude, but it can review and resolve
 
 Either way, the phone's reopen is written to the same op log the Mac reads — open the project on your Mac afterward and the annotation shows **Open** there too, with the reopen visible as its own entry in the History pane.
 
+**If the phone's notes aren't showing up on the Mac, the Mac hasn't been told who the phone is yet.** Open the project there and it asks you, once; see [People & Devices](people-and-devices.md). The phone's own **Settings → This device** section shows where it stands in each book it has been in — *on Denver's MacBook's chain since 9 Sep*, or *Not yet admitted — the Mac will ask* — plus the four-character code you check against the Mac's panel. Nothing is lost while you're waiting: the phone's work is held, not discarded, and admitting the phone brings all of it in at once.
+
 ### Claude's `add_suggested_change` tool — two grains
 
 When Claude uses the `add_suggested_change` tool, the grain of the suggestion depends on whether you provide a quote:

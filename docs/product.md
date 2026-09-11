@@ -46,6 +46,8 @@ Five parts, one repository:
 
 The central architectural idea is the **operation log**: every edit to a manuscript is an append-only operation in a per-document journal. The `.md`/`.fountain` files on disk are *derived* from that log — clean, standard, portable plain text, readable by any tool forever — but the log is the truth. This buys conflict-free sync between Mac and phone (each device appends to its own file; iCloud Drive never has to merge), a complete forensic history, rewind to any point, and undo that spans every kind of change. The cost is discipline: all editing must flow through Maugham, and an outside edit to the `.md` is deliberately discarded.
 
+**Every line in that log is signed, and a book knows who may write in it.** Each device holds keys in its own secure hardware; each stretch of appends is signed by one of them; and a project carries a small registry of signed records saying which devices the writer has admitted. A change from a machine the book does not know is HELD — not applied, not deleted, not rewritten — until the writer names that machine in a one-question panel, after which it goes into every later book silently. There is a **People & Devices** list in Project Settings with the verbs to revoke a person, retire a Mac, merge two of your own, or claim a book you hold no key in, and History draws trust in two shapes: banners for what holds now, dated entries for what happened. **This is provenance, not access control** — hard revocation stays the iCloud share's; what this buys is that a change made by something other than Maugham, or by a machine you never admitted, can never be mistaken for your own words.
+
 Distribution is grown-up: signed and notarized `.dmg` releases with silent in-place auto-update on the Mac, TestFlight for the phone, tag-driven CI for both.
 
 ## How it's built
@@ -61,7 +63,7 @@ What the marketing paragraph above won't tell you:
 - **The newest surfaces are unproven.** The sensory palette, craft intent, and the tasks layer shipped recently and haven't yet demonstrated they earn their place in a real writing practice.
 - **The writer statistics are interesting more than useful.** Session tracking, activity views, project statistics — pleasant to look at, not yet load-bearing for the actual writing. Screenplay statistics still render novel-shaped ("words by chapter" for a one-file screenplay).
 - **There is no screenplay intelligence.** No character autocomplete, no slugline reuse, no prefix completion. An earlier attempt at multi-file screenplays was abandoned outright, and a screenplay is now a single Fountain file.
-- **Maugham is strictly single-writer.** No collaboration or human-reviewer capability exists.
+- **Maugham is still strictly single-writer.** The signed op log gives a book a registry of admitted devices, so the writer's own Mac and phone are attributable and a stranger's writes are held — but that is provenance between one person's machines, not collaboration. There is no shared-editing, human-reviewer or per-role capability, and roles are not enforced per op kind yet.
 - **The Annotations and History panes still confuse** — sibling tabs with opposite affordances and no onboarding hint.
 - **Some polish is testing-driven, not use-driven.** A few shipped features have been exercised more thoroughly by their test suites and release smokes than by actual writing sessions.
 

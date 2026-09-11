@@ -451,10 +451,13 @@ struct HistoryPane: View {
 
     /// Whose chain this Mac is on — nil when it has joined nobody's.
     ///
-    /// A Mac that is its own root joins nothing (B1, `TrustTable.RootSource`'s
-    /// arm 2): there is no chain of somebody else's for it to be on, and the
-    /// cache records only a FOREIGN root. So the ordinary single-Mac project
-    /// never sees this line, and a Mac admitted to another's book always does.
+    /// A Mac that is its own root joins nothing (B1, asked as
+    /// `TrustTable.ownRootRecord` — the record, never which arm of the root
+    /// order won): there is no chain of somebody else's for it to be on, and
+    /// the cache records only a FOREIGN root. So the ordinary single-Mac
+    /// project never sees this line, and a Mac admitted to another's book
+    /// always does. `DeviceStanding` is the same fact said in full, and is what
+    /// People & Devices and the phone's Settings row both draw.
     ///
     /// A second root that names this device is a CLAIMANT, not a new chain
     /// (`RegistryCache.join` is write-once), so this goes on naming the chain
