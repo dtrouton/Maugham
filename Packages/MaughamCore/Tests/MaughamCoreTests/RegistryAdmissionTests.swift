@@ -314,4 +314,135 @@ final class RegistryAdmissionTests: XCTestCase {
             admitted AS an existing person by typing their name.
             """)
     }
+
+    // MARK: - It reads this device's memory of the folder, never the raw folder
+
+    /// Fix round 1, C1. The cache exists because absence is not proof: a signed
+    /// record proves who wrote it and nothing stops somebody deleting it.
+    /// Admission that read the folder raw would refuse the writer their own
+    /// book over a file iCloud has not brought down yet.
+    func test_aRootRecordSomebodyDeletedIsRestoredRatherThanRefusingTheWritersOwnBook() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        let cache = makeCache()
+        cache.remember(try registry(), for: projectURL)
+        try FileManager.default.removeItem(at: personFile(mine.author.fingerprint))
+
+        let record = try admitThePhone(cache: cache)
+
+        XCTAssertEqual(record.admittedBy, mine.author.fingerprint)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: personFile(mine.author.fingerprint).path),
+            "and the deleted root record is put back, byte for byte, on the way through")
+    }
+
+    /// The other half of C1: another root writing over a record this device
+    /// already verified is a takeover the cache REFUSES, and remembering the
+    /// raw folder would store their bytes as this device's verified copy —
+    /// after which the same-authority rule has nothing left to compare and B1's
+    /// claimant line is gone for that record.
+    func test_anotherRootsTakeoverIsNotLaunderedIntoThisDevicesMemory() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try becomeRootBeside(otherRoot, name: "Somebody else's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        let cache = makeCache()
+        try admitThePhone(cache: cache)
+        try RegistryWriter.write(
+            PersonRecord(
+                person: phone.author.fingerprint, label: "Their word",
+                ownName: "Denver's iPhone",
+                admittedAt: Date(timeIntervalSince1970: 40),
+                admittedBy: otherRoot.author.fingerprint),
+            signedBy: otherRoot.author, in: projectURL)
+
+        let again = try admitThePhone(at: Date(timeIntervalSince1970: 50), cache: cache)
+
+        XCTAssertEqual(again.admittedBy, mine.author.fingerprint,
+                       "the record this device verified still stands")
+        XCTAssertEqual(
+            cache.cached(for: projectURL)?.person(phone.author.fingerprint)?.admittedBy,
+            mine.author.fingerprint,
+            """
+            and their copy was never remembered as mine — the next reconcile can             still tell that a record changed hands.
+            """)
+    }
+
+    // MARK: - Present and unreadable is not absent
+
+    /// Fix round 1, I1 — the distinction `ensureRootIfEmpty` makes in the same
+    /// file, under Denver's 2026-09-10 ruling. A person record that is on disk
+    /// and did not verify is not one that is missing, and overwriting it would
+    /// destroy another root's admission over a sync ordering.
+    func test_aPersonRecordThatIsPresentAndUnreadableIsRefusedRatherThanOverwritten() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try plantUnreadablePersonRecord(for: phone)
+        let bytes = try bytesOfPersonFile(phone.author.fingerprint)
+
+        XCTAssertThrowsError(try admitThePhone()) { error in
+            XCTAssertEqual(
+                error as? RegistryAdmissionError,
+                .recordUnreadable(fingerprint: phone.author.fingerprint))
+        }
+        XCTAssertEqual(try bytesOfPersonFile(phone.author.fingerprint), bytes)
+    }
+
+    /// A record signed by somebody who is not a root here: the reader lists it
+    /// `signerIsNotARoot`, so it is absent from `people` while its FILE is very
+    /// much present. That is the reachable shape — another Mac admitted the
+    /// phone and its own root record has not landed yet.
+    private func plantUnreadablePersonRecord(for device: LocalIdentities) throws {
+        let impostor = LocalIdentities.softwareForTesting()
+        try RegistryWriter.writeUnchecked(
+            PersonRecord(
+                person: device.author.fingerprint, label: "Somebody's word",
+                ownName: "Denver's iPhone",
+                admittedAt: Date(timeIntervalSince1970: 6),
+                admittedBy: impostor.author.fingerprint),
+            signedBy: impostor.author, in: projectURL)
+    }
+
+    // MARK: - A root is not somebody I can admit
+
+    /// Minor 1 — P2a's hole, pinned on the write side. The refusal already
+    /// travels the already-admitted-elsewhere branch, because a root's
+    /// `admittedBy` is itself; nothing said so.
+    func test_aSelfSignedRootIsNotAFingerprintThisDeviceCanAdmit() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try becomeRootBeside(otherRoot, name: "Somebody else's MacBook")
+        let bytes = try bytesOfPersonFile(otherRoot.author.fingerprint)
+
+        XCTAssertThrowsError(try RegistryAdmission.admit(
+            device: otherRoot.author.fingerprint, label: "Denver",
+            ownName: "Somebody else's MacBook", in: projectURL, by: mine.author,
+            cache: makeCache(), memory: makeMemory(),
+            now: { Date(timeIntervalSince1970: 30) })
+        ) { error in
+            XCTAssertEqual(
+                error as? RegistryAdmissionError,
+                .alreadyAdmittedElsewhere(root: otherRoot.author.fingerprint))
+        }
+        XCTAssertEqual(
+            try bytesOfPersonFile(otherRoot.author.fingerprint), bytes,
+            "a root answers to itself, and admitting one would be re-signing their own record")
+    }
+
+    // MARK: - The device's own name stays current
+
+    /// Minor 6. Idempotence keys on the label, so a phone that renamed itself
+    /// would otherwise keep its old `ownName` in the person record forever
+    /// while every surface reading that record showed a name nobody uses.
+    func test_aRenamedDeviceGetsItsNewNameIntoTheRecord() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone(ownName: "Denver's iPhone")
+
+        let renamed = try admitThePhone(
+            ownName: "Denver's iPhone 17", at: Date(timeIntervalSince1970: 900))
+
+        XCTAssertEqual(renamed.ownName, "Denver's iPhone 17")
+        XCTAssertEqual(
+            renamed.admittedAt, Date(timeIntervalSince1970: 10),
+            "which is a re-signing, not a re-admission")
+    }
 }

@@ -87,22 +87,12 @@ public enum TrustResolution {
         // directory at all. Three `fileExists` decide it, and only then is a
         // cache consulted — and only to tell a project that never joined a
         // chain apart from one whose registry something DELETED.
-        let folderPresent = hasRegistry(in: projectURL)
         let cache = cache ?? .shared
-        let remembered = cache.cached(for: projectURL)
-        guard folderPresent || remembered != nil else {
+        guard hasRegistry(in: projectURL) || cache.cached(for: projectURL) != nil else {
             return (Registry(), keyless(mine: identities))
         }
-
-        let folder = folderPresent
-            ? try RegistryReader.load(projectURL: projectURL, presenter: presenter)
-            : Registry()
-        // With no folder this restores every remembered record and reports it,
-        // which is the vanished-registry case above; with a folder it is the
-        // ordinary per-record restore.
-        let reconciled = try cache.reconcile(
-            folder: folder, cached: remembered,
-            in: projectURL, presenter: presenter).registry
+        let reconciled = try verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
 
         let table = TrustTable.resolve(
             registry: reconciled, mine: identities,
@@ -125,6 +115,48 @@ public enum TrustResolution {
         recordRefusedClaimants(
             in: reconciled, mine: identities, cache: cache, projectURL: projectURL)
         return (reconciled, table)
+    }
+
+    /// **The folder, reconciled against what this device last verified** — the
+    /// one place those two are put together, and the only registry any
+    /// production decision is allowed to be made from.
+    ///
+    /// A raw `RegistryReader.load` is not this and must not stand in for it.
+    /// The folder is only ever half the story: a record present in the memory
+    /// and absent from the folder is one somebody DELETED, and it is restored
+    /// and reported here rather than read as never-was; a record the folder now
+    /// shows under a different signer is a takeover, refused here and listed,
+    /// which is B1 one record down. `reconcile` is also what REMEMBERS, on the
+    /// settled value — so handing the cache a raw folder read would both drop
+    /// the records it exists to restore and store somebody else's bytes as this
+    /// device's verified copy.
+    ///
+    /// Extracted so `resolveVerified` and `RegistryAdmission` share it rather
+    /// than each spelling a load (fix round 1, C1): an admission decides who
+    /// may write in a book, and deciding it off an unreconciled folder was the
+    /// same class of mistake one layer up.
+    ///
+    /// An absent folder with nothing remembered answers an empty registry
+    /// without touching the disk beyond the three existence checks.
+    nonisolated public static func verifiedRegistry(
+        projectURL: URL,
+        presenter: NSFilePresenter? = nil,
+        cache: RegistryCache? = nil
+    ) throws -> Registry {
+        let cache = cache ?? .shared
+        let folderPresent = hasRegistry(in: projectURL)
+        let remembered = cache.cached(for: projectURL)
+        guard folderPresent || remembered != nil else { return Registry() }
+
+        let folder = folderPresent
+            ? try RegistryReader.load(projectURL: projectURL, presenter: presenter)
+            : Registry()
+        // With no folder this restores every remembered record and reports it,
+        // which is the vanished-registry case; with a folder it is the ordinary
+        // per-record restore.
+        return try cache.reconcile(
+            folder: folder, cached: remembered,
+            in: projectURL, presenter: presenter).registry
     }
 
     /// **A record of ours the folder now shows under another key is a claim we

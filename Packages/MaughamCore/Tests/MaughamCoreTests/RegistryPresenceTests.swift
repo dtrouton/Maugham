@@ -540,4 +540,36 @@ final class RegistryPresenceTests: XCTestCase {
         XCTAssertEqual(try registry().person(phone.author.fingerprint)?.admittedBy,
                        other.author.fingerprint)
     }
+
+    /// Fix round 1, I1 — the silent path is where this matters most, because
+    /// nobody is watching. A person record present on disk that did not verify
+    /// reads as absent through `Registry.person(_:)`, and writing over it at an
+    /// open would destroy another root's admission over a sync ordering.
+    func test_aPersonRecordPresentAndUnreadableIsSkippedRatherThanOverwritten() throws {
+        try rootHere()
+        let phone = try declarePhone()
+        let impostor = LocalIdentities.softwareForTesting()
+        try RegistryWriter.writeUnchecked(
+            PersonRecord(
+                person: phone.author.fingerprint, label: "Somebody's word",
+                ownName: "Denver's iPhone",
+                admittedAt: Date(timeIntervalSince1970: 6),
+                admittedBy: impostor.author.fingerprint),
+            signedBy: impostor.author, in: projectURL)
+        let bytes = try Data(contentsOf: RegistryWriter.url(
+            .people, fingerprint: phone.author.fingerprint, in: projectURL))
+        let memory = rememberingMemory()
+        memory.remember(phone.author.fingerprint, label: "Denver",
+                        ownName: "Denver's iPhone")
+
+        let admitted = try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: presenceCache(), memory: memory)
+
+        XCTAssertTrue(admitted.isEmpty)
+        XCTAssertEqual(
+            try Data(contentsOf: RegistryWriter.url(
+                .people, fingerprint: phone.author.fingerprint, in: projectURL)),
+            bytes,
+            "present and unreadable is not absent — the same rule ensureRootIfEmpty keeps")
+    }
 }

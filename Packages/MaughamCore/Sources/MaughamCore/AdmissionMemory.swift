@@ -45,6 +45,14 @@ public final class AdmissionMemory: @unchecked Sendable {
     public struct Label: Codable, Equatable, Sendable {
         public var label: String
         public var ownName: String
+        /// When the writer decided on this label.
+        ///
+        /// **Compare it to a person record's `admittedAt` with a STRICT `<`.**
+        /// A silent admission is one whose label was decided in an earlier book,
+        /// so its `labelledAt` is genuinely earlier; a sheet admission decides
+        /// the label and writes the record in one act, from one clock, so the
+        /// two are EQUAL. A `<=` would read every admission the writer made by
+        /// hand as one nobody was asked about.
         public var labelledAt: Date
 
         public init(label: String, ownName: String, labelledAt: Date) {
@@ -54,9 +62,24 @@ public final class AdmissionMemory: @unchecked Sendable {
         }
     }
 
+    /// Decode-tolerant on purpose, as `RegistryCache.Stored` is: every field is
+    /// read with `decodeIfPresent` and a default, so a shape this build does not
+    /// recognise costs at most the fields it cannot read. With the synthesized
+    /// `Codable` a single future non-optional field would fail the whole decode
+    /// and silently empty the memory — and an empty label memory is the writer
+    /// being asked about every device they have ever named, all over again.
     private struct Stored: Codable, Equatable {
         var identity: String = ""
         var devices: [String: Label] = [:]
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            identity = try container.decodeIfPresent(String.self, forKey: .identity) ?? ""
+            devices = try container.decodeIfPresent(
+                [String: Label].self, forKey: .devices) ?? [:]
+        }
     }
 
     public let fileURL: URL
@@ -80,6 +103,9 @@ public final class AdmissionMemory: @unchecked Sendable {
         var fresh = Stored()
         fresh.identity = identity
         self.stored = fresh
+        // `persistLocked` without the lock, and the one place that is right:
+        // `self` is still under construction, so nothing else can be holding it
+        // (the same call `RegistryCache` makes from its own init).
         if bytes != nil { persistLocked() }
     }
 
@@ -140,8 +166,9 @@ public final class AdmissionMemory: @unchecked Sendable {
 
     // MARK: - Persistence
 
-    /// Call with `lock` held. Atomic, so a crash mid-write leaves the previous
-    /// memory rather than a truncated one.
+    /// Call with `lock` held — or from `init`, where there is no `self` to
+    /// share yet. Atomic, so a crash mid-write leaves the previous memory
+    /// rather than a truncated one.
     private func persistLocked() {
         do {
             try DeviceState.ensureDirectory(fileURL.deletingLastPathComponent())

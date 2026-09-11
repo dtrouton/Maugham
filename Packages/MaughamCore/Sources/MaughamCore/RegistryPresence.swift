@@ -176,9 +176,13 @@ public enum RegistryPresence {
     /// — so on another writer's book this admits nobody and says nothing.
     ///
     /// **A device the folder already has a person record for is left alone**,
-    /// whoever admitted it. Under my own root there is nothing to do; under
-    /// ANOTHER root it is a second claimant, and merging chains is the writer's
-    /// own act at a surface (Task 8's claim), never an open's.
+    /// whoever admitted it — and a record that is present but did NOT verify
+    /// counts as one (fix round 1, I1). Under my own root there is nothing to
+    /// do; under ANOTHER root it is a second claimant, and merging chains is
+    /// the writer's own act at a surface (Task 8's claim), never an open's.
+    /// An unreadable record is the same ruling `ensureRootIfEmpty` keeps below:
+    /// present and unreadable is not absent, and the reachable case is another
+    /// Mac's admission whose root record has not landed yet.
     ///
     /// A **retired** device is admitted like any other if it is remembered:
     /// retirement quarantines what it writes AFTER retiring, and refusing it a
@@ -212,9 +216,14 @@ public enum RegistryPresence {
             return []
         }
 
-        let registry = try RegistryReader.load(projectURL: projectURL, presenter: presenter)
+        // The folder reconciled against what this device last verified, never a
+        // raw read (fix round 1, C1): a root record iCloud has not brought down
+        // yet would otherwise make this device a stranger on its own book.
+        let registry = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
         guard registry.roots.contains(where: { $0.person == author.fingerprint })
         else { return [] }
+        let unreadable = RegistryAdmission.unreadablePeople(in: registry)
 
         var admitted: [PersonRecord] = []
         // Sorted, so an open that admits several devices writes them in the
@@ -222,7 +231,8 @@ public enum RegistryPresence {
         // same twice.
         for device in registry.devices.sorted(by: { $0.device < $1.device })
         where registry.person(device.device) == nil {
-            guard let remembered = memory.label(for: device.device) else { continue }
+            guard let remembered = memory.label(for: device.device),
+                  !unreadable.contains(device.device) else { continue }
             admitted.append(try RegistryAdmission.admit(
                 device: device.device, label: remembered.label, ownName: device.name,
                 in: projectURL, by: author, within: registry,
@@ -233,26 +243,21 @@ public enum RegistryPresence {
         // One read for the cache and for the answer both: the records above are
         // the ones this open DECIDED, and a caller deriving History from them
         // should hold what a reader verifies.
-        let verified = try RegistryAdmission.refresh(
-            projectURL, cache: cache, presenter: presenter)
+        let verified = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
         return admitted.map { verified.person($0.person) ?? $0 }
     }
 
     /// Is there a person record here this device could not vouch for?
     ///
-    /// Asked of the malformed listing, by DIRECTORY: a record's own shape is
-    /// exactly what a malformed listing cannot tell you — the bytes would not
-    /// decode, or the name and the fingerprint disagree — so the only thing
-    /// left that says what it was meant to be is where it lives. Claims live
-    /// under `people/claims/`, a directory of their own, and are not people.
+    /// One definition, `RegistryAdmission.unreadablePeople`, asked by this and
+    /// by both admission paths — because it answers whether a thing that is
+    /// PRESENT counts as absent, and two answers to that is two different
+    /// rulings about the same file.
     nonisolated private static func holdsAnUnreadablePerson(
         _ registry: Registry, in projectURL: URL
     ) -> Bool {
-        let people = RegistryWriter.directoryURL(.people, in: projectURL)
-            .standardizedFileURL.path
-        return registry.malformed.contains {
-            $0.url.deletingLastPathComponent().standardizedFileURL.path == people
-        }
+        !RegistryAdmission.unreadablePeople(in: registry).isEmpty
     }
 
     // MARK: - The loud unsigned

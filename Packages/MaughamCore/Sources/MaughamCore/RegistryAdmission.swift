@@ -15,6 +15,15 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// refuses one layer down (`malformed(.signerChanged)`); merging two chains
     /// is adoption's own act, with a claim record saying who did it and when.
     case alreadyAdmittedElsewhere(root: String)
+    /// A person record for that fingerprint is **present on disk and did not
+    /// verify**. Present and unreadable is not absent (Denver, 2026-09-10) —
+    /// the distinction `RegistryPresence.ensureRootIfEmpty` already keeps, and
+    /// the reachable case is a sync ordering rather than tampering: another Mac
+    /// admitted that device, and until its own root record lands, everything it
+    /// signed reads `signerIsNotARoot`. Writing here would destroy their
+    /// admission. It is a refusal that resolves itself the moment the missing
+    /// record arrives.
+    case recordUnreadable(fingerprint: String)
 }
 
 /// **The author's key names a device** (spec §4).
@@ -86,17 +95,19 @@ public enum RegistryAdmission {
         now: () -> Date = { Date() },
         presenter: NSFilePresenter? = nil
     ) throws -> PersonRecord {
-        let registry = try RegistryReader.load(projectURL: projectURL, presenter: presenter)
+        let registry = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
         let decided = try admit(
             device: fingerprint, label: label, ownName: ownName,
             in: projectURL, by: root, within: registry,
             memory: memory, now: now, presenter: presenter)
-        // The refresh the cache needs is also the read that turns the record
+        // The re-read the cache needs is also the read that turns the record
         // this function DECIDED into the record a reader VERIFIES: the writer
         // signs a copy of its own, so what was built above carries no
         // signature. The fallback is for a record that vanished between the
         // write and the read, which is the cache's own subject.
-        let verified = try refresh(projectURL, cache: cache, presenter: presenter)
+        let verified = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
         return verified.person(fingerprint) ?? decided
     }
 
@@ -133,24 +144,45 @@ public enum RegistryAdmission {
             throw RegistryAdmissionError.notARoot
         }
 
+        // A root's `admittedBy` is its own fingerprint, so this refusal covers
+        // a fingerprint that is itself a self-signed ROOT here as well as one
+        // somebody else admitted — admitting a root would be re-signing their
+        // own record under my key.
         let existing = registry.person(fingerprint)
         if let existing, existing.admittedBy != root.fingerprint {
             throw RegistryAdmissionError.alreadyAdmittedElsewhere(root: existing.admittedBy)
         }
 
-        // Already admitted under my root, and the label still says what the
-        // writer wants it to say. Nothing to write — but the memory is stated
-        // either way, because a device admitted before this Mac remembered
-        // anything is exactly the one a later book would ask about again.
-        if let existing, existing.label == label {
+        // Nothing verified stands for this fingerprint, and yet a file does:
+        // present and unreadable, which is not absent. Every question above
+        // read it as absent, and the write below would go straight over it.
+        //
+        // The order is load-bearing. A record the folder shows under another
+        // root is ALSO listed malformed — that is the takeover `reconcile`
+        // refuses — but there the record this device verified still stands, so
+        // `existing` answers it and this is not that case.
+        if existing == nil, unreadablePeople(in: registry).contains(fingerprint) {
+            throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
+        }
+
+        // Already admitted under my root, and the record still says what it
+        // should — the writer's label AND the device's own name. Nothing to
+        // write, but the memory is stated either way, because a device admitted
+        // before this Mac remembered anything is exactly the one a later book
+        // would ask about again.
+        //
+        // `ownName` counts here (fix round 1, M6): keying idempotence on the
+        // label alone would leave a renamed phone carrying a name nobody uses
+        // in the one record every surface reads it from.
+        if let existing, existing.label == label, existing.ownName == ownName {
             memory.remember(fingerprint, label: label, ownName: ownName, at: existing.admittedAt)
             return existing
         }
 
-        // A relabel keeps everything the record already decided: when they were
-        // admitted, and — if they have been — that they are revoked. Renaming
-        // somebody is not admitting them again, and it is certainly not
-        // un-revoking them; that is Revoke's own verb.
+        // A relabel — or a rename — keeps everything the record already decided:
+        // when they were admitted, and, if they have been, that they are
+        // revoked. Renaming somebody is not admitting them again, and it is
+        // certainly not un-revoking them; that is Revoke's own verb.
         let record = PersonRecord(
             person: fingerprint, label: label, ownName: ownName, role: "author",
             admittedAt: existing?.admittedAt ?? now(),
@@ -163,18 +195,18 @@ public enum RegistryAdmission {
         return record
     }
 
-    /// Re-read the folder, keep it as what this device has verified, and
-    /// answer it.
+    /// The fingerprints whose person record is **present on disk and did not
+    /// verify** — named by the FILE, because what the bytes claim is exactly
+    /// what a malformed listing cannot tell you.
     ///
-    /// Deliberately a fresh read rather than the pre-write registry plus the
-    /// new record: what the cache keeps is each record's own FILE bytes, and
-    /// the bytes that matter are the ones now on disk.
-    @discardableResult
-    nonisolated static func refresh(
-        _ projectURL: URL, cache: RegistryCache, presenter: NSFilePresenter?
-    ) throws -> Registry {
-        let registry = try RegistryReader.load(projectURL: projectURL, presenter: presenter)
-        cache.remember(registry, for: projectURL)
-        return registry
+    /// The one definition of *a person record this device cannot vouch for*,
+    /// asked by both admission paths and by `ensureRootIfEmpty`. A second
+    /// opinion about it would be a second answer to whether a thing that is
+    /// present is absent, which is the whole of the ruling it serves.
+    nonisolated static func unreadablePeople(in registry: Registry) -> Set<String> {
+        Set(registry.malformed.compactMap { fault in
+            guard let ref = fault.ref, ref.directory == .people else { return nil }
+            return ref.fingerprint
+        })
     }
 }
