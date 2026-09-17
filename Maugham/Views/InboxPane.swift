@@ -30,8 +30,10 @@ struct InboxPane: View {
     /// (signed op log P2a, D2). Resolved on the pane's `.task` from
     /// `store.setAsideRecords` and held, because both resolutions read the
     /// quarantine directory and a read from `body` would do file I/O on every
-    /// evaluation.
-    @State private var setAsideLineCount: Int = 0
+    /// evaluation. A capture already in the pane is not counted: the record is
+    /// evidence forever, and *set aside* stopped being true of that row the
+    /// moment the writer admitted the device that wrote it (P2 smoke, find 7).
+    @State private var setAsideChangeCount: Int = 0
     @State private var setAsideRecordNames: [String] = []
     @State private var audio = InboxAudioPlayer()
     @State private var promoteError: String?
@@ -64,11 +66,11 @@ struct InboxPane: View {
     /// Pure over the count, so the copy pins without a window and without disk.
     /// The count is taken over `InboxStore.setAsideRecords`, which is the half
     /// that has to read files.
-    static func setAsideNotice(lineCount: Int) -> String? {
-        guard lineCount > 0 else { return nil }
-        let subject = lineCount == 1
+    static func setAsideNotice(changeCount: Int) -> String? {
+        guard changeCount > 0 else { return nil }
+        let subject = changeCount == 1
             ? "1 capture was written"
-            : "\(lineCount) captures were written"
+            : "\(changeCount) captures were written"
         return "\(subject) to the inbox by something that is not Maugham; "
              + "kept in backup, not shown."
     }
@@ -163,7 +165,7 @@ struct InboxPane: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
-            if let notice = Self.setAsideNotice(lineCount: setAsideLineCount) {
+            if let notice = Self.setAsideNotice(changeCount: setAsideChangeCount) {
                 // The other half of the one new refusal in the tree (signed op
                 // log P1): a `.lines` record never returns, and until now the
                 // inbox's were written and shown to nobody — `HistoryPane` only
@@ -271,13 +273,17 @@ struct InboxPane: View {
         setAsideRecordNames = records.map {
             SetAsideAcknowledgement.name(for: $0, in: projectURL)
         }
-        setAsideLineCount = OpLogQuarantine.setAsideLineCount(
+        // `applied` is every manifest row the refresh merged, whatever its
+        // status — a capture that was set aside and is now in the inbox (or has
+        // since been promoted or trashed) is one the writer HAS.
+        setAsideChangeCount = OpLogQuarantine.setAsideChangeCount(
             records: SetAsideAcknowledgement.unacknowledged(
                 records: records,
                 acknowledged: projectStore.documentStore?.uiState
                     .acknowledgedSetAsideRecords ?? [],
                 in: projectURL),
-            in: projectURL)
+            in: projectURL,
+            applied: store.appliedManifestIDs)
     }
 
     /// Put the sentence down: every record it could be about is recorded as

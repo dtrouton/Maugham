@@ -110,6 +110,26 @@ public struct QuarantineGroup: Equatable, Sendable {
     }
 }
 
+/// One CHANGE a set-aside record holds, with the reason its record was filed
+/// under (signed op log P2 smoke, find 6).
+///
+/// A change, not a line: a seal is neither, and the same op reaching the archive
+/// twice is one. `OpLogQuarantine.setAsideChanges` is the one derivation — see
+/// its doc comment for both rules.
+public struct SetAsideChange: Equatable, Sendable {
+    /// The identity the line's own stream gives it — an op's `op_id`, an inbox
+    /// row's `id`, or a digest of the bytes for a line that names neither.
+    public let id: String
+    /// The reason the FIRST record to hold this change was filed under, in
+    /// `JSONLAppendStore.quarantineReason`'s words.
+    public let reason: String
+
+    public init(id: String, reason: String) {
+        self.id = id
+        self.reason = reason
+    }
+}
+
 /// **Which side of a revocation each refused line falls on** (spec §5).
 ///
 /// Pure, and deliberately one layer above the walk: `OpLogChain` sees seals and
@@ -437,11 +457,30 @@ public enum OpLogQuarantine {
     ///
     /// `nonisolated`: a pure filesystem read touching no MainActor state —
     /// same reasoning as `defaultStubProbe`.
-    /// How many CHANGES a set of records held back — the non-empty lines
-    /// across every `.lines` record's data file, not the number of records.
-    /// One record can hold a run of lines, and the question a pane asks on the
-    /// writer's behalf is how much of their history this is, so the answer has
-    /// to open the files.
+    /// The CHANGES a set of records held back, in the order they were filed,
+    /// each counted once (signed op log P2 smoke, finds 6 and 7).
+    ///
+    /// **Op lines only.** A seal is not a change — it is the signature that
+    /// closes a span — and it is held back with the lines it settles, so a span
+    /// of two ops under one signature is three LINES and two changes. The
+    /// pending counts have said this since P2b (`OpLogProvenance.pendingOpLines`
+    /// over `OpLogChain.pendingByDevice`, which filters `kind == .op`); this is
+    /// the same rule for the refused half, so History cannot put a different
+    /// number in front of the same noun. A seal is recognised through
+    /// `OpLogChain.isSealLine` and nowhere else (tripwire 37).
+    ///
+    /// **Deduplicated across records.** The same op reaches the archive more
+    /// than once whenever a span is set aside twice and split differently on the
+    /// two loads — the smoke's own case: `[op1, seal1]` on one open, then
+    /// `[op1]` and `[seal1, op2, seal2]` on the next. Three records, four op
+    /// lines, TWO changes. The identity is the line's own (`op_id` for an op,
+    /// `id` for an inbox row); a line carrying neither is keyed on a digest of
+    /// its bytes, so it is still counted once rather than once per record.
+    ///
+    /// The order is (`quarantinedAt`, then the archive's own name), so a change
+    /// found in two records is attributed to the reason of the FIRST record that
+    /// held it and one folder answers one way however its sidecars happened to
+    /// be enumerated.
     ///
     /// Lives here rather than on a pane because TWO panes ask it: History for
     /// a document's own op-log files, the Inbox for the manifest stream
@@ -452,18 +491,68 @@ public enum OpLogQuarantine {
     ///
     /// `.file` records are skipped: their data file is a whole op log, whose
     /// line count is a different quantity entirely.
-    public nonisolated static func setAsideLineCount(
+    public nonisolated static func setAsideChanges(
         records: [QuarantineRecord], in projectURL: URL
-    ) -> Int {
-        records
-            .filter { $0.kind == .lines }
-            .reduce(0) { total, record in
-                let url = quarantinedFileURL(for: record, in: projectURL)
-                guard let bytes = try? Data(contentsOf: url) else { return total }  // adr-0018-ok: a set-aside `.lines` archive — forensics this counts, never manuscript truth
-                return total + bytes
-                    .split(separator: 0x0A, omittingEmptySubsequences: true)
-                    .count
+    ) -> [SetAsideChange] {
+        // Split out of one chained expression on purpose: written as a single
+        // `filter`/`map`/`sorted` chain, this defeats the type-checker's budget
+        // outright (CLAUDE.md's "unable to type-check in reasonable time" is
+        // real, and this is where it fired).
+        var ordered: [(record: QuarantineRecord, url: URL)] = []
+        for record in records where record.kind == .lines {
+            ordered.append((record, quarantinedFileURL(for: record, in: projectURL)))
+        }
+        ordered.sort { left, right in
+            if left.record.quarantinedAt != right.record.quarantinedAt {
+                return left.record.quarantinedAt < right.record.quarantinedAt
             }
+            return left.url.lastPathComponent < right.url.lastPathComponent
+        }
+
+        var seen: Set<String> = []
+        var changes: [SetAsideChange] = []
+        for entry in ordered {
+            guard let bytes = try? Data(contentsOf: entry.url) else { continue }  // adr-0018-ok: a set-aside `.lines` archive — forensics this counts, never manuscript truth
+            for slice in bytes.split(separator: 0x0A, omittingEmptySubsequences: true) {
+                let line = Data(slice)
+                guard !OpLogChain.isSealLine(line) else { continue }
+                let id = changeIdentity(ofLine: line)
+                guard seen.insert(id).inserted else { continue }
+                changes.append(SetAsideChange(id: id, reason: entry.record.reason))
+            }
+        }
+        return changes
+    }
+
+    /// How many set-aside changes a writer still has NOT got — `applied` is the
+    /// identities the stream is currently carrying, and a change in it is one a
+    /// later admission brought in (find 7).
+    ///
+    /// The records are permanent evidence and the disclosure goes on listing
+    /// every one of them; what stops being true after a re-admission is the
+    /// SENTENCE, because those changes are in the writer's draft.
+    public nonisolated static func setAsideChangeCount(
+        records: [QuarantineRecord], in projectURL: URL, applied: Set<String> = []
+    ) -> Int {
+        setAsideChanges(records: records, in: projectURL)
+            .reduce(0) { $0 + (applied.contains($1.id) ? 0 : 1) }
+    }
+
+    /// The identity a line's own stream gives it.
+    ///
+    /// `op_id` is read through `RevocationSplit.opId(ofLine:)` rather than
+    /// spelled again — one reader of that key. An inbox manifest row has no
+    /// `op_id`; its own `id` is asked of `InboxEntry.CodingKeys` for the same
+    /// reason. A line that carries neither (a legacy shape, a build this one
+    /// cannot parse) keys on a digest of its bytes: the same bytes in two
+    /// records are one change, and two different unidentifiable lines stay two.
+    nonisolated private static func changeIdentity(ofLine line: Data) -> String {
+        if let opId = RevocationSplit.opId(ofLine: line) { return opId }
+        let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any]
+        if let rowId = object?[InboxEntry.CodingKeys.id.stringValue] as? String {
+            return rowId
+        }
+        return "line:" + StableHash.fnv1a64Hex(String(decoding: line, as: UTF8.self))
     }
 
     public nonisolated static func quarantinedFileURL(for record: QuarantineRecord, in projectURL: URL) -> URL {

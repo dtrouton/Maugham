@@ -552,3 +552,177 @@ final class OpLogQuarantineTests: XCTestCase {
             breakReason: nil, quarantineCause: cause)
     }
 }
+
+/// **What the set-aside sentence counts** (signed op log P2 smoke, finds 6 and
+/// 7).
+///
+/// The smoke put *6 changes set aside* in front of a writer who had two. Three
+/// things were wrong with the number and two of them are this file's: seal lines
+/// were counted as changes, and one op that reached the archive twice — the span
+/// was set aside once, then split differently on the next load — was counted
+/// twice. The third (a seal filed in the wrong half of a revocation split) is
+/// `RevocationSplit.groups`' and is deliberately NOT what makes the number
+/// right: counting op lines alone makes the count immune to which half a seal
+/// travels in.
+///
+/// Find 7 is the other half of the sentence's honesty: a `.lines` record is
+/// permanent evidence, so it is listed forever — but once the writer admits the
+/// device, the ops in it are APPLIED, and *set aside* has stopped being true of
+/// them.
+final class SetAsideChangeCountTests: XCTestCase {
+    private var tmp: URL!
+
+    override func setUp() {
+        tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setaside-count-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent(".maugham/ops"), withIntermediateDirectories: true)
+    }
+    override func tearDown() { try? FileManager.default.removeItem(at: tmp) }
+
+    /// A seal is a signature over a span, not a change in it. Two ops under one
+    /// seal are three lines and two changes — the rule
+    /// `OpLogChain.pendingByDevice` has applied to the HELD half since P2b.
+    func test_aSealIsNotAChange() throws {
+        let record = try file([op("01M2RMZS8S08J1MKA7CPTFK4MS"), seal(), op("01M2RNCJ4384V357PT3EG049SW"), seal()],
+                              reason: "the history's chain is broken")
+
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChanges(records: [record], in: tmp).map(\.id),
+            ["01M2RMZS8S08J1MKA7CPTFK4MS", "01M2RNCJ4384V357PT3EG049SW"],
+            "four lines, two changes")
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChangeCount(records: [record], in: tmp), 2)
+    }
+
+    /// **The smoke's own shape.** Mac B's first op was set aside once as
+    /// `[op1, seal1]`, and again on the next load as `[op1]` plus
+    /// `[seal1, op2, seal2]` — three records, six lines, four op lines, and two
+    /// changes. The reason a change is filed under is the FIRST record's.
+    func test_oneOpInTwoRecordsIsOneChange() throws {
+        let first = op("01M2RMZS8S08J1MKA7CPTFK4MS")
+        let second = op("01M2RNCJ4384V357PT3EG049SW")
+        let late = "may be late sync, or may be backdated"
+        let after = "written after this device's access was withdrawn"
+
+        let r1 = try file([first, seal()], reason: late, at: 1)
+        let r2 = try file([seal(), second, seal()], reason: after, at: 2)
+        let r3 = try file([first], reason: late, at: 3)
+
+        let changes = OpLogQuarantine.setAsideChanges(records: [r1, r2, r3], in: tmp)
+        XCTAssertEqual(changes, [
+            SetAsideChange(id: "01M2RMZS8S08J1MKA7CPTFK4MS", reason: late),
+            SetAsideChange(id: "01M2RNCJ4384V357PT3EG049SW", reason: after),
+        ], "six lines across three records are two changes")
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChangeCount(records: [r1, r2, r3], in: tmp), 2,
+            "and the sentence says two, not six")
+    }
+
+    /// Order is by (`quarantinedAt`, archive name), so the attribution of a
+    /// change held in two records does not depend on how the folder enumerated.
+    func test_theReasonIsTheFirstRecordsHoweverTheFolderEnumerates() throws {
+        let shared = op("01M2RMZS8S08J1MKA7CPTFK4MS")
+        let late = "may be late sync, or may be backdated"
+        let after = "written after this device's access was withdrawn"
+        let earlier = try file([shared], reason: late, at: 1)
+        let later = try file([shared, op("01M2RNCJ4384V357PT3EG049SW")], reason: after, at: 2)
+
+        for order in [[earlier, later], [later, earlier]] {
+            XCTAssertEqual(
+                OpLogQuarantine.setAsideChanges(records: order, in: tmp).first?.reason,
+                late,
+                "the earlier record named it first")
+        }
+    }
+
+    /// **Find 7.** After a re-admission the ops apply, and the sentence must
+    /// stop claiming them — while the records stay on disk for the disclosure
+    /// to go on listing.
+    func test_anAppliedChangeIsNoLongerSetAside() throws {
+        let record = try file([op("01M2RMZS8S08J1MKA7CPTFK4MS"), seal(), op("01M2RNCJ4384V357PT3EG049SW")],
+                              reason: "written after this device's access was withdrawn")
+
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChangeCount(records: [record], in: tmp), 2,
+            "premise: held, so both are set aside")
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChangeCount(
+                records: [record], in: tmp, applied: ["01M2RMZS8S08J1MKA7CPTFK4MS"]),
+            1,
+            "one of them is in the draft now")
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChangeCount(
+                records: [record], in: tmp,
+                applied: ["01M2RMZS8S08J1MKA7CPTFK4MS", "01M2RNCJ4384V357PT3EG049SW"]),
+            0,
+            "and with every one applied the sentence goes away entirely")
+        XCTAssertEqual(
+            OpLogQuarantine.records(forDocId: "doc-1", in: tmp).count, 1,
+            "the evidence is untouched by any of this")
+    }
+
+    /// An inbox manifest row has no `op_id`; its own `id` is its identity, so
+    /// the inbox's sentence dedupes on the same rule the op log's does.
+    func test_anInboxRowIsIdentifiedByItsOwnId() throws {
+        let row = Data(#"{"id":"01M2RMZS8S08J1MKA7CPTFK4MS","kind":"text"}"#.utf8)
+        let a = try file([row], reason: "r", at: 1)
+        let b = try file([row, Data(#"{"id":"01M2RNCJ4384V357PT3EG049SW","kind":"text"}"#.utf8)],
+                         reason: "r", at: 2)
+
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChanges(records: [a, b], in: tmp).map(\.id),
+            ["01M2RMZS8S08J1MKA7CPTFK4MS", "01M2RNCJ4384V357PT3EG049SW"])
+    }
+
+    /// A line naming no identity of its own is keyed on its bytes: the same
+    /// bytes in two records are one change, and two different unreadable lines
+    /// stay two.
+    func test_aLineWithNoIdentityIsKeyedOnItsBytes() throws {
+        let strange = Data("{not json at all".utf8)
+        let other = Data(#"{"hello":"world"}"#.utf8)
+        let a = try file([strange, other], reason: "r", at: 1)
+        let b = try file([strange], reason: "r", at: 2)
+
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChangeCount(records: [a, b], in: tmp), 2,
+            "three lines, two distinct ones")
+    }
+
+    /// A whole set-aside FILE is the Retry notice's subject; its line count is a
+    /// different quantity and is not this sentence's.
+    @MainActor
+    func test_aWholeFileRecordIsNotCounted() throws {
+        let src = tmp.appendingPathComponent(".maugham/ops/doc-1.maca.jsonl")
+        try Data("{\"op_id\":\"01M2RMZS8S08J1MKA7CPTFK4MS\"}\n".utf8).write(to: src)
+        let record = try OpLogQuarantine.quarantine(
+            fileURL: src, docId: "doc-1", reason: "permission denied", in: tmp,
+            isDatalessStub: { _ in false })
+
+        XCTAssertEqual(OpLogQuarantine.setAsideChanges(records: [record], in: tmp), [])
+    }
+
+    // MARK: - Fixtures
+
+    private func op(_ opId: String) -> Data {
+        Data(#"{"prev":"abc","op_id":"\#(opId)","doc_id":"doc-1"}"#.utf8)
+    }
+
+    /// A seal line as `OpLogChain` writes one: the `{"seal":` prefix is the
+    /// whole of what `isSealLine` recognises, and this file must not spell a
+    /// second recogniser (tripwire 37) — it writes a line and lets the one
+    /// recogniser judge it.
+    private func seal() -> Data {
+        Data(#"{"seal":{"at":"2026-09-17T21:39:58.365Z","head":"abc","key":"k","sig":"s"}}"#.utf8)
+    }
+
+    private func file(
+        _ lines: [Data], reason: String, at second: TimeInterval = 0
+    ) throws -> QuarantineRecord {
+        try XCTUnwrap(OpLogQuarantine.setAsideLines(
+            lines,
+            from: tmp.appendingPathComponent(".maugham/ops/doc-1.macb.jsonl"),
+            docId: "doc-1", reason: reason, in: tmp,
+            now: Date(timeIntervalSince1970: 1_000_000 + second)))
+    }
+}

@@ -13,7 +13,7 @@ import XCTest
 /// did not.
 ///
 /// Pinned windowlessly throughout (tripwire 33): the predicate is pure over a
-/// set of names, the count composes it with `OpLogQuarantine.setAsideLineCount`
+/// set of names, the count composes it with `OpLogQuarantine.setAsideChangeCount`
 /// against a real temp project, and the two **Acknowledge** buttons are
 /// asserted DRAWN by reading the panes' own source — never pressed and awaited.
 @MainActor
@@ -102,7 +102,7 @@ final class SetAsideAcknowledgementTests: XCTestCase {
         let records = try threeRecords(in: project)   // 3 + 2 + 1 lines
 
         XCTAssertEqual(
-            OpLogQuarantine.setAsideLineCount(records: records, in: project), 6,
+            OpLogQuarantine.setAsideChangeCount(records: records, in: project), 6,
             "premise: six set-aside changes across three records")
 
         let acknowledged: Set<String> = [
@@ -112,12 +112,12 @@ final class SetAsideAcknowledgementTests: XCTestCase {
             records: records, acknowledged: acknowledged, in: project)
 
         XCTAssertEqual(
-            HistoryPane.setAsideLinesByReason(records: standing, in: project),
+            HistoryPane.setAsideChangesByReason(records: standing, in: project),
             ["written by something that is not Maugham": 3],
             "the three lines of the acknowledged record stop being counted")
         XCTAssertEqual(
-            HistoryPane.setAsideLinesNotice(
-                byReason: HistoryPane.setAsideLinesByReason(
+            HistoryPane.setAsideChangesNotice(
+                byReason: HistoryPane.setAsideChangesByReason(
                     records: standing, in: project)),
             "3 changes to this document were set aside (written by something "
             + "that is not Maugham); kept in backup, not applied.")
@@ -134,13 +134,13 @@ final class SetAsideAcknowledgementTests: XCTestCase {
 
         XCTAssertTrue(standing.isEmpty)
         XCTAssertNil(
-            HistoryPane.setAsideLinesNotice(
-                byReason: HistoryPane.setAsideLinesByReason(
+            HistoryPane.setAsideChangesNotice(
+                byReason: HistoryPane.setAsideChangesByReason(
                     records: standing, in: project)),
             "the writer has seen all of it; the notice goes away")
         XCTAssertNil(
             InboxPane.setAsideNotice(
-                lineCount: OpLogQuarantine.setAsideLineCount(
+                changeCount: OpLogQuarantine.setAsideChangeCount(
                     records: standing, in: project)),
             "\u{2026}and the inbox's sentence answers the same predicate")
     }
@@ -166,8 +166,8 @@ final class SetAsideAcknowledgementTests: XCTestCase {
 
         XCTAssertEqual(standing, [fresh])
         XCTAssertEqual(
-            HistoryPane.setAsideLinesNotice(
-                byReason: HistoryPane.setAsideLinesByReason(
+            HistoryPane.setAsideChangesNotice(
+                byReason: HistoryPane.setAsideChangesByReason(
                     records: standing, in: project)),
             "4 changes to this document were set aside (written by something "
             + "that is not Maugham); kept in backup, not applied.",
@@ -306,7 +306,7 @@ final class SetAsideAcknowledgementPaneTests: XCTestCase {
         let body = try XCTUnwrap(Self.declaration(named: "var body: some View {", in: source))
 
         XCTAssertTrue(
-            body.contains("Self.setAsideLinesNotice(byReason: setAsideLinesByReason)"),
+            body.contains("Self.setAsideChangesNotice(byReason: setAsideChangesByReason)"),
                       "premise: the sentence is still drawn. Got:\n\(body)")
         XCTAssertTrue(body.contains("Button(\"Acknowledge\", action: acknowledgeSetAside)"),
                       "\u{2026}and the writer can put it down. Got:\n\(body)")
@@ -316,21 +316,45 @@ final class SetAsideAcknowledgementPaneTests: XCTestCase {
         let source = try Self.source(of: "Views/HistoryPane.swift")
         let body = try XCTUnwrap(Self.declaration(named: "var body: some View {", in: source))
 
-        XCTAssertTrue(body.contains("DisclosureGroup"),
-                      "the records are listed. Got:\n\(body)")
-        XCTAssertTrue(body.contains("setAsideRecordNames"),
-                      "\u{2026}from the unfiltered list, so acknowledging hides "
-                      + "the sentence and never the forensics. Got:\n\(body)")
+        XCTAssertTrue(
+            body.contains("SetAsideRecordsDisclosure(names: setAsideRecordNames)"),
+            "the records are listed, from the unfiltered list, so acknowledging "
+            + "hides the sentence and never the forensics. Got:\n\(body)")
+        // …and the disclosure is still a disclosure. It moved out of `body`
+        // into a view of its own so that its WIDTH could be measured without a
+        // window (P2 smoke, find 8); what it draws did not change.
+        let disclosure = try XCTUnwrap(Self.declaration(
+            named: "struct SetAsideRecordsDisclosure: View {", in: source))
+        XCTAssertTrue(disclosure.contains("DisclosureGroup(\"Set-aside records\""),
+                      "Got:\n\(disclosure)")
     }
 
     func test_theInboxPanesSentenceCarriesAnAcknowledgeButton() throws {
         let source = try Self.source(of: "Views/InboxPane.swift")
         let body = try XCTUnwrap(Self.declaration(named: "var body: some View {", in: source))
 
-        XCTAssertTrue(body.contains("Self.setAsideNotice(lineCount: setAsideLineCount)"),
+        XCTAssertTrue(body.contains("Self.setAsideNotice(changeCount: setAsideChangeCount)"),
                       "premise: the sentence is still drawn. Got:\n\(body)")
         XCTAssertTrue(body.contains("Button(\"Acknowledge\", action: acknowledgeSetAside)"),
                       "\u{2026}and the writer can put it down here too. Got:\n\(body)")
+    }
+
+    /// **Find 7's wiring**: each pane counts its sentence against what its own
+    /// stream is currently carrying, so a re-admitted change stops being called
+    /// set aside. Read off the source — the alternative is a pane mounted
+    /// against a project whose device was admitted mid-test, which is a window
+    /// and a wait for a decision that is one argument.
+    func test_eachPaneCountsAgainstWhatItsStreamIsCarrying() throws {
+        XCTAssertTrue(
+            try Self.code(of: "Views/HistoryPane.swift")
+                .contains("applied: Set(ops.map(\\.opId))"),
+            "History counts against the document's own ops \u{2014} the list it "
+            + "has already loaded, so no body pass reads disk for it")
+        XCTAssertTrue(
+            try Self.code(of: "Views/InboxPane.swift")
+                .contains("applied: store.appliedManifestIDs"),
+            "\u{2026}and the Inbox against every manifest row its refresh "
+            + "applied, whatever status that row now has")
     }
 
     /// The census: the filter is asked of `SetAsideAcknowledgement` and the

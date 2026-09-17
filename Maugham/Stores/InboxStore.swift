@@ -34,6 +34,16 @@ final class InboxStore {
     /// `inbox/`), so `restore` is a clean status flip back to `.new`.
     private(set) var trashedEntries: [InboxEntry] = []
 
+    /// Every manifest row this refresh APPLIED, by id — whatever its status, so
+    /// a promoted or trashed capture counts as one the writer has (signed op log
+    /// P2 smoke, find 7).
+    ///
+    /// Read by the set-aside sentence alone, which must not go on calling a
+    /// capture *set aside* once the writer has admitted the device that wrote it
+    /// and the row has arrived. Not `entries`, which is `.new` only: promoting a
+    /// capture is not the same as never having received it.
+    private(set) var appliedManifestIDs: Set<String> = []
+
     /// Device manifests `refresh()` could not read, by filename (RULING-7,
     /// M8-IN-012: unreadable is never presented as empty — before this, an
     /// unreadable file silently vanished every capture from that device). The
@@ -230,6 +240,7 @@ final class InboxStore {
             unreadableManifests = []
             entries = []
             trashedEntries = []
+            appliedManifestIDs = []
             bylines = [:]
             pendingByDevice = [:]
             pendingDeviceNames = [:]
@@ -273,6 +284,7 @@ final class InboxStore {
         var byId: [String: InboxEntry] = [:]
         for row in rows { byId[row.id] = row }
         let collapsed = Array(byId.values)
+        appliedManifestIDs = Set(byId.keys)
         entries = collapsed
             .filter { $0.status == .new }
             .sorted { $0.createdAt > $1.createdAt }

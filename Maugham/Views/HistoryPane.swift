@@ -129,12 +129,13 @@ struct HistoryPane: View {
     @State private var heldQuarantineRecords: [QuarantineRecord] = []
     /// How many CHANGES were set aside, by the REASON each was set aside for
     /// (signed op log P1; the reasons are P2b's), counting only what the writer
-    /// has not yet acknowledged (P2a, D2). Counts rather than the records,
-    /// because the notice is pure over them and reading the archives is
-    /// `reload()`'s job, not `body`'s — and by reason rather than one total,
-    /// because four of the six causes describe lines Maugham itself wrote on
-    /// the writer's other machine (whole-branch review, I3).
-    @State private var setAsideLinesByReason: [String: Int] = [:]
+    /// has not yet acknowledged (P2a, D2) and only what is not in their draft
+    /// already (P2 smoke, find 7). Counts rather than the records, because the
+    /// notice is pure over them and reading the archives is `reload()`'s job,
+    /// not `body`'s — and by reason rather than one total, because four of the
+    /// six causes describe lines Maugham itself wrote on the writer's other
+    /// machine (whole-branch review, I3).
+    @State private var setAsideChangesByReason: [String: Int] = [:]
     /// Every set-aside record for this doc, acknowledged or not, by the name it
     /// is acknowledged under. The disclosure below the sentence lists these
     /// REGARDLESS: what an Acknowledge press puts down is the sentence, not the
@@ -343,9 +344,9 @@ struct HistoryPane: View {
     /// however its sidecars happened to be enumerated.
     ///
     /// Pure over the counts, so the copy pins without a window and without
-    /// disk. The counts come from `setAsideLinesByReason`, which is the half
+    /// disk. The counts come from `setAsideChangesByReason`, which is the half
     /// that has to read files.
-    static func setAsideLinesNotice(byReason: [String: Int]) -> String? {
+    static func setAsideChangesNotice(byReason: [String: Int]) -> String? {
         let groups = byReason
             .filter { $0.value > 0 }
             .sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
@@ -365,18 +366,26 @@ struct HistoryPane: View {
     }
 
     /// How many CHANGES were set aside, **under each reason they were set aside
-    /// for**. One line per group, because the counting is
-    /// `OpLogQuarantine.setAsideLineCount`'s — the Inbox pane asks the same
-    /// question of the manifest stream, and two copies would be two answers.
-    static func setAsideLinesByReason(
-        records: [QuarantineRecord], in projectURL: URL
+    /// for**, and **not counting one the writer already has**.
+    ///
+    /// The enumeration is `OpLogQuarantine.setAsideChanges`' — the Inbox pane
+    /// asks the same question of the manifest stream, and two copies would be
+    /// two answers. It is asked ONCE over every record rather than once per
+    /// reason, because dedup is across records: an op set aside twice under two
+    /// reasons is one change, and a per-reason call could not see that.
+    ///
+    /// `applied` is the op ids this document is currently carrying. A `.lines`
+    /// record is permanent evidence and the disclosure lists it forever, but
+    /// once the writer admits the device those ops are in the draft and *set
+    /// aside* has stopped being true of them (P2 smoke, find 7).
+    static func setAsideChangesByReason(
+        records: [QuarantineRecord], in projectURL: URL, applied: Set<String> = []
     ) -> [String: Int] {
         var counts: [String: Int] = [:]
-        for reason in Set(records.map(\.reason)) {
-            let count = OpLogQuarantine.setAsideLineCount(
-                records: records.filter { $0.reason == reason }, in: projectURL)
-            guard count > 0 else { continue }
-            counts[reason] = count
+        let changes = OpLogQuarantine.setAsideChanges(
+            records: records, in: projectURL)
+        for change in changes where !applied.contains(change.id) {
+            counts[change.reason, default: 0] += 1
         }
         return counts
     }
@@ -651,7 +660,7 @@ struct HistoryPane: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
-            if let notice = Self.setAsideLinesNotice(byReason: setAsideLinesByReason) {
+            if let notice = Self.setAsideChangesNotice(byReason: setAsideChangesByReason) {
                 // The one control this statement of fact carries (P2a, D2):
                 // there is still nothing to bring back, but a sentence that
                 // could never be put down was an accusation the writer could
@@ -737,22 +746,9 @@ struct HistoryPane: View {
                 // Listed whether acknowledged or not — the archives are the
                 // writer's to read at any time, and an acknowledgement is a
                 // statement about the sentence above, never about the evidence.
-                DisclosureGroup("Set-aside records") {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(setAsideRecordNames, id: \.self) { name in
-                            Text(name)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                    .padding(.top, 2)
-                }
-                .font(.caption)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                SetAsideRecordsDisclosure(names: setAsideRecordNames)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
                 Divider()
             }
             if let report = recoveredReport, !report.orphans.isEmpty {
@@ -990,12 +986,18 @@ struct HistoryPane: View {
         setAsideRecordNames = setAside.map {
             SetAsideAcknowledgement.name(for: $0, in: projectURL)
         }
-        setAsideLinesByReason = Self.setAsideLinesByReason(
+        // `applied` is the ops this document is carrying RIGHT NOW — the list
+        // read a few lines above, so nothing new is read from disk for it. An
+        // op that was set aside and is now in the draft (the writer admitted the
+        // device that wrote it) is evidence the disclosure keeps listing and a
+        // change the sentence has stopped being about (P2 smoke, find 7).
+        setAsideChangesByReason = Self.setAsideChangesByReason(
             records: SetAsideAcknowledgement.unacknowledged(
                 records: setAside,
                 acknowledged: documentStore?.uiState.acknowledgedSetAsideRecords ?? [],
                 in: projectURL),
-            in: projectURL)
+            in: projectURL,
+            applied: Set(ops.map(\.opId)))
         await reloadChain()
     }
 
@@ -1557,3 +1559,64 @@ private struct HistoryRow: View {
     }
 }
 
+
+// MARK: - The set-aside records disclosure
+
+/// **The list of set-aside archives, which must not decide how wide this window
+/// is** (signed op log P2 smoke, find 8).
+///
+/// An archive's name is its op-log file's name plus a content hash plus an
+/// ISO8601 stamp — about 130 characters, with no space in it to break at. Drawn
+/// as a plain `Text` with no line limit, three of them asked the History pane
+/// for thousands of points of ideal width, and `NavigationSplitView`, unable to
+/// afford that, resolved EVERY column to nothing: opening the chevron blanked
+/// the whole window with the main thread idle. It is the failure class
+/// CLAUDE.md's Canvas cell records for `hiddenDetailColumn` — a column resolved
+/// on an ideal nobody could satisfy — arriving from the opposite direction.
+///
+/// So two things, and the second is the one that matters. Each row is a single
+/// truncated line (middle truncation, because the distinguishing part of these
+/// names is the hash and the stamp at the END, and the tooltip carries the
+/// whole thing). And the disclosure declares an ideal width OF ITS OWN, which
+/// is what actually bounds the pane: `.lineLimit(1)` lowers a row's MINIMUM
+/// width, not the ideal it reports upward, so a truncating row alone would have
+/// left the collapse exactly where it was.
+///
+/// `isExpanded` is state with an injectable seed so the expanded case — the one
+/// that broke — is measurable windowlessly (`SetAsideRecordsDisclosureTests`);
+/// production never passes it, and the disclosure opens closed.
+@MainActor
+struct SetAsideRecordsDisclosure: View {
+    let names: [String]
+    @State private var isExpanded: Bool
+
+    /// What this list asks for, whatever its rows are called. Narrow enough to
+    /// sit inside the History pane's own column at any window size; the rows
+    /// stretch to fill whatever they are actually given.
+    static let idealWidth: CGFloat = 220
+
+    init(names: [String], initiallyExpanded: Bool = false) {
+        self.names = names
+        _isExpanded = State(initialValue: initiallyExpanded)
+    }
+
+    var body: some View {
+        DisclosureGroup("Set-aside records", isExpanded: $isExpanded) {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(names, id: \.self) { name in
+                    Text(name)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(name)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.top, 2)
+        }
+        .font(.caption)
+        .frame(idealWidth: Self.idealWidth, maxWidth: .infinity, alignment: .leading)
+    }
+}
