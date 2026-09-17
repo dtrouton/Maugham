@@ -47,7 +47,9 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
         pending: Bool = true,
         claimants: Bool = true,
         merged: Bool = false,
-        absent: Bool = true
+        absent: Bool = true,
+        damaged: MalformedRecord? = nil,
+        restorable: Set<RecordRef> = []
     ) -> PeopleAndDevicesModel {
         let made = Date(timeIntervalSince1970: 1_756_000_000)
         let admitted = Date(timeIntervalSince1970: 1_757_000_000)
@@ -72,7 +74,8 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
             ],
             claims: merged
                 ? [ClaimRecord(newRoot: root, adopted: [claimant], claimedAt: admitted)]
-                : [])
+                : [],
+            malformed: damaged.map { [$0] } ?? [])
         let standing = refusal.map {
             DeviceStanding(code: DeviceCode.short(root), refusal: $0)
         } ?? DeviceStanding(
@@ -92,6 +95,7 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
                 pending: pending ? [stranger: 14] : [:], registry: registry,
                 memory: remembered, myRoot: table.myRoot),
             claimants: claimants ? [claimant] : [],
+            restorable: restorable,
             standing: standing,
             me: root)
     }
@@ -267,9 +271,12 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
         let labels = try axButtonLabels(in: window)
         XCTAssertFalse(try axButtons(labelled: "Re-admit", in: window).isEmpty,
                        "the way back is drawn: \(labels)")
-        XCTAssertEqual(
-            try axButtons(labelled: "Revoke", in: window).count, 1,
-            "the root's own row still carries its refused Revoke, the revoked row does not")
+        // **None at all** as of smoke find 2: the revoked row carries Re-admit
+        // in Revoke's place, and the root's row — which used to carry a dead
+        // Revoke saying *a root is claimed over, never revoked* — carries none.
+        XCTAssertTrue(
+            try axButtons(labelled: "Revoke", in: window).isEmpty,
+            "the revoked row has the way back instead, and a root offers no Revoke")
     }
 
     /// And it is LIVE — the one control on this section that undoes something.
@@ -338,6 +345,85 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
         XCTAssertEqual(retired, [root])
     }
 
+    /// Rename hands back the WHOLE row, not a fingerprint: the alert starts
+    /// its field at the name that stands, and the row is the only thing that
+    /// knows it (smoke find 3).
+    func test_renameHandsBackTheRowSoTheFieldCanStartAtTheNameThatStands() throws {
+        var renamed: [String] = []
+        let drawn = model()
+        let section = PeopleAndDevicesSection(
+            model: drawn, rename: { renamed.append($0.label) })
+
+        section.renameForTesting(try XCTUnwrap(drawn.people.first))
+
+        XCTAssertEqual(renamed, [try XCTUnwrap(drawn.people.first).label])
+    }
+
+    /// Drawn on every person row, live on the ones this Mac admitted — which
+    /// includes its own root row, the row the smoke was about.
+    func test_renameIsDrawnOnEveryPersonRowAndLiveOnThisMacs() throws {
+        let window = mount(model())
+
+        let buttons = try axButtons(labelled: "Rename\u{2026}", in: window)
+        XCTAssertEqual(buttons.count, 2, "one per person")
+        XCTAssertEqual(buttons.filter { axEnabled($0) == true }.count, 2,
+                       "this Mac is the root that admitted both, itself included")
+    }
+
+    // MARK: - Records that don't verify (P2 smoke find 1)
+
+    /// The section a refused record had nowhere to appear in: its name, which
+    /// of the three kinds it is, and the reader's own sentence for what is
+    /// wrong with it.
+    func test_arecordThatDoesNotVerifyIsDrawnWithItsReason() throws {
+        let window = mount(model(damaged: MalformedRecord(
+            url: URL(fileURLWithPath: "/Book/.maugham/people/\(phone).json"),
+            reason: .signatureDoesNotVerify)))
+        let texts = try axTexts(in: window)
+
+        XCTAssertTrue(texts.contains { $0.contains("Records that don\u{2019}t verify") },
+                      "the section names itself: \(texts)")
+        XCTAssertTrue(
+            texts.contains { $0.contains("person record") && $0.contains("changed after it was signed") },
+            "with the reader's own reason: \(texts)")
+    }
+
+    /// Restore is drawn only where this Mac holds bytes that verified; where it
+    /// does not, the row says so instead of offering a press that cannot work.
+    func test_restoreIsDrawnOnlyWhereThereIsSomethingToPutBack() throws {
+        let ref = RecordRef(directory: .people, fingerprint: phone)
+        let fault = MalformedRecord(
+            url: URL(fileURLWithPath: "/Book/.maugham/people/\(phone).json"),
+            reason: .signatureDoesNotVerify)
+
+        let without = mount(model(damaged: fault))
+        XCTAssertTrue(try axButtons(labelled: "Restore", in: without).isEmpty)
+        XCTAssertTrue(
+            try axTexts(in: without).contains { $0.contains("can\u{2019}t put one back") },
+            "and says why there is no button")
+
+        let with = mount(model(damaged: fault, restorable: [ref]))
+        XCTAssertEqual(try axButtons(labelled: "Restore", in: with).count, 1)
+    }
+
+    /// Called directly rather than pressed (tripwire 33): Restore hands back
+    /// the whole row, because a record is a directory AND a fingerprint.
+    func test_restoreHandsBackTheRecordItIsAbout() throws {
+        let ref = RecordRef(directory: .people, fingerprint: phone)
+        let drawn = model(
+            damaged: MalformedRecord(
+                url: URL(fileURLWithPath: "/Book/.maugham/people/\(phone).json"),
+                reason: .signatureDoesNotVerify),
+            restorable: [ref])
+        var restored: [RecordRef] = []
+        let section = PeopleAndDevicesSection(
+            model: drawn, restore: { restored.append($0.ref) })
+
+        section.restoreForTesting(try XCTUnwrap(drawn.unverifiable.first))
+
+        XCTAssertEqual(restored, [ref])
+    }
+
     func test_admitAsksWithoutNamingADevice() {
         var asked = 0
         let section = PeopleAndDevicesSection(model: model(), admit: { asked += 1 })
@@ -381,4 +467,6 @@ private extension PeopleAndDevicesSection {
     func retireForTesting(_ fingerprint: String) { retire(fingerprint) }
     func readmitForTesting(_ person: PeopleAndDevicesModel.Person) { readmit(person) }
     func mergeForTesting(_ fingerprint: String) { merge(fingerprint) }
+    func renameForTesting(_ person: PeopleAndDevicesModel.Person) { rename(person) }
+    func restoreForTesting(_ record: PeopleAndDevicesModel.Unverifiable) { restore(record) }
 }

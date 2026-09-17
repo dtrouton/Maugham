@@ -88,6 +88,7 @@ final class PeopleAndDevicesModelTests: XCTestCase {
         pending: [String: Int] = [:],
         claimants: [String] = [],
         restores: [RestoredRecord] = [],
+        restorable: Set<RecordRef> = [],
         table overrideTable: TrustTable? = nil
     ) -> PeopleAndDevicesModel {
         let table = overrideTable ?? table(registry)
@@ -102,7 +103,92 @@ final class PeopleAndDevicesModelTests: XCTestCase {
                 memory: remembered, myRoot: table.myRoot),
             claimants: claimants,
             restores: restores,
+            restorable: restorable,
             standing: standing(), me: mac.fingerprint)
+    }
+
+    // MARK: - Records that don't verify (P2 smoke find 1)
+
+    /// **A record the reader refuses contributes nothing and, until this,
+    /// appeared nowhere.** Its consequences were loud — a tampered root record
+    /// had this Mac reading as *not yet admitted* on its own book — and its
+    /// cause was invisible. The row names the file, says which of the three
+    /// kinds it is, and gives the reader's own sentence for what is wrong.
+    func test_arecordThatDoesNotVerifyIsListedWithTheReadersOwnReason() throws {
+        let damaged = Registry(
+            devices: registry().devices, people: registry().people,
+            malformed: [MalformedRecord(
+                url: URL(fileURLWithPath:
+                    "/Book/.maugham/people/\(stranger.fingerprint).json"),
+                reason: .signatureDoesNotVerify)])
+        let model = model(damaged)
+
+        let row = try XCTUnwrap(model.unverifiable.first)
+        XCTAssertEqual(model.unverifiable.count, 1)
+        XCTAssertEqual(row.ref,
+                       RecordRef(directory: .people, fingerprint: stranger.fingerprint))
+        XCTAssertEqual(row.kind, "person")
+        XCTAssertEqual(row.code, DeviceCode.short(stranger.fingerprint))
+        XCTAssertTrue(row.sentence.contains("was changed after it was signed"),
+                      "the reader's vocabulary, not a second one: \(row.sentence)")
+        XCTAssertFalse(row.isMine)
+        XCTAssertFalse(row.canRestore, "nothing remembered, so nothing to put back")
+    }
+
+    /// The row says when the record is this Mac's own — the header above it can
+    /// only say what this device's standing IS, and this row is the reason.
+    func test_thismacsOwnUnverifiableRecordSaysSoOnItsRow() throws {
+        let damaged = Registry(
+            devices: registry().devices, people: registry().people,
+            malformed: [MalformedRecord(
+                url: URL(fileURLWithPath:
+                    "/Book/.maugham/people/\(mac.fingerprint).json"),
+                reason: .unsigned)])
+
+        let row = try XCTUnwrap(model(damaged).unverifiable.first)
+        XCTAssertTrue(row.isMine)
+    }
+
+    /// Restore is offered only where this Mac still holds the bytes that last
+    /// verified — and the row is listed either way, because naming the file is
+    /// the whole point of the section.
+    func test_restoreIsOfferedOnlyWhereThisMacRemembersAVersionThatVerified() throws {
+        let people = RecordRef(directory: .people, fingerprint: phone.fingerprint)
+        let devices = RecordRef(directory: .devices, fingerprint: stranger.fingerprint)
+        let damaged = Registry(
+            devices: registry().devices, people: registry().people,
+            malformed: [
+                MalformedRecord(
+                    url: URL(fileURLWithPath:
+                        "/Book/.maugham/people/\(phone.fingerprint).json"),
+                    reason: .signatureDoesNotVerify),
+                MalformedRecord(
+                    url: URL(fileURLWithPath:
+                        "/Book/.maugham/devices/\(stranger.fingerprint).json"),
+                    reason: .unsigned),
+            ])
+
+        let model = model(damaged, restorable: [people])
+
+        XCTAssertEqual(model.unverifiable.count, 2)
+        let remembered = try XCTUnwrap(model.unverifiable.first { $0.ref == people })
+        let forgotten = try XCTUnwrap(model.unverifiable.first { $0.ref == devices })
+        XCTAssertTrue(remembered.canRestore)
+        XCTAssertEqual(remembered.kind, "person")
+        XCTAssertFalse(forgotten.canRestore)
+        XCTAssertEqual(forgotten.kind, "device")
+    }
+
+    /// A file that is not in one of the registry's three directories names no
+    /// record, so there is nothing to list and nothing to put back.
+    func test_afileOutsideTheRegistrysDirectoriesIsNotARow() {
+        let damaged = Registry(
+            devices: registry().devices, people: registry().people,
+            malformed: [MalformedRecord(
+                url: URL(fileURLWithPath: "/Book/.maugham/notes/whatever.json"),
+                reason: .unsigned)])
+
+        XCTAssertTrue(model(damaged).unverifiable.isEmpty)
     }
 
     // MARK: - A record somebody deleted is marked (P2b Task 10)
@@ -268,6 +354,48 @@ final class PeopleAndDevicesModelTests: XCTestCase {
         XCTAssertFalse(root.offersRevoke)
         XCTAssertTrue(admitted.offersRevoke,
                       "everyone the root admitted still carries the verb")
+    }
+
+    // MARK: - Rename (P2 smoke find 3)
+
+    /// **A label could be chosen once and never corrected.** This Mac may
+    /// rename everybody it admitted — and its own root row, which is the row
+    /// the smoke was about: a root record names ITSELF as its admitter, so the
+    /// one rule covers both without a clause of its own.
+    func test_thismacRenamesEveryoneItAdmittedAndItself() throws {
+        let model = model(registry())
+        let root = try XCTUnwrap(model.people.first { $0.fingerprint == mac.fingerprint })
+        let admitted = try XCTUnwrap(
+            model.people.first { $0.fingerprint == phone.fingerprint })
+
+        XCTAssertTrue(root.canRename, "a root renames itself")
+        XCTAssertNil(root.whyNotRenamable)
+        XCTAssertTrue(admitted.canRename)
+        XCTAssertNil(admitted.whyNotRenamable)
+    }
+
+    /// Somebody another root admitted is not this Mac's to rename — the same
+    /// signature rule Revoke keeps, because a person record is signed by the
+    /// root it names. The verb still EXISTS for that row (their own Mac can
+    /// press it), so unlike Revoke-on-a-root the button stays and says why.
+    func test_apersonAdmittedByAnotherRootIsNotThisMacsToRename() throws {
+        let joined = Registry(
+            devices: [deviceRecord(otherRoot, name: "Amelia's MacBook", kind: .mac),
+                      deviceRecord(mac, name: "Denver's MacBook", kind: .mac),
+                      deviceRecord(phone, name: "Denver's iPhone")],
+            people: [person(otherRoot, label: "Amelia", ownName: "Amelia's MacBook",
+                            admittedBy: otherRoot),
+                     person(mac, label: "Denver", ownName: "Denver's MacBook",
+                            admittedBy: otherRoot),
+                     person(phone, label: "Denver", ownName: "Denver's iPhone",
+                            admittedBy: otherRoot)])
+        let model = model(joined)
+
+        for fingerprint in [otherRoot.fingerprint, phone.fingerprint] {
+            let row = try XCTUnwrap(model.people.first { $0.fingerprint == fingerprint })
+            XCTAssertFalse(row.canRename)
+            XCTAssertEqual(row.whyNotRenamable, PeopleAndDevicesModel.renameNotMine)
+        }
     }
 
     /// A root somebody else owns, whose chain this device joined: it is still

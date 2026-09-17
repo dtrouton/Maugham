@@ -98,6 +98,47 @@ final class PeopleAndDevicesConfirmationTests: XCTestCase {
         XCTAssertEqual(confirmation.confirmTitle, "Merge")
     }
 
+    // MARK: - Rename (P2 smoke find 3)
+
+    /// The one act here that asks for a word rather than a yes — and the one
+    /// whose message exists to say what a label IS, because a writer about to
+    /// change one has no other way of knowing whether it moves anything.
+    func test_renameAsksForAWordAndSaysWhatALabelIsNot() {
+        let confirmation = PeopleAndDevicesConfirmation.rename(
+            person: phone, named: "Denvre (Denver’s iPhone)", currently: "Denvre")
+
+        XCTAssertEqual(confirmation.verb, .rename)
+        XCTAssertEqual(confirmation.fingerprint, phone)
+        XCTAssertTrue(confirmation.title.contains("Denvre"), confirmation.title)
+        XCTAssertTrue(confirmation.message.contains("admits nobody"),
+                      confirmation.message)
+        XCTAssertTrue(confirmation.message.contains("shuts nobody"),
+                      confirmation.message)
+        XCTAssertEqual(confirmation.confirmTitle, "Rename")
+    }
+
+    /// The field starts at the name that stands, so the ordinary edit is a
+    /// correction and an untouched field comes to the same thing as Cancel.
+    func test_therenameFieldStartsAtTheNameThatStands() throws {
+        let confirmation = PeopleAndDevicesConfirmation.rename(
+            person: phone, named: "Denvre", currently: "Denvre")
+
+        let field = try XCTUnwrap(confirmation.field)
+        XCTAssertEqual(field.initialValue, "Denvre")
+        XCTAssertFalse(field.prompt.isEmpty)
+    }
+
+    /// And the three acts that need only a yes carry no field, so a host that
+    /// draws one cannot draw it for them.
+    func test_theactsThatNeedOnlyAYesCarryNoField() {
+        XCTAssertNil(PeopleAndDevicesConfirmation.revoke(
+            person: phone, named: "Amelia").field)
+        XCTAssertNil(PeopleAndDevicesConfirmation.retire(
+            device: phone, named: "Amelia", kind: "iPhone").field)
+        XCTAssertNil(PeopleAndDevicesConfirmation.merge(
+            root: phone, named: "Amelia").field)
+    }
+
     // MARK: - Identity
 
     /// Keyed on the verb AND the subject: a writer who dismisses one alert and

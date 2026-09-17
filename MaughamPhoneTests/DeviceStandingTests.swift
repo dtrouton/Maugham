@@ -98,6 +98,51 @@ final class DeviceStandingTests: XCTestCase {
         XCTAssertFalse(standing.admitted)
         XCTAssertNil(standing.label)
         XCTAssertEqual(standing.sentence, "Not yet admitted — the Mac will ask")
+        XCTAssertFalse(standing.ownRecordUnverified)
+    }
+
+    /// **Nobody is going to ask** (P2 smoke find 1). A record naming this
+    /// device that is PRESENT and will not verify contributes nothing to the
+    /// registry, so this device falls out of every chain and used to read *not
+    /// yet admitted* — the worst possible answer, because the record is there
+    /// and no sheet is coming. Present and unreadable is not absent, here as
+    /// everywhere (RULING-54).
+    func test_adeviceWhoseOwnRecordDoesNotVerifyIsNotToldToWait() {
+        let base = registry(admittingPhoneAs: nil)
+        let damaged = Registry(
+            devices: base.devices, people: base.people,
+            malformed: [MalformedRecord(
+                url: RegistryWriter.url(
+                    .people, fingerprint: phone.fingerprint, in: projectURL),
+                reason: .signatureDoesNotVerify)])
+
+        let standing = DeviceStanding.resolve(
+            registry: damaged, cache: cache(), mine: mine, for: projectURL)
+
+        XCTAssertFalse(standing.admitted)
+        XCTAssertTrue(standing.ownRecordUnverified)
+        XCTAssertEqual(
+            standing.sentence,
+            "This book’s record of this device doesn’t verify, "
+            + "so nothing here vouches for it")
+    }
+
+    /// Somebody ELSE's unverifiable record says nothing about this device: it
+    /// is still simply waiting to be asked about.
+    func test_anotherDevicesUnverifiableRecordLeavesThisOneWaiting() {
+        let base = registry(admittingPhoneAs: nil)
+        let damaged = Registry(
+            devices: base.devices, people: base.people,
+            malformed: [MalformedRecord(
+                url: RegistryWriter.url(
+                    .people, fingerprint: mac.fingerprint, in: projectURL),
+                reason: .unsigned)])
+
+        let standing = DeviceStanding.resolve(
+            registry: damaged, cache: cache(), mine: mine, for: projectURL)
+
+        XCTAssertFalse(standing.ownRecordUnverified)
+        XCTAssertEqual(standing.sentence, "Not yet admitted — the Mac will ask")
     }
 
     // MARK: - Admitted

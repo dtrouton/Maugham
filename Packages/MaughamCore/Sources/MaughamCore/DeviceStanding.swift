@@ -71,6 +71,18 @@ public struct DeviceStanding: Equatable, Sendable {
     /// it (fix round 1, Important 2).
     public let retiredAt: Date?
 
+    /// **This book holds a record naming this device that does not verify**
+    /// (P2 smoke find 1).
+    ///
+    /// A record present and unreadable is not a record absent (RULING-54), and
+    /// the two used to answer the same sentence here: a tampered or
+    /// half-written own record contributes nothing to the registry, so this
+    /// device fell out of every chain and read *Not yet admitted — the Mac will
+    /// ask*. It is the worst possible answer, because nobody is going to ask:
+    /// the record IS there, and until somebody puts it back or replaces it the
+    /// writer is waiting for a sheet that is not coming.
+    public let ownRecordUnverified: Bool
+
     /// The registry read's own sentence, when the read refused. Nil otherwise.
     public let refusal: String?
 
@@ -83,6 +95,7 @@ public struct DeviceStanding: Equatable, Sendable {
         isRoot: Bool = false,
         revoked: Bool = false,
         retiredAt: Date? = nil,
+        ownRecordUnverified: Bool = false,
         refusal: String? = nil
     ) {
         self.code = code
@@ -93,6 +106,7 @@ public struct DeviceStanding: Equatable, Sendable {
         self.isRoot = isRoot
         self.revoked = revoked
         self.retiredAt = retiredAt
+        self.ownRecordUnverified = ownRecordUnverified
         self.refusal = refusal
     }
 
@@ -129,10 +143,24 @@ public struct DeviceStanding: Equatable, Sendable {
         let retiredAt = registry.devices
             .first { $0.device == author.fingerprint }?.retiredAt
 
+        // A record naming THIS device that is present and will not verify.
+        // Read alongside the retirement and for its reason: it is true whether
+        // or not any chain here counts this device, and it is the difference
+        // between *nobody has got round to you* and *the file that says who you
+        // are is damaged* (smoke find 1). Records are named by the device's
+        // author key, which is why one fingerprint answers both directories.
+        let ownRecordUnverified = registry.malformed.contains { fault in
+            guard let ref = fault.ref else { return false }
+            return ref.fingerprint == author.fingerprint
+                && (ref.directory == .people || ref.directory == .devices)
+        }
+
         guard let root = table.myRoot,
               registry.chain(underRoot: root).contains(author.fingerprint)
         else {
-            return DeviceStanding(code: code, retiredAt: retiredAt)
+            return DeviceStanding(
+                code: code, retiredAt: retiredAt,
+                ownRecordUnverified: ownRecordUnverified)
         }
 
         let record = registry.person(author.fingerprint)
@@ -150,7 +178,8 @@ public struct DeviceStanding: Equatable, Sendable {
             admitted: !revoked,
             isRoot: isRoot,
             revoked: revoked,
-            retiredAt: retiredAt)
+            retiredAt: retiredAt,
+            ownRecordUnverified: ownRecordUnverified)
     }
 
     /// The standing of a device whose registry could not be read: its own code,
@@ -174,7 +203,18 @@ public struct DeviceStanding: Equatable, Sendable {
         if revoked {
             return "No longer admitted to \(rootLabel ?? label ?? code)’s chain"
         }
-        guard admitted else { return "Not yet admitted — the Mac will ask" }
+        guard admitted else {
+            // **Nobody is going to ask** (smoke find 1). The record is there;
+            // it is the file that is wrong. A device told *not yet* over one
+            // waits for a sheet that is not coming. No noun for the machine
+            // here, because this type is shared and a phone saying *this Mac*
+            // about itself is the two screens failing to compare (tripwire 19).
+            if ownRecordUnverified {
+                return "This book’s record of this device doesn’t verify, "
+                    + "so nothing here vouches for it"
+            }
+            return "Not yet admitted — the Mac will ask"
+        }
         // **The root's own sentence names nobody** (P2 smoke find 2). It is
         // drawn at the head of a list in which this device already has a person
         // row and a device row, and naming it a third time had one Mac read as

@@ -48,6 +48,51 @@ extension DocumentStore {
         return record
     }
 
+    /// **Rename a person.** Answers the record that now carries the new word.
+    ///
+    /// The one verb here that moves no verdict at all: a label is what this
+    /// book calls somebody, and `TrustTable` has never read one. It still goes
+    /// through `settle` with the others, because the surfaces that DO read a
+    /// label — the Inbox byline, History's rows, this pane — refresh on the
+    /// event it posts, and a rename nobody announced would leave the writer
+    /// looking at the name they just corrected.
+    @discardableResult
+    public func rename(person fingerprint: String, to label: String) async throws -> PersonRecord {
+        let projectURL = self.projectURL
+        let author = Document.loadIdentities.author
+        let cache = Document.loadRegistryCache
+        let memory = Document.loadAdmissionMemory
+        let record = try await Task.detached(priority: .userInitiated) {
+            try RegistryAdmission.rename(
+                person: fingerprint, to: label, in: projectURL, by: author,
+                cache: cache, memory: memory)
+        }.value
+
+        await settle(after: "renaming", DeviceCode.short(fingerprint))
+        return record
+    }
+
+    /// **Put a registry record back** (P2 smoke find 1). Answers the file it
+    /// wrote.
+    ///
+    /// The bytes are this device's own memory of a record it verified, and the
+    /// write is `RegistryCache.restore` — the same door `reconcile` uses for a
+    /// record that VANISHED, pressed here over one that is present and will not
+    /// verify. Nothing is signed: the next read checks the signature on those
+    /// bytes like any other record's.
+    @discardableResult
+    public func restore(record ref: RecordRef) async throws -> URL {
+        let projectURL = self.projectURL
+        let cache = Document.loadRegistryCache
+        let url = try await Task.detached(priority: .userInitiated) {
+            try cache.restore(ref, in: projectURL)
+        }.value
+
+        await settle(after: "putting back the record for",
+                     DeviceCode.short(ref.fingerprint))
+        return url
+    }
+
     /// **Retire this device.** A device signs its own retirement, so the only
     /// fingerprint this Mac can pass is its own author key — `RegistryAdmission`
     /// refuses anything else, and People & Devices offers the button on one row

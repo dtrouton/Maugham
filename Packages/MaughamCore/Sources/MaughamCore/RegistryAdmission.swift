@@ -318,6 +318,103 @@ public enum RegistryAdmission {
         return record
     }
 
+    /// **Rename a person: a WORD about somebody, written by the root that
+    /// vouches for them** (P2 smoke find 3).
+    ///
+    /// A label is the one thing in this registry the writer chose rather than
+    /// derived, and until now it could only be chosen once — at the admission
+    /// sheet, or by whatever a first root was called when the book began. A
+    /// writer who mistyped it, or who let a Mac name itself, had no way back.
+    ///
+    /// **It changes nothing about authority.** The record keeps its
+    /// `admittedAt`, its `admittedBy`, its revocation if it has one, and every
+    /// field this build has no property for: the FILE's object is edited and
+    /// re-signed (`RegistryWriter.resign`, P2b Task 1's rule), so a record a
+    /// later build wrote survives being renamed rather than being quietly
+    /// rewritten into this build's vocabulary and failing to verify everywhere
+    /// that understands it.
+    ///
+    /// **Who may.** The root that admitted them, and nobody else — a person
+    /// record is signed by the root it names, so any other signature makes a
+    /// file every reader lists as malformed, which is a device un-admitted in
+    /// silence rather than renamed. A root's own record names ITSELF as its
+    /// admitter, which is exactly why a root may rename itself and may not
+    /// rename another root.
+    ///
+    /// **A revoked person may be renamed.** Their label is a word about who
+    /// they were, and correcting it neither lets them back in nor shuts them
+    /// out further.
+    ///
+    /// Idempotent, for admission's reason: a label that already says this
+    /// writes no file and makes no signature for every peer to check. The
+    /// memory is stated either way, because a device renamed here is one a
+    /// later book should meet under its new name.
+    ///
+    /// **An empty label is not a rename.** It is a writer who cleared a field,
+    /// and the surface that offers this disables its button on one — mirroring
+    /// `AdmissionDecision.outcome`, where an empty label means *nothing
+    /// happens* rather than a refusal. Nothing here writes a person with no
+    /// name.
+    ///
+    /// **The caller invalidates trust** — not because a rename moves a verdict
+    /// (it moves none) but because every surface reading the label resolved it
+    /// with the old one.
+    @discardableResult
+    nonisolated public static func rename(
+        person fingerprint: String,
+        to label: String,
+        in projectURL: URL,
+        by root: DeviceIdentity,
+        cache: RegistryCache,
+        memory: AdmissionMemory,
+        now: () -> Date = { Date() },
+        presenter: NSFilePresenter? = nil
+    ) throws -> PersonRecord {
+        let registry = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        guard registry.roots.contains(where: { $0.person == root.fingerprint }) else {
+            throw RegistryAdmissionError.notARoot
+        }
+        guard let existing = registry.person(fingerprint) else {
+            // Present and unreadable is not absent (RULING-54), and it is the
+            // reachable case: another Mac's admission whose root record has not
+            // landed. Writing here would destroy it.
+            if unreadablePeople(in: registry).contains(fingerprint) {
+                throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
+            }
+            throw RegistryAdmissionError.notAdmitted(fingerprint: fingerprint)
+        }
+        guard existing.admittedBy == root.fingerprint else {
+            throw RegistryAdmissionError.alreadyAdmittedElsewhere(root: existing.admittedBy)
+        }
+
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != existing.label else {
+            memory.remember(
+                fingerprint, label: existing.label, ownName: existing.ownName,
+                at: existing.admittedAt)
+            return existing
+        }
+
+        try RegistryWriter.resign(
+            existing, signedBy: root, in: projectURL, presenter: presenter
+        ) { object in
+            object["label"] = trimmed
+        }
+
+        let verified = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        guard let record = verified.person(fingerprint) else {
+            // Written and did not read back: the one shape that must not be
+            // reported as success, because the writer would go on reading the
+            // old name and believing they had changed it.
+            throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
+        }
+        memory.remember(
+            fingerprint, label: record.label, ownName: record.ownName, at: now())
+        return record
+    }
+
     /// **Retire a device: the device’s own act** (spec §5).
     ///
     /// A device record is signed by the device it describes, so this is the one

@@ -88,7 +88,17 @@ final class RegistryPresenceTests: XCTestCase {
         let root = try XCTUnwrap(registry.roots.first)
         XCTAssertEqual(root.person, identities.author.fingerprint,
                        "a Mac in a book with nobody in it is its root")
-        XCTAssertEqual(root.label, device.name)
+        // **The label is the WRITER, the own name is the MACHINE** (P2 smoke
+        // find 2). They used to be one string and People & Devices then said
+        // the machine's name three times over one Mac. The label is the
+        // account's full name through `DocumentStore.thisWritersName`, and
+        // falls back to the machine's for an account with none — so this
+        // asserts the SHAPE rather than a name that depends on whose Mac runs
+        // the suite.
+        XCTAssertEqual(root.ownName, device.name,
+                       "the root's own name is the machine's")
+        XCTAssertFalse(root.label.isEmpty,
+                       "and its label is somebody, whoever the account is")
         XCTAssertTrue(registry.malformed.isEmpty,
                       "and both are records its own reader can vouch for")
     }

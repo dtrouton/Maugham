@@ -38,6 +38,13 @@ struct PeopleAndDevicesSection: View {
     /// Let a device this Mac revoked write again — the revocation's inverse,
     /// through the admission door (fix round 1, Important 3b).
     var readmit: (PeopleAndDevicesModel.Person) -> Void = { _ in }
+    /// Change the word this book calls somebody (P2 smoke find 3). The whole
+    /// row, because the alert starts its field at the name that stands.
+    var rename: (PeopleAndDevicesModel.Person) -> Void = { _ in }
+    /// Put back the last version of a record this device saw verify (P2 smoke
+    /// find 1). The whole row, because a record is a directory AND a
+    /// fingerprint and a bare string would be half of one.
+    var restore: (PeopleAndDevicesModel.Unverifiable) -> Void = { _ in }
     /// Take another root's chain in: *this is also me* (Task 8). The argument
     /// is the claimant ROOT's fingerprint, and the act is a claim record
     /// adopting it — never a change to which root this device is on (B1).
@@ -78,6 +85,21 @@ struct PeopleAndDevicesSection: View {
                 }
                 ForEach(model.absent) { device in
                     absentRow(device)
+                }
+                if !model.unverifiable.isEmpty {
+                    // **Last, and headed**, because everything above is a fact
+                    // about who may write and this is a fact about a file
+                    // (smoke find 1). Until this existed a record the reader
+                    // refused appeared nowhere in the app at all, while its
+                    // consequences — a Mac reading as *not yet admitted* on its
+                    // own book — were on the row above.
+                    Text("Records that don\u{2019}t verify")
+                        .font(.callout)
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ForEach(model.unverifiable) { record in
+                        unverifiableRow(record)
+                    }
                 }
             }
         } header: {
@@ -136,6 +158,16 @@ struct PeopleAndDevicesSection: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
+                // A label was chosen once and could never be corrected (smoke
+                // find 3). Drawn on every person row, live where this Mac is
+                // the root that admitted them — including its own, which is the
+                // row the smoke was actually about.
+                Button("Rename\u{2026}") { rename(person) }
+                    .controlSize(.small)
+                    .disabled(!person.canRename)
+                    .help(person.whyNotRenamable ?? PeopleAndDevicesModel.renameHelp)
+                    .accessibilityHint(Text(
+                        person.whyNotRenamable ?? PeopleAndDevicesModel.renameHelp))
                 if person.canReadmit {
                     // **The inverse, where the act was** (fix round 1,
                     // Important 3b): a revoked row used to carry a dead Revoke
@@ -263,6 +295,46 @@ struct PeopleAndDevicesSection: View {
             Text(caption)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// One record the reader refused: whose it is, what is wrong with it in the
+    /// reader's own words, and — where this Mac still holds the bytes that last
+    /// verified — the one press that puts them back.
+    private func unverifiableRow(
+        _ record: PeopleAndDevicesModel.Unverifiable
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("\(record.name) (\(record.code))")
+                    if record.isMine {
+                        // The header above says what this device's standing IS;
+                        // this row is the reason for it, and the two are only
+                        // one story if the row says whose record it is.
+                        Text("this Mac\u{2019}s own record")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text(record.sentence)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                if !record.canRestore {
+                    Text("This Mac doesn\u{2019}t remember a version of it that "
+                         + "verified, so it can\u{2019}t put one back.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 8)
+            if record.canRestore {
+                Button("Restore") { restore(record) }
+                    .controlSize(.small)
+                    .help(PeopleAndDevicesModel.restoreHelp)
+                    .accessibilityHint(Text(PeopleAndDevicesModel.restoreHelp))
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

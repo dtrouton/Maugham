@@ -64,6 +64,23 @@ struct PeopleAndDevicesModel: Equatable {
     /// through, pressed by the root that closed it.
     static let readmitHelp = "Let this device write in this book again"
 
+    /// **What Rename says, and who may** (P2 smoke find 3). A label was chosen
+    /// once — at the admission sheet, or by whatever a first root's Mac called
+    /// itself — and a writer who mistyped it had no way back. It is the one
+    /// verb here that changes no authority at all; the refusal is the same
+    /// signature rule Revoke's is, because a person record is signed by the
+    /// root it names.
+    static let renameHelp = "Change the name this book calls them"
+    static let renameNotMine =
+        "Only the Mac that admitted this device can rename it"
+
+    /// **What Restore says** (P2 smoke find 1). The bytes this device kept when
+    /// it last verified that record, put back over the one that will not. It is
+    /// a press rather than something `reconcile` does on its own, because
+    /// overwriting a signed record on shared storage is a decision, and a
+    /// device cannot tell *tampered with* from *damaged in transit*.
+    static let restoreHelp = "Put back the version this Mac last saw verify"
+
     /// And Retire, which is a device’s word about itself.
     static let retireHelp = "Say this Mac has stopped writing in this book"
     static let retireNotThisDevice = "A device retires itself"
@@ -183,6 +200,18 @@ struct PeopleAndDevicesModel: Equatable {
         /// Why not, when not. The button is drawn either way (P2a's Admit…
         /// pattern) and says what would make it live.
         let whyNotRevocable: String?
+        /// **Whether this Mac may change the word this book calls them** (P2
+        /// smoke find 3): it is the root that admitted them — which a ROOT's
+        /// own record says of itself, so a root may rename itself and may not
+        /// rename another root.
+        ///
+        /// Unlike `offersRevoke` this keeps its button when it refuses, because
+        /// the verb EXISTS for the row and is merely not this Mac's to press:
+        /// somebody else's Mac can rename them, and *why can I not rename this*
+        /// is a question an absent button answers with silence.
+        let canRename: Bool
+        /// Why not, when not.
+        let whyNotRenamable: String?
         /// **Whether the row draws a Revoke control at all** (P2 smoke find 2).
         ///
         /// A refused verb normally keeps its button, disabled, with the reason
@@ -244,6 +273,54 @@ struct PeopleAndDevicesModel: Equatable {
         var id: String { fingerprint }
     }
 
+    /// **A record on disk this device cannot vouch for** (P2 smoke find 1).
+    ///
+    /// A malformed record is listed by the reader and contributes nothing to
+    /// the registry — which is right, and which until now meant it appeared
+    /// nowhere in the app at all. The consequences are loud and the cause was
+    /// invisible: this Mac's own tampered root record made it read as *not yet
+    /// admitted* on its own book, with nothing on any screen naming the file or
+    /// saying what was wrong with it.
+    ///
+    /// It is named by the FILE, which is the one thing a malformed listing
+    /// still says for certain (`MalformedRecord.ref`) — what the bytes CLAIM is
+    /// exactly what cannot be trusted here.
+    struct Unverifiable: Equatable, Identifiable {
+        /// Which FILE this row is about. A `RecordRef` rather than a bare
+        /// fingerprint because the same key can name a record in two
+        /// directories, and Restore must put back the one the writer is
+        /// looking at.
+        let ref: RecordRef
+        /// *person*, *device*, *claim* — the directory as a word, so the row
+        /// says which of the three kinds of record this is without spelling a
+        /// path (tripwire 40).
+        let kind: String
+        /// The best name this book still has for whoever the record is about:
+        /// a verified record of theirs elsewhere, this Mac's own memory of a
+        /// label, else the code. Never the malformed record's own words.
+        let name: String
+        let code: String
+        /// Why it does not verify, in `MalformedRecord.Reason`'s own sentence —
+        /// the reader's vocabulary, not a second one.
+        let reason: String
+        /// The record names THIS device. The row says so, because the header
+        /// above it can only say what this device's standing IS and this is the
+        /// reason for it.
+        let isMine: Bool
+        /// This device still holds the bytes that last verified, so Restore can
+        /// put them back. False is a real and ordinary state — a record that
+        /// never verified here was never remembered — and the row is listed
+        /// either way, because naming the file is the whole point.
+        let canRestore: Bool
+
+        var fingerprint: String { ref.fingerprint }
+        var id: String { "\(ref.directory.rawValue)-\(ref.fingerprint)" }
+
+        var sentence: String {
+            "The \(kind) record for \(name) (\(code)) \(reason)."
+        }
+    }
+
     /// A claimant row — a `Named` plus whether this Mac can actually answer it
     /// (whole-branch review, I2).
     ///
@@ -288,6 +365,10 @@ struct PeopleAndDevicesModel: Equatable {
     /// Devices this Mac remembers labelling whose record is not in the folder —
     /// the only thing left naming them, and **Forget this device** clears it.
     let absent: [Named]
+    /// Records the folder holds that this device cannot vouch for (smoke find
+    /// 1). Last, because everything above is a fact about who may write and
+    /// this is a fact about a file.
+    let unverifiable: [Unverifiable]
 
     // MARK: - Making it
 
@@ -308,6 +389,10 @@ struct PeopleAndDevicesModel: Equatable {
     ///   - restores: `RegistryCache.restores(for:)` — the SAME dated list
     ///     History reads, so a record marked *put back* in a row and an event
     ///     saying so in the timeline are one fact rather than two derivations.
+    ///   - restorable: the records whose last verified bytes this device still
+    ///     holds (`RegistryCache.rawBytes(of:for:)`), asked of the cache by the
+    ///     host and handed in as a value — this type reads no folder and no
+    ///     shared memory, which is what lets every rule below be pinned.
     ///   - standing: this device's own sentence, and the carrier of a refusal.
     ///   - me: this device's author fingerprint.
     static func make(
@@ -317,13 +402,15 @@ struct PeopleAndDevicesModel: Equatable {
         requests: [AdmissionRequest],
         claimants: [String],
         restores: [RestoredRecord] = [],
+        restorable: Set<RecordRef> = [],
         standing: DeviceStanding,
         me: String
     ) -> PeopleAndDevicesModel {
         if let refusal = standing.refusal {
             return PeopleAndDevicesModel(
                 refusal: refusal, standing: standing.sentence, code: standing.code,
-                pending: [], people: [], merged: [], claimants: [], absent: [])
+                pending: [], people: [], merged: [], claimants: [], absent: [],
+                unverifiable: [])
         }
 
         // The LATEST restoration of each record: a record put back twice is two
@@ -338,10 +425,17 @@ struct PeopleAndDevicesModel: Equatable {
         let deviceByFingerprint = Dictionary(
             registry.devices.map { ($0.device, $0) }, uniquingKeysWith: { first, _ in first })
 
-        func name(_ fingerprint: String) -> String {
+        /// Whatever this book's VERIFIED records still call a fingerprint, or
+        /// nil. Separate from `name` below because the unverifiable rows have a
+        /// further fallback of their own (this Mac's memory of a label) before
+        /// they give up and show the code.
+        func knownName(_ fingerprint: String) -> String? {
             registry.person(fingerprint)?.label
                 ?? deviceByFingerprint[fingerprint]?.name
-                ?? DeviceCode.short(fingerprint)
+        }
+
+        func name(_ fingerprint: String) -> String {
+            knownName(fingerprint) ?? DeviceCode.short(fingerprint)
         }
 
         func named(_ fingerprint: String) -> Named {
@@ -416,6 +510,27 @@ struct PeopleAndDevicesModel: Equatable {
                 code: DeviceCode.short(fingerprint)))
         }
 
+        // Named by the FILE. A malformed record contributes nothing, so the
+        // name comes from whatever else this book still knows about that
+        // fingerprint — a verified record of theirs, this Mac's own memory of a
+        // label, else the code. Sorted by the row's own id, so a folder read in
+        // another order lists the same way.
+        let unverifiable: [Unverifiable] = registry.malformed
+            .compactMap { fault -> Unverifiable? in
+                guard let ref = fault.ref else { return nil }
+                return Unverifiable(
+                    ref: ref,
+                    kind: word(for: ref.directory),
+                    name: knownName(ref.fingerprint)
+                        ?? remembered[ref.fingerprint]?.label
+                        ?? DeviceCode.short(ref.fingerprint),
+                    code: DeviceCode.short(ref.fingerprint),
+                    reason: fault.reason.sentence,
+                    isMine: ref.fingerprint == me,
+                    canRestore: restorable.contains(ref))
+            }
+            .sorted { $0.id < $1.id }
+
         return PeopleAndDevicesModel(
             refusal: nil,
             standing: standing.sentence,
@@ -424,7 +539,8 @@ struct PeopleAndDevicesModel: Equatable {
             people: people,
             merged: merged,
             claimants: stillClaiming,
-            absent: absent)
+            absent: absent,
+            unverifiable: unverifiable)
     }
 
     /// One person's row, with the devices whose records name them nested under
@@ -466,6 +582,8 @@ struct PeopleAndDevicesModel: Equatable {
             revokedAt: record.revokedAt,
             canRevoke: revocable(record, me: me),
             whyNotRevocable: whyNotRevocable(record, me: me),
+            canRename: record.admittedBy == me,
+            whyNotRenamable: record.admittedBy == me ? nil : renameNotMine,
             offersRevoke: !record.isRoot,
             // The inverse of a revocation, offered only by the authority that
             // performed it: `RegistryAdmission.admit` refuses anybody else's
@@ -510,6 +628,18 @@ struct PeopleAndDevicesModel: Equatable {
     ) -> String? {
         guard record.person == myRoot else { return nil }
         return record.person == me ? "you" : "\(record.label)\u{2019}s Mac"
+    }
+
+    /// Which of the registry's three kinds of record a row is about, as a
+    /// word. The enum rather than a path, so no surface spells `.maugham/people`
+    /// (tripwire 40) and an unfamiliar directory a later build adds still reads
+    /// as something.
+    private static func word(for directory: RegistryDirectory) -> String {
+        switch directory {
+        case .people: return "person"
+        case .devices: return "device"
+        case .claims: return "claim"
+        }
     }
 
     private static func word(for kind: DeviceKind) -> String {
