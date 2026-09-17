@@ -92,6 +92,54 @@ extension DocumentStore {
         return record
     }
 
+    /// **Admit, without asking, everyone this writer has already named** —
+    /// decision B2 away from the project open (find 4, 2026-09-17). Answers the
+    /// records it wrote, empty when it wrote none.
+    ///
+    /// `DocumentStore.open` makes the same call inline, before the first
+    /// `Document.load`, and until this existed that was the ONLY place it was
+    /// made: a device whose history arrived mid-session — a window open for
+    /// days, a phone syncing in — put the sheet up again over a label this Mac
+    /// had already decided. The verb is `RegistryPresence.admitRemembered`
+    /// either way, because two paths admitting by two rules is two answers to
+    /// *have I met you before*.
+    ///
+    /// It refuses nothing and throws nothing: `admitRemembered` admits nobody
+    /// unless this Mac is a root here, leaves alone every device the folder
+    /// already has a person record for, and a registry that will not read is
+    /// logged rather than raised — there is no writer waiting on a button, and
+    /// the sheet behind this is the recourse if it wrote nothing.
+    ///
+    /// The settle runs only when something was admitted, so the
+    /// `admissionSettled` post cannot drive a window that re-derives its queue
+    /// from it back round for a second helping.
+    @discardableResult
+    public func admitRemembered() async -> [PersonRecord] {
+        let projectURL = self.projectURL
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        let memory = Document.loadAdmissionMemory
+        let admitted: [PersonRecord]
+        do {
+            admitted = try await Task.detached(priority: .userInitiated) {
+                try RegistryPresence.admitRemembered(
+                    in: projectURL, identities: identities, cache: cache, memory: memory)
+            }.value
+        } catch {
+            registryVerbLog.error(
+                "remembered admission in \(projectURL.lastPathComponent, privacy: .public) could not read the registry: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
+        guard !admitted.isEmpty else { return [] }
+        for record in admitted {
+            registryVerbLog.info(
+                "admitted \(DeviceCode.short(record.person), privacy: .public) as \(record.label, privacy: .public) in \(projectURL.lastPathComponent, privacy: .public), remembered from an earlier book")
+        }
+        await settle(after: "admitting", admitted.map { DeviceCode.short($0.person) }
+            .joined(separator: ", "))
+        return admitted
+    }
+
     /// Forget every resolved table, re-read every open document, and say so —
     /// `admit`'s own third act, shared rather than spelled twice.
     ///

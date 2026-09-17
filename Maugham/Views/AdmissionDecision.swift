@@ -115,6 +115,74 @@ enum AdmissionDecision {
         }
     }
 
+    // MARK: - A refresh, in order (decision B2 mid-session; find 4, 2026-09-17)
+
+    /// **What a refresh does, and the order it does it in.**
+    ///
+    /// Decision B2 is *once per device*, and until this existed it held only at
+    /// a project OPEN: `RegistryPresence.admitRemembered` ran there and nowhere
+    /// else, so a device arriving mid-session — a window open for days, a phone
+    /// syncing in over lunch — was asked about again, with the memory used only
+    /// to pre-fill the label field. Mid-session arrival is the ORDINARY case.
+    ///
+    /// Two acts, and the order between them is the whole contract: admit
+    /// everyone this Mac has already named, THEN read the registry. Read first
+    /// and the person record the admission just wrote is invisible to
+    /// `requests`, which asks about the device all over again — the defect,
+    /// exactly, with an extra write in it.
+    ///
+    /// Closures rather than a store, for `CompilerOrchestrator`'s reason: the
+    /// order is then decidable with no window, no folder and no admission, and
+    /// a later reordering of the two lines fails a test instead of shipping.
+    ///
+    /// **`nil` means leave the queue alone.** A registry that will not read
+    /// costs the writer the sheet, never the strangers they are already being
+    /// asked about; `[]` is the different, positive answer *nobody is waiting*.
+    ///
+    /// **The silent admission is attempted only when something remembered is
+    /// waiting** (`anyRemembered`). It costs a verified folder read and a
+    /// signature check per record, and this runs on every document open that
+    /// announces held lines — so a book whose only stranger is a stranger pays
+    /// nothing for a memory that has nothing to say about it.
+    @MainActor
+    static func refreshedRequests(
+        heldLines: @MainActor () -> [String: Int],
+        memory: [String: AdmissionMemory.Label],
+        admitRemembered: @MainActor () async -> Void,
+        resolve: @MainActor () async -> (registry: Registry, myRoot: String?)?
+    ) async -> [AdmissionRequest]? {
+        var pending = heldLines()
+        guard !pending.isEmpty else { return [] }
+        if anyRemembered(pending: pending, memory: memory) {
+            await admitRemembered()
+            // What it let in is applied, so the counts moved underneath us.
+            pending = heldLines()
+            guard !pending.isEmpty else { return [] }
+        }
+        guard let resolved = await resolve() else { return nil }
+        return requests(
+            pending: pending, registry: resolved.registry,
+            memory: memory, myRoot: resolved.myRoot)
+    }
+
+    /// Is any device with lines held here one this writer has already named?
+    ///
+    /// Cheap and folder-free, and keyed the way the held counts are keyed —
+    /// `OpLogChain.pendingByDevice` counts under the device record's own
+    /// fingerprint, which is the key `AdmissionMemory` uses, so the two spaces
+    /// meet wherever a silent admission could act at all. A held count under a
+    /// key no device record names cannot be admitted by
+    /// `RegistryPresence.admitRemembered` either — it walks the folder's device
+    /// records — so answering false about it costs nothing and the sheet still
+    /// asks.
+    static func anyRemembered(
+        pending: [String: Int], memory: [String: AdmissionMemory.Label]
+    ) -> Bool {
+        pending.contains { fingerprint, waiting in
+            waiting > 0 && memory[fingerprint] != nil
+        }
+    }
+
     /// What the writer's typed label means for this request.
     ///
     /// Whitespace is trimmed first, because a trailing space is a typo and not

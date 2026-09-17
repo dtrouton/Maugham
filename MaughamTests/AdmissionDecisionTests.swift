@@ -243,6 +243,151 @@ final class AdmissionDecisionTests: XCTestCase {
         }
     }
 
+    // MARK: - Decision B2 mid-session: the refresh admits before it asks
+
+    /// A recording of what a refresh did, in the order it did it — which is the
+    /// whole of find 4: today's refresh reads the memory for a LABEL and asks
+    /// anyway, so the pin has to be about the order of two acts and not about
+    /// either one alone.
+    @MainActor
+    private final class RefreshLog {
+        var acts: [String] = []
+        var registry: Registry
+        var held: [String: Int]
+
+        init(registry: Registry, held: [String: Int]) {
+            self.registry = registry
+            self.held = held
+        }
+    }
+
+    /// The refresh, driven with no window and no folder: the closures are what
+    /// `AdmissionModifier` hands it, and `admitRemembered` here does what
+    /// `RegistryPresence.admitRemembered` does on disk — writes the person
+    /// record and lets the held span in.
+    @MainActor
+    private func refresh(
+        _ log: RefreshLog,
+        admits: PersonRecord? = nil,
+        memory: [String: AdmissionMemory.Label] = [:],
+        resolves: Bool = true
+    ) async -> [AdmissionRequest]? {
+        await AdmissionDecision.refreshedRequests(
+            heldLines: { log.held },
+            memory: memory,
+            admitRemembered: {
+                log.acts.append("admit")
+                guard let admits else { return }
+                log.registry = Registry(
+                    devices: log.registry.devices, people: log.registry.people + [admits])
+                log.held.removeValue(forKey: admits.person)
+            },
+            resolve: {
+                log.acts.append("resolve")
+                return resolves ? (registry: log.registry, myRoot: self.root) : nil
+            })
+    }
+
+    /// Two devices arrive mid-session: one this Mac named in an earlier book,
+    /// one it has never seen. The remembered one is let in without a word and
+    /// its span applies; the stranger is still asked about, exactly once.
+    ///
+    /// **This is also the order pin.** `resolve` answers the registry as it
+    /// stands WHEN IT IS CALLED, so a refresh that read the folder before
+    /// admitting would hand `requests` a registry with no person record for the
+    /// phone and put its sheet up — which is find 4 itself, now with a wasted
+    /// write in front of it.
+    @MainActor
+    func test_aRememberedDeviceArrivingMidSessionIsAdmittedAndTheStrangerIsNot() async {
+        let log = RefreshLog(
+            registry: rootedRegistry(devices: [device(phone, name: "Denver’s iPhone")]),
+            held: [phone: 4, other: 2])
+        let memory = [phone: AdmissionMemory.Label(
+            label: "Denver", ownName: "Denver’s iPhone",
+            labelledAt: Date(timeIntervalSince1970: 1))]
+
+        let requests = await refresh(
+            log, admits: person(phone, label: "Denver", admittedBy: root), memory: memory)
+
+        XCTAssertEqual(requests?.map(\.fingerprint), [other],
+                       "decision B2 is once per device, and this Mac has already named "
+                           + "the phone — the stranger is a different question")
+        XCTAssertEqual(log.acts, ["admit", "resolve"],
+                       "the registry is read AFTER the silent admission, or the person "
+                           + "record it just wrote is invisible to the queue")
+        XCTAssertEqual(log.held, [other: 2], "and the span it was holding is applied")
+    }
+
+    /// The same, with nobody else waiting: there is nothing left held, so there
+    /// is nothing to ask about and no folder is read to find that out.
+    @MainActor
+    func test_aRememberedDeviceIsTheWholeQueueAndTheQueueEmpties() async {
+        let log = RefreshLog(
+            registry: rootedRegistry(devices: [device(phone, name: "Denver’s iPhone")]),
+            held: [phone: 4])
+        let memory = [phone: AdmissionMemory.Label(
+            label: "Denver", ownName: "Denver’s iPhone",
+            labelledAt: Date(timeIntervalSince1970: 1))]
+
+        let requests = await refresh(
+            log, admits: person(phone, label: "Denver", admittedBy: root), memory: memory)
+
+        XCTAssertEqual(requests, [])
+        XCTAssertEqual(log.acts, ["admit"])
+    }
+
+    @MainActor
+    func test_aDeviceThisMacHasNeverNamedStillRaisesExactlyOneRequest() async {
+        let log = RefreshLog(
+            registry: rootedRegistry(devices: [device(phone, name: "Denver’s iPhone")]),
+            held: [phone: 4])
+
+        let requests = await refresh(log)
+
+        XCTAssertEqual(requests?.map(\.fingerprint), [phone])
+        XCTAssertEqual(requests?.first?.waitingCount, 4)
+    }
+
+    /// The silent admission costs a verified folder read, and the refresh runs
+    /// on every document open that announces held lines. Nothing this Mac has
+    /// named is waiting, so there is nothing for it to do and it is not asked.
+    @MainActor
+    func test_nothingRememberedIsWaitingSoNoSilentAdmissionIsAttempted() async {
+        let log = RefreshLog(
+            registry: rootedRegistry(devices: [device(phone, name: "Denver’s iPhone")]),
+            held: [phone: 4])
+        let memory = ["cccc4444": AdmissionMemory.Label(
+            label: "Rosa", ownName: "Rosa’s iPad",
+            labelledAt: Date(timeIntervalSince1970: 1))]
+
+        _ = await refresh(log, memory: memory)
+
+        let acts = log.acts
+        XCTAssertEqual(acts, ["resolve"])
+    }
+
+    @MainActor
+    func test_nothingHeldAnywhereAsksNobodyAndAdmitsNobody() async {
+        let log = RefreshLog(registry: rootedRegistry(), held: [:])
+
+        let requests = await refresh(log)
+
+        XCTAssertEqual(requests, [], "an empty queue, not a queue left standing")
+        let acts = log.acts
+        XCTAssertEqual(acts, [], "and no folder is read to find that out")
+    }
+
+    /// A registry that will not read costs the writer the sheet, never the
+    /// queue they already have — `nil` is *leave it alone*, which `[]` is not.
+    @MainActor
+    func test_aRegistryThatWillNotReadLeavesTheQueueAlone() async {
+        let log = RefreshLog(registry: rootedRegistry(), held: [phone: 2])
+
+        let requests = await refresh(log, resolves: false)
+
+        XCTAssertNil(requests)
+    }
+
     /// Anything that is NOT an admission refusal still says what it was. The
     /// fallback is on the outer function, not a `default` inside the switch,
     /// which is what keeps the enum's own arms compiler-checked.
