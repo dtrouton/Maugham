@@ -178,7 +178,28 @@ public enum TrustEvents {
                 label: registry.person(joined)?.label,
                 ownName: registry.person(joined)?.ownName))
         }
-        for claimant in cache.claimants(for: projectURL) {
+        // **A root this device has adopted is merged, and is not still
+        // claiming** (whole-branch review H1). `RegistryCache.claimants` never
+        // forgets — that a second root was seen here is a fact, and a merge
+        // does not unsay it — so the answer to *is it still claiming* is made
+        // at the derivation instead.
+        //
+        // The adopted set is asked of a `TrustTable` rather than re-derived off
+        // `registry.claims`, because People & Devices reads `adoptedRoots` and
+        // two spellings of *merged* is exactly how the pane comes to say merged
+        // while History goes on warning. The table is pure over these same
+        // three inputs (`DeviceStanding.resolve`'s own shape, for its reason),
+        // so this costs no disk and no second opinion.
+        //
+        // **One-way, and that is the point.** `adoptedRoots` is the closure of
+        // claims written by MY root, so a root that adopted mine without my
+        // reciprocating stays a claimant and stays offered (B1): nothing
+        // widens on somebody else's say-so, and the merge that silences this
+        // warning is the writer's own.
+        let adopted = Set(TrustTable.resolve(
+            registry: registry, mine: mine,
+            joinedRoot: cache.joinedRoot(for: projectURL)).adoptedRoots)
+        for claimant in cache.claimants(for: projectURL) where !adopted.contains(claimant) {
             events.append(TrustEvent(
                 date: nil, kind: .anotherClaimant, subject: claimant,
                 label: registry.person(claimant)?.label,

@@ -285,6 +285,62 @@ final class TrustEventsTests: XCTestCase {
             cache: store, mine: mine, for: elsewhere).isEmpty)
     }
 
+    /// **A root my root has ADOPTED is merged, and History stops warning about
+    /// it** (whole-branch review H1).
+    ///
+    /// `RegistryCache.claimants` is an append-only memory — recording that a
+    /// second root was once seen here is a fact, and the merge does not unsay
+    /// it. So the filter belongs at the derivation, and it has to be the SAME
+    /// adopted set People & Devices reads, or the pane says *merged* on one
+    /// screen while History warns forever on the other.
+    func test_arootThisDeviceHasAdoptedIsNoLongerAnotherClaimant() {
+        let mineRoot = foreignKey()
+        let theirs = foreignKey()
+        let store = cache()
+        store.join(root: mineRoot, for: project, at: at(50))
+        store.recordClaimant(root: theirs, for: project)
+
+        let before = TrustEvents.derive(
+            registry: Registry(people: [rootRecord(mineRoot), rootRecord(theirs)]),
+            cache: store, mine: mine, for: project)
+            .filter { $0.kind == .anotherClaimant }
+        XCTAssertEqual(before.map(\.subject), [theirs],
+                       "premise: unmerged, it is a claimant and History says so")
+
+        let after = TrustEvents.derive(
+            registry: Registry(
+                people: [rootRecord(mineRoot), rootRecord(theirs)],
+                claims: [ClaimRecord(
+                    newRoot: mineRoot, adopted: [theirs], claimedAt: at(60))]),
+            cache: store, mine: mine, for: project)
+            .filter { $0.kind == .anotherClaimant }
+        XCTAssertTrue(after.isEmpty,
+                      "the merge is this device's own answer to the question the "
+                          + "warning asks: \(after.map(\.subject))")
+    }
+
+    /// The converse, and the one that keeps the filter honest: adoption is
+    /// one-way (B1), so a root that adopted MINE without my reciprocating is
+    /// still a claimant and still offered.
+    func test_arootThatAdoptedMineWithoutMyAnswerIsStillAClaimant() {
+        let mineRoot = foreignKey()
+        let theirs = foreignKey()
+        let store = cache()
+        store.join(root: mineRoot, for: project, at: at(50))
+        store.recordClaimant(root: theirs, for: project)
+
+        let events = TrustEvents.derive(
+            registry: Registry(
+                people: [rootRecord(mineRoot), rootRecord(theirs)],
+                claims: [ClaimRecord(
+                    newRoot: theirs, adopted: [mineRoot], claimedAt: at(60))]),
+            cache: store, mine: mine, for: project)
+            .filter { $0.kind == .anotherClaimant }
+
+        XCTAssertEqual(events.map(\.subject), [theirs],
+                       "nothing widens on somebody else's claim")
+    }
+
     // MARK: - This device
 
     func test_anEventAboutOneOfThisDevicesOwnKeysKnowsItIsThisMac() {
