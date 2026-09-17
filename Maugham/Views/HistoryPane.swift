@@ -1566,21 +1566,43 @@ private struct HistoryRow: View {
 /// is** (signed op log P2 smoke, find 8).
 ///
 /// An archive's name is its op-log file's name plus a content hash plus an
-/// ISO8601 stamp — about 130 characters, with no space in it to break at. Drawn
-/// as a plain `Text` with no line limit, three of them asked the History pane
-/// for thousands of points of ideal width, and `NavigationSplitView`, unable to
-/// afford that, resolved EVERY column to nothing: opening the chevron blanked
-/// the whole window with the main thread idle. It is the failure class
-/// CLAUDE.md's Canvas cell records for `hiddenDetailColumn` — a column resolved
-/// on an ideal nobody could satisfy — arriving from the opposite direction.
+/// ISO8601 stamp — 99 characters, with no space in it to break at. Drawn as a
+/// plain `Text` with no line limit, three of them ask for **559 pt** while the
+/// column they are in is pinned to the writer's own width (320 by default), and
+/// opening the chevron blanked all three of Denver's columns with the main
+/// thread idle.
+///
+/// **Why that demand is now dangerous.** `ProjectWindow.detailColumn` pins a
+/// single width and has always relied on AppKit breaking its
+/// `NSSplitViewItem.MaxSize` rather than the content's demand — undocumented
+/// tie-breaking, which that method's own doc comment refuses to call a proof
+/// and which `DetailColumnWidthTests.test_theFixedColumnWinsAgainstAnUnbreakablePane`
+/// is the canary on. **On the macOS 27 SDK that canary is red, and the tie-break
+/// has flipped**: the column pinned to 300 resolves to 528, the pane's own
+/// demand, in all five of that file's fixed-width cases. So a pane's width is
+/// no longer a hint here — it is what the column becomes, and 559 pt of right
+/// column in a 1200 pt window leaves the prose below its own floor.
 ///
 /// So two things, and the second is the one that matters. Each row is a single
 /// truncated line (middle truncation, because the distinguishing part of these
 /// names is the hash and the stamp at the END, and the tooltip carries the
-/// whole thing). And the disclosure declares an ideal width OF ITS OWN, which
-/// is what actually bounds the pane: `.lineLimit(1)` lowers a row's MINIMUM
-/// width, not the ideal it reports upward, so a truncating row alone would have
-/// left the collapse exactly where it was.
+/// whole thing). And the disclosure declares an ideal width OF ITS OWN — 220 pt,
+/// measured, against the shipped shape's 559 — which is what actually bounds
+/// the pane: `.lineLimit(1)` lowers a row's MINIMUM width, not the ideal it
+/// reports upward, so a truncating row alone would have left the demand where
+/// it was (falsified by reverting only the frame:
+/// `SetAsideRecordsDisclosureTests`' two width cases go red, the truncation
+/// still in place).
+///
+/// **What is NOT established**: that these rows are what collapsed Denver's
+/// window. The collapse would not reproduce — a real `HistoryPane` over real
+/// `.lines` records, expanded, in a real three-column split at 1200 pt and
+/// 900 pt, holds `[240, 879, 320]` / `[200, 680, 240]` with the shipped shape
+/// as well as with this one. The demand and the flipped tie-break are both
+/// measured; the step from them to three blank columns is inference. The fix is
+/// right either way — a forensic list must not bid for the window — and if the
+/// blanking recurs with this shipped, the split view itself is the suspect, not
+/// these rows.
 ///
 /// `isExpanded` is state with an injectable seed so the expanded case — the one
 /// that broke — is measurable windowlessly (`SetAsideRecordsDisclosureTests`);

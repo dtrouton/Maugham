@@ -6,18 +6,26 @@ import SwiftUI
 /// op log P2 smoke, find 8).
 ///
 /// Not a hang — the main thread was idle when it was sampled. The rows are
-/// archive names: an op-log filename, a content hash and an ISO8601 stamp, about
-/// 130 characters with nothing in them to break at. Drawn as a plain `Text` with
-/// no line limit inside the right-hand column, they asked for thousands of
-/// points of ideal width, and `NavigationSplitView` — unable to afford that —
-/// resolved every column to nothing. The same failure class CLAUDE.md's Canvas
-/// cell records for `hiddenDetailColumn`, arriving from the other direction.
+/// archive names: an op-log filename, a content hash and an ISO8601 stamp, 99
+/// characters with nothing in them to break at. Drawn as a plain `Text` with no
+/// line limit, three of them ask for 559 pt inside a column pinned to the
+/// writer's own width — and on the macOS 27 SDK a pane's demand is what the
+/// column becomes rather than a hint (`DetailColumnWidthTests`' five fixed-width
+/// cases all read 528 against 300/320/360 there).
+///
+/// **The causal step is not established and these tests do not assert it.** The
+/// blanking would not reproduce in a real three-column split — see
+/// `SetAsideRecordsDisclosure`'s doc comment for what was tried. What is pinned
+/// here is narrower and sufficient: a forensic list does not get to bid for the
+/// window.
 ///
 /// Pinned WINDOWLESSLY (tripwire 33, and the headless-gate rule that only
 /// `TestWindow` may build a window): `NSHostingView.fittingSize` asks the view
-/// what it wants with nothing proposed, which is exactly the question the split
-/// view asked and got a four-figure answer to. The control below measures the
-/// shape that shipped, so the measurement is known to be able to see the bug.
+/// what it wants with nothing proposed, which is the question the split view
+/// puts to it. The control below measures the shape that shipped, so the
+/// measurement is known to be able to see the difference. The bound is
+/// deliberately generous — SwiftUI's layout is exactly what moved at macOS 27,
+/// so no case here asserts a width to the point.
 @MainActor
 final class SetAsideRecordsDisclosureTests: XCTestCase {
 
