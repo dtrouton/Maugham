@@ -686,6 +686,110 @@ final class PendingLoadTests: XCTestCase {
                        "this device does not claim its own book")
     }
 
+    // MARK: - A second root is a claimant however it got there (smoke find 9)
+
+    /// **The two-root merge, from the side that did not begin it.**
+    ///
+    /// B claims the book: it writes its own root record and a claim record
+    /// adopting A's root. Nothing in that names one of A's keys — a claim is
+    /// signed by B about B — so neither of the older rules sees it: it reaches
+    /// no `admittingRoots` and displaces no record of A's. Before this rule A's
+    /// People & Devices listed nothing of B and offered no Merge, so the merge
+    /// B had started could never be finished from A's side.
+    func test_aRootThatAdoptedMineIsListedAsAClaimant() throws {
+        try writeRootRecord()
+
+        // B: a Mac that rooted itself here and adopted A's chain.
+        let other = LocalIdentities.softwareForTesting()
+        let otherCache = RegistryCache(
+            fileURL: projectURL.appendingPathComponent("other-cache.json"),
+            identity: other.author.fingerprint)
+        try RegistryAdmission.claim(
+            adopting: [root.author.fingerprint], in: projectURL,
+            by: other.author, cache: otherCache)
+
+        let table = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+
+        XCTAssertEqual(table.myRoot, root.author.fingerprint,
+                       "B's claim moves nobody's root (B1)")
+        XCTAssertEqual(table.adoptedRoots, [],
+                       "and A has not reciprocated, so it verifies nothing of B's")
+        XCTAssertEqual(cache.claimants(for: projectURL), [other.author.fingerprint],
+                       "but B is listed, so the writer can answer it")
+        XCTAssertEqual(makeSameCache().claimants(for: projectURL),
+                       [other.author.fingerprint],
+                       "and it survives the launch that draws it")
+    }
+
+    /// Step 19 of the smoke script: two Macs each rooted an empty book before
+    /// sync converged and neither has claimed anything. There is no claim
+    /// record and no admission either way — just a second root in the folder,
+    /// which is the whole of what makes it a claimant.
+    func test_aSecondRootBesideMineIsAClaimantWithNoClaimAtAll() throws {
+        try writeRootRecord()
+        let other = DeviceIdentity.softwareForTesting()
+        try admit(other.fingerprint, under: other, at: 30)
+
+        _ = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+
+        XCTAssertEqual(cache.claimants(for: projectURL), [other.fingerprint])
+    }
+
+    /// The other direction of the same rule: a root **this** device has adopted
+    /// is merged, and merged is this device's own answer to the question the
+    /// claimant list exists to ask. Listing it anyway would put the offer back
+    /// in front of a writer who has already taken it.
+    func test_aRootThisDeviceHasAdoptedIsNotAClaimant() throws {
+        try writeRootRecord()
+        let other = DeviceIdentity.softwareForTesting()
+        try admit(other.fingerprint, under: other, at: 30)
+
+        try RegistryAdmission.claim(
+            adopting: [other.fingerprint], in: projectURL,
+            by: root.author, cache: cache)
+
+        let table = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+
+        XCTAssertEqual(table.adoptedRoots, [other.fingerprint])
+        XCTAssertEqual(cache.claimants(for: projectURL), [],
+                       "a root this device took in is merged, never claiming")
+    }
+
+    /// And the root this device is ON is never its own claimant — the rule
+    /// reads every root in the folder, so the one it belongs to has to be
+    /// excluded by name or every joined device would warn about its own chain.
+    func test_theRootThisDeviceIsOnIsNotAClaimant() throws {
+        let host = DeviceIdentity.softwareForTesting()
+        try admit(host.fingerprint, under: host, at: 10)
+        try admit(root.author.fingerprint, under: host, at: 20)
+
+        let table = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+
+        XCTAssertEqual(table.myRoot, host.fingerprint)
+        XCTAssertEqual(cache.claimants(for: projectURL), [])
+    }
+
+    /// **A verdict is not what this rule touches.** Listing B as a claimant is
+    /// about what People & Devices shows; what B's keys are to this device is
+    /// `TrustTable`'s answer, and it is the same before and after — refused,
+    /// as another claimant's.
+    func test_listingAClaimantChangesNoVerdict() throws {
+        try writeRootRecord()
+        let other = DeviceIdentity.softwareForTesting()
+        try admit(other.fingerprint, under: other, at: 30)
+
+        let table = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+
+        XCTAssertEqual(table.verdict(forSealKey: other.fingerprint),
+                       .otherRoot(root: other.fingerprint))
+        XCTAssertEqual(table.verdict(forSealKey: root.author.fingerprint), .mine)
+    }
+
     /// A second memory over the same file, to prove a claimant survives the
     /// process rather than living in one instance.
     private func makeSameCache() -> RegistryCache {

@@ -114,6 +114,9 @@ public enum TrustResolution {
         }
         recordRefusedClaimants(
             in: reconciled, mine: identities, cache: cache, projectURL: projectURL)
+        recordUnansweredRoots(
+            in: reconciled, table: table, mine: identities,
+            cache: cache, projectURL: projectURL)
         return (reconciled, table)
     }
 
@@ -193,6 +196,62 @@ public enum TrustResolution {
                   ours.contains(ref.fingerprint), !ours.contains(found)
             else { continue }
             cache.recordClaimant(root: found, for: projectURL)
+        }
+    }
+
+    /// **A second root in my book is a claimant, however it got there** (P2
+    /// smoke find 9).
+    ///
+    /// The two rules above both need the foreign root to have NAMED this
+    /// device: one reads `table.admittingRoots`, which is *a root whose chain
+    /// holds one of my keys*, and the other reads a `.signerChanged` listing
+    /// over a record of mine. Neither sees the shape the two-root exit actually
+    /// arrives in. A Mac that claims the book writes its own root record and a
+    /// `ClaimRecord` adopting mine — a claim is signed by that root ABOUT that
+    /// root, and says nothing of my keys at all — so the Mac being merged with
+    /// listed nothing of the one doing the merging, offered no Merge, and the
+    /// two-root exit could only ever be walked from one side. Two Macs that
+    /// each rooted an empty book and have claimed nothing are the same silence
+    /// with no claim record in it.
+    ///
+    /// **The rule, in both directions**, because adoption is symmetric and only
+    /// one half of it is ever this device's own act:
+    ///
+    /// - A verified self-signed root that is not one of my keys, is not the
+    ///   root I am ON, and that **I** have not adopted is a CLAIMANT: listed,
+    ///   with the writer's Merge offered. That covers a root that adopted mine
+    ///   without my reciprocating — `TrustTable.adoptedRoots` deliberately does
+    ///   not widen on somebody else's claim, so an unreciprocated adoption
+    ///   leaves the adopter exactly the claimant it was (B1) — and a root that
+    ///   has merely turned up beside mine.
+    /// - A root **I** have adopted is merged and never listed here, whether or
+    ///   not it has reciprocated: my own claim is my answer to the question
+    ///   this list exists to ask, and asking it again would put the offer back
+    ///   in front of a writer who has already taken it.
+    ///
+    /// **It changes no `TrustVerdict`.** What a foreign root's keys are to this
+    /// device is `TrustTable`'s answer and it is untouched — `.otherRoot`
+    /// still, refused still. This decides only what is LISTED and offered.
+    ///
+    /// **A device on no chain lists nobody**, which is the one guard that is
+    /// not obvious. Its surface for a book full of somebody else's history is
+    /// the claim sheet at open, and recording the root it has not joined YET
+    /// would leave that root in `claimants` for good — including after it
+    /// admitted this device, so a perfectly ordinary second Mac would go on
+    /// warning about the chain it belongs to.
+    nonisolated private static func recordUnansweredRoots(
+        in registry: Registry,
+        table: TrustTable,
+        mine: LocalIdentities,
+        cache: RegistryCache,
+        projectURL: URL
+    ) {
+        guard let myRoot = table.myRoot else { return }
+        let ours = mine.fingerprints
+        let adopted = Set(table.adoptedRoots)
+        for root in registry.roots.map(\.person).sorted()
+        where root != myRoot && !ours.contains(root) && !adopted.contains(root) {
+            cache.recordClaimant(root: root, for: projectURL)
         }
     }
 
