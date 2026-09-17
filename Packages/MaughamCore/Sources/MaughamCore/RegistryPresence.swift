@@ -140,9 +140,11 @@ public enum RegistryPresence {
     /// from the laptop. `writerName` is the account's own full name, which is a
     /// LABEL and never an identity: this device is still its key's fingerprint
     /// (tripwire 35), and nothing reads this back to decide anything. Required
-    /// rather than defaulted, so `NSFullUserName()` is spelled in exactly one
-    /// place — `DocumentStore.thisWritersName`, beside the machine name it is
-    /// paired with.
+    /// rather than defaulted, so the registry path reads the account's name in
+    /// exactly one place — `DocumentStore.thisWritersName`, beside the machine
+    /// name it is paired with. (`NSFullUserName()` is also read, for an
+    /// unrelated purpose and by a surface that never touches a record, in
+    /// `UserPreferences.defaultCollaboratorDisplayName`.)
     @discardableResult
     nonisolated public static func ensureRootIfEmpty(
         in projectURL: URL,

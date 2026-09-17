@@ -12,7 +12,10 @@ this feature: one list, and a small number of verbs.
 ## The short version
 
 - Your first Mac writes itself into the book, quietly, the first time you open
-  it. You do nothing.
+  it. You do nothing. It calls you by the name on your macOS account — *Denver*,
+  not *Denver's MacBook Air* — with the machine's own name kept beside it, so
+  the list can tell you apart from your laptop. **Rename…** changes it if the
+  account name isn't what you'd call yourself here.
 - When another machine — your iPhone, a second Mac — writes into the same book,
   Maugham asks you once who it is. You give it a name. That is admission.
 - After that it goes in silently, everywhere. You are never asked about the same
@@ -51,17 +54,60 @@ and so does the Inbox banner, and so does People & Devices itself.
 ## The list
 
 Each person is a row, with their machines nested under it — each machine's name,
-what kind it is, and what it does (writing, Claude, translation). Beneath the
-people you may also see:
+what kind it is, and what it does (writing, Claude, translation). Your own row
+is marked **you**, and the machine you are sitting at is marked **this Mac** on
+the row beneath it.
+
+Every person's row carries **Rename…**, and so does your own. The name in this
+book is your word for whoever is at that keyboard, and until now you could only
+choose it once — at the panel, or, for the Mac that started the book, by
+whatever that machine happened to be called. Renaming changes the name and
+nothing else: it lets nobody in, shuts nobody out, and leaves untouched when
+they were admitted and what they wrote. Every machine on the book sees the new
+name. You can rename anybody this Mac admitted, and yourself; somebody another
+Mac admitted is renamed from that Mac, and the button says so.
+
+Beneath the people you may also see:
 
 - **Merged** — another Mac whose history you've adopted. See *Two Macs* below.
-- **Claimants** — a machine that has declared itself the owner of this book
-  while your Mac already is. That is usually a second Mac of your own that
-  started the book separately; occasionally it's a sign somebody else has
-  written into a shared folder. Either way nothing of theirs is in your draft,
-  and the row tells you it's there.
+- **Claimants** — another machine that is an owner of this book while your Mac
+  already is. That is usually a second Mac of your own that started the book
+  separately; occasionally it's a sign somebody else has written into a shared
+  folder. It's listed whether or not it has said anything about your Mac —
+  whether it claimed the book, or simply turned up beside you having claimed
+  nothing — so the merge can be finished from either side. Either way nothing
+  of theirs is in your draft, and the row tells you it's there.
 - **Remembered devices** — a machine you once named whose record has gone from
   this book. **Forget this device** clears your memory of the name.
+- **Records that don't verify** — see below.
+
+## Records that don't verify
+
+Everything in this list comes from a small signed file in the book. If one of
+those files is edited, truncated, or arrives half-written, Maugham will not
+believe it — and it is right not to. What it does instead is say so, in a
+section at the foot of the list: which record, whose it is, and what is wrong
+with it in plain words (*was changed after it was signed*, *carries no
+signature, so nothing vouches for it*).
+
+This matters most when the damaged record is **your own**. Without that section
+you'd see your own Mac described as *not yet admitted* to a book you started,
+waiting for a panel that is never coming, with nothing anywhere to say why. The
+row says the record is this Mac's own, and the line at the top of the section
+says the book's record of this device doesn't verify rather than pretending
+nobody has got round to you yet.
+
+**Restore** puts back the last version of that record your Mac saw verify. It is
+a button rather than something Maugham does by itself, and deliberately: a
+machine cannot tell a file somebody edited from one a sync damaged, so
+overwriting somebody's signed record is your decision and not the app's. It
+forges nothing — those bytes were signed when they were written, and the next
+read checks them like any other record.
+
+If your Mac has no remembered version, the row is still listed and says so;
+there is simply nothing to put back from here. Maugham also puts records back
+**by itself** in one narrower case — when a record is *missing* rather than
+damaged — and tells you it did, in History and as *put back* on the row.
 
 ## Revoking
 
@@ -81,6 +127,11 @@ Two things to be clear about, and Maugham says both of them beside the button:
 
 Only the Mac that admitted somebody can revoke them, and Maugham asks you to
 confirm first. You can let them back in: the row then offers **Re-admit**.
+
+An **owner** of the book — your own row, or another Mac that started it — has no
+Revoke at all, rather than one you can't press. An owner answers to itself, on
+every book and on every day; what you do about a second owner is *Two Macs*
+below.
 
 ## Retiring a Mac
 
@@ -137,7 +188,10 @@ what History says about the history's signatures.
 
 Settings has a **This device** section: this phone's four-character code, and
 one line for each book it has been in — *Denver on Denver's MacBook's chain
-since 9 Sep*, or *Not yet admitted — the Mac will ask*. Pull down to refresh; it
+since 9 Sep*, or *Not yet admitted — the Mac will ask*, or, where the book holds
+a record naming this phone that doesn't verify, *This book's record of this
+device doesn't verify, so nothing here vouches for it* (see *Records that don't
+verify* above — the Mac is where that one is put right). Pull down to refresh; it
 changes when you act on the Mac. There is nothing to press here. Admitting is
 something you do from a Mac.
 

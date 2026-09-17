@@ -689,6 +689,30 @@ so the verb refuses.
 later adoption on the day the book was claimed. The alternative moves the
 *claimed this book* event instead, which is worse.
 
+**Amended 2026-09-18, from the P2 smoke: a second root is a claimant whether or
+not it has said anything about this device.** The rule above is stated as
+displacement — a foreign root that names one of my keys, or a `signerChanged`
+listing over a record of mine — and both halves require the other Mac to have
+mentioned me. The two-roots exit does not arrive that way. A Mac that claims the
+book writes its own root record and a `ClaimRecord` adopting mine, and a claim
+is signed by that root ABOUT that root: it names none of my keys and displaces
+none of my records. So the Mac being merged WITH listed nothing of the Mac doing
+the merging, offered no Merge, and the exit could only ever be walked from one
+side — and two Macs that each rooted an empty book and have claimed nothing were
+the same silence with no claim record in it. The rule is now: **a verified
+self-signed root that is not one of this device's keys, is not the root it is
+on, and that it has not adopted is a claimant** — listed, with Merge offered.
+Its converse is the half that keeps adoption the writer's own act: **a root this
+device HAS adopted is merged and never listed, reciprocated or not**, because
+`adoptedRoots` deliberately does not widen on somebody else's claim (B1) and the
+writer's own claim is their answer to the question the list exists to ask. It is
+decided in one place beside the other two rules, never in a view, and it moves
+no `TrustVerdict`: a foreign root's keys still answer `.otherRoot` and are still
+refused. A device on NO chain lists nobody — its surface for a book full of
+somebody else's history is the claim sheet above, and recording a root it has
+not joined yet would leave that root warning for good after it admitted this
+device.
+
 ### What the phone does
 
 The phone reads and never writes a registry record, and it holds no root: a

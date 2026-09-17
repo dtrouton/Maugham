@@ -7517,8 +7517,12 @@ final class TripwireGrepTests: XCTestCase {
     ///   admission of a device the writer has already named elsewhere.
     /// - `RegistryAdmission.swift` — the writer's own admit / revoke / retire /
     ///   re-admit, each with its authority check in front of it.
-    /// - `RegistryCache.swift` — `restore` alone: putting back a record this
-    ///   device verified and the folder has lost.
+    /// - `RegistryCache.swift` — `restore` alone, in both of its senses:
+    ///   `reconcile` putting back a record this device verified and the folder
+    ///   has LOST, and (P2 smoke find 1) `RegistryCache.restore(_:in:)` putting
+    ///   one back over a record the folder still holds and will not verify,
+    ///   which is a press in People & Devices rather than anything an open
+    ///   decides.
     ///
     /// `RegistryWriter.swift` and `RegistryWriter+Restore.swift` are the verbs'
     /// own files and are not callers.
