@@ -589,4 +589,128 @@ final class RegistryPresenceTests: XCTestCase {
             bytes,
             "present and unreadable is not absent — the same rule ensureRootIfEmpty keeps")
     }
+
+    // MARK: - The race a silent admission can lose (whole-branch review M1)
+
+    /// Another Mac's cache, so the far side of a two-root folder can be
+    /// resolved in the same test the near side is.
+    private func cache(for identities: LocalIdentities) -> RegistryCache {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("presence-cache-\(UUID().uuidString).json")
+        memoryFiles.append(url)
+        return RegistryCache(fileURL: url, identity: identities.author.fingerprint)
+    }
+
+    /// A self-signed root record for `identities`, as that Mac would write it.
+    private func selfRoot(_ identities: LocalIdentities, at seconds: TimeInterval) -> PersonRecord {
+        PersonRecord(
+            person: identities.author.fingerprint, label: "Denver", ownName: "Their Mac",
+            role: "author", admittedAt: Date(timeIntervalSince1970: seconds),
+            admittedBy: identities.author.fingerprint)
+    }
+
+    /// **The race: I admit a device whose own root record has not landed yet.**
+    ///
+    /// iCloud brings a device record down before the person record beside it.
+    /// This Mac roots the book, remembers the label from another project, and
+    /// admits the newcomer silently — writing `people/<them>` signed by ME.
+    /// Then THEIR self-signed root record arrives over the same path.
+    ///
+    /// `reconcile` refuses it correctly (`signerChanged`, my copy stands), and
+    /// before this fix that refusal was where the story ended: neither claimant
+    /// rule could see it. `recordRefusedClaimants` wants the displaced record to
+    /// be one of MINE and this one is theirs; `recordUnansweredRoots` wants them
+    /// in `registry.roots`, which a record refused into `malformed` is not. So a
+    /// second Mac that had rooted the book stood in it, refused and unlisted,
+    /// with no Merge anywhere — the two-root exit sealed by a sync race.
+    func test_aselfSignedRootLandingOverMyAdmissionIsRecordedAsAClaimant() throws {
+        let theirs = LocalIdentities.softwareForTesting()
+        try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: theirs, name: "Their Mac", kind: .mac)
+        try rootHere()
+
+        let memory = rememberingMemory()
+        memory.remember(theirs.author.fingerprint, label: "Denver", ownName: "Their Mac",
+                        at: Date(timeIntervalSince1970: 1))
+        let myCache = presenceCache()
+        let admitted = try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: myCache, memory: memory)
+        XCTAssertEqual(admitted.map(\.person), [theirs.author.fingerprint],
+                       "premise: the silent admission happened, signed by this Mac")
+        XCTAssertEqual(myCache.claimants(for: projectURL), [],
+                       "premise: and nobody was claiming before their record landed")
+
+        try RegistryWriter.write(
+            selfRoot(theirs, at: 0), signedBy: theirs.author, in: projectURL)
+        let resolved = try TrustResolution.resolveVerified(
+            projectURL: projectURL, identities: mine, cache: myCache)
+
+        XCTAssertTrue(
+            resolved.registry.malformed.contains {
+                $0.reason == .signerChanged(
+                    expected: mine.author.fingerprint, found: theirs.author.fingerprint)
+            },
+            "premise: their record is refused, and refused under their own key")
+        XCTAssertEqual(myCache.claimants(for: projectURL), [theirs.author.fingerprint],
+                       "a root that signed itself into my book is a claimant, "
+                           + "however the folder arrived at holding it")
+    }
+
+    /// The far side of the same folder, so the fix cannot be a one-way street:
+    /// their Mac reads two roots and lists mine by the rule that already
+    /// existed. Both halves listed is what makes the merge walkable at all.
+    func test_theOtherMacStillListsThisOneFromTheSameFolder() throws {
+        let theirs = LocalIdentities.softwareForTesting()
+        try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: theirs, name: "Their Mac", kind: .mac)
+        try rootHere()
+        let memory = rememberingMemory()
+        memory.remember(theirs.author.fingerprint, label: "Denver", ownName: "Their Mac",
+                        at: Date(timeIntervalSince1970: 1))
+        _ = try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: presenceCache(), memory: memory)
+        try RegistryWriter.write(
+            selfRoot(theirs, at: 0), signedBy: theirs.author, in: projectURL)
+
+        let theirCache = cache(for: theirs)
+        _ = try TrustResolution.resolveVerified(
+            projectURL: projectURL, identities: theirs, cache: theirCache)
+
+        XCTAssertEqual(theirCache.claimants(for: projectURL), [mine.author.fingerprint])
+    }
+
+    /// The control, and the reason the rule turns on `found` rather than on the
+    /// mere presence of a fault: a person record whose bytes were edited after
+    /// signing never verifies at all, so nothing names a key it verified under,
+    /// and there is nobody to list. A rule that listed on any malformed people
+    /// record would invent a claimant out of a corrupted file.
+    func test_aPersonRecordTamperedRatherThanReSignedRecordsNobody() throws {
+        let theirs = LocalIdentities.softwareForTesting()
+        try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: theirs, name: "Their Mac", kind: .mac)
+        try rootHere()
+        let memory = rememberingMemory()
+        memory.remember(theirs.author.fingerprint, label: "Denver", ownName: "Their Mac",
+                        at: Date(timeIntervalSince1970: 1))
+        let myCache = presenceCache()
+        _ = try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: myCache, memory: memory)
+
+        // Edit the label in place — same length, so only the signature notices.
+        let url = RegistryWriter.url(
+            .people, fingerprint: theirs.author.fingerprint, in: projectURL)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(text.contains("\"Denver\""), "premise: the label is there to edit")
+        try text.replacingOccurrences(of: "\"Denver\"", with: "\"Denvez\"")
+            .write(to: url, atomically: true, encoding: .utf8)
+
+        let resolved = try TrustResolution.resolveVerified(
+            projectURL: projectURL, identities: mine, cache: myCache)
+
+        XCTAssertTrue(
+            resolved.registry.malformed.contains { $0.reason == .signatureDoesNotVerify },
+            "premise: it is malformed, and not because somebody re-signed it")
+        XCTAssertEqual(myCache.claimants(for: projectURL), [],
+                       "a corrupted file is damage, not a second root")
+    }
 }
