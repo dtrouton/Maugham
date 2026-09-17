@@ -146,7 +146,13 @@ struct PeopleAndDevicesSection: View {
                         .controlSize(.small)
                         .help(PeopleAndDevicesModel.readmitHelp)
                         .accessibilityHint(Text(PeopleAndDevicesModel.readmitHelp))
-                } else {
+                } else if person.offersRevoke {
+                    // A root draws no Revoke at all (smoke find 2). Every other
+                    // refused verb here keeps its button, disabled, with the
+                    // reason in the tooltip — but a disabled control is an offer
+                    // with a condition on it, and a root is claimed over rather
+                    // than revoked on every folder, on every day. The decision
+                    // is the model's; this only draws it.
                     Button("Revoke") { revoke(person.fingerprint) }
                         .controlSize(.small)
                         .disabled(!person.canRevoke)

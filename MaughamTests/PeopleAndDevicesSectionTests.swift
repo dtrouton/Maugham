@@ -124,8 +124,11 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
 
         XCTAssertTrue(texts.contains { $0.contains("People & Devices") },
                       "the section names itself: \(texts)")
-        XCTAssertTrue(texts.contains { $0.contains("the root of this book") },
-                      "and says what this Mac is: \(texts)")
+        // The header names no device (smoke find 2): the person row and the
+        // device row under it both name this Mac already, and a third naming
+        // had one machine read as three.
+        XCTAssertTrue(texts.contains { $0.contains("You are the root of this book") },
+                      "and says what this Mac is, without naming it: \(texts)")
         XCTAssertTrue(texts.contains { $0.contains(DeviceCode.short(root)) },
                       "with the code the phone's own screen shows: \(texts)")
     }
@@ -151,8 +154,12 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
                       "the label and the device's own name: \(texts)")
         XCTAssertTrue(texts.contains { $0.contains("author") },
                       "the role, read-only: \(texts)")
-        XCTAssertTrue(texts.contains { $0.contains("this Mac") },
-                      "and the root is marked: \(texts)")
+        // The root's PERSON row is marked *you*; *this Mac* is the device row's
+        // badge (smoke find 2), and both are drawn.
+        XCTAssertTrue(texts.contains { $0 == "you" },
+                      "the root's own person row is marked: \(texts)")
+        XCTAssertTrue(texts.contains { $0 == "this Mac" },
+                      "and the machine badge is on the device row: \(texts)")
     }
 
     func test_theShareSentenceIsDrawn() throws {
@@ -174,15 +181,18 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
     /// Enabled-ness only — nothing is pressed and nothing is waited on
     /// (tripwire 33); what the verbs DO is pinned on the closures below and on
     /// `RegistryAdmission` in the package suite.
-    func test_revokeIsLiveOnTheDeviceThisMacAdmittedAndRefusedOnTheRoot() throws {
+    func test_revokeIsLiveOnTheDeviceThisMacAdmittedAndAbsentOnTheRoot() throws {
         let window = mount(model())
 
         let labels = try axButtonLabels(in: window)
         let buttons = try axButtons(labelled: "Revoke", in: window)
-        XCTAssertEqual(buttons.count, 2, "one per person: \(labels)")
-        let enabled = buttons.filter { axEnabled($0) == true }
-        XCTAssertEqual(enabled.count, 1,
-                       "the admitted phone may be revoked; the root may not")
+        // **One, not two** (P2 smoke find 2). The root's row used to carry a
+        // disabled Revoke saying *a root is claimed over, never revoked* — a
+        // control that could not come alive on any folder, on any day, sitting
+        // beside the writer's own name.
+        XCTAssertEqual(buttons.count, 1, "the root's row draws none: \(labels)")
+        XCTAssertEqual(buttons.filter { axEnabled($0) == true }.count, 1,
+                       "and the one that is drawn is the one this Mac may press")
     }
 
     func test_retireIsLiveOnThisMacsOwnRowAlone() throws {

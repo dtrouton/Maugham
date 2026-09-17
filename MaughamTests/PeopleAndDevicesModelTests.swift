@@ -240,12 +240,34 @@ final class PeopleAndDevicesModelTests: XCTestCase {
         XCTAssertFalse(phoneRow.devices.first?.isThisMac == true)
     }
 
-    func test_therootIsMarkedThisMacWhenItIsThisMac() throws {
+    /// **The root's own row says *you*, and the badge that says *this Mac* is
+    /// the DEVICE row's** (P2 smoke find 2). One Mac used to read as three —
+    /// a header naming the machine, a person row marked *this Mac*, and the
+    /// device row nested under it marked *this Mac* again — with nothing on the
+    /// screen distinguishing the writer from the laptop.
+    func test_therootsOwnRowSaysYouAndTheMachineBadgeIsTheDevicesAlone() throws {
         let model = model(registry())
         let macRow = try XCTUnwrap(model.people.first { $0.fingerprint == mac.fingerprint })
 
-        XCTAssertEqual(macRow.mark, "this Mac")
+        XCTAssertEqual(macRow.mark, "you")
+        XCTAssertTrue(macRow.devices.contains { $0.isThisMac },
+                      "the machine is named on the row that is a machine")
         XCTAssertNil(model.people.first { $0.fingerprint == phone.fingerprint }?.mark)
+    }
+
+    /// A root is claimed over, never revoked — on every folder, on every day —
+    /// so its row draws no Revoke at all. Elsewhere a refused verb keeps its
+    /// disabled button and says why; a disabled button is an offer with a
+    /// condition on it, and here there is no condition.
+    func test_arootsRowOffersNoRevokeAtAll() throws {
+        let model = model(registry())
+        let root = try XCTUnwrap(model.people.first { $0.fingerprint == mac.fingerprint })
+        let admitted = try XCTUnwrap(
+            model.people.first { $0.fingerprint == phone.fingerprint })
+
+        XCTAssertFalse(root.offersRevoke)
+        XCTAssertTrue(admitted.offersRevoke,
+                      "everyone the root admitted still carries the verb")
     }
 
     /// A root somebody else owns, whose chain this device joined: it is still

@@ -78,8 +78,12 @@ final class RegistryAdmissionTests: XCTestCase {
         try RegistryPresence.ensureDeviceRecord(
             in: projectURL, identities: identities, name: name, kind: .mac,
             now: { Date(timeIntervalSince1970: 1) })
+        // The writer's name stated rather than defaulted: the default is the
+        // account's own full name (smoke find 2), and a suite whose root label
+        // depended on whose Mac ran it would pass here and fail on the next
+        // machine.
         try RegistryPresence.ensureRootIfEmpty(
-            in: projectURL, identities: identities,
+            in: projectURL, identities: identities, writerName: name,
             now: { Date(timeIntervalSince1970: 2) })
         return identities.author.fingerprint
     }

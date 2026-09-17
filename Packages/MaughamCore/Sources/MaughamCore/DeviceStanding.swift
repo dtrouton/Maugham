@@ -175,8 +175,13 @@ public struct DeviceStanding: Equatable, Sendable {
             return "No longer admitted to \(rootLabel ?? label ?? code)’s chain"
         }
         guard admitted else { return "Not yet admitted — the Mac will ask" }
+        // **The root's own sentence names nobody** (P2 smoke find 2). It is
+        // drawn at the head of a list in which this device already has a person
+        // row and a device row, and naming it a third time had one Mac read as
+        // three machines. *You* is the one thing on that screen the other two
+        // rows cannot say.
+        if isRoot { return "You are the root of this book’s chain" }
         let me = label ?? code
-        if isRoot { return "\(me), the root of this book’s chain" }
         let chain = "\(me) on \(rootLabel ?? code)’s chain"
         guard let joinedAt else { return chain }
         return "\(chain) since \(Self.dayFormatter.string(from: joinedAt))"

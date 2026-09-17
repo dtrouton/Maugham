@@ -183,6 +183,18 @@ struct PeopleAndDevicesModel: Equatable {
         /// Why not, when not. The button is drawn either way (P2a's Admit…
         /// pattern) and says what would make it live.
         let whyNotRevocable: String?
+        /// **Whether the row draws a Revoke control at all** (P2 smoke find 2).
+        ///
+        /// A refused verb normally keeps its button, disabled, with the reason
+        /// in its tooltip — *why can I not revoke this* is a question an absent
+        /// button answers with silence. A ROOT is the one exception, and it is
+        /// an exception because the question never arises: a root is claimed
+        /// over, never revoked (spec §5), so the control could not become live
+        /// on any folder, on any day, for any writer. A disabled button is an
+        /// offer with a condition on it; there is no condition here. On the row
+        /// that is usually the writer's own Mac it was simply a dead control
+        /// beside their own name.
+        let offersRevoke: Bool
         /// **Whether this Mac may let them back in** (fix round 1, Important
         /// 3b): they are revoked, and this Mac is the root that revoked them.
         /// The inverse of a revocation is an admission by the same authority,
@@ -454,6 +466,7 @@ struct PeopleAndDevicesModel: Equatable {
             revokedAt: record.revokedAt,
             canRevoke: revocable(record, me: me),
             whyNotRevocable: whyNotRevocable(record, me: me),
+            offersRevoke: !record.isRoot,
             // The inverse of a revocation, offered only by the authority that
             // performed it: `RegistryAdmission.admit` refuses anybody else's
             // record, so a button here would be a control that cannot act.
@@ -482,14 +495,21 @@ struct PeopleAndDevicesModel: Equatable {
         return nil
     }
 
-    /// *this Mac* for the root that is this device, *<label>'s Mac* for a root
+    /// *you* for the root that is this device, *<label>'s Mac* for a root
     /// somebody else owns, nothing for anyone who is not the root. Saying "this
     /// Mac" of a foreign root would be a lie about whose machine holds the book.
+    ///
+    /// **A person is not a machine** (P2 smoke find 2). This row used to be
+    /// marked *this Mac*, and the device row nested directly under it carries
+    /// that same badge — so one Mac read as two, above a header saying the
+    /// machine's name a third time. The badge belongs on the device row, which
+    /// is the row that IS a machine; what this row can say that no other row
+    /// can is that the person on it is the writer reading it.
     private static func mark(
         for record: PersonRecord, myRoot: String?, me: String
     ) -> String? {
         guard record.person == myRoot else { return nil }
-        return record.person == me ? "this Mac" : "\(record.label)\u{2019}s Mac"
+        return record.person == me ? "you" : "\(record.label)\u{2019}s Mac"
     }
 
     private static func word(for kind: DeviceKind) -> String {

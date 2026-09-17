@@ -142,7 +142,11 @@ final class DeviceStandingTests: XCTestCase {
 
         XCTAssertTrue(standing.admitted)
         XCTAssertTrue(standing.isRoot)
-        XCTAssertEqual(standing.sentence, "Denver's MacBook, the root of this book’s chain")
+        // **And names nobody** (P2 smoke find 2). The Mac draws this at the head
+        // of a list where its own person row and device row already name it, and
+        // a third naming had one machine read as three. A phone is never a root,
+        // so this arm is the Mac's alone whatever surface asks.
+        XCTAssertEqual(standing.sentence, "You are the root of this book’s chain")
     }
 
     // MARK: - Revoked
