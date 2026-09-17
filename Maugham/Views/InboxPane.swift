@@ -211,6 +211,15 @@ struct InboxPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task {
             await store.refresh()
+        }
+        // **The recount follows the REFRESH, not this pane's first read**
+        // (whole-branch review, Minor 2). Every promote, trash, restore and
+        // retranscribe refreshes the store, and so does an admission that
+        // brings a held capture in — each of which can move what is still set
+        // aside. Keyed on `store.refreshes`, this runs once at mount and again
+        // after every one of them; counting beside the `refresh()` above
+        // instead left the sentence frozen at the first reading.
+        .task(id: store.refreshes) {
             reloadSetAside()
         }
         // Six seconds, as `CanvasPromotionModifier`'s confirmation gives the

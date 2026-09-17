@@ -339,6 +339,31 @@ final class SetAsideAcknowledgementPaneTests: XCTestCase {
                       "\u{2026}and the writer can put it down here too. Got:\n\(body)")
     }
 
+    /// **The recount follows every refresh, not the pane's first read**
+    /// (whole-branch review, Minor 2).
+    ///
+    /// `reloadSetAside()` used to be the second line of the pane's own `.task`,
+    /// beside its first `store.refresh()` — so a promote, a trash, a sync or an
+    /// admission refreshed the store, moved `appliedManifestIDs` and the records
+    /// on disk, and left the sentence reading a count taken before any of it.
+    /// The trigger is now the store's refresh counter.
+    ///
+    /// Read off the source, because the alternative is a mounted pane plus a
+    /// wait for a `.task(id:)` to re-fire, which is the shape tripwire 33 exists
+    /// to keep out of this suite. What the counter itself promises is pinned
+    /// behaviourally in `InboxStoreRefreshGenerationTests` below.
+    func test_theInboxRecountIsTriggeredByEveryRefresh() throws {
+        let code = try Self.code(of: "Views/InboxPane.swift")
+
+        XCTAssertTrue(code.contains(".task(id: store.refreshes)"),
+                      "the recount is keyed on the store's refresh counter, so "
+                      + "it runs again after every refresh. Got:\n\(code)")
+        XCTAssertFalse(
+            code.contains("await store.refresh()\n            reloadSetAside()"),
+            "\u{2026}and never beside the pane's own first refresh, which is "
+            + "the spelling that froze the sentence at its first reading")
+    }
+
     /// **Find 7's wiring**: each pane counts its sentence against what its own
     /// stream is currently carrying, so a re-admitted change stops being called
     /// set aside. Read off the source — the alternative is a pane mounted
@@ -480,5 +505,88 @@ final class SetAsideAcknowledgementPaneTests: XCTestCase {
             index = source.index(after: index)
         }
         return nil
+    }
+}
+
+// MARK: - The refresh counter the recount is keyed on
+
+/// **Every refresh is a refresh, including the one that refuses** (whole-branch
+/// review, Minor 2).
+///
+/// `InboxPane` keys its set-aside recount on `InboxStore.refreshes`, so what
+/// this counter promises is the whole of the fix: it moves once per completed
+/// refresh, on every path out of it. The registry-refusal path returns early
+/// after clearing the entries, and a counter that missed it would leave the
+/// sentence counting captures the store has just stopped applying.
+@MainActor
+final class InboxStoreRefreshGenerationTests: XCTestCase {
+
+    private var projectURL: URL!
+    private var identity: DeviceIdentity!
+    private var cacheURL: URL!
+    private var cache: RegistryCache!
+
+    override func setUp() async throws {
+        projectURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("inbox-generation-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: projectURL.appendingPathComponent(".maugham/inbox"),
+            withIntermediateDirectories: true)
+        identity = .softwareForTesting()
+        cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("inbox-generation-cache-\(UUID().uuidString).json")
+        cache = RegistryCache(fileURL: cacheURL, identity: identity.fingerprint)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: projectURL)
+        try? FileManager.default.removeItem(at: cacheURL)
+    }
+
+    private func makeInbox() -> InboxStore {
+        InboxStore(projectURL: projectURL, deviceId: "mac", identity: identity,
+                   identities: .forTesting(author: identity), cache: cache)
+    }
+
+    func test_aFreshStoreHasRefreshedNothing() {
+        XCTAssertEqual(makeInbox().refreshes, 0,
+                       "so the pane's first `.task(id:)` runs at mount")
+    }
+
+    func test_everyRefreshMovesIt() async {
+        let inbox = makeInbox()
+        await inbox.refresh()
+        XCTAssertEqual(inbox.refreshes, 1)
+        await inbox.refresh()
+        await inbox.refresh()
+        XCTAssertEqual(inbox.refreshes, 3,
+                       "a refresh that found nothing new is still a refresh — "
+                       + "the recount is cheap and the staleness is not")
+    }
+
+    /// The path that matters most: a registry record present and unreadable
+    /// clears the entries and returns early. It is still a refresh.
+    func test_theRefusalPathCountsToo() async throws {
+        let inbox = makeInbox()
+        await inbox.refresh()
+        XCTAssertEqual(inbox.refreshes, 1, "premise")
+
+        let people = projectURL.appendingPathComponent(".maugham/people", isDirectory: true)
+        try FileManager.default.createDirectory(at: people, withIntermediateDirectories: true)
+        let record = people.appendingPathComponent("deadbeef.json")
+        try Data("{}".utf8).write(to: record)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000], ofItemAtPath: record.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o644], ofItemAtPath: record.path)
+        }
+
+        await inbox.refresh()
+
+        XCTAssertNotNil(inbox.unreadableRegistry, "premise: the read refused")
+        XCTAssertEqual(inbox.refreshes, 2,
+                       "the refusal clears what the sentence was counted "
+                       + "against, so the pane must recount after it too")
     }
 }

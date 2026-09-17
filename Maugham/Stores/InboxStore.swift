@@ -222,7 +222,27 @@ final class InboxStore {
 
     // MARK: - Read
 
+    /// **How many times this store has finished a refresh** — the id a pane
+    /// keys a derived read on (whole-branch review, Minor 2).
+    ///
+    /// The set-aside sentence is computed from three things that a refresh can
+    /// move: the `.lines` records on disk, `appliedManifestIDs`, and — the
+    /// sharpest case — a capture that was HELD arriving once the writer admits
+    /// the device that wrote it. Computing it in `body` would read the
+    /// quarantine directory on every evaluation (tripwire 4), and computing it
+    /// once beside the pane's own first `refresh()` left every LATER refresh
+    /// (a promote, a trash, a sync, an admission) showing a count taken before
+    /// it. So this moves on every refresh and the pane recounts when it does,
+    /// without the pane having to know which refreshes can matter.
+    ///
+    /// Bumped in a `defer` so the refusal path — a registry record present and
+    /// unreadable, which clears the entries and returns early — counts as the
+    /// refresh it is. `&+` because a counter that traps a writer's app after
+    /// two billion inbox refreshes would be a worse bug than the wrap.
+    private(set) var refreshes: Int = 0
+
     func refresh() async {
+        defer { refreshes &+= 1 }
         let urls = manifestURLs()
         var rows: [InboxEntry] = []
         var unreadable: [String] = []

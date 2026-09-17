@@ -396,27 +396,42 @@ reasoning. `EditorHost` reads the stamp and folds it into the ONE
 now takes `.file` records only — a `.lines` record is not a file waiting to come
 back. `HistoryPane` says the two things a writer can act on knowing and no
 others: `unsignedHistoryNotice` (legacy history, foreign-signed history, or ONE
-sentence carrying both — the coalescing rule) and `setAsideLinesNotice`, neither
-with a Retry, because neither is something the writer can undo. **"Another
+sentence carrying both — the coalescing rule) and `setAsideChangesNotice`,
+neither with a Retry, because neither is something the writer can undo. **"Another
 device" in that sentence never means this Mac's assistant, translator or
 Maugham** (P1b): trust on the read side is all four local fingerprints, so
 Claude's annotation file and the pipeline's translation file are this device's
 own signed word, and a narrower trusted set would have the writer told their own
 MCP history came from somewhere else. **The INBOX has
-its own half of that sentence** — `InboxPane.setAsideNotice(lineCount:)`, drawn
+its own half of that sentence** — `InboxPane.setAsideNotice(changeCount:)`, drawn
 beside the unreadable-manifests notice — because the inbox's `.lines` records are
 filed under the manifest stream's own id (`InboxManifest.chainDocId`) and
 `HistoryPane` only ever asks for a DOCUMENT's, so they were written and shown to
-nobody. Both panes count through `OpLogQuarantine.setAsideLineCount`, one
-implementation, because one record can hold a run of lines and the writer's
-question is how many CHANGES. **History's sentence says WHICH reason** (the
-final wave's I3, `HistoryPane.setAsideLinesByReason` grouping the records and
-`setAsideLinesNotice(byReason:)` giving each group a clause): P1 had one cause
+nobody. **Both panes count through `OpLogQuarantine.setAsideChanges`, one
+implementation, and what it counts is neither records nor lines but CHANGES**
+(the P2 smoke's finds 6 and 7). Op lines only — a seal is the signature that
+closes a span, held back with the lines it settles and counted nowhere, which is
+the rule `OpLogChain.pendingByDevice` already applies to the PENDING half, so the
+two halves cannot put different numbers in front of one noun. Deduplicated by the
+line's own identity (`op_id`, else an inbox row's `id`, else a digest of the
+bytes), because the same op reaches the archive twice whenever a span is set
+aside and then split differently on a later load — the smoke's own `[op1, seal1]`
+followed by `[op1]` and `[seal1, op2, seal2]`: three records, six lines, TWO
+changes. And minus what the stream is already carrying: both call sites pass an
+`applied` set — History the document's own op ids, the Inbox
+`InboxStore.appliedManifestIDs` — so a re-admission stops the sentence claiming
+history the writer now has, while the disclosure goes on listing every record,
+because the evidence is permanent and the sentence is not. **History's sentence
+says WHICH reason** (the final wave's I3, `HistoryPane.setAsideChangesByReason`
+asking that one enumeration ONCE over every record and grouping by reason — once
+per reason would not see a change held under two of them — and
+`setAsideChangesNotice(byReason:)` giving each group a clause): P1 had one cause
 and said it unconditionally, and four of P2b's six describe lines Maugham wrote
 on the writer's other machine, so a revoked Mac's history was reported to them
 as *written by something that is not Maugham*. The words are
-`JSONLAppendStore.quarantineReason`'s, which the records already carry.
-`InboxPane.setAsideNotice(lineCount:)` is the same shape and has NOT been given
+`JSONLAppendStore.quarantineReason`'s, which the records already carry, and a
+change found in two records takes the reason of the first record that held it.
+`InboxPane.setAsideNotice(changeCount:)` is the same shape and has NOT been given
 the same treatment — its sentence still says *by something that is not Maugham*
 over every reason, which is the same defect one stream over. **And the sentence is ACKNOWLEDGED, per device per
 record** (P2a, D2, `SetAsideAcknowledgement.swift`): what P1 shipped summed every
@@ -431,9 +446,21 @@ predicate and neither restates the filter** — a census in
 `SetAsideAcknowledgementTests` holds the field to four files: `UIState`, the
 store's verb, and the two panes that hand it to the predicate. **Nothing under
 `.maugham/conflicts/` is touched**: the History pane's `Set-aside records`
-disclosure lists every record whether acknowledged or not, because what the
-writer put down is the sentence, not the evidence. Per DEVICE because UI state
-is this machine's — acknowledging here says nothing about the phone. **`unsealed`
+disclosure (`SetAsideRecordsDisclosure`, its own view at the foot of
+`HistoryPane.swift`) lists every record whether acknowledged or not, because what
+the writer put down is the sentence, not the evidence. **That list declares an
+ideal width of its own and truncates each row in the middle** — an archive name
+is 99 unbreakable characters, three of them ask for 559 pt through
+`fittingSize`, and on the macOS 27 SDK a pane's demand is what a fixed column
+becomes rather than a hint (`DetailColumnWidthTests`' fixed-width cases all read
+528 against the 300/320/360 they pin). Denver's whole window went blank on that
+chevron; the blanking would not reproduce in a mounted three-column split, so the
+demand is measured and the causal step is not — see that view's own doc comment.
+**And the Inbox's recount follows every refresh** (`InboxStore.refreshes`, the id
+its `.task(id:)` keys on): a promote, a trash, a sync or an admission moves both
+the records and `appliedManifestIDs`, and counting once beside the pane's first
+`refresh()` left the sentence frozen at its first reading. Per DEVICE because UI
+state is this machine's — acknowledging here says nothing about the phone. **`unsealed`
 lines are never mentioned**: the live tail is always partly unsealed, so naming
 it would be a permanent notice about nothing. **The production load door names an ACTOR:**
 `Document.load(url:actor:session:presenter:)` takes a `DeviceActor` and derives

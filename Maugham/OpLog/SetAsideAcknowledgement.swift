@@ -19,10 +19,12 @@ import MaughamCore
 ///
 /// **One predicate, two panes.** History asks it of a document's records, the
 /// Inbox of the manifest stream's, and both hand the RESULT to
-/// `OpLogQuarantine.setAsideLineCount`, which is unchanged and still counts
-/// LINES rather than records. Two copies of the filter would be two answers to
-/// one question — the same reasoning that put `setAsideLineCount` in
-/// MaughamCore rather than on a pane.
+/// `OpLogQuarantine.setAsideChanges`, which counts neither records nor lines but
+/// CHANGES: op lines only (a seal is a signature, not a change), deduplicated by
+/// the line's own identity across records, and — at the two call sites — minus
+/// whatever the stream is already carrying. Two copies of the filter would be
+/// two answers to one question, which is the same reasoning that put the
+/// counting in MaughamCore rather than on a pane.
 ///
 /// **The archives are never touched.** Acknowledging is a UI-state write and
 /// nothing else; the History pane's disclosure goes on listing every record
