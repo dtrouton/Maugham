@@ -120,13 +120,24 @@ Two things to be clear about, and Maugham says both of them beside the button:
 - **It does not stop them writing.** Removing them from the iCloud share is what
   does that. Revoking stops *Maugham* from applying what they write.
 - **What they wrote before stays.** Their earlier work is already in your
-  manuscript and is not touched. Only what comes after is held back — and
-  Maugham distinguishes between changes made after you revoked and changes that
-  were merely slow to sync, so a note that was already on its way is described
-  as such rather than accused of anything.
+  manuscript and is not touched. Only what comes after is set aside.
 
-Only the Mac that admitted somebody can revoke them, and Maugham asks you to
-confirm first. You can let them back in: the row then offers **Re-admit**.
+You are asked to confirm, and the confirmation offers two ways to do it:
+
+- **Revoke** — the ordinary one. Everything of theirs that was already in your
+  book stays there; only what arrives from now on is set aside. This is what you
+  want when a collaborator's involvement has ended and their contributions are
+  part of the draft you have been reading.
+- **Revoke and Set Aside Everything** — every paragraph and note from that
+  device leaves the book until you let them back in. This is for a machine that
+  was never theirs, or one you no longer want a word from. Nothing is deleted:
+  it is kept in this project's set-aside records, and re-admitting them puts all
+  of it back.
+
+History records which of the two you chose.
+
+Only the Mac that admitted somebody can revoke them. You can let them back in:
+the row then offers **Re-admit**.
 
 An **owner** of the book — your own row, or another Mac that started it — has no
 Revoke at all, rather than one you can't press. An owner answers to itself, on
