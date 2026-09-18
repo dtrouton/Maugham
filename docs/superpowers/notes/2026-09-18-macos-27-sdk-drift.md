@@ -14,6 +14,8 @@ SwiftUI now declares `public protocol Document` (SDK `SwiftUI.swiftinterface:176
 
 **SwiftUI menus and pickers left the accessibility tree (8).** `InspectorPassLadderTests` ×6 (`expected non-nil value of type "NSPopUpButton"`, "published 0 ladder popups"; one case crashed inside the assert) and `AdmissionSheetTests.test_theSheetOffersTheLabelsThisBookAlreadyKnows` — that sheet's `Menu(.borderlessButton)` carries an explicit `.accessibilityLabel` and the walk still cannot see it.
 
+**Checked in the running app on macOS 27 (Denver, 2026-09-18):** the tree's Research and Palette chevrons open and close (they now sit very close to the scrollbar and are hard to hit — move them left); the pass ladder's popups open and offer their four states; the admission sheet's *this is also…* menu opens and lists the known labels. So the eight AX-tree failures and the two chevron failures are TEST-SIDE: the controls work, the accessibility walk no longer sees them. The column tie-break (the six `DetailColumnWidthTests`) is the one product regression.
+
 **Do not patch the assertions first.** Three of these describe something a writer would notice — a dragged column width ignored, a section chevron that may not click, a menu that at best is invisible to VoiceOver. Check the running app on 27 before deciding any is test-side. If the app is fine, the AX-tree decision spans the ladder and the sheet and is made ONCE.
 
 ## 3. Possibly related — History's disclosure blanked the window
