@@ -374,11 +374,18 @@ final class PeopleAndDevicesModelTests: XCTestCase {
         XCTAssertNil(admitted.whyNotRenamable)
     }
 
-    /// Somebody another root admitted is not this Mac's to rename — the same
-    /// signature rule Revoke keeps, because a person record is signed by the
-    /// root it names. The verb still EXISTS for that row (their own Mac can
-    /// press it), so unlike Revoke-on-a-root the button stays and says why.
-    func test_apersonAdmittedByAnotherRootIsNotThisMacsToRename() throws {
+    /// A Mac standing in somebody else's chain renames nobody, and the verb
+    /// refuses it one guard earlier than the pane used to look (whole-branch
+    /// review, Minor 1).
+    ///
+    /// **The sentence changed here, deliberately.** This used to read *only the
+    /// Mac that admitted this device can rename it* — true of each row, and a
+    /// poor account of what the writer is looking at, which is a pane where
+    /// every Rename is dead for one reason: this Mac holds no root record in
+    /// this book, so nothing it signs would stand. `RegistryAdmission.rename`
+    /// has always refused it on that ground first; only the pane had the two
+    /// guards in the other order, and it had the outer one not at all.
+    func test_amacOnSomebodyElsesChainRenamesNobodyAndSaysWhy() throws {
         let joined = Registry(
             devices: [deviceRecord(otherRoot, name: "Amelia's MacBook", kind: .mac),
                       deviceRecord(mac, name: "Denver's MacBook", kind: .mac),
@@ -394,8 +401,80 @@ final class PeopleAndDevicesModelTests: XCTestCase {
         for fingerprint in [otherRoot.fingerprint, phone.fingerprint] {
             let row = try XCTUnwrap(model.people.first { $0.fingerprint == fingerprint })
             XCTAssertFalse(row.canRename)
-            XCTAssertEqual(row.whyNotRenamable, PeopleAndDevicesModel.renameNotMine)
+            XCTAssertEqual(row.whyNotRenamable, PeopleAndDevicesModel.renameNotARoot)
         }
+    }
+
+    /// The other refusal, so the two are pinned apart and neither sentence can
+    /// rot: this Mac IS the root here, and the row belongs to somebody its own
+    /// phone admitted. Renaming that record would be re-signing a record signed
+    /// by a key that is not this Mac's, which is Revoke's rule exactly.
+    func test_arowAdmittedBySomebodyIAdmittedIsNotMineToRename() throws {
+        let twoDeep = Registry(
+            devices: [deviceRecord(mac, name: "Denver's MacBook", kind: .mac),
+                      deviceRecord(phone, name: "Denver's iPhone"),
+                      deviceRecord(stranger, name: "The old iPhone")],
+            people: [person(mac, label: "Denver", ownName: "Denver's MacBook",
+                            admittedBy: mac),
+                     person(phone, label: "Denver", ownName: "Denver's iPhone",
+                            admittedBy: mac),
+                     person(stranger, label: "Rosa", ownName: "The old iPhone",
+                            admittedBy: phone)])
+
+        let row = try XCTUnwrap(
+            model(twoDeep).people.first { $0.fingerprint == stranger.fingerprint })
+
+        XCTAssertFalse(row.canRename)
+        XCTAssertEqual(row.whyNotRenamable, PeopleAndDevicesModel.renameNotMine)
+    }
+
+    /// **The pane's rule is the verb's rule, root guard included**
+    /// (whole-branch review, Minor 1).
+    ///
+    /// `RegistryAdmission.rename` refuses a signer that is not a root of this
+    /// book BEFORE it looks at who admitted whom — a rename RE-SIGNS the
+    /// record, and a signature from a Mac no root record names is one every
+    /// reader lists as malformed. The pane asked only the second question
+    /// (`record.admittedBy == me`), so a row could be drawn with a live Rename
+    /// that the verb would throw on.
+    ///
+    /// **The shape, and its honest reachability.** `Registry.chain(underRoot:)`
+    /// is transitive, so a person admitted by somebody who was themselves
+    /// admitted is drawn on this pane — and for that row `admittedBy` can be
+    /// this Mac while this Mac holds no root record. `RegistryReader` cannot
+    /// produce that today: it refuses a non-root person record whose
+    /// `admittedBy` is not a verified root, which makes `admittedBy == me`
+    /// imply *me is a root* for every record it hands over. So the old rule was
+    /// not wrong for any registry the pipeline builds — it was right by
+    /// borrowing an invariant three files away, and it is the day a non-root
+    /// may admit that the borrowing costs the writer a button that throws. The
+    /// model takes a `Registry` value, so the disagreement is constructible
+    /// here even though the folder cannot yet hold it.
+    func test_theRenameRuleIsTheVerbsIncludingTheRootGuardThePaneUsedToSkip() throws {
+        // Amelia roots and admitted this Mac; this Mac admitted the phone.
+        let twoDeep = Registry(
+            devices: [deviceRecord(otherRoot, name: "Amelia's MacBook", kind: .mac),
+                      deviceRecord(mac, name: "Denver's MacBook", kind: .mac),
+                      deviceRecord(phone, name: "Denver's iPhone")],
+            people: [person(otherRoot, label: "Amelia", ownName: "Amelia's MacBook",
+                            admittedBy: otherRoot),
+                     person(mac, label: "Denver", ownName: "Denver's MacBook",
+                            admittedBy: otherRoot),
+                     person(phone, label: "Denver", ownName: "Denver's iPhone",
+                            admittedBy: mac)])
+
+        guard case .failure(.notARoot) = RegistryAdmission.renameOutcome(
+            person: phone.fingerprint, by: mac.fingerprint, in: twoDeep)
+        else {
+            return XCTFail("premise: the verb refuses this, so no button can work")
+        }
+        let row = try XCTUnwrap(
+            model(twoDeep).people.first { $0.fingerprint == phone.fingerprint })
+
+        XCTAssertFalse(row.canRename,
+                       "the row's own admitter IS this Mac, which is all the pane "
+                           + "used to ask — and the verb would still have thrown")
+        XCTAssertEqual(row.whyNotRenamable, PeopleAndDevicesModel.renameNotARoot)
     }
 
     /// A root somebody else owns, whose chain this device joined: it is still

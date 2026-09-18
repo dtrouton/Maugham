@@ -67,12 +67,21 @@ struct PeopleAndDevicesModel: Equatable {
     /// **What Rename says, and who may** (P2 smoke find 3). A label was chosen
     /// once — at the admission sheet, or by whatever a first root's Mac called
     /// itself — and a writer who mistyped it had no way back. It is the one
-    /// verb here that changes no authority at all; the refusal is the same
-    /// signature rule Revoke's is, because a person record is signed by the
-    /// root it names.
+    /// verb here that changes no authority at all.
+    ///
+    /// **Two refusals, because the verb has two guards** (whole-branch review,
+    /// Minor 1). The familiar one is the signature rule Revoke keeps: a person
+    /// record is signed by the root it names, so only that root may re-sign it.
+    /// The other is about this Mac rather than the row — a rename re-signs, and
+    /// a Mac that holds no root record of its own here signs nothing any reader
+    /// accepts, whoever the row belongs to. This pane asked only the first, so
+    /// a Mac whose own root record had been deleted went on offering a live
+    /// Rename on every row it had admitted, and the press threw.
     static let renameHelp = "Change the name this book calls them"
     static let renameNotMine =
         "Only the Mac that admitted this device can rename it"
+    static let renameNotARoot =
+        "This Mac holds no root record in this book, so nothing it signs would stand"
 
     /// **What Restore says** (P2 smoke find 1). The bytes this device kept when
     /// it last verified that record, put back over the one that will not. It is
@@ -582,8 +591,8 @@ struct PeopleAndDevicesModel: Equatable {
             revokedAt: record.revokedAt,
             canRevoke: revocable(record, me: me),
             whyNotRevocable: whyNotRevocable(record, me: me),
-            canRename: record.admittedBy == me,
-            whyNotRenamable: record.admittedBy == me ? nil : renameNotMine,
+            canRename: whyNotRenamable(record, in: registry, me: me) == nil,
+            whyNotRenamable: whyNotRenamable(record, in: registry, me: me),
             offersRevoke: !record.isRoot,
             // The inverse of a revocation, offered only by the authority that
             // performed it: `RegistryAdmission.admit` refuses anybody else's
@@ -604,6 +613,32 @@ struct PeopleAndDevicesModel: Equatable {
     /// move the line the first one drew.
     private static func revocable(_ record: PersonRecord, me: String) -> Bool {
         whyNotRevocable(record, me: me) == nil
+    }
+
+    /// **The verb's own rule, asked of the verb** (whole-branch review, Minor
+    /// 1). `RegistryAdmission.renameOutcome` is the one definition of who may
+    /// rename whom; this turns its refusal into the register a disabled
+    /// control speaks in.
+    ///
+    /// The rule is shared and only the WORDING is local, which is the same
+    /// arrangement Revoke's tooltips keep: a refusal the writer reads after a
+    /// press is `AdmissionDecision.sentence`'s, in admission's verbs, and a
+    /// tooltip on a control that never fired wants a shorter sentence in the
+    /// present tense.
+    ///
+    /// Only `.notARoot` earns a second sentence. Every other refusal — admitted
+    /// by another root, no verified record, a record present and unreadable —
+    /// amounts to the same thing from this row's point of view: not this Mac's
+    /// to rename.
+    private static func whyNotRenamable(
+        _ record: PersonRecord, in registry: Registry, me: String
+    ) -> String? {
+        switch RegistryAdmission.renameOutcome(
+            person: record.person, by: me, in: registry) {
+        case .success: return nil
+        case .failure(.notARoot): return renameNotARoot
+        case .failure: return renameNotMine
+        }
     }
 
     private static func whyNotRevocable(_ record: PersonRecord, me: String) -> String? {

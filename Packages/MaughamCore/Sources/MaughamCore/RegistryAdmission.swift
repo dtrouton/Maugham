@@ -359,6 +359,48 @@ public enum RegistryAdmission {
     /// **The caller invalidates trust** — not because a rename moves a verdict
     /// (it moves none) but because every surface reading the label resolved it
     /// with the old one.
+    /// **Who may rename whom, decided over a registry and nothing else** — the
+    /// one definition, shared by the verb below and by every surface that draws
+    /// a Rename control (whole-branch review, Minor 1).
+    ///
+    /// Two rules, and the first is the one a surface is most likely to forget:
+    ///
+    /// 1. **The signer must itself be a root of this book.** A rename RE-SIGNS
+    ///    the record, and a signature from a Mac no root record names is one
+    ///    every reader lists as malformed — a person un-admitted in silence by
+    ///    a correction to their name. A Mac whose own root record was deleted
+    ///    is in exactly that position while it still holds records naming it as
+    ///    their admitter, which is how People & Devices came to offer a live
+    ///    button that threw the moment it was pressed.
+    /// 2. **And it must be the root that admitted them**, the same signature
+    ///    rule Revoke keeps. A root's own record names ITSELF as its admitter,
+    ///    so one rule covers *a root renames itself* with no clause of its own.
+    ///
+    /// The present-and-unreadable arm is RULING-54's, and it is the reachable
+    /// case rather than tampering: another Mac's admission whose own root
+    /// record has not landed reads as `signerIsNotARoot` until it does, and
+    /// writing over it would destroy their admission.
+    ///
+    /// Answering the RECORD on success is what keeps the verb from asking the
+    /// registry the same question twice, and keeps this from having an arm
+    /// nothing can reach.
+    nonisolated public static func renameOutcome(
+        person fingerprint: String, by root: String, in registry: Registry
+    ) -> Result<PersonRecord, RegistryAdmissionError> {
+        guard registry.roots.contains(where: { $0.person == root }) else {
+            return .failure(.notARoot)
+        }
+        guard let existing = registry.person(fingerprint) else {
+            return .failure(unreadablePeople(in: registry).contains(fingerprint)
+                ? .recordUnreadable(fingerprint: fingerprint)
+                : .notAdmitted(fingerprint: fingerprint))
+        }
+        guard existing.admittedBy == root else {
+            return .failure(.alreadyAdmittedElsewhere(root: existing.admittedBy))
+        }
+        return .success(existing)
+    }
+
     @discardableResult
     nonisolated public static func rename(
         person fingerprint: String,
@@ -372,21 +414,8 @@ public enum RegistryAdmission {
     ) throws -> PersonRecord {
         let registry = try TrustResolution.verifiedRegistry(
             projectURL: projectURL, presenter: presenter, cache: cache)
-        guard registry.roots.contains(where: { $0.person == root.fingerprint }) else {
-            throw RegistryAdmissionError.notARoot
-        }
-        guard let existing = registry.person(fingerprint) else {
-            // Present and unreadable is not absent (RULING-54), and it is the
-            // reachable case: another Mac's admission whose root record has not
-            // landed. Writing here would destroy it.
-            if unreadablePeople(in: registry).contains(fingerprint) {
-                throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
-            }
-            throw RegistryAdmissionError.notAdmitted(fingerprint: fingerprint)
-        }
-        guard existing.admittedBy == root.fingerprint else {
-            throw RegistryAdmissionError.alreadyAdmittedElsewhere(root: existing.admittedBy)
-        }
+        let existing = try renameOutcome(
+            person: fingerprint, by: root.fingerprint, in: registry).get()
 
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != existing.label else {
