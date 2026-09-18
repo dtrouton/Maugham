@@ -22,7 +22,12 @@ SwiftUI now declares `public protocol Document` (SDK `SwiftUI.swiftinterface:176
 
 Denver's P2 smoke: opening History's *Set-aside records* disclosure blanked all three columns (main thread idle — a layout collapse). NOT reproduced in eight mounted configurations. Measured: the shipped rows ask **559pt** of ideal width, the fixed `SetAsideRecordsDisclosure` asks 220 (`e7a5326c`, `10b72126`; `.lineLimit` lowers a row's minimum, only `.frame(idealWidth:)` bounds what it reports upward). 559pt of right column in a 1,200pt window leaves the prose ~393pt against a 480pt floor — a credible route, and an inference; the code says so.
 
-## 4. Decisions owed (Denver)
+## 4. Decisions (Denver, 2026-09-18)
+
+- **CI moves to a macOS 27 runner — in the shell slice, not before the P2 release.** The only macOS 27 image is `xcode-27` (arm64, *Preview*: macOS 27.0 `26A5406e`, Xcode 27.0 **beta 6** `27A5252f`, image 20260907); `macos-latest` is still 26 and there is no `macos-27` label. Moving today would turn the release gate red on the fifteen until they are re-derived, so: release P2 on `macos-26`; the shell slice fixes the column tie-break, re-derives the ten AX-tree tests, moves the chevrons left, and moves the Mac jobs to `xcode-27` in the same branch. Phone jobs stay. CLAUDE.md's build-flow bullet records the interim.
+- The shell slice runs after the P2 release and before P3.
+
+## 4a. Decisions owed as first written (superseded above)
 
 - The toolchain pin: accept the dev/CI gap and say so in CLAUDE.md (CI is then the authority for mounted-view tests until a macOS 27 runner exists), move CI when one does, or roll Xcode back here.
 - When the macOS 27 shell slice runs. It is not P2's and does not block P2's release; it should precede P3, which adds mounted surfaces. If the chevron or menu check shows something unusable in the running app, it goes first.
