@@ -481,58 +481,125 @@ final class OpLogQuarantineTests: XCTestCase {
         XCTAssertEqual(record.kind, .file)
     }
 
-    // MARK: - The revocation split (P2b Task 7, spec §5)
+    // MARK: - The revocation partition (find 5, RULED 2026-09-18)
 
-    /// Only a revocation splits. A broken chain has no *before*, so its lines
-    /// stay one group under the walk's own cause and one `.lines` record.
-    func test_acauseThatIsNotARevocationIsOneGroupWhateverTheMark() {
+    private let mark = "01K5Q8ZJ3M0000000000000005"
+
+    /// Only a revocation partitions. A broken chain has no *before*, so nothing
+    /// is re-admitted and every line stays refused.
+    func test_acauseThatIsNotARevocationReadmitsNothingWhateverTheMark() {
         let lines = [opLine("01K5Q8ZJ3M0000000000000001"),
                      opLine("01K5Q8ZJ3M0000000000000009")]
         let verification = quarantinedVerification(
             lines, cause: .chainBroke(.prevMismatch(lineIndex: 0)))
 
-        let groups = RevocationSplit.groups(
-            of: verification, highestOpIdSeen: "01K5Q8ZJ3M0000000000000005")
-
-        XCTAssertEqual(groups.count, 1)
-        XCTAssertEqual(groups.first?.cause, .chainBroke(.prevMismatch(lineIndex: 0)))
-        XCTAssertEqual(groups.first?.lines, lines)
+        XCTAssertNil(RevocationSplit.partition(
+            of: verification, highestOpIdSeen: mark))
     }
 
-    /// **A line whose opId cannot be read — a seal, or a shape this build
-    /// cannot parse — follows the ops it sits among.** With something above the
-    /// mark it is filed on the STRICT side, because the gentler sentence claims
-    /// a position nobody can establish; with every op below the mark there is
-    /// no strict side to join, and calling the line that SEALED history this
-    /// Mac had already applied "written after the door closed" would be an
-    /// accusation about the only line in the span that is not an op.
-    func test_alineWithNoReadableOpIdFollowsTheOpsAroundIt() {
+    /// **The default revocation keeps what this Mac had already applied.** The
+    /// mark is the highest opId it had applied from that device, so an op at or
+    /// below it was in the manuscript before the writer revoked anybody, and
+    /// taking it out would be the revocation reaching backwards into work the
+    /// writer has read.
+    func test_anOpAtOrBelowTheMarkIsReadmittedAndOneAboveItIsRefused() {
+        let before = opLine("01K5Q8ZJ3M0000000000000001")
+        let atTheMark = opLine(mark)
+        let after = opLine("01K5Q8ZJ3M0000000000000009")
+
+        let split = RevocationSplit.partition(
+            of: quarantinedVerification(
+                [before, atTheMark, after], cause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: mark)
+
+        XCTAssertEqual(split?.readmitted, [before, atTheMark],
+                       "the mark itself is an op this Mac HAD applied — the smoke's "
+                           + "own case, where B's only op was the mark")
+        XCTAssertEqual(split?.refused, [after])
+    }
+
+    /// **A seal travels with the op immediately before it in file order** (P2
+    /// smoke, find 6's third cause). A seal carries no opId of its own, and the
+    /// span it closes is the one ending at the line above it; filing `seal1`
+    /// under *after revocation* while `op1` was re-admitted would accuse the
+    /// signature of a position its own op does not have.
+    func test_asealTravelsWithTheOpItSeals() {
+        let op1 = opLine("01K5Q8ZJ3M0000000000000001")
+        let seal1 = Data(#"{"seal":{"key":"aaaa"}}"#.utf8)
+        let op2 = opLine("01K5Q8ZJ3M0000000000000009")
+        let seal2 = Data(#"{"seal":{"key":"bbbb"}}"#.utf8)
+
+        let split = RevocationSplit.partition(
+            of: quarantinedVerification(
+                [op1, seal1, op2, seal2], cause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: mark)
+
+        XCTAssertEqual(split?.readmitted, [op1, seal1])
+        XCTAssertEqual(split?.refused, [op2, seal2])
+    }
+
+    /// The same rule at the head of a span, where there is no op to travel
+    /// with: a line whose position cannot be established from an op of its own
+    /// stays refused, which is the strict side and the side to be wrong on.
+    func test_alineWithNoOpBeforeItStaysRefused() {
+        let unplaceable = Data("{not json at all".utf8)
+        let late = opLine("01K5Q8ZJ3M0000000000000001")
+
+        let split = RevocationSplit.partition(
+            of: quarantinedVerification(
+                [unplaceable, late], cause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: mark)
+
+        XCTAssertEqual(split?.refused, [unplaceable])
+        XCTAssertEqual(split?.readmitted, [late])
+    }
+
+    /// **The whole span is below the mark**, so the revocation set nothing
+    /// aside at all — the degenerate case the old two-group return needed a
+    /// clause of its own for, which now falls out of the seal rule.
+    func test_aspanEntirelyBelowTheMarkIsReadmittedWhole() {
+        let op1 = opLine("01K5Q8ZJ3M0000000000000001")
+        let seal1 = Data(#"{"seal":{"key":"aaaa"}}"#.utf8)
+
+        let split = RevocationSplit.partition(
+            of: quarantinedVerification(
+                [op1, seal1], cause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: mark)
+
+        XCTAssertEqual(split?.readmitted, [op1, seal1])
+        XCTAssertEqual(split?.refused, [])
+    }
+
+    /// **No mark is the writer's other choice** (find 5's ruling): a revocation
+    /// record carrying no `highestOpIdSeen` means *nothing of theirs stands*,
+    /// and nothing is re-admitted. It is also what a device this Mac had
+    /// applied nothing from produces, which is the same outcome by a different
+    /// road.
+    func test_arevocationWithNoMarkReadmitsNothing() {
+        XCTAssertNil(RevocationSplit.partition(
+            of: quarantinedVerification(
+                [opLine("01K5Q8ZJ3M0000000000000001")],
+                cause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: nil))
+    }
+
+    /// The old two-group rule's own fixture, restated as the partition (the
+    /// same answer, by one rule instead of three): an unplaceable line at the
+    /// head has no op to travel with and is refused; the op below the mark is
+    /// re-admitted; the one above it is refused. What changed is that the
+    /// gentler half is no longer a sentence at all — it is applied.
+    func test_theOldSplitsFixtureAnsweredByTheTravelRule() {
         let unplaceable = Data("{not json at all".utf8)
         let late = opLine("01K5Q8ZJ3M0000000000000001")
         let after = opLine("01K5Q8ZJ3M0000000000000009")
-        let mark = "01K5Q8ZJ3M0000000000000005"
 
-        let split = RevocationSplit.groups(
+        let split = RevocationSplit.partition(
             of: quarantinedVerification(
                 [unplaceable, late, after], cause: .afterRevocation(person: "aaaa")),
             highestOpIdSeen: mark)
 
-        XCTAssertEqual(split.count, 2)
-        XCTAssertEqual(split.first?.cause, .afterRevocation(person: "aaaa"))
-        XCTAssertEqual(split.first?.lines, [unplaceable, after],
-                       "the unplaceable line goes with what came after")
-        XCTAssertEqual(split.last?.cause, .revocationLate(person: "aaaa"))
-        XCTAssertEqual(split.last?.lines, [late])
-
-        let allLate = RevocationSplit.groups(
-            of: quarantinedVerification(
-                [late, unplaceable], cause: .afterRevocation(person: "aaaa")),
-            highestOpIdSeen: mark)
-
-        XCTAssertEqual(allLate.count, 1)
-        XCTAssertEqual(allLate.first?.cause, .revocationLate(person: "aaaa"))
-        XCTAssertEqual(allLate.first?.lines, [late, unplaceable],
-                       "with no op above the mark there is no strict side to join")
+        XCTAssertEqual(split?.refused, [unplaceable, after])
+        XCTAssertEqual(split?.readmitted, [late])
     }
 
     private func opLine(_ opId: String) -> Data {
@@ -602,7 +669,9 @@ final class SetAsideChangeCountTests: XCTestCase {
     func test_oneOpInTwoRecordsIsOneChange() throws {
         let first = op("01M2RMZS8S08J1MKA7CPTFK4MS")
         let second = op("01M2RNCJ4384V357PT3EG049SW")
-        let late = "may be late sync, or may be backdated"
+        // Two live reasons: one archive per cause, which is what a span set
+        // aside twice under different walks looks like on disk.
+        let late = "written after this device was retired"
         let after = "written after this device's access was withdrawn"
 
         let r1 = try file([first, seal()], reason: late, at: 1)
@@ -623,7 +692,7 @@ final class SetAsideChangeCountTests: XCTestCase {
     /// change held in two records does not depend on how the folder enumerated.
     func test_theReasonIsTheFirstRecordsHoweverTheFolderEnumerates() throws {
         let shared = op("01M2RMZS8S08J1MKA7CPTFK4MS")
-        let late = "may be late sync, or may be backdated"
+        let late = "written after this device was retired"
         let after = "written after this device's access was withdrawn"
         let earlier = try file([shared], reason: late, at: 1)
         let later = try file([shared, op("01M2RNCJ4384V357PT3EG049SW")], reason: after, at: 2)

@@ -299,12 +299,14 @@ final class PendingLoadTests: XCTestCase {
         XCTAssertEqual(record?.reason, "written after this device's access was withdrawn")
     }
 
-    /// **The split** (spec §5). A revoked device's span is refused whole, and
-    /// the writer is owed which half is which: a line whose opId the root had
-    /// already applied may be late sync or may be backdated, and a line above
-    /// that mark was written after the door closed. Two records, two sentences,
-    /// one refusal.
-    func test_aRevokedSpanIsSplitByTheOpIdTheRootHadApplied() async throws {
+    /// **The default revocation keeps what this Mac had already applied**
+    /// (find 5, ruled 2026-09-18), at the load.
+    ///
+    /// `first` is at the mark, so it was in the manuscript before anybody was
+    /// revoked and stays there; `second` was written after the door closed and
+    /// leaves. ONE `.lines` record, holding the refused op and the seal that
+    /// closed its span, under the one sentence a revocation has.
+    func test_arevocationKeepsTheOpAtTheMarkAndSetsAsideTheOneAboveIt() async throws {
         let first = "01K5Q8ZJ3M0000000000000001"
         let second = "01K5Q8ZJ3M0000000000000002"
         try writeRootRecord()
@@ -315,47 +317,51 @@ final class PendingLoadTests: XCTestCase {
 
         let load = try await reader().loadDiagnosed(docId: docId)
 
-        XCTAssertEqual(load.ops.map(\.opId), ["01K5Q8ZJ3M0000000000000000"],
-                       "every line of a revoked key is refused, both sides of the line")
-        XCTAssertEqual(load.provenance.quarantinedLines, 3)
-
-        let reasons = Set(linesRecords().map(\.reason))
-        XCTAssertEqual(reasons, [
-            "written after this device's access was withdrawn",
-            "may be late sync, or may be backdated",
-        ], "\(linesRecords().map(\.reason))")
+        XCTAssertEqual(load.ops.map(\.opId), ["01K5Q8ZJ3M0000000000000000", first],
+                       "the op at the mark is one this Mac had applied while they "
+                           + "were admitted — a revocation does not reach back for it")
+        XCTAssertEqual(load.provenance.quarantinedLines, 2,
+                       "the op above the mark and the seal that closed its span — "
+                           + "a seal travels with the op before it")
+        XCTAssertEqual(linesRecords().map(\.reason),
+                       ["written after this device's access was withdrawn"],
+                       "one record, one cause: the gentler sentence is gone because "
+                           + "the lines it described are applied")
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChangeCount(records: linesRecords(), in: projectURL), 1,
+            "and History counts the one change that actually left")
     }
 
-    /// The mark is what makes the split; with no mark there is no *before*.
-    func test_aRevocationWithNoMarkPutsEverythingAfterIt() async throws {
+    /// The writer's other choice, and the shape a device this Mac had applied
+    /// nothing from produces: no mark, nothing kept, one record.
+    func test_arevocationWithNoMarkSetsAsideEverythingItWrote() async throws {
         try writeRootRecord()
         try await writeStrangerFile(["01K5Q8ZJ3M0000000000000001"])
         try writeStrangerRecord(
             revokedAt: Date(timeIntervalSince1970: 30), highestOpIdSeen: nil)
 
-        _ = try await reader().loadDiagnosed(docId: docId)
+        let load = try await reader().loadDiagnosed(docId: docId)
 
+        XCTAssertEqual(load.ops, [], "nothing of theirs stands")
         XCTAssertEqual(linesRecords().map(\.reason),
                        ["written after this device's access was withdrawn"])
     }
 
-    /// Everything the stranger wrote is at or below the mark: one record, and
-    /// it is the gentler sentence.
-    func test_aRevokedSpanEntirelyBelowTheMarkIsOnlyEverLate() async throws {
+    /// Everything the stranger wrote is at or below the mark, so the revocation
+    /// sets nothing aside at all — and the seal travels with the op it sealed
+    /// rather than being accused of a position its own op does not have.
+    func test_arevokedSpanEntirelyBelowTheMarkIsKeptWhole() async throws {
         try writeRootRecord()
         try await writeStrangerFile(["01K5Q8ZJ3M0000000000000001"])
         try writeStrangerRecord(
             revokedAt: Date(timeIntervalSince1970: 30),
             highestOpIdSeen: "01K5Q8ZJ3M0000000000000009")
 
-        _ = try await reader().loadDiagnosed(docId: docId)
+        let load = try await reader().loadDiagnosed(docId: docId)
 
-        let reasons = linesRecords().map(\.reason)
-        XCTAssertEqual(
-            reasons.filter { $0 == "may be late sync, or may be backdated" }.count, 1)
-        XCTAssertFalse(
-            reasons.contains("written after this device's access was withdrawn"),
-            "the seal line goes with the ops it sealed when none of them is late")
+        XCTAssertEqual(load.ops.map(\.opId), ["01K5Q8ZJ3M0000000000000001"])
+        XCTAssertEqual(load.provenance.quarantinedLines, 0)
+        XCTAssertEqual(linesRecords(), [], "nothing was set aside, so nothing is filed")
     }
 
     // MARK: - Retired
