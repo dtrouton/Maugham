@@ -131,10 +131,25 @@ public enum RegistryPresence {
     /// — the writer's decision, made at a surface, never at an open (§5).
     ///
     /// The unsigned refusal is `ensureDeviceRecord`'s, for its reason.
+    ///
+    /// **The label is the WRITER's name; the own name is the MACHINE's** (P2
+    /// smoke find 2). A person record's `label` is what this book calls the
+    /// human, and labelling the root with the machine's name had People &
+    /// Devices say *Denver's MacBook Air* three times over one Mac — header,
+    /// person and device — with nothing on the screen distinguishing the writer
+    /// from the laptop. `writerName` is the account's own full name, which is a
+    /// LABEL and never an identity: this device is still its key's fingerprint
+    /// (tripwire 35), and nothing reads this back to decide anything. Required
+    /// rather than defaulted, so the registry path reads the account's name in
+    /// exactly one place — `DocumentStore.thisWritersName`, beside the machine
+    /// name it is paired with. (`NSFullUserName()` is also read, for an
+    /// unrelated purpose and by a surface that never touches a record, in
+    /// `UserPreferences.defaultCollaboratorDisplayName`.)
     @discardableResult
     nonisolated public static func ensureRootIfEmpty(
         in projectURL: URL,
         identities: LocalIdentities,
+        writerName: String,
         now: () -> Date = { Date() },
         presenter: NSFilePresenter? = nil
     ) throws -> URL? {
@@ -153,10 +168,23 @@ public enum RegistryPresence {
 
         let record = PersonRecord(
             person: author.fingerprint,
-            label: mine.name, ownName: mine.name, role: "author",
+            label: rootLabel(writerName: writerName, deviceName: mine.name),
+            ownName: mine.name, role: "author",
             admittedAt: now(), admittedBy: author.fingerprint)
         return try RegistryWriter.write(
             record, signedBy: author, in: projectURL, presenter: presenter)
+    }
+
+    /// What a first root calls the person who wrote it: the account's own full
+    /// name, and the machine's name where there is none.
+    ///
+    /// A blank account name is a real state — a Mac set up without one — and
+    /// an empty `label` would give every surface a person row with nothing on
+    /// it, which is worse than the machine name this replaced. Pure, so the
+    /// fallback is pinnable without an account.
+    nonisolated static func rootLabel(writerName: String, deviceName: String) -> String {
+        let trimmed = writerName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? deviceName : trimmed
     }
 
     // MARK: - And I already know who you are (decision B2)

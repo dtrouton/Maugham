@@ -28,8 +28,19 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
         /// Let in with no sheet shown, under a label this Mac had already
         /// granted. **Not derived yet** — see `TrustEvents.derive`.
         case silentlyAdmitted
-        /// A person record carrying `revokedAt`.
+        /// A person record carrying `revokedAt` **and a mark**: the writer
+        /// revoked them and kept what this Mac had already applied.
         case revoked
+        /// A person record carrying `revokedAt` and **no** mark: the writer
+        /// chose *set aside everything it wrote*, so none of that device's
+        /// history stands until it is re-admitted (find 5, ruled 2026-09-18).
+        ///
+        /// A kind of its own rather than a field on `.revoked`, because the two
+        /// are different events to the writer — one leaves the draft as they
+        /// have read it and one does not — and History is where they will look
+        /// to find out which they chose. It is DERIVED from the record's own
+        /// `highestOpIdSeen`, so nothing new is stored to say it.
+        case revokedEntirely
         /// A device record carrying `retiredAt`.
         case retired
         /// A `ClaimRecord`: this root claimed the book.
@@ -140,8 +151,14 @@ public enum TrustEvents {
                     by: person.admittedBy, isMine: myKeys.contains(person.person)))
             }
             if let revokedAt = person.revokedAt {
+                // Which of the two revocations this was, off the record itself:
+                // a mark is what the default leaves behind, and its absence is
+                // what *set aside everything it wrote* means to every reader
+                // (`RevocationSplit`). Nothing is stored to say so twice.
                 events.append(TrustEvent(
-                    date: revokedAt, kind: .revoked, subject: person.person,
+                    date: revokedAt,
+                    kind: person.highestOpIdSeen == nil ? .revokedEntirely : .revoked,
+                    subject: person.person,
                     label: person.label, ownName: person.ownName,
                     by: person.revokedBy, isMine: myKeys.contains(person.person)))
             }
@@ -178,7 +195,28 @@ public enum TrustEvents {
                 label: registry.person(joined)?.label,
                 ownName: registry.person(joined)?.ownName))
         }
-        for claimant in cache.claimants(for: projectURL) {
+        // **A root this device has adopted is merged, and is not still
+        // claiming** (whole-branch review H1). `RegistryCache.claimants` never
+        // forgets — that a second root was seen here is a fact, and a merge
+        // does not unsay it — so the answer to *is it still claiming* is made
+        // at the derivation instead.
+        //
+        // The adopted set is asked of a `TrustTable` rather than re-derived off
+        // `registry.claims`, because People & Devices reads `adoptedRoots` and
+        // two spellings of *merged* is exactly how the pane comes to say merged
+        // while History goes on warning. The table is pure over these same
+        // three inputs (`DeviceStanding.resolve`'s own shape, for its reason),
+        // so this costs no disk and no second opinion.
+        //
+        // **One-way, and that is the point.** `adoptedRoots` is the closure of
+        // claims written by MY root, so a root that adopted mine without my
+        // reciprocating stays a claimant and stays offered (B1): nothing
+        // widens on somebody else's say-so, and the merge that silences this
+        // warning is the writer's own.
+        let adopted = Set(TrustTable.resolve(
+            registry: registry, mine: mine,
+            joinedRoot: cache.joinedRoot(for: projectURL)).adoptedRoots)
+        for claimant in cache.claimants(for: projectURL) where !adopted.contains(claimant) {
             events.append(TrustEvent(
                 date: nil, kind: .anotherClaimant, subject: claimant,
                 label: registry.person(claimant)?.label,

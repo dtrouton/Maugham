@@ -17,19 +17,19 @@ final class InboxSetAsideNoticeTests: XCTestCase {
     // MARK: - The copy
 
     func test_nothingSetAsideSaysNothing() {
-        XCTAssertNil(InboxPane.setAsideNotice(lineCount: 0))
+        XCTAssertNil(InboxPane.setAsideNotice(changeCount: 0))
     }
 
     func test_oneCaptureIsSingular() {
         XCTAssertEqual(
-            InboxPane.setAsideNotice(lineCount: 1),
+            InboxPane.setAsideNotice(changeCount: 1),
             "1 capture was written to the inbox by something that is not "
             + "Maugham; kept in backup, not shown.")
     }
 
     func test_severalCapturesArePlural() {
         XCTAssertEqual(
-            InboxPane.setAsideNotice(lineCount: 4),
+            InboxPane.setAsideNotice(changeCount: 4),
             "4 captures were written to the inbox by something that is not "
             + "Maugham; kept in backup, not shown.")
     }
@@ -65,7 +65,7 @@ final class InboxSetAsideNoticeTests: XCTestCase {
         let records = OpLogQuarantine.records(
             forDocId: InboxManifest.chainDocId, in: project)
         XCTAssertEqual(
-            OpLogQuarantine.setAsideLineCount(records: records, in: project), 3,
+            OpLogQuarantine.setAsideChangeCount(records: records, in: project), 3,
             "three lines across two records, not two")
     }
 }

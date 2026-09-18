@@ -151,6 +151,19 @@ public final class DocumentStore {
         Host.current().localizedName ?? "This Mac"
     }
 
+    /// The writer's own name, as a DISPLAY string — "Denver", the label a first
+    /// root record carries for the person who wrote it (P2 smoke find 2).
+    ///
+    /// `thisMacsName`'s twin and, like it, a name and never an identity: this
+    /// device is its key's fingerprint (tripwire 35) and nothing reads either of
+    /// these back to decide anything. Two strings rather than one because a
+    /// person record holds both — the label is who the writer is, the own name
+    /// is which of their machines — and labelling the root with the MACHINE had
+    /// People & Devices say the same words in three rows over one Mac.
+    /// `RegistryPresence.rootLabel` falls back to the machine's name when an
+    /// account has none.
+    static var thisWritersName: String { NSFullUserName() }
+
     public static func open(url: URL) async throws -> DocumentStore {
         let uiStateURL = url
             .appendingPathComponent(".maugham")
@@ -215,7 +228,7 @@ public final class DocumentStore {
                 name: thisMacsName, kind: .mac, presenter: store.presenter)
             try RegistryPresence.ensureRootIfEmpty(
                 in: url, identities: Document.loadIdentities,
-                presenter: store.presenter)
+                writerName: thisWritersName, presenter: store.presenter)
             // And then everyone this writer has already named (decision B2,
             // spec §4.2). The sheet is worth putting up once per device; the
             // second book it syncs into gets the remembered label without

@@ -154,6 +154,88 @@ final class RegistryCacheTests: XCTestCase {
         XCTAssertTrue(reread.people.contains { $0.person == self.phone.fingerprint })
     }
 
+    // MARK: - The deliberate restore (P2 smoke find 1)
+
+    /// **`reconcile` leaves a tampered record exactly where it is, and that was
+    /// the whole problem.** A device cannot tell *tampered with* from *damaged
+    /// in transit*, so it must not overwrite somebody's signed record on its own
+    /// initiative — which left the record with no way back at all, and this Mac
+    /// reading as *not yet admitted* on its own book. A writer looking at the
+    /// row, told in words what is wrong with it, is a different thing: this is
+    /// the press.
+    func test_awriterPutsBackARecordThatWillNotVerify() throws {
+        let registry = try writeASmallRegistry()
+        let cache = makeCache()
+        cache.remember(registry, for: projectURL)
+
+        let ref = RecordRef(directory: .people, fingerprint: root.fingerprint)
+        let url = RegistryWriter.url(.people, fingerprint: root.fingerprint, in: projectURL)
+        let before = try Data(contentsOf: url)
+
+        // Somebody edits the label after it was signed.
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: before) as? [String: Any])
+        object["label"] = "Somebody else"
+        try JSONSerialization.data(
+            withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]
+        ).write(to: url, options: .atomic)
+        // The reader refuses it — and, because it is the ROOT, everyone it
+        // admitted goes with it: a chain hangs off one signature, which is why
+        // an unverifiable record with no way back was worth a surface.
+        let refused = try RegistryReader.load(projectURL: projectURL).malformed
+        XCTAssertTrue(
+            refused.contains { $0.ref == ref && $0.reason == .signatureDoesNotVerify },
+            "the edited root: \(refused.map(\.reason))")
+        XCTAssertTrue(try RegistryReader.load(projectURL: projectURL).roots.isEmpty,
+                      "and the book has no root at all while it stands")
+
+        let written = try cache.restore(
+            ref, in: projectURL, at: Date(timeIntervalSince1970: 900))
+
+        XCTAssertEqual(written, url)
+        XCTAssertEqual(try Data(contentsOf: url), before, "byte for byte")
+        let reread = try RegistryReader.load(projectURL: projectURL)
+        XCTAssertEqual(reread.malformed, [], "and what went back verifies")
+        XCTAssertEqual(reread.person(root.fingerprint)?.label, "Denver")
+    }
+
+    /// It is recorded with the automatic ones, because a restoration leaves
+    /// nothing in the folder afterwards: the row says *put back* and History
+    /// dates the event off this one list.
+    func test_thedeliberateRestoreIsDatedLikeEveryOther() throws {
+        let registry = try writeASmallRegistry()
+        let cache = makeCache()
+        cache.remember(registry, for: projectURL)
+        let ref = RecordRef(directory: .people, fingerprint: phone.fingerprint)
+
+        try cache.restore(ref, in: projectURL, at: Date(timeIntervalSince1970: 900))
+
+        XCTAssertEqual(cache.restores(for: projectURL),
+                       [RestoredRecord(ref: ref, restoredAt: Date(timeIntervalSince1970: 900))])
+        XCTAssertEqual(makeCache().restores(for: projectURL).count, 1,
+                       "and it survives the launch that draws it")
+    }
+
+    /// Nothing remembered is a refusal with a sentence in it, not a silent
+    /// no-op: a writer who pressed a button is owed an answer either way
+    /// (RULING-7), and this error travels to the surface through the ordinary
+    /// fallback, which has nothing of its own to add.
+    func test_arestoreWithNothingRememberedRefusesInWords() throws {
+        try writeASmallRegistry()
+        let cache = makeCache()
+        let ref = RecordRef(directory: .people, fingerprint: phone.fingerprint)
+
+        XCTAssertThrowsError(try cache.restore(ref, in: projectURL)) { error in
+            XCTAssertEqual(error as? RegistryCache.RestoreError, .nothingRemembered(ref))
+            XCTAssertTrue(
+                ((error as? LocalizedError)?.errorDescription ?? "")
+                    .contains("nothing to put back"),
+                "and it says so: \(String(describing: (error as? LocalizedError)?.errorDescription))")
+        }
+        XCTAssertEqual(cache.restores(for: projectURL), [],
+                       "a restore that did not happen is not dated")
+    }
+
     // MARK: - The dated restore list (P2b Task 10)
 
     /// **A restoration leaves a trace that outlives it.** Once the record is

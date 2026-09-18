@@ -644,6 +644,95 @@ something and did nothing. Making it real needs a durable **per-span exception**
 threaded through the trust table — new persisted state and a new trust input —
 and that is **a P3 decision for Denver**, not a switch.
 
+#### Amendment, 2026-09-18 — what a revocation costs is the writer's choice
+
+The two paragraphs above describe what shipped in P2b and are superseded by
+Denver's ruling on the P2 smoke's find 5. They are kept because the reasoning
+behind the Apply still stands and P3 inherits it.
+
+**What was wrong.** A revocation stripped everything that device had ever
+written, including the paragraphs that were in the manuscript before the writer
+revoked anybody. The smoke made it plain: Mac B's only op WAS the revocation's
+own `highestOpIdSeen`, and it left the chapter with the rest. The split existed
+but decided only which of two *sentences* a refused line was filed under. The
+spec said only spans *arriving later* were held; the code held all of them.
+
+**What ships now.** The cut is made BEFORE the parse, in both the live-tail and
+the rotated-segment paths: `RevocationSplit.partition` answers which lines this
+Mac had already applied and `OpLogChain.readmitting` re-settles them, so an op
+at or below the mark stays in the book and one above it is set aside as before.
+A seal travels with the op immediately before it in file order; a line with no
+op before it stays refused. `Verification.head` does not move — it is what the
+next chained append builds on and a re-admitted line is not a suffix.
+
+**Why nothing is newly trusted.** The mark is this device's own record of how
+far it had got with that device, not that device's word about itself. A line at
+or below it is one this Mac had ALREADY APPLIED while they were admitted, so
+keeping it is not the revocation believing a revoked key — it is the revocation
+declining to reach backwards into work the writer has read, redrafted and, in
+Denver's case, published. What the device wrote after the door closed is refused
+exactly as it was. The claim this makes is about THIS device's past reads; it
+gives a revoked key no standing anywhere else.
+
+**And the old behaviour is a choice, not a casualty** (`RevocationScope`). *Set
+aside everything it wrote* records no mark, which is how a reader has always
+been told that nothing of theirs was ever already here, so the whole history
+leaves the book until they are re-admitted. It is offered as a second
+destructive button on the same alert, with its own sentence, because the two
+costs differ and one shared message would have the writer choosing between two
+things they were told the same thing about. History tells the two apart from the
+record itself — a mark present or absent — so nothing new is stored to say it.
+
+**The mark had to become honest for any of this to be safe.** It was computed
+over the documents a window had OPEN, which is nil for a writer revoking from
+Project Settings with nothing open — the ordinary way to reach the button — and
+nil means keep nothing. It is now taken over every op-log file in the project
+(plus the open documents from memory), read-only, once, behind the confirmation
+the writer is already looking at.
+
+**A revocation refuses rather than guess, and it always records which button
+was pressed** (find-5 review). The mark used to be a single optional, so *this
+book applies nothing of theirs* and *a file would not read* both came back nil —
+and nil is the wire spelling of *set aside everything it wrote*. A read hiccup
+therefore turned the writer's gentle press into the harsh choice and History
+narrated it as one. Now the sweep answers three things. A mark is a mark. Where
+this book applies nothing of theirs the gentle press records
+`RevocationScope.nothingAppliedMark`, the lowest ULID: it keeps exactly nothing,
+which is the truth, while leaving the record able to say which button was
+pressed. Where a file or the registry will not read, the revocation REFUSES —
+`RegistryAdmissionError.historyUnreadable`, nothing written, the file named —
+because a mark that came back short silently widens what a revocation takes
+back, and the shortest of all is indistinguishable from the other button. A nil
+mark remains the one spelling of *set aside everything it wrote*.
+
+**Dev records written before this carry nil for both meanings.** They are not
+migrated: tripwire 11 — delete the dev registries and recreate, as P2b's own
+release note already requires.
+
+**Why a line was refused is a fact about the LINE.** `Verification.quarantineCause`
+is one cause for a whole file and it is the FIRST one the walk met, so a splice
+after a revoked seal wore the revocation's name; the cut, judging by op id, put
+forged text back into a manuscript on the strength of a number the forger chose
+(`highestOpIdSeen` is written into a signed record every device reads).
+`OpLogChain.Line.refusal` now travels with the line and is what the cut asks; a
+line refused for a chain fault, a truncation, another claimant's root or a
+retirement is no candidate whatever its op id. A set-aside record is filed under
+the reason its own lines carry, so a splice is reported as a splice rather than
+as the writer's other Mac having written after the door closed.
+
+**The late-sync distinction is deferred, not deleted.** `revocationLate` and its
+sentence are gone from the code, because the lines they described are applied
+and a cause with no producer is a rule waiting to be made load-bearing wrongly.
+Telling *already applied here* from *an old id arriving late* still cannot be
+done with what this device stores: `highestOpIdSeen` is a scalar, and below it
+the two are indistinguishable. `OpLogDeviceState`'s remembered head WOULD decide
+it unforgeably, but it is kept only for files this device has written and this
+device never appends to a foreign device's file. Making it decidable needs a
+head remembered per FOREIGN file — device-local state, not a new record kind,
+through the additive `remember(head:for:)` that already exists — and it only
+helps if recorded BEFORE a revocation. That, with the per-span Apply above,
+is **P3's**.
+
 **Re-admission by the root is the inverse of revocation.** Admitting a revoked
 person under my root clears `revokedAt`/`revokedBy`/`highestOpIdSeen` and
 preserves the original `admittedAt`, because any admission written by the
@@ -688,6 +777,30 @@ so the verb refuses.
 **`claimedAt` does not move when a later root is adopted**, so History dates a
 later adoption on the day the book was claimed. The alternative moves the
 *claimed this book* event instead, which is worse.
+
+**Amended 2026-09-18, from the P2 smoke: a second root is a claimant whether or
+not it has said anything about this device.** The rule above is stated as
+displacement — a foreign root that names one of my keys, or a `signerChanged`
+listing over a record of mine — and both halves require the other Mac to have
+mentioned me. The two-roots exit does not arrive that way. A Mac that claims the
+book writes its own root record and a `ClaimRecord` adopting mine, and a claim
+is signed by that root ABOUT that root: it names none of my keys and displaces
+none of my records. So the Mac being merged WITH listed nothing of the Mac doing
+the merging, offered no Merge, and the exit could only ever be walked from one
+side — and two Macs that each rooted an empty book and have claimed nothing were
+the same silence with no claim record in it. The rule is now: **a verified
+self-signed root that is not one of this device's keys, is not the root it is
+on, and that it has not adopted is a claimant** — listed, with Merge offered.
+Its converse is the half that keeps adoption the writer's own act: **a root this
+device HAS adopted is merged and never listed, reciprocated or not**, because
+`adoptedRoots` deliberately does not widen on somebody else's claim (B1) and the
+writer's own claim is their answer to the question the list exists to ask. It is
+decided in one place beside the other two rules, never in a view, and it moves
+no `TrustVerdict`: a foreign root's keys still answer `.otherRoot` and are still
+refused. A device on NO chain lists nobody — its surface for a book full of
+somebody else's history is the claim sheet above, and recording a root it has
+not joined yet would leave that root warning for good after it admitted this
+device.
 
 ### What the phone does
 

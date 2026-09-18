@@ -159,6 +159,62 @@ final class AbsentRememberedHeadTests: XCTestCase {
         XCTAssertEqual(linesRecords().first?.reason, "the history's chain is broken")
     }
 
+    /// **The truncation's lines are refused BY the truncation, and no
+    /// revocation can talk them back in** (find-5 review, the Critical's second
+    /// route).
+    ///
+    /// `quarantining(_:after:)` used to carry the file's existing cause
+    /// forward (`quarantineCause ?? .chainBroke(cutShort)`), so on a file whose
+    /// first cause was a revocation every truncated line wore the revocation's
+    /// name — and the cut, which judges by op id, would have put a forged line
+    /// back. The reason now travels with the line.
+    ///
+    /// **This pins the reason rather than the exploit, and deliberately.** The
+    /// combination the review named — a remembered head AND a revoked span in
+    /// one file — is not reachable today: `OpLogDeviceState` keeps a head only
+    /// for files this device has WRITTEN, and this device's own keys answer
+    /// `.mine` before any revocation is consulted, so a file with a remembered
+    /// head never carries `.afterRevocation` on a line. The fix is defensive,
+    /// and this test says what can be said honestly — the truncation names
+    /// itself, and the most generous mark imaginable finds nothing here to keep.
+    func test_theTruncatedLinesAreRefusedByTheTruncationItself() async throws {
+        try await writeMyOwnSealedFile(["01A", "01B"])
+        let sealed = try lines(of: fileURL)
+        try await makeStore().append(op("01C"))
+
+        var forged = Data()
+        for line in sealed { forged.append(line); forged.append(0x0A) }
+        var head = OpLogChain.lineHash(sealed[2])
+        for id in ["09Y", "09Z"] {
+            let line = OpLogChain.chainedLine(
+                elementJSON: try encoded(op(id, next: "not the writer's")), prev: head)
+            forged.append(line)
+            forged.append(0x0A)
+            head = OpLogChain.lineHash(line)
+        }
+        try forged.write(to: fileURL)
+
+        let walked = OpLogChain.verify(
+            bytes: forged, trusted: { _ in true },
+            rememberedHead: myState.head(for: fileKey))
+        let settled = OpLogChain.resolveAbsentHead(
+            walked,
+            rememberedHead: myState.head(for: fileKey),
+            previousHead: myState.previousHead(for: fileKey)).verification
+
+        let refused = settled.lines.filter { $0.state == .quarantined }
+        XCTAssertFalse(refused.isEmpty, "premise: the truncation held lines back")
+        for line in refused {
+            guard case .chainBroke(.cutShortBeforeRememberedHead)? = line.refusal else {
+                return XCTFail("a truncated line says so: \(String(describing: line.refusal))")
+            }
+        }
+        XCTAssertNil(
+            RevocationSplit.partition(of: settled, highestOpIdSeen: { _ in "zzzz" }),
+            "and a revocation with the most generous mark imaginable finds no "
+                + "candidate here at all")
+    }
+
     /// And the writer keeps writing: the next append truncates the forgery,
     /// files it, and chains onto the seal — so their new op is applied rather
     /// than stranded on the far side of a permanent break.

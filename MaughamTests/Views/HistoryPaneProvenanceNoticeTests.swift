@@ -9,7 +9,7 @@ import XCTest
 /// Pinned without mounting, the `unreadableCheckpointNotice` /
 /// `quarantineNotice` pattern: the copy is a pure static over counts, so its
 /// grammar and its nil case are assertable with no window and no disk. The one
-/// static that must read disk (`setAsideLinesByReason`, ruling 2's "N is the
+/// static that must read disk (`setAsideChangesByReason`, ruling 2's "N is the
 /// number of LINES, not records") is pinned against a real temp project, and
 /// is deliberately not the notice itself — a notice that read files would do
 /// file I/O on every `body` evaluation.
@@ -105,27 +105,27 @@ final class HistoryPaneProvenanceNoticeTests: XCTestCase {
         }
     }
 
-    // MARK: - setAsideLinesNotice
+    // MARK: - setAsideChangesNotice
 
-    func test_setAsideLinesNotice_nilWhenNothingWasSetAside() {
-        XCTAssertNil(HistoryPane.setAsideLinesNotice(byReason: [:]))
+    func test_setAsideChangesNotice_nilWhenNothingWasSetAside() {
+        XCTAssertNil(HistoryPane.setAsideChangesNotice(byReason: [:]))
         XCTAssertNil(
-            HistoryPane.setAsideLinesNotice(
+            HistoryPane.setAsideChangesNotice(
                 byReason: ["written by something that is not Maugham": 0]),
             "a reason with nothing under it is not a finding")
     }
 
-    func test_setAsideLinesNotice_countsTheChanges() {
+    func test_setAsideChangesNotice_countsTheChanges() {
         XCTAssertEqual(
-            HistoryPane.setAsideLinesNotice(
+            HistoryPane.setAsideChangesNotice(
                 byReason: ["written by something that is not Maugham": 3]),
             "3 changes to this document were set aside (written by something "
             + "that is not Maugham); kept in backup, not applied.")
     }
 
-    func test_setAsideLinesNotice_singularGrammar() {
+    func test_setAsideChangesNotice_singularGrammar() {
         XCTAssertEqual(
-            HistoryPane.setAsideLinesNotice(
+            HistoryPane.setAsideChangesNotice(
                 byReason: ["written by something that is not Maugham": 1]),
             "1 change to this document was set aside (written by something "
             + "that is not Maugham); kept in backup, not applied.")
@@ -138,8 +138,8 @@ final class HistoryPaneProvenanceNoticeTests: XCTestCase {
     /// their old Mac and History told them something that is not Maugham wrote
     /// those changes — a misattribution of the writer's own work, on the one
     /// screen that exists to tell them the truth about their book.
-    func test_setAsideLinesNotice_saysRevocationRatherThanNotMaugham() {
-        let notice = try! XCTUnwrap(HistoryPane.setAsideLinesNotice(
+    func test_setAsideChangesNotice_saysRevocationRatherThanNotMaugham() {
+        let notice = try! XCTUnwrap(HistoryPane.setAsideChangesNotice(
             byReason: ["written after this device's access was withdrawn": 4]))
 
         XCTAssertEqual(
@@ -152,13 +152,13 @@ final class HistoryPaneProvenanceNoticeTests: XCTestCase {
 
     /// The four P2b reasons are four different things to have happened, and a
     /// writer cannot act on any of them while they are all called one thing.
-    func test_setAsideLinesNotice_carriesEachOfTheReasonsItIsGiven() {
+    func test_setAsideChangesNotice_carriesEachOfTheReasonsItIsGiven() {
         for reason in ["written after this device was retired",
                        "may be late sync, or may be backdated",
                        "written under another claimant's copy of this book",
                        "the history's chain is broken"] {
             let notice = try! XCTUnwrap(
-                HistoryPane.setAsideLinesNotice(byReason: [reason: 2]))
+                HistoryPane.setAsideChangesNotice(byReason: [reason: 2]))
             XCTAssertTrue(notice.contains(reason), notice)
             XCTAssertFalse(notice.contains("not Maugham"), notice)
         }
@@ -169,9 +169,9 @@ final class HistoryPaneProvenanceNoticeTests: XCTestCase {
     /// which is two records with two sentences and one refusal — so the total
     /// leads and each cause says itself. Ordered by count, then alphabetically,
     /// so one folder answers one way however its sidecars were enumerated.
-    func test_setAsideLinesNotice_givesEachCauseItsOwnClause() {
+    func test_setAsideChangesNotice_givesEachCauseItsOwnClause() {
         XCTAssertEqual(
-            HistoryPane.setAsideLinesNotice(byReason: [
+            HistoryPane.setAsideChangesNotice(byReason: [
                 "written after this device's access was withdrawn": 2,
                 "may be late sync, or may be backdated": 5,
             ]),
@@ -181,8 +181,8 @@ final class HistoryPaneProvenanceNoticeTests: XCTestCase {
     }
 
     /// A tie is broken by the reason itself, so the sentence is stable.
-    func test_setAsideLinesNotice_ordersEqualCountsByReason() {
-        let notice = try! XCTUnwrap(HistoryPane.setAsideLinesNotice(byReason: [
+    func test_setAsideChangesNotice_ordersEqualCountsByReason() {
+        let notice = try! XCTUnwrap(HistoryPane.setAsideChangesNotice(byReason: [
             "written by something that is not Maugham": 1,
             "may be late sync, or may be backdated": 1,
         ]))
@@ -193,16 +193,16 @@ final class HistoryPaneProvenanceNoticeTests: XCTestCase {
             + "is not Maugham. Kept in backup, not applied.")
     }
 
-    // MARK: - setAsideLinesByReason (ruling 2: LINES, not records)
+    // MARK: - setAsideChangesByReason (ruling 2: LINES, not records)
 
-    func test_setAsideLinesByReason_emptyWhenNoRecords() {
+    func test_setAsideChangesByReason_emptyWhenNoRecords() {
         let project = makeProject()
         defer { try? FileManager.default.removeItem(at: project) }
         XCTAssertEqual(
-            HistoryPane.setAsideLinesByReason(records: [], in: project), [:])
+            HistoryPane.setAsideChangesByReason(records: [], in: project), [:])
     }
 
-    func test_setAsideLinesByReason_countsLinesAcrossRecords_notRecords() throws {
+    func test_setAsideChangesByReason_countsLinesAcrossRecords_notRecords() throws {
         let project = makeProject()
         defer { try? FileManager.default.removeItem(at: project) }
         let opsURL = project.appendingPathComponent(".maugham/ops/doc-abcd.phone.jsonl")
@@ -217,14 +217,14 @@ final class HistoryPaneProvenanceNoticeTests: XCTestCase {
             reason: "written by something that is not Maugham", in: project))
 
         XCTAssertEqual(
-            HistoryPane.setAsideLinesByReason(records: [first, second], in: project),
+            HistoryPane.setAsideChangesByReason(records: [first, second], in: project),
             ["written by something that is not Maugham": 5],
             "N is the number of set-aside CHANGES — five lines across two records")
     }
 
     /// Two records filed under two causes are counted apart, which is what
     /// lets the sentence say each of them (whole-branch review, I3).
-    func test_setAsideLinesByReason_countsEachCauseSeparately() throws {
+    func test_setAsideChangesByReason_countsEachCauseSeparately() throws {
         let project = makeProject()
         defer { try? FileManager.default.removeItem(at: project) }
         let opsURL = project.appendingPathComponent(".maugham/ops/doc-abcd.phone.jsonl")
@@ -239,7 +239,7 @@ final class HistoryPaneProvenanceNoticeTests: XCTestCase {
             reason: "written after this device's access was withdrawn", in: project))
 
         XCTAssertEqual(
-            HistoryPane.setAsideLinesByReason(
+            HistoryPane.setAsideChangesByReason(
                 records: [foreign, revoked], in: project),
             ["written by something that is not Maugham": 2,
              "written after this device's access was withdrawn": 1])
@@ -247,7 +247,7 @@ final class HistoryPaneProvenanceNoticeTests: XCTestCase {
 
     /// A `.file` record's data file is a whole op log; its line count is not
     /// what this sentence counts, so the counter reads `.lines` records only.
-    func test_setAsideLinesByReason_ignoresFileRecords() throws {
+    func test_setAsideChangesByReason_ignoresFileRecords() throws {
         let project = makeProject()
         defer { try? FileManager.default.removeItem(at: project) }
         let opsURL = project.appendingPathComponent(".maugham/ops/doc-abcd.phone.jsonl")
@@ -256,8 +256,96 @@ final class HistoryPaneProvenanceNoticeTests: XCTestCase {
         let fileRecord = try OpLogQuarantine.quarantine(
             fileURL: opsURL, docId: "doc-abcd", reason: "unreadable", in: project)
         XCTAssertEqual(
-            HistoryPane.setAsideLinesByReason(records: [fileRecord], in: project), [:],
+            HistoryPane.setAsideChangesByReason(records: [fileRecord], in: project), [:],
             "a whole set-aside FILE is the Retry notice's subject, not this one's")
+    }
+
+    // MARK: - The smoke's own number (P2 smoke, finds 6 and 7)
+
+    /// **Six changes set aside, for two ops.** Mac B's first op was archived
+    /// once as `[op1, seal1]` and again on the next load as `[op1]` plus
+    /// `[seal1, op2, seal2]`: three records, six lines, two changes. The
+    /// sentence counted the seals and counted `op1` twice.
+    ///
+    /// The fixture is the on-disk evidence from the smoke, reduced to its shape.
+    func test_theSmokesThreeRecordsAreTwoChangesAndNotSix() throws {
+        let project = makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+        let late = "may be late sync, or may be backdated"
+        let after = "written after this device's access was withdrawn"
+        let first = Self.op("01M2RMZS8S08J1MKA7CPTFK4MS")
+        let second = Self.op("01M2RNCJ4384V357PT3EG049SW")
+
+        let records = [
+            try setAside([first, Self.seal()], reason: late, in: project, at: 1),
+            try setAside([Self.seal(), second, Self.seal()], reason: after, in: project, at: 2),
+            try setAside([first], reason: late, in: project, at: 3),
+        ]
+
+        XCTAssertEqual(
+            HistoryPane.setAsideChangesByReason(records: records, in: project),
+            [late: 1, after: 1],
+            "one change under each reason \u{2014} not three and three")
+        XCTAssertEqual(
+            HistoryPane.setAsideChangesNotice(
+                byReason: HistoryPane.setAsideChangesByReason(
+                    records: records, in: project)),
+            "2 changes to this document were set aside: 1 change may be late "
+            + "sync, or may be backdated; 1 change written after this device's "
+            + "access was withdrawn. Kept in backup, not applied.")
+    }
+
+    /// **Find 7.** After a Re-admit those ops are in the draft. The records stay
+    /// on disk and the disclosure goes on listing them; the SENTENCE stops
+    /// claiming what the writer already has, and goes away when they have it all.
+    func test_aReadmittedChangeLeavesTheSentence() throws {
+        let project = makeProject()
+        defer { try? FileManager.default.removeItem(at: project) }
+        let after = "written after this device's access was withdrawn"
+        let records = [try setAside(
+            [Self.op("01M2RMZS8S08J1MKA7CPTFK4MS"), Self.seal(),
+             Self.op("01M2RNCJ4384V357PT3EG049SW")],
+            reason: after, in: project, at: 1)]
+
+        XCTAssertEqual(
+            HistoryPane.setAsideChangesByReason(records: records, in: project),
+            [after: 2],
+            "premise: held, so both are set aside")
+        XCTAssertEqual(
+            HistoryPane.setAsideChangesByReason(
+                records: records, in: project,
+                applied: ["01M2RMZS8S08J1MKA7CPTFK4MS"]),
+            [after: 1],
+            "the applied one is not set aside any more")
+        XCTAssertNil(
+            HistoryPane.setAsideChangesNotice(
+                byReason: HistoryPane.setAsideChangesByReason(
+                    records: records, in: project,
+                    applied: ["01M2RMZS8S08J1MKA7CPTFK4MS",
+                              "01M2RNCJ4384V357PT3EG049SW"])),
+            "and with the whole span applied the sentence goes away, while "
+            + "every record it was about is still on disk")
+        XCTAssertEqual(
+            OpLogQuarantine.records(forDocId: "doc-abcd", in: project).count, 1,
+            "\u{2026}which is the point: the evidence is permanent")
+    }
+
+    private static func op(_ opId: String) -> Data {
+        Data(#"{"prev":"abc","op_id":"\#(opId)","doc_id":"doc-abcd"}"#.utf8)
+    }
+
+    private static func seal() -> Data {
+        Data(#"{"seal":{"at":"2026-09-17T21:39:58.365Z","head":"abc","key":"k","sig":"s"}}"#.utf8)
+    }
+
+    private func setAside(
+        _ lines: [Data], reason: String, in project: URL, at second: TimeInterval
+    ) throws -> QuarantineRecord {
+        try XCTUnwrap(OpLogQuarantine.setAsideLines(
+            lines,
+            from: project.appendingPathComponent(".maugham/ops/doc-abcd.macb.jsonl"),
+            docId: "doc-abcd", reason: reason, in: project,
+            now: Date(timeIntervalSince1970: 1_000_000 + second)))
     }
 
     private func makeProject() -> URL {

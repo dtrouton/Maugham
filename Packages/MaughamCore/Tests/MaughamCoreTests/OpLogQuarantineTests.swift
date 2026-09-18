@@ -481,58 +481,180 @@ final class OpLogQuarantineTests: XCTestCase {
         XCTAssertEqual(record.kind, .file)
     }
 
-    // MARK: - The revocation split (P2b Task 7, spec §5)
+    // MARK: - The revocation partition (find 5, RULED 2026-09-18)
 
-    /// Only a revocation splits. A broken chain has no *before*, so its lines
-    /// stay one group under the walk's own cause and one `.lines` record.
-    func test_acauseThatIsNotARevocationIsOneGroupWhateverTheMark() {
+    private let mark = "01K5Q8ZJ3M0000000000000005"
+
+    /// Only a revocation partitions. A broken chain has no *before*, so nothing
+    /// is re-admitted and every line stays refused.
+    func test_acauseThatIsNotARevocationReadmitsNothingWhateverTheMark() {
         let lines = [opLine("01K5Q8ZJ3M0000000000000001"),
                      opLine("01K5Q8ZJ3M0000000000000009")]
         let verification = quarantinedVerification(
             lines, cause: .chainBroke(.prevMismatch(lineIndex: 0)))
 
-        let groups = RevocationSplit.groups(
-            of: verification, highestOpIdSeen: "01K5Q8ZJ3M0000000000000005")
-
-        XCTAssertEqual(groups.count, 1)
-        XCTAssertEqual(groups.first?.cause, .chainBroke(.prevMismatch(lineIndex: 0)))
-        XCTAssertEqual(groups.first?.lines, lines)
+        XCTAssertNil(RevocationSplit.partition(
+            of: verification, highestOpIdSeen: { _ in mark }))
     }
 
-    /// **A line whose opId cannot be read — a seal, or a shape this build
-    /// cannot parse — follows the ops it sits among.** With something above the
-    /// mark it is filed on the STRICT side, because the gentler sentence claims
-    /// a position nobody can establish; with every op below the mark there is
-    /// no strict side to join, and calling the line that SEALED history this
-    /// Mac had already applied "written after the door closed" would be an
-    /// accusation about the only line in the span that is not an op.
-    func test_alineWithNoReadableOpIdFollowsTheOpsAroundIt() {
+    /// **The default revocation keeps what this Mac had already applied.** The
+    /// mark is the highest opId it had applied from that device, so an op at or
+    /// below it was in the manuscript before the writer revoked anybody, and
+    /// taking it out would be the revocation reaching backwards into work the
+    /// writer has read.
+    func test_anOpAtOrBelowTheMarkIsReadmittedAndOneAboveItIsRefused() {
+        let before = opLine("01K5Q8ZJ3M0000000000000001")
+        let atTheMark = opLine(mark)
+        let after = opLine("01K5Q8ZJ3M0000000000000009")
+
+        let split = RevocationSplit.partition(
+            of: quarantinedVerification(
+                [before, atTheMark, after], cause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: { _ in mark })
+
+        XCTAssertEqual(split?.readmitted, [before, atTheMark],
+                       "the mark itself is an op this Mac HAD applied — the smoke's "
+                           + "own case, where B's only op was the mark")
+        XCTAssertEqual(split?.refused, [after])
+    }
+
+    /// **A seal travels with the op immediately before it in file order** (P2
+    /// smoke, find 6's third cause). A seal carries no opId of its own, and the
+    /// span it closes is the one ending at the line above it; filing `seal1`
+    /// under *after revocation* while `op1` was re-admitted would accuse the
+    /// signature of a position its own op does not have.
+    func test_asealTravelsWithTheOpItSeals() {
+        let op1 = opLine("01K5Q8ZJ3M0000000000000001")
+        let seal1 = Data(#"{"seal":{"key":"aaaa"}}"#.utf8)
+        let op2 = opLine("01K5Q8ZJ3M0000000000000009")
+        let seal2 = Data(#"{"seal":{"key":"bbbb"}}"#.utf8)
+
+        let split = RevocationSplit.partition(
+            of: quarantinedVerification(
+                [op1, seal1, op2, seal2], cause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: { _ in mark })
+
+        XCTAssertEqual(split?.readmitted, [op1, seal1])
+        XCTAssertEqual(split?.refused, [op2, seal2])
+    }
+
+    /// The same rule at the head of a span, where there is no op to travel
+    /// with: a line whose position cannot be established from an op of its own
+    /// stays refused, which is the strict side and the side to be wrong on.
+    func test_alineWithNoOpBeforeItStaysRefused() {
+        let unplaceable = Data("{not json at all".utf8)
+        let late = opLine("01K5Q8ZJ3M0000000000000001")
+
+        let split = RevocationSplit.partition(
+            of: quarantinedVerification(
+                [unplaceable, late], cause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: { _ in mark })
+
+        XCTAssertEqual(split?.refused, [unplaceable])
+        XCTAssertEqual(split?.readmitted, [late])
+    }
+
+    /// **The whole span is below the mark**, so the revocation set nothing
+    /// aside at all — the degenerate case the old two-group return needed a
+    /// clause of its own for, which now falls out of the seal rule.
+    func test_aspanEntirelyBelowTheMarkIsReadmittedWhole() {
+        let op1 = opLine("01K5Q8ZJ3M0000000000000001")
+        let seal1 = Data(#"{"seal":{"key":"aaaa"}}"#.utf8)
+
+        let split = RevocationSplit.partition(
+            of: quarantinedVerification(
+                [op1, seal1], cause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: { _ in mark })
+
+        XCTAssertEqual(split?.readmitted, [op1, seal1])
+        XCTAssertEqual(split?.refused, [])
+    }
+
+    /// **No mark is the writer's other choice** (find 5's ruling): a revocation
+    /// record carrying no `highestOpIdSeen` means *nothing of theirs stands*,
+    /// and nothing is re-admitted. It is also what a device this Mac had
+    /// applied nothing from produces, which is the same outcome by a different
+    /// road.
+    func test_arevocationWithNoMarkReadmitsNothing() {
+        XCTAssertNil(RevocationSplit.partition(
+            of: quarantinedVerification(
+                [opLine("01K5Q8ZJ3M0000000000000001")],
+                cause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: { _ in nil }))
+    }
+
+    /// **A line refused for something OTHER than the revocation is never a
+    /// candidate, whatever its op id** (find-5 review, the Critical) — the
+    /// planted offender for the per-line rule, at the layer that makes the
+    /// decision.
+    ///
+    /// The file's own cause is the revocation, because that is the first thing
+    /// the walk met; the splice after it is refused for the break. A rule
+    /// reading the FILE's cause sees one revoked span and puts the forgery
+    /// back.
+    func test_alineRefusedForABreakIsNoCandidateHoweverLowItsOpId() {
+        let honest = opLine("01K5Q8ZJ3M0000000000000001")
+        let forged = opLine("01K5Q8ZJ3M0000000000000002")
+
+        let split = RevocationSplit.partition(
+            of: quarantinedVerification(
+                [(honest, .afterRevocation(person: "aaaa")),
+                 (forged, .chainBroke(.prevMismatch(lineIndex: 2)))],
+                fileCause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: { _ in mark })
+
+        XCTAssertEqual(split?.readmitted, [honest])
+        XCTAssertEqual(split?.refused, [forged],
+                       "no op id talks a spliced line back into the manuscript")
+    }
+
+    /// And a seal never travels across one: the line before it was refused for
+    /// the break, so there is no revoked op for it to follow.
+    func test_asealAfterANonCandidateDoesNotTravelIntoTheKeptHalf() {
+        let honest = opLine("01K5Q8ZJ3M0000000000000001")
+        let forged = opLine("01K5Q8ZJ3M0000000000000002")
+        let seal = Data(#"{"seal":{"key":"aaaa"}}"#.utf8)
+
+        let split = RevocationSplit.partition(
+            of: quarantinedVerification(
+                [(honest, .afterRevocation(person: "aaaa")),
+                 (forged, .chainBroke(.prevMismatch(lineIndex: 2))),
+                 (seal, .afterRevocation(person: "aaaa"))],
+                fileCause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: { _ in mark })
+
+        XCTAssertEqual(split?.readmitted, [honest])
+        XCTAssertEqual(split?.refused, [forged, seal])
+    }
+
+    /// Nothing at all is refused for a revocation: there is no cut to make, and
+    /// the walk is left exactly as it was found.
+    func test_afileWithNoRevokedLineIsNotPartitionedAtAll() {
+        XCTAssertNil(RevocationSplit.partition(
+            of: quarantinedVerification(
+                [(opLine("01K5Q8ZJ3M0000000000000001"),
+                  .chainBroke(.prevMismatch(lineIndex: 0)))],
+                fileCause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: { _ in mark }))
+    }
+
+    /// The old two-group rule's own fixture, restated as the partition (the
+    /// same answer, by one rule instead of three): an unplaceable line at the
+    /// head has no op to travel with and is refused; the op below the mark is
+    /// re-admitted; the one above it is refused. What changed is that the
+    /// gentler half is no longer a sentence at all — it is applied.
+    func test_theOldSplitsFixtureAnsweredByTheTravelRule() {
         let unplaceable = Data("{not json at all".utf8)
         let late = opLine("01K5Q8ZJ3M0000000000000001")
         let after = opLine("01K5Q8ZJ3M0000000000000009")
-        let mark = "01K5Q8ZJ3M0000000000000005"
 
-        let split = RevocationSplit.groups(
+        let split = RevocationSplit.partition(
             of: quarantinedVerification(
                 [unplaceable, late, after], cause: .afterRevocation(person: "aaaa")),
-            highestOpIdSeen: mark)
+            highestOpIdSeen: { _ in mark })
 
-        XCTAssertEqual(split.count, 2)
-        XCTAssertEqual(split.first?.cause, .afterRevocation(person: "aaaa"))
-        XCTAssertEqual(split.first?.lines, [unplaceable, after],
-                       "the unplaceable line goes with what came after")
-        XCTAssertEqual(split.last?.cause, .revocationLate(person: "aaaa"))
-        XCTAssertEqual(split.last?.lines, [late])
-
-        let allLate = RevocationSplit.groups(
-            of: quarantinedVerification(
-                [late, unplaceable], cause: .afterRevocation(person: "aaaa")),
-            highestOpIdSeen: mark)
-
-        XCTAssertEqual(allLate.count, 1)
-        XCTAssertEqual(allLate.first?.cause, .revocationLate(person: "aaaa"))
-        XCTAssertEqual(allLate.first?.lines, [late, unplaceable],
-                       "with no op above the mark there is no strict side to join")
+        XCTAssertEqual(split?.refused, [unplaceable, after])
+        XCTAssertEqual(split?.readmitted, [late])
     }
 
     private func opLine(_ opId: String) -> Data {
@@ -545,10 +667,199 @@ final class OpLogQuarantineTests: XCTestCase {
     private func quarantinedVerification(
         _ lines: [Data], cause: OpLogChain.QuarantineCause
     ) -> OpLogChain.Verification {
+        quarantinedVerification(lines.map { ($0, cause) }, fileCause: cause)
+    }
+
+    /// Lines refused for DIFFERENT reasons in one file — the shape the walk
+    /// really produces when a splice follows a revoked seal, and the one the
+    /// file-level cause cannot describe.
+    private func quarantinedVerification(
+        _ lines: [(Data, OpLogChain.QuarantineCause)],
+        fileCause: OpLogChain.QuarantineCause
+    ) -> OpLogChain.Verification {
         OpLogChain.Verification(
-            lines: lines.map { OpLogChain.Line(bytes: $0, kind: .op, state: .quarantined) },
+            lines: lines.map {
+                OpLogChain.Line(bytes: $0.0, kind: .op, state: .quarantined,
+                                refusal: $0.1)
+            },
             head: nil, legacyCount: 0, verifiedCount: 0, unsealedCount: 0,
-            pendingCount: 0, foreignSealCount: 0, quarantined: lines,
-            breakReason: nil, quarantineCause: cause)
+            pendingCount: 0, foreignSealCount: 0, quarantined: lines.map(\.0),
+            breakReason: nil, quarantineCause: fileCause)
+    }
+}
+
+/// **What the set-aside sentence counts** (signed op log P2 smoke, finds 6 and
+/// 7).
+///
+/// The smoke put *6 changes set aside* in front of a writer who had two. Three
+/// things were wrong with the number and two of them are this file's: seal lines
+/// were counted as changes, and one op that reached the archive twice — the span
+/// was set aside once, then split differently on the next load — was counted
+/// twice. The third (a seal filed in the wrong half of a revocation split) is
+/// `RevocationSplit.partition`'s and is deliberately NOT what makes the number
+/// right: counting op lines alone makes the count immune to which side of the
+/// cut a seal travels on.
+///
+/// Find 7 is the other half of the sentence's honesty: a `.lines` record is
+/// permanent evidence, so it is listed forever — but once the writer admits the
+/// device, the ops in it are APPLIED, and *set aside* has stopped being true of
+/// them.
+final class SetAsideChangeCountTests: XCTestCase {
+    private var tmp: URL!
+
+    override func setUp() {
+        tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setaside-count-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent(".maugham/ops"), withIntermediateDirectories: true)
+    }
+    override func tearDown() { try? FileManager.default.removeItem(at: tmp) }
+
+    /// A seal is a signature over a span, not a change in it. Two ops under one
+    /// seal are three lines and two changes — the rule
+    /// `OpLogChain.pendingByDevice` has applied to the HELD half since P2b.
+    func test_aSealIsNotAChange() throws {
+        let record = try file([op("01M2RMZS8S08J1MKA7CPTFK4MS"), seal(), op("01M2RNCJ4384V357PT3EG049SW"), seal()],
+                              reason: "the history's chain is broken")
+
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChanges(records: [record], in: tmp).map(\.id),
+            ["01M2RMZS8S08J1MKA7CPTFK4MS", "01M2RNCJ4384V357PT3EG049SW"],
+            "four lines, two changes")
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChangeCount(records: [record], in: tmp), 2)
+    }
+
+    /// **The smoke's own shape.** Mac B's first op was set aside once as
+    /// `[op1, seal1]`, and again on the next load as `[op1]` plus
+    /// `[seal1, op2, seal2]` — three records, six lines, four op lines, and two
+    /// changes. The reason a change is filed under is the FIRST record's.
+    func test_oneOpInTwoRecordsIsOneChange() throws {
+        let first = op("01M2RMZS8S08J1MKA7CPTFK4MS")
+        let second = op("01M2RNCJ4384V357PT3EG049SW")
+        // Two live reasons: one archive per cause, which is what a span set
+        // aside twice under different walks looks like on disk.
+        let late = "written after this device was retired"
+        let after = "written after this device's access was withdrawn"
+
+        let r1 = try file([first, seal()], reason: late, at: 1)
+        let r2 = try file([seal(), second, seal()], reason: after, at: 2)
+        let r3 = try file([first], reason: late, at: 3)
+
+        let changes = OpLogQuarantine.setAsideChanges(records: [r1, r2, r3], in: tmp)
+        XCTAssertEqual(changes, [
+            SetAsideChange(id: "01M2RMZS8S08J1MKA7CPTFK4MS", reason: late),
+            SetAsideChange(id: "01M2RNCJ4384V357PT3EG049SW", reason: after),
+        ], "six lines across three records are two changes")
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChangeCount(records: [r1, r2, r3], in: tmp), 2,
+            "and the sentence says two, not six")
+    }
+
+    /// Order is by (`quarantinedAt`, archive name), so the attribution of a
+    /// change held in two records does not depend on how the folder enumerated.
+    func test_theReasonIsTheFirstRecordsHoweverTheFolderEnumerates() throws {
+        let shared = op("01M2RMZS8S08J1MKA7CPTFK4MS")
+        let late = "written after this device was retired"
+        let after = "written after this device's access was withdrawn"
+        let earlier = try file([shared], reason: late, at: 1)
+        let later = try file([shared, op("01M2RNCJ4384V357PT3EG049SW")], reason: after, at: 2)
+
+        for order in [[earlier, later], [later, earlier]] {
+            XCTAssertEqual(
+                OpLogQuarantine.setAsideChanges(records: order, in: tmp).first?.reason,
+                late,
+                "the earlier record named it first")
+        }
+    }
+
+    /// **Find 7.** After a re-admission the ops apply, and the sentence must
+    /// stop claiming them — while the records stay on disk for the disclosure
+    /// to go on listing.
+    func test_anAppliedChangeIsNoLongerSetAside() throws {
+        let record = try file([op("01M2RMZS8S08J1MKA7CPTFK4MS"), seal(), op("01M2RNCJ4384V357PT3EG049SW")],
+                              reason: "written after this device's access was withdrawn")
+
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChangeCount(records: [record], in: tmp), 2,
+            "premise: held, so both are set aside")
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChangeCount(
+                records: [record], in: tmp, applied: ["01M2RMZS8S08J1MKA7CPTFK4MS"]),
+            1,
+            "one of them is in the draft now")
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChangeCount(
+                records: [record], in: tmp,
+                applied: ["01M2RMZS8S08J1MKA7CPTFK4MS", "01M2RNCJ4384V357PT3EG049SW"]),
+            0,
+            "and with every one applied the sentence goes away entirely")
+        XCTAssertEqual(
+            OpLogQuarantine.records(forDocId: "doc-1", in: tmp).count, 1,
+            "the evidence is untouched by any of this")
+    }
+
+    /// An inbox manifest row has no `op_id`; its own `id` is its identity, so
+    /// the inbox's sentence dedupes on the same rule the op log's does.
+    func test_anInboxRowIsIdentifiedByItsOwnId() throws {
+        let row = Data(#"{"id":"01M2RMZS8S08J1MKA7CPTFK4MS","kind":"text"}"#.utf8)
+        let a = try file([row], reason: "r", at: 1)
+        let b = try file([row, Data(#"{"id":"01M2RNCJ4384V357PT3EG049SW","kind":"text"}"#.utf8)],
+                         reason: "r", at: 2)
+
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChanges(records: [a, b], in: tmp).map(\.id),
+            ["01M2RMZS8S08J1MKA7CPTFK4MS", "01M2RNCJ4384V357PT3EG049SW"])
+    }
+
+    /// A line naming no identity of its own is keyed on its bytes: the same
+    /// bytes in two records are one change, and two different unreadable lines
+    /// stay two.
+    func test_aLineWithNoIdentityIsKeyedOnItsBytes() throws {
+        let strange = Data("{not json at all".utf8)
+        let other = Data(#"{"hello":"world"}"#.utf8)
+        let a = try file([strange, other], reason: "r", at: 1)
+        let b = try file([strange], reason: "r", at: 2)
+
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChangeCount(records: [a, b], in: tmp), 2,
+            "three lines, two distinct ones")
+    }
+
+    /// A whole set-aside FILE is the Retry notice's subject; its line count is a
+    /// different quantity and is not this sentence's.
+    @MainActor
+    func test_aWholeFileRecordIsNotCounted() throws {
+        let src = tmp.appendingPathComponent(".maugham/ops/doc-1.maca.jsonl")
+        try Data("{\"op_id\":\"01M2RMZS8S08J1MKA7CPTFK4MS\"}\n".utf8).write(to: src)
+        let record = try OpLogQuarantine.quarantine(
+            fileURL: src, docId: "doc-1", reason: "permission denied", in: tmp,
+            isDatalessStub: { _ in false })
+
+        XCTAssertEqual(OpLogQuarantine.setAsideChanges(records: [record], in: tmp), [])
+    }
+
+    // MARK: - Fixtures
+
+    private func op(_ opId: String) -> Data {
+        Data(#"{"prev":"abc","op_id":"\#(opId)","doc_id":"doc-1"}"#.utf8)
+    }
+
+    /// A seal line as `OpLogChain` writes one: the `{"seal":` prefix is the
+    /// whole of what `isSealLine` recognises, and this file must not spell a
+    /// second recogniser (tripwire 37) — it writes a line and lets the one
+    /// recogniser judge it.
+    private func seal() -> Data {
+        Data(#"{"seal":{"at":"2026-09-17T21:39:58.365Z","head":"abc","key":"k","sig":"s"}}"#.utf8)
+    }
+
+    private func file(
+        _ lines: [Data], reason: String, at second: TimeInterval = 0
+    ) throws -> QuarantineRecord {
+        try XCTUnwrap(OpLogQuarantine.setAsideLines(
+            lines,
+            from: tmp.appendingPathComponent(".maugham/ops/doc-1.macb.jsonl"),
+            docId: "doc-1", reason: reason, in: tmp,
+            now: Date(timeIntervalSince1970: 1_000_000 + second)))
     }
 }

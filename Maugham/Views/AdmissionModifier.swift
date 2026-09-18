@@ -122,6 +122,14 @@ struct AdmissionModifier: ViewModifier {
     /// Re-derive the queue from everything this window can see holding lines,
     /// the registry as it stands, and this device's label memory.
     ///
+    /// **It admits before it asks** (find 4, 2026-09-17). Decision B2 is once
+    /// per device, and a device this Mac has already named is let in here
+    /// exactly as it is let in at a project open — the memory was being read
+    /// for a LABEL and the sheet put up anyway, which asked the writer the one
+    /// question they had already answered. The order lives in
+    /// `AdmissionDecision.refreshedRequests` rather than in this method, so it
+    /// is pinned with no window (`AdmissionDecisionTests`).
+    ///
     /// The registry read is disk work and a signature verification per record,
     /// so it goes to a detached task (`TrustResolution`'s own rule). The
     /// pending counts do NOT: they are already in hand, stamped on each open
@@ -157,41 +165,42 @@ struct AdmissionModifier: ViewModifier {
         // on every document open would be disk work for an answer already in
         // hand.
         if forced { await documentStore.inboxStore.refresh() }
-        let pending = documentStore.heldLinesByDevice()
-        guard !pending.isEmpty else {
-            // Nothing is held anywhere this window can see any more, so nobody
-            // is waiting — including whoever this window is currently asking
-            // about, which is how an admission made in a SECOND window reaches
-            // this one's sheet.
-            queue = []
-            takeDownAVanishedSheet()
-            return
-        }
-
         let url = projectURL
         let identities = Document.loadIdentities
         let cache = Document.loadRegistryCache
-        let remembered = Document.loadAdmissionMemory.remembered
-        let resolved = await Task.detached(priority: .userInitiated) {
-            () -> (registry: Registry, myRoot: String?)? in
-            // A registry that will not read costs the writer the sheet, never
-            // the window: they can still write, and History still counts what
-            // is held. Named in the log so it is not a silence.
-            do {
-                let verified = try TrustResolution.resolveVerified(
-                    projectURL: url, identities: identities, cache: cache)
-                return (verified.registry, verified.table.myRoot)
-            } catch {
-                admissionLog.error(
-                    "admission could not read \(url.lastPathComponent, privacy: .public)'s registry: \(error.localizedDescription, privacy: .public)")
-                return nil
-            }
-        }.value
-        guard let resolved else { return }
-
-        let requests = AdmissionDecision.requests(
-            pending: pending, registry: resolved.registry,
-            memory: remembered, myRoot: resolved.myRoot)
+        let requests = await AdmissionDecision.refreshedRequests(
+            heldLines: { documentStore.heldLinesByDevice() },
+            memory: Document.loadAdmissionMemory.remembered,
+            // Decision B2 does not stop at the open (find 4). The same verb
+            // `DocumentStore.open` calls, off the main actor like the resolve
+            // beside it, and its own `invalidateTrust` + re-read is what lets
+            // the held span into the draft in front of the writer — so a device
+            // this Mac has already named never reaches the sheet a second time.
+            admitRemembered: { _ = await documentStore.admitRemembered() },
+            resolve: {
+                await Task.detached(priority: .userInitiated) {
+                    () -> (registry: Registry, myRoot: String?)? in
+                    // A registry that will not read costs the writer the sheet,
+                    // never the window: they can still write, and History still
+                    // counts what is held. Named in the log so it is not a
+                    // silence.
+                    do {
+                        let verified = try TrustResolution.resolveVerified(
+                            projectURL: url, identities: identities, cache: cache)
+                        return (verified.registry, verified.table.myRoot)
+                    } catch {
+                        admissionLog.error(
+                            "admission could not read \(url.lastPathComponent, privacy: .public)'s registry: \(error.localizedDescription, privacy: .public)")
+                        return nil
+                    }
+                }.value
+            })
+        // Nothing came back at all: the registry would not read, so the queue
+        // this window already has stands. An EMPTY queue is the other answer —
+        // nothing is held anywhere this window can see any more, including
+        // whoever it is currently asking about, which is how an admission made
+        // in a SECOND window reaches this one's sheet.
+        guard let requests else { return }
         queue = requests.filter { !dismissed.contains($0.fingerprint) }
         takeDownAVanishedSheet()
         presentHeadIfIdle()

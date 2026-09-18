@@ -37,6 +37,13 @@ public enum TrustEventSentence {
                 ?? "\(subject) admitted automatically."
         case .revoked:
             return actor.map { "\(subject) revoked by \($0)." } ?? "\(subject) revoked."
+        case .revokedEntirely:
+            // The sentence says what the writer chose, because the difference
+            // is the whole of what they will come here to check: one left the
+            // draft as they had read it and one did not.
+            return actor.map {
+                "\(subject) revoked by \($0), and everything it wrote set aside."
+            } ?? "\(subject) revoked, and everything it wrote set aside."
         case .retired:
             return "\(subject) retired."
         case .claimed:

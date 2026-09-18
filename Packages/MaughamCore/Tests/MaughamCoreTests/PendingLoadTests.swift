@@ -299,12 +299,14 @@ final class PendingLoadTests: XCTestCase {
         XCTAssertEqual(record?.reason, "written after this device's access was withdrawn")
     }
 
-    /// **The split** (spec §5). A revoked device's span is refused whole, and
-    /// the writer is owed which half is which: a line whose opId the root had
-    /// already applied may be late sync or may be backdated, and a line above
-    /// that mark was written after the door closed. Two records, two sentences,
-    /// one refusal.
-    func test_aRevokedSpanIsSplitByTheOpIdTheRootHadApplied() async throws {
+    /// **The default revocation keeps what this Mac had already applied**
+    /// (find 5, ruled 2026-09-18), at the load.
+    ///
+    /// `first` is at the mark, so it was in the manuscript before anybody was
+    /// revoked and stays there; `second` was written after the door closed and
+    /// leaves. ONE `.lines` record, holding the refused op and the seal that
+    /// closed its span, under the one sentence a revocation has.
+    func test_arevocationKeepsTheOpAtTheMarkAndSetsAsideTheOneAboveIt() async throws {
         let first = "01K5Q8ZJ3M0000000000000001"
         let second = "01K5Q8ZJ3M0000000000000002"
         try writeRootRecord()
@@ -315,47 +317,117 @@ final class PendingLoadTests: XCTestCase {
 
         let load = try await reader().loadDiagnosed(docId: docId)
 
-        XCTAssertEqual(load.ops.map(\.opId), ["01K5Q8ZJ3M0000000000000000"],
-                       "every line of a revoked key is refused, both sides of the line")
-        XCTAssertEqual(load.provenance.quarantinedLines, 3)
-
-        let reasons = Set(linesRecords().map(\.reason))
-        XCTAssertEqual(reasons, [
-            "written after this device's access was withdrawn",
-            "may be late sync, or may be backdated",
-        ], "\(linesRecords().map(\.reason))")
+        XCTAssertEqual(load.ops.map(\.opId), ["01K5Q8ZJ3M0000000000000000", first],
+                       "the op at the mark is one this Mac had applied while they "
+                           + "were admitted — a revocation does not reach back for it")
+        XCTAssertEqual(load.provenance.quarantinedLines, 2,
+                       "the op above the mark and the seal that closed its span — "
+                           + "a seal travels with the op before it")
+        XCTAssertEqual(linesRecords().map(\.reason),
+                       ["written after this device's access was withdrawn"],
+                       "one record, one cause: the gentler sentence is gone because "
+                           + "the lines it described are applied")
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChangeCount(records: linesRecords(), in: projectURL), 1,
+            "and History counts the one change that actually left")
     }
 
-    /// The mark is what makes the split; with no mark there is no *before*.
-    func test_aRevocationWithNoMarkPutsEverythingAfterIt() async throws {
+    /// The writer's other choice, and the shape a device this Mac had applied
+    /// nothing from produces: no mark, nothing kept, one record.
+    func test_arevocationWithNoMarkSetsAsideEverythingItWrote() async throws {
         try writeRootRecord()
         try await writeStrangerFile(["01K5Q8ZJ3M0000000000000001"])
         try writeStrangerRecord(
             revokedAt: Date(timeIntervalSince1970: 30), highestOpIdSeen: nil)
 
-        _ = try await reader().loadDiagnosed(docId: docId)
+        let load = try await reader().loadDiagnosed(docId: docId)
 
+        XCTAssertEqual(load.ops, [], "nothing of theirs stands")
         XCTAssertEqual(linesRecords().map(\.reason),
                        ["written after this device's access was withdrawn"])
     }
 
-    /// Everything the stranger wrote is at or below the mark: one record, and
-    /// it is the gentler sentence.
-    func test_aRevokedSpanEntirelyBelowTheMarkIsOnlyEverLate() async throws {
+    /// Everything the stranger wrote is at or below the mark, so the revocation
+    /// sets nothing aside at all — and the seal travels with the op it sealed
+    /// rather than being accused of a position its own op does not have.
+    func test_arevokedSpanEntirelyBelowTheMarkIsKeptWhole() async throws {
         try writeRootRecord()
         try await writeStrangerFile(["01K5Q8ZJ3M0000000000000001"])
         try writeStrangerRecord(
             revokedAt: Date(timeIntervalSince1970: 30),
             highestOpIdSeen: "01K5Q8ZJ3M0000000000000009")
 
-        _ = try await reader().loadDiagnosed(docId: docId)
+        let load = try await reader().loadDiagnosed(docId: docId)
 
-        let reasons = linesRecords().map(\.reason)
-        XCTAssertEqual(
-            reasons.filter { $0 == "may be late sync, or may be backdated" }.count, 1)
-        XCTAssertFalse(
-            reasons.contains("written after this device's access was withdrawn"),
-            "the seal line goes with the ops it sealed when none of them is late")
+        XCTAssertEqual(load.ops.map(\.opId), ["01K5Q8ZJ3M0000000000000001"])
+        XCTAssertEqual(load.provenance.quarantinedLines, 0)
+        XCTAssertEqual(linesRecords(), [], "nothing was set aside, so nothing is filed")
+    }
+
+    /// **A forged line in a revoked device's file is never re-admitted, whatever
+    /// op id it claims** (find-5 review, the Critical).
+    ///
+    /// `verify` keeps ONE cause, the first it met, and a `broke(_:)` after a
+    /// revoked seal leaves that cause standing. So a file whose revoked seal
+    /// comes first and whose splice comes later reported `.afterRevocation`
+    /// for the whole refused set — and the cut, which judges by op id alone,
+    /// put a spliced line back in the manuscript as verified text on the
+    /// strength of a number its own forger chose. `highestOpIdSeen` is written
+    /// into a signed record that every device reads, so the number is public.
+    ///
+    /// The refusal has to be a fact about the LINE. This one was refused
+    /// because the chain broke, and no op id can talk it back in.
+    func test_aspliceAfterARevokedSealIsNeverReadmittedHoweverLowItsOpId() async throws {
+        let honest = "01K5Q8ZJ3M0000000000000005"
+        let forged = "01K5Q8ZJ3M0000000000000001"
+        try writeRootRecord()
+        try await writeMyOwnFile(["01K5Q8ZJ3M0000000000000000"])
+        // The revoked device's own file: one honest op, then its seal.
+        try await writeStrangerFile([honest])
+        // …and then something splices a line onto it with a `prev` that is not
+        // the running head, carrying an op id BELOW the mark.
+        try appendForgedLine(opId: forged, onto: honest)
+        try writeStrangerRecord(
+            revokedAt: Date(timeIntervalSince1970: 30), highestOpIdSeen: honest)
+
+        let load = try await reader().loadDiagnosed(docId: docId)
+
+        XCTAssertFalse(load.ops.map(\.opId).contains(forged),
+                       "a spliced line is not this Mac's own history at any op id")
+        XCTAssertEqual(load.ops.map(\.opId),
+                       ["01K5Q8ZJ3M0000000000000000", honest],
+                       "and the honest pre-mark op is still kept — the control, "
+                           + "without which refusing everything would pass this test")
+        XCTAssertEqual(linesRecords().map(\.reason),
+                       ["the history's chain is broken"],
+                       "filed as what it is: \(linesRecords().map(\.reason))")
+    }
+
+    /// Splice a correctly-shaped op onto the stranger's file with a `prev` that
+    /// is not the running head — a line that chains to nothing, which is what
+    /// `BreakReason.prevMismatch` is for.
+    private func appendForgedLine(opId: String, onto marker: String) throws {
+        // The STRANGER's tail, found by the op it holds: `opLogFileURLs` answers
+        // every device's file for this doc, and splicing onto this device's own
+        // would be a different test entirely — a chain break with no revocation
+        // anywhere near it, which is what the first draft of this accidentally
+        // measured.
+        let url = try OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL)
+            .first { candidate in
+                guard candidate.pathExtension == "jsonl" else { return false }
+                guard let bytes = try? Data(contentsOf: candidate) else { return false }
+                return String(decoding: bytes, as: UTF8.self).contains(marker)
+            }
+        let fileURL = try XCTUnwrap(url, "the stranger's tail is on disk")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+        let element = try encoder.encode(op(opId, device: stranger))
+        let line = OpLogChain.chainedLine(
+            elementJSON: element, prev: String(repeating: "0", count: 64))
+        var bytes = try Data(contentsOf: fileURL)
+        bytes.append(line)
+        bytes.append(0x0A)
+        try bytes.write(to: fileURL)
     }
 
     // MARK: - Retired
@@ -684,6 +756,110 @@ final class PendingLoadTests: XCTestCase {
 
         XCTAssertEqual(cache.claimants(for: projectURL), [],
                        "this device does not claim its own book")
+    }
+
+    // MARK: - A second root is a claimant however it got there (smoke find 9)
+
+    /// **The two-root merge, from the side that did not begin it.**
+    ///
+    /// B claims the book: it writes its own root record and a claim record
+    /// adopting A's root. Nothing in that names one of A's keys — a claim is
+    /// signed by B about B — so neither of the older rules sees it: it reaches
+    /// no `admittingRoots` and displaces no record of A's. Before this rule A's
+    /// People & Devices listed nothing of B and offered no Merge, so the merge
+    /// B had started could never be finished from A's side.
+    func test_aRootThatAdoptedMineIsListedAsAClaimant() throws {
+        try writeRootRecord()
+
+        // B: a Mac that rooted itself here and adopted A's chain.
+        let other = LocalIdentities.softwareForTesting()
+        let otherCache = RegistryCache(
+            fileURL: projectURL.appendingPathComponent("other-cache.json"),
+            identity: other.author.fingerprint)
+        try RegistryAdmission.claim(
+            adopting: [root.author.fingerprint], in: projectURL,
+            by: other.author, cache: otherCache)
+
+        let table = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+
+        XCTAssertEqual(table.myRoot, root.author.fingerprint,
+                       "B's claim moves nobody's root (B1)")
+        XCTAssertEqual(table.adoptedRoots, [],
+                       "and A has not reciprocated, so it verifies nothing of B's")
+        XCTAssertEqual(cache.claimants(for: projectURL), [other.author.fingerprint],
+                       "but B is listed, so the writer can answer it")
+        XCTAssertEqual(makeSameCache().claimants(for: projectURL),
+                       [other.author.fingerprint],
+                       "and it survives the launch that draws it")
+    }
+
+    /// Step 19 of the smoke script: two Macs each rooted an empty book before
+    /// sync converged and neither has claimed anything. There is no claim
+    /// record and no admission either way — just a second root in the folder,
+    /// which is the whole of what makes it a claimant.
+    func test_aSecondRootBesideMineIsAClaimantWithNoClaimAtAll() throws {
+        try writeRootRecord()
+        let other = DeviceIdentity.softwareForTesting()
+        try admit(other.fingerprint, under: other, at: 30)
+
+        _ = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+
+        XCTAssertEqual(cache.claimants(for: projectURL), [other.fingerprint])
+    }
+
+    /// The other direction of the same rule: a root **this** device has adopted
+    /// is merged, and merged is this device's own answer to the question the
+    /// claimant list exists to ask. Listing it anyway would put the offer back
+    /// in front of a writer who has already taken it.
+    func test_aRootThisDeviceHasAdoptedIsNotAClaimant() throws {
+        try writeRootRecord()
+        let other = DeviceIdentity.softwareForTesting()
+        try admit(other.fingerprint, under: other, at: 30)
+
+        try RegistryAdmission.claim(
+            adopting: [other.fingerprint], in: projectURL,
+            by: root.author, cache: cache)
+
+        let table = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+
+        XCTAssertEqual(table.adoptedRoots, [other.fingerprint])
+        XCTAssertEqual(cache.claimants(for: projectURL), [],
+                       "a root this device took in is merged, never claiming")
+    }
+
+    /// And the root this device is ON is never its own claimant — the rule
+    /// reads every root in the folder, so the one it belongs to has to be
+    /// excluded by name or every joined device would warn about its own chain.
+    func test_theRootThisDeviceIsOnIsNotAClaimant() throws {
+        let host = DeviceIdentity.softwareForTesting()
+        try admit(host.fingerprint, under: host, at: 10)
+        try admit(root.author.fingerprint, under: host, at: 20)
+
+        let table = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+
+        XCTAssertEqual(table.myRoot, host.fingerprint)
+        XCTAssertEqual(cache.claimants(for: projectURL), [])
+    }
+
+    /// **A verdict is not what this rule touches.** Listing B as a claimant is
+    /// about what People & Devices shows; what B's keys are to this device is
+    /// `TrustTable`'s answer, and it is the same before and after — refused,
+    /// as another claimant's.
+    func test_listingAClaimantChangesNoVerdict() throws {
+        try writeRootRecord()
+        let other = DeviceIdentity.softwareForTesting()
+        try admit(other.fingerprint, under: other, at: 30)
+
+        let table = try TrustResolution.resolve(
+            projectURL: projectURL, identities: root, cache: cache)
+
+        XCTAssertEqual(table.verdict(forSealKey: other.fingerprint),
+                       .otherRoot(root: other.fingerprint))
+        XCTAssertEqual(table.verdict(forSealKey: root.author.fingerprint), .mine)
     }
 
     /// A second memory over the same file, to prove a claimant survives the

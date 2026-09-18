@@ -41,6 +41,15 @@ struct ProjectSettingsSheet: View {
     /// sentence first; the alert is presented here because a section is not the
     /// presenter of its own dialogs.
     @State private var confirming: PeopleAndDevicesConfirmation?
+    /// **The one act that asks for a word** (P2 smoke find 3), and the word.
+    ///
+    /// Its own state rather than a fourth case inside `confirming`, because
+    /// SwiftUI's `Alert` value — what `.alert(item:)` builds — cannot hold a
+    /// `TextField`, and the modern `actions:` form can. The VALUE is the same
+    /// `PeopleAndDevicesConfirmation` the other three go through, and `perform`
+    /// is still the one switch, so a fifth act is a compile error there.
+    @State private var renaming: PeopleAndDevicesConfirmation?
+    @State private var renameDraft: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -114,6 +123,8 @@ struct ProjectSettingsSheet: View {
                         revoke: confirmRevoke,
                         retire: confirmRetire,
                         readmit: readmitDevice,
+                        rename: confirmRename,
+                        restore: confirmRestore,
                         merge: confirmMerge,
                         notice: peopleNotice)
                 }
@@ -124,14 +135,52 @@ struct ProjectSettingsSheet: View {
             // `item:` rather than a bool, so the alert cannot be up about a
             // device the writer has since scrolled past: the value IS the
             // question, and dismissing it drops the question.
-            .alert(item: $confirming) { confirmation in
-                Alert(
-                    title: Text(confirmation.title),
-                    message: Text(confirmation.message),
-                    primaryButton: .destructive(Text(confirmation.confirmTitle)) {
-                        perform(confirmation)
-                    },
-                    secondaryButton: .cancel())
+            // **Two ways to revoke, and the writer picks one** (find 5, ruled
+            // 2026-09-18). The `actions:` form rather than `Alert(primary:
+            // secondary:)`, which takes exactly two buttons — one destructive
+            // act plus Cancel — and a revocation now has two honest shapes.
+            // Not a checkbox on one button: a writer who mis-set a toggle would
+            // find out by reading their chapters.
+            .alert(
+                confirming?.title ?? "",
+                isPresented: Binding(
+                    get: { confirming != nil },
+                    set: { if !$0 { confirming = nil } }),
+                presenting: confirming
+            ) { confirmation in
+                Button(confirmation.confirmTitle, role: .destructive) {
+                    perform(confirmation)
+                }
+                if let alternate = confirmation.alternate {
+                    Button(alternate.title, role: .destructive) {
+                        perform(confirmation, keeping: alternate.scope)
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { confirmation in
+                // One message, both costs. An alert has a single message and
+                // the choice is between two consequences, so a writer shown
+                // only the default's would be choosing in the dark.
+                Text(PeopleAndDevicesConfirmation.alertMessage(for: confirmation))
+            }
+            // **The word, before the act** (smoke find 3). A separate modifier
+            // because only the `actions:` form takes a `TextField`; Rename is
+            // refused on an empty field the way the admission sheet refuses one
+            // — an empty label is a cleared field, not a name.
+            .alert(
+                renaming?.title ?? "",
+                isPresented: Binding(
+                    get: { renaming != nil },
+                    set: { if !$0 { renaming = nil } }),
+                presenting: renaming
+            ) { confirmation in
+                TextField(confirmation.field?.prompt ?? "", text: $renameDraft)
+                Button(confirmation.confirmTitle) { perform(confirmation) }
+                    .disabled(renameDraft.trimmingCharacters(
+                        in: .whitespacesAndNewlines).isEmpty)
+                Button("Cancel", role: .cancel) {}
+            } message: { confirmation in
+                Text(confirmation.message)
             }
 
             HStack {
@@ -407,6 +456,13 @@ struct ProjectSettingsSheet: View {
                 // a record this open put back must be marked on the row this
                 // open draws, not on the next one.
                 let restores = RegistryCache.shared.restores(for: url)
+                // Which unverifiable records this Mac could put back, asked of
+                // the memory here rather than inside the model — the model
+                // reads no shared cache, which is what lets every rule in it be
+                // pinned as a value (smoke find 1).
+                let restorable = Set(resolved.registry.malformed
+                    .compactMap(\.ref)
+                    .filter { RegistryCache.shared.rawBytes(of: $0, for: url) != nil })
                 return PeopleAndDevicesModel.make(
                     registry: resolved.registry, table: resolved.table,
                     remembered: remembered,
@@ -415,6 +471,7 @@ struct ProjectSettingsSheet: View {
                         memory: remembered, myRoot: resolved.table.myRoot),
                     claimants: claimants,
                     restores: restores,
+                    restorable: restorable,
                     standing: DeviceStanding.resolve(
                         registry: resolved.registry, cache: .shared,
                         mine: mine, for: url),
@@ -465,13 +522,67 @@ struct ProjectSettingsSheet: View {
         confirming = .merge(root: fingerprint, named: name)
     }
 
-    /// The writer confirmed. One switch, so a fourth act cannot be added to the
-    /// value without being given a verb here.
-    private func perform(_ confirmation: PeopleAndDevicesConfirmation) {
+    /// **Rename somebody** (smoke find 3). The field starts at the name that
+    /// stands, so an untouched field and Cancel come to the same thing.
+    private func confirmRename(_ person: PeopleAndDevicesModel.Person) {
+        peopleNotice = nil
+        let confirmation = PeopleAndDevicesConfirmation.rename(
+            person: person.fingerprint, named: person.title, currently: person.label)
+        renameDraft = confirmation.field?.initialValue ?? person.label
+        renaming = confirmation
+    }
+
+    /// **Put a record back** (smoke find 1) — the deliberate press, over a file
+    /// this device has just told the writer does not verify.
+    private func confirmRestore(_ record: PeopleAndDevicesModel.Unverifiable) {
+        peopleNotice = nil
+        confirming = .restore(
+            record: record.ref, named: record.name, kind: record.kind)
+    }
+
+    /// The writer confirmed. One switch, so a further act cannot be added to
+    /// the value without being given a verb here.
+    private func perform(
+        _ confirmation: PeopleAndDevicesConfirmation,
+        keeping scope: RevocationScope = .whatWasApplied
+    ) {
         switch confirmation.verb {
-        case .revoke: revokeDevice(confirmation.fingerprint)
+        case .revoke: revokeDevice(confirmation.fingerprint, keeping: scope)
         case .retire: retireThisMac(confirmation.fingerprint)
         case .merge: mergeRoot(confirmation.fingerprint)
+        case .rename: renamePerson(confirmation.fingerprint, to: renameDraft)
+        case .restore:
+            // The ref is the act. A confirmation that reached here without one
+            // would be a Restore about half a record, so it does nothing rather
+            // than guessing a directory.
+            if let record = confirmation.record { restoreRecord(record) }
+        }
+    }
+
+    /// **The version this Mac last saw verify, put back.** The store writes it
+    /// through the cache's own restore door, forgets every resolved table and
+    /// re-reads what is open; this reloads the rows, so the record that was
+    /// listed as unverifiable is either gone from that list or still in it with
+    /// the reader's reason.
+    private func restoreRecord(_ ref: RecordRef) {
+        Task { @MainActor in
+            guard let store = store.documentStore else { return }
+            do { try await store.restore(record: ref) }
+            catch { peopleNotice = AdmissionDecision.refusal(error) }
+            await loadPeopleAndDevices()
+        }
+    }
+
+    /// **A word about somebody, not authority over them.** The store writes the
+    /// record, forgets every resolved table and re-reads what is open; this
+    /// reloads the rows and says so when it refuses, in the one vocabulary
+    /// every refusal here speaks.
+    private func renamePerson(_ fingerprint: String, to label: String) {
+        Task { @MainActor in
+            guard let store = store.documentStore else { return }
+            do { try await store.rename(person: fingerprint, to: label) }
+            catch { peopleNotice = AdmissionDecision.refusal(error) }
+            await loadPeopleAndDevices()
         }
     }
 
@@ -510,10 +621,10 @@ struct ProjectSettingsSheet: View {
     /// **Stop applying what a device writes** (spec §5). The store writes the
     /// record, forgets every resolved table and re-reads what is open; this
     /// only reloads the rows and says so when it refuses.
-    private func revokeDevice(_ fingerprint: String) {
+    private func revokeDevice(_ fingerprint: String, keeping scope: RevocationScope) {
         Task { @MainActor in
             guard let store = store.documentStore else { return }
-            do { try await store.revoke(person: fingerprint) }
+            do { try await store.revoke(person: fingerprint, keeping: scope) }
             catch { peopleNotice = AdmissionDecision.refusal(error) }
             await loadPeopleAndDevices()
         }

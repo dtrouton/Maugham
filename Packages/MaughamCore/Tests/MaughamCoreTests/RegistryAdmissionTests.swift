@@ -78,8 +78,12 @@ final class RegistryAdmissionTests: XCTestCase {
         try RegistryPresence.ensureDeviceRecord(
             in: projectURL, identities: identities, name: name, kind: .mac,
             now: { Date(timeIntervalSince1970: 1) })
+        // The writer's name stated rather than defaulted: the default is the
+        // account's own full name (smoke find 2), and a suite whose root label
+        // depended on whose Mac ran it would pass here and fail on the next
+        // machine.
         try RegistryPresence.ensureRootIfEmpty(
-            in: projectURL, identities: identities,
+            in: projectURL, identities: identities, writerName: name,
             now: { Date(timeIntervalSince1970: 2) })
         return identities.author.fingerprint
     }
@@ -1099,6 +1103,197 @@ final class RegistryAdmissionTests: XCTestCase {
         }
         XCTAssertEqual(try bytesOfPersonFile(mine.author.fingerprint), bytes)
         XCTAssertTrue(try registry().claims.isEmpty)
+    }
+
+    // MARK: - Rename (P2 smoke find 3)
+
+    /// **A label is a word, and until now it could only be chosen once.** A
+    /// writer who mistyped a name at the admission sheet, or who let a first
+    /// root be called whatever the Mac was called, had no way back.
+    func test_theRootRenamesSomebodyItAdmitted() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone(label: "Denvre")
+
+        let renamed = try RegistryAdmission.rename(
+            person: phone.author.fingerprint, to: "Denver", in: projectURL,
+            by: mine.author, cache: makeCache(), memory: makeMemory(),
+            now: { Date(timeIntervalSince1970: 500) })
+
+        XCTAssertEqual(renamed.label, "Denver")
+        XCTAssertEqual(try registry().person(phone.author.fingerprint)?.label, "Denver")
+        XCTAssertTrue(try registry().malformed.isEmpty,
+                      "and the re-signed record still verifies")
+    }
+
+    /// It changes a WORD and nothing else: not when they were admitted, not
+    /// who admitted them, not the device's own name, and not a revocation.
+    /// A rename that moved any of those would be a change of authority wearing
+    /// a text field.
+    func test_arenameChangesTheLabelAndNothingElse() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        let admitted = try admitThePhone(label: "Denvre")
+        try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: "01J0000000000000000000000A", cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 100) })
+
+        let renamed = try RegistryAdmission.rename(
+            person: phone.author.fingerprint, to: "Denver", in: projectURL,
+            by: mine.author, cache: makeCache(), memory: makeMemory())
+
+        XCTAssertEqual(renamed.label, "Denver")
+        XCTAssertEqual(renamed.admittedAt, admitted.admittedAt)
+        XCTAssertEqual(renamed.admittedBy, mine.author.fingerprint)
+        XCTAssertEqual(renamed.ownName, "Denver's iPhone",
+                       "the device's own name is the device's word, not the writer's")
+        XCTAssertEqual(renamed.revokedAt, Date(timeIntervalSince1970: 100),
+                       "a revoked person may be renamed and stays revoked")
+        XCTAssertEqual(renamed.highestOpIdSeen, "01J0000000000000000000000A")
+    }
+
+    /// **A root renames itself**, which is the case the smoke found: the first
+    /// root was labelled with the machine's name, and the row that needed
+    /// correcting was the writer's own. A root record names ITSELF as its
+    /// admitter, so the rule below lets it through without a clause of its own.
+    func test_arootMayRenameItself() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+
+        let renamed = try RegistryAdmission.rename(
+            person: mine.author.fingerprint, to: "Denver", in: projectURL,
+            by: mine.author, cache: makeCache(), memory: makeMemory())
+
+        XCTAssertEqual(renamed.label, "Denver")
+        XCTAssertTrue(renamed.isRoot, "and it is still the root")
+        XCTAssertTrue(try registry().malformed.isEmpty)
+    }
+
+    /// Somebody ELSE's root is not this Mac's to re-sign — the same refusal
+    /// revocation makes, for the same reason: the file would be one every
+    /// reader lists as malformed.
+    func test_anotherRootIsNotThisMacsToRename() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try becomeRootBeside(otherRoot, name: "Amelia's MacBook")
+
+        XCTAssertThrowsError(try RegistryAdmission.rename(
+            person: otherRoot.author.fingerprint, to: "Amelia", in: projectURL,
+            by: mine.author, cache: makeCache(), memory: makeMemory())
+        ) { error in
+            XCTAssertEqual(
+                error as? RegistryAdmissionError,
+                .alreadyAdmittedElsewhere(root: otherRoot.author.fingerprint))
+        }
+        XCTAssertEqual(try registry().person(otherRoot.author.fingerprint)?.label,
+                       "Amelia's MacBook", "untouched")
+    }
+
+    /// A device that is not a root here signs nothing any reader takes, so it
+    /// is refused at the door rather than left writing a file that would
+    /// silently un-admit somebody.
+    func test_adeviceThatIsNotARootRenamesNobody() throws {
+        try becomeRoot(otherRoot, name: "Amelia's MacBook")
+        try declare(mine, name: "Denver's MacBook", kind: .mac)
+
+        XCTAssertThrowsError(try RegistryAdmission.rename(
+            person: otherRoot.author.fingerprint, to: "Amelia", in: projectURL,
+            by: mine.author, cache: makeCache(), memory: makeMemory())
+        ) { error in
+            XCTAssertEqual(error as? RegistryAdmissionError, .notARoot)
+        }
+    }
+
+    func test_renamingSomebodyThisBookHasNoRecordOfIsRefused() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+
+        XCTAssertThrowsError(try RegistryAdmission.rename(
+            person: phone.author.fingerprint, to: "Denver", in: projectURL,
+            by: mine.author, cache: makeCache(), memory: makeMemory())
+        ) { error in
+            XCTAssertEqual(error as? RegistryAdmissionError,
+                           .notAdmitted(fingerprint: phone.author.fingerprint))
+        }
+    }
+
+    /// Idempotent, for admission's reason: re-signing a record that already
+    /// says this would make a new file for iCloud to carry and a new signature
+    /// for every peer to check, for no change at all.
+    func test_renamingToTheNameAlreadyThereWritesNothing() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone(label: "Denver")
+        let bytes = try bytesOfPersonFile(phone.author.fingerprint)
+
+        let same = try RegistryAdmission.rename(
+            person: phone.author.fingerprint, to: "  Denver  ", in: projectURL,
+            by: mine.author, cache: makeCache(), memory: makeMemory())
+
+        XCTAssertEqual(same.label, "Denver")
+        XCTAssertEqual(try bytesOfPersonFile(phone.author.fingerprint), bytes,
+                       "the file was not touched — a trailing space is a typo, "
+                       + "not a second person")
+    }
+
+    /// An empty label is a cleared field, not a rename: nothing here writes a
+    /// person with no name, and the surface that offers this disables its
+    /// button on one.
+    func test_anEmptyLabelRenamesNobody() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone(label: "Denver")
+        let bytes = try bytesOfPersonFile(phone.author.fingerprint)
+
+        let same = try RegistryAdmission.rename(
+            person: phone.author.fingerprint, to: "   ", in: projectURL,
+            by: mine.author, cache: makeCache(), memory: makeMemory())
+
+        XCTAssertEqual(same.label, "Denver")
+        XCTAssertEqual(try bytesOfPersonFile(phone.author.fingerprint), bytes)
+    }
+
+    /// The re-sign is over the FILE's object (P2b Task 1), so a record a LATER
+    /// build wrote keeps the fields this one has no property for. Renaming is
+    /// the likeliest verb to be pointed at a peer's record, and a rename that
+    /// dropped an unknown field would un-admit that device everywhere that
+    /// understands it.
+    func test_arenameKeepsAFieldThisBuildHasNoNameFor() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone(label: "Denvre")
+        try plantUnknownField("future", 1, inPersonRecordOf: phone)
+
+        try RegistryAdmission.rename(
+            person: phone.author.fingerprint, to: "Denver", in: projectURL,
+            by: mine.author, cache: makeCache(), memory: makeMemory())
+
+        let object = try jsonObjectOfPersonFile(phone.author.fingerprint)
+        XCTAssertEqual(object["future"] as? Int, 1,
+                       "the unknown field survived the re-sign")
+        XCTAssertEqual(object["label"] as? String, "Denver")
+        XCTAssertTrue(try registry().malformed.isEmpty,
+                      "and the signature still covers the whole object")
+    }
+
+    /// **The memory follows the new label** (smoke find 3). It is what decides
+    /// who is admitted silently in the next book this device syncs into, so a
+    /// rename it did not hear would have the writer correct a name here and
+    /// meet the old one there.
+    func test_therenameIsRememberedForEveryLaterBook() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        let memory = makeMemory()
+        try admitThePhone(label: "Denvre", memory: memory)
+        XCTAssertEqual(memory.label(for: phone.author.fingerprint)?.label, "Denvre")
+
+        try RegistryAdmission.rename(
+            person: phone.author.fingerprint, to: "Denver", in: projectURL,
+            by: mine.author, cache: makeCache(), memory: memory,
+            now: { Date(timeIntervalSince1970: 500) })
+
+        XCTAssertEqual(memory.label(for: phone.author.fingerprint)?.label, "Denver")
+        XCTAssertEqual(memory.label(for: phone.author.fingerprint)?.labelledAt,
+                       Date(timeIntervalSince1970: 500),
+                       "and the day the writer decided is the day they renamed")
     }
 
     // MARK: - Fixtures for the two verbs

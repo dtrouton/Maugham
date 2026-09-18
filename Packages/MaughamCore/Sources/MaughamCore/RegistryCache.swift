@@ -477,6 +477,68 @@ public final class RegistryCache: @unchecked Sendable {
         return true
     }
 
+    // MARK: - Putting one record back on the writer's word (smoke find 1)
+
+    /// What a deliberate restore can fail at, in a sentence a writer can read.
+    ///
+    /// `LocalizedError` because it travels to a surface through the ordinary
+    /// fallback (`AdmissionDecision.refusal`, which has nothing to add to an
+    /// error that is not a refusal of authority) — and an error with no
+    /// description arrives there as an error domain and a number, which is the
+    /// defect that fallback was fixed for.
+    public enum RestoreError: Error, Equatable, LocalizedError {
+        /// This device holds no verified bytes for that record, so there is
+        /// nothing to put back. A surface offers Restore only where there are;
+        /// this is the race, not the judgment.
+        case nothingRemembered(RecordRef)
+
+        public var errorDescription: String? {
+            switch self {
+            case .nothingRemembered(let ref):
+                return "This Mac doesn’t remember a \(ref.directory.rawValue) record "
+                    + "for \(DeviceCode.short(ref.fingerprint)) that verified, so "
+                    + "there is nothing to put back."
+            }
+        }
+    }
+
+    /// **Put one record back because the writer asked** (P2 smoke find 1).
+    ///
+    /// `reconcile` restores a record that is ABSENT and deliberately leaves one
+    /// that is PRESENT and will not verify exactly where it is: a device cannot
+    /// tell *tampered with* from *damaged in transit*, and overwriting somebody
+    /// else's signed record on shared storage on its own initiative is not a
+    /// decision this app gets to make. A writer looking at the record, told in
+    /// words what is wrong with it, is a different thing entirely — so this is
+    /// a press, and it exists because until it did an unverifiable record had
+    /// no surface and no way back at all.
+    ///
+    /// It goes through `RegistryWriter.restore` like every other restoration,
+    /// which is what keeps the registry's writers three files (tripwire 41) and
+    /// what keeps this from signing anything: the bytes were signed when they
+    /// were first written and verified when this device kept them, and the next
+    /// read verifies them again like any other record.
+    ///
+    /// It is RECORDED with the automatic ones, so the row says *put back* and
+    /// History dates the event — a restoration leaves nothing in the folder
+    /// afterwards, and this memory is the only place the fact survives.
+    @discardableResult
+    public func restore(
+        _ ref: RecordRef,
+        in projectURL: URL,
+        presenter: NSFilePresenter? = nil,
+        at when: Date = Date()
+    ) throws -> URL {
+        guard let bytes = rawBytes(of: ref, for: projectURL) else {
+            throw RestoreError.nothingRemembered(ref)
+        }
+        let url = try RegistryWriter.restore(
+            rawBytes: bytes, to: ref.directory, fingerprint: ref.fingerprint,
+            in: projectURL, presenter: presenter)
+        recordRestores([ref], in: projectURL, at: when)
+        return url
+    }
+
     // MARK: - Reconciling the folder against the memory
 
     /// The folder and this device's memory of it, resolved into one registry.

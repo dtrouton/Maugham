@@ -4,6 +4,45 @@ import Foundation
 /// of form, which is what separates them from `RegistryWriteError.wrongSigner`:
 /// the record would have been perfectly well-formed, and writing it anyway is
 /// how a device loses its place quietly.
+/// **How much a revocation takes back** (find 5, ruled 2026-09-18).
+///
+/// Two choices, and the writer makes them at the confirmation: the default
+/// leaves in the book everything this Mac had already applied from that device,
+/// and the other takes the whole of their history out of it until they are
+/// re-admitted.
+///
+/// It is a choice rather than a setting because the two have different costs
+/// and neither is always right. A collaborator who left is a `.whatWasApplied`
+/// revocation — their contributions are part of the draft and removing them
+/// would silently rewrite chapters the writer has read. A machine that was
+/// never theirs, or one they no longer trust anything from, is `.nothing`.
+///
+/// **It reaches the record as the presence or absence of `highestOpIdSeen`**,
+/// which is the shape the reader has always understood: no mark means nothing
+/// of theirs was ever *already here*. So there is exactly one wire-level
+/// spelling, and this enum is the vocabulary the surfaces and the store share
+/// rather than a second one (`RevocationSplit` reads the record).
+public enum RevocationScope: Equatable, Sendable {
+    /// Keep every line at or below the mark this Mac records. The default.
+    case whatWasApplied
+    /// Keep none of it. What a revocation did before the ruling.
+    case nothing
+
+    /// **The mark a gentle revocation records when this book applies nothing
+    /// of theirs** (find-5 review, the High).
+    ///
+    /// A nil `highestOpIdSeen` is the ONE spelling of *set aside everything it
+    /// wrote*, and it used to be written by the gentle press too whenever the
+    /// sweep found nothing — so History narrated the writer's gentle choice as
+    /// the harsh one, and a later read could not tell which button was pressed.
+    ///
+    /// The lowest ULID keeps exactly nothing, which is the truth here, while
+    /// leaving a mark on the record. Every real op id is 26 Crockford base32
+    /// characters and `0` is the lowest of them, so `opId <= this` is false for
+    /// all of them by plain string comparison.
+    public static let nothingAppliedMark = String(repeating: "0", count: 26)
+}
+
 public enum RegistryAdmissionError: Error, Equatable {
     /// This device has no verified self-signed root record in this project, so
     /// nothing it signs is an admission. A person record naming a non-root as
@@ -30,6 +69,13 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// meant to shut it out, and would name a device this book has never heard
     /// of as having been here.
     case notAdmitted(fingerprint: String)
+    /// A file this device had to read to answer *how far had I got with them*
+    /// is present and will not read (find-5 review, the High). It refuses the
+    /// whole revocation rather than recording a mark that came back short: a
+    /// short mark silently widens what the revocation takes back, and the
+    /// shortest of all — nil — is wire-identical to the writer having asked for
+    /// everything to be set aside.
+    case historyUnreadable(name: String)
     /// The target is a self-signed ROOT. A root answers to itself (spec §5:
     /// *a root is claimed over, never revoked*), so revoking one would be this
     /// Mac re-signing somebody else’s own word about themselves — which
@@ -315,6 +361,132 @@ public enum RegistryAdmission {
             // being applied while the writer believed it stopped.
             throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
         }
+        return record
+    }
+
+    /// **Rename a person: a WORD about somebody, written by the root that
+    /// vouches for them** (P2 smoke find 3).
+    ///
+    /// A label is the one thing in this registry the writer chose rather than
+    /// derived, and until now it could only be chosen once — at the admission
+    /// sheet, or by whatever a first root was called when the book began. A
+    /// writer who mistyped it, or who let a Mac name itself, had no way back.
+    ///
+    /// **It changes nothing about authority.** The record keeps its
+    /// `admittedAt`, its `admittedBy`, its revocation if it has one, and every
+    /// field this build has no property for: the FILE's object is edited and
+    /// re-signed (`RegistryWriter.resign`, P2b Task 1's rule), so a record a
+    /// later build wrote survives being renamed rather than being quietly
+    /// rewritten into this build's vocabulary and failing to verify everywhere
+    /// that understands it.
+    ///
+    /// **Who may.** The root that admitted them, and nobody else — a person
+    /// record is signed by the root it names, so any other signature makes a
+    /// file every reader lists as malformed, which is a device un-admitted in
+    /// silence rather than renamed. A root's own record names ITSELF as its
+    /// admitter, which is exactly why a root may rename itself and may not
+    /// rename another root.
+    ///
+    /// **A revoked person may be renamed.** Their label is a word about who
+    /// they were, and correcting it neither lets them back in nor shuts them
+    /// out further.
+    ///
+    /// Idempotent, for admission's reason: a label that already says this
+    /// writes no file and makes no signature for every peer to check. The
+    /// memory is stated either way, because a device renamed here is one a
+    /// later book should meet under its new name.
+    ///
+    /// **An empty label is not a rename.** It is a writer who cleared a field,
+    /// and the surface that offers this disables its button on one — mirroring
+    /// `AdmissionDecision.outcome`, where an empty label means *nothing
+    /// happens* rather than a refusal. Nothing here writes a person with no
+    /// name.
+    ///
+    /// **The caller invalidates trust** — not because a rename moves a verdict
+    /// (it moves none) but because every surface reading the label resolved it
+    /// with the old one.
+    /// **Who may rename whom, decided over a registry and nothing else** — the
+    /// one definition, shared by the verb below and by every surface that draws
+    /// a Rename control (whole-branch review, Minor 1).
+    ///
+    /// Two rules, and the first is the one a surface is most likely to forget:
+    ///
+    /// 1. **The signer must itself be a root of this book.** A rename RE-SIGNS
+    ///    the record, and a signature from a Mac no root record names is one
+    ///    every reader lists as malformed — a person un-admitted in silence by
+    ///    a correction to their name. A Mac whose own root record was deleted
+    ///    is in exactly that position while it still holds records naming it as
+    ///    their admitter, which is how People & Devices came to offer a live
+    ///    button that threw the moment it was pressed.
+    /// 2. **And it must be the root that admitted them**, the same signature
+    ///    rule Revoke keeps. A root's own record names ITSELF as its admitter,
+    ///    so one rule covers *a root renames itself* with no clause of its own.
+    ///
+    /// The present-and-unreadable arm is RULING-54's, and it is the reachable
+    /// case rather than tampering: another Mac's admission whose own root
+    /// record has not landed reads as `signerIsNotARoot` until it does, and
+    /// writing over it would destroy their admission.
+    ///
+    /// Answering the RECORD on success is what keeps the verb from asking the
+    /// registry the same question twice, and keeps this from having an arm
+    /// nothing can reach.
+    nonisolated public static func renameOutcome(
+        person fingerprint: String, by root: String, in registry: Registry
+    ) -> Result<PersonRecord, RegistryAdmissionError> {
+        guard registry.roots.contains(where: { $0.person == root }) else {
+            return .failure(.notARoot)
+        }
+        guard let existing = registry.person(fingerprint) else {
+            return .failure(unreadablePeople(in: registry).contains(fingerprint)
+                ? .recordUnreadable(fingerprint: fingerprint)
+                : .notAdmitted(fingerprint: fingerprint))
+        }
+        guard existing.admittedBy == root else {
+            return .failure(.alreadyAdmittedElsewhere(root: existing.admittedBy))
+        }
+        return .success(existing)
+    }
+
+    @discardableResult
+    nonisolated public static func rename(
+        person fingerprint: String,
+        to label: String,
+        in projectURL: URL,
+        by root: DeviceIdentity,
+        cache: RegistryCache,
+        memory: AdmissionMemory,
+        now: () -> Date = { Date() },
+        presenter: NSFilePresenter? = nil
+    ) throws -> PersonRecord {
+        let registry = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        let existing = try renameOutcome(
+            person: fingerprint, by: root.fingerprint, in: registry).get()
+
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != existing.label else {
+            memory.remember(
+                fingerprint, label: existing.label, ownName: existing.ownName,
+                at: existing.admittedAt)
+            return existing
+        }
+
+        try RegistryWriter.resign(
+            existing, signedBy: root, in: projectURL, presenter: presenter
+        ) { object in
+            object["label"] = trimmed
+        }
+
+        let verified = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        guard let record = verified.person(fingerprint) else {
+            // Written and did not read back: the one shape that must not be
+            // reported as success, because the writer would go on reading the
+            // old name and believing they had changed it.
+            throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
+        }
+        memory.remember(
+            fingerprint, label: record.label, ownName: record.ownName, at: now())
         return record
     }
 

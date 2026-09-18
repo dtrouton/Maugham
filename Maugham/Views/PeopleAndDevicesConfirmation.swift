@@ -24,36 +24,118 @@ import MaughamCore
 struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
 
     /// Which act is being confirmed. The host switches on it to call the verb,
-    /// so a third act is a compile error there rather than a silent no-op.
+    /// so a further act is a compile error there rather than a silent no-op.
     enum Verb: String, Equatable {
         case revoke
         case retire
         case merge
+        case rename
+        case restore
+    }
+
+    /// **The one thing the writer types** (P2 smoke find 3).
+    ///
+    /// Revoke, Retire and Merge need a yes; a rename needs a word, and the word
+    /// is the whole act. It is carried here rather than kept in the host's own
+    /// `@State` beside the confirmation, so *what the writer is asked, and what
+    /// the field starts with* is part of the value a test compares with nothing
+    /// mounted — the same reason everything else on the alert is.
+    struct Field: Equatable {
+        let prompt: String
+        let initialValue: String
     }
 
     let verb: Verb
     /// The person (Revoke) or the device (Retire) the act is about. Under
     /// labels-only these are the same key and are still not the same argument.
     let fingerprint: String
+    /// **Which FILE the act is about**, for the one verb that is about a file
+    /// rather than a person (Restore, P2 smoke find 1). A fingerprint is half
+    /// of a record — the same key can name a person record and a device record,
+    /// and putting back the wrong one is putting back a record nobody asked
+    /// for. Nil for every other verb, which are all about a key.
+    let record: RecordRef?
     let title: String
     /// The consequence, in the words the surface uses for it afterwards.
     let message: String
     let confirmTitle: String
+    /// What the writer types, for the one act that is about a word. Nil for
+    /// every verb that only needs a yes.
+    let field: Field?
+    /// **The second way to perform the same act**, where there are two. Nil for
+    /// every verb with one.
+    let alternate: Alternate?
+
+    /// A second button on the same alert, for an act the writer has two honest
+    /// ways to perform (find 5, ruled 2026-09-18).
+    ///
+    /// It carries its own sentence because the whole point is that the two
+    /// costs are different — offering *Revoke* and *Revoke everything* with one
+    /// shared message would be asking the writer to choose between two things
+    /// they have been told the same thing about.
+    struct Alternate: Equatable {
+        let title: String
+        /// What THIS choice costs. The default's cost is in `message`.
+        let message: String
+        /// How much of that device's history the alternate takes back. The
+        /// primary button always performs the default, `.whatWasApplied`.
+        let scope: RevocationScope
+    }
+
+    /// **Everything the alert says, in one string** (find 5).
+    ///
+    /// An alert carries one message and the writer may be choosing between two
+    /// consequences, so the alternate's sentence is appended rather than left
+    /// on a button nobody has pressed yet. Here rather than in the host so the
+    /// words are comparable with nothing mounted, like the rest of this type.
+    static func alertMessage(for confirmation: Self) -> String {
+        guard let alternate = confirmation.alternate else { return confirmation.message }
+        return confirmation.message + "\n\n" + alternate.message
+    }
 
     /// Keyed on the verb AND the subject, so a writer who dismisses one and
-    /// opens another gets a new alert rather than the old one's identity.
-    var id: String { "\(verb.rawValue)-\(fingerprint)" }
+    /// opens another gets a new alert rather than the old one's identity — and
+    /// on the DIRECTORY too where there is one, because one fingerprint can
+    /// name a record in two of them.
+    var id: String {
+        guard let record else { return "\(verb.rawValue)-\(fingerprint)" }
+        return "\(verb.rawValue)-\(record.directory.rawValue)-\(fingerprint)"
+    }
 
     /// **Revoke**, carrying spec §5's own sentence — the one that says what
-    /// Maugham will stop doing and what it cannot do.
+    /// Maugham will stop doing and what it cannot do — and the writer's two
+    /// ways of doing it (find 5, ruled 2026-09-18).
+    ///
+    /// **The default leaves the draft as the writer has read it.** Everything
+    /// this Mac had already applied from that device stays in the book; only
+    /// what arrives afterwards is set aside. That is the ordinary case — a
+    /// collaborator who has left, a machine being retired — and taking their
+    /// paragraphs back out of chapters the writer has since redrafted would be
+    /// a rewrite nobody asked for.
+    ///
+    /// **The alternate is the whole history**, which is what a revocation did
+    /// before the ruling, and it stays available because it is sometimes the
+    /// right answer: a machine that was never theirs, or one they no longer
+    /// want a word from. It says what it costs in the sentence rather than in
+    /// the button, because the button has room for a verb and this needs a
+    /// consequence.
     static func revoke(person fingerprint: String, named name: String) -> Self {
         PeopleAndDevicesConfirmation(
             verb: .revoke,
             fingerprint: fingerprint,
+            record: nil,
             title: "Stop applying what \(name) writes?",
             message: PeopleAndDevicesModel.revokeSentence
-                + " You can let them back in from this Mac.",
-            confirmTitle: "Revoke")
+                + " What they have already written stays in this book. "
+                + "You can let them back in from this Mac.",
+            confirmTitle: "Revoke",
+            field: nil,
+            alternate: Alternate(
+                title: "Revoke and Set Aside Everything",
+                message: "Every paragraph and note from \(name) leaves this book "
+                    + "until you let them back in. Nothing is deleted \u{2014} it is "
+                    + "kept in this project\u{2019}s set-aside records.",
+                scope: .nothing))
     }
 
     /// **Merge**, carrying the consequence in the words the row uses for it
@@ -64,9 +146,12 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
         PeopleAndDevicesConfirmation(
             verb: .merge,
             fingerprint: fingerprint,
+            record: nil,
             title: "Is \(name) also you?",
             message: PeopleAndDevicesModel.mergeSentence,
-            confirmTitle: "Merge")
+            confirmTitle: "Merge",
+            field: nil,
+            alternate: nil)
     }
 
     /// **Retire**, carrying `DeviceStanding`'s own consequence — the same
@@ -77,8 +162,61 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
         PeopleAndDevicesConfirmation(
             verb: .retire,
             fingerprint: fingerprint,
+            record: nil,
             title: "Retire \(name)?",
             message: DeviceStanding.retirementConsequence(device: kind),
-            confirmTitle: "Retire")
+            confirmTitle: "Retire",
+            field: nil,
+            alternate: nil)
+    }
+
+    /// **Rename**, the fourth and the only one that asks for a word rather than
+    /// a yes (P2 smoke find 3).
+    ///
+    /// It is confirmed like the other three, for the opposite reason: not
+    /// because it cannot be undone — it is the one act here that can, by
+    /// renaming again — but because it is the one that needs something typed,
+    /// and the message is where a writer learns what a label is and is not
+    /// before they change one. A rename admits nobody and shuts nobody out.
+    ///
+    /// The field starts at the name that stands, so the ordinary edit is a
+    /// correction rather than a re-typing, and Cancel and an untouched field
+    /// come to the same thing.
+    static func rename(person fingerprint: String, named name: String,
+                       currently label: String) -> Self {
+        PeopleAndDevicesConfirmation(
+            verb: .rename,
+            fingerprint: fingerprint,
+            record: nil,
+            title: "What should this book call \(name)?",
+            message: "A name is this book's word for them — every Mac that reads "
+                + "this book will see it. Changing it admits nobody and shuts "
+                + "nobody out.",
+            confirmTitle: "Rename",
+            field: Field(prompt: "Name", initialValue: label),
+            alternate: nil)
+    }
+
+    /// **Restore**, the fifth, and the only one that writes over a file
+    /// somebody else signed (P2 smoke find 1).
+    ///
+    /// It is confirmed because that is a decision, and because the writer is
+    /// about to replace bytes Maugham has just told them do not verify. The
+    /// message says what putting a record back is — the version this device saw
+    /// verify, not a version it wrote — and what it is not: it forges nothing
+    /// and admits nobody, because the next read checks the signature on it like
+    /// any other.
+    static func restore(record: RecordRef, named name: String, kind: String) -> Self {
+        PeopleAndDevicesConfirmation(
+            verb: .restore,
+            fingerprint: record.fingerprint,
+            record: record,
+            title: "Put back the \(kind) record for \(name)?",
+            message: "This writes back the exact version this Mac last read, over "
+                + "the one it can\u{2019}t. It adds nothing of this Mac\u{2019}s and "
+                + "admits nobody \u{2014} the next read checks it like any other.",
+            confirmTitle: "Restore",
+            field: nil,
+            alternate: nil)
     }
 }

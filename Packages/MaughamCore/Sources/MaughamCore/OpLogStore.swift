@@ -432,7 +432,7 @@ public final class OpLogStore {
     /// The coordinated read of one op-log file's exact bytes. Nil when the file
     /// is not there (which is not a failure); a throw when it is there and
     /// cannot be read (RULING-54: unreadable-yet-present is never empty).
-    private static func readCoordinated(
+    nonisolated private static func readCoordinated(
         url: URL, presenter: NSFilePresenter?
     ) throws -> Data? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
@@ -497,7 +497,7 @@ public final class OpLogStore {
            let docId = docId(fromOpLogFilename: url.lastPathComponent) {
             do {
                 try JSONLAppendStore<Op>.setAside(
-                    verification, groupedBy: classified.setAsideGroups,
+                    verification,
                     from: url, docId: docId,
                     in: projectRoot(of: url))
             } catch {
@@ -512,6 +512,58 @@ public final class OpLogStore {
             }
         }
         return (classified.ops, classified.diagnostics, classified.provenance)
+    }
+
+    /// **The highest opId this project APPLIES from one device, anywhere in
+    /// it** — the revocation mark, computed with no main-actor hop (find-5
+    /// review, the two Mediums).
+    ///
+    /// Nil when this project applies nothing of theirs; it THROWS when a file
+    /// is present and will not read, because a mark that silently came back
+    /// short would quietly widen what a revocation takes back. The caller turns
+    /// that into a refusal rather than into a number
+    /// (`OpLogStore.unreadableName` names the file).
+    ///
+    /// **Applied, not merely present.** Each file is classified with the same
+    /// trust table a load would use, so a line the reader refuses or holds is
+    /// not counted as something this device had got to.
+    ///
+    /// **Read-only in fact, not merely in intent.** `state: nil` and
+    /// `identities: nil` are both passed, which is what stops the walk writing
+    /// forensic records, adopting heads or remembering segment digests over
+    /// forty chapters nobody has opened as a side effect of asking a question
+    /// about one device. The remembered head is not lost by it: this device
+    /// keeps one only for files it has WRITTEN, and the files that matter here
+    /// are the revoked device's.
+    ///
+    /// `nonisolated` and taking no presenter, so the whole sweep — the listing
+    /// included — runs off the main actor. It only reads, so there is no write
+    /// of this process's own for a presenter to keep from bouncing back.
+    nonisolated public static func highestAppliedOpId(
+        ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?
+    ) throws -> String? {
+        guard !ids.isEmpty else { return nil }
+        let opsDir = projectURL.appendingPathComponent(".maugham/ops")
+        let filenames = (try? FileManager.default
+            .contentsOfDirectory(atPath: opsDir.path)) ?? []
+        var docIds = docIds(inOpsDirectoryFilenames: filenames)
+        // Named, because the manuscript reader excludes it by contract — the
+        // same reason the project-open sweep names it when it rotates tails.
+        docIds.insert("__project__")
+
+        var highest: String?
+        for docId in docIds.sorted() {
+            for url in opLogFileURLs(forDocId: docId, in: projectURL) {
+                guard let bytes = try readCoordinated(url: url, presenter: nil)
+                else { continue }
+                let classified = classify(
+                    url: url, bytes: bytes, state: nil, trust: trust)
+                for op in classified.ops where ids.contains(op.device) {
+                    if highest == nil || op.opId > highest! { highest = op.opId }
+                }
+            }
+        }
+        return highest
     }
 
     /// The file a `ReadError` names, for a caller that reports unreadable
@@ -546,11 +598,6 @@ public final class OpLogStore {
         /// hands it to `JSONLAppendStore.setAside`, which owns both the record
         /// and the words for it.
         let verification: OpLogChain.Verification?
-        /// The refused lines grouped by the sentence each earns, when the
-        /// walk's one cause has two halves — a revoked key's span, split by the
-        /// opId the root had already applied (spec §5). Nil everywhere else,
-        /// which is `setAside`'s own default: the whole span under one cause.
-        let setAsideGroups: [QuarantineGroup]?
         /// Non-nil when this device may now adopt the file's head as its own
         /// (the crash window: a remembered head no line in the file hashes to,
         /// in a file that holds together and whose every seal is ours).
@@ -611,32 +658,51 @@ public final class OpLogStore {
             rememberedHead: state?.head(for: fileKey),
             previousHead: state?.previousHead(for: fileKey))
 
-        let parsed = JSONLAppendStore<Op>.parse(
-            bytes: JSONLAppendStore<Op>.applied(verification, whole: bytes),
-            dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
+        // **The revocation cut, BEFORE the parse** (find 5, ruled 2026-09-18).
+        // The walk refuses a revoked key's span whole and says why; which of
+        // those lines this Mac had already applied is told by opId, a number
+        // the ROOT recorded when it revoked somebody and which the walk — seals
+        // and chains, never ops — is deliberately ignorant of. Here is where
+        // both are in hand, and it has to happen before `applied` builds the
+        // bytes the parser sees, or a line the revocation keeps never reaches
+        // the document.
+        let settled = readmittingWhatWasAlreadyApplied(verification, trust: trust)
 
-        // **The revocation split, after the parse** (plan decision P5). The
-        // walk refuses a revoked key's span whole and says why; the two halves
-        // are told apart by opId, which is a number the ROOT recorded when it
-        // revoked somebody and which the walk — seals and chains, never ops —
-        // is deliberately ignorant of. Here is where both are in hand.
-        var setAsideGroups: [QuarantineGroup]?
-        if case let .afterRevocation(person)? = verification.quarantineCause {
-            setAsideGroups = RevocationSplit.groups(
-                of: verification,
-                highestOpIdSeen: trust?.highestOpIdSeen(forPerson: person))
-        }
+        let parsed = JSONLAppendStore<Op>.parse(
+            bytes: JSONLAppendStore<Op>.applied(settled, whole: bytes),
+            dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
 
         return FileClassification(
             ops: parsed.elements,
             diagnostics: parsed.diagnostics,
             provenance: provenance(
-                name: url.lastPathComponent, lines: verification.lines,
+                name: url.lastPathComponent, lines: settled.lines,
                 isSealedSegment: false, segmentVerified: nil),
-            verification: verification,
-            setAsideGroups: setAsideGroups,
+            verification: settled,
             adoptedHead: adopted,
             verifiedSegmentDigest: nil)
+    }
+
+    /// **What a revocation keeps** — `RevocationSplit`'s answer applied to a
+    /// walk, and the one place the two classify paths ask it (find 5).
+    ///
+    /// A live tail and a rotated segment must agree about what a revocation
+    /// costs. Before this, only the tail was split at all, so the same
+    /// device's history read one way in `.jsonl` and another in `.mzseg` —
+    /// the live-tail-versus-segment asymmetry P2b Task 10 closed for the
+    /// keyless walk, re-opened one rule along.
+    ///
+    /// With no table there is no mark and nothing to ask, so a keyless reader
+    /// is unchanged: it holds no key, judges nobody, and never meets
+    /// `.afterRevocation` at all.
+    private nonisolated static func readmittingWhatWasAlreadyApplied(
+        _ verification: OpLogChain.Verification, trust: TrustTable?
+    ) -> OpLogChain.Verification {
+        guard let trust, let split = RevocationSplit.partition(
+            of: verification,
+            highestOpIdSeen: { trust.highestOpIdSeen(forPerson: $0) })
+        else { return verification }
+        return OpLogChain.readmitting(verification, lines: split.readmitted)
     }
 
     /// A sealed `.mzseg` segment. Immutable bytes with a digest already inside
@@ -666,7 +732,6 @@ public final class OpLogStore {
                     name: url.lastPathComponent,
                     isSealedSegment: true, segmentVerified: false),
                 verification: nil,
-                setAsideGroups: nil,
                 adoptedHead: nil, verifiedSegmentDigest: nil)
         }
 
@@ -711,7 +776,6 @@ public final class OpLogStore {
                     name: url.lastPathComponent, verified: lines,
                     isSealedSegment: true, segmentVerified: true),
                 verification: nil,
-                setAsideGroups: nil,
                 adoptedHead: nil, verifiedSegmentDigest: toRemember)
         }
 
@@ -729,13 +793,20 @@ public final class OpLogStore {
         //
         // With no table there is still nothing to ask, and the keyless walk is
         // P1's behaviour exactly (ADR 0032 §6).
-        let read = trust.map { table in
-            JSONLAppendStore<Op>.verifiedParse(
+        // Walked, then cut, then parsed — the tail's own order, spelled out
+        // here rather than delegated to `verifiedParse`, because a revocation
+        // must cost a rotated segment exactly what it costs a live tail
+        // (find 5's fourth carry). A keyless walk meets no `.afterRevocation`
+        // and is returned untouched.
+        let walked = trust.map { table in
+            OpLogChain.verify(
                 bytes: jsonl, trust: { table.verdict(forSealKey: $0) },
-                rememberedHead: nil,
-                dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
-        } ?? JSONLAppendStore<Op>.verifiedParse(
-            bytes: jsonl, trusted: { _ in false }, rememberedHead: nil,
+                rememberedHead: nil)
+        } ?? OpLogChain.verify(
+            bytes: jsonl, trusted: { _ in false }, rememberedHead: nil)
+        let verification = readmittingWhatWasAlreadyApplied(walked, trust: trust)
+        let read = JSONLAppendStore<Op>.parse(
+            bytes: JSONLAppendStore<Op>.applied(verification, whole: jsonl),
             dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
         if decoded.isVerified {
             skipped.append(contentsOf: read.diagnostics.skipped)
@@ -744,10 +815,9 @@ public final class OpLogStore {
             ops: read.elements,
             diagnostics: ParseDiagnostics(skipped: skipped),
             provenance: provenance(
-                name: url.lastPathComponent, lines: read.verification.lines,
+                name: url.lastPathComponent, lines: verification.lines,
                 isSealedSegment: true, segmentVerified: false),
-            verification: read.verification,
-            setAsideGroups: nil,
+            verification: verification,
             adoptedHead: nil, verifiedSegmentDigest: nil)
     }
 

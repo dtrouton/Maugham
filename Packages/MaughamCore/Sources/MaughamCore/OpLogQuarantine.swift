@@ -90,80 +90,148 @@ public enum ReturnOutcome: Equatable, Sendable {
     case setAsideByProvenance
 }
 
-/// One run of set-aside lines and the cause they are filed under.
+/// One CHANGE a set-aside record holds, with the reason its record was filed
+/// under (signed op log P2 smoke, find 6).
 ///
-/// It exists because a single walk can hold lines back for two genuinely
-/// different reasons at once, and a `.lines` record carries ONE sentence. A
-/// revoked device's span is the case: everything in it is refused, and the half
-/// whose opIds the root had already applied is *may be late sync or may be
-/// backdated* while the half above the mark is *after revocation*. Two records,
-/// two sentences, one refusal.
-public struct QuarantineGroup: Equatable, Sendable {
-    /// Why these lines were held back. Nil where the walk had no cause of its
-    /// own to name, which is the shape `quarantineReason` already answers for.
-    public let cause: OpLogChain.QuarantineCause?
-    public let lines: [Data]
+/// A change, not a line: a seal is neither, and the same op reaching the archive
+/// twice is one. `OpLogQuarantine.setAsideChanges` is the one derivation — see
+/// its doc comment for both rules.
+public struct SetAsideChange: Equatable, Sendable {
+    /// The identity the line's own stream gives it — an op's `op_id`, an inbox
+    /// row's `id`, or a digest of the bytes for a line that names neither.
+    public let id: String
+    /// The reason the FIRST record to hold this change was filed under, in
+    /// `JSONLAppendStore.quarantineReason`'s words.
+    public let reason: String
 
-    public init(cause: OpLogChain.QuarantineCause?, lines: [Data]) {
-        self.cause = cause
-        self.lines = lines
+    public init(id: String, reason: String) {
+        self.id = id
+        self.reason = reason
     }
 }
 
-/// **Which side of a revocation each refused line falls on** (spec §5).
+/// **What a revocation keeps and what it sets aside** (spec §5; find 5, ruled
+/// 2026-09-18).
 ///
 /// Pure, and deliberately one layer above the walk: `OpLogChain` sees seals and
-/// chains, not opIds, and the mark this splits on is a number the ROOT recorded
+/// chains, not opIds, and the mark this turns on is a number the ROOT recorded
 /// when it revoked somebody. So the walk refuses the span whole and says why,
-/// and this refines that one cause into the two sentences the writer is owed
-/// (ADR 0032 §6 — a reason is derived, never passed in).
+/// and this decides which of those lines were already in the book.
+///
+/// **Nothing here is newly trusted, and that is the whole argument.** An op at
+/// or below `highestOpIdSeen` is one this Mac had ALREADY APPLIED while that
+/// device was admitted — the mark is this Mac's own record of having applied
+/// it, not the device's word about itself. Re-admitting such a line is not the
+/// revocation trusting a revoked key; it is the revocation declining to reach
+/// backwards into work the writer has already read, redrafted and published.
+/// What the device wrote AFTER the door closed is refused, as it always was.
+///
+/// The writer's other choice — *set aside everything it wrote* — arrives here
+/// as a revocation record carrying no mark, and keeps its own meaning exactly:
+/// nothing was ever *already here*, so nothing is re-admitted.
 public enum RevocationSplit {
 
-    /// The quarantined lines of `verification`, grouped by the cause each
-    /// earns.
-    ///
-    /// Everything but a revocation is ONE group under the walk's own cause —
-    /// there is nothing to split, and a broken chain has no *before*. A
-    /// revocation with no mark is also one group: the root had applied nothing
-    /// from that device, so nothing it wrote was ever *already here*.
-    ///
-    /// **A seal line goes with *after revocation*.** It carries no opId of its
-    /// own, and the strict side is the honest place for a line whose position
-    /// cannot be established — unless nothing else in the span is above the
-    /// mark, in which case there is no such group and the seal belongs with the
-    /// lines it sealed.
-    nonisolated public static func groups(
-        of verification: OpLogChain.Verification, highestOpIdSeen: String?
-    ) -> [QuarantineGroup] {
-        let whole = [QuarantineGroup(
-            cause: verification.quarantineCause, lines: verification.quarantined)]
-        guard case let .afterRevocation(person)? = verification.quarantineCause,
-              let mark = highestOpIdSeen, !verification.quarantined.isEmpty
-        else { return whole }
+    /// A revoked span cut in two: the lines that stay in the book, and the
+    /// lines that leave it.
+    public struct Partition: Equatable, Sendable {
+        /// Lines this Mac had already applied. Re-settled `.verified` and
+        /// parsed with the rest of the file.
+        public let readmitted: [Data]
+        /// Every line that stays set aside — and **not one cause, but every
+        /// cause the walk met in this file** (find-5 review, the Critical; this
+        /// comment claimed the narrow thing until 2026-09-18).
+        ///
+        /// Most of these are what the device wrote after the door closed, which
+        /// is what a revocation is about. The rest never were: a line refused
+        /// for a broken chain, for a truncation, as another claimant's, or as
+        /// written after a retirement is **not a candidate at all** — it is
+        /// dropped in here by the first guard in `partition`, whatever opId it
+        /// carries — and so is a candidate whose own person's revocation
+        /// recorded no mark, and a line with no op before it whose position
+        /// cannot be established.
+        ///
+        /// A reader that treats this array as *the revocation's leavings* will
+        /// re-open the Critical the guard closed: `Verification.quarantineCause`
+        /// answers one cause for a whole FILE and answers the FIRST one met, so
+        /// a splice sitting after a revoked seal wore the revocation's name and
+        /// was filed, and counted, as something the revocation had done. **Each
+        /// line's own `refusal` is the only thing that says why it is here**;
+        /// anything narrating this array must ask it per line.
+        public let refused: [Data]
 
-        var after: [Data] = []
-        var late: [Data] = []
-        for line in verification.quarantined {
-            if let opId = opId(ofLine: line), opId <= mark {
-                late.append(line)
-            } else {
-                after.append(line)
+        public init(readmitted: [Data], refused: [Data]) {
+            self.readmitted = readmitted
+            self.refused = refused
+        }
+    }
+
+    /// How this revocation's refused lines divide, or **nil where nothing
+    /// divides them** — which is every case but a revocation carrying a mark.
+    ///
+    /// Nil rather than an all-refused partition on purpose: the caller's job is
+    /// then *leave the walk exactly as it found it*, which is a different act
+    /// from re-admitting an empty list and has to be told apart at the call
+    /// site. A broken chain has no *before*; a revocation with no mark has no
+    /// *already here*.
+    ///
+    /// **A seal travels with the op immediately before it in file order.** A
+    /// seal carries no opId of its own and the span it closes is the one ending
+    /// at the line above it, so filing `seal1` under *after revocation* while
+    /// re-admitting the `op1` it sealed would accuse a signature of a position
+    /// its own op does not have — the third cause behind the smoke's wrong
+    /// set-aside count (find 6). A line with no op before it at all — the head
+    /// of the span, a shape this build cannot parse — has no position that can
+    /// be established, and stays refused: the strict side is the side to be
+    /// wrong on. The span that is entirely below the mark falls out of the same
+    /// rule with no clause of its own.
+    nonisolated public static func partition(
+        of verification: OpLogChain.Verification,
+        highestOpIdSeen mark: (String) -> String?
+    ) -> Partition? {
+        guard !verification.quarantined.isEmpty else { return nil }
+
+        var readmitted: [Data] = []
+        var refused: [Data] = []
+        // What the last CANDIDATE line carrying an opId decided. Reset by any
+        // line that is not a candidate, so a seal never travels across one.
+        var travellingWith: Bool?
+        var sawCandidate = false
+        for line in verification.lines where line.state == .quarantined {
+            // **The refusal is the line's own** (find-5 review, the Critical).
+            // A line refused for a chain fault, a truncation, another
+            // claimant's root or a retirement is not a candidate whatever its
+            // op id, and `Verification.quarantineCause` cannot answer this —
+            // it is one cause for the whole file and it is the FIRST one met,
+            // so a splice after a revoked seal wore the revocation's name.
+            guard case .afterRevocation? = line.refusal else {
+                refused.append(line.bytes)
+                travellingWith = nil
+                continue
             }
+            // Each line against ITS OWN person's mark, asked per line rather
+            // than resolved once: a file holds one device's writing (ADR 0012),
+            // and a rule that assumed so would be assuming it silently.
+            guard case let .afterRevocation(person) = line.refusal,
+                  let theirMark = mark(person) else {
+                refused.append(line.bytes)
+                travellingWith = nil
+                continue
+            }
+            sawCandidate = true
+            let keeps: Bool
+            if let opId = opId(ofLine: line.bytes) {
+                keeps = opId <= theirMark
+                travellingWith = keeps
+            } else {
+                // A seal travels with the op immediately before it — and only
+                // if that op was itself refused for the revocation, which is
+                // what `travellingWith` being nil records.
+                keeps = travellingWith ?? false
+            }
+            if keeps { readmitted.append(line.bytes) } else { refused.append(line.bytes) }
         }
-        guard !late.isEmpty else { return whole }
-        // Nothing above the mark but the seal itself: the span is entirely
-        // history this Mac had already applied, and calling the line that
-        // sealed it "written after the door closed" would be an accusation
-        // about the only line that is not an op.
-        guard !after.isEmpty, after.contains(where: { opId(ofLine: $0) != nil })
-        else {
-            return [QuarantineGroup(
-                cause: .revocationLate(person: person), lines: verification.quarantined)]
-        }
-        return [
-            QuarantineGroup(cause: .afterRevocation(person: person), lines: after),
-            QuarantineGroup(cause: .revocationLate(person: person), lines: late),
-        ]
+        guard sawCandidate else { return nil }
+        return Partition(readmitted: readmitted, refused: refused)
     }
 
     /// The opId a raw op line carries — nil for a seal, and for anything that
@@ -437,11 +505,30 @@ public enum OpLogQuarantine {
     ///
     /// `nonisolated`: a pure filesystem read touching no MainActor state —
     /// same reasoning as `defaultStubProbe`.
-    /// How many CHANGES a set of records held back — the non-empty lines
-    /// across every `.lines` record's data file, not the number of records.
-    /// One record can hold a run of lines, and the question a pane asks on the
-    /// writer's behalf is how much of their history this is, so the answer has
-    /// to open the files.
+    /// The CHANGES a set of records held back, in the order they were filed,
+    /// each counted once (signed op log P2 smoke, finds 6 and 7).
+    ///
+    /// **Op lines only.** A seal is not a change — it is the signature that
+    /// closes a span — and it is held back with the lines it settles, so a span
+    /// of two ops under one signature is three LINES and two changes. The
+    /// pending counts have said this since P2b (`OpLogProvenance.pendingOpLines`
+    /// over `OpLogChain.pendingByDevice`, which filters `kind == .op`); this is
+    /// the same rule for the refused half, so History cannot put a different
+    /// number in front of the same noun. A seal is recognised through
+    /// `OpLogChain.isSealLine` and nowhere else (tripwire 37).
+    ///
+    /// **Deduplicated across records.** The same op reaches the archive more
+    /// than once whenever a span is set aside twice and split differently on the
+    /// two loads — the smoke's own case: `[op1, seal1]` on one open, then
+    /// `[op1]` and `[seal1, op2, seal2]` on the next. Three records, four op
+    /// lines, TWO changes. The identity is the line's own (`op_id` for an op,
+    /// `id` for an inbox row); a line carrying neither is keyed on a digest of
+    /// its bytes, so it is still counted once rather than once per record.
+    ///
+    /// The order is (`quarantinedAt`, then the archive's own name), so a change
+    /// found in two records is attributed to the reason of the FIRST record that
+    /// held it and one folder answers one way however its sidecars happened to
+    /// be enumerated.
     ///
     /// Lives here rather than on a pane because TWO panes ask it: History for
     /// a document's own op-log files, the Inbox for the manifest stream
@@ -452,18 +539,68 @@ public enum OpLogQuarantine {
     ///
     /// `.file` records are skipped: their data file is a whole op log, whose
     /// line count is a different quantity entirely.
-    public nonisolated static func setAsideLineCount(
+    public nonisolated static func setAsideChanges(
         records: [QuarantineRecord], in projectURL: URL
-    ) -> Int {
-        records
-            .filter { $0.kind == .lines }
-            .reduce(0) { total, record in
-                let url = quarantinedFileURL(for: record, in: projectURL)
-                guard let bytes = try? Data(contentsOf: url) else { return total }  // adr-0018-ok: a set-aside `.lines` archive — forensics this counts, never manuscript truth
-                return total + bytes
-                    .split(separator: 0x0A, omittingEmptySubsequences: true)
-                    .count
+    ) -> [SetAsideChange] {
+        // Split out of one chained expression on purpose: written as a single
+        // `filter`/`map`/`sorted` chain, this defeats the type-checker's budget
+        // outright (CLAUDE.md's "unable to type-check in reasonable time" is
+        // real, and this is where it fired).
+        var ordered: [(record: QuarantineRecord, url: URL)] = []
+        for record in records where record.kind == .lines {
+            ordered.append((record, quarantinedFileURL(for: record, in: projectURL)))
+        }
+        ordered.sort { left, right in
+            if left.record.quarantinedAt != right.record.quarantinedAt {
+                return left.record.quarantinedAt < right.record.quarantinedAt
             }
+            return left.url.lastPathComponent < right.url.lastPathComponent
+        }
+
+        var seen: Set<String> = []
+        var changes: [SetAsideChange] = []
+        for entry in ordered {
+            guard let bytes = try? Data(contentsOf: entry.url) else { continue }  // adr-0018-ok: a set-aside `.lines` archive — forensics this counts, never manuscript truth
+            for slice in bytes.split(separator: 0x0A, omittingEmptySubsequences: true) {
+                let line = Data(slice)
+                guard !OpLogChain.isSealLine(line) else { continue }
+                let id = changeIdentity(ofLine: line)
+                guard seen.insert(id).inserted else { continue }
+                changes.append(SetAsideChange(id: id, reason: entry.record.reason))
+            }
+        }
+        return changes
+    }
+
+    /// How many set-aside changes a writer still has NOT got — `applied` is the
+    /// identities the stream is currently carrying, and a change in it is one a
+    /// later admission brought in (find 7).
+    ///
+    /// The records are permanent evidence and the disclosure goes on listing
+    /// every one of them; what stops being true after a re-admission is the
+    /// SENTENCE, because those changes are in the writer's draft.
+    public nonisolated static func setAsideChangeCount(
+        records: [QuarantineRecord], in projectURL: URL, applied: Set<String> = []
+    ) -> Int {
+        setAsideChanges(records: records, in: projectURL)
+            .reduce(0) { $0 + (applied.contains($1.id) ? 0 : 1) }
+    }
+
+    /// The identity a line's own stream gives it.
+    ///
+    /// `op_id` is read through `RevocationSplit.opId(ofLine:)` rather than
+    /// spelled again — one reader of that key. An inbox manifest row has no
+    /// `op_id`; its own `id` is asked of `InboxEntry.CodingKeys` for the same
+    /// reason. A line that carries neither (a legacy shape, a build this one
+    /// cannot parse) keys on a digest of its bytes: the same bytes in two
+    /// records are one change, and two different unidentifiable lines stay two.
+    nonisolated private static func changeIdentity(ofLine line: Data) -> String {
+        if let opId = RevocationSplit.opId(ofLine: line) { return opId }
+        let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any]
+        if let rowId = object?[InboxEntry.CodingKeys.id.stringValue] as? String {
+            return rowId
+        }
+        return "line:" + StableHash.fnv1a64Hex(String(decoding: line, as: UTF8.self))
     }
 
     public nonisolated static func quarantinedFileURL(for record: QuarantineRecord, in projectURL: URL) -> URL {

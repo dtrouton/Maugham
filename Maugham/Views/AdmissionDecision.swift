@@ -115,6 +115,74 @@ enum AdmissionDecision {
         }
     }
 
+    // MARK: - A refresh, in order (decision B2 mid-session; find 4, 2026-09-17)
+
+    /// **What a refresh does, and the order it does it in.**
+    ///
+    /// Decision B2 is *once per device*, and until this existed it held only at
+    /// a project OPEN: `RegistryPresence.admitRemembered` ran there and nowhere
+    /// else, so a device arriving mid-session — a window open for days, a phone
+    /// syncing in over lunch — was asked about again, with the memory used only
+    /// to pre-fill the label field. Mid-session arrival is the ORDINARY case.
+    ///
+    /// Two acts, and the order between them is the whole contract: admit
+    /// everyone this Mac has already named, THEN read the registry. Read first
+    /// and the person record the admission just wrote is invisible to
+    /// `requests`, which asks about the device all over again — the defect,
+    /// exactly, with an extra write in it.
+    ///
+    /// Closures rather than a store, for `CompilerOrchestrator`'s reason: the
+    /// order is then decidable with no window, no folder and no admission, and
+    /// a later reordering of the two lines fails a test instead of shipping.
+    ///
+    /// **`nil` means leave the queue alone.** A registry that will not read
+    /// costs the writer the sheet, never the strangers they are already being
+    /// asked about; `[]` is the different, positive answer *nobody is waiting*.
+    ///
+    /// **The silent admission is attempted only when something remembered is
+    /// waiting** (`anyRemembered`). It costs a verified folder read and a
+    /// signature check per record, and this runs on every document open that
+    /// announces held lines — so a book whose only stranger is a stranger pays
+    /// nothing for a memory that has nothing to say about it.
+    @MainActor
+    static func refreshedRequests(
+        heldLines: @MainActor () -> [String: Int],
+        memory: [String: AdmissionMemory.Label],
+        admitRemembered: @MainActor () async -> Void,
+        resolve: @MainActor () async -> (registry: Registry, myRoot: String?)?
+    ) async -> [AdmissionRequest]? {
+        var pending = heldLines()
+        guard !pending.isEmpty else { return [] }
+        if anyRemembered(pending: pending, memory: memory) {
+            await admitRemembered()
+            // What it let in is applied, so the counts moved underneath us.
+            pending = heldLines()
+            guard !pending.isEmpty else { return [] }
+        }
+        guard let resolved = await resolve() else { return nil }
+        return requests(
+            pending: pending, registry: resolved.registry,
+            memory: memory, myRoot: resolved.myRoot)
+    }
+
+    /// Is any device with lines held here one this writer has already named?
+    ///
+    /// Cheap and folder-free, and keyed the way the held counts are keyed —
+    /// `OpLogChain.pendingByDevice` counts under the device record's own
+    /// fingerprint, which is the key `AdmissionMemory` uses, so the two spaces
+    /// meet wherever a silent admission could act at all. A held count under a
+    /// key no device record names cannot be admitted by
+    /// `RegistryPresence.admitRemembered` either — it walks the folder's device
+    /// records — so answering false about it costs nothing and the sheet still
+    /// asks.
+    static func anyRemembered(
+        pending: [String: Int], memory: [String: AdmissionMemory.Label]
+    ) -> Bool {
+        pending.contains { fingerprint, waiting in
+            waiting > 0 && memory[fingerprint] != nil
+        }
+    }
+
     /// What the writer's typed label means for this request.
     ///
     /// Whitespace is trimmed first, because a trailing space is a typo and not
@@ -213,12 +281,12 @@ enum AdmissionDecision {
     static func sentence(for refusal: RegistryAdmissionError) -> String {
         switch refusal {
         case .notARoot:
-            return "This Mac isn’t this book’s root, so nothing it signs would let a "
-                + "device in. Admit from the Mac that started the book."
+            return "This book wasn’t started on this Mac, so it can’t let a device "
+                + "in. Admit from the Mac it was started on."
         case .alreadyAdmittedElsewhere(let root):
-            return "Another Mac (code \(DeviceCode.short(root))) already admitted this "
-                + "device. Two chains are merged by claiming the book, never by "
-                + "admitting into both."
+            return "Another Mac (code \(DeviceCode.short(root))) has already let this "
+                + "device in. Two Macs that both started this book are brought "
+                + "together by claiming it, never by admitting on both."
         case .recordUnreadable(let fingerprint):
             // The routine one, and the only refusal here that resolves ITSELF:
             // another Mac has admitted this device and its own root record has
@@ -228,29 +296,40 @@ enum AdmissionDecision {
             // the code rather than the file, because a path under
             // `.maugham/people/` may not be spelled outside `RegistryWriter`
             // (tripwire 40) and a code is what the writer can compare anyway.
-            return "There’s already a record for this device (code "
+            return "There’s already something here about this device (code "
                 + "\(DeviceCode.short(fingerprint))) that Maugham can’t read yet — "
-                + "usually another Mac’s admission whose own record hasn’t synced. "
-                + "Admitting now would overwrite it. Try again in a minute."
+                + "usually another Mac letting it in, before that Mac has finished "
+                + "syncing. Admitting now would overwrite it. Try again in a minute."
         case .notAdmitted(let fingerprint):
-            return "This book has no record of the device with code "
+            return "This book knows no device with code "
                 + "\(DeviceCode.short(fingerprint)), so there’s nothing to withdraw."
         case .cannotRevokeARoot(let fingerprint):
-            return "The device with code \(DeviceCode.short(fingerprint)) is this "
-                + "book’s root, and a root answers to itself. To take a book away "
-                + "from it, claim the book on the Mac you want to keep."
+            return "The device with code \(DeviceCode.short(fingerprint)) is the Mac "
+                + "this book was started on, and that Mac answers to itself. To move "
+                + "the book, claim it on the Mac you want to keep."
         case .cannotAdoptItself(let root):
             // Unreachable from either surface as they stand — the claim sheet
             // adopts the roots this Mac is NOT, and a claimant row is by
             // definition somebody else — so this sentence exists for the day a
             // third caller gets the list wrong, and says what it would mean
             // rather than what went wrong.
-            return "This Mac (code \(DeviceCode.short(root))) is already its own "
-                + "root here, so there is nothing of its own for it to take in."
+            return "This book was already started on this Mac (code "
+                + "\(DeviceCode.short(root))), so there is nothing of its own for it "
+                + "to take in."
+        case .historyUnreadable(let name):
+            // The one refusal here that is about a FILE rather than about
+            // authority, and the only one that promises nothing happened. It
+            // says so first, because a writer who has just pressed a
+            // destructive button needs to know the destruction did not occur
+            // before they need to know why.
+            return "Nothing was changed. Maugham couldn’t read everything this "
+                + "device wrote (\(name)), and a revocation decided on a partial "
+                + "reading would set aside more than you asked it to. Try again "
+                + "in a moment."
         case .notThatDevice(let device):
             return "Only the device with code \(DeviceCode.short(device)) can retire "
-                + "itself — a retirement signed by anything else is a record no other "
-                + "Mac would read. Retire it from that machine."
+                + "itself — a retirement from anything else is one no other Mac would "
+                + "accept. Retire it from that machine."
         }
     }
 }

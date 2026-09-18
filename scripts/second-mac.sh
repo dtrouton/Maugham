@@ -12,11 +12,17 @@
 #   ./scripts/second-mac.sh --reset  forget the second Mac entirely, then launch
 set -euo pipefail
 
-home="$HOME/Library/Application Support/Maugham Dev/SecondMac-home"
+# SHORT on purpose: the MCP socket lives under it and a Unix socket path is
+# capped at 104 bytes; a home under Application Support silently truncated it.
+home="$HOME/.maugham-second-mac"
 app=$(ls -dt "$HOME"/Library/Developer/Xcode/DerivedData/Maugham-*/Build/Products/Debug/Maugham.app | head -1)
 
 [[ "${1:-}" == "--reset" ]] && rm -rf "$home"
-mkdir -p "$home/Library/Application Support"
+support="$home/Library/Application Support/Maugham Dev"
+mkdir -p "$support"
+# Share the dev TestWorkspace, so a test project one Mac made can be opened by
+# name on the other (`test_open_project`).
+ln -sfn "$HOME/Library/Application Support/Maugham Dev/TestWorkspace" "$support/TestWorkspace"
 
 echo "second Mac home: $home"
 echo "binary:          $app"

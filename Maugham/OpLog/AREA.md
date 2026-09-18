@@ -396,27 +396,42 @@ reasoning. `EditorHost` reads the stamp and folds it into the ONE
 now takes `.file` records only — a `.lines` record is not a file waiting to come
 back. `HistoryPane` says the two things a writer can act on knowing and no
 others: `unsignedHistoryNotice` (legacy history, foreign-signed history, or ONE
-sentence carrying both — the coalescing rule) and `setAsideLinesNotice`, neither
-with a Retry, because neither is something the writer can undo. **"Another
+sentence carrying both — the coalescing rule) and `setAsideChangesNotice`,
+neither with a Retry, because neither is something the writer can undo. **"Another
 device" in that sentence never means this Mac's assistant, translator or
 Maugham** (P1b): trust on the read side is all four local fingerprints, so
 Claude's annotation file and the pipeline's translation file are this device's
 own signed word, and a narrower trusted set would have the writer told their own
 MCP history came from somewhere else. **The INBOX has
-its own half of that sentence** — `InboxPane.setAsideNotice(lineCount:)`, drawn
+its own half of that sentence** — `InboxPane.setAsideNotice(changeCount:)`, drawn
 beside the unreadable-manifests notice — because the inbox's `.lines` records are
 filed under the manifest stream's own id (`InboxManifest.chainDocId`) and
 `HistoryPane` only ever asks for a DOCUMENT's, so they were written and shown to
-nobody. Both panes count through `OpLogQuarantine.setAsideLineCount`, one
-implementation, because one record can hold a run of lines and the writer's
-question is how many CHANGES. **History's sentence says WHICH reason** (the
-final wave's I3, `HistoryPane.setAsideLinesByReason` grouping the records and
-`setAsideLinesNotice(byReason:)` giving each group a clause): P1 had one cause
+nobody. **Both panes count through `OpLogQuarantine.setAsideChanges`, one
+implementation, and what it counts is neither records nor lines but CHANGES**
+(the P2 smoke's finds 6 and 7). Op lines only — a seal is the signature that
+closes a span, held back with the lines it settles and counted nowhere, which is
+the rule `OpLogChain.pendingByDevice` already applies to the PENDING half, so the
+two halves cannot put different numbers in front of one noun. Deduplicated by the
+line's own identity (`op_id`, else an inbox row's `id`, else a digest of the
+bytes), because the same op reaches the archive twice whenever a span is set
+aside and then split differently on a later load — the smoke's own `[op1, seal1]`
+followed by `[op1]` and `[seal1, op2, seal2]`: three records, six lines, TWO
+changes. And minus what the stream is already carrying: both call sites pass an
+`applied` set — History the document's own op ids, the Inbox
+`InboxStore.appliedManifestIDs` — so a re-admission stops the sentence claiming
+history the writer now has, while the disclosure goes on listing every record,
+because the evidence is permanent and the sentence is not. **History's sentence
+says WHICH reason** (the final wave's I3, `HistoryPane.setAsideChangesByReason`
+asking that one enumeration ONCE over every record and grouping by reason — once
+per reason would not see a change held under two of them — and
+`setAsideChangesNotice(byReason:)` giving each group a clause): P1 had one cause
 and said it unconditionally, and four of P2b's six describe lines Maugham wrote
 on the writer's other machine, so a revoked Mac's history was reported to them
 as *written by something that is not Maugham*. The words are
-`JSONLAppendStore.quarantineReason`'s, which the records already carry.
-`InboxPane.setAsideNotice(lineCount:)` is the same shape and has NOT been given
+`JSONLAppendStore.quarantineReason`'s, which the records already carry, and a
+change found in two records takes the reason of the first record that held it.
+`InboxPane.setAsideNotice(changeCount:)` is the same shape and has NOT been given
 the same treatment — its sentence still says *by something that is not Maugham*
 over every reason, which is the same defect one stream over. **And the sentence is ACKNOWLEDGED, per device per
 record** (P2a, D2, `SetAsideAcknowledgement.swift`): what P1 shipped summed every
@@ -431,9 +446,21 @@ predicate and neither restates the filter** — a census in
 `SetAsideAcknowledgementTests` holds the field to four files: `UIState`, the
 store's verb, and the two panes that hand it to the predicate. **Nothing under
 `.maugham/conflicts/` is touched**: the History pane's `Set-aside records`
-disclosure lists every record whether acknowledged or not, because what the
-writer put down is the sentence, not the evidence. Per DEVICE because UI state
-is this machine's — acknowledging here says nothing about the phone. **`unsealed`
+disclosure (`SetAsideRecordsDisclosure`, its own view at the foot of
+`HistoryPane.swift`) lists every record whether acknowledged or not, because what
+the writer put down is the sentence, not the evidence. **That list declares an
+ideal width of its own and truncates each row in the middle** — an archive name
+is 99 unbreakable characters, three of them ask for 559 pt through
+`fittingSize`, and on the macOS 27 SDK a pane's demand is what a fixed column
+becomes rather than a hint (`DetailColumnWidthTests`' fixed-width cases all read
+528 against the 300/320/360 they pin). Denver's whole window went blank on that
+chevron; the blanking would not reproduce in a mounted three-column split, so the
+demand is measured and the causal step is not — see that view's own doc comment.
+**And the Inbox's recount follows every refresh** (`InboxStore.refreshes`, the id
+its `.task(id:)` keys on): a promote, a trash, a sync or an admission moves both
+the records and `appliedManifestIDs`, and counting once beside the pane's first
+`refresh()` left the sentence frozen at its first reading. Per DEVICE because UI
+state is this machine's — acknowledging here says nothing about the phone. **`unsealed`
 lines are never mentioned**: the live tail is always partly unsealed, so naming
 it would be a permanent notice about nothing. **The production load door names an ACTOR:**
 `Document.load(url:actor:session:presenter:)` takes a `DeviceActor` and derives
@@ -594,19 +621,41 @@ outranks it too, because that is the root refusing rather than the machine
 stopping politely.
 `.noChain` is unsigned history, applied, which **is** P1 (decision B3).
 
-**A revoked span is refused whole and filed in two halves** (spec §5, P2b Task
-7). The walk sees seals and chains, never opIds, so it refuses the span under
-one cause and `OpLogStore.classifyTail` — which has the parse in hand — splits
-it against `TrustTable.highestOpIdSeen(forPerson:)`, the mark the ROOT recorded
-when it revoked somebody: a line above the mark is *written after this device's
-access was withdrawn*, one at or below it is *may be late sync, or may be
-backdated*, and a seal line (no opId of its own) goes with the strict half
-unless nothing else is there. `RevocationSplit.groups` is the pure derivation
-and `QuarantineGroup` is what it answers; `JSONLAppendStore.setAside` takes the
-groups and files one `.lines` record per cause, deriving each sentence exactly
-as it derives the single-cause one. **Nothing is applied either way** — the
-split is about the words, not about the refusal — and the two halves are the
-difference the writer is owed. A
+**A revocation keeps what this Mac had already applied** (find 5, ruled
+2026-09-18; it used to refuse the whole span and merely file it under two
+different sentences). The walk still sees seals and chains, never opIds, so it
+refuses the span under one cause; `RevocationSplit.partition` then cuts that set
+against `TrustTable.highestOpIdSeen(forPerson:)`, the mark the ROOT recorded
+when it revoked somebody, and `OpLogChain.readmitting` re-settles the kept lines
+`.verified`. **The cut happens BEFORE the parse** — in both `classifyTail` and
+`classifySegment`'s fallback walk, through one function
+(`OpLogStore.readmittingWhatWasAlreadyApplied`), because a revocation must cost
+a rotated segment exactly what it costs a live tail. An op at or below the mark
+stays in the book; one above it is set aside as *written after this device's
+access was withdrawn*, and that is now the only sentence a revocation has.
+
+**Nothing is newly trusted, and that is the argument.** The mark is this Mac's
+own record of how far it had got with that device, not the device's word about
+itself, so a line at or below it is one this Mac had already applied while they
+were admitted. Re-admitting it is the revocation declining to reach backwards
+into work the writer has read and redrafted, not a revoked key being believed.
+**A seal travels with the op immediately before it in file order** (it carries
+no opId, and the span it closes ends at the line above it); a line with no op
+before it stays refused, which is the strict side. `Verification.head` does not
+move: it is what the next chained append builds on, and a re-admitted line is
+not a suffix.
+
+**The writer chooses how much comes back** (`RevocationScope`). The default is
+above; *Revoke and Set Aside Everything* records no mark, which is how a reader
+has always been told that nothing of theirs was ever already here, so the whole
+history leaves the book until they are re-admitted. `DocumentStore.revoke`
+computes the mark over EVERY op-log file in the project (plus the open documents
+from memory) — over the open documents alone it was nil for a writer with no
+chapter open, and nil means keep nothing. History tells the two apart from the
+record itself (`TrustEvent.Kind.revokedEntirely`). The *may be late sync, or may
+be backdated* half is gone with its cause: those lines are applied, and the
+distinction returns in P3 with a real Apply and a durable per-span exception
+behind it. A
 refused span does not break the chain — a verdict is about whose word a span is,
 not about whether the bytes follow from each other — so a later span from an
 admitted key still applies and held-back lines are no longer necessarily a
@@ -716,18 +765,18 @@ list do not move (B1). `TrustTable.rootSource` is **DELETED** — it had no
 production reader, and `DeviceStanding` derives the this-Mac / joined / adopted
 marker from `myRoot` plus the registry.
 
-**A revoked span splits on the mark.** `TrustTable.highestOpIdSeen(forPerson:)`
-is what the root recorded when it revoked somebody; `RevocationSplit.groups` is
-the pure derivation and `classifyTail` its one caller, because the walk sees
-seals and chains and never opIds. Both halves are refused — the split is about
-the words. A revoked span inside a SEALED SEGMENT, or in the inbox's own
-chained stream, is filed whole under the strict cause: those readers have no
-opIds to split on. **There is no Apply on the late-sync half** and its absence
-is deliberate: a `.lines` record has no return path (`attemptReturn` refuses one
-on its first guard), and what refuses the ops is the VERDICT, which quarantines
-the whole span at every load. A real Apply needs a durable per-span exception
-through the trust table — new persisted state, a new trust input, and a P3
-decision for Denver.
+**A revoked span is cut on the mark, and the cut is made per LINE.** The rule
+is written out once, above — see *A revocation keeps what this Mac had already
+applied*. The two facts that belong beside `TrustTable` rather than beside the
+walk: `highestOpIdSeen(forPerson:)` is what the root recorded when it revoked
+somebody, and `RevocationSplit.partition` asks it **per line, of that line's own
+person**, because a candidate is decided by `OpLogChain.Line.refusal` — the
+reason THAT line was refused — and never by `Verification.quarantineCause`,
+which is one cause for a whole file and is the first one the walk met. A splice
+after a revoked seal wears the revocation's name at the file level; reading it
+there put forged text back into a manuscript on the strength of an op id its own
+forger chose (find-5 review, the Critical). The inbox's own chained stream has
+no revoked-span cut: its reader passes no table.
 
 **A stranger's rotated history is held like its tail.** `classifySegment`'s
 fallback walk used to be keyless, so an unsettled `.mzseg`'s inner seals all

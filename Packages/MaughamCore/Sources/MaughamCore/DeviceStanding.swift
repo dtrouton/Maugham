@@ -71,6 +71,18 @@ public struct DeviceStanding: Equatable, Sendable {
     /// it (fix round 1, Important 2).
     public let retiredAt: Date?
 
+    /// **This book holds a record naming this device that does not verify**
+    /// (P2 smoke find 1).
+    ///
+    /// A record present and unreadable is not a record absent (RULING-54), and
+    /// the two used to answer the same sentence here: a tampered or
+    /// half-written own record contributes nothing to the registry, so this
+    /// device fell out of every chain and read *Not yet admitted — the Mac will
+    /// ask*. It is the worst possible answer, because nobody is going to ask:
+    /// the record IS there, and until somebody puts it back or replaces it the
+    /// writer is waiting for a sheet that is not coming.
+    public let ownRecordUnverified: Bool
+
     /// The registry read's own sentence, when the read refused. Nil otherwise.
     public let refusal: String?
 
@@ -83,6 +95,7 @@ public struct DeviceStanding: Equatable, Sendable {
         isRoot: Bool = false,
         revoked: Bool = false,
         retiredAt: Date? = nil,
+        ownRecordUnverified: Bool = false,
         refusal: String? = nil
     ) {
         self.code = code
@@ -93,6 +106,7 @@ public struct DeviceStanding: Equatable, Sendable {
         self.isRoot = isRoot
         self.revoked = revoked
         self.retiredAt = retiredAt
+        self.ownRecordUnverified = ownRecordUnverified
         self.refusal = refusal
     }
 
@@ -129,10 +143,24 @@ public struct DeviceStanding: Equatable, Sendable {
         let retiredAt = registry.devices
             .first { $0.device == author.fingerprint }?.retiredAt
 
+        // A record naming THIS device that is present and will not verify.
+        // Read alongside the retirement and for its reason: it is true whether
+        // or not any chain here counts this device, and it is the difference
+        // between *nobody has got round to you* and *the file that says who you
+        // are is damaged* (smoke find 1). Records are named by the device's
+        // author key, which is why one fingerprint answers both directories.
+        let ownRecordUnverified = registry.malformed.contains { fault in
+            guard let ref = fault.ref else { return false }
+            return ref.fingerprint == author.fingerprint
+                && (ref.directory == .people || ref.directory == .devices)
+        }
+
         guard let root = table.myRoot,
               registry.chain(underRoot: root).contains(author.fingerprint)
         else {
-            return DeviceStanding(code: code, retiredAt: retiredAt)
+            return DeviceStanding(
+                code: code, retiredAt: retiredAt,
+                ownRecordUnverified: ownRecordUnverified)
         }
 
         let record = registry.person(author.fingerprint)
@@ -150,7 +178,8 @@ public struct DeviceStanding: Equatable, Sendable {
             admitted: !revoked,
             isRoot: isRoot,
             revoked: revoked,
-            retiredAt: retiredAt)
+            retiredAt: retiredAt,
+            ownRecordUnverified: ownRecordUnverified)
     }
 
     /// The standing of a device whose registry could not be read: its own code,
@@ -169,17 +198,46 @@ public struct DeviceStanding: Equatable, Sendable {
     /// shows the code in its own right (the phone's Settings row, the Mac's
     /// People & Devices header), and repeating it inside the sentence would
     /// give the writer two things to compare where there is one.
+    /// **Started on, not rooted** (Denver's wording ruling, 2026-09-18). Every
+    /// arm below used to speak the registry's own words — *root*, *chain*,
+    /// *record*, *vouches* — which name real things and name nothing a writer
+    /// has. They are all one fact said four ways, so all four now say that
+    /// fact: **a book is started on a Mac, and that Mac decides who is in it.**
+    /// Nothing about which arm is reached moved; only the words did.
     public var sentence: String {
         if let refusal { return refusal }
         if revoked {
-            return "No longer admitted to \(rootLabel ?? label ?? code)’s chain"
+            // Where to go is half of what a removed device needs, so the
+            // sentence still names the Mac even though it no longer calls it a
+            // root.
+            return "No longer admitted — this book was started on "
+                + "\(rootLabel ?? label ?? code)"
         }
-        guard admitted else { return "Not yet admitted — the Mac will ask" }
+        guard admitted else {
+            // **Nobody is going to ask** (smoke find 1). The file is there; it
+            // is the file that is wrong. A device told *not yet* over one waits
+            // for a sheet that is not coming. No noun for the machine here,
+            // because this type is shared and a phone saying *this Mac* about
+            // itself is the two screens failing to compare (tripwire 19).
+            if ownRecordUnverified {
+                return "This book’s file about this device doesn’t check out, "
+                    + "so nothing here confirms it"
+            }
+            return "Not yet admitted — the Mac will ask"
+        }
+        // **This Mac's own sentence names no machine** (P2 smoke find 2). It is
+        // drawn at the head of a list in which this device already has a person
+        // row and a device row, and naming it a third time had one Mac read as
+        // three machines.
+        if isRoot { return "This book was started on this Mac" }
+        // Two facts for a device somebody else took in — what this book calls
+        // it, and where that was decided — because the second is the one that
+        // says which Mac to go to, and a phone with several books needs it.
         let me = label ?? code
-        if isRoot { return "\(me), the root of this book’s chain" }
-        let chain = "\(me) on \(rootLabel ?? code)’s chain"
-        guard let joinedAt else { return chain }
-        return "\(chain) since \(Self.dayFormatter.string(from: joinedAt))"
+        let startedOn = "Started on \(rootLabel ?? code)."
+        guard let joinedAt else { return "In this book as \(me). \(startedOn)" }
+        return "In this book as \(me) since "
+            + "\(Self.dayFormatter.string(from: joinedAt)). \(startedOn)"
     }
 
     // MARK: - What retirement means, on the machine that did it

@@ -298,6 +298,10 @@ applied.* The `.md` is re-materialised without them, the same fate an outside
   device had seen from it; later-arriving batches with *earlier* ULIDs are
   quarantined as backdated, which iCloud lag can also cause, so the notice
   says *may be late sync or may be backdated* and offers Apply.
+  **Superseded 2026-09-18** (P2 smoke find 5, Denver's ruling): a revocation
+  KEEPS what this Mac had already applied, so there is no late-sync half to
+  notice or to Apply; the distinction and its Apply are P3's. See
+  [ADR 0032](../../adr/0032-the-signed-op-log.md)'s 2026-09-18 amendment.
 - **This is soft by construction.** A revoked device with folder access can
   still write files. Hard revocation is removing the participant from the
   iCloud share, which the author owns. Settings says so in one sentence next

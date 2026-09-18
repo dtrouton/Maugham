@@ -34,6 +34,16 @@ final class InboxStore {
     /// `inbox/`), so `restore` is a clean status flip back to `.new`.
     private(set) var trashedEntries: [InboxEntry] = []
 
+    /// Every manifest row this refresh APPLIED, by id — whatever its status, so
+    /// a promoted or trashed capture counts as one the writer has (signed op log
+    /// P2 smoke, find 7).
+    ///
+    /// Read by the set-aside sentence alone, which must not go on calling a
+    /// capture *set aside* once the writer has admitted the device that wrote it
+    /// and the row has arrived. Not `entries`, which is `.new` only: promoting a
+    /// capture is not the same as never having received it.
+    private(set) var appliedManifestIDs: Set<String> = []
+
     /// Device manifests `refresh()` could not read, by filename (RULING-7,
     /// M8-IN-012: unreadable is never presented as empty — before this, an
     /// unreadable file silently vanished every capture from that device). The
@@ -212,7 +222,27 @@ final class InboxStore {
 
     // MARK: - Read
 
+    /// **How many times this store has finished a refresh** — the id a pane
+    /// keys a derived read on (whole-branch review, Minor 2).
+    ///
+    /// The set-aside sentence is computed from three things that a refresh can
+    /// move: the `.lines` records on disk, `appliedManifestIDs`, and — the
+    /// sharpest case — a capture that was HELD arriving once the writer admits
+    /// the device that wrote it. Computing it in `body` would read the
+    /// quarantine directory on every evaluation (tripwire 4), and computing it
+    /// once beside the pane's own first `refresh()` left every LATER refresh
+    /// (a promote, a trash, a sync, an admission) showing a count taken before
+    /// it. So this moves on every refresh and the pane recounts when it does,
+    /// without the pane having to know which refreshes can matter.
+    ///
+    /// Bumped in a `defer` so the refusal path — a registry record present and
+    /// unreadable, which clears the entries and returns early — counts as the
+    /// refresh it is. `&+` because a counter that traps a writer's app after
+    /// two billion inbox refreshes would be a worse bug than the wrap.
+    private(set) var refreshes: Int = 0
+
     func refresh() async {
+        defer { refreshes &+= 1 }
         let urls = manifestURLs()
         var rows: [InboxEntry] = []
         var unreadable: [String] = []
@@ -230,6 +260,7 @@ final class InboxStore {
             unreadableManifests = []
             entries = []
             trashedEntries = []
+            appliedManifestIDs = []
             bylines = [:]
             pendingByDevice = [:]
             pendingDeviceNames = [:]
@@ -273,6 +304,7 @@ final class InboxStore {
         var byId: [String: InboxEntry] = [:]
         for row in rows { byId[row.id] = row }
         let collapsed = Array(byId.values)
+        appliedManifestIDs = Set(byId.keys)
         entries = collapsed
             .filter { $0.status == .new }
             .sorted { $0.createdAt > $1.createdAt }

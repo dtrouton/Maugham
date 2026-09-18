@@ -101,7 +101,7 @@ final class ClaimSheetTests: XCTestCase {
                 RegistryAdmissionError.alreadyAdmittedElsewhere(root: oldRoot)))
         let texts = try axTexts(in: window)
 
-        XCTAssertTrue(texts.contains { $0.contains("already admitted this device") },
+        XCTAssertTrue(texts.contains { $0.contains("already let this device in") },
                       "the refusal reaches the writer: \(texts)")
     }
 

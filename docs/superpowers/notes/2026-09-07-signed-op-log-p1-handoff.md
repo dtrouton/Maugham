@@ -136,10 +136,22 @@ rm -f "<dev support folder>/registry-cache.json" "<dev support folder>/admission
     Escape → nothing is written and nothing is applied. Reopen the project →
     it asks again. History's **Admit…** puts it up on demand, without waiting
     for a reopen.
-16. **Revoke, and back.** People & Devices → Revoke on a person → confirm →
-    what they wrote BEFORE is still in the manuscript, and anything after is
-    held, with History carrying a dated *revoked* entry. Press **Re-admit** →
-    it comes back. (Note the honest limit: the two events read as one admission
+16. **Revoke, both ways, and back** (find 5's ruling, 2026-09-18). The
+    confirmation offers two destructive buttons; do each on a device that has
+    written something you can see.
+    - **Revoke** — what they wrote BEFORE is still in the manuscript, word for
+      word, and only what arrives afterwards is set aside. This is the one that
+      used to be wrong: every paragraph of theirs left the book, including the
+      op the revocation itself recorded as the last one this Mac had applied.
+      Do it with **no chapter open** as well as with one open — the mark is now
+      taken over the whole project, and the open-documents-only version gave a
+      writer revoking from Project Settings the total revocation by accident.
+    - **Revoke and Set Aside Everything** — every paragraph and note from that
+      device leaves the book. History's entry says so, in different words from
+      the plain revocation's.
+    Press **Re-admit** after either → everything comes back, and History's
+    *set aside* count falls to zero while the disclosure goes on listing the
+    records. (The honest limit stands: the two events read as one admission
     afterwards.)
 17. **Retire, on a Mac you can afford to.** Only this Mac's own row offers it.
     Confirm → History carries a standing banner saying what you write here now
