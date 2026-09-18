@@ -481,4 +481,87 @@ final class DocumentStoreAdmissionTests: XCTestCase {
             0,
             "the records stay as evidence; the sentence stops counting them (find 7)")
     }
+
+    // MARK: - A revocation decided on a partial reading (find-5 re-review)
+
+    /// **One file this Mac cannot read, and the whole verb refuses** — end to
+    /// end, through the production verb, over a real project.
+    ///
+    /// The sentence has been pinned since the High was fixed; the BEHAVIOUR
+    /// behind it had not been, and the sentence is the half that cannot go
+    /// wrong quietly. What can is this: the sweep that computes
+    /// `highestOpIdSeen` reads every per-device file in the project, and a file
+    /// it cannot read makes the answer SHORT. A short mark does not fail — it
+    /// silently widens what the revocation takes back, and the shortest answer
+    /// of all is indistinguishable from the writer having pressed the other
+    /// button. So the verb throws, naming the file, and touches nothing.
+    ///
+    /// Four things are asserted because a refusal that half-happened is worse
+    /// than either outcome: the error and its NAME, the person record standing
+    /// exactly as it did, no `.lines` record minted, and the device still
+    /// applying — the writer pressed a button, was told why it did not happen,
+    /// and nothing about their book moved.
+    func test_arevocationRefusesRatherThanDecideOnAFileItCannotRead() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Denver", ownName: "Denver’s iPhone")
+        try await writeStrangerFile(docId: "doc-closed", opIds: [
+            "01K5Q8ZJ3M0000000000000001", "01K5Q8ZJ3M0000000000000002",
+        ])
+        let before = try XCTUnwrap(try registry().person(stranger.fingerprint))
+
+        // One op-log file made unreadable — present, so it is not simply
+        // absent, and refusing rather than skipping is the whole rule.
+        let unreadable = try XCTUnwrap(
+            try FileManager.default
+                .contentsOfDirectory(atPath: opsDirectory.path)
+                .first { $0.hasPrefix("doc-closed") && $0.hasSuffix(".jsonl") })
+        let url = opsDirectory.appendingPathComponent(unreadable)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000], ofItemAtPath: url.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o644], ofItemAtPath: url.path)
+        }
+
+        do {
+            _ = try await store.revoke(person: stranger.fingerprint)
+            XCTFail("a revocation decided on a partial reading is the thing this refuses")
+        } catch let error as RegistryAdmissionError {
+            XCTAssertEqual(error, .historyUnreadable(name: unreadable),
+                           "it names the file, because *try again* is only "
+                               + "actionable if the writer can tell what is wrong")
+        }
+
+        let after = try XCTUnwrap(try registry().person(stranger.fingerprint))
+        XCTAssertEqual(after, before, "the person record is byte-for-byte what it was")
+        XCTAssertNil(after.revokedAt, "nobody was revoked")
+        XCTAssertNil(after.highestOpIdSeen, "and no mark was recorded")
+        XCTAssertEqual(
+            OpLogQuarantine.records(forDocId: "doc-closed", in: projectURL), [],
+            "nothing was set aside")
+    }
+
+    /// The permissions are restored before the assertion above needs the file
+    /// again — this is the CONTROL that the refusal was the unreadable file's
+    /// doing and not something about the fixture: with the file readable, the
+    /// very same press succeeds.
+    func test_thesameRevocationSucceedsOnceTheFileCanBeRead() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Denver", ownName: "Denver’s iPhone")
+        try await writeStrangerFile(docId: "doc-closed", opIds: [
+            "01K5Q8ZJ3M0000000000000001", "01K5Q8ZJ3M0000000000000002",
+        ])
+
+        let record = try await store.revoke(person: stranger.fingerprint)
+
+        XCTAssertEqual(record.highestOpIdSeen, "01K5Q8ZJ3M0000000000000002")
+    }
+
+    private var opsDirectory: URL {
+        projectURL.appendingPathComponent(".maugham/ops")
+    }
 }
