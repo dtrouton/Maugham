@@ -604,6 +604,9 @@ struct HistoryPane: View {
         switch kind {
         case .admitted, .silentlyAdmitted: return "person.badge.plus"
         case .revoked: return "person.badge.minus"
+        // The same face: it is the same act, and the sentence beside it is
+        // where the writer reads which of the two they chose.
+        case .revokedEntirely: return "person.badge.minus"
         case .retired: return "moon.zzz"
         case .claimed: return "flag"
         case .adopted: return "arrow.triangle.merge"

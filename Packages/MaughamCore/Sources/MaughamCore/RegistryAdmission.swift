@@ -4,6 +4,32 @@ import Foundation
 /// of form, which is what separates them from `RegistryWriteError.wrongSigner`:
 /// the record would have been perfectly well-formed, and writing it anyway is
 /// how a device loses its place quietly.
+/// **How much a revocation takes back** (find 5, ruled 2026-09-18).
+///
+/// Two choices, and the writer makes them at the confirmation: the default
+/// leaves in the book everything this Mac had already applied from that device,
+/// and the other takes the whole of their history out of it until they are
+/// re-admitted.
+///
+/// It is a choice rather than a setting because the two have different costs
+/// and neither is always right. A collaborator who left is a `.whatWasApplied`
+/// revocation — their contributions are part of the draft and removing them
+/// would silently rewrite chapters the writer has read. A machine that was
+/// never theirs, or one they no longer trust anything from, is `.nothing`.
+///
+/// **It reaches the record as the presence or absence of `highestOpIdSeen`**,
+/// which is the shape the reader has always understood: no mark means nothing
+/// of theirs was ever *already here*. So there is exactly one wire-level
+/// spelling, and this enum is the vocabulary the surfaces and the store share
+/// rather than a second one (`RevocationSplit` reads the record).
+public enum RevocationScope: Equatable, Sendable {
+    /// Keep every line at or below the mark this Mac records. The default.
+    case whatWasApplied
+    /// Keep none of it. What a revocation did before the ruling, and what a
+    /// device this Mac had applied nothing from produces either way.
+    case nothing
+}
+
 public enum RegistryAdmissionError: Error, Equatable {
     /// This device has no verified self-signed root record in this project, so
     /// nothing it signs is an admission. A person record naming a non-root as

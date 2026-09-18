@@ -522,7 +522,7 @@ public final class Document {
             projectURL: projectURL,
             presenter: presenter,
             identities: loadIdentities,
-            state: deviceStateForTesting ?? .shared,
+            state: loadDeviceState,
             cache: loadRegistryCache)
     }
 
@@ -547,6 +547,17 @@ public final class Document {
     /// its device string can never come from two different answers.
     internal static var loadIdentities: LocalIdentities {
         localIdentitiesForTesting ?? .current
+    }
+
+    /// What this device remembers about the op-log files it has written — the
+    /// injected memory when a suite has one, the process-wide one otherwise.
+    ///
+    /// `makeLoadOpStore` spells the same fallback for the store it builds; this
+    /// is for the readers that walk a FILE without one (the revocation mark's
+    /// project-wide sweep), so a suite's injected state reaches them too rather
+    /// than leaving them judging against this machine's real remembered heads.
+    internal static var loadDeviceState: OpLogDeviceState {
+        deviceStateForTesting ?? .shared
     }
 
     /// Test-only artificial delay injected inside the detached task-op disk

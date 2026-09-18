@@ -54,12 +54,16 @@ final class TrustEventsTests: XCTestCase {
     private func admittedRecord(
         _ fingerprint: String, under root: String, at seconds: TimeInterval = 20,
         label: String = "iPhone", ownName: String = "Denver’s iPhone",
-        revokedAt: Date? = nil, revokedBy: String? = nil
+        revokedAt: Date? = nil, revokedBy: String? = nil,
+        // The ordinary revocation records a mark; a revocation that records
+        // none is the writer's *set aside everything it wrote* (find 5).
+        highestOpIdSeen: String? = "01K5Q8ZJ3M0000000000000001"
     ) -> PersonRecord {
         PersonRecord(
             person: fingerprint, label: label, ownName: ownName,
             admittedAt: at(seconds), admittedBy: root,
-            revokedAt: revokedAt, revokedBy: revokedBy)
+            revokedAt: revokedAt, revokedBy: revokedBy,
+            highestOpIdSeen: revokedAt == nil ? nil : highestOpIdSeen)
     }
 
     private func deviceRecord(
@@ -283,6 +287,32 @@ final class TrustEventsTests: XCTestCase {
         XCTAssertTrue(TrustEvents.derive(
             registry: Registry(people: [rootRecord(root)]),
             cache: store, mine: mine, for: elsewhere).isEmpty)
+    }
+
+    /// **History says which revocation the writer chose** (find 5, ruled
+    /// 2026-09-18), and it is derived from the record rather than stored: the
+    /// default records the mark it kept, and *set aside everything it wrote*
+    /// records none. Two events, because the two leave the writer's draft in
+    /// two different states and this is where they will look to find out which.
+    func test_arevocationThatKeptNothingIsADifferentEventFromOneThatKeptSomething() {
+        let root = foreignKey()
+        let sam = foreignKey()
+
+        func kind(markedWith mark: String?) -> TrustEvent.Kind? {
+            TrustEvents.derive(
+                registry: Registry(people: [
+                    rootRecord(root),
+                    admittedRecord(sam, under: root, revokedAt: at(60), revokedBy: root,
+                                   highestOpIdSeen: mark),
+                ]),
+                cache: cache(), mine: mine, for: project)
+                .first { $0.subject == sam && $0.date == at(60) }?.kind
+        }
+
+        XCTAssertEqual(kind(markedWith: "01K5Q8ZJ3M0000000000000001"), .revoked)
+        XCTAssertEqual(kind(markedWith: nil), .revokedEntirely,
+                       "no mark is the record's own way of saying nothing of "
+                           + "theirs was ever already here")
     }
 
     /// **A root my root has ADOPTED is merged, and History stops warning about

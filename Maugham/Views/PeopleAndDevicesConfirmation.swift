@@ -62,6 +62,36 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
     /// What the writer types, for the one act that is about a word. Nil for
     /// every verb that only needs a yes.
     let field: Field?
+    /// **The second way to perform the same act**, where there are two. Nil for
+    /// every verb with one.
+    let alternate: Alternate?
+
+    /// A second button on the same alert, for an act the writer has two honest
+    /// ways to perform (find 5, ruled 2026-09-18).
+    ///
+    /// It carries its own sentence because the whole point is that the two
+    /// costs are different — offering *Revoke* and *Revoke everything* with one
+    /// shared message would be asking the writer to choose between two things
+    /// they have been told the same thing about.
+    struct Alternate: Equatable {
+        let title: String
+        /// What THIS choice costs. The default's cost is in `message`.
+        let message: String
+        /// How much of that device's history the alternate takes back. The
+        /// primary button always performs the default, `.whatWasApplied`.
+        let scope: RevocationScope
+    }
+
+    /// **Everything the alert says, in one string** (find 5).
+    ///
+    /// An alert carries one message and the writer may be choosing between two
+    /// consequences, so the alternate's sentence is appended rather than left
+    /// on a button nobody has pressed yet. Here rather than in the host so the
+    /// words are comparable with nothing mounted, like the rest of this type.
+    static func alertMessage(for confirmation: Self) -> String {
+        guard let alternate = confirmation.alternate else { return confirmation.message }
+        return confirmation.message + "\n\n" + alternate.message
+    }
 
     /// Keyed on the verb AND the subject, so a writer who dismisses one and
     /// opens another gets a new alert rather than the old one's identity — and
@@ -73,7 +103,22 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
     }
 
     /// **Revoke**, carrying spec §5's own sentence — the one that says what
-    /// Maugham will stop doing and what it cannot do.
+    /// Maugham will stop doing and what it cannot do — and the writer's two
+    /// ways of doing it (find 5, ruled 2026-09-18).
+    ///
+    /// **The default leaves the draft as the writer has read it.** Everything
+    /// this Mac had already applied from that device stays in the book; only
+    /// what arrives afterwards is set aside. That is the ordinary case — a
+    /// collaborator who has left, a machine being retired — and taking their
+    /// paragraphs back out of chapters the writer has since redrafted would be
+    /// a rewrite nobody asked for.
+    ///
+    /// **The alternate is the whole history**, which is what a revocation did
+    /// before the ruling, and it stays available because it is sometimes the
+    /// right answer: a machine that was never theirs, or one they no longer
+    /// want a word from. It says what it costs in the sentence rather than in
+    /// the button, because the button has room for a verb and this needs a
+    /// consequence.
     static func revoke(person fingerprint: String, named name: String) -> Self {
         PeopleAndDevicesConfirmation(
             verb: .revoke,
@@ -81,9 +126,16 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
             record: nil,
             title: "Stop applying what \(name) writes?",
             message: PeopleAndDevicesModel.revokeSentence
-                + " You can let them back in from this Mac.",
+                + " What they have already written stays in this book. "
+                + "You can let them back in from this Mac.",
             confirmTitle: "Revoke",
-            field: nil)
+            field: nil,
+            alternate: Alternate(
+                title: "Revoke and Set Aside Everything",
+                message: "Every paragraph and note from \(name) leaves this book "
+                    + "until you let them back in. Nothing is deleted \u{2014} it is "
+                    + "kept in this project\u{2019}s set-aside records.",
+                scope: .nothing))
     }
 
     /// **Merge**, carrying the consequence in the words the row uses for it
@@ -98,7 +150,8 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
             title: "Is \(name) also you?",
             message: PeopleAndDevicesModel.mergeSentence,
             confirmTitle: "Merge",
-            field: nil)
+            field: nil,
+            alternate: nil)
     }
 
     /// **Retire**, carrying `DeviceStanding`'s own consequence — the same
@@ -113,7 +166,8 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
             title: "Retire \(name)?",
             message: DeviceStanding.retirementConsequence(device: kind),
             confirmTitle: "Retire",
-            field: nil)
+            field: nil,
+            alternate: nil)
     }
 
     /// **Rename**, the fourth and the only one that asks for a word rather than
@@ -139,7 +193,8 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
                 + "chain will see it. Changing it admits nobody and shuts nobody "
                 + "out.",
             confirmTitle: "Rename",
-            field: Field(prompt: "Name", initialValue: label))
+            field: Field(prompt: "Name", initialValue: label),
+            alternate: nil)
     }
 
     /// **Restore**, the fifth, and the only one that writes over a file
@@ -161,6 +216,7 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
                 + "over the version that doesn\u{2019}t. It signs nothing and admits "
                 + "nobody \u{2014} the next read checks it like any other record.",
             confirmTitle: "Restore",
-            field: nil)
+            field: nil,
+            alternate: nil)
     }
 }

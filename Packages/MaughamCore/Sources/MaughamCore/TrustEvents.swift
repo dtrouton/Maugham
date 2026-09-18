@@ -28,8 +28,19 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
         /// Let in with no sheet shown, under a label this Mac had already
         /// granted. **Not derived yet** — see `TrustEvents.derive`.
         case silentlyAdmitted
-        /// A person record carrying `revokedAt`.
+        /// A person record carrying `revokedAt` **and a mark**: the writer
+        /// revoked them and kept what this Mac had already applied.
         case revoked
+        /// A person record carrying `revokedAt` and **no** mark: the writer
+        /// chose *set aside everything it wrote*, so none of that device's
+        /// history stands until it is re-admitted (find 5, ruled 2026-09-18).
+        ///
+        /// A kind of its own rather than a field on `.revoked`, because the two
+        /// are different events to the writer — one leaves the draft as they
+        /// have read it and one does not — and History is where they will look
+        /// to find out which they chose. It is DERIVED from the record's own
+        /// `highestOpIdSeen`, so nothing new is stored to say it.
+        case revokedEntirely
         /// A device record carrying `retiredAt`.
         case retired
         /// A `ClaimRecord`: this root claimed the book.
@@ -140,8 +151,14 @@ public enum TrustEvents {
                     by: person.admittedBy, isMine: myKeys.contains(person.person)))
             }
             if let revokedAt = person.revokedAt {
+                // Which of the two revocations this was, off the record itself:
+                // a mark is what the default leaves behind, and its absence is
+                // what *set aside everything it wrote* means to every reader
+                // (`RevocationSplit`). Nothing is stored to say so twice.
                 events.append(TrustEvent(
-                    date: revokedAt, kind: .revoked, subject: person.person,
+                    date: revokedAt,
+                    kind: person.highestOpIdSeen == nil ? .revokedEntirely : .revoked,
+                    subject: person.person,
                     label: person.label, ownName: person.ownName,
                     by: person.revokedBy, isMine: myKeys.contains(person.person)))
             }

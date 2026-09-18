@@ -46,6 +46,55 @@ final class PeopleAndDevicesConfirmationTests: XCTestCase {
                       confirmation.message)
     }
 
+    /// **The writer chooses how much a revocation takes back** (find 5, ruled
+    /// 2026-09-18). The default leaves the draft as they have read it; the
+    /// alternate is the whole history, which is what a revocation did before
+    /// the ruling. Two buttons rather than a toggle: a writer who mis-set a
+    /// checkbox would find out by reading their chapters.
+    func test_revokeOffersBothScopesWithTheDefaultKeepingTheDraft() throws {
+        let confirmation = PeopleAndDevicesConfirmation.revoke(
+            person: phone, named: "Amelia")
+
+        XCTAssertTrue(
+            confirmation.message.contains("already written stays in this book"),
+            "the default's cost, said before the press: \(confirmation.message)")
+
+        let alternate = try XCTUnwrap(confirmation.alternate)
+        XCTAssertEqual(alternate.scope, .nothing)
+        XCTAssertTrue(alternate.title.contains("Set Aside Everything"), alternate.title)
+        XCTAssertTrue(alternate.message.contains("Every paragraph and note from Amelia"),
+                      alternate.message)
+        XCTAssertTrue(alternate.message.contains("Nothing is deleted"),
+                      "and what it does NOT cost: \(alternate.message)")
+    }
+
+    /// The alert has one message and the choice is between two consequences, so
+    /// both are in it — a writer shown only the default's would be choosing in
+    /// the dark.
+    func test_thealertMessageCarriesBothConsequencesWhereThereAreTwo() {
+        let revoke = PeopleAndDevicesConfirmation.revoke(person: phone, named: "Amelia")
+        let merge = PeopleAndDevicesConfirmation.merge(root: phone, named: "Amelia")
+
+        let message = PeopleAndDevicesConfirmation.alertMessage(for: revoke)
+        XCTAssertTrue(message.contains(revoke.message))
+        XCTAssertTrue(message.contains(revoke.alternate?.message ?? "—"))
+        XCTAssertEqual(PeopleAndDevicesConfirmation.alertMessage(for: merge), merge.message,
+                       "an act with one way to do it says one thing")
+    }
+
+    /// Every other act has one honest shape, so no other alert grows a second
+    /// destructive button.
+    func test_noOtherActOffersASecondWayToDoIt() {
+        XCTAssertNil(PeopleAndDevicesConfirmation.merge(root: phone, named: "A").alternate)
+        XCTAssertNil(PeopleAndDevicesConfirmation.retire(
+            device: phone, named: "A", kind: "Mac").alternate)
+        XCTAssertNil(PeopleAndDevicesConfirmation.rename(
+            person: phone, named: "A", currently: "A").alternate)
+        XCTAssertNil(PeopleAndDevicesConfirmation.restore(
+            record: RecordRef(directory: .people, fingerprint: phone),
+            named: "A", kind: "person").alternate)
+    }
+
     // MARK: - Retire
 
     /// Retirement has no inverse, and the sentence says that rather than

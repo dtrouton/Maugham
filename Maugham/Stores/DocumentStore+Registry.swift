@@ -24,20 +24,38 @@ private let registryVerbLog = Logger(
 /// device's history — and does the telling afterwards.
 extension DocumentStore {
 
-    /// **Revoke a person.** Answers the record that now stands for them.
+    /// **Revoke a person**, in one of the two ways the writer chose. Answers
+    /// the record that now stands for them.
     ///
-    /// `highestOpIdSeen` is computed here, from the documents this window has
-    /// open, because it is a fact about THIS Mac's reading rather than about
-    /// the folder: the highest opId it had actually applied from that device.
-    /// A line below that mark arriving later is *may be late sync or may be
-    /// backdated*; one above it was written after the door closed. Both are
-    /// refused, and the writer is owed which is which.
+    /// **The default keeps what this Mac had already applied** (find 5, ruled
+    /// 2026-09-18). `highestOpIdApplied` is computed here rather than read off
+    /// the folder, because it is a fact about THIS Mac's reading: the highest
+    /// opId it had actually applied from that device, anywhere in the project.
+    /// Everything at or below it stays in the book — it was there before the
+    /// writer revoked anybody — and everything above it is set aside. Nothing
+    /// is newly trusted by that; see `RevocationSplit`.
+    ///
+    /// **`.everything` is the other choice**, and it is the behaviour a
+    /// revocation had before the ruling: no mark is recorded, so no line of
+    /// theirs was ever *already here* and the whole history leaves the book
+    /// until they are re-admitted. It is the writer's to pick, in words that
+    /// say what it costs (`PeopleAndDevicesConfirmation`).
+    ///
+    /// The mark is computed only for the default: asking how far this Mac had
+    /// got is a project-wide read, and the total revocation does not turn on
+    /// the answer.
     @discardableResult
-    public func revoke(person fingerprint: String) async throws -> PersonRecord {
+    public func revoke(
+        person fingerprint: String, keeping scope: RevocationScope = .whatWasApplied
+    ) async throws -> PersonRecord {
         let projectURL = self.projectURL
         let author = Document.loadIdentities.author
         let cache = Document.loadRegistryCache
-        let mark = await highestOpIdApplied(fromPerson: fingerprint)
+        let mark: String?
+        switch scope {
+        case .whatWasApplied: mark = await highestOpIdApplied(fromPerson: fingerprint)
+        case .nothing: mark = nil
+        }
         let record = try await Task.detached(priority: .userInitiated) {
             try RegistryAdmission.revoke(
                 person: fingerprint, in: projectURL, by: author,
@@ -205,17 +223,36 @@ extension DocumentStore {
 
     // MARK: - What this Mac had already applied
 
-    /// The highest opId this window has APPLIED from `person`, over every
-    /// document it has open — nil when it has applied none.
+    /// The highest opId this Mac has APPLIED from `person`, **over every
+    /// op-log file in the project** — nil when it has applied none.
     ///
-    /// **Open documents only**, for `AdmissionModifier.recompute`'s reason: a
-    /// closed document's history would cost a full read of its log per chapter,
-    /// at the moment the writer is waiting on a button. The consequence is
-    /// stated rather than hidden: the mark is this Mac's honest answer to *how
-    /// far had I got*, and a chapter nobody has opened since that device last
-    /// wrote in it can put a line above the mark that this Mac had, in some
-    /// sense, already seen. It is filed as *after revocation* — the strict side
-    /// — which is the side to be wrong on.
+    /// **Over the whole project, not over what is open** (find 5's ruling).
+    /// This number decides what a revocation KEEPS, and computed off the open
+    /// documents alone it was nil for a writer who revoked from Project
+    /// Settings with no chapter open — which is the ordinary way to reach the
+    /// button. Nil means keep nothing, so every paragraph that device had ever
+    /// contributed would have left the book in the gentler-sounding of the two
+    /// choices. The earlier shape was honest about being a guess and wrong
+    /// about which way to be wrong.
+    ///
+    /// **Every docId the ops directory names, plus `__project__`**, which
+    /// `OpLogStore.docId(fromOpLogFilename:)` deliberately excludes because it
+    /// answers *manuscript document* — so it is named here rather than
+    /// re-derived by a predicate of this file's own (tripwire 24's discipline,
+    /// one directory along). The open documents are read too and from memory:
+    /// an op appended a moment ago may not have reached its file.
+    ///
+    /// **It reads `identities: nil`, which makes the sweep read-only.** With
+    /// both an identity and a device state in hand, `loadFileDiagnosed` writes
+    /// the forensic records a real load writes; a revocation must not quarantine
+    /// lines in forty chapters the writer has never opened as a side effect of
+    /// asking a question about one device. The remembered head is still passed,
+    /// because dropping it would widen what counts as applied and push the mark
+    /// UP, which is the direction that costs the writer nothing and the book
+    /// something.
+    ///
+    /// The cost is one coordinated read and one walk per op-log file, paid once,
+    /// behind the confirmation the writer is already looking at.
     ///
     /// The match is `DeviceIdentity.deviceId(actor:fingerprint:)` over the
     /// device record's own actor keys: an op carries the id its writer wrote
@@ -225,10 +262,13 @@ extension DocumentStore {
         let projectURL = self.projectURL
         let identities = Document.loadIdentities
         let cache = Document.loadRegistryCache
-        let ids = await Task.detached(priority: .userInitiated) { () -> Set<String> in
-            guard let resolved = try? TrustResolution.resolveVerified(
+        let resolvedTable = await Task.detached(priority: .userInitiated) {
+            () -> (registry: Registry, table: TrustTable)? in
+            try? TrustResolution.resolveVerified(
                 projectURL: projectURL, identities: identities, cache: cache)
-            else { return [] }
+        }.value
+        let ids: Set<String> = {
+            guard let resolved = resolvedTable else { return [] }
             guard let record = resolved.registry.devices.first(
                 where: { $0.device == person }) else {
                 // No device record for them: under labels-only a person IS a
@@ -240,13 +280,39 @@ extension DocumentStore {
             return Set(record.actors.map { actor, key in
                 DeviceIdentity.deviceId(actor: actor, fingerprint: key)
             })
-        }.value
+        }()
         guard !ids.isEmpty else { return nil }
 
         var highest: String?
-        for document in allOpenDocuments() {
-            for op in document.opLogSnapshot where ids.contains(op.device) {
+        func consider(_ ops: [Op]) {
+            for op in ops where ids.contains(op.device) {
                 if highest == nil || op.opId > highest! { highest = op.opId }
+            }
+        }
+
+        // What is open, from memory: an op appended a moment ago may not have
+        // reached its file yet, and a mark that missed it would take the
+        // writer's newest paragraph out of the draft in front of them.
+        for document in allOpenDocuments() {
+            consider(document.opLogSnapshot)
+        }
+
+        // And everything on disk.
+        let opsDir = projectURL.appendingPathComponent(".maugham/ops")
+        let filenames = ((try? FileManager.default.contentsOfDirectory(
+            atPath: opsDir.path)) ?? [])
+        var docIds = OpLogStore.docIds(inOpsDirectoryFilenames: filenames)
+        // Named, because the manuscript reader excludes it by contract — the
+        // same reason the open sweep names it when it rotates tails.
+        docIds.insert("__project__")
+        for docId in docIds.sorted() {
+            for url in OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL) {
+                guard let read = try? await OpLogStore.loadFileDiagnosed(
+                    url: url, presenter: presenter,
+                    identities: nil, state: Document.loadDeviceState,
+                    trust: resolvedTable?.table)
+                else { continue }
+                consider(read.ops)
             }
         }
         return highest

@@ -135,14 +135,33 @@ struct ProjectSettingsSheet: View {
             // `item:` rather than a bool, so the alert cannot be up about a
             // device the writer has since scrolled past: the value IS the
             // question, and dismissing it drops the question.
-            .alert(item: $confirming) { confirmation in
-                Alert(
-                    title: Text(confirmation.title),
-                    message: Text(confirmation.message),
-                    primaryButton: .destructive(Text(confirmation.confirmTitle)) {
-                        perform(confirmation)
-                    },
-                    secondaryButton: .cancel())
+            // **Two ways to revoke, and the writer picks one** (find 5, ruled
+            // 2026-09-18). The `actions:` form rather than `Alert(primary:
+            // secondary:)`, which takes exactly two buttons — one destructive
+            // act plus Cancel — and a revocation now has two honest shapes.
+            // Not a checkbox on one button: a writer who mis-set a toggle would
+            // find out by reading their chapters.
+            .alert(
+                confirming?.title ?? "",
+                isPresented: Binding(
+                    get: { confirming != nil },
+                    set: { if !$0 { confirming = nil } }),
+                presenting: confirming
+            ) { confirmation in
+                Button(confirmation.confirmTitle, role: .destructive) {
+                    perform(confirmation)
+                }
+                if let alternate = confirmation.alternate {
+                    Button(alternate.title, role: .destructive) {
+                        perform(confirmation, keeping: alternate.scope)
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { confirmation in
+                // One message, both costs. An alert has a single message and
+                // the choice is between two consequences, so a writer shown
+                // only the default's would be choosing in the dark.
+                Text(PeopleAndDevicesConfirmation.alertMessage(for: confirmation))
             }
             // **The word, before the act** (smoke find 3). A separate modifier
             // because only the `actions:` form takes a `TextField`; Rename is
@@ -523,9 +542,12 @@ struct ProjectSettingsSheet: View {
 
     /// The writer confirmed. One switch, so a further act cannot be added to
     /// the value without being given a verb here.
-    private func perform(_ confirmation: PeopleAndDevicesConfirmation) {
+    private func perform(
+        _ confirmation: PeopleAndDevicesConfirmation,
+        keeping scope: RevocationScope = .whatWasApplied
+    ) {
         switch confirmation.verb {
-        case .revoke: revokeDevice(confirmation.fingerprint)
+        case .revoke: revokeDevice(confirmation.fingerprint, keeping: scope)
         case .retire: retireThisMac(confirmation.fingerprint)
         case .merge: mergeRoot(confirmation.fingerprint)
         case .rename: renamePerson(confirmation.fingerprint, to: renameDraft)
@@ -599,10 +621,10 @@ struct ProjectSettingsSheet: View {
     /// **Stop applying what a device writes** (spec §5). The store writes the
     /// record, forgets every resolved table and re-reads what is open; this
     /// only reloads the rows and says so when it refuses.
-    private func revokeDevice(_ fingerprint: String) {
+    private func revokeDevice(_ fingerprint: String, keeping scope: RevocationScope) {
         Task { @MainActor in
             guard let store = store.documentStore else { return }
-            do { try await store.revoke(person: fingerprint) }
+            do { try await store.revoke(person: fingerprint, keeping: scope) }
             catch { peopleNotice = AdmissionDecision.refusal(error) }
             await loadPeopleAndDevices()
         }

@@ -90,6 +90,19 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         try RegistryReader.load(projectURL: projectURL)
     }
 
+    /// A store that judges as THIS Mac does — the suite's injected identities,
+    /// device state and registry memory, exactly as a load builds one
+    /// (`Document.makeLoadOpStore`).
+    ///
+    /// A bare `OpLogStore(projectURL:)` takes `.current`, which on a test
+    /// machine is nobody this fixture's registry names: `myRoot` resolves nil,
+    /// every seal answers `.noChain`, and the file is applied as unsigned
+    /// history — so an assertion that a revoked device's ops are APPLIED would
+    /// pass whether or not re-admission works at all.
+    private func reader() -> OpLogStore {
+        Document.makeLoadOpStore(projectURL: projectURL, presenter: nil)
+    }
+
     // MARK: - The sheet's own verb
 
     func test_admittingAStrangerAppliesWhatItHeldOnTheSameStoresNextRead() async throws {
@@ -363,5 +376,83 @@ final class DocumentStoreAdmissionTests: XCTestCase {
 
         XCTAssertNil(try registry().person(stranger.fingerprint),
                      "an unremembered device waits for the sheet")
+    }
+
+    // MARK: - What a revocation costs (find 5, ruled 2026-09-18)
+
+    /// **The mark is taken over the whole project, not over what is open.**
+    ///
+    /// `highestOpIdSeen` is this Mac's record of how far it had got with that
+    /// device, and a revocation now KEEPS everything at or below it. Computed
+    /// over the open documents alone the mark is nil for a writer who revokes
+    /// from Project Settings with no chapter open — which is the ordinary way
+    /// to reach the button — and nil means *keep nothing*. Every paragraph that
+    /// device ever contributed would leave the book, silently, in the
+    /// gentlest-sounding of the two choices.
+    func test_therevocationMarkIsTakenOverChaptersNobodyHasOpened() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Denver", ownName: "Denver’s iPhone")
+
+        // Their work lives in a chapter this window has never opened.
+        try await writeStrangerFile(docId: "doc-closed", opIds: [
+            "01K5Q8ZJ3M0000000000000001", "01K5Q8ZJ3M0000000000000002",
+        ])
+        XCTAssertTrue(store.allOpenDocuments().isEmpty, "premise: nothing is open")
+
+        let record = try await store.revoke(person: stranger.fingerprint)
+
+        XCTAssertEqual(record.highestOpIdSeen, "01K5Q8ZJ3M0000000000000002",
+                       "the highest op this Mac had applied from them, wherever it lives")
+
+        let after = try await reader().loadDiagnosed(docId: "doc-closed")
+        XCTAssertEqual(after.ops.map(\.opId),
+                       ["01K5Q8ZJ3M0000000000000001", "01K5Q8ZJ3M0000000000000002"],
+                       "and a revocation does not reach into a chapter to take back "
+                           + "work that was already in it")
+        XCTAssertEqual(after.provenance.quarantinedLines, 0)
+    }
+
+    /// **The writer's other choice, and its way back.** A total revocation
+    /// takes the whole history out of the book; re-admitting puts all of it
+    /// back, and the set-aside sentence stops claiming what is applied again
+    /// (find 7's rule, over find 5's records).
+    func test_atotalRevocationSetsAsideEverythingAndReadmissionPutsItBack() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Denver", ownName: "Denver’s iPhone")
+        try await writeStrangerFile(docId: "doc-closed", opIds: [
+            "01K5Q8ZJ3M0000000000000001", "01K5Q8ZJ3M0000000000000002",
+        ])
+
+        let record = try await store.revoke(
+            person: stranger.fingerprint, keeping: .nothing)
+        XCTAssertNil(record.highestOpIdSeen,
+                     "no mark is how the record says nothing of theirs stands")
+
+        let revoked = try await reader().loadDiagnosed(docId: "doc-closed")
+        XCTAssertEqual(revoked.ops, [], "every paragraph of theirs has left the book")
+        let records = OpLogQuarantine.records(forDocId: "doc-closed", in: projectURL)
+        XCTAssertEqual(records.count, 1, "one record, one cause")
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChangeCount(records: records, in: projectURL), 2,
+            "and History counts their two changes")
+
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Denver", ownName: "Denver’s iPhone")
+
+        let readmitted = try await reader().loadDiagnosed(docId: "doc-closed")
+        XCTAssertEqual(readmitted.ops.map(\.opId),
+                       ["01K5Q8ZJ3M0000000000000001", "01K5Q8ZJ3M0000000000000002"],
+                       "re-admission is revocation's inverse")
+        XCTAssertEqual(
+            OpLogQuarantine.setAsideChangeCount(
+                records: OpLogQuarantine.records(forDocId: "doc-closed", in: projectURL),
+                in: projectURL,
+                applied: Set(readmitted.ops.map(\.opId))),
+            0,
+            "the records stay as evidence; the sentence stops counting them (find 7)")
     }
 }
