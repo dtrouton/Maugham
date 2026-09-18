@@ -765,18 +765,18 @@ list do not move (B1). `TrustTable.rootSource` is **DELETED** — it had no
 production reader, and `DeviceStanding` derives the this-Mac / joined / adopted
 marker from `myRoot` plus the registry.
 
-**A revoked span splits on the mark.** `TrustTable.highestOpIdSeen(forPerson:)`
-is what the root recorded when it revoked somebody; `RevocationSplit.groups` is
-the pure derivation and `classifyTail` its one caller, because the walk sees
-seals and chains and never opIds. Both halves are refused — the split is about
-the words. A revoked span inside a SEALED SEGMENT, or in the inbox's own
-chained stream, is filed whole under the strict cause: those readers have no
-opIds to split on. **There is no Apply on the late-sync half** and its absence
-is deliberate: a `.lines` record has no return path (`attemptReturn` refuses one
-on its first guard), and what refuses the ops is the VERDICT, which quarantines
-the whole span at every load. A real Apply needs a durable per-span exception
-through the trust table — new persisted state, a new trust input, and a P3
-decision for Denver.
+**A revoked span is cut on the mark, and the cut is made per LINE.** The rule
+is written out once, above — see *A revocation keeps what this Mac had already
+applied*. The two facts that belong beside `TrustTable` rather than beside the
+walk: `highestOpIdSeen(forPerson:)` is what the root recorded when it revoked
+somebody, and `RevocationSplit.partition` asks it **per line, of that line's own
+person**, because a candidate is decided by `OpLogChain.Line.refusal` — the
+reason THAT line was refused — and never by `Verification.quarantineCause`,
+which is one cause for a whole file and is the first one the walk met. A splice
+after a revoked seal wears the revocation's name at the file level; reading it
+there put forged text back into a manuscript on the strength of an op id its own
+forger chose (find-5 review, the Critical). The inbox's own chained stream has
+no revoked-span cut: its reader passes no table.
 
 **A stranger's rotated history is held like its tail.** `classifySegment`'s
 fallback walk used to be keyless, so an unsettled `.mzseg`'s inner seals all

@@ -202,6 +202,23 @@ final class AdmissionDecisionTests: XCTestCase {
                           "two refusals with two different next moves")
     }
 
+    /// **The refusal that promises nothing happened** (find-5 review, the
+    /// High), and the only one here about a FILE rather than about authority.
+    ///
+    /// A writer who has just pressed a destructive button needs to know the
+    /// destruction did not occur before they need to know why, so the sentence
+    /// leads with it — and it names the file, because *try again* is only
+    /// actionable if they can tell whether the same thing is still wrong.
+    func test_theUnreadableHistoryRefusalLeadsWithNothingHavingHappened() {
+        let sentence = AdmissionDecision.refusal(
+            RegistryAdmissionError.historyUnreadable(name: "doc-3.maca.jsonl"))
+
+        XCTAssertTrue(sentence.hasPrefix("Nothing was changed."), sentence)
+        XCTAssertTrue(sentence.contains("doc-3.maca.jsonl"),
+                      "it names what would not read: \(sentence)")
+        XCTAssertTrue(sentence.localizedCaseInsensitiveContains("try again"), sentence)
+    }
+
     /// The routine refusal, and the one that used to reach the writer as
     /// *"(MaughamCore.RegistryAdmissionError error 2.)"* — a `default` arm sent
     /// it to `localizedDescription` and the enum conforms to `LocalizedError`

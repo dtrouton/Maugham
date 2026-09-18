@@ -25,9 +25,22 @@ import Foundation
 public enum RevocationScope: Equatable, Sendable {
     /// Keep every line at or below the mark this Mac records. The default.
     case whatWasApplied
-    /// Keep none of it. What a revocation did before the ruling, and what a
-    /// device this Mac had applied nothing from produces either way.
+    /// Keep none of it. What a revocation did before the ruling.
     case nothing
+
+    /// **The mark a gentle revocation records when this book applies nothing
+    /// of theirs** (find-5 review, the High).
+    ///
+    /// A nil `highestOpIdSeen` is the ONE spelling of *set aside everything it
+    /// wrote*, and it used to be written by the gentle press too whenever the
+    /// sweep found nothing — so History narrated the writer's gentle choice as
+    /// the harsh one, and a later read could not tell which button was pressed.
+    ///
+    /// The lowest ULID keeps exactly nothing, which is the truth here, while
+    /// leaving a mark on the record. Every real op id is 26 Crockford base32
+    /// characters and `0` is the lowest of them, so `opId <= this` is false for
+    /// all of them by plain string comparison.
+    public static let nothingAppliedMark = String(repeating: "0", count: 26)
 }
 
 public enum RegistryAdmissionError: Error, Equatable {
@@ -56,6 +69,13 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// meant to shut it out, and would name a device this book has never heard
     /// of as having been here.
     case notAdmitted(fingerprint: String)
+    /// A file this device had to read to answer *how far had I got with them*
+    /// is present and will not read (find-5 review, the High). It refuses the
+    /// whole revocation rather than recording a mark that came back short: a
+    /// short mark silently widens what the revocation takes back, and the
+    /// shortest of all — nil — is wire-identical to the writer having asked for
+    /// everything to be set aside.
+    case historyUnreadable(name: String)
     /// The target is a self-signed ROOT. A root answers to itself (spec §5:
     /// *a root is claimed over, never revoked*), so revoking one would be this
     /// Mac re-signing somebody else’s own word about themselves — which

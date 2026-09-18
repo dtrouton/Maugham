@@ -432,7 +432,7 @@ public final class OpLogStore {
     /// The coordinated read of one op-log file's exact bytes. Nil when the file
     /// is not there (which is not a failure); a throw when it is there and
     /// cannot be read (RULING-54: unreadable-yet-present is never empty).
-    private static func readCoordinated(
+    nonisolated private static func readCoordinated(
         url: URL, presenter: NSFilePresenter?
     ) throws -> Data? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
@@ -512,6 +512,58 @@ public final class OpLogStore {
             }
         }
         return (classified.ops, classified.diagnostics, classified.provenance)
+    }
+
+    /// **The highest opId this project APPLIES from one device, anywhere in
+    /// it** — the revocation mark, computed with no main-actor hop (find-5
+    /// review, the two Mediums).
+    ///
+    /// Nil when this project applies nothing of theirs; it THROWS when a file
+    /// is present and will not read, because a mark that silently came back
+    /// short would quietly widen what a revocation takes back. The caller turns
+    /// that into a refusal rather than into a number
+    /// (`OpLogStore.unreadableName` names the file).
+    ///
+    /// **Applied, not merely present.** Each file is classified with the same
+    /// trust table a load would use, so a line the reader refuses or holds is
+    /// not counted as something this device had got to.
+    ///
+    /// **Read-only in fact, not merely in intent.** `state: nil` and
+    /// `identities: nil` are both passed, which is what stops the walk writing
+    /// forensic records, adopting heads or remembering segment digests over
+    /// forty chapters nobody has opened as a side effect of asking a question
+    /// about one device. The remembered head is not lost by it: this device
+    /// keeps one only for files it has WRITTEN, and the files that matter here
+    /// are the revoked device's.
+    ///
+    /// `nonisolated` and taking no presenter, so the whole sweep — the listing
+    /// included — runs off the main actor. It only reads, so there is no write
+    /// of this process's own for a presenter to keep from bouncing back.
+    nonisolated public static func highestAppliedOpId(
+        ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?
+    ) throws -> String? {
+        guard !ids.isEmpty else { return nil }
+        let opsDir = projectURL.appendingPathComponent(".maugham/ops")
+        let filenames = (try? FileManager.default
+            .contentsOfDirectory(atPath: opsDir.path)) ?? []
+        var docIds = docIds(inOpsDirectoryFilenames: filenames)
+        // Named, because the manuscript reader excludes it by contract — the
+        // same reason the project-open sweep names it when it rotates tails.
+        docIds.insert("__project__")
+
+        var highest: String?
+        for docId in docIds.sorted() {
+            for url in opLogFileURLs(forDocId: docId, in: projectURL) {
+                guard let bytes = try readCoordinated(url: url, presenter: nil)
+                else { continue }
+                let classified = classify(
+                    url: url, bytes: bytes, state: nil, trust: trust)
+                for op in classified.ops where ids.contains(op.device) {
+                    if highest == nil || op.opId > highest! { highest = op.opId }
+                }
+            }
+        }
+        return highest
     }
 
     /// The file a `ReadError` names, for a caller that reports unreadable

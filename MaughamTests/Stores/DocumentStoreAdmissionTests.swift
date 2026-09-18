@@ -414,6 +414,32 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         XCTAssertEqual(after.provenance.quarantinedLines, 0)
     }
 
+    /// **A gentle revocation of a device this book applies nothing from still
+    /// records which button was pressed** (find-5 review, the High).
+    ///
+    /// Nil is the ONE wire spelling of *set aside everything it wrote*, and the
+    /// gentle press used to write it whenever the sweep found nothing — so
+    /// History narrated the writer's gentle choice as the harsh one and no
+    /// later read could tell them apart. The lowest ULID keeps exactly nothing,
+    /// which is the truth here, and leaves a mark on the record.
+    func test_agentleRevocationOfADeviceWithNoAppliedWorkStillRecordsAMark() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Denver", ownName: "Denver’s iPhone")
+
+        let record = try await store.revoke(person: stranger.fingerprint)
+
+        XCTAssertEqual(record.highestOpIdSeen, RevocationScope.nothingAppliedMark)
+        XCTAssertEqual(
+            TrustEvents.derive(
+                registry: try registry(), cache: cache,
+                mine: Document.loadIdentities, for: projectURL)
+                .first { $0.subject == stranger.fingerprint && $0.kind != .admitted }?.kind,
+            .revoked,
+            "History reads it as the plain revocation it was")
+    }
+
     /// **The writer's other choice, and its way back.** A total revocation
     /// takes the whole history out of the book; re-admitting puts all of it
     /// back, and the set-aside sentence stops claiming what is applied again

@@ -690,6 +690,36 @@ nil means keep nothing. It is now taken over every op-log file in the project
 (plus the open documents from memory), read-only, once, behind the confirmation
 the writer is already looking at.
 
+**A revocation refuses rather than guess, and it always records which button
+was pressed** (find-5 review). The mark used to be a single optional, so *this
+book applies nothing of theirs* and *a file would not read* both came back nil —
+and nil is the wire spelling of *set aside everything it wrote*. A read hiccup
+therefore turned the writer's gentle press into the harsh choice and History
+narrated it as one. Now the sweep answers three things. A mark is a mark. Where
+this book applies nothing of theirs the gentle press records
+`RevocationScope.nothingAppliedMark`, the lowest ULID: it keeps exactly nothing,
+which is the truth, while leaving the record able to say which button was
+pressed. Where a file or the registry will not read, the revocation REFUSES —
+`RegistryAdmissionError.historyUnreadable`, nothing written, the file named —
+because a mark that came back short silently widens what a revocation takes
+back, and the shortest of all is indistinguishable from the other button. A nil
+mark remains the one spelling of *set aside everything it wrote*.
+
+**Dev records written before this carry nil for both meanings.** They are not
+migrated: tripwire 11 — delete the dev registries and recreate, as P2b's own
+release note already requires.
+
+**Why a line was refused is a fact about the LINE.** `Verification.quarantineCause`
+is one cause for a whole file and it is the FIRST one the walk met, so a splice
+after a revoked seal wore the revocation's name; the cut, judging by op id, put
+forged text back into a manuscript on the strength of a number the forger chose
+(`highestOpIdSeen` is written into a signed record every device reads).
+`OpLogChain.Line.refusal` now travels with the line and is what the cut asks; a
+line refused for a chain fault, a truncation, another claimant's root or a
+retirement is no candidate whatever its op id. A set-aside record is filed under
+the reason its own lines carry, so a splice is reported as a splice rather than
+as the writer's other Mac having written after the door closed.
+
 **The late-sync distinction is deferred, not deleted.** `revocationLate` and its
 sentence are gone from the code, because the lines they described are applied
 and a cause with no producer is a rule waiting to be made load-bearing wrongly.

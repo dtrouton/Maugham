@@ -696,9 +696,9 @@ final class OpLogQuarantineTests: XCTestCase {
 /// were counted as changes, and one op that reached the archive twice — the span
 /// was set aside once, then split differently on the next load — was counted
 /// twice. The third (a seal filed in the wrong half of a revocation split) is
-/// `RevocationSplit.groups`' and is deliberately NOT what makes the number
-/// right: counting op lines alone makes the count immune to which half a seal
-/// travels in.
+/// `RevocationSplit.partition`'s and is deliberately NOT what makes the number
+/// right: counting op lines alone makes the count immune to which side of the
+/// cut a seal travels on.
 ///
 /// Find 7 is the other half of the sentence's honesty: a `.lines` record is
 /// permanent evidence, so it is listed forever — but once the writer admits the

@@ -315,6 +315,16 @@ enum AdmissionDecision {
             // rather than what went wrong.
             return "This Mac (code \(DeviceCode.short(root))) is already its own "
                 + "root here, so there is nothing of its own for it to take in."
+        case .historyUnreadable(let name):
+            // The one refusal here that is about a FILE rather than about
+            // authority, and the only one that promises nothing happened. It
+            // says so first, because a writer who has just pressed a
+            // destructive button needs to know the destruction did not occur
+            // before they need to know why.
+            return "Nothing was changed. Maugham couldn’t read everything this "
+                + "device wrote (\(name)), and a revocation decided on a partial "
+                + "reading would set aside more than you asked it to. Try again "
+                + "in a moment."
         case .notThatDevice(let device):
             return "Only the device with code \(DeviceCode.short(device)) can retire "
                 + "itself — a retirement signed by anything else is a record no other "
