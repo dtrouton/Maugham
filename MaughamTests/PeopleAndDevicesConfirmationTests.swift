@@ -129,7 +129,7 @@ final class PeopleAndDevicesConfirmationTests: XCTestCase {
     /// Not destructive and confirmed anyway: a merge starts applying a whole
     /// chain of somebody's devices in this book at once, and there is no
     /// un-adopt verb anywhere in this milestone.
-    func test_mergeAsksWhetherThatRootIsAlsoTheWriter() {
+    func test_mergeAsksWhetherThatMacIsAlsoTheWriter() {
         let confirmation = PeopleAndDevicesConfirmation.merge(
             root: phone, named: "Denver’s old MacBook")
 
@@ -138,11 +138,11 @@ final class PeopleAndDevicesConfirmationTests: XCTestCase {
         XCTAssertTrue(confirmation.title.contains("Denver’s old MacBook"),
                       confirmation.title)
         XCTAssertTrue(
-            confirmation.message.contains("apply everything that root’s devices wrote"),
+            confirmation.message.contains("apply everything that Mac wrote"),
             confirmation.message)
         XCTAssertTrue(
-            confirmation.message.contains("keep their own root"),
-            "and the half a writer would otherwise get wrong — neither root "
+            confirmation.message.contains("keeps the book you started"),
+            "and the half a writer would otherwise get wrong — neither Mac "
             + "gives way (B1): \(confirmation.message)")
         XCTAssertEqual(confirmation.confirmTitle, "Merge")
     }

@@ -191,8 +191,15 @@ final class AdmissionDecisionTests: XCTestCase {
     // MARK: - Refusals speak (RULING-7)
 
     func test_eachRefusalCarriesItsOwnSentence() {
+        // **In the writer's words, not the registry's** (Denver's wording
+        // ruling, 2026-09-18): every refusal here says where the writer should
+        // go — the Mac the book was started on — rather than naming a root, a
+        // chain or a signature, which are real things and name nothing a writer
+        // has.
         let notARoot = AdmissionDecision.refusal(RegistryAdmissionError.notARoot)
-        XCTAssertTrue(notARoot.contains("root"), notARoot)
+        XCTAssertTrue(notARoot.contains("started on"), notARoot)
+        XCTAssertFalse(notARoot.lowercased().contains("root"),
+                       "the registry's word for it has no place here: \(notARoot)")
 
         let elsewhere = AdmissionDecision.refusal(
             RegistryAdmissionError.alreadyAdmittedElsewhere(root: root))

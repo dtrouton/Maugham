@@ -189,9 +189,9 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
             fingerprint: fingerprint,
             record: nil,
             title: "What should this book call \(name)?",
-            message: "A name is this book's word for them — every device on this "
-                + "chain will see it. Changing it admits nobody and shuts nobody "
-                + "out.",
+            message: "A name is this book's word for them — every Mac that reads "
+                + "this book will see it. Changing it admits nobody and shuts "
+                + "nobody out.",
             confirmTitle: "Rename",
             field: Field(prompt: "Name", initialValue: label),
             alternate: nil)
@@ -212,9 +212,9 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
             fingerprint: record.fingerprint,
             record: record,
             title: "Put back the \(kind) record for \(name)?",
-            message: "This writes back the exact bytes this Mac last saw verify, "
-                + "over the version that doesn\u{2019}t. It signs nothing and admits "
-                + "nobody \u{2014} the next read checks it like any other record.",
+            message: "This writes back the exact version this Mac last read, over "
+                + "the one it can\u{2019}t. It adds nothing of this Mac\u{2019}s and "
+                + "admits nobody \u{2014} the next read checks it like any other.",
             confirmTitle: "Restore",
             field: nil,
             alternate: nil)

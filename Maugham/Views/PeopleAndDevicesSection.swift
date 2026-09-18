@@ -78,7 +78,7 @@ struct PeopleAndDevicesSection: View {
                 }
                 ForEach(model.merged) { root in
                     plainRow(root, note: "merged",
-                             caption: "Its history is part of this book's chain.")
+                             caption: "Everything that Mac wrote is in this book.")
                 }
                 ForEach(model.claimants) { root in
                     claimantRow(root)
@@ -116,7 +116,12 @@ struct PeopleAndDevicesSection: View {
     private var thisMac: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(model.standing)
-            Text("This Mac\u{2019}s code is \(model.code).")
+            // *Its* code, under *this book was started on this Mac*; *this
+            // Mac's* code under a sentence naming somebody else's, where "it"
+            // would be that other Mac (Denver's wording ruling, 2026-09-18).
+            Text(model.startedOnThisMac
+                 ? "Its code is \(model.code)."
+                 : "This Mac\u{2019}s code is \(model.code).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -251,7 +256,8 @@ struct PeopleAndDevicesSection: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(root.name) (\(root.code))")
-                    Text("Claims this book as its own. Nothing it writes is applied here.")
+                    Text("This book was also started on that Mac. "
+                         + "Nothing it writes is applied here.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -322,8 +328,8 @@ struct PeopleAndDevicesSection: View {
                     .font(.caption)
                     .foregroundStyle(.orange)
                 if !record.canRestore {
-                    Text("This Mac doesn\u{2019}t remember a version of it that "
-                         + "verified, so it can\u{2019}t put one back.")
+                    Text("This Mac doesn\u{2019}t remember an earlier version of it, "
+                         + "so it can\u{2019}t put one back.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

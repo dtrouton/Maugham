@@ -128,11 +128,14 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
 
         XCTAssertTrue(texts.contains { $0.contains("People & Devices") },
                       "the section names itself: \(texts)")
-        // The header names no device (smoke find 2): the person row and the
-        // device row under it both name this Mac already, and a third naming
-        // had one machine read as three.
-        XCTAssertTrue(texts.contains { $0.contains("You are the root of this book") },
+        // The header names no device (smoke find 2) and speaks in the writer's
+        // words rather than the registry's (Denver's wording ruling,
+        // 2026-09-18): the person row and the device row under it both name
+        // this Mac already, and a third naming had one machine read as three.
+        XCTAssertTrue(texts.contains { $0.contains("This book was started on this Mac") },
                       "and says what this Mac is, without naming it: \(texts)")
+        XCTAssertTrue(texts.contains { $0.contains("Its code is") },
+                      "and the code line reads as this Mac's: \(texts)")
         XCTAssertTrue(texts.contains { $0.contains(DeviceCode.short(root)) },
                       "with the code the phone's own screen shows: \(texts)")
     }
@@ -226,8 +229,9 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
             model(), notice: AdmissionDecision.refusal(RegistryAdmissionError.notARoot))
         let texts = try axTexts(in: window)
 
-        XCTAssertTrue(texts.contains { $0.contains("root") && $0.contains("started the book") },
-                      "the refusal reaches the writer: \(texts)")
+        XCTAssertTrue(
+            texts.contains { $0.contains("wasn\u{2019}t started on this Mac") },
+            "the refusal reaches the writer, in the writer's words: \(texts)")
     }
 
     /// **Live as of Task 8.** A claimant is another root that names this
@@ -244,8 +248,8 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
             XCTAssertEqual(axEnabled(button), true, "merging shipped with Task 8")
         }
         XCTAssertTrue(
-            texts.contains { $0.contains("keep their own root") },
-            "and the row says what a merge is not — neither root gives way: \(texts)")
+            texts.contains { $0.contains("keeps the book you started") },
+            "and the row says what a merge is not — neither Mac gives way: \(texts)")
     }
 
     /// A root this device has adopted is a fact, not a question: it is drawn as

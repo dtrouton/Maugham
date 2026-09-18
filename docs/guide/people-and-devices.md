@@ -1,9 +1,9 @@
 # People & Devices
 
-Maugham signs the history it writes. Every stretch of changes your Mac appends
-is signed by a key that lives in this machine's secure hardware and never leaves
-it, so a change made by your Mac can be told apart from one made by something
-else. That was true before this page existed. What's new is that a book now
+Maugham marks the history it writes. Every stretch of changes your Mac appends
+carries a mark made by a key that lives in this machine's secure hardware and
+never leaves it, so a change made by your Mac can be told apart from one made by
+something else. That was true before this page existed. What's new is that a book now
 knows **who else** may write in it, and you are the one who says so.
 
 Open **Project Settings** and look for **People & Devices**. It is the whole of
@@ -175,19 +175,19 @@ on reading exactly as it did.
 
 **Two Macs that both started as owners** — the usual way this happens is
 starting the same book independently on two machines — each hold the other's
-work back. The way out is **Merge: this is also me** on the claimant row. It is
+work back. The way out is **Merge: this is also me** on the other Mac's row. It is
 a two-sided act: pressing it here takes in their history, and the same button
 pressed over there takes in yours. Neither Mac gives way; nobody's book becomes
 a copy of the other's. Until the second Mac presses it, it still sees yours as a
-claimant.
+one of these.
 
 ## What History tells you
 
 The History pane (⌘⌥H) shows trust in two shapes, and the difference is
 deliberate.
 
-- **A banner is something that is true now** — *this Mac is on Denver's chain*,
-  *14 notes from iPhone are waiting for admission*.
+- **A banner is something that is true now** — *this book was started on this
+  Mac*, *14 notes from iPhone are waiting for admission*.
 - **A dated entry, under a Project heading above the timeline, is something that
   happened** — admitted on 3 June, revoked on 9 September, this book claimed,
   a record put back.
@@ -198,11 +198,12 @@ what History says about the history's signatures.
 ## On the iPhone
 
 Settings has a **This device** section: this phone's four-character code, and
-one line for each book it has been in — *Denver on Denver's MacBook's chain
-since 9 Sep*, or *Not yet admitted — the Mac will ask*, or, where the book holds
-a record naming this phone that doesn't verify, *This book's record of this
-device doesn't verify, so nothing here vouches for it* (see *Records that don't
-verify* above — the Mac is where that one is put right). Pull down to refresh; it
+one line for each book it has been in — *In this book as Denver since 9 Sep.
+Started on Denver's MacBook.*, or *Not yet admitted — the Mac will ask*, or,
+where the book holds a damaged file about this phone, *This book's file about
+this device doesn't check out, so nothing here confirms it* (see *Records that
+don't verify* above — the Mac is where that one is put right). Pull down to
+refresh; it
 changes when you act on the Mac. There is nothing to press here. Admitting is
 something you do from a Mac.
 

@@ -425,7 +425,15 @@ final class PeopleAndDevicesModelTests: XCTestCase {
             model(twoDeep).people.first { $0.fingerprint == stranger.fingerprint })
 
         XCTAssertFalse(row.canRename)
-        XCTAssertEqual(row.whyNotRenamable, PeopleAndDevicesModel.renameNotMine)
+        // **Where, not why** (Denver's wording ruling, 2026-09-18): the refusal
+        // names the Mac the book was started on, which is the one thing the
+        // writer can act on. Here that is the phone's own admitter, this Mac's
+        // label — "Denver".
+        let refusal = try XCTUnwrap(row.whyNotRenamable)
+        XCTAssertEqual(refusal,
+                       PeopleAndDevicesModel.renameNotMine(startedOn: "Denver"))
+        XCTAssertTrue(refusal.contains("started"),
+                      "in the writer's frame: \(refusal)")
     }
 
     /// **The pane's rule is the verb's rule, root guard included**
@@ -570,7 +578,11 @@ final class PeopleAndDevicesModelTests: XCTestCase {
             model.people.first { $0.fingerprint == phone.fingerprint },
             "everyone on the chain this Mac judges by is listed")
         XCTAssertFalse(theirs.canRevoke)
-        XCTAssertEqual(theirs.whyNotRevocable, PeopleAndDevicesModel.revokeNotMine)
+        let refusal = try XCTUnwrap(theirs.whyNotRevocable)
+        XCTAssertEqual(refusal,
+                       PeopleAndDevicesModel.revokeNotMine(startedOn: "Amelia"))
+        XCTAssertTrue(refusal.contains("Amelia"),
+                      "it names the Mac to go to: \(refusal)")
     }
 
     /// **A device signs its own retirement** (spec §5), so exactly one row
@@ -707,7 +719,7 @@ final class PeopleAndDevicesModelTests: XCTestCase {
                        DeviceCode.short(otherRoot.fingerprint))
         XCTAssertFalse(PeopleAndDevicesModel.mergeHelp.isEmpty)
         XCTAssertTrue(
-            PeopleAndDevicesModel.mergeSentence.contains("keep their own root"),
+            PeopleAndDevicesModel.mergeSentence.contains("keeps the book you started"),
             "the sentence says the thing a writer would otherwise assume: "
             + "adopting is not switching")
     }

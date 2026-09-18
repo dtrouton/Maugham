@@ -123,8 +123,8 @@ final class DeviceStandingTests: XCTestCase {
         XCTAssertTrue(standing.ownRecordUnverified)
         XCTAssertEqual(
             standing.sentence,
-            "This book’s record of this device doesn’t verify, "
-            + "so nothing here vouches for it")
+            "This book’s file about this device doesn’t check out, "
+            + "so nothing here confirms it")
     }
 
     /// Somebody ELSE's unverifiable record says nothing about this device: it
@@ -147,7 +147,7 @@ final class DeviceStandingTests: XCTestCase {
 
     // MARK: - Admitted
 
-    func test_anAdmittedDeviceNamesItsLabelAndTheRootsChain() {
+    func test_anAdmittedDeviceNamesItsLabelAndTheMacTheBookWasStartedOn() {
         let standing = DeviceStanding.resolve(
             registry: registry(admittingPhoneAs: "Denver"), cache: cache(),
             mine: mine, for: projectURL)
@@ -156,11 +156,15 @@ final class DeviceStandingTests: XCTestCase {
         XCTAssertEqual(standing.label, "Denver")
         XCTAssertEqual(standing.rootLabel, "Denver's MacBook")
         XCTAssertNil(standing.joinedAt, "nothing joined: the folder alone admitted it")
-        XCTAssertEqual(standing.sentence, "Denver on Denver's MacBook’s chain")
+        // **Started on, not rooted** (Denver's wording ruling, 2026-09-18).
+        // Two facts, because the second is what says which Mac to go to and a
+        // phone with several books needs it.
+        XCTAssertEqual(standing.sentence,
+                       "In this book as Denver. Started on Denver's MacBook.")
     }
 
     /// A P2a join stamped the date, so the sentence carries it.
-    func test_aJoinedChainSaysSinceWhen() {
+    func test_adeviceTakenInOnAKnownDaySaysSinceWhen() {
         let memory = cache()
         _ = memory.join(root: mac.fingerprint, for: projectURL,
                         at: Date(timeIntervalSince1970: 1_757_376_000))  // 9 Sep 2025
@@ -171,13 +175,15 @@ final class DeviceStandingTests: XCTestCase {
 
         XCTAssertTrue(standing.admitted)
         XCTAssertEqual(standing.joinedAt, Date(timeIntervalSince1970: 1_757_376_000))
-        XCTAssertTrue(standing.sentence.hasPrefix("Denver on Denver's MacBook’s chain since "),
+        XCTAssertTrue(standing.sentence.hasPrefix("In this book as Denver since "),
                       "got: \(standing.sentence)")
+        XCTAssertTrue(standing.sentence.hasSuffix("Started on Denver's MacBook."),
+                      "and still says where that was decided: \(standing.sentence)")
     }
 
-    /// The root device itself is on nobody else's chain — saying *X on X's
-    /// chain* would read as an admission it never needed.
-    func test_theRootSaysSoRatherThanNamingItsOwnChain() {
+    /// The Mac a book was started on was taken in by nobody — saying *X in
+    /// this book as X* would read as an admission it never needed.
+    func test_theStartingMacSaysSoRatherThanNamingAnAdmission() {
         let macMine = LocalIdentities.forAuthor(mac)
         let macCache = RegistryCache(fileURL: cacheFile, identity: mac.fingerprint)
 
@@ -187,11 +193,11 @@ final class DeviceStandingTests: XCTestCase {
 
         XCTAssertTrue(standing.admitted)
         XCTAssertTrue(standing.isRoot)
-        // **And names nobody** (P2 smoke find 2). The Mac draws this at the head
-        // of a list where its own person row and device row already name it, and
-        // a third naming had one machine read as three. A phone is never a root,
-        // so this arm is the Mac's alone whatever surface asks.
-        XCTAssertEqual(standing.sentence, "You are the root of this book’s chain")
+        // **And names no machine** (P2 smoke find 2). The Mac draws this at the
+        // head of a list where its own person row and device row already name
+        // it, and a third naming had one machine read as three. A phone never
+        // starts a book, so this arm is the Mac's alone whatever surface asks.
+        XCTAssertEqual(standing.sentence, "This book was started on this Mac")
     }
 
     // MARK: - Revoked
@@ -215,7 +221,8 @@ final class DeviceStandingTests: XCTestCase {
 
         XCTAssertFalse(standing.admitted)
         XCTAssertTrue(standing.revoked)
-        XCTAssertEqual(standing.sentence, "No longer admitted to Denver's MacBook’s chain")
+        XCTAssertEqual(standing.sentence,
+                       "No longer admitted — this book was started on Denver's MacBook")
     }
 
     // MARK: - Retirement (fix round 1, Important 2)

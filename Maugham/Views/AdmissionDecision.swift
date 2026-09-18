@@ -281,12 +281,12 @@ enum AdmissionDecision {
     static func sentence(for refusal: RegistryAdmissionError) -> String {
         switch refusal {
         case .notARoot:
-            return "This Mac isn’t this book’s root, so nothing it signs would let a "
-                + "device in. Admit from the Mac that started the book."
+            return "This book wasn’t started on this Mac, so it can’t let a device "
+                + "in. Admit from the Mac it was started on."
         case .alreadyAdmittedElsewhere(let root):
-            return "Another Mac (code \(DeviceCode.short(root))) already admitted this "
-                + "device. Two chains are merged by claiming the book, never by "
-                + "admitting into both."
+            return "Another Mac (code \(DeviceCode.short(root))) has already let this "
+                + "device in. Two Macs that both started this book are brought "
+                + "together by claiming it, never by admitting on both."
         case .recordUnreadable(let fingerprint):
             // The routine one, and the only refusal here that resolves ITSELF:
             // another Mac has admitted this device and its own root record has
@@ -296,25 +296,26 @@ enum AdmissionDecision {
             // the code rather than the file, because a path under
             // `.maugham/people/` may not be spelled outside `RegistryWriter`
             // (tripwire 40) and a code is what the writer can compare anyway.
-            return "There’s already a record for this device (code "
+            return "There’s already something here about this device (code "
                 + "\(DeviceCode.short(fingerprint))) that Maugham can’t read yet — "
-                + "usually another Mac’s admission whose own record hasn’t synced. "
-                + "Admitting now would overwrite it. Try again in a minute."
+                + "usually another Mac letting it in, before that Mac has finished "
+                + "syncing. Admitting now would overwrite it. Try again in a minute."
         case .notAdmitted(let fingerprint):
-            return "This book has no record of the device with code "
+            return "This book knows no device with code "
                 + "\(DeviceCode.short(fingerprint)), so there’s nothing to withdraw."
         case .cannotRevokeARoot(let fingerprint):
-            return "The device with code \(DeviceCode.short(fingerprint)) is this "
-                + "book’s root, and a root answers to itself. To take a book away "
-                + "from it, claim the book on the Mac you want to keep."
+            return "The device with code \(DeviceCode.short(fingerprint)) is the Mac "
+                + "this book was started on, and that Mac answers to itself. To move "
+                + "the book, claim it on the Mac you want to keep."
         case .cannotAdoptItself(let root):
             // Unreachable from either surface as they stand — the claim sheet
             // adopts the roots this Mac is NOT, and a claimant row is by
             // definition somebody else — so this sentence exists for the day a
             // third caller gets the list wrong, and says what it would mean
             // rather than what went wrong.
-            return "This Mac (code \(DeviceCode.short(root))) is already its own "
-                + "root here, so there is nothing of its own for it to take in."
+            return "This book was already started on this Mac (code "
+                + "\(DeviceCode.short(root))), so there is nothing of its own for it "
+                + "to take in."
         case .historyUnreadable(let name):
             // The one refusal here that is about a FILE rather than about
             // authority, and the only one that promises nothing happened. It
@@ -327,8 +328,8 @@ enum AdmissionDecision {
                 + "in a moment."
         case .notThatDevice(let device):
             return "Only the device with code \(DeviceCode.short(device)) can retire "
-                + "itself — a retirement signed by anything else is a record no other "
-                + "Mac would read. Retire it from that machine."
+                + "itself — a retirement from anything else is one no other Mac would "
+                + "accept. Retire it from that machine."
         }
     }
 }

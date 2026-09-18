@@ -35,14 +35,14 @@ struct PeopleAndDevicesModel: Equatable {
     /// who can say whether that root is also them. Pressing it writes a claim
     /// adopting their chain; it moves nobody's root, and the other Mac makes
     /// the same press to see this one's history (plan decision P2).
-    static let mergeHelp = "Adopt this root’s history into this book’s chain"
+    static let mergeHelp = "Take everything that Mac wrote into this book"
 
     /// The sentence beside Merge, which says the thing a writer would
     /// otherwise assume: adopting is not switching. This device stays on its
     /// own chain and that Mac stays on its.
     static let mergeSentence =
-        "This Mac will apply everything that root’s devices wrote. "
-        + "They keep their own root, and this Mac keeps its own."
+        "This Mac will apply everything that Mac wrote. Each of you keeps the "
+        + "book you started; neither becomes a copy of the other."
 
     /// **The sentence beside Revoke** (spec §5). It says exactly what the verb
     /// is and, more importantly, what it is not: Maugham decides what it
@@ -55,9 +55,19 @@ struct PeopleAndDevicesModel: Equatable {
 
     /// What Revoke says when it is offered, and why it is not.
     static let revokeHelp = "Stop applying what this device writes"
-    static let revokeNotMine =
-        "Only the Mac that admitted this device can revoke it"
-    static let revokeARoot = "A root is claimed over, never revoked"
+    /// **Where a device is removed, in the words the writer has** (Denver's
+    /// wording ruling, 2026-09-18). It is a destination rather than a rule
+    /// about signatures: the one fact a writer can hold is that a book is
+    /// started on a Mac, and that Mac decides who is in it. The label is the
+    /// starting Mac's own (the person record's `label`); with none known the
+    /// sentence still says where to go.
+    static func revokeNotMine(startedOn label: String?) -> String {
+        guard let label else {
+            return "Only the Mac this book was started on can remove a device"
+        }
+        return "Devices are removed on \(label), where this book was started"
+    }
+    static let revokeARoot = "The Mac a book was started on can’t be removed from it"
     static let alreadyRevoked = "Already revoked"
 
     /// What Re-admit says, and what it is: the same door an admission goes
@@ -78,17 +88,27 @@ struct PeopleAndDevicesModel: Equatable {
     /// a Mac whose own root record had been deleted went on offering a live
     /// Rename on every row it had admitted, and the press threw.
     static let renameHelp = "Change the name this book calls them"
-    static let renameNotMine =
-        "Only the Mac that admitted this device can rename it"
+    /// `revokeNotMine`'s twin, and the same destination for the same reason.
+    static func renameNotMine(startedOn label: String?) -> String {
+        guard let label else {
+            return "Names in this book are changed on the Mac it was started on"
+        }
+        return "Names in this book are changed on \(label), where it was started"
+    }
+
+    /// The second rename refusal the whole-branch review earned (M2): this Mac
+    /// holds nothing in this book that would make a name it wrote stand. In the
+    /// writer's words that is the same destination arrived at from the other
+    /// side, and it keeps its own sentence because the reason differs.
     static let renameNotARoot =
-        "This Mac holds no root record in this book, so nothing it signs would stand"
+        "This book wasn’t started on this Mac, so names here are changed there"
 
     /// **What Restore says** (P2 smoke find 1). The bytes this device kept when
     /// it last verified that record, put back over the one that will not. It is
     /// a press rather than something `reconcile` does on its own, because
     /// overwriting a signed record on shared storage is a decision, and a
     /// device cannot tell *tampered with* from *damaged in transit*.
-    static let restoreHelp = "Put back the version this Mac last saw verify"
+    static let restoreHelp = "Put back the last version of this file this Mac could read"
 
     /// And Retire, which is a device’s word about itself.
     static let retireHelp = "Say this Mac has stopped writing in this book"
@@ -105,8 +125,8 @@ struct PeopleAndDevicesModel: Equatable {
     /// arguing with itself. Gated, the sentence is simply never reached from
     /// this surface.
     static let mergeNoRootOfMyOwn =
-        "This Mac is on another root’s chain, so it has no root of its own to "
-        + "merge with. Claim this book first."
+        "This book wasn’t started on this Mac, so there is nothing here to merge "
+        + "with. Claim the book on this Mac first."
 
     // MARK: - When a verb refuses
 
@@ -363,6 +383,12 @@ struct PeopleAndDevicesModel: Equatable {
     let standing: String
     /// This device's own four-character code.
     let code: String
+    /// **This book was started on THIS Mac** (Denver's wording ruling,
+    /// 2026-09-18). The header says so in `standing`, and the line beneath it
+    /// says whose code follows — *Its code is 4FD2* reads right under *This book
+    /// was started on this Mac* and wrong under *This book was started on
+    /// Denver*, where "it" would be the other Mac.
+    let startedOnThisMac: Bool
     let pending: [PendingRequest]
     let people: [Person]
     /// Roots this device's own root has adopted: listed as *merged*, because
@@ -418,6 +444,7 @@ struct PeopleAndDevicesModel: Equatable {
         if let refusal = standing.refusal {
             return PeopleAndDevicesModel(
                 refusal: refusal, standing: standing.sentence, code: standing.code,
+                startedOnThisMac: standing.isRoot,
                 pending: [], people: [], merged: [], claimants: [], absent: [],
                 unverifiable: [])
         }
@@ -544,6 +571,7 @@ struct PeopleAndDevicesModel: Equatable {
             refusal: nil,
             standing: standing.sentence,
             code: standing.code,
+            startedOnThisMac: standing.isRoot,
             pending: pendingRows,
             people: people,
             merged: merged,
@@ -589,8 +617,8 @@ struct PeopleAndDevicesModel: Equatable {
             ownName: record.ownName == record.label ? nil : record.ownName,
             role: record.role, admittedAt: record.admittedAt,
             revokedAt: record.revokedAt,
-            canRevoke: revocable(record, me: me),
-            whyNotRevocable: whyNotRevocable(record, me: me),
+            canRevoke: revocable(record, in: registry, me: me),
+            whyNotRevocable: whyNotRevocable(record, in: registry, me: me),
             canRename: whyNotRenamable(record, in: registry, me: me) == nil,
             whyNotRenamable: whyNotRenamable(record, in: registry, me: me),
             offersRevoke: !record.isRoot,
@@ -611,8 +639,10 @@ struct PeopleAndDevicesModel: Equatable {
     /// device un-admitted in silence rather than revoked. A root answers to
     /// itself and is claimed over, never revoked. And a second revocation would
     /// move the line the first one drew.
-    private static func revocable(_ record: PersonRecord, me: String) -> Bool {
-        whyNotRevocable(record, me: me) == nil
+    private static func revocable(
+        _ record: PersonRecord, in registry: Registry, me: String
+    ) -> Bool {
+        whyNotRevocable(record, in: registry, me: me) == nil
     }
 
     /// **The verb's own rule, asked of the verb** (whole-branch review, Minor
@@ -637,15 +667,35 @@ struct PeopleAndDevicesModel: Equatable {
             person: record.person, by: me, in: registry) {
         case .success: return nil
         case .failure(.notARoot): return renameNotARoot
-        case .failure: return renameNotMine
+        case .failure:
+            return renameNotMine(startedOn: startingMac(of: record, in: registry, me: me))
         }
     }
 
-    private static func whyNotRevocable(_ record: PersonRecord, me: String) -> String? {
+    private static func whyNotRevocable(
+        _ record: PersonRecord, in registry: Registry, me: String
+    ) -> String? {
         if record.isRoot { return revokeARoot }
         if record.isRevoked { return alreadyRevoked }
-        if record.admittedBy != me { return revokeNotMine }
+        if record.admittedBy != me {
+            return revokeNotMine(startedOn: startingMac(of: record, in: registry, me: me))
+        }
         return nil
+    }
+
+    /// **The Mac this row's name and membership are decided on**, as a word the
+    /// writer can act on — the label of the person record that admitted them,
+    /// which under labels-only IS the Mac the book was started on.
+    ///
+    /// Nil where naming one would tell the writer nothing: this Mac is the
+    /// admitter (so the destination is where they already are, and the refusal
+    /// is about something else), or the book holds no record for the admitter
+    /// at all. Both fall back to the sentence that names no Mac.
+    private static func startingMac(
+        of record: PersonRecord, in registry: Registry, me: String
+    ) -> String? {
+        guard record.admittedBy != me else { return nil }
+        return registry.person(record.admittedBy)?.label
     }
 
     /// *you* for the root that is this device, *<label>'s Mac* for a root

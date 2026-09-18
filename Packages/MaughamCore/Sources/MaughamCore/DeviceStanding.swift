@@ -198,33 +198,46 @@ public struct DeviceStanding: Equatable, Sendable {
     /// shows the code in its own right (the phone's Settings row, the Mac's
     /// People & Devices header), and repeating it inside the sentence would
     /// give the writer two things to compare where there is one.
+    /// **Started on, not rooted** (Denver's wording ruling, 2026-09-18). Every
+    /// arm below used to speak the registry's own words — *root*, *chain*,
+    /// *record*, *vouches* — which name real things and name nothing a writer
+    /// has. They are all one fact said four ways, so all four now say that
+    /// fact: **a book is started on a Mac, and that Mac decides who is in it.**
+    /// Nothing about which arm is reached moved; only the words did.
     public var sentence: String {
         if let refusal { return refusal }
         if revoked {
-            return "No longer admitted to \(rootLabel ?? label ?? code)’s chain"
+            // Where to go is half of what a removed device needs, so the
+            // sentence still names the Mac even though it no longer calls it a
+            // root.
+            return "No longer admitted — this book was started on "
+                + "\(rootLabel ?? label ?? code)"
         }
         guard admitted else {
-            // **Nobody is going to ask** (smoke find 1). The record is there;
-            // it is the file that is wrong. A device told *not yet* over one
-            // waits for a sheet that is not coming. No noun for the machine
-            // here, because this type is shared and a phone saying *this Mac*
-            // about itself is the two screens failing to compare (tripwire 19).
+            // **Nobody is going to ask** (smoke find 1). The file is there; it
+            // is the file that is wrong. A device told *not yet* over one waits
+            // for a sheet that is not coming. No noun for the machine here,
+            // because this type is shared and a phone saying *this Mac* about
+            // itself is the two screens failing to compare (tripwire 19).
             if ownRecordUnverified {
-                return "This book’s record of this device doesn’t verify, "
-                    + "so nothing here vouches for it"
+                return "This book’s file about this device doesn’t check out, "
+                    + "so nothing here confirms it"
             }
             return "Not yet admitted — the Mac will ask"
         }
-        // **The root's own sentence names nobody** (P2 smoke find 2). It is
+        // **This Mac's own sentence names no machine** (P2 smoke find 2). It is
         // drawn at the head of a list in which this device already has a person
         // row and a device row, and naming it a third time had one Mac read as
-        // three machines. *You* is the one thing on that screen the other two
-        // rows cannot say.
-        if isRoot { return "You are the root of this book’s chain" }
+        // three machines.
+        if isRoot { return "This book was started on this Mac" }
+        // Two facts for a device somebody else took in — what this book calls
+        // it, and where that was decided — because the second is the one that
+        // says which Mac to go to, and a phone with several books needs it.
         let me = label ?? code
-        let chain = "\(me) on \(rootLabel ?? code)’s chain"
-        guard let joinedAt else { return chain }
-        return "\(chain) since \(Self.dayFormatter.string(from: joinedAt))"
+        let startedOn = "Started on \(rootLabel ?? code)."
+        guard let joinedAt else { return "In this book as \(me). \(startedOn)" }
+        return "In this book as \(me) since "
+            + "\(Self.dayFormatter.string(from: joinedAt)). \(startedOn)"
     }
 
     // MARK: - What retirement means, on the machine that did it

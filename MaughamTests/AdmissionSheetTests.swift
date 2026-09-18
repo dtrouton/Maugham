@@ -119,7 +119,9 @@ final class AdmissionSheetTests: XCTestCase {
         let window = mount(request(), refusal: sentence)
         let texts = try axTexts(in: window)
 
-        XCTAssertTrue(texts.contains { $0.contains("root") },
+        // In the writer's words, not the registry's (Denver's wording ruling,
+        // 2026-09-18): the refusal says where to go, not what a root is.
+        XCTAssertTrue(texts.contains { $0.contains("started on") },
                       "the sheet stays up carrying what went wrong: \(texts)")
         XCTAssertTrue(try axButtonLabels(in: window).contains(AdmissionSheet.admitTitle),
                       "and the writer can try again")
