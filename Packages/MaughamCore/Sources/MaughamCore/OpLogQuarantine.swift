@@ -137,8 +137,26 @@ public enum RevocationSplit {
         /// Lines this Mac had already applied. Re-settled `.verified` and
         /// parsed with the rest of the file.
         public let readmitted: [Data]
-        /// Lines written after the door closed. Set aside, under the one cause
-        /// a revocation has.
+        /// Every line that stays set aside — and **not one cause, but every
+        /// cause the walk met in this file** (find-5 review, the Critical; this
+        /// comment claimed the narrow thing until 2026-09-18).
+        ///
+        /// Most of these are what the device wrote after the door closed, which
+        /// is what a revocation is about. The rest never were: a line refused
+        /// for a broken chain, for a truncation, as another claimant's, or as
+        /// written after a retirement is **not a candidate at all** — it is
+        /// dropped in here by the first guard in `partition`, whatever opId it
+        /// carries — and so is a candidate whose own person's revocation
+        /// recorded no mark, and a line with no op before it whose position
+        /// cannot be established.
+        ///
+        /// A reader that treats this array as *the revocation's leavings* will
+        /// re-open the Critical the guard closed: `Verification.quarantineCause`
+        /// answers one cause for a whole FILE and answers the FIRST one met, so
+        /// a splice sitting after a revoked seal wore the revocation's name and
+        /// was filed, and counted, as something the revocation had done. **Each
+        /// line's own `refusal` is the only thing that says why it is here**;
+        /// anything narrating this array must ask it per line.
         public let refused: [Data]
 
         public init(readmitted: [Data], refused: [Data]) {
