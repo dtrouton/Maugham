@@ -470,15 +470,41 @@ public enum OpLogChain {
         public let bytes: Data
         public let kind: Kind
         public private(set) var state: State
+        /// **Why THIS line was refused** — nil unless it is `.quarantined`
+        /// (find-5 review, the Critical).
+        ///
+        /// `Verification.quarantineCause` is one cause for a whole file, and it
+        /// is the FIRST one the walk met: a `broke(_:)` after a revoked seal
+        /// leaves the revocation standing as the file's cause while every line
+        /// after the splice is refused for the break. Any rule that reads the
+        /// file's cause and then decides about a LINE is therefore reading an
+        /// answer to a different question — which is how a spliced line came to
+        /// be re-admitted into a manuscript on the strength of an op id its own
+        /// forger chose, `highestOpIdSeen` being a number every device can read
+        /// out of a signed record.
+        ///
+        /// So the reason travels with the line. A line refused for a chain
+        /// fault, a truncation, another claimant's root or a retirement is
+        /// never a candidate for anything a revocation may keep, whatever its
+        /// op id says.
+        public private(set) var refusal: QuarantineCause?
 
-        public init(bytes: Data, kind: Kind, state: State) {
+        public init(
+            bytes: Data, kind: Kind, state: State, refusal: QuarantineCause? = nil
+        ) {
             self.bytes = bytes
             self.kind = kind
             self.state = state
+            self.refusal = refusal
         }
 
-        /// Only the walk in this file promotes a span when its seal arrives.
-        fileprivate mutating func settle(_ state: State) { self.state = state }
+        /// Only the walk in this file promotes a span when its seal arrives,
+        /// and only it re-admits one. `because` is the refusal the new state
+        /// carries: a line that stops being quarantined stops having a reason.
+        fileprivate mutating func settle(_ state: State, because cause: QuarantineCause? = nil) {
+            self.state = state
+            self.refusal = state == .quarantined ? cause : nil
+        }
     }
 
     /// Why the walk stopped. `lineIndex` indexes `Verification.lines` — blank
@@ -681,13 +707,18 @@ public enum OpLogChain {
         for (index, line) in lineData.enumerated() {
             let kind: Line.Kind = isSealLine(line) ? .seal : .op
 
-            if breakReason != nil {
-                lines.append(Line(bytes: line, kind: kind, state: .quarantined))
+            if let breakReason {
+                // Everything after a break is refused for that break, whatever
+                // the file's own first cause was.
+                lines.append(Line(bytes: line, kind: kind, state: .quarantined,
+                                  refusal: .chainBroke(breakReason)))
                 continue
             }
             if reachedRememberedHead {
-                broke(.afterRememberedHead(lineIndex: index))
-                lines.append(Line(bytes: line, kind: kind, state: .quarantined))
+                let reason = BreakReason.afterRememberedHead(lineIndex: index)
+                broke(reason)
+                lines.append(Line(bytes: line, kind: kind, state: .quarantined,
+                                  refusal: .chainBroke(reason)))
                 continue
             }
             // A tear is only ever the LAST line — a write that stopped
@@ -708,16 +739,20 @@ public enum OpLogChain {
                     // any other, and breaks.
                     let expected = head ?? genesis
                     guard declared == expected else {
-                        broke(.prevMismatch(lineIndex: index))
-                        lines.append(Line(bytes: line, kind: kind, state: .quarantined))
+                        let reason = BreakReason.prevMismatch(lineIndex: index)
+                        broke(reason)
+                        lines.append(Line(bytes: line, kind: kind, state: .quarantined,
+                                          refusal: .chainBroke(reason)))
                         continue
                     }
                     sawChainOrSeal = true
                     lines.append(Line(bytes: line, kind: kind, state: .unsealed))
                 } else {
                     guard !sawChainOrSeal else {
-                        broke(.unchainedAfterChain(lineIndex: index))
-                        lines.append(Line(bytes: line, kind: kind, state: .quarantined))
+                        let reason = BreakReason.unchainedAfterChain(lineIndex: index)
+                        broke(reason)
+                        lines.append(Line(bytes: line, kind: kind, state: .quarantined,
+                                          refusal: .chainBroke(reason)))
                         continue
                     }
                     lines.append(Line(bytes: line, kind: kind, state: .legacy))
@@ -725,21 +760,27 @@ public enum OpLogChain {
 
             case .seal:
                 guard let seal = Seal.parse(line) else {
-                    broke(.sealSignatureInvalid(lineIndex: index))
-                    lines.append(Line(bytes: line, kind: kind, state: .quarantined))
+                    let reason = BreakReason.sealSignatureInvalid(lineIndex: index)
+                    broke(reason)
+                    lines.append(Line(bytes: line, kind: kind, state: .quarantined,
+                                      refusal: .chainBroke(reason)))
                     continue
                 }
                 // Deliberately NOT `head ?? genesis`: a seal must follow at
                 // least one line, so a seal as the first line of a file has
                 // nothing to seal and names a head that was never reached.
                 guard seal.head == head else {
-                    broke(.sealHeadMismatch(lineIndex: index))
-                    lines.append(Line(bytes: line, kind: kind, state: .quarantined))
+                    let reason = BreakReason.sealHeadMismatch(lineIndex: index)
+                    broke(reason)
+                    lines.append(Line(bytes: line, kind: kind, state: .quarantined,
+                                      refusal: .chainBroke(reason)))
                     continue
                 }
                 guard seal.verifies() else {
-                    broke(.sealSignatureInvalid(lineIndex: index))
-                    lines.append(Line(bytes: line, kind: kind, state: .quarantined))
+                    let reason = BreakReason.sealSignatureInvalid(lineIndex: index)
+                    broke(reason)
+                    lines.append(Line(bytes: line, kind: kind, state: .quarantined,
+                                      refusal: .chainBroke(reason)))
                     continue
                 }
                 let verdict = trust(seal.key)
@@ -751,10 +792,14 @@ public enum OpLogChain {
                 if settled == .quarantined, cause == nil {
                     cause = verdict.refusal
                 }
+                // The verdict's own words, on every line the seal covers AND
+                // on the seal itself: what refused them is the key, not a break.
+                let sealRefusal = settled == .quarantined ? verdict.refusal : nil
                 for covered in spanStart..<index where lines[covered].state == .unsealed {
-                    lines[covered].settle(settled)
+                    lines[covered].settle(settled, because: sealRefusal)
                 }
-                lines.append(Line(bytes: line, kind: kind, state: settled))
+                lines.append(Line(bytes: line, kind: kind, state: settled,
+                                  refusal: sealRefusal))
                 sawChainOrSeal = true
                 spanStart = index + 1
             }
@@ -1026,14 +1071,17 @@ extension OpLogChain {
     private nonisolated static func quarantining(
         _ verification: Verification, after anchor: Int
     ) -> Verification {
+        let cutShort = BreakReason.cutShortBeforeRememberedHead(lineIndex: anchor + 1)
         var lines = verification.lines
         for index in (anchor + 1)..<lines.count {
-            lines[index].settle(.quarantined)
+            // Refused by the TRUNCATION, not by whatever the file's first cause
+            // was: these lines are held back because this device cannot vouch
+            // for anything past the last seal it trusts, and no op id talks one
+            // of them back in (find-5 review, the Critical's second route).
+            lines[index].settle(.quarantined, because: .chainBroke(cutShort))
         }
 
         let counted = tallies(of: lines)
-
-        let cutShort = BreakReason.cutShortBeforeRememberedHead(lineIndex: anchor + 1)
         return Verification(
             lines: lines,
             head: lineHash(lines[anchor].bytes),

@@ -494,7 +494,7 @@ final class OpLogQuarantineTests: XCTestCase {
             lines, cause: .chainBroke(.prevMismatch(lineIndex: 0)))
 
         XCTAssertNil(RevocationSplit.partition(
-            of: verification, highestOpIdSeen: mark))
+            of: verification, highestOpIdSeen: { _ in mark }))
     }
 
     /// **The default revocation keeps what this Mac had already applied.** The
@@ -510,7 +510,7 @@ final class OpLogQuarantineTests: XCTestCase {
         let split = RevocationSplit.partition(
             of: quarantinedVerification(
                 [before, atTheMark, after], cause: .afterRevocation(person: "aaaa")),
-            highestOpIdSeen: mark)
+            highestOpIdSeen: { _ in mark })
 
         XCTAssertEqual(split?.readmitted, [before, atTheMark],
                        "the mark itself is an op this Mac HAD applied — the smoke's "
@@ -532,7 +532,7 @@ final class OpLogQuarantineTests: XCTestCase {
         let split = RevocationSplit.partition(
             of: quarantinedVerification(
                 [op1, seal1, op2, seal2], cause: .afterRevocation(person: "aaaa")),
-            highestOpIdSeen: mark)
+            highestOpIdSeen: { _ in mark })
 
         XCTAssertEqual(split?.readmitted, [op1, seal1])
         XCTAssertEqual(split?.refused, [op2, seal2])
@@ -548,7 +548,7 @@ final class OpLogQuarantineTests: XCTestCase {
         let split = RevocationSplit.partition(
             of: quarantinedVerification(
                 [unplaceable, late], cause: .afterRevocation(person: "aaaa")),
-            highestOpIdSeen: mark)
+            highestOpIdSeen: { _ in mark })
 
         XCTAssertEqual(split?.refused, [unplaceable])
         XCTAssertEqual(split?.readmitted, [late])
@@ -564,7 +564,7 @@ final class OpLogQuarantineTests: XCTestCase {
         let split = RevocationSplit.partition(
             of: quarantinedVerification(
                 [op1, seal1], cause: .afterRevocation(person: "aaaa")),
-            highestOpIdSeen: mark)
+            highestOpIdSeen: { _ in mark })
 
         XCTAssertEqual(split?.readmitted, [op1, seal1])
         XCTAssertEqual(split?.refused, [])
@@ -580,7 +580,62 @@ final class OpLogQuarantineTests: XCTestCase {
             of: quarantinedVerification(
                 [opLine("01K5Q8ZJ3M0000000000000001")],
                 cause: .afterRevocation(person: "aaaa")),
-            highestOpIdSeen: nil))
+            highestOpIdSeen: { _ in nil }))
+    }
+
+    /// **A line refused for something OTHER than the revocation is never a
+    /// candidate, whatever its op id** (find-5 review, the Critical) — the
+    /// planted offender for the per-line rule, at the layer that makes the
+    /// decision.
+    ///
+    /// The file's own cause is the revocation, because that is the first thing
+    /// the walk met; the splice after it is refused for the break. A rule
+    /// reading the FILE's cause sees one revoked span and puts the forgery
+    /// back.
+    func test_alineRefusedForABreakIsNoCandidateHoweverLowItsOpId() {
+        let honest = opLine("01K5Q8ZJ3M0000000000000001")
+        let forged = opLine("01K5Q8ZJ3M0000000000000002")
+
+        let split = RevocationSplit.partition(
+            of: quarantinedVerification(
+                [(honest, .afterRevocation(person: "aaaa")),
+                 (forged, .chainBroke(.prevMismatch(lineIndex: 2)))],
+                fileCause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: { _ in mark })
+
+        XCTAssertEqual(split?.readmitted, [honest])
+        XCTAssertEqual(split?.refused, [forged],
+                       "no op id talks a spliced line back into the manuscript")
+    }
+
+    /// And a seal never travels across one: the line before it was refused for
+    /// the break, so there is no revoked op for it to follow.
+    func test_asealAfterANonCandidateDoesNotTravelIntoTheKeptHalf() {
+        let honest = opLine("01K5Q8ZJ3M0000000000000001")
+        let forged = opLine("01K5Q8ZJ3M0000000000000002")
+        let seal = Data(#"{"seal":{"key":"aaaa"}}"#.utf8)
+
+        let split = RevocationSplit.partition(
+            of: quarantinedVerification(
+                [(honest, .afterRevocation(person: "aaaa")),
+                 (forged, .chainBroke(.prevMismatch(lineIndex: 2))),
+                 (seal, .afterRevocation(person: "aaaa"))],
+                fileCause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: { _ in mark })
+
+        XCTAssertEqual(split?.readmitted, [honest])
+        XCTAssertEqual(split?.refused, [forged, seal])
+    }
+
+    /// Nothing at all is refused for a revocation: there is no cut to make, and
+    /// the walk is left exactly as it was found.
+    func test_afileWithNoRevokedLineIsNotPartitionedAtAll() {
+        XCTAssertNil(RevocationSplit.partition(
+            of: quarantinedVerification(
+                [(opLine("01K5Q8ZJ3M0000000000000001"),
+                  .chainBroke(.prevMismatch(lineIndex: 0)))],
+                fileCause: .afterRevocation(person: "aaaa")),
+            highestOpIdSeen: { _ in mark }))
     }
 
     /// The old two-group rule's own fixture, restated as the partition (the
@@ -596,7 +651,7 @@ final class OpLogQuarantineTests: XCTestCase {
         let split = RevocationSplit.partition(
             of: quarantinedVerification(
                 [unplaceable, late, after], cause: .afterRevocation(person: "aaaa")),
-            highestOpIdSeen: mark)
+            highestOpIdSeen: { _ in mark })
 
         XCTAssertEqual(split?.refused, [unplaceable, after])
         XCTAssertEqual(split?.readmitted, [late])
@@ -612,11 +667,24 @@ final class OpLogQuarantineTests: XCTestCase {
     private func quarantinedVerification(
         _ lines: [Data], cause: OpLogChain.QuarantineCause
     ) -> OpLogChain.Verification {
+        quarantinedVerification(lines.map { ($0, cause) }, fileCause: cause)
+    }
+
+    /// Lines refused for DIFFERENT reasons in one file — the shape the walk
+    /// really produces when a splice follows a revoked seal, and the one the
+    /// file-level cause cannot describe.
+    private func quarantinedVerification(
+        _ lines: [(Data, OpLogChain.QuarantineCause)],
+        fileCause: OpLogChain.QuarantineCause
+    ) -> OpLogChain.Verification {
         OpLogChain.Verification(
-            lines: lines.map { OpLogChain.Line(bytes: $0, kind: .op, state: .quarantined) },
+            lines: lines.map {
+                OpLogChain.Line(bytes: $0.0, kind: .op, state: .quarantined,
+                                refusal: $0.1)
+            },
             head: nil, legacyCount: 0, verifiedCount: 0, unsealedCount: 0,
-            pendingCount: 0, foreignSealCount: 0, quarantined: lines,
-            breakReason: nil, quarantineCause: cause)
+            pendingCount: 0, foreignSealCount: 0, quarantined: lines.map(\.0),
+            breakReason: nil, quarantineCause: fileCause)
     }
 }
 

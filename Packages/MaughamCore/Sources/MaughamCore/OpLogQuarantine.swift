@@ -167,27 +167,52 @@ public enum RevocationSplit {
     /// wrong on. The span that is entirely below the mark falls out of the same
     /// rule with no clause of its own.
     nonisolated public static func partition(
-        of verification: OpLogChain.Verification, highestOpIdSeen: String?
+        of verification: OpLogChain.Verification,
+        highestOpIdSeen mark: (String) -> String?
     ) -> Partition? {
-        guard case .afterRevocation? = verification.quarantineCause,
-              let mark = highestOpIdSeen, !verification.quarantined.isEmpty
-        else { return nil }
+        guard !verification.quarantined.isEmpty else { return nil }
 
         var readmitted: [Data] = []
         var refused: [Data] = []
-        // What the last line carrying an opId decided. Nil until one has been
-        // seen, which is what keeps the head of the span on the strict side.
+        // What the last CANDIDATE line carrying an opId decided. Reset by any
+        // line that is not a candidate, so a seal never travels across one.
         var travellingWith: Bool?
-        for line in verification.quarantined {
+        var sawCandidate = false
+        for line in verification.lines where line.state == .quarantined {
+            // **The refusal is the line's own** (find-5 review, the Critical).
+            // A line refused for a chain fault, a truncation, another
+            // claimant's root or a retirement is not a candidate whatever its
+            // op id, and `Verification.quarantineCause` cannot answer this —
+            // it is one cause for the whole file and it is the FIRST one met,
+            // so a splice after a revoked seal wore the revocation's name.
+            guard case .afterRevocation? = line.refusal else {
+                refused.append(line.bytes)
+                travellingWith = nil
+                continue
+            }
+            // Each line against ITS OWN person's mark, asked per line rather
+            // than resolved once: a file holds one device's writing (ADR 0012),
+            // and a rule that assumed so would be assuming it silently.
+            guard case let .afterRevocation(person) = line.refusal,
+                  let theirMark = mark(person) else {
+                refused.append(line.bytes)
+                travellingWith = nil
+                continue
+            }
+            sawCandidate = true
             let keeps: Bool
-            if let opId = opId(ofLine: line) {
-                keeps = opId <= mark
+            if let opId = opId(ofLine: line.bytes) {
+                keeps = opId <= theirMark
                 travellingWith = keeps
             } else {
+                // A seal travels with the op immediately before it — and only
+                // if that op was itself refused for the revocation, which is
+                // what `travellingWith` being nil records.
                 keeps = travellingWith ?? false
             }
-            if keeps { readmitted.append(line) } else { refused.append(line) }
+            if keeps { readmitted.append(line.bytes) } else { refused.append(line.bytes) }
         }
+        guard sawCandidate else { return nil }
         return Partition(readmitted: readmitted, refused: refused)
     }
 

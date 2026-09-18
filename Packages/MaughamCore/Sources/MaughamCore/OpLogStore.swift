@@ -646,10 +646,9 @@ public final class OpLogStore {
     private nonisolated static func readmittingWhatWasAlreadyApplied(
         _ verification: OpLogChain.Verification, trust: TrustTable?
     ) -> OpLogChain.Verification {
-        guard case let .afterRevocation(person)? = verification.quarantineCause,
-              let split = RevocationSplit.partition(
-                of: verification,
-                highestOpIdSeen: trust?.highestOpIdSeen(forPerson: person))
+        guard let trust, let split = RevocationSplit.partition(
+            of: verification,
+            highestOpIdSeen: { trust.highestOpIdSeen(forPerson: $0) })
         else { return verification }
         return OpLogChain.readmitting(verification, lines: split.readmitted)
     }

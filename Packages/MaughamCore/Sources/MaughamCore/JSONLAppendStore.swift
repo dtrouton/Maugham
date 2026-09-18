@@ -226,19 +226,40 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         from fileURL: URL, docId: String, in projectURL: URL
     ) throws -> [QuarantineRecord] {
         guard !verification.quarantined.isEmpty else { return [] }
-        // **One record, one cause** (find 5, ruled 2026-09-18). A revoked span
-        // used to be filed as two groups under two sentences — what the root
-        // had already applied, and what came after — and the gentler half is
-        // not set aside at all any more: `RevocationSplit.partition` re-admits
-        // it before the parse, so what reaches here is the one thing a
-        // revocation refuses. An array is still the answer because a
-        // content-deduped body writes no record, and *wrote nothing* is not
-        // *wrote one*.
+        // **One record per REASON, and the reason is the line's own** (find-5
+        // review, the Critical). A file can hold lines refused for two
+        // different things at once — a revoked seal, and then a splice — and
+        // `quarantineCause` is one cause for the whole file, the FIRST one met.
+        // Filing the splice under *written after this device's access was
+        // withdrawn* would tell the writer their own other Mac wrote something
+        // it never wrote, and leave nothing anywhere saying the file was
+        // tampered with.
+        //
+        // The reason is still DERIVED here and never passed in, which is what
+        // stops two callers filing one event under different words. A line with
+        // no reason of its own — a `Verification` built by hand — falls back to
+        // the file's cause, which is what every single-cause walk produces.
+        var order: [OpLogChain.QuarantineCause?] = []
+        var byReason: [Int: [Data]] = [:]
+        for line in verification.lines where line.state == .quarantined {
+            let reason = line.refusal ?? verification.quarantineCause
+            let slot = order.firstIndex(of: reason) ?? {
+                order.append(reason)
+                return order.count - 1
+            }()
+            byReason[slot, default: []].append(line.bytes)
+        }
+        // EVERY record, not the first of them (fix round 1, Minor 5): a
+        // signature that answered one would under-report what the call did.
+        // Content-deduped bodies answer nil, and those are not records.
         var written: [QuarantineRecord] = []
-        if let record = try OpLogQuarantine.setAsideLines(
-            verification.quarantined, from: fileURL, docId: docId,
-            reason: quarantineReason(verification.quarantineCause), in: projectURL) {
-            written.append(record)
+        for (slot, reason) in order.enumerated() {
+            guard let lines = byReason[slot], !lines.isEmpty else { continue }
+            if let record = try OpLogQuarantine.setAsideLines(
+                lines, from: fileURL, docId: docId,
+                reason: quarantineReason(reason), in: projectURL) {
+                written.append(record)
+            }
         }
         return written
     }

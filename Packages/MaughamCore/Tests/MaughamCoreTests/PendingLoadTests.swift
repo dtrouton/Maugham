@@ -364,6 +364,72 @@ final class PendingLoadTests: XCTestCase {
         XCTAssertEqual(linesRecords(), [], "nothing was set aside, so nothing is filed")
     }
 
+    /// **A forged line in a revoked device's file is never re-admitted, whatever
+    /// op id it claims** (find-5 review, the Critical).
+    ///
+    /// `verify` keeps ONE cause, the first it met, and a `broke(_:)` after a
+    /// revoked seal leaves that cause standing. So a file whose revoked seal
+    /// comes first and whose splice comes later reported `.afterRevocation`
+    /// for the whole refused set — and the cut, which judges by op id alone,
+    /// put a spliced line back in the manuscript as verified text on the
+    /// strength of a number its own forger chose. `highestOpIdSeen` is written
+    /// into a signed record that every device reads, so the number is public.
+    ///
+    /// The refusal has to be a fact about the LINE. This one was refused
+    /// because the chain broke, and no op id can talk it back in.
+    func test_aspliceAfterARevokedSealIsNeverReadmittedHoweverLowItsOpId() async throws {
+        let honest = "01K5Q8ZJ3M0000000000000005"
+        let forged = "01K5Q8ZJ3M0000000000000001"
+        try writeRootRecord()
+        try await writeMyOwnFile(["01K5Q8ZJ3M0000000000000000"])
+        // The revoked device's own file: one honest op, then its seal.
+        try await writeStrangerFile([honest])
+        // …and then something splices a line onto it with a `prev` that is not
+        // the running head, carrying an op id BELOW the mark.
+        try appendForgedLine(opId: forged, onto: honest)
+        try writeStrangerRecord(
+            revokedAt: Date(timeIntervalSince1970: 30), highestOpIdSeen: honest)
+
+        let load = try await reader().loadDiagnosed(docId: docId)
+
+        XCTAssertFalse(load.ops.map(\.opId).contains(forged),
+                       "a spliced line is not this Mac's own history at any op id")
+        XCTAssertEqual(load.ops.map(\.opId),
+                       ["01K5Q8ZJ3M0000000000000000", honest],
+                       "and the honest pre-mark op is still kept — the control, "
+                           + "without which refusing everything would pass this test")
+        XCTAssertEqual(linesRecords().map(\.reason),
+                       ["the history's chain is broken"],
+                       "filed as what it is: \(linesRecords().map(\.reason))")
+    }
+
+    /// Splice a correctly-shaped op onto the stranger's file with a `prev` that
+    /// is not the running head — a line that chains to nothing, which is what
+    /// `BreakReason.prevMismatch` is for.
+    private func appendForgedLine(opId: String, onto marker: String) throws {
+        // The STRANGER's tail, found by the op it holds: `opLogFileURLs` answers
+        // every device's file for this doc, and splicing onto this device's own
+        // would be a different test entirely — a chain break with no revocation
+        // anywhere near it, which is what the first draft of this accidentally
+        // measured.
+        let url = try OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL)
+            .first { candidate in
+                guard candidate.pathExtension == "jsonl" else { return false }
+                guard let bytes = try? Data(contentsOf: candidate) else { return false }
+                return String(decoding: bytes, as: UTF8.self).contains(marker)
+            }
+        let fileURL = try XCTUnwrap(url, "the stranger's tail is on disk")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+        let element = try encoder.encode(op(opId, device: stranger))
+        let line = OpLogChain.chainedLine(
+            elementJSON: element, prev: String(repeating: "0", count: 64))
+        var bytes = try Data(contentsOf: fileURL)
+        bytes.append(line)
+        bytes.append(0x0A)
+        try bytes.write(to: fileURL)
+    }
+
     // MARK: - Retired
 
     /// **A retired device's future is set aside in its own words** (spec §5).
