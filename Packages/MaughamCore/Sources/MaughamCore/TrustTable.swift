@@ -115,6 +115,14 @@ public struct TrustTable: Equatable, Sendable {
 
     /// This device's own actor keys.
     private let mine: Set<String>
+    /// **Who this device IS**, as a person: its own author key's fingerprint,
+    /// because under labels-only a person is a device's author key.
+    ///
+    /// Nil for a device that has never written as `author` at all — an actor
+    /// key exists only once a writer has named it, so a machine that has only
+    /// ever run the rebalance holds no author key and is nobody in particular
+    /// yet. Such a key stands for itself, which is what it did before P3.
+    private let myPerson: String?
     /// Actor key → the device record that names it. One hop, spelled once.
     private let deviceByActorKey: [String: String]
     /// Actor key → WHICH of the four writers it is (P3 spec §2's last
@@ -288,7 +296,8 @@ public struct TrustTable: Equatable, Sendable {
         return TrustTable(
             myRoot: myRoot, ownRootRecord: ownRecord,
             admittingRoots: admittingRoots, adoptedRoots: adoptedRoots,
-            mine: myKeys, deviceByActorKey: deviceByActorKey,
+            mine: myKeys, myPerson: myIdentityByActor[.author]?.fingerprint,
+            deviceByActorKey: deviceByActorKey,
             actorByKey: actorByKey, timelineByPerson: timelineByPerson,
             personByFingerprint: personByFingerprint,
             retiredAtByDevice: retiredAtByDevice, myChain: myChain,
@@ -311,20 +320,14 @@ public struct TrustTable: Equatable, Sendable {
 
     /// What the key that made this seal is to this device.
     ///
-    /// The one mapping worth reading slowly is key → person. A seal is made by
-    /// an ACTOR key; admission is granted to a PERSON; and under labels-only a
-    /// person is a device's author key, which is the device record's own
-    /// `device` field (the reader refuses a record whose `actors["author"]`
-    /// says otherwise). So an actor key finds its device, and the device IS the
-    /// person. A key no device record names might still be a person named
-    /// directly — a root whose device record was never written — so it stands
-    /// for itself.
+    /// The one mapping worth reading slowly is key → person, and since fix
+    /// round 1 it is `owner(ofSealKey:)`'s and not spelled here: a seal is made
+    /// by an ACTOR key, admission is granted to a PERSON, and this device's own
+    /// keys are its own before any record is consulted.
     nonisolated public func verdict(forSealKey fingerprint: String) -> TrustVerdict {
-        if mine.contains(fingerprint) { return .mine }
+        let (person, device, isMine) = owner(ofSealKey: fingerprint)
+        if isMine { return .mine }
         guard myRoot != nil else { return .noChain }
-
-        let device = deviceByActorKey[fingerprint]
-        let person = person(forSealKey: fingerprint)
 
         if myChain.contains(person) {
             if let record = personByFingerprint[person], record.isRevoked {
@@ -344,18 +347,51 @@ public struct TrustTable: Equatable, Sendable {
         return .stranger(device: device)
     }
 
+    // MARK: - Whose a key is — the one resolution
+
+    /// **Who a seal key belongs to, and whether it is this device's own.**
+    ///
+    /// The one place the question is answered, because `verdict` and
+    /// `person(forSealKey:)` answering it separately is a bug rather than a
+    /// duplication (fix round 1, Critical). The order is what matters and it is
+    /// the order `verdict` has always used:
+    ///
+    /// 1. **One of MY keys is MY person**, before any record is consulted. A
+    ///    device record vouches for its own author key and nothing else — the
+    ///    reader checks `actors["author"] == device` and the other three actor
+    ///    fingerprints are unsigned strings anybody's record may list. So an
+    ///    admitted device whose record names one of my actor keys among its own
+    ///    (sorting before mine, or with my own device record not yet written)
+    ///    would otherwise resolve my key to THAT person — `verdict` would still
+    ///    say `.mine` while the permit lookup handed Task 5's partition and
+    ///    Task 8's bootstrap gate somebody else's history to judge my own lines
+    ///    by. What this device's own keys are is something it knows first-hand;
+    ///    that is the same rule `actorByKey` is built under.
+    /// 2. Otherwise the record: an actor key finds its device, and under
+    ///    labels-only the device IS the person (its own `device` field).
+    /// 3. Otherwise the key stands for itself — a person named directly, a root
+    ///    whose device record was never written.
+    ///
+    /// `device` is deliberately the raw join in every case, because it is what
+    /// `.stranger(device:)` counts held lines under and arm 1 cannot be reached
+    /// with a verdict of `.stranger`.
+    nonisolated private func owner(
+        ofSealKey fingerprint: String
+    ) -> (person: String, device: String?, isMine: Bool) {
+        let device = deviceByActorKey[fingerprint]
+        if mine.contains(fingerprint) {
+            return (myPerson ?? fingerprint, device, true)
+        }
+        return (device ?? fingerprint, device, false)
+    }
+
     // MARK: - The permit (P3)
 
-    /// **Whose a seal key is** — key → device → person, the one hop, spelled
-    /// once and shared with `verdict`.
-    ///
-    /// Under labels-only a person IS a device's author key, which is the device
-    /// record's own `device` field, so an actor key finds its device and the
-    /// device is the person. A key no device record names might still be a
-    /// person named directly — a root whose device record was never written —
-    /// so it stands for itself.
+    /// **Whose a seal key is** — `owner`'s answer, which is the same answer
+    /// `verdict` is built on. One of this device's own keys is this device's
+    /// own person, whatever any record says.
     nonisolated public func person(forSealKey fingerprint: String) -> String {
-        deviceByActorKey[fingerprint] ?? fingerprint
+        owner(ofSealKey: fingerprint).person
     }
 
     /// **Which of the four writers made this seal**, or nil where nothing on
@@ -387,8 +423,10 @@ public struct TrustTable: Equatable, Sendable {
 
     /// The same, for a caller holding a seal's key rather than a person.
     ///
-    /// **Including one of this device's own keys.** A second Mac of an admitted
-    /// person answers `.mine` about itself and may perfectly well be a
+    /// **Including one of this device's own keys**, and safely: the key
+    /// resolves through `owner(ofSealKey:)`, so a key of mine is MY person's
+    /// history and no record can make it somebody else's. A second Mac of an
+    /// admitted person answers `.mine` about itself and may perfectly well be a
     /// reviewer — the verdict says whose hand a line is, and this says what
     /// that hand was allowed to write. A keyless book resolves through
     /// `TrustResolution.keyless`, whose registry is empty, so every key here

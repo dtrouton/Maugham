@@ -885,6 +885,64 @@ final class TrustTableTests: XCTestCase {
         XCTAssertNil(table.actor(forSealKey: itsFifth))
     }
 
+    /// **A foreign record cannot make one of my keys somebody else's PERSON**
+    /// (fix round 1, Critical).
+    ///
+    /// A device record vouches for its own author key and nothing else: the
+    /// reader checks `actors["author"] == device`, and the other three actor
+    /// fingerprints are unsigned strings any record may list. So an admitted
+    /// device can name one of MY actor keys among its own and — with my device
+    /// record not yet written, or its fingerprint sorting first — win the
+    /// key→device join. `verdict` was always safe, because it asks `mine`
+    /// first; a permit lookup that did the bare join was not, and it would
+    /// have handed Task 5's partition and Task 8's bootstrap gate somebody
+    /// else's permit history to judge THIS device's own lines by.
+    func test_aForeignRecordCannotMakeMyOwnKeySomebodyElsesPerson() {
+        let liar = foreignKey()
+        let root = mine.author.fingerprint
+        let registry = Registry(
+            devices: [deviceRecord(
+                liar, actors: [DeviceActor.translator.rawValue:
+                                mine.assistant.fingerprint])],
+            people: [rootRecord(root), admittedRecord(liar, under: root)],
+            events: [permitEvent("a", subject: liar, by: root)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.timeline(forPerson: liar).current, .reviewer,
+                       "the liar really is a reviewer — that is what makes this bite")
+        XCTAssertEqual(table.verdict(forSealKey: mine.assistant.fingerprint), .mine)
+        XCTAssertEqual(table.person(forSealKey: mine.assistant.fingerprint), root,
+                       "my key is my person, whatever a record says")
+        XCTAssertEqual(table.timeline(forSealKey: mine.assistant.fingerprint),
+                       .bookAuthor,
+                       "and so my own lines are judged under my own permit")
+    }
+
+    /// The verdict and the permit lookup cannot disagree about who a key is,
+    /// because they are one resolution: every key this device holds answers
+    /// `.mine` AND this device's own person, in the same book as the liar.
+    func test_theVerdictAndTheLookupAgreeAboutEveryKeyIHold() {
+        let liar = foreignKey()
+        let root = mine.author.fingerprint
+        let registry = Registry(
+            devices: [deviceRecord(liar, actors: Dictionary(
+                uniqueKeysWithValues: mine.existingActors.map {
+                    ($0 == .author ? "illustrator" : $0.rawValue, mine[$0].fingerprint)
+                }))],
+            people: [rootRecord(root), admittedRecord(liar, under: root)],
+            events: [permitEvent("a", subject: liar, by: root)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        for actor in mine.existingActors {
+            let key = mine[actor].fingerprint
+            XCTAssertEqual(table.verdict(forSealKey: key), .mine, "\(actor)")
+            XCTAssertEqual(table.person(forSealKey: key), root, "\(actor)")
+            XCTAssertEqual(table.timeline(forSealKey: key), .bookAuthor, "\(actor)")
+        }
+    }
+
     /// A foreign device record naming one of MY keys as one of its actors must
     /// not decide what my key is for. What this device's own keys are for is
     /// something it knows first-hand.

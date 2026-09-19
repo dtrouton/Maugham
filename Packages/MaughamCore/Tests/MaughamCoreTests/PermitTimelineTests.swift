@@ -93,6 +93,24 @@ final class PermitTimelineTests: XCTestCase {
         XCTAssertEqual(Permit.parse(role: "reviewer", scope: nil, pieces: nil), .reviewer)
     }
 
+    /// A reviewer has no scope: the rung is *annotations and inbox rows*
+    /// wherever they are, so a scope word and a piece list beside it are
+    /// ignored rather than narrowing anything. Pinned because both fields are
+    /// written on every record and a reader that let them through would
+    /// silently invent a rung the ladder does not have.
+    func test_aReviewersScopeAndPiecesAreIgnored() {
+        XCTAssertEqual(
+            Permit.parse(role: "reviewer", scope: "pieces", pieces: ["d-one"]),
+            .reviewer)
+        XCTAssertEqual(
+            Permit.parse(role: "reviewer", scope: "book", pieces: ["d-one", "d-two"]),
+            .reviewer)
+        XCTAssertEqual(
+            Permit.parse(role: "reviewer", scope: "chapters", pieces: nil),
+            .unjudgeable(raw: "chapters"),
+            "a scope word this build does not know is still not understood")
+    }
+
     /// An older Mac must not quarantine what a newer one would apply, so a word
     /// this build does not know is `.unjudgeable` — which the table answers
     /// *cannot judge* and the reader holds PENDING.
@@ -169,6 +187,35 @@ final class PermitTimelineTests: XCTestCase {
         ])
 
         XCTAssertEqual(permits(of: timeline), Array(repeating: .reviewer, count: 8))
+    }
+
+    /// **Marks out of order: the NEWEST entry that says *new* governs.**
+    ///
+    /// Marks are monotonic by construction — each is computed from what the
+    /// root had applied at the moment it made the event, so a later one covers
+    /// at least what an earlier one did. That is a WRITE-side invariant
+    /// (`RegistryAdmission.changePermit`, Task 7), and nothing here can check
+    /// it: the timeline reads whatever the folder holds. So the rule is stated
+    /// for the case it does not expect, and it is deterministic rather than
+    /// clever — walk newest to oldest, take the first entry whose mark judges
+    /// the line new. Here the second event's mark cuts EARLIER than the first's
+    /// and therefore governs everything after it, the first event's permit
+    /// never applying to a line at all.
+    func test_aMarkThatCutsEarlierThanAnOlderOneStillGoverns() {
+        let timeline = PermitTimeline(events: [
+            event("a", kind: .roleChanged, role: Permit.reviewerRole,
+                  mark: mark(after: 4)),
+            event("b", kind: .scopeChanged, scope: Permit.piecesScope,
+                  pieces: ["d-chapter-4"], mark: mark(after: 1)),
+        ])
+
+        let pieces = Permit.author(.pieces(["d-chapter-4"]))
+        XCTAssertEqual(permits(of: timeline), [
+            .author(.book), .author(.book),
+            pieces, pieces, pieces, pieces, pieces, pieces,
+        ])
+        XCTAssertFalse(permits(of: timeline).contains(.reviewer),
+                       "line 3 is NEW under b's mark and OLD under a's — b is newer")
     }
 
     // MARK: - Which kinds install a permit
