@@ -58,7 +58,9 @@ P2's mark is one opId per person (`highestOpIdSeen`). **P3's marks are not that*
 - An opId carries a timestamp **its own writer chooses** — a demoted author could stamp new text with an old id and slip under the mark.
 - Fixing that with each device's own memory makes a fresh Mac (no memory) apply what the root's Mac refused: divergence.
 
-So a mark is **chain positions, from shared data**: a map from each of the subject's op-log files the root has seen (by filename — `<docId>.<slug>.jsonl`, the translation and inbox streams likewise) to the **digest of the last line the root applied** in that file's chain. A line is judged under the OLD permit iff it sits at or before the marked position in its file's chain (segments then tail, in order); everything after it, and every file the mark does not name, is judged under the NEW permit. Every device computes the same answer; backdating buys nothing.
+So a mark is **chain positions, from shared data**. Verified against the code 2026-09-19, and it shapes the format: **each file is its own chain** — `classify` yields one `Verification` per file, and after a rotation the new tail's first line links to `genesis`, not to the segment's last line (`sealTailIfNeeded` copies the whole tail into a segment and deletes it). So *position in the file* cannot be keyed by filename (the marked line MOVES from the tail into a segment at the next rotation) and cannot be ordered across files by anything the writer does not control (a segment index is a filename).
+
+A mark is therefore, per STREAM of the subject's (`<docId>.<slug>`, and the translation and inbox streams likewise), two things the root saw: **the digest of every whole segment it had applied**, and **the `OpLogChain.lineHash` of the last line it applied**. Judging a file: a segment whose digest the mark lists is wholly under the OLD permit; the file that CONTAINS the marked line hash (the tail then, some later segment now — a line's hash covers its `prev`, so it is unique in its chain) is old up to and including that line and new after it; every other file, and every stream the mark does not name, is under the NEW permit. Every device computes the same answer from the same bytes; backdating an opId, renumbering a segment or rewriting one buys nothing.
 
 Honest late sync — her offline second Mac's writing from before the change — lands as *after the mark* and is refused, with the inbox door (§7.4). That is ruling 1's choice, applied uniformly to every kind of mark.
 
@@ -84,7 +86,7 @@ Revocation events carry the map too. `highestOpIdSeen` stays on the person recor
 
 `PermitPartition` — pure, modelled on `RevocationSplit.partition`: verified lines + the signer's `PermitTimeline` + the file's `DocumentClass` → *applied* / *refused, with a cause per line*. It runs where `RevocationSplit` runs, in **both** classify paths (`loadFileDiagnosed` and `loadSyncMerged`), and in the translation and inbox streams.
 
-- **The translation stream joins the trust table.** `TranslationStore.appendBatch`/`loadMerged` pass a `keyless` closure today, so a stranger's translation lines get no verdict at all. The translator row is unenforceable until that stream resolves through `TrustTable`. (Found in design; not in the handoff.)
+- **The translation and inbox streams run the same partition.** (Corrected 2026-09-19 against the code: `TranslationStore.loadMerged` ALREADY resolves a real `TrustTable`; only `appendBatch`'s write-side closure is keyless, which is the sanctioned must-not-widen-past-my-own-hand shape of tripwire 39, as is the phone's default `ChainPolicy` closure. So nothing "joins" the table — the read paths gain the partition, and the write paths are left alone.)
 - **Line by line** (ruling, amending parent §4.9). Ops are independent; a note anchored to a set-aside paragraph falls to the staleness handling that already exists; the revocation split already applies part of a span.
 
 ### 4.4 Refusal
@@ -196,11 +198,11 @@ One Core value, **`Posture`**, derived from *this device's own permit for the do
 
 A Mac+phone **paired release** — a check that changes what a reader APPLIES. No new `OpKind` is expected (events are registry records, not ops); whether the schema version moves is confirmed at the P3a plan. The milestone ships whole: slices land on main, nothing is pushed as a release until P3c's smoke.
 
-- **P3a — the permit, enforced.** Events + marks + `changePermit` (§3, §6); the timeline; the table and partition (§4.1–4.4); the translation stream on the trust table; foreign heads (§4.7); the load seam (§4.6). Carries: C6, C8, C9 (measure the main-thread resolves — the partition adds to them).
+- **P3a — the permit, enforced.** Events + marks + `changePermit` (§3, §6); the timeline; the table and partition (§4.1–4.4), including §4.5's pending-vs-set-aside RULE (the question's surface is P3b's); the partition in the translation and inbox read paths; foreign heads (§4.7); the load seam (§4.6). Carries: C8, C9 (measure the main-thread resolves — the partition adds to them). **P3a is behaviour-neutral for every existing book**: no events ⇒ everyone is an author of the whole book ⇒ the P2 suite passes untouched.
 - **P3b — scope's lifecycle and the Mac's surfaces.** §4.5, §7 entire. Carries: C1, C2, C11, C13 (reproduce the blank window — History's set-aside disclosure is being touched anyway), C15, C16.
 - **P3c — the collaborator.** §8, §9, §10. Carries: C4, C5, C7, C10 + C17 (one fixture factory and its census), C12, C14 (tripwire 33's click arm). Then the smoke and the release.
 
-**Dropped on merit:** C3 (History's Project block interleaved by date) — nobody has asked for it and the event records make the block more useful as a block.
+**Dropped on merit:** C6 — verified 2026-09-19: the cache route is already lazy and pinned (`RegistryCacheTests.test_aProjectWithNoRegistryNeverReachesForTheEnclave`), and the mint that remains at project open is `RegistryPresence`'s, commented *MINTS, and should*. C3 (History's Project block interleaved by date) — nobody has asked for it and the event records make the block more useful as a block.
 
 ## 14. Out of scope
 
