@@ -754,6 +754,7 @@ struct PeopleAndDevicesModel: Equatable {
         case .people: return "person"
         case .devices: return "device"
         case .claims: return "claim"
+        case .events: return "permit event"
         }
     }
 

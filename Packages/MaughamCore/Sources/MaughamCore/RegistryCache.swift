@@ -8,7 +8,7 @@ private let registryCacheLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.core",
     category: "RegistryCache")
 
-/// Which record, in which of the registry's three directories. A pair rather
+/// Which record, in which of the registry's directories. A pair rather
 /// than a URL, so a surface can name a record that no longer has a file.
 ///
 /// Deliberately not `Codable`: what is persisted is the record's own bytes
@@ -634,6 +634,7 @@ public final class RegistryCache: @unchecked Sendable {
         var devices = folder.devices
         var people = folder.people
         var claims = folder.claims
+        var events = folder.events
         var sourceBytes = folder.sourceBytes
 
         for entry in Self.entries(of: cached) {
@@ -650,7 +651,7 @@ public final class RegistryCache: @unchecked Sendable {
                     in: projectURL, presenter: presenter))
                 removed.append(ref)
                 sourceBytes[ref] = bytes
-                Self.take(ref, from: cached, into: &devices, &people, &claims)
+                Self.take(ref, from: cached, into: &devices, &people, &claims, &events)
                 continue
             }
 
@@ -682,15 +683,16 @@ public final class RegistryCache: @unchecked Sendable {
 
             displaced.append(.signerChanged(
                 ref, expected: mine, found: theirs, in: projectURL))
-            Self.drop(ref, from: &devices, &people, &claims)
+            Self.drop(ref, from: &devices, &people, &claims, &events)
             sourceBytes[ref] = entry.bytes
-            Self.take(ref, from: cached, into: &devices, &people, &claims)
+            Self.take(ref, from: cached, into: &devices, &people, &claims, &events)
         }
 
         let resolved = Registry(
             devices: devices.sorted { $0.device < $1.device },
             people: people.sorted { $0.person < $1.person },
             claims: claims.sorted { $0.newRoot < $1.newRoot },
+            events: events.sorted { $0.event < $1.event },
             malformed: (folder.malformed + displaced).sorted { $0.url.path < $1.url.path },
             sourceBytes: sourceBytes)
         remember(Self.canonical(Self.entries(of: resolved) + preserved),
@@ -714,6 +716,8 @@ public final class RegistryCache: @unchecked Sendable {
             return registry.people.first { $0.person == ref.fingerprint }?.sig?.key
         case .claims:
             return registry.claims.first { $0.newRoot == ref.fingerprint }?.sig?.key
+        case .events:
+            return registry.events.first { $0.event == ref.fingerprint }?.sig?.key
         }
     }
 
@@ -721,7 +725,7 @@ public final class RegistryCache: @unchecked Sendable {
     private static func take(
         _ ref: RecordRef, from cached: Registry,
         into devices: inout [DeviceRecord], _ people: inout [PersonRecord],
-        _ claims: inout [ClaimRecord]
+        _ claims: inout [ClaimRecord], _ events: inout [PermitEvent]
     ) {
         switch ref.directory {
         case .devices:
@@ -736,6 +740,10 @@ public final class RegistryCache: @unchecked Sendable {
             if let record = cached.claims.first(where: { $0.newRoot == ref.fingerprint }) {
                 claims.append(record)
             }
+        case .events:
+            if let record = cached.events.first(where: { $0.event == ref.fingerprint }) {
+                events.append(record)
+            }
         }
     }
 
@@ -744,12 +752,14 @@ public final class RegistryCache: @unchecked Sendable {
     /// storage are somebody else's to explain.
     private static func drop(
         _ ref: RecordRef, from devices: inout [DeviceRecord],
-        _ people: inout [PersonRecord], _ claims: inout [ClaimRecord]
+        _ people: inout [PersonRecord], _ claims: inout [ClaimRecord],
+        _ events: inout [PermitEvent]
     ) {
         switch ref.directory {
         case .devices: devices.removeAll { $0.device == ref.fingerprint }
         case .people: people.removeAll { $0.person == ref.fingerprint }
         case .claims: claims.removeAll { $0.newRoot == ref.fingerprint }
+        case .events: events.removeAll { $0.event == ref.fingerprint }
         }
     }
 
@@ -765,6 +775,7 @@ public final class RegistryCache: @unchecked Sendable {
         entries.append(contentsOf: registry.devices.compactMap { entry(of: $0, in: registry) })
         entries.append(contentsOf: registry.people.compactMap { entry(of: $0, in: registry) })
         entries.append(contentsOf: registry.claims.compactMap { entry(of: $0, in: registry) })
+        entries.append(contentsOf: registry.events.compactMap { entry(of: $0, in: registry) })
         return entries
     }
 
@@ -816,6 +827,7 @@ public final class RegistryCache: @unchecked Sendable {
         registry.devices.map { RecordRef(directory: .devices, fingerprint: $0.device) }
             + registry.people.map { RecordRef(directory: .people, fingerprint: $0.person) }
             + registry.claims.map { RecordRef(directory: .claims, fingerprint: $0.newRoot) }
+            + registry.events.map { RecordRef(directory: .events, fingerprint: $0.event) }
     }
 
     /// The remembered entries, decoded back into a registry. Nothing is
@@ -829,6 +841,7 @@ public final class RegistryCache: @unchecked Sendable {
         var devices: [DeviceRecord] = []
         var people: [PersonRecord] = []
         var claims: [ClaimRecord] = []
+        var events: [PermitEvent] = []
         // The remembered bytes travel back out with the records they decode to,
         // so a registry that came from this memory is as byte-faithful as one
         // that came from the folder — and remembering it again keeps the same
@@ -841,6 +854,7 @@ public final class RegistryCache: @unchecked Sendable {
                 case .devices: devices.append(try decoder.decode(DeviceRecord.self, from: entry.bytes))
                 case .people: people.append(try decoder.decode(PersonRecord.self, from: entry.bytes))
                 case .claims: claims.append(try decoder.decode(ClaimRecord.self, from: entry.bytes))
+                case .events: events.append(try decoder.decode(PermitEvent.self, from: entry.bytes))
                 }
                 sourceBytes[RecordRef(directory: directory,
                                       fingerprint: entry.fingerprint)] = entry.bytes
@@ -855,6 +869,7 @@ public final class RegistryCache: @unchecked Sendable {
             devices: devices.sorted { $0.device < $1.device },
             people: people.sorted { $0.person < $1.person },
             claims: claims.sorted { $0.newRoot < $1.newRoot },
+            events: events.sorted { $0.event < $1.event },
             sourceBytes: sourceBytes)
     }
 

@@ -705,6 +705,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
         ["trusted: {", "trustedFingerprints",
          "identities.fingerprints", ".fingerprints.contains",
          "\".maugham/devices", "\".maugham/people", "\".maugham/claims",
+         "maugham/events", "PathComponent(\"events",
          "digestHex(ofRecord:", "RegistryWriter.url("]
     }
 
@@ -745,6 +746,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
         let stale = policy.trustedFingerprints
         let dir = projectURL.appendingPathComponent(\".maugham/devices\", isDirectory: true)
         let digest = try RegistryCanonical.digestHex(ofRecord: record)
+        let events = people.appendingPathComponent("events", isDirectory: true)
         let good = PhoneDeviceRecord.ensure(in: projectURL, identity: identity)
         """.write(to: tmp.appendingPathComponent("BadPhoneTrust.swift"),
                   atomically: true, encoding: .utf8)
@@ -755,14 +757,17 @@ final class TripwirePhoneGrepTest: XCTestCase {
             excludeLine: admissionExcludeLine,
             extraOffender: { _ in false })
 
-        XCTAssertEqual(offenders.count, 4,
-            "Self-check: the four planted offenders should be caught, and "
+        XCTAssertEqual(offenders.count, 5,
+            "Self-check: the five planted offenders should be caught, and "
             + "neither the comment nor the sanctioned call. Caught:\n"
             + offenders.joined(separator: "\n"))
         XCTAssertTrue(offenders.contains(where: { $0.contains("let bad") }))
         XCTAssertTrue(offenders.contains(where: { $0.contains("let stale") }))
         XCTAssertTrue(offenders.contains(where: { $0.contains("let dir") }))
         XCTAssertTrue(offenders.contains(where: { $0.contains("let digest") }))
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let events") }),
+            "the permit-event directory is composed from its parent (P3a), "
+            + "which is the one spelling a literal prefix would miss")
         XCTAssertFalse(offenders.contains(where: { $0.contains("let good") }))
     }
 

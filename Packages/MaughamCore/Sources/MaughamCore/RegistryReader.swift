@@ -3,7 +3,8 @@ import Foundation
 /// A record on disk that this device cannot vouch for, and why.
 ///
 /// It is **listed, never read**. A malformed record contributes nothing to the
-/// registry — no person, no device, no claim — because the alternative is to
+/// registry — no person, no device, no claim, no permit event — because the
+/// alternative is to
 /// let anybody who can write the folder decide who is admitted. It is carried
 /// out of the read so Integrity can show it (spec §6): a record silently
 /// dropped is a trust decision nobody made.
@@ -46,6 +47,23 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
         /// a claim, and a claim is listed (`RegistryCache.reconcile`, spec §2.4
         /// P4, B1).
         case signerChanged(expected: String, found: String)
+        /// **A permit event whose signer was not entitled to make it** (P3
+        /// spec §3.2).
+        ///
+        /// A well-formed, correctly signed record — which is exactly the
+        /// danger, and why it is refused rather than read. An event is what a
+        /// later reader judges somebody's lines by, so anybody who can write
+        /// the folder and mint a key could otherwise promote themselves to
+        /// author of the whole book and have every device apply what they
+        /// wrote. The entitlement is one of two things and never anything
+        /// else: a root of the chain the subject is on, or — for a retirement
+        /// — the subject itself, which is what `retire` already is.
+        ///
+        /// Separate from `.signerIsNotARoot`, which is about a root that does
+        /// not exist here at all: this one also catches a real root of this
+        /// registry signing about somebody in ANOTHER root's chain, and a
+        /// retirement signed by a Mac that is not the one retiring.
+        case eventSignerHasNoAuthority(kind: String, subject: String, signer: String)
         /// The bytes are not a JSON object, so there is nothing that could have
         /// been signed — the canonical form has no object to take a signature
         /// slot out of (`RegistryCanonicalError.notAJSONObject`).
@@ -77,6 +95,10 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
                     ?? "names no author key of its own"
             case .signerChanged(let expected, let found):
                 return "is now signed by \(found), where this device verified \(expected)"
+            case .eventSignerHasNoAuthority(let kind, let subject, let signer):
+                return "records “\(kind)” for \(DeviceCode.short(subject)) over "
+                    + "the signature of \(DeviceCode.short(signer)), who is not "
+                    + "entitled to say so"
             case .notAJSONObject:
                 return "isn't a record at all — its bytes are not a JSON object"
             }
@@ -92,7 +114,7 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
     }
 
     /// Which record this FILE stands in the place of — where it sits and what
-    /// it is named — or nil when it is not in one of the registry's three
+    /// it is named — or nil when it is not in one of the registry's
     /// directories at all.
     ///
     /// The one thing a malformed listing still says for certain is that a file
@@ -106,8 +128,8 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
     /// (`.filenameMismatch`) occupies the name on disk, and the fingerprint it
     /// carries has no file of its own.
     ///
-    /// The directory is read off the path rather than re-spelled: the three
-    /// `RegistryDirectory` cases are named exactly as their folders are, so
+    /// The directory is read off the path rather than re-spelled: every
+    /// `RegistryDirectory` case is named exactly as its folder is, so
     /// this asks the same enum `RegistryWriter.directoryURL` builds from and
     /// cannot become a second opinion about where a record lives.
     public var ref: RecordRef? {
@@ -141,8 +163,8 @@ extension MalformedRecord {
 }
 
 /// Everything a project's registry says, once every signature has been checked:
-/// the devices, the people, the claims — and, separately, what could not be
-/// vouched for.
+/// the devices, the people, the claims, the permit events — and, separately,
+/// what could not be vouched for.
 ///
 /// It holds FACTS, not trust. Which root is this device's, who is pending and
 /// who is revoked are `TrustTable`'s questions; this value is what it asks them
@@ -151,6 +173,10 @@ public struct Registry: Equatable, Sendable {
     public let devices: [DeviceRecord]
     public let people: [PersonRecord]
     public let claims: [ClaimRecord]
+    /// The permit history, oldest id first (P3 spec §3.2). Empty for every
+    /// book written before P3 — and an empty history means *author, book, from
+    /// the start* for everybody, which is what every P2 admission meant.
+    public let events: [PermitEvent]
     public let malformed: [MalformedRecord]
     /// Each verified record's own bytes as they were on disk, by ref.
     ///
@@ -167,12 +193,14 @@ public struct Registry: Equatable, Sendable {
 
     public init(
         devices: [DeviceRecord] = [], people: [PersonRecord] = [],
-        claims: [ClaimRecord] = [], malformed: [MalformedRecord] = [],
+        claims: [ClaimRecord] = [], events: [PermitEvent] = [],
+        malformed: [MalformedRecord] = [],
         sourceBytes: [RecordRef: Data] = [:]
     ) {
         self.devices = devices
         self.people = people
         self.claims = claims
+        self.events = events
         self.malformed = malformed
         self.sourceBytes = sourceBytes
     }
@@ -248,7 +276,7 @@ public struct Registry: Equatable, Sendable {
     }
 }
 
-/// The one reader of the registry's three directories.
+/// The one reader of the registry's four directories.
 ///
 /// **What it refuses and what it merely lists.** A file it cannot verify is
 /// listed in `Registry.malformed` and contributes nothing — the read carries
@@ -348,12 +376,71 @@ public enum RegistryReader {
             keep(record, bytes)
         }
 
+        // Events are read LAST, for the reason the people are read in two
+        // passes: whether an event's signer was entitled to make it is a
+        // question about the chains, and the chains are not known until every
+        // self-signed record has been verified. The partial registry below is
+        // what that question is asked of — `roots` and `chain(underRoot:)` are
+        // the answer this module already has, and a second walk here would be a
+        // second opinion about who admitted whom.
+        var events: [PermitEvent] = []
+        let sofar = Registry(people: people)
+        for url in try files(in: .events, projectURL: projectURL) {
+            let record: PermitEvent
+            let bytes: Data
+            switch try decode(PermitEvent.self, at: url, presenter: presenter) {
+            case .malformed(let fault): malformed.append(fault); continue
+            case .record(let decoded, let read): record = decoded; bytes = read
+            }
+            if let fault = verify(record, bytes: bytes, at: url) {
+                malformed.append(fault); continue
+            }
+            guard entitled(record, in: sofar) else {
+                malformed.append(.init(url: url, reason: .eventSignerHasNoAuthority(
+                    kind: record.kind.rawValue, subject: record.subject,
+                    signer: record.by)))
+                continue
+            }
+            events.append(record)
+            keep(record, bytes)
+        }
+
         return Registry(
             devices: devices.sorted { $0.device < $1.device },
             people: people.sorted { $0.person < $1.person },
             claims: claims.sorted { $0.newRoot < $1.newRoot },
+            events: events.sorted { $0.event < $1.event },
             malformed: malformed.sorted { $0.url.path < $1.url.path },
             sourceBytes: sourceBytes)
+    }
+
+    /// **Was `event`'s signer entitled to make it?** (P3 spec §3.2.)
+    ///
+    /// Two answers and no third. A **retirement** is the device's own word
+    /// about itself — exactly what `RegistryAdmission.retire` already is — so
+    /// the signer must BE the subject; a root retiring somebody else's Mac on
+    /// their behalf is not a thing, and letting one through would give any root
+    /// a way to say *she stopped writing on the 4th* about a Mac that did not.
+    /// **Everything else** is the root's act, and it is the act that decides
+    /// what a person may write, so the signer must be a root of the chain that
+    /// person is on: a real root of this registry reaching into ANOTHER root's
+    /// chain is refused here as firmly as a stranger is.
+    ///
+    /// The one softening is the write order the spec fixes — *the event, then
+    /// the record* — which leaves a crash window in which an admission's event
+    /// exists and its person record does not. A subject this registry holds no
+    /// record for is that window: a root's word stands, because refusing it
+    /// would make a one-step gap a permanent hole in the history. The moment a
+    /// record exists, the chain is what decides.
+    nonisolated private static func entitled(
+        _ event: PermitEvent, in registry: Registry
+    ) -> Bool {
+        if case .retired = event.kind { return event.subject == event.by }
+        guard registry.roots.contains(where: { $0.person == event.by }) else {
+            return false
+        }
+        guard registry.person(event.subject) != nil else { return true }
+        return registry.chain(underRoot: event.by).contains(event.subject)
     }
 
     // MARK: - One record

@@ -1,7 +1,8 @@
 import Foundation
 
-/// The one production writer of `.maugham/devices/`, `.maugham/people/` and
-/// `.maugham/people/claims/` — and the one place those three paths are spelled.
+/// The one production writer of `.maugham/devices/`, `.maugham/people/`,
+/// `.maugham/people/claims/` and `.maugham/people/events/` — and the one place
+/// those four paths are spelled.
 ///
 /// It exists as a single door for one reason: **every record is signed**. A
 /// record written any other way is a record no reader can vouch for, and the
@@ -32,7 +33,7 @@ public enum RegistryWriteError: Error, Equatable {
 public enum RegistryWriter {
 
     /// The registry's directories, relative to the project root. The single
-    /// source of truth for the three paths.
+    /// source of truth for the four paths.
     nonisolated public static func directoryURL(
         _ directory: RegistryDirectory, in projectURL: URL
     ) -> URL {
@@ -45,6 +46,10 @@ public enum RegistryWriter {
             return projectURL
                 .appendingPathComponent(".maugham/people", isDirectory: true)
                 .appendingPathComponent("claims", isDirectory: true)
+        case .events:
+            return projectURL
+                .appendingPathComponent(".maugham/people", isDirectory: true)
+                .appendingPathComponent("events", isDirectory: true)
         }
     }
 
