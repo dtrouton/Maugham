@@ -7776,4 +7776,107 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertFalse(stale.contains(where: { $0.contains("recognizer") }))
         XCTAssertFalse(stale.contains(where: { $0.contains("admitTitle") }))
     }
+
+    // MARK: - One macOS floor, spelled four times
+
+    /// Every macOS floor `project.yml` declares, in file order, as
+    /// `(line, key, value)`. Pure over the file's text so the census can run it
+    /// on the real file and the control on a planted one.
+    ///
+    /// Deliberately keyless about WHICH declaration is which: the rule is that
+    /// they agree, so collecting them all and counting the distinct values says
+    /// it without this test having to know the shape of the YAML around them.
+    /// `platform: macOS` cannot match — the value must be numeric.
+    static func declaredMacOSFloors(in projectYML: String) -> [(line: Int, key: String, value: String)] {
+        let pattern = #"^\s*(macOS|MACOSX_DEPLOYMENT_TARGET|LSMinimumSystemVersion):\s*"?([0-9]+(?:\.[0-9]+)*)"?\s*$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        var found: [(Int, String, String)] = []
+        for (index, line) in projectYML.components(separatedBy: "\n").enumerated() {
+            let range = NSRange(line.startIndex..., in: line)
+            guard let m = regex.firstMatch(in: line, range: range),
+                  let keyRange = Range(m.range(at: 1), in: line),
+                  let valueRange = Range(m.range(at: 2), in: line) else { continue }
+            found.append((index + 1, String(line[keyRange]), String(line[valueRange])))
+        }
+        return found
+    }
+
+    /// **Tripwire: the app's macOS floor is one number, however many times
+    /// `project.yml` says it.** Four declarations: `deploymentTarget.macOS`,
+    /// `settings.base`'s `MACOSX_DEPLOYMENT_TARGET`, `maugham-mcp`'s (it ships
+    /// inside the bundle and can never run anywhere the app cannot), and the
+    /// app's `LSMinimumSystemVersion`.
+    ///
+    /// The last one is why this is a test and not a comment. `release.yml`
+    /// publishes the BUILT app's `LSMinimumSystemVersion` into every release
+    /// body, and `MinimumSystemVersion` reads it back to decide whether to
+    /// offer an update at all — so that value is a promise made to other
+    /// people's Macs. It sat at `14.0` from before the target was ever raised,
+    /// through two floor moves, because prose linking it to the deployment
+    /// target is not a link. See `Maugham/Updates/AREA.md` for what the BUILD
+    /// does when they disagree, which is the reason a stale-LOW value was never
+    /// able to publish a lie — and the reason a stale-HIGH one could.
+    func test_everyMacOSFloorInProjectYmlIsTheSameNumber() throws {
+        let yml = try String(contentsOf: repoRoot.appendingPathComponent("project.yml"),
+                             encoding: .utf8)
+        let floors = Self.declaredMacOSFloors(in: yml)
+
+        XCTAssertEqual(floors.count, 4,
+            "project.yml should declare the macOS floor exactly four times "
+            + "(deploymentTarget.macOS, two MACOSX_DEPLOYMENT_TARGETs, "
+            + "LSMinimumSystemVersion). A fifth is fine — add it here — but a "
+            + "count that DROPPED means a declaration was renamed or removed "
+            + "and this census silently stopped guarding it. Found:\n"
+            + floors.map { "\($0.line): \($0.key) = \($0.value)" }.joined(separator: "\n"))
+
+        let distinct = Set(floors.map(\.value))
+        XCTAssertEqual(distinct.count, 1,
+            "Every macOS floor in project.yml must be the same number. "
+            + "LSMinimumSystemVersion is the one macOS enforces at launch AND "
+            + "the one release.yml publishes for the updater to read, so a "
+            + "drift here is a promise to other people's Macs. Found:\n"
+            + floors.map { "\($0.line): \($0.key) = \($0.value)" }.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the census above: it is not passing because the pattern
+    /// matches nothing. A planted `project.yml` with one floor out of step is
+    /// caught, and `platform: macOS` is not mistaken for a version.
+    func test_theMacOSFloorCensusFiresOnAPlantedOffender() throws {
+        let planted = """
+        options:
+          deploymentTarget:
+            macOS: "27.0"
+            iOS: "17.0"
+        settings:
+          base:
+            MACOSX_DEPLOYMENT_TARGET: "27.0"
+        targets:
+          Maugham:
+            platform: macOS
+            info:
+              properties:
+                LSMinimumSystemVersion: "14.0"
+          maugham-mcp:
+            settings:
+              base:
+                MACOSX_DEPLOYMENT_TARGET: "27.0"
+        """
+        let floors = Self.declaredMacOSFloors(in: planted)
+
+        XCTAssertEqual(floors.count, 4,
+            "the four numeric floors are found and `platform: macOS` is not "
+            + "one of them (nor is iOS). Found:\n"
+            + floors.map { "\($0.line): \($0.key) = \($0.value)" }.joined(separator: "\n"))
+        XCTAssertFalse(floors.contains { $0.key == "macOS" && $0.value == "17.0" },
+            "the iOS floor must not be read as the macOS one")
+        XCTAssertEqual(Set(floors.map(\.value)), ["27.0", "14.0"],
+            "the planted stale LSMinimumSystemVersion is seen — this is exactly "
+            + "the state project.yml shipped in until 2026-09-19")
+
+        // And the converse: the same parser over an agreeing file is silent.
+        let agreeing = planted.replacingOccurrences(
+            of: #"LSMinimumSystemVersion: "14.0""#,
+            with: #"LSMinimumSystemVersion: "27.0""#)
+        XCTAssertEqual(Set(Self.declaredMacOSFloors(in: agreeing).map(\.value)), ["27.0"])
+    }
 }
