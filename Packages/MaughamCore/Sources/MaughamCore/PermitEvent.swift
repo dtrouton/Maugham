@@ -119,32 +119,18 @@ public struct PermitEvent: RegistryRecordProtocol {
 
     // MARK: - Where the old permit stopped
 
-    /// **One stream's position, as the root that made the event saw it.**
+    /// **One stream's position, as the root that made the event saw it** —
+    /// defined in `PermitMark.swift` and spelled here for the record's own
+    /// readers.
     ///
     /// The wire form of a mark, and no more than that: the digests of the whole
     /// segments the root had applied, and the `OpLogChain.lineHash` of the last
     /// line it applied. What they MEAN — which file is under the old permit and
-    /// which under the new — is `PermitMark`'s judgment and is deliberately not
-    /// spelled here, so that the record this build reads and the rule a later
-    /// one applies cannot become two opinions living in one type.
-    ///
-    /// Strings, both of them, for tripwire 42's reason. `line` is absent rather
-    /// than empty when the root had applied no line of that stream's tail.
-    public struct StreamMark: Codable, Equatable, Hashable, Sendable {
-        /// The digest of every whole segment of this stream the root had
-        /// applied. A segment whose digest is listed is wholly under the old
-        /// permit whatever its filename says afterwards.
-        public let segments: [String]
-        /// The `lineHash` of the last line the root applied. A line's hash
-        /// covers its `prev`, so it is unique in its chain and survives the
-        /// rotation that moves it from a tail into a segment.
-        public let line: String?
-
-        public init(segments: [String] = [], line: String? = nil) {
-            self.segments = segments
-            self.line = line
-        }
-    }
+    /// which under the new — is `PermitMark.judge`'s, and is deliberately not
+    /// spelled on the record, so that the file this build reads and the rule a
+    /// later one applies cannot become two opinions living in one type. A
+    /// typealias rather than a second struct for the same reason (P3a Task 2).
+    public typealias StreamMark = PermitMark.StreamMark
 
     // MARK: - The record
 

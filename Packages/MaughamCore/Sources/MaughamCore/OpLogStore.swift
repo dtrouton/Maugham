@@ -566,6 +566,98 @@ public final class OpLogStore {
         return highest
     }
 
+    /// **Where in each of this device's streams the reader had got to** — the
+    /// P3 mark, and `highestAppliedOpId`'s sibling in every respect but what it
+    /// answers (spec §3.3).
+    ///
+    /// Same listing, same `classify` with `state: nil` and `identities`
+    /// unreachable, so it is read-only in fact and not merely in intent: it
+    /// writes no forensic record, adopts no head, and remembers no segment
+    /// digest over forty chapters nobody has opened. It THROWS for the same
+    /// reason its sibling does — a mark that silently came back short would
+    /// quietly move a permission boundary — and the caller turns that into a
+    /// refusal rather than into a position.
+    ///
+    /// **What it records, per stream** (`PermitMark.stream(of:)` names them):
+    ///
+    /// - the digest of every SEGMENT that settled whole, which under
+    ///   `state: nil` is exactly the segments whose signature this device
+    ///   trusts (`classify`'s `verifiedSegmentDigest` — with no remembered
+    ///   digests to hit, the signature branch is the only way to settle);
+    /// - the `OpLogChain.lineHash` of the last APPLIED line of the live
+    ///   `.jsonl` tail — never a held-back line, never a quarantined one, never
+    ///   a torn one.
+    ///
+    /// **The last line is taken from the TAIL and no other file, which is what
+    /// keeps this free of any ordering.** A stream is a run of sealed segments
+    /// plus one tail, and only the tail is still being appended to; the
+    /// segments are whole and are named by digest. So nothing here has to
+    /// decide which file came after which — and nothing may, because a segment
+    /// index is part of a filename and a filename is the writer's to choose.
+    ///
+    /// **The known gap, stated rather than hidden:** a segment that did NOT
+    /// settle whole (no signature beside it, or one this device cannot vouch
+    /// for) contributes no digest, so lines inside it judge as *new* later.
+    /// That is the strict side of the format the spec fixes — a mark can say
+    /// *this whole segment* or *up to this line*, and an unsettled segment is
+    /// neither.
+    ///
+    /// `nonisolated` and presenter-free, so the whole sweep runs off the main
+    /// actor; it only reads, so there is no write of this process's own for a
+    /// presenter to keep from bouncing back.
+    nonisolated public static func appliedPositions(
+        ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?
+    ) throws -> PermitMark {
+        guard !ids.isEmpty else { return .nothingApplied }
+        // A device's files are named for its SLUG, and `DeviceSlug.make` is
+        // deterministic, so which files are the subject's is decided here
+        // rather than by reading ops out of them — a file whose every line is
+        // held back still has a position, and a legacy shared file has none.
+        let slugs = Set(ids.map { DeviceSlug.make(from: $0).raw })
+        let opsDir = projectURL.appendingPathComponent(".maugham/ops")
+        let filenames = (try? FileManager.default
+            .contentsOfDirectory(atPath: opsDir.path)) ?? []
+        var docIds = docIds(inOpsDirectoryFilenames: filenames)
+        // Named, because the manuscript reader excludes it by contract — the
+        // same reason its sibling and the project-open sweep name it.
+        docIds.insert("__project__")
+
+        var segments: [String: Set<String>] = [:]
+        var lastAppliedLine: [String: String] = [:]
+        for docId in docIds.sorted() {
+            for url in opLogFileURLs(forDocId: docId, in: projectURL) {
+                guard let stream = PermitMark.stream(of: url),
+                      let slug = stream.deviceSlug, slugs.contains(slug)
+                else { continue }
+                guard let bytes = try readCoordinated(url: url, presenter: nil)
+                else { continue }
+                let classified = classify(
+                    url: url, bytes: bytes, state: nil, trust: trust)
+                if let digest = classified.verifiedSegmentDigest {
+                    segments[stream.key, default: []].insert(digest)
+                    continue
+                }
+                guard url.pathExtension != OpLogSegment.fileExtension,
+                      let verification = classified.verification else { continue }
+                guard let last = verification.lines.last(where: {
+                    !$0.state.isHeldBack && $0.state != .tornTail
+                }) else { continue }
+                lastAppliedLine[stream.key] = OpLogChain.lineHash(last.bytes)
+            }
+        }
+
+        var marks: [String: PermitMark.StreamMark] = [:]
+        for key in Set(segments.keys).union(lastAppliedLine.keys) {
+            // Sorted, because `opLogFileURLs` is UNSORTED and a mark two
+            // devices compare byte for byte must not depend on what
+            // `contentsOfDirectory` felt like saying.
+            marks[key] = .init(
+                segments: segments[key].map { $0.sorted() } ?? [],
+                line: lastAppliedLine[key])
+        }
+        return PermitMark(marks)
+    }
+
     /// The file a `ReadError` names, for a caller that reports unreadable
     /// files by name and has caught something that might not be one.
     nonisolated public static func unreadableName(_ error: Error) -> String {
