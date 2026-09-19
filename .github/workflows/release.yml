@@ -10,12 +10,15 @@ permissions:
 
 jobs:
   release:
-    # macos-26 (image is macOS 26.5.2). The app's deployment target is macOS 26,
-    # so the Test step below cannot even launch it on macos-15. Matching the
-    # developer machine's OS also matters for what this job SHIPS: SwiftUI's
-    # selection-state styling differs between SDKs (the macOS 26 SDK renders the
-    # "Liquid Glass" idiom; older SDKs render flatter).
-    runs-on: macos-26
+    # `xcode-27` (image is macOS 27.0). The app's deployment target is macOS 27
+    # (shell slice, D4), so the Test step below cannot even launch it on an
+    # older image. Matching the developer machine's OS also matters for what
+    # this job SHIPS: SwiftUI's layout and styling differ between SDKs, and the
+    # macOS 27 SDK moved `NavigationSplitView`'s column tie-break under us —
+    # what ships must be built with the toolchain it was written against.
+    # There is no `macos-27` label; `xcode-27` is it, and it is a public-preview
+    # image carrying Xcode 27.0 RELEASE (27A266a), the dev machine's build.
+    runs-on: xcode-27
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -28,15 +31,16 @@ jobs:
           # pushes back to git, so don't leave the token in .git/config.
           persist-credentials: false
 
-      - name: Set up Xcode 26.6
+      - name: Set up Xcode 27.0
         # Pinned (NOT latest-stable) so an unexpected Xcode bump on the runner
-        # can't silently change the toolchain between releases. 26.6 is the
-        # developer machine's Xcode (verified 2026-08-04), and the macos-26 image
-        # carries it, so what ships is finally built with the toolchain it was
+        # can't silently change the toolchain between releases — and a preview
+        # image's default is exactly the thing that moves. 27.0 (27A266a) is the
+        # developer machine's Xcode (since 2026-09-15) and the `xcode-27`
+        # image's default, so what ships is built with the toolchain it was
         # written against. Matches ci.yml so CI and release build identically.
         uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
-          xcode-version: '26.6'
+          xcode-version: '27.0'
 
       - name: Print Xcode + SDK info
         run: |

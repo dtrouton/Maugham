@@ -84,15 +84,18 @@ this is how a green local test run shipped a broken Release build to CI on the v
 `release.yml`, `phone-release.yml`) now pin the same toolchain so CI and the two
 release pipelines build identically and can't drift between releases:
 
-- **Xcode `26.6`** via `maxim-lobanov/setup-xcode` (was `latest-stable` in the
-  release workflows). 26.6 is the developer machine's Xcode, and since
-  2026-08-04 the Mac jobs run on the `macos-26` runner (image macOS 26.5.2),
-  which carries 26.0.1 through 26.6 — so what CI gates and what release ships
-  are finally built with the toolchain the code was written against. The old
-  `26.3` pin was a `macos-15` ceiling (commit `a20e0da`, now superseded): the
-  runner was two majors behind the only machine anyone develops on, and AppKit
-  layout differs enough between them that mounted-view tests measured on 26.5
-  failed on CI and nowhere else. If GitHub updates the image and 26.6
+- **Xcode `27.0`** via `maxim-lobanov/setup-xcode` (was `latest-stable` in the
+  release workflows). 27.0 (27A266a) is the developer machine's Xcode, and
+  since 2026-09-19 the Mac jobs run on the **`xcode-27`** runner (image macOS
+  27.0), which carries that same build as its default — so what CI gates and
+  what release ships are built with the toolchain the code was written against.
+  This is the same rule that moved the pin to `macos-26` / `26.6` on 2026-08-04
+  and off a `macos-15` / `26.3` ceiling before that (commit `a20e0da`, both now
+  superseded): a runner behind the only machine anyone develops on makes
+  mounted-view tests fail on CI and nowhere else — or, as in 2026-09-15's
+  four-day gap, locally and nowhere else. `xcode-27` is a **public-preview**
+  image and there is no `macos-27` label; `macos-latest` is still 26, so the
+  label cannot be softened to it. If GitHub updates the image and 27.0
   disappears, the setup step fails loudly; bump all files together.
   **`phone-tests` and `phone-release.yml` stay on `macos-15` / Xcode `26.3`** —
   they build only the iOS app, whose floor is iOS 17 and which the macOS

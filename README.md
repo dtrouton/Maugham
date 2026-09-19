@@ -53,7 +53,8 @@ Active development. The current state of what's shipped and what's open lives in
 
 ### Build
 
-Requires macOS 26+, Xcode 26+, and `xcodegen`:
+Requires macOS 27+, Xcode 27+, and `xcodegen` (the deployment target tracks the
+machine the app is developed on — see CLAUDE.md's toolchain bullet for why):
 
     brew install xcodegen
 

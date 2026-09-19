@@ -31,3 +31,13 @@ Denver's P2 smoke: opening History's *Set-aside records* disclosure blanked all 
 
 - The toolchain pin: accept the dev/CI gap and say so in CLAUDE.md (CI is then the authority for mounted-view tests until a macOS 27 runner exists), move CI when one does, or roll Xcode back here.
 - When the macOS 27 shell slice runs. It is not P2's and does not block P2's release; it should precede P3, which adds mounted surfaces. If the chevron or menu check shows something unusable in the running app, it goes first.
+
+## Outcome (2026-09-19 — the macOS 27 shell slice)
+
+Closed by the slice planned in `docs/superpowers/plans/2026-09-19-macos-27-shell-slice.md`. What this note left open, and where it landed:
+
+- **§2's fifteen** — re-derived, not suppressed. The column tie-break was fixed as a product change (the detail column frames its own content, so no pane can take it); the ten AX-tree reds were re-pinned on the decision each guarded, asserting only that the control is drawn; the chevrons moved to the **leading** edge (D1), which also answers Denver's "hard to hit, move them left".
+- **§4's CI decision** — done. Every Mac job in `ci.yml` and `release.yml` moved to `runs-on: xcode-27` with `xcode-version: '27.0'`; the phone jobs stay on `macos-15` / `26.3` (their floor is iOS 17). **The image is not what this note measured**: it has moved from 20260907 to 20260912 and now carries Xcode **27.0 RELEASE (27A266a)** — the developer machine's exact build — not the beta 6 `27A5252f` recorded above. D2 accepted a beta and did not have to spend it.
+- **The deployment target moved to 27 (D4)**, which this note did not propose. Under the rule set in `91512a74` — CI runs the developer machine's OS and the target says so — the machine is on 27, so the target is 27; no hedged code paths for a tie-break nobody exercises after the move. `LSMinimumSystemVersion` went with it, from the stale `14.0` that had been generating the Xcode warning about the two disagreeing.
+- **The accepted cost of D4, and its fix**: a Mac still on 26 cannot run 0.40.0. `UpdateChecker` compared versions only, so such a Mac would have downloaded, verified and swapped in a binary that will not start. It now refuses one — `release.yml` publishes the built app's own `LSMinimumSystemVersion` into the release body, and a minimum above this Mac's macOS is *no update*, with one sentence saying what the newer Maugham needs. See `Maugham/Updates/MinimumSystemVersion.swift` and `docs/RELEASING.md`.
+- **§3 (History's disclosure blanking the window)** stays an inference. The column fix removes the mechanism the measurement pointed at — a pane's own demand deciding the column — but nothing here reproduced the blanking, so it is not claimed as fixed. Re-check it on the next smoke.

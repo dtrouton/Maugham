@@ -2,21 +2,28 @@ name: Maugham
 options:
   bundleIdPrefix: com.maugham
   deploymentTarget:
-    # macOS 26. Raised from 14.0 on 2026-08-04: the binder's segmented picker
-    # lays out differently below 26 (it FILLS its container instead of hugging
-    # its content, so a one-segment Review/Publish picker stretched the whole
-    # 240pt column and read as a header rather than a control — the exact
-    # "broken chrome" BinderSegmentPickerMountTests exists to catch). The floor
-    # was never deliberately 14; it was the default nobody revisited, and CI
-    # was the only place the app ever ran on an older OS.
-    macOS: "26.0"
+    # macOS 27. Raised from 26 on 2026-09-19 (shell slice, D4) under the rule
+    # set in August (91512a74): CI runs the developer machine's OS and the
+    # deployment target says so. The machine is on 27, so the target is 27 —
+    # one behaviour to fix and test, CI on `xcode-27` as the single authority,
+    # and no hedged code paths for a tie-break nobody exercises after the move.
+    # (Raised from 14.0 to 26 on 2026-08-04 for the same reason: the binder's
+    # segmented picker FILLS its container below 26 instead of hugging its
+    # content, so a one-segment picker stretched the whole 240pt column and
+    # read as a header rather than a control.)
+    #
+    # The accepted cost: a Mac still on 26 cannot run 0.40.0 or later, so the
+    # updater refuses a build it cannot launch — `MinimumSystemVersion`, fed by
+    # `LSMinimumSystemVersion` below, which release.yml publishes into the
+    # release body. Those two must move together or the refusal never fires.
+    macOS: "27.0"
     iOS: "17.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
 settings:
   base:
     SWIFT_VERSION: "5.10"
-    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    MACOSX_DEPLOYMENT_TARGET: "27.0"
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_IDENTITY: "-"
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
@@ -61,7 +68,13 @@ targets:
         CFBundleName: $(MAUGHAM_DISPLAY_NAME)
         CFBundleShortVersionString: "0.0.0-dev"
         CFBundleVersion: "1"
-        LSMinimumSystemVersion: "14.0"
+        # The floor macOS itself enforces at launch, and the fact release.yml
+        # publishes into every release body for `MinimumSystemVersion` to read.
+        # It sat at 14.0 while the deployment target was 26 — the default
+        # nobody revisited, and the source of the Xcode warning about the two
+        # disagreeing. It tracks `deploymentTarget.macOS`: a build that cannot
+        # run on 26 must not tell a 26 Mac that it can.
+        LSMinimumSystemVersion: "27.0"
         NSPrincipalClass: NSApplication
         NSSupportsAutomaticTermination: YES
         NSSupportsSuddenTermination: NO
@@ -125,7 +138,7 @@ targets:
         PRODUCT_NAME: maugham-mcp
         # Ships inside the app bundle, so it can never run anywhere the app
         # cannot — one floor, matching `settings.base`.
-        MACOSX_DEPLOYMENT_TARGET: "26.0"
+        MACOSX_DEPLOYMENT_TARGET: "27.0"
         SWIFT_VERSION: "5.10"
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "-"
