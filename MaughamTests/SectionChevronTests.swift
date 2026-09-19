@@ -159,6 +159,78 @@ final class SectionChevronTests: XCTestCase {
         }
     }
 
+    // MARK: - Which edge it discloses from
+
+    /// **The chevron LEADS the title** (D1, 2026-09-19).
+    ///
+    /// Denver's macOS 27 smoke: the chevrons "now sit very close to the
+    /// scrollbar and are hard to hit — move them left". Finder's and Xcode's
+    /// convention, and there is nothing at a header's leading edge to collide
+    /// with; the trade this reverses is written out in `sectionChevron`'s own
+    /// comment.
+    ///
+    /// **Identified without assuming the answer.** The Research header carries
+    /// exactly ONE button and it is its chevron, so its identity needs no
+    /// position at all; the Palette header carries two, and the one sitting at
+    /// the same x as Research's is that header's chevron. Both claims are
+    /// asserted rather than assumed, which is what stops this test from being a
+    /// tautology about whichever ring happens to be leftmost.
+    func test_theChevronLeadsTheHeaderInBothSections() async throws {
+        let mount = try await mountTree()
+        let content = try XCTUnwrap(mount.window.contentView)
+
+        var byHeader: [(rings: [CGRect], menu: CGRect, header: CGRect)] = []
+        for header in sectionHeaders(in: mount.window) {
+            let kids = descendants(of: header)
+            let rings = kids
+                .filter { String(describing: type(of: $0)).contains("FocusRing") }
+                .map { $0.convert($0.bounds, to: content) }
+                .sorted { $0.minX < $1.minX }
+            guard let menu = kids
+                .first(where: { String(describing: type(of: $0))
+                                    .contains("SwiftUIPopupButton") })
+                .map({ $0.convert($0.bounds, to: content) })
+            else { continue }
+            byHeader.append((rings, menu, header.convert(header.bounds, to: content)))
+        }
+        try XCTSkipUnless(byHeader.count == 2,
+                          "this display mounted \(byHeader.count) section headers")
+        XCTAssertEqual(byHeader.map(\.rings.count).sorted(), [1, 2],
+                       "premise: Research carries its chevron alone, Palette the "
+                       + "door beside it — \(byHeader.map(\.rings.count))")
+
+        let research = try XCTUnwrap(byHeader.min(by: { $0.rings.count < $1.rings.count }))
+        let palette = try XCTUnwrap(byHeader.max(by: { $0.rings.count < $1.rings.count }))
+        let researchChevron = try XCTUnwrap(research.rings.first)
+
+        XCTAssertLessThan(
+            researchChevron.minX, research.menu.minX,
+            "the Research chevron is at x=\(researchChevron.minX), the `+` menu "
+            + "at x=\(research.menu.minX) — the chevron must lead the header, "
+            + "not trail its accessories")
+        XCTAssertLessThan(
+            researchChevron.minX - research.header.minX, 8,
+            "the chevron sits \(researchChevron.minX - research.header.minX)pt "
+            + "into a header that starts at x=\(research.header.minX) — leading "
+            + "the TITLE means at the head of the row, not merely somewhere left "
+            + "of the `+`")
+
+        let paletteChevron = try XCTUnwrap(palette.rings.first)
+        XCTAssertEqual(
+            paletteChevron.minX, researchChevron.minX, accuracy: 0.5,
+            "the Palette header's leading button is at x=\(paletteChevron.minX) "
+            + "against the Research chevron's x=\(researchChevron.minX) — the two "
+            + "headers must disclose from the same edge, or the leading button "
+            + "here is the door and this header still trails its chevron")
+        let door = try XCTUnwrap(palette.rings.last)
+        XCTAssertLessThan(
+            paletteChevron.minX, door.minX,
+            "the Palette chevron must lead the wall's door, not follow it")
+        XCTAssertLessThan(
+            paletteChevron.minX, palette.menu.minX,
+            "…and lead the `+` menu")
+    }
+
     // MARK: - No shift
 
     /// **The accessories do not move when the section opens and closes** — the
@@ -279,7 +351,7 @@ final class SectionChevronTests: XCTestCase {
     }
 
     /// **Which header is which, without counting rows.** The Palette header is
-    /// the one carrying two buttons (the door and the chevron); Research carries
+    /// the one carrying two buttons (the chevron and the door); Research carries
     /// only its chevron. Derived rather than indexed, because the row a section
     /// lands on differs per project type and a hand-counted index is a fixture
     /// that goes quietly wrong (`BinderTreeMultiselectMountTests`' own lesson).
@@ -316,10 +388,16 @@ final class SectionChevronTests: XCTestCase {
             "the two headers mounted \(byHeader.map(\.rings.count)) buttons; "
             + "Palette should carry the door and a chevron, Research a chevron")
         let menu = try XCTUnwrap(hit.menu, "\(section)'s header mounted no `+` menu")
-        let chevron = try XCTUnwrap(hit.rings.last,
+        // **The chevron is the LEADING ring** since D1 (2026-09-19) — it used
+        // to be the trailing one, and the door the leading one. Both spellings
+        // are position-derived and both were right in their own era; what keeps
+        // this from going quietly wrong the next time the furniture moves is
+        // `test_theChevronLeadsTheHeaderInBothSections`, which establishes the
+        // edge without assuming it.
+        let chevron = try XCTUnwrap(hit.rings.first,
                                     "\(section)'s header mounted no chevron")
         return HeaderGeometry(
-            door: section == .palette ? try XCTUnwrap(hit.rings.first) : .zero,
+            door: section == .palette ? try XCTUnwrap(hit.rings.last) : .zero,
             menu: menu, chevron: chevron)
     }
 

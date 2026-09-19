@@ -306,7 +306,12 @@ struct BinderTreeSections: View {
     /// and the press takes them there.
     private var paletteSectionHeader: some View {
         HStack {
-            Text(store.paletteGroupDisplayTitle)
+            // Its twin in `sectionHeader` carries why the chevron leads (D1).
+            HStack(spacing: 2) {
+                sectionChevron(store.paletteGroupDisplayTitle,
+                               isExpanded: $state.paletteSectionExpanded)
+                Text(store.paletteGroupDisplayTitle)
+            }
             Spacer()
             openWallButton
             SwiftUI.Menu(content: paletteCreationMenu) {
@@ -315,8 +320,6 @@ struct BinderTreeSections: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            sectionChevron(store.paletteGroupDisplayTitle,
-                           isExpanded: $state.paletteSectionExpanded)
         }
         .contentShape(Rectangle())
         .contextMenu {
@@ -400,7 +403,15 @@ struct BinderTreeSections: View {
         @ViewBuilder menu: @escaping () -> Menu
     ) -> some View {
         HStack {
-            Text(title)
+            // **The chevron leads its title** (D1) — `sectionChevron`'s comment
+            // carries why. `spacing: 2` rather than the stack's default,
+            // because the button's own 21pt frame is mostly padding already and
+            // the default would push the title a third of the way across a
+            // 320pt column.
+            HStack(spacing: 2) {
+                sectionChevron(title, isExpanded: isExpanded)
+                Text(title)
+            }
             Spacer()
             SwiftUI.Menu(content: menu) {
                 Image(systemName: "plus.circle")
@@ -408,7 +419,6 @@ struct BinderTreeSections: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            sectionChevron(title, isExpanded: isExpanded)
         }
         .contentShape(Rectangle())
         .contextMenu(menuItems: menu)
@@ -438,13 +448,20 @@ struct BinderTreeSections: View {
     /// not synthesisable (`NSTrackingArea` wants the window server to move a
     /// real pointer) while the layout consequence of one is.
     ///
-    /// **Trailing, where the system put its own**, and not in the outline gutter
-    /// where every group ROW's triangle sits (`BinderTreeIndentationTests`
-    /// measures those at x=12). A header is a `ListTableHeaderView` rather than
-    /// an outline row, so it has no gutter to sit in and a hand-drawn leading
-    /// chevron would line up with nothing. The cost is real and recorded: the
-    /// section headers now disclose from the opposite edge to the groups beneath
-    /// them.
+    /// **Leading, at the head of its own title** (D1, 2026-09-19) — Finder's
+    /// and Xcode's convention, and the edge a writer reaches for.
+    ///
+    /// It was TRAILING for a year, where `Section(isExpanded:)` had put the
+    /// system's own, and the reasoning then was that a header is a
+    /// `ListTableHeaderView` rather than an outline row, so it has no gutter to
+    /// sit in and a leading chevron would line up with nothing
+    /// (`BinderTreeIndentationTests` measures the group rows' triangles at
+    /// x=12). What that reasoning left out is the other edge: Denver's macOS 27
+    /// smoke found the chevrons "very close to the scrollbar and hard to hit",
+    /// which is what a trailing affordance in a narrow column costs. Lining up
+    /// with nothing is a cosmetic price; sharing the scroller's column is a
+    /// functional one, and the two headers now disclose from the same edge as
+    /// every group beneath them.
     ///
     /// The frame and content shape are the door's own lesson one control over —
     /// a bare `Image` in a `Button(.plain)` hit-tests the box it draws in and

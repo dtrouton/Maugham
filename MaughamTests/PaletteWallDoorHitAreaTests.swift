@@ -290,9 +290,12 @@ final class PaletteWallDoorHitAreaTests: XCTestCase {
     /// the furniture grows.
     ///
     /// The discriminator is structural instead. Palette is the header carrying
-    /// TWO buttons — the door and its chevron — where Research carries only a
-    /// chevron; and within it the door is the leftmost, the chevron being at the
-    /// trailing edge. Both halves are asserted below rather than assumed.
+    /// TWO buttons — its chevron and the door — where Research carries only a
+    /// chevron; and within it the door is the TRAILING one, the chevron leading
+    /// the title since D1 (2026-09-19). Both halves are asserted below rather
+    /// than assumed, and which edge the chevron is on is established without
+    /// assumption by `SectionChevronTests
+    /// .test_theChevronLeadsTheHeaderInBothSections`.
     private func doorGeometry(in window: NSWindow) throws -> Door {
         let content = try XCTUnwrap(window.contentView)
         let headers = views(in: window).filter {
@@ -315,7 +318,7 @@ final class PaletteWallDoorHitAreaTests: XCTestCase {
             + "asymmetry there is nothing here to tell the two headers apart, "
             + "and every measurement below would be about an arbitrary one")
         let palette = try XCTUnwrap(ringsByHeader.max(by: { $0.count < $1.count }))
-        let ring = try XCTUnwrap(palette.first,
+        let ring = try XCTUnwrap(palette.last,
                                  "the Palette header mounted no button at all")
         var header: NSView? = ring.superview
         while let candidate = header,

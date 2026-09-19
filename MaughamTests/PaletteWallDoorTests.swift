@@ -679,10 +679,11 @@ final class PaletteWallDoorTests: XCTestCase {
     ///
     /// **Finding the door**: `PaletteWallDoorHitAreaTests.doorGeometry`'s
     /// structural discriminator, in miniature — the Palette header is the one
-    /// carrying TWO buttons (the door and its chevron) where Research carries a
-    /// chevron alone, and within it the door is the leftmost. Identifying it by
-    /// position in the window instead is what silently measured the Research
-    /// chevron when the chevrons landed.
+    /// carrying TWO buttons (its chevron and the door) where Research carries a
+    /// chevron alone, and within it the door is the TRAILING one — the chevron
+    /// leads the title since D1 (2026-09-19). Identifying it by position in the
+    /// window instead is what silently measured the Research chevron when the
+    /// chevrons landed.
     private func clickTheDoor(in window: NSWindow) throws {
         let content = try XCTUnwrap(window.contentView)
         let headers = allViews(in: content).filter {
@@ -696,7 +697,7 @@ final class PaletteWallDoorTests: XCTestCase {
         }
         guard let palette = ringsByHeader.filter({ $0.count >= 2 })
                 .max(by: { $0.count < $1.count }),
-              let ring = palette.first
+              let ring = palette.last
         else {
             throw XCTSkip(
                 "this display mounted \(headers.count) section headers carrying "
