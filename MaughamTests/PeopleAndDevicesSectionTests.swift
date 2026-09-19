@@ -153,12 +153,19 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
                       "with the one control that asks: \(labels)")
     }
 
-    func test_eachPersonIsDrawnWithTheirOwnNameRoleAndDevice() throws {
+    func test_eachPersonIsDrawnWithTheirLabelRoleAndDevice() throws {
         let window = mount(model())
         let texts = try axTexts(in: window)
 
-        XCTAssertTrue(texts.contains { $0.contains("Amelia") && $0.contains("Denver's iPhone") },
-                      "the label and the device's own name: \(texts)")
+        // **The label alone; the machine is the row beneath** (Denver's
+        // re-smoke, 2026-09-19). Under P2 a person is one device, so a
+        // bracketed own name here is the nested row's words said twice.
+        XCTAssertTrue(texts.contains { $0 == "Amelia" },
+                      "the person's label, unbracketed: \(texts)")
+        XCTAssertFalse(texts.contains { $0.contains("Amelia (") },
+                       "and not the machine's name beside it: \(texts)")
+        XCTAssertTrue(texts.contains { $0.contains("Denver's iPhone") },
+                      "which the device row beneath carries: \(texts)")
         XCTAssertTrue(texts.contains { $0.contains("author") },
                       "the role, read-only: \(texts)")
         // The root's PERSON row is marked *you*; *this Mac* is the device row's
@@ -167,14 +174,6 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
                       "the root's own person row is marked: \(texts)")
         XCTAssertTrue(texts.contains { $0 == "this Mac" },
                       "and the machine badge is on the device row: \(texts)")
-    }
-
-    func test_theShareSentenceIsDrawn() throws {
-        let window = mount(model())
-        let texts = try axTexts(in: window)
-
-        XCTAssertTrue(texts.contains { $0.contains("iCloud share") },
-                      "the one sentence about what this section cannot do: \(texts)")
     }
 
     // MARK: - Revoke and Retire (P2b Task 7)
@@ -213,14 +212,21 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
 
     /// Spec §5's sentence, beside the button that earns it: what Revoke does,
     /// and the thing it does not do.
-    func test_theRevokeSentenceSaysWhatItDoesNotDo() throws {
+    /// **Said once, in the footer** (Denver's re-smoke, 2026-09-19). It used to
+    /// be drawn again under every revocable person's row, so a pane with two
+    /// people told the writer to remove a device from the iCloud share three
+    /// times on one screen. The footer is a fact about what this whole section
+    /// can and cannot do; a row is about one person.
+    func test_theShareSentenceIsSaidOnceInTheWholeSection() throws {
         let window = mount(model())
         let texts = try axTexts(in: window)
 
+        XCTAssertEqual(
+            texts.filter { $0.contains("remove it from the iCloud share") }.count, 1,
+            "once, and in the footer: \(texts)")
         XCTAssertTrue(
-            texts.contains { $0.contains("stops Maugham applying what this device writes") },
-            "\(texts)")
-        XCTAssertTrue(texts.contains { $0.contains("remove it from the iCloud share") })
+            texts.contains { $0.contains("Removing a device here stops Maugham applying") },
+            "and it is the footer's spelling that survived: \(texts)")
     }
 
     /// A refusal is drawn where the writer pressed, in the verb's own words.

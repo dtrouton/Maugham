@@ -13,9 +13,9 @@ this feature: one list, and a small number of verbs.
 
 - Your first Mac writes itself into the book, quietly, the first time you open
   it. You do nothing. It calls you by the name on your macOS account — *Denver*,
-  not *Denver's MacBook Air* — with the machine's own name kept beside it, so
-  the list can tell you apart from your laptop. **Rename…** changes it if the
-  account name isn't what you'd call yourself here.
+  not *Denver's MacBook Air* — with the machine named on its own row just
+  beneath, so the list can tell you apart from your laptop. **Rename…** changes
+  it if the account name isn't what you'd call yourself here.
 - When another machine — your iPhone, a second Mac — writes into the same book,
   Maugham asks you once who it is. You give it a name. That is admission.
 - After that it goes in silently, everywhere. You are never asked about the same

@@ -214,9 +214,18 @@ struct PeopleAndDevicesModel: Equatable {
     struct Person: Equatable, Identifiable {
         let fingerprint: String
         let label: String
-        /// The device's own name, when it differs from the label. A writer who
-        /// called both machines "Denver" needs to know which is which before
-        /// they revoke one.
+        /// The device's own name in brackets, **only where no device row under
+        /// this person already shows it** (Denver's re-smoke, 2026-09-19).
+        ///
+        /// It is here for the writer who called two machines "Denver" and needs
+        /// to know which is which before revoking one. Under P2 a person IS one
+        /// device, so that machine's row sits directly beneath carrying the same
+        /// name — and the row then read *Denver Trouton (Denver's MacBook Air) ·
+        /// you* above *Denver's MacBook Air · this Mac*, which is the same words
+        /// twice in two lines. Nil where the nested rows say it; kept where they
+        /// cannot, which is a person with no device record here at all, and the
+        /// shape this milestone leaves room for: a person key with several
+        /// machines, where the label alone would not say which one was admitted.
         let ownName: String?
         let role: String
         let admittedAt: Date
@@ -614,7 +623,7 @@ struct PeopleAndDevicesModel: Equatable {
             }
         return Person(
             fingerprint: record.person, label: record.label,
-            ownName: record.ownName == record.label ? nil : record.ownName,
+            ownName: bracketedOwnName(of: record, beside: devices),
             role: record.role, admittedAt: record.admittedAt,
             revokedAt: record.revokedAt,
             canRevoke: revocable(record, in: registry, me: me),
@@ -631,6 +640,27 @@ struct PeopleAndDevicesModel: Equatable {
             restoredAt: restoredAt[RecordRef(
                 directory: .people, fingerprint: record.person)],
             devices: devices)
+    }
+
+    /// **The bracketed name, and when it says anything** (Denver's re-smoke,
+    /// 2026-09-19).
+    ///
+    /// Two ways of saying nothing, and both are dropped. A name equal to the
+    /// label reads *Denver (Denver)*; a name a device row directly beneath
+    /// already carries reads as the same words twice in two lines, which under
+    /// P2 — where a person is exactly one device — is every ordinary row.
+    ///
+    /// Asked of the DEVICE ROWS this person was built with rather than of the
+    /// registry, because the question is about what the writer can see: a
+    /// device record that exists but is not drawn here would still leave the
+    /// label alone on screen.
+    private static func bracketedOwnName(
+        of record: PersonRecord, beside devices: [Device]
+    ) -> String? {
+        guard record.ownName != record.label,
+              !devices.contains(where: { $0.name == record.ownName })
+        else { return nil }
+        return record.ownName
     }
 
     /// **Only the root that admitted them, and only once** (spec §5). A person
