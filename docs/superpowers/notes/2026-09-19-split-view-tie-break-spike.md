@@ -484,3 +484,14 @@ already requires both ("Must hold on 26 (CI)"; "`macos-26` dropped only after
 that") — this is the one place in the slice where the ordering is load-bearing
 rather than tidy, because a rule that reads an attribute 26 does not publish
 would go red on a runner nobody is watching any more.
+
+### Addendum — D4 supersedes the section above (same day)
+
+`024ceeb7` moved the deployment target to macOS 27, so *the only target* is 27
+and the merge-ordering recommendation above is moot: nothing has to hold on 26,
+and Task 6 takes CI to `xcode-27` straight over with no overlap to hold open.
+The unverified claim the ordering existed to cover — whether
+`.accessibilityIdentifier` reaches a bridged `NSPopUpButton`'s cell on 26 — is
+now a question nobody needs answered. Everything else in this section is a
+measurement on 27 and stands. Kept rather than deleted because the 26 numbers
+are the record of what the ten tests used to be asserting.
