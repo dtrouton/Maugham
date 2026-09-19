@@ -663,6 +663,26 @@ suffix. `FileProvenance.pending` / `.pendingByDevice` count what is held, keyed
 by **device** rather than by key, because two actor keys of one Mac are one
 device waiting; `OpLogProvenance` sums them across files.
 
+**A revocation takes the words out of a chapter that is OPEN** (Denver's
+re-smoke, 2026-09-19). Every verb before it only ever ADDED — a peer's op
+syncing in, an admission letting a held span through — so
+`Document.handleExternalLogChange`'s echo guard asked *is there anything new*
+and returned when there was not, which is exactly what a revocation produces:
+the registry narrows, the next classification refuses lines it used to keep, and
+`loadDiagnosed` comes back SHORTER. The record was written and the `.lines`
+record filed in the same second while the revoked device's paragraph stayed in
+the draft until the project was closed and reopened. The guard now also asks
+whether ops have LEFT; nothing else changed, because everything past it was
+already a rebuild from the loaded ops (`deriveWithSequenceFallback` +
+`reconcile`, then `_opLogMirror = ops`) rather than a merge into what is held.
+Retirement and a registry Restore narrow trust the same way and arrive down the
+same path. The writer's un-bursted words are safe because the flush at the top
+of that function turns them into real ops BEFORE the reload; a chapter the
+revoked device never wrote in takes the early return and is not disturbed at
+all. **Only the harsh scope ever removes anything from an open chapter**: under
+the gentle one the mark is the highest opId this Mac applies from that device,
+so everything on screen is at or below it by construction.
+
 **The write path did not learn pending.** `JSONLAppendStore.chainedAppend` still
 judges by `.mine` alone: ADR 0012 gives each file one writer, and the truncating
 rewrite is licensed by exactly that, so a stranger's line in MY file is a

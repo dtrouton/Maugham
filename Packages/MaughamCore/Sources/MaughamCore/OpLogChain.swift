@@ -546,7 +546,18 @@ public enum OpLogChain {
         /// The chain did not hold together.
         case chainBroke(BreakReason)
         /// A seal made by a key this device's root admitted and then revoked.
-        case afterRevocation(person: String)
+        /// A seal made by a key this device's root admitted and then revoked.
+        ///
+        /// `keptNothing` is the writer's CHOICE, read off the revocation record
+        /// itself: a revocation carrying no mark is *set aside everything it
+        /// wrote* (`RevocationScope.nothing`), and under it a line written long
+        /// before the door closed is refused too. It rides on the cause because
+        /// the sentence the writer reads differs — telling them a paragraph
+        /// from last June was *written after this device's access was
+        /// withdrawn* is false, and it is the kind of false that makes a writer
+        /// doubt the machine rather than the paragraph (Denver's re-smoke,
+        /// 2026-09-19).
+        case afterRevocation(person: String, keptNothing: Bool)
         /// A seal from a second self-signed root's chain: listed, never merged.
         case anotherClaimants(root: String)
         /// A seal made at or after the moment that DEVICE said it had stopped
@@ -884,7 +895,8 @@ extension TrustVerdict {
     /// The words for a refusal, when this verdict is one.
     nonisolated var refusal: OpLogChain.QuarantineCause? {
         switch self {
-        case let .revoked(person, _): .afterRevocation(person: person)
+        case let .revoked(person, mark):
+            .afterRevocation(person: person, keptNothing: mark == nil)
         case let .otherRoot(root): .anotherClaimants(root: root)
         case let .retired(device, _): .afterRetirement(device: device)
         case .mine, .admitted, .stranger, .noChain: nil

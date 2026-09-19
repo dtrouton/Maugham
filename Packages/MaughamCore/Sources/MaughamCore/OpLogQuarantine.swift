@@ -211,7 +211,7 @@ public enum RevocationSplit {
             // Each line against ITS OWN person's mark, asked per line rather
             // than resolved once: a file holds one device's writing (ADR 0012),
             // and a rule that assumed so would be assuming it silently.
-            guard case let .afterRevocation(person) = line.refusal,
+            guard case let .afterRevocation(person, _) = line.refusal,
                   let theirMark = mark(person) else {
                 refused.append(line.bytes)
                 travellingWith = nil

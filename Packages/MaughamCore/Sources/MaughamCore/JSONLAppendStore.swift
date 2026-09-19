@@ -493,8 +493,15 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         switch cause {
         case .chainBroke(.afterRememberedHead), .chainBroke(.unchainedAfterChain):
             return "written by something that is not Maugham"
-        case .afterRevocation:
-            return "written after this device's access was withdrawn"
+        case .afterRevocation(_, let keptNothing):
+            // Two sentences, because the writer made two different choices and
+            // only one of them is about WHEN the line was written. Under *set
+            // aside everything it wrote* a paragraph from last June is refused
+            // as well, and calling that one "written after this device's access
+            // was withdrawn" is simply false (Denver's re-smoke, 2026-09-19).
+            return keptNothing
+                ? "set aside with everything this device wrote"
+                : "written after this device's access was withdrawn"
         case .afterRetirement:
             return "written after this device was retired"
         case .anotherClaimants:

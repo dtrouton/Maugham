@@ -134,7 +134,12 @@ You are asked to confirm, and the confirmation offers two ways to do it:
   it is kept in this project's set-aside records, and re-admitting them puts all
   of it back.
 
-History records which of the two you chose.
+History records which of the two you chose, and so does the set-aside record
+itself — a change set aside by the second is described as *set aside with
+everything this device wrote*, not as something written after you revoked them.
+
+Either way the change is immediate: a chapter you have open loses their
+paragraphs as you watch, rather than when you next reopen the project.
 
 Only the Mac that admitted somebody can revoke them. You can let them back in:
 the row then offers **Re-admit**.

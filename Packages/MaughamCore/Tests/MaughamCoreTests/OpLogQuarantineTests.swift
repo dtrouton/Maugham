@@ -509,7 +509,7 @@ final class OpLogQuarantineTests: XCTestCase {
 
         let split = RevocationSplit.partition(
             of: quarantinedVerification(
-                [before, atTheMark, after], cause: .afterRevocation(person: "aaaa")),
+                [before, atTheMark, after], cause: .afterRevocation(person: "aaaa", keptNothing: false)),
             highestOpIdSeen: { _ in mark })
 
         XCTAssertEqual(split?.readmitted, [before, atTheMark],
@@ -531,7 +531,7 @@ final class OpLogQuarantineTests: XCTestCase {
 
         let split = RevocationSplit.partition(
             of: quarantinedVerification(
-                [op1, seal1, op2, seal2], cause: .afterRevocation(person: "aaaa")),
+                [op1, seal1, op2, seal2], cause: .afterRevocation(person: "aaaa", keptNothing: false)),
             highestOpIdSeen: { _ in mark })
 
         XCTAssertEqual(split?.readmitted, [op1, seal1])
@@ -547,7 +547,7 @@ final class OpLogQuarantineTests: XCTestCase {
 
         let split = RevocationSplit.partition(
             of: quarantinedVerification(
-                [unplaceable, late], cause: .afterRevocation(person: "aaaa")),
+                [unplaceable, late], cause: .afterRevocation(person: "aaaa", keptNothing: false)),
             highestOpIdSeen: { _ in mark })
 
         XCTAssertEqual(split?.refused, [unplaceable])
@@ -563,7 +563,7 @@ final class OpLogQuarantineTests: XCTestCase {
 
         let split = RevocationSplit.partition(
             of: quarantinedVerification(
-                [op1, seal1], cause: .afterRevocation(person: "aaaa")),
+                [op1, seal1], cause: .afterRevocation(person: "aaaa", keptNothing: false)),
             highestOpIdSeen: { _ in mark })
 
         XCTAssertEqual(split?.readmitted, [op1, seal1])
@@ -579,7 +579,7 @@ final class OpLogQuarantineTests: XCTestCase {
         XCTAssertNil(RevocationSplit.partition(
             of: quarantinedVerification(
                 [opLine("01K5Q8ZJ3M0000000000000001")],
-                cause: .afterRevocation(person: "aaaa")),
+                cause: .afterRevocation(person: "aaaa", keptNothing: false)),
             highestOpIdSeen: { _ in nil }))
     }
 
@@ -598,9 +598,9 @@ final class OpLogQuarantineTests: XCTestCase {
 
         let split = RevocationSplit.partition(
             of: quarantinedVerification(
-                [(honest, .afterRevocation(person: "aaaa")),
+                [(honest, .afterRevocation(person: "aaaa", keptNothing: false)),
                  (forged, .chainBroke(.prevMismatch(lineIndex: 2)))],
-                fileCause: .afterRevocation(person: "aaaa")),
+                fileCause: .afterRevocation(person: "aaaa", keptNothing: false)),
             highestOpIdSeen: { _ in mark })
 
         XCTAssertEqual(split?.readmitted, [honest])
@@ -617,10 +617,10 @@ final class OpLogQuarantineTests: XCTestCase {
 
         let split = RevocationSplit.partition(
             of: quarantinedVerification(
-                [(honest, .afterRevocation(person: "aaaa")),
+                [(honest, .afterRevocation(person: "aaaa", keptNothing: false)),
                  (forged, .chainBroke(.prevMismatch(lineIndex: 2))),
-                 (seal, .afterRevocation(person: "aaaa"))],
-                fileCause: .afterRevocation(person: "aaaa")),
+                 (seal, .afterRevocation(person: "aaaa", keptNothing: false))],
+                fileCause: .afterRevocation(person: "aaaa", keptNothing: false)),
             highestOpIdSeen: { _ in mark })
 
         XCTAssertEqual(split?.readmitted, [honest])
@@ -634,7 +634,7 @@ final class OpLogQuarantineTests: XCTestCase {
             of: quarantinedVerification(
                 [(opLine("01K5Q8ZJ3M0000000000000001"),
                   .chainBroke(.prevMismatch(lineIndex: 0)))],
-                fileCause: .afterRevocation(person: "aaaa")),
+                fileCause: .afterRevocation(person: "aaaa", keptNothing: false)),
             highestOpIdSeen: { _ in mark }))
     }
 
@@ -650,7 +650,7 @@ final class OpLogQuarantineTests: XCTestCase {
 
         let split = RevocationSplit.partition(
             of: quarantinedVerification(
-                [unplaceable, late, after], cause: .afterRevocation(person: "aaaa")),
+                [unplaceable, late, after], cause: .afterRevocation(person: "aaaa", keptNothing: false)),
             highestOpIdSeen: { _ in mark })
 
         XCTAssertEqual(split?.refused, [unplaceable, after])

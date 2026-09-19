@@ -343,8 +343,33 @@ final class PendingLoadTests: XCTestCase {
         let load = try await reader().loadDiagnosed(docId: docId)
 
         XCTAssertEqual(load.ops, [], "nothing of theirs stands")
+        // **And the sentence says which choice this was** (Denver's re-smoke,
+        // 2026-09-19). Under *set aside everything it wrote* a paragraph from
+        // last June is refused as well, and telling the writer it was "written
+        // after this device's access was withdrawn" is false about the one
+        // thing the record is for.
         XCTAssertEqual(linesRecords().map(\.reason),
-                       ["written after this device's access was withdrawn"])
+                       ["set aside with everything this device wrote"])
+    }
+
+    /// The pair, so the two sentences cannot drift into one: the same file and
+    /// the same device, revoked the OTHER way, is filed in the other words —
+    /// and there the sentence is true, because only what came after the mark
+    /// is in the record.
+    func test_thetwoRevocationsAreFiledInTheirOwnWords() async throws {
+        let first = "01K5Q8ZJ3M0000000000000001"
+        let second = "01K5Q8ZJ3M0000000000000002"
+        try writeRootRecord()
+        try await writeStrangerFile([first, second])
+        try writeStrangerRecord(
+            revokedAt: Date(timeIntervalSince1970: 30), highestOpIdSeen: first)
+
+        _ = try await reader().loadDiagnosed(docId: docId)
+
+        XCTAssertEqual(linesRecords().map(\.reason),
+                       ["written after this device's access was withdrawn"],
+                       "the gentle revocation refuses only what came after, so "
+                           + "the sentence is true of every line in the record")
     }
 
     /// Everything the stranger wrote is at or below the mark, so the revocation
