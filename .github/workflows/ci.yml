@@ -48,8 +48,11 @@ jobs:
     # D2 — but it now carries Xcode 27.0 RELEASE (27A266a), the developer
     # machine's exact build, not the beta 6 the drift note recorded.
     runs-on: xcode-27
-    # Recent green runs finish in ~7 min; 30 caps a hung simulator/process well
-    # below the 6 h GitHub default (which would burn macOS-runner minutes).
+    # Green runs finish in ~16 min on `xcode-27` (measured 15m53s, 2026-09-19);
+    # they took ~7 on `macos-26`, so the move roughly doubled it. Still well
+    # inside the cap, which exists to catch a hung simulator/process far below
+    # the 6 h GitHub default (which would burn macOS-runner minutes). Revisit
+    # the 30 if the preview image gets slower again, not the job.
     timeout-minutes: 30
     steps:
       - name: Checkout

@@ -43,7 +43,7 @@ Contract: each of the nine pins the DECISION it guards windowlessly (the ladder'
 
 ### Task 5 — the chevrons lead (D1)
 
-`BinderTreeSections`' Research and Palette headers: the disclosure chevron moves to the leading edge of the title, the tap target stays the whole header row, VoiceOver still reads it as a disclosure. `SectionChevronTests` and `PaletteWallDoorHitAreaTests.test_control_…` are re-derived under Task 4's rule (they are among the nine). Guide screenshot/text if either mentions the chevron.
+`BinderTreeSections`' Research and Palette headers: the disclosure chevron moves to the leading edge of the title, the tap target stays the whole header row, and VoiceOver reads it exactly as it did before — `sectionChevron` is a `Button(.plain)` carrying `.accessibilityLabel("Collapse <section>"/"Expand <section>")`, not a `DisclosureGroup`, so it announces as a **Button** with that label and this branch does not change that. (The original line here said "VoiceOver still reads it as a disclosure", which was never true of this control.) `SectionChevronTests` and `PaletteWallDoorHitAreaTests.test_control_…` are re-derived under Task 4's rule (they are among the nine). Guide screenshot/text if either mentions the chevron.
 
 ### Task 6 — the target and CI move to 27 (D2, D4)
 
