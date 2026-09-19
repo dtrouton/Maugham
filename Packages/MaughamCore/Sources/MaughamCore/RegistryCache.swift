@@ -314,7 +314,18 @@ public final class RegistryCache: @unchecked Sendable {
     /// (whole-branch review, I1). Comparing first is what makes the ordinary
     /// case — the folder said what it said last time — cost nothing.
     public func remember(_ registry: Registry, for projectURL: URL) {
-        let entries = Self.entries(of: registry)
+        remember(Self.canonical(Self.entries(of: registry)), for: projectURL)
+    }
+
+    /// The same act over entries the caller has assembled — `reconcile`'s, which
+    /// remembers the registry it settled on PLUS the bytes of records that are
+    /// present and will not verify (smoke find, 2026-09-19). Those contribute
+    /// nothing to any registry and so appear in none, which is exactly why the
+    /// memory has to carry them separately.
+    ///
+    /// Both doors canonicalize, so the two cannot disagree about order and the
+    /// did-anything-move comparison below stays meaningful.
+    private func remember(_ entries: [Entry], for projectURL: URL) {
         lock.lock()
         defer { lock.unlock() }
         var project = storedLocked.projects[Self.projectKey(projectURL)] ?? Project()
@@ -549,7 +560,10 @@ public final class RegistryCache: @unchecked Sendable {
     ///   it verified, so the fingerprints of `folder.malformed` count as
     ///   present beside the verified refs.
     /// - A record that is present and does NOT verify is reported malformed and
-    ///   **left exactly as it is**. A device cannot tell *tampered with* from
+    ///   **left exactly as it is — and the bytes this device once verified for
+    ///   it stay in the memory** (smoke find, 2026-09-19), so People & Devices
+    ///   can offer Restore over it. It is in no registry, here or afterwards;
+    ///   what it keeps is a way back, not any standing. A device cannot tell *tampered with* from
     ///   *damaged in transit*, and overwriting it would silently downgrade
     ///   another device's signed record on shared storage. The defence would
     ///   buy nothing anyway: a malformed record already contributes nothing to
@@ -582,9 +596,11 @@ public final class RegistryCache: @unchecked Sendable {
     ///   reads these listings beside the loop where it already decides the join
     ///   and the claimants, so there is one place that records a claimant rather
     ///   than two with different ideas of *me* (fix round 1, I1).
-    /// - Whatever it settles on is then remembered, so the next reconcile
-    ///   starts from what this device last verified rather than from something
-    ///   older than the folder.
+    /// - Whatever it settles on is then remembered — together with those
+    ///   preserved bytes, which belong to no registry and would otherwise be
+    ///   dropped by the very read that noticed the tampering — so the next
+    ///   reconcile starts from what this device last verified rather than from
+    ///   something older than the folder.
     ///
     /// `cached` is passed in rather than read here so the caller states which
     /// memory it means — nil is *nothing remembered*, and the answer is the
@@ -612,6 +628,9 @@ public final class RegistryCache: @unchecked Sendable {
         var restored: [URL] = []
         var removed: [RecordRef] = []
         var displaced: [MalformedRecord] = []
+        /// Remembered records the folder still holds and can no longer vouch
+        /// for: in no registry, and kept in the memory anyway.
+        var preserved: [Entry] = []
         var devices = folder.devices
         var people = folder.people
         var claims = folder.claims
@@ -635,9 +654,29 @@ public final class RegistryCache: @unchecked Sendable {
                 continue
             }
 
-            // Present. The only question left is whose it is now.
+            // **Present, and the folder's copy did not verify** (smoke find,
+            // 2026-09-19). It is left exactly where it is and listed, and it
+            // contributes nothing to the registry — all of that is right. What
+            // was wrong is that the memory then dropped the good bytes it held,
+            // because what is remembered is derived from the settled REGISTRY
+            // and a malformed record is in no registry. So Restore, which
+            // exists for precisely this, answered *this Mac doesn't remember an
+            // earlier version of it* on the first read after the tampering —
+            // and the bytes it needed had been thrown away by the read that
+            // noticed. A deleted record survived only because an ABSENT ref is
+            // carried through the branch above.
+            //
+            // Kept here, in the memory alone. Nothing is taken into `resolved`:
+            // a record this device cannot vouch for must go on vouching for
+            // nobody, and the ONE thing this changes is that the writer still
+            // has a way back.
+            guard let theirs = Self.signer(of: ref, in: folder) else {
+                preserved.append(entry)
+                continue
+            }
+
+            // Present and verified. The only question left is whose it is now.
             guard let mine = Self.signer(of: ref, in: cached),
-                  let theirs = Self.signer(of: ref, in: folder),
                   mine != theirs
             else { continue }
 
@@ -654,7 +693,8 @@ public final class RegistryCache: @unchecked Sendable {
             claims: claims.sorted { $0.newRoot < $1.newRoot },
             malformed: (folder.malformed + displaced).sorted { $0.url.path < $1.url.path },
             sourceBytes: sourceBytes)
-        remember(resolved, for: projectURL)
+        remember(Self.canonical(Self.entries(of: resolved) + preserved),
+                 for: projectURL)
         // Dated AFTER the writes, and only for what actually went back: a
         // restore that threw took the whole reconcile with it, and a list
         // claiming a record was put back that is not on disk would send the
@@ -750,6 +790,26 @@ public final class RegistryCache: @unchecked Sendable {
                 """)
             return nil
         }
+    }
+
+    /// One order for the remembered list, whoever assembled it: by directory,
+    /// then by fingerprint. Both `remember` doors pass through here so that a
+    /// memory written by `reconcile` and one written from a registry compare
+    /// equal when they hold the same records — without which the two would
+    /// rewrite this shared file past each other on every read.
+    ///
+    /// A ref that somehow arrived twice keeps its FIRST entry: the settled
+    /// registry's copy is assembled before anything preserved, and a record
+    /// that is in the registry is one the folder vouched for.
+    private static func canonical(_ entries: [Entry]) -> [Entry] {
+        var seen: Set<String> = []
+        return entries
+            .filter { seen.insert("\($0.directory)/\($0.fingerprint)").inserted }
+            .sorted {
+                $0.directory == $1.directory
+                    ? $0.fingerprint < $1.fingerprint
+                    : $0.directory < $1.directory
+            }
     }
 
     private static func refs(of registry: Registry) -> [RecordRef] {

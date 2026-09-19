@@ -539,6 +539,140 @@ final class RegistryCacheTests: XCTestCase {
                        "a record that does not verify contributes nothing either way")
     }
 
+    /// **And the bytes it once verified stay in the memory** (smoke find,
+    /// 2026-09-19) — the half the rule above was missing, and the one the
+    /// writer meets.
+    ///
+    /// A malformed record is in no registry, correctly; what was remembered was
+    /// derived from the settled registry; so the read that NOTICED the
+    /// tampering threw away the only copy of the good bytes. People & Devices
+    /// then listed the record under *Records that don't verify* and said this
+    /// Mac remembered no earlier version of it — over the very case Restore was
+    /// built for. Denver's re-smoke found it on Smoke-P2's own root record, and
+    /// the cache file confirmed it: the device record was remembered and the
+    /// person record was not.
+    ///
+    /// End to end, because every step of it is the claim: verified, tampered,
+    /// reconciled, and the bytes still answer — then put back, and verifying.
+    func test_thebytesOfATamperedRecordSurviveTheReadThatNoticesIt() throws {
+        let registry = try writeASmallRegistry()
+        let cache = makeCache()
+        cache.remember(registry, for: projectURL)
+
+        let ref = RecordRef(directory: .people, fingerprint: root.fingerprint)
+        let url = RegistryWriter.url(.people, fingerprint: root.fingerprint, in: projectURL)
+        let honest = try Data(contentsOf: url)
+        XCTAssertEqual(cache.rawBytes(of: ref, for: projectURL), honest,
+                       "premise: this device verified it and kept the bytes")
+
+        // Somebody edits the label after it was signed — the smoke's own case.
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: honest) as? [String: Any])
+        object["label"] = "Somebody else"
+        try JSONSerialization.data(
+            withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]
+        ).write(to: url, options: .atomic)
+
+        let folder = try RegistryReader.load(projectURL: projectURL)
+        let outcome = try cache.reconcile(
+            folder: folder, cached: cache.cached(for: projectURL), in: projectURL)
+
+        XCTAssertFalse(outcome.registry.people.contains { $0.person == self.root.fingerprint },
+                       "it still vouches for nobody")
+        XCTAssertTrue(outcome.registry.malformed.contains { $0.ref == ref },
+                      "and it is still listed")
+        XCTAssertEqual(cache.rawBytes(of: ref, for: projectURL), honest,
+                       "but the way back survived the read that noticed")
+        XCTAssertEqual(makeCache().rawBytes(of: ref, for: projectURL), honest,
+                       "and survives the launch that draws the Restore button")
+
+        // Which is the whole point: the press now works.
+        try cache.restore(ref, in: projectURL, at: Date(timeIntervalSince1970: 900))
+
+        XCTAssertEqual(try Data(contentsOf: url), honest, "byte for byte")
+        let reread = try RegistryReader.load(projectURL: projectURL)
+        XCTAssertEqual(reread.malformed, [], "and what went back verifies")
+        XCTAssertEqual(reread.person(root.fingerprint)?.label, "Denver")
+    }
+
+    /// **The control: a record this device never verified has no way back**,
+    /// and says so in the sentence it already had. Preserving bytes is a
+    /// memory of having vouched for something — a stranger's record arriving
+    /// already tampered was never vouched for, so there is nothing to keep and
+    /// nothing to offer.
+    func test_atamperedRecordThisDeviceNeverVerifiedIsRememberedByNothing() throws {
+        try writeASmallRegistry()
+        let cache = makeCache()
+        cache.remember(try RegistryReader.load(projectURL: projectURL), for: projectURL)
+
+        // A record for a fingerprint this device has never verified, arriving
+        // already tampered: written well-formed, then edited after signing, and
+        // never remembered in between — which is what *never verified here*
+        // means.
+        let stranger = DeviceIdentity.softwareForTesting()
+        let ref = RecordRef(directory: .people, fingerprint: stranger.fingerprint)
+        let url = try RegistryWriter.write(
+            admittedRecord(stranger, under: root), signedBy: root, in: projectURL)
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any])
+        object["label"] = "Somebody else"
+        try JSONSerialization.data(
+            withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]
+        ).write(to: url, options: .atomic)
+
+        let folder = try RegistryReader.load(projectURL: projectURL)
+        XCTAssertTrue(folder.malformed.contains { $0.ref == ref },
+                      "premise: present, and this device cannot vouch for it")
+
+        _ = try cache.reconcile(
+            folder: folder, cached: cache.cached(for: projectURL), in: projectURL)
+
+        XCTAssertNil(cache.rawBytes(of: ref, for: projectURL),
+                     "nothing was ever verified for it, so nothing is kept")
+        XCTAssertThrowsError(try cache.restore(ref, in: projectURL)) { error in
+            XCTAssertEqual(error as? RegistryCache.RestoreError, .nothingRemembered(ref))
+        }
+    }
+
+    /// **B1's own branch is untouched** (spec §2.4 P4). A record the folder now
+    /// shows under a DIFFERENT key verified on its own terms, so it never
+    /// reaches the preserve branch above: the remembered record stands IN the
+    /// registry, the displacing copy is listed `signerChanged`, and the bytes
+    /// are remembered as they always were. The two cases keep the memory for
+    /// one reason and differ in what they keep it FOR, which is why they are
+    /// two branches rather than one.
+    func test_adisplacedRecordStillStandsAndIsStillRemembered() throws {
+        try writeASmallRegistry()
+        let cache = makeCache()
+        cache.remember(try RegistryReader.load(projectURL: projectURL), for: projectURL)
+
+        let ref = RecordRef(directory: .people, fingerprint: phone.fingerprint)
+        let honest = try Data(contentsOf: RegistryWriter.url(
+            .people, fingerprint: phone.fingerprint, in: projectURL))
+
+        // A second root writes its own admission over the same person record.
+        try RegistryWriter.write(rootRecord(otherRoot), signedBy: otherRoot, in: projectURL)
+        try RegistryWriter.write(
+            admittedRecord(phone, under: otherRoot), signedBy: otherRoot, in: projectURL)
+
+        let outcome = try cache.reconcile(
+            folder: try RegistryReader.load(projectURL: projectURL),
+            cached: cache.cached(for: projectURL), in: projectURL)
+
+        XCTAssertTrue(
+            outcome.registry.malformed.contains {
+                $0.ref == ref && $0.reason == .signerChanged(
+                    expected: self.root.fingerprint, found: self.otherRoot.fingerprint)
+            },
+            "the takeover is refused and listed")
+        XCTAssertEqual(
+            outcome.registry.people.first { $0.person == self.phone.fingerprint }?.admittedBy,
+            root.fingerprint,
+            "and the record this device verified is the one that stands")
+        XCTAssertEqual(cache.rawBytes(of: ref, for: projectURL), honest,
+                       "remembered as it always was")
+    }
+
     /// The other half of the same predicate: a record whose FILE is gone still
     /// comes back, and it comes back even while another record beside it is
     /// present-and-malformed. Absence is the one thing restore answers.
