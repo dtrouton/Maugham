@@ -38,6 +38,25 @@ final class UpdateSheetIntegrationTests: XCTestCase {
             UpdateSheet.title(for: .upToDate(currentVersion: "0.1.0")),
             "Maugham 0.1.0 is Up to Date")
     }
+
+    /// Up-to-date-shaped: this Mac is on the newest Maugham it can run, and the
+    /// sentence beneath says what the newer one needs.
+    func test_titleForABuildThisMacCannotRun() {
+        XCTAssertEqual(
+            UpdateSheet.title(for: .newerBuildNeedsNewerSystem(
+                currentVersion: "0.39.0", newerVersion: "0.40.0", requiredSystem: "27")),
+            "Maugham 0.39.0 is Up to Date")
+    }
+
+    func test_theSentenceIsOnlyEverSpokenByTheBlockedState() {
+        XCTAssertEqual(
+            UpdateState.newerBuildNeedsNewerSystem(
+                currentVersion: "0.39.0", newerVersion: "0.40.0", requiredSystem: "27")
+                .systemRequirementSentence,
+            "Maugham 0.40.0 needs macOS 27 or later.")
+        XCTAssertNil(UpdateState.upToDate(currentVersion: "0.39.0").systemRequirementSentence)
+        XCTAssertNil(UpdateState.idle.systemRequirementSentence)
+    }
 }
 
 @MainActor
@@ -63,5 +82,11 @@ final class UpdateMenuCommandTests: XCTestCase {
     func test_menuTitle_upToDate() {
         XCTAssertEqual(UpdateMenuCommand.menuTitle(for: .upToDate(currentVersion: "0.1.0")),
                        "Check for Updates…")
+    }
+    func test_menuTitle_blockedBySystem() {
+        XCTAssertEqual(
+            UpdateMenuCommand.menuTitle(for: .newerBuildNeedsNewerSystem(
+                currentVersion: "0.39.0", newerVersion: "0.40.0", requiredSystem: "27")),
+            "Check for Updates…")
     }
 }

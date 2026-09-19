@@ -25,13 +25,18 @@ import MaughamCore
 /// only who draws the triangle and who reads the flag to decide whether to emit
 /// rows.
 ///
-/// **Why the chevron is at the trailing edge** rather than in the outline gutter
-/// where every ROW's triangle sits (`BinderTreeIndentationTests` measures those
-/// at x=12). It is where the system put its own, so it is where Denver has been
-/// reaching for it; the header is a `ListTableHeaderView`, not an outline row,
-/// so it has no gutter to sit in and a hand-drawn leading chevron would line up
-/// with nothing. The trade is recorded rather than hidden: the section headers
-/// and the group rows beneath them now disclose from opposite edges.
+/// **The chevron is at the LEADING edge as of D1** (2026-09-19), which is
+/// where every group ROW's triangle already sits
+/// (`BinderTreeIndentationTests` measures those at x=12).
+///
+/// It was trailing for a year, where `Section(isExpanded:)` had put the
+/// system's own, on the argument that a `ListTableHeaderView` is not an outline
+/// row and so has no gutter for a leading chevron to line up with. Denver's
+/// macOS 27 smoke supplied the other half of that trade: at the trailing edge
+/// of a 320pt column the chevrons "sit very close to the scrollbar and are hard
+/// to hit". `test_theChevronLeadsTheHeaderInBothSections` is the pin, and it
+/// establishes the edge without assuming it — which is what the three
+/// position-derived readers in this file and its two siblings now depend on.
 @MainActor
 final class SectionChevronTests: XCTestCase {
 
@@ -144,10 +149,40 @@ final class SectionChevronTests: XCTestCase {
             + "the flag")
     }
 
-    /// Both headers carry one, not just the one that was easiest to reach.
+    /// Both headers carry one, not just the one that was easiest to reach —
+    /// **each clicked in a window of its own.**
+    ///
+    /// It used to click both in one window, and on macOS 27 that made it the
+    /// suite's only red: the first click after ANOTHER click's relayout is
+    /// swallowed. Measured 2026-09-19 (the spike note's *The accessibility tree
+    /// on 27*, §4): Palette's chevron fires 5/5 as the first thing a window is
+    /// asked to do and 10/10 after any other click, and misses exactly once —
+    /// the click straight after collapsing Research moved the Palette header
+    /// from y=183 to y=119. A sweep down that same column immediately
+    /// afterwards fired on all thirty of its samples, the failing point
+    /// included, so nothing about the control had changed. It is tripwire 33's
+    /// shape with a mouse instead of a press, and CLAUDE.md already records the
+    /// mechanism one layer down: stale `appKitDefined` traffic feeds
+    /// `NSTableView`'s drag-disambiguation loop and eats the pair.
+    ///
+    /// A fresh mount per section is the fix, measured at 2/2. That is what this
+    /// suite's three other click cases have always had without saying so —
+    /// each is one click into a window that has seen none.
+    ///
+    /// **Why a click survives here at all.** This is the one WIRING in the two
+    /// section headers with no windowless pin available: the tree's chevron has
+    /// no accessibility hook of any kind to press, because a
+    /// `List(.sidebar)`'s `NSOutlineRow` answers `[]` to the KVC walk (measured
+    /// the same day) — so `axMenuControl` and every identifier reach nothing
+    /// here, and the `_FocusRingView` census can say the chevron is DRAWN but
+    /// not that it is connected to this section's own flag. The flag itself is
+    /// `BinderTreeSectionsState`'s and is pinned windowlessly all over
+    /// `BinderTreeSectionsTests`, `AltitudeKeyspaceTests` and
+    /// `ResearchSubjectRevealTests`; what only a click can say is that THIS
+    /// header's triangle writes THAT section's flag.
     func test_bothSectionsCarryAChevronThatTogglesTheirOwnFlag() async throws {
-        let mount = try await mountTree()
         for section in [Section.research, .palette] {
+            let mount = try await mountTree()
             let geometry = try headerGeometry(section, in: mount.window)
             let before = mount.state.isExpanded(section)
             _ = await click(at: CGPoint(x: geometry.chevron.midX,
@@ -156,7 +191,83 @@ final class SectionChevronTests: XCTestCase {
             await pumpUntil(deadline: 5) { mount.state.isExpanded(section) != before }
             XCTAssertEqual(mount.state.isExpanded(section), !before,
                            "\(section)'s chevron did not toggle its own flag")
+            // …and only its own.
+            let other: Section = section == .research ? .palette : .research
+            XCTAssertTrue(mount.state.isExpanded(other),
+                          "\(section)'s chevron closed \(other) as well")
         }
+    }
+
+    // MARK: - Which edge it discloses from
+
+    /// **The chevron LEADS the title** (D1, 2026-09-19).
+    ///
+    /// Denver's macOS 27 smoke: the chevrons "now sit very close to the
+    /// scrollbar and are hard to hit — move them left". Finder's and Xcode's
+    /// convention, and there is nothing at a header's leading edge to collide
+    /// with; the trade this reverses is written out in `sectionChevron`'s own
+    /// comment.
+    ///
+    /// **Identified without assuming the answer.** The Research header carries
+    /// exactly ONE button and it is its chevron, so its identity needs no
+    /// position at all; the Palette header carries two, and the one sitting at
+    /// the same x as Research's is that header's chevron. Both claims are
+    /// asserted rather than assumed, which is what stops this test from being a
+    /// tautology about whichever ring happens to be leftmost.
+    func test_theChevronLeadsTheHeaderInBothSections() async throws {
+        let mount = try await mountTree()
+        let content = try XCTUnwrap(mount.window.contentView)
+
+        var byHeader: [(rings: [CGRect], menu: CGRect, header: CGRect)] = []
+        for header in sectionHeaders(in: mount.window) {
+            let kids = descendants(of: header)
+            let rings = kids
+                .filter { String(describing: type(of: $0)).contains("FocusRing") }
+                .map { $0.convert($0.bounds, to: content) }
+                .sorted { $0.minX < $1.minX }
+            guard let menu = kids
+                .first(where: { String(describing: type(of: $0))
+                                    .contains("SwiftUIPopupButton") })
+                .map({ $0.convert($0.bounds, to: content) })
+            else { continue }
+            byHeader.append((rings, menu, header.convert(header.bounds, to: content)))
+        }
+        try XCTSkipUnless(byHeader.count == 2,
+                          "this display mounted \(byHeader.count) section headers")
+        XCTAssertEqual(byHeader.map(\.rings.count).sorted(), [1, 2],
+                       "premise: Research carries its chevron alone, Palette the "
+                       + "door beside it — \(byHeader.map(\.rings.count))")
+
+        let research = try XCTUnwrap(byHeader.min(by: { $0.rings.count < $1.rings.count }))
+        let palette = try XCTUnwrap(byHeader.max(by: { $0.rings.count < $1.rings.count }))
+        let researchChevron = try XCTUnwrap(research.rings.first)
+
+        XCTAssertLessThan(
+            researchChevron.minX, research.menu.minX,
+            "the Research chevron is at x=\(researchChevron.minX), the `+` menu "
+            + "at x=\(research.menu.minX) — the chevron must lead the header, "
+            + "not trail its accessories")
+        XCTAssertLessThan(
+            researchChevron.minX - research.header.minX, 8,
+            "the chevron sits \(researchChevron.minX - research.header.minX)pt "
+            + "into a header that starts at x=\(research.header.minX) — leading "
+            + "the TITLE means at the head of the row, not merely somewhere left "
+            + "of the `+`")
+
+        let paletteChevron = try XCTUnwrap(palette.rings.first)
+        XCTAssertEqual(
+            paletteChevron.minX, researchChevron.minX, accuracy: 0.5,
+            "the Palette header's leading button is at x=\(paletteChevron.minX) "
+            + "against the Research chevron's x=\(researchChevron.minX) — the two "
+            + "headers must disclose from the same edge, or the leading button "
+            + "here is the door and this header still trails its chevron")
+        let door = try XCTUnwrap(palette.rings.last)
+        XCTAssertLessThan(
+            paletteChevron.minX, door.minX,
+            "the Palette chevron must lead the wall's door, not follow it")
+        XCTAssertLessThan(
+            paletteChevron.minX, palette.menu.minX,
+            "…and lead the `+` menu")
     }
 
     // MARK: - No shift
@@ -229,27 +340,47 @@ final class SectionChevronTests: XCTestCase {
     /// in a `Button(.plain)` hit-tests the box it draws in and nothing more, so
     /// the chevron gets the same explicit frame and content shape. Swept the way
     /// `PaletteWallDoorHitAreaTests` sweeps the door.
+    ///
+    /// **A window per sample**, for
+    /// `test_bothSectionsCarryAChevronThatTogglesTheirOwnFlag`'s reason: the
+    /// first synthetic click after another click's relayout is swallowed, and
+    /// four clicks with a poll between each is four chances to meet it.
+    ///
+    /// **It had been green in one window, and the measurement says why** — which
+    /// is worth writing down rather than relying on, because it is an accident
+    /// of this particular header. Collapsing Research moves the PALETTE header
+    /// (measured 2026-09-19: y=183 → y=119, the spike note's §4) and leaves the
+    /// Research header exactly where it was, at (14, 87). So the four clicks
+    /// here land on a view that never moved, while its sibling's second click
+    /// landed on one that had. Nothing in the fixture enforces that: give
+    /// Research a second accessory, or put a section above it, and the
+    /// exemption evaporates with no test able to say so. A fresh mount costs a
+    /// project on disk per sample and owes nothing to where the furniture sits.
     func test_theWholeChevronIsClickableTopToBottom() async throws {
-        let mount = try await mountTree()
-        let research = try headerGeometry(.research, in: mount.window)
-
         var dead: [String] = []
-        for (name, point) in [
-            ("top", CGPoint(x: research.chevron.midX, y: research.chevron.minY + 0.5)),
-            ("bottom", CGPoint(x: research.chevron.midX, y: research.chevron.maxY - 0.5)),
-            ("left", CGPoint(x: research.chevron.minX + 0.5, y: research.chevron.midY)),
-            ("right", CGPoint(x: research.chevron.maxX - 0.5, y: research.chevron.midY))
-        ] {
-            let before = mount.state.researchSectionExpanded
-            _ = await click(at: point, in: mount.window)
-            await pumpUntil(deadline: 2) {
-                mount.state.researchSectionExpanded != before
+        for name in ["top", "bottom", "left", "right"] {
+            let mount = try await mountTree()
+            let research = try headerGeometry(.research, in: mount.window)
+            let chevron = research.chevron
+            let point: CGPoint
+            switch name {
+            case "top": point = CGPoint(x: chevron.midX, y: chevron.minY + 0.5)
+            case "bottom": point = CGPoint(x: chevron.midX, y: chevron.maxY - 0.5)
+            case "left": point = CGPoint(x: chevron.minX + 0.5, y: chevron.midY)
+            default: point = CGPoint(x: chevron.maxX - 0.5, y: chevron.midY)
             }
-            if mount.state.researchSectionExpanded == before { dead.append(name) }
+
+            XCTAssertTrue(mount.state.researchSectionExpanded,
+                          "premise: a fresh tree opens open")
+            _ = await click(at: point, in: mount.window)
+            await pumpUntil(deadline: 2) { !mount.state.researchSectionExpanded }
+            if mount.state.researchSectionExpanded {
+                dead.append("\(name) of \(chevron)")
+            }
         }
         XCTAssertTrue(dead.isEmpty,
-                      "\(dead) of the chevron's own \(research.chevron) did not "
-                      + "toggle the section — the chevron has the door's bug")
+                      "\(dead) did not toggle the section — the chevron has the "
+                      + "door's bug")
     }
 
     /// **The chevron did not cost the header its height.** Same guard the door's
@@ -279,7 +410,7 @@ final class SectionChevronTests: XCTestCase {
     }
 
     /// **Which header is which, without counting rows.** The Palette header is
-    /// the one carrying two buttons (the door and the chevron); Research carries
+    /// the one carrying two buttons (the chevron and the door); Research carries
     /// only its chevron. Derived rather than indexed, because the row a section
     /// lands on differs per project type and a hand-counted index is a fixture
     /// that goes quietly wrong (`BinderTreeMultiselectMountTests`' own lesson).
@@ -316,10 +447,16 @@ final class SectionChevronTests: XCTestCase {
             "the two headers mounted \(byHeader.map(\.rings.count)) buttons; "
             + "Palette should carry the door and a chevron, Research a chevron")
         let menu = try XCTUnwrap(hit.menu, "\(section)'s header mounted no `+` menu")
-        let chevron = try XCTUnwrap(hit.rings.last,
+        // **The chevron is the LEADING ring** since D1 (2026-09-19) — it used
+        // to be the trailing one, and the door the leading one. Both spellings
+        // are position-derived and both were right in their own era; what keeps
+        // this from going quietly wrong the next time the furniture moves is
+        // `test_theChevronLeadsTheHeaderInBothSections`, which establishes the
+        // edge without assuming it.
+        let chevron = try XCTUnwrap(hit.rings.first,
                                     "\(section)'s header mounted no chevron")
         return HeaderGeometry(
-            door: section == .palette ? try XCTUnwrap(hit.rings.first) : .zero,
+            door: section == .palette ? try XCTUnwrap(hit.rings.last) : .zero,
             menu: menu, chevron: chevron)
     }
 

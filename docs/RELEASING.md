@@ -13,7 +13,8 @@ Stable releases are tag-triggered via GitHub Actions. The recipe:
    push event when more than three tags land in one push, so a stale local tag riding along
    means `release.yml` silently never starts (v0.36.0, 2026-09-06 — fixed by deleting and
    re-pushing the tag alone). Workflow at `.github/workflows/release.yml` builds Release config,
-   runs tests, packages the `.dmg`, and creates the GitHub Release with the notes file as body.
+   runs tests, packages the `.dmg`, and creates the GitHub Release with the notes file as body
+   **plus one machine line naming the build's minimum macOS** (see below).
 5. ~10 minutes later, the stable app's next check picks it up. Menu title goes to
    "Install Update…"; clicking reveals the `.dmg` in Finder.
 
@@ -25,6 +26,19 @@ releases (same mechanism as the phone pipeline; replaced `github.run_number`). T
 history, so the release checkout uses `fetch-depth: 0`. The Mac and phone targets share
 byte-identical placeholders in `project.yml`, so the release workflow's rewrite is **scoped to the
 `Maugham:` target block** — it must not touch the `MaughamPhone:` placeholders.
+
+**The release body carries the build's minimum macOS, and the updater reads it.** The workflow's
+"Compose the release body" step reads `LSMinimumSystemVersion` out of the **built app's own**
+`Info.plist` and appends `<!-- maugham-minimum-macos: <n> -->` to the notes. It is invisible on
+the GitHub release page, costs the updater no second request (the release body already arrives
+with the release list), and `MinimumSystemVersion.strippingMarker` keeps it out of the update
+sheet. `UpdateChecker` treats a release whose minimum is above this Mac's macOS as **no update** —
+nothing is downloaded, and the sheet says in one sentence what the newer Maugham needs. This
+exists because the deployment target moved to macOS 27 at 0.40.0: without it a Mac still on 26
+would install a binary that cannot launch. A release carrying no such line (everything before
+0.40.0) is offered exactly as before — a missing fact is never a refusal. If the built app ever
+lacks `LSMinimumSystemVersion`, the step fails the release rather than publishing a body that
+lies by omission.
 
 **Workflow fails before publish if `docs/release-notes/v0.X.Y.md` is missing.** Tag pattern
 `v[0-9]+.[0-9]+.[0-9]+` triggers the release workflow; milestone tags (`milestone-*`) don't.
@@ -70,15 +84,18 @@ this is how a green local test run shipped a broken Release build to CI on the v
 `release.yml`, `phone-release.yml`) now pin the same toolchain so CI and the two
 release pipelines build identically and can't drift between releases:
 
-- **Xcode `26.6`** via `maxim-lobanov/setup-xcode` (was `latest-stable` in the
-  release workflows). 26.6 is the developer machine's Xcode, and since
-  2026-08-04 the Mac jobs run on the `macos-26` runner (image macOS 26.5.2),
-  which carries 26.0.1 through 26.6 — so what CI gates and what release ships
-  are finally built with the toolchain the code was written against. The old
-  `26.3` pin was a `macos-15` ceiling (commit `a20e0da`, now superseded): the
-  runner was two majors behind the only machine anyone develops on, and AppKit
-  layout differs enough between them that mounted-view tests measured on 26.5
-  failed on CI and nowhere else. If GitHub updates the image and 26.6
+- **Xcode `27.0`** via `maxim-lobanov/setup-xcode` (was `latest-stable` in the
+  release workflows). 27.0 (27A266a) is the developer machine's Xcode, and
+  since 2026-09-19 the Mac jobs run on the **`xcode-27`** runner (image macOS
+  27.0), which carries that same build as its default — so what CI gates and
+  what release ships are built with the toolchain the code was written against.
+  This is the same rule that moved the pin to `macos-26` / `26.6` on 2026-08-04
+  and off a `macos-15` / `26.3` ceiling before that (commit `a20e0da`, both now
+  superseded): a runner behind the only machine anyone develops on makes
+  mounted-view tests fail on CI and nowhere else — or, as in 2026-09-15's
+  four-day gap, locally and nowhere else. `xcode-27` is a **public-preview**
+  image and there is no `macos-27` label; `macos-latest` is still 26, so the
+  label cannot be softened to it. If GitHub updates the image and 27.0
   disappears, the setup step fails loudly; bump all files together.
   **`phone-tests` and `phone-release.yml` stay on `macos-15` / Xcode `26.3`** —
   they build only the iOS app, whose floor is iOS 17 and which the macOS

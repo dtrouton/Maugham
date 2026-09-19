@@ -38,6 +38,25 @@ struct PassLadder: View {
     static let doneTitle = "Done"
     static let skipTitle = "Skip"
 
+    /// **How a row is named to the accessibility tree** (macOS 27 shell slice,
+    /// Task 4).
+    ///
+    /// A `Picker(.menu)` mounts no AppKit control on macOS 27, so a test can
+    /// only reach this row through the tree — and there the row's own label
+    /// ("Structural") is a SEPARATE sibling node, while the inspector publishes
+    /// a fifth `AXPopUpButton` that is not a ladder row at all (Publishing's
+    /// *Start on*). Without a name of its own the only way to say *which pass
+    /// this is* would be "the static text immediately before it", and this
+    /// suite has already been bitten once by a positional read — the
+    /// publishing section's page-range menu was measured arriving
+    /// asynchronously at index 0 mid-test.
+    ///
+    /// Additive and invisible: VoiceOver still reads the row's own label, which
+    /// is where the writer's words are.
+    static func identifier(forPass passId: String) -> String {
+        "passLadder.\(passId)"
+    }
+
     var derivedStatus: ReviewStatus {
         ReviewStatus.derived(
             passStates: item.passStates,
@@ -72,6 +91,7 @@ struct PassLadder: View {
                 }
             }
             .pickerStyle(.menu)
+            .accessibilityIdentifier(Self.identifier(forPass: pass.id))
         }
     }
 

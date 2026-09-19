@@ -90,20 +90,36 @@ final class AdmissionSheetTests: XCTestCase {
                       + "\(fields.map(\.stringValue))")
     }
 
+    /// **Read through `axMenuControl`, because this menu's words are not where
+    /// a label is.** On macOS 27 the explicit `.accessibilityLabel` arrives as
+    /// an EMPTY `accessibilityLabel` beside an `NSAttributedString`
+    /// `accessibilityTitle`, so `axTexts` — which reads values and labels, and
+    /// casts both `as? String` — is blind to it: the one attribute it does not
+    /// read, in the one type it cannot cast. The helper knows both spellings,
+    /// which is what lets the same call serve this menu and the pass ladder's
+    /// pickers (macOS 27 shell slice, Task 4).
     func test_theSheetOffersTheLabelsThisBookAlreadyKnows() throws {
         let window = mount(request())
-        let texts = try axTexts(in: window)
 
-        XCTAssertTrue(texts.contains { $0.contains(AdmissionSheet.knownLabelsTitle) },
-                      "the picker is drawn: \(texts)")
+        let found = try axMenuControl(AdmissionSheet.knownLabelsIdentifier, in: window)
+        let published = try axIdentifiers(in: window)
+        let control = try XCTUnwrap(
+            found, "the picker is not drawn. Identifiers on the sheet: \(published)")
+        XCTAssertEqual(control.role, "AXMenuButton",
+                       "published as \(control.role ?? "nothing")")
+        XCTAssertEqual(control.reading, AdmissionSheet.knownLabelsTitle,
+                       "and it says what it is for")
+        XCTAssertEqual(control.isEnabled, true, "and it can be opened")
     }
 
     func test_withNoOtherLabelsThePickerIsNotDrawn() throws {
         let window = mount(request(knownLabels: []))
-        let texts = try axTexts(in: window)
 
-        XCTAssertFalse(texts.contains { $0.contains(AdmissionSheet.knownLabelsTitle) },
-                       "an empty menu is a control that explains nothing: \(texts)")
+        let found = try axMenuControl(AdmissionSheet.knownLabelsIdentifier, in: window)
+        XCTAssertNil(
+            found,
+            "an empty menu is a control that explains nothing, and this sheet "
+            + "drew one anyway")
     }
 
     func test_bothButtonsAreDrawn() throws {

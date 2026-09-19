@@ -10,10 +10,25 @@ import Observation
 @Observable
 @MainActor
 final class DetailColumnProbe {
-    /// Which spelling the harness applies — the production one, or the range
-    /// this task replaced. `.range` exists so the diagnosis is a measurement
-    /// this suite keeps making rather than a paragraph in a report.
-    enum Spelling { case width, range }
+    /// Which spelling the harness applies — the production one, or one of the
+    /// two this file has now replaced. Both offenders exist so that each
+    /// diagnosis stays a measurement this suite keeps making rather than a
+    /// paragraph in a report.
+    enum Spelling {
+        /// Production: the column's width bound once, applied to a
+        /// `.frame(width:)` on the content AND to the column modifier.
+        case width
+        /// The range spelling, which moved under the writer on every mode
+        /// change (2026-08-08).
+        case range
+        /// **Production between 2026-08-08 and macOS 27**: the column modifier
+        /// alone, the content free to demand what it likes underneath. On 26
+        /// the split item's `NSSplitViewItem.MaxSize` won that conflict; on 27
+        /// the content's minimum does, and the column resolves to
+        /// `max(w, the pane's minimum)` — see
+        /// `test_plantedOffender_anUnframedPaneTakesTheColumn`.
+        case unframed
+    }
 
     var mounted: Bool = true
     /// Stands for the pane the right column is showing. `1` is a pane whose
@@ -113,16 +128,43 @@ private struct DetailColumnHarness: View {
         .modifier(ContainerWidthReporter(onWidth: { probe.noteContainerWidth($0) }))
     }
 
+    /// **Production's spelling, and it has two halves** — see
+    /// `ProjectWindow.detailColumn`, which this mirrors. The width is bound
+    /// once and applied to the content's `.frame(width:)` as well as to the
+    /// column modifier, because on macOS 27 the modifier alone does not hold
+    /// the column against a pane with a minimum of its own.
     @ViewBuilder
     private var detailColumn: some View {
+        let effective = ProjectWindow.effectiveDetailColumnWidth(
+            persisted: probe.width, containerWidth: probe.containerWidth)
         switch probe.spelling {
         case .width:
-            pane.navigationSplitViewColumnWidth(
-                ProjectWindow.effectiveDetailColumnWidth(
-                    persisted: probe.width, containerWidth: probe.containerWidth))
+            pane
+                .frame(width: effective)
+                .clipped()
+                .navigationSplitViewColumnWidth(effective)
         case .range:
             pane.navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
+        case .unframed:
+            pane.navigationSplitViewColumnWidth(effective)
         }
+    }
+
+    /// **Pane 1's content, hoisted so a test can MEASURE it.** The planted
+    /// offender below asserts the column resolves to this view's own minimum
+    /// width, which is a claim about a number only the view itself knows —
+    /// a literal here would be a claim about the developer's system font.
+    static var unbreakableLabel: some View {
+        Text("a label this pane will not break, wanting far more width "
+             + "than the column was dragged to")
+            .fixedSize()
+    }
+
+    /// What that label demands, measured the way AppKit measures it. Used by
+    /// the planted offender as the width the pane TAKES when nothing stops it.
+    @MainActor
+    static var unbreakableLabelWidth: Double {
+        Double(NSHostingView(rootView: unbreakableLabel).fittingSize.width)
     }
 
     /// Three panes, and the third is load-bearing: pane `2` is a *different*
@@ -136,9 +178,7 @@ private struct DetailColumnHarness: View {
             case 0:
                 Text("Inspector")
             case 1:
-                Text("a label this pane will not break, wanting far more width "
-                     + "than the column was dragged to")
-                    .fixedSize()
+                Self.unbreakableLabel
             default:
                 Text("History")
             }
@@ -498,10 +538,22 @@ final class DetailColumnWidthTests: XCTestCase {
 
     /// **The planted offender, and the diagnosis it keeps measurable.** The
     /// range spelling this task removed, driven through the same harness: a
-    /// wide pane takes the column to the range's `max`, and a visibility round
-    /// trip drops it on the range's `min`. If either row of this table ever
-    /// stops reproducing, the tests above are passing for a reason nobody has
-    /// checked.
+    /// wide pane takes the column off the width the writer dragged to, and a
+    /// visibility round trip drops it on the range's `min`. If either row of
+    /// this table ever stops reproducing, the tests above are passing for a
+    /// reason nobody has checked.
+    ///
+    /// **The first row is weaker than it was, on purpose.** It used to assert
+    /// the column landed exactly on the range's `max` (360), which it did until
+    /// macOS 27. It no longer does — it lands on the PANE's own minimum (528
+    /// here), because 27's tie-break outranks a range exactly as it outranks a
+    /// fixed width. Re-pinning 360 would be pinning a number this OS does not
+    /// produce; asserting the pane's minimum instead would make this row a
+    /// second copy of `test_plantedOffender_anUnframedPaneTakesTheColumn` and
+    /// say nothing about ranges. So the row asserts what it is actually for —
+    /// a range does not hold the writer's width — and the range-SPECIFIC claim
+    /// is carried by the second row, which is untouched by the newer mechanism
+    /// because pane 0 is short and contributes no minimum at all.
     func test_plantedOffender_theRangeIsWhatMovedIt() async throws {
         let probe = DetailColumnProbe(spelling: .range)
         let (_, split) = try await mount(probe)
@@ -509,10 +561,15 @@ final class DetailColumnWidthTests: XCTestCase {
 
         probe.pane = 1
         await pump(0.7)
-        XCTAssertEqual(width(of: split), 360, accuracy: 1,
-                       "the offender: a pane wanting more width takes the "
-                       + "column out to the range's max, over a width the "
-                       + "writer had dragged to \(dragged)")
+        let widened = width(of: split)
+        XCTAssertGreaterThan(widened, dragged + 8,
+                             "the offender: a pane wanting more width takes "
+                             + "the column off the \(dragged)pt the writer had "
+                             + "dragged to — measured \(widened)pt")
+        XCTAssertGreaterThanOrEqual(widened, 360 - 1,
+                                    "and it goes to the range's max at least: "
+                                    + "on macOS 26 exactly there, on 27 past it "
+                                    + "to the pane's own minimum")
 
         probe.pane = 0
         await pump(0.6)
@@ -526,25 +583,30 @@ final class DetailColumnWidthTests: XCTestCase {
                        + "switch — lands the column on the range's MIN")
     }
 
-    /// **A canary on AppKit's tie-breaking, not a proof of it.** The tempting
-    /// framing — "a range with one value in it has nothing left to re-resolve" —
-    /// overclaims. A pane whose content is genuinely unbreakable raises a real
-    /// Auto Layout conflict against the fixed column, and the suite logs it:
+    /// **This was a canary on AppKit's tie-break. The tie-break changed, so it
+    /// is now a guard on the fix that replaced it.**
     ///
-    /// ```
-    /// Conflicting constraints detected: (
-    ///     "NSLayoutGuide.width >= 360   (active)>",
-    ///     "'NSSplitViewItem.MaxSize' NSLayoutGuide.width <= 300   (active)>"
-    /// )
-    /// ```
+    /// Until macOS 27 the column came out at the width it was given for a
+    /// reason that was never ours: a `.fixedSize()` pane raises a real Auto
+    /// Layout conflict against the fixed column, AppKit logged it, and AppKit
+    /// resolved it in the column's favour. This test was written to go red the
+    /// day that changed, and on 2026-09-18 it did — the whole point of having
+    /// installed it.
     ///
-    /// AppKit resolves it by breaking the max-size constraint rather than the
-    /// content's intrinsic-width demand, which is *why* the column still comes
-    /// out at the width it was given. That tie-break is undocumented and not
-    /// ours, so this test is here to go red the day it changes — the day a
-    /// `.fixedSize()` pane starts winning is the day the fix needs a different
-    /// shape. Real Inspector and Outline content wraps or scrolls, so provoking
-    /// it takes the deliberate `.fixedSize()` in this harness.
+    /// **What 27 does instead**, measured (spike `16358eb8`,
+    /// `docs/superpowers/notes/2026-09-19-split-view-tie-break-spike.md`): the
+    /// column resolves to `max(the width it was given, the pane's own
+    /// minimum)`. `navigationSplitViewColumnWidth(w)` gives the split item a
+    /// min AND a max of `w`, and the content's minimum now outranks the item's
+    /// max. So the width is no longer held by a tie-break at all — it is held
+    /// by `.frame(width:)` on the content, which leaves the pane no minimum to
+    /// contribute. `test_plantedOffender_anUnframedPaneTakesTheColumn` is what
+    /// keeps that diagnosis measurable.
+    ///
+    /// **The assertion is unchanged**, deliberately: it was the right claim
+    /// before and it is the right claim now. Only its mechanism moved.
+    /// Real Inspector and Outline content wraps or scrolls, so provoking this
+    /// at all takes the deliberate `.fixedSize()` in this harness.
     func test_theFixedColumnWinsAgainstAnUnbreakablePane() async throws {
         let probe = DetailColumnProbe(width: 300)
         let (_, split) = try await mount(probe)
@@ -556,6 +618,52 @@ final class DetailColumnWidthTests: XCTestCase {
                        "the column's width must still win the tie against a "
                        + "pane that cannot break — if this goes red, read this "
                        + "test's doc comment before assuming it is a flake")
+    }
+
+    /// **The planted offender, and the mechanism it keeps measurable.**
+    ///
+    /// The spelling production shipped between 2026-08-08 and macOS 27 — the
+    /// column modifier alone, nothing bounding the content — driven through
+    /// this same harness. The column comes out at the PANE's own minimum, and
+    /// the assertion names that number by measuring the label rather than by
+    /// writing it down, because it is a fact about the system font and not
+    /// about this app.
+    ///
+    /// Without this, the test above would be passing for a reason nobody has
+    /// checked: `.frame(width:)` and `.clipped()` both look like belt and
+    /// braces on a column that already declares its width, and a later reader
+    /// deleting either would find every other assertion in this file still
+    /// green. (`.clipped()` in particular is NOT load-bearing for layout —
+    /// measured, 48/48 cells, in the spike note. It is there so an unbreakable
+    /// child does not DRAW over the prose, and this test does not guard it;
+    /// nothing does, which is why the comment on it in `ProjectWindow` says
+    /// what it is for.)
+    func test_plantedOffender_anUnframedPaneTakesTheColumn() async throws {
+        let probe = DetailColumnProbe(width: 300, spelling: .unframed)
+        let (_, split) = try await mount(probe)
+        let given = shown(probe)
+        XCTAssertEqual(width(of: split), given, accuracy: 1,
+                       "premise: with a pane that fits, the offender's column "
+                       + "is the width it was given — so what changes below is "
+                       + "the pane and not the spelling")
+
+        let demand = DetailColumnHarness.unbreakableLabelWidth
+        XCTAssertGreaterThan(demand, given + 8,
+                             "premise: the label wants materially more than "
+                             + "the column, or this test is about nothing")
+
+        probe.pane = 1
+        await pump(0.8)
+        XCTAssertEqual(width(of: split), demand, accuracy: 1,
+                       "the offender: with nothing bounding the content, the "
+                       + "column resolves to max(the width it was given, the "
+                       + "pane's own minimum) — \(demand)pt of label over a "
+                       + "\(given)pt column. This is the macOS 27 tie-break, "
+                       + "and the test above is only meaningful while this one "
+                       + "reproduces it")
+        XCTAssertEqual(probe.widthWrites, 0,
+                       "and even losing the column writes nothing: what moved "
+                       + "is the layout, never the writer's stored wish")
     }
 
     // MARK: - The collapse gives the canvas the window
@@ -601,6 +709,14 @@ final class DetailColumnWidthTests: XCTestCase {
                        + "columns at \(Self.columnWidths(split)). A trailing "
                        + "column that renders no view still takes room unless "
                        + "it declares it wants none")
+
+        // **And the column fix does not reach this state** — `⌘\` leaves
+        // `showInspector` false, which is `hiddenDetailColumn`'s arm, and that
+        // arm has no content to frame. Asserted rather than reasoned, because
+        // the whole point of the frame is that it pins a width and this is the
+        // one place the right answer is no width at all.
+        XCTAssertEqual(width(of: split), 0, accuracy: 1,
+                       "the hidden arm still declares zero under the collapse")
     }
 
     /// **The control, and the same rule with the sidebar still up**: hiding the
@@ -625,19 +741,38 @@ final class DetailColumnWidthTests: XCTestCase {
                              "premise: `.all` keeps the binder on screen, or "
                              + "this case is the collapse test wearing another "
                              + "name")
-        // What the binder OCCUPIES, which is its content plus the furniture
-        // macOS 26 draws around a sidebar — production's own constant, the same
-        // one `effectiveDetailColumnWidth`'s sum is built from. A control that
-        // subtracted the content alone would be 8pt out and would say the
-        // defect was still here.
-        XCTAssertEqual(centre,
-                       container - sidebar - Double(ProjectWindow.sidebarInset),
-                       accuracy: 2,
-                       "with the pane hidden the prose takes everything the "
-                       + "binder does not: got \(centre)pt of "
-                       + "\(container)pt less a \(sidebar)pt binder and its "
-                       + "\(ProjectWindow.sidebarInset)pt inset, with the "
-                       + "split's columns at \(Self.columnWidths(split))")
+        // **The claim, not the number.** What sits between the binder's content
+        // and the prose's is furniture the split draws, and macOS moved it:
+        // 8pt on 26, 1pt on 27 (measured at two window widths, spike
+        // `16358eb8`). `ProjectWindow.sidebarInset` stays 8 because it is also
+        // a term in `effectiveDetailColumnWidth`'s affordability sum, where
+        // over-reserving is the conservative direction.
+        //
+        // So this asserts what the test is actually about — the prose takes
+        // everything the binder does not, bar the furniture — rather than a
+        // tolerance wide enough to swallow the defect. The defect is a prose
+        // column short by a whole detail column; 7pt of slack would hide
+        // nothing of it, and the inequality hides nothing at all.
+        let furniture = container - sidebar - centre
+        XCTAssertGreaterThan(furniture, 0,
+                             "premise: the split draws SOMETHING between the "
+                             + "two columns — a zero here means the two "
+                             + "reporters are measuring the same view")
+        XCTAssertLessThanOrEqual(
+            furniture, Double(ProjectWindow.sidebarInset),
+            "with the pane hidden the prose takes everything the binder does "
+            + "not, bar the split's own furniture: got \(centre)pt of "
+            + "\(container)pt less a \(sidebar)pt binder, leaving \(furniture)pt "
+            + "unaccounted for against a declared inset of "
+            + "\(ProjectWindow.sidebarInset)pt, with the split's columns at "
+            + "\(Self.columnWidths(split))")
+
+        // And the hidden arm holds zero — the other half of what this state is
+        // supposed to be, and the thing `hiddenDetailColumn` exists for.
+        XCTAssertEqual(width(of: split), 0, accuracy: 1,
+                       "`hiddenDetailColumn` must declare that it wants no "
+                       + "width: a trailing column that renders no view still "
+                       + "takes room unless it says so")
     }
 
     /// The three columns as the split actually laid them out — for failure
@@ -1132,6 +1267,84 @@ final class DetailColumnWidthTests: XCTestCase {
             + "one width is one width forever")
     }
 
+    /// **The line that ties the mounted tests to the app, and until macOS 27
+    /// there was nothing standing here.**
+    ///
+    /// Everything mounted in this file measures `DetailColumnHarness`, which
+    /// composes its own detail column. When the tie-break flipped, giving that
+    /// harness the fix turned all six of the reds green while
+    /// `ProjectWindow.detailColumn` still shipped the broken spelling — a
+    /// whole suite agreeing about a column the app does not have. Measured,
+    /// 2026-09-19, in the middle of this very change.
+    ///
+    /// So the census asks for the SHAPE: the effective width bound once, and
+    /// that same binding applied to the content's `.frame(width:)` as well as
+    /// to `.navigationSplitViewColumnWidth`. The frame is what holds the column
+    /// on 27 — it leaves the pane no minimum of its own to contribute, which
+    /// is the whole mechanism (`test_plantedOffender_anUnframedPaneTakesTheColumn`).
+    /// Binding once rather than calling twice keeps the count in
+    /// `test_theRightColumnAsksForAWidthAndNotARange` at one, and is the honest
+    /// shape regardless: two calls are two chances to pass different arguments.
+    func test_theRightColumnFramesItsContentToTheWidthItDeclares() throws {
+        let code = try Self.codeLines(of: "Views/ProjectWindow.swift")
+        XCTAssertTrue(
+            Self.framesItsContentToItsDeclaredWidth(code),
+            "`ProjectWindow.detailColumn` must bind the effective width once "
+            + "and apply it to BOTH the content's `.frame(width:)` and "
+            + "`.navigationSplitViewColumnWidth` — on macOS 27 the column "
+            + "modifier alone does not hold the column against a pane with a "
+            + "minimum of its own, and every mounted test in this file would "
+            + "stay green while the app shipped the broken spelling")
+    }
+
+    /// **The planted offenders**, run through the identical scan — the census
+    /// above is worth nothing unless it says no to the three ways this gets
+    /// undone, and yes to the shape it is looking for.
+    func test_theFrameCensusSeesEachWayTheColumnLosesItsFrame() {
+        let compliant = [
+            "let width = Self.effectiveDetailColumnWidth(persisted: detailColumnWidth,",
+            "                                            containerWidth: containerWidth)",
+            "HStack(spacing: 0) {",
+            "    detailResizeHandle(documentStore: documentStore)",
+            "    inspectorPane(store: store, documentStore: documentStore)",
+            "}",
+            ".frame(width: width)",
+            ".clipped()",
+            ".navigationSplitViewColumnWidth(width)"
+        ]
+        XCTAssertTrue(Self.framesItsContentToItsDeclaredWidth(compliant),
+                      "the control: the scan says yes to the shape it wants")
+
+        // 1. The frame simply gone — the spelling that shipped until 27.
+        XCTAssertFalse(
+            Self.framesItsContentToItsDeclaredWidth(
+                compliant.filter { !$0.contains(".frame(width:") }),
+            "a column that declares a width and does not frame its content is "
+            + "the regression itself")
+
+        // 2. The frame there, on a DIFFERENT number — the shape a later author
+        //    reaches for when they want the pane inset from the divider.
+        XCTAssertFalse(
+            Self.framesItsContentToItsDeclaredWidth(
+                compliant.map {
+                    $0 == ".frame(width: width)" ? ".frame(width: 320)" : $0
+                }),
+            "a frame on some other width is not the column's width, and the "
+            + "two disagreeing is a pane laid out for a column it is not in")
+
+        // 3. Called twice instead of bound once — which lays out correctly
+        //    today and is one edit away from two different widths.
+        XCTAssertFalse(
+            Self.framesItsContentToItsDeclaredWidth([
+                "HStack(spacing: 0) { }",
+                ".frame(width: Self.effectiveDetailColumnWidth(persisted: detailColumnWidth,",
+                "                                              containerWidth: containerWidth))",
+                ".navigationSplitViewColumnWidth(Self.effectiveDetailColumnWidth(",
+                "    persisted: detailColumnWidth, containerWidth: containerWidth))"
+            ]),
+            "bound once, applied twice — not called twice")
+    }
+
     /// **The rules above are only the writer's rules if the gesture calls
     /// them.** Extracting them made them testable and made a second copy
     /// possible in the same stroke: a `DragGesture` body is a closure nobody
@@ -1262,6 +1475,36 @@ final class DetailColumnWidthTests: XCTestCase {
             $0.contains(".onEnded")
         }) else { return false }
         return code[opens..<closes].contains { $0.contains(token) }
+    }
+
+    /// Whether `code` binds the effective detail width to a name exactly once
+    /// and applies **that name** to both the content's `.frame(width:)` and the
+    /// column modifier.
+    ///
+    /// Takes the lines rather than the file, so the planted offenders above run
+    /// through this exact scan and not a second copy of it — the idiom this
+    /// file's gesture census already uses.
+    ///
+    /// Its honest limit: it is line matching, not parsing. It cannot tell a
+    /// frame applied to the column's content from one applied to something else
+    /// in the same file that happens to be handed the same binding. What it
+    /// does catch is every way the frame goes MISSING, which is the regression
+    /// — and a `ProjectWindow` with a second `.frame(width: width)` on an
+    /// unrelated view would be a different review problem.
+    static func framesItsContentToItsDeclaredWidth(_ code: [String]) -> Bool {
+        let bindings = code.compactMap { line -> String? in
+            guard line.contains("Self.effectiveDetailColumnWidth(persisted: detailColumnWidth,"),
+                  let let_ = line.range(of: "let "),
+                  let equals = line.range(of: " = ", range: let_.upperBound..<line.endIndex)
+            else { return nil }
+            return String(line[let_.upperBound..<equals.lowerBound])
+                .trimmingCharacters(in: .whitespaces)
+        }
+        guard bindings.count == 1, let name = bindings.first, !name.isEmpty else {
+            return false
+        }
+        return code.contains { $0.contains(".frame(width: \(name))") }
+            && code.contains { $0.contains(".navigationSplitViewColumnWidth(\(name))") }
     }
 
     private static func codeLines(of relativePath: String) throws -> [String] {

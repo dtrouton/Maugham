@@ -22,13 +22,15 @@ final class UpdateCheckerTests: XCTestCase {
         downloadAsset: @escaping (URL, String, @escaping @MainActor (Double) -> Void) async throws -> URL = { _, _, _ in
             URL(fileURLWithPath: "/tmp/fake.zip")
         },
-        stageAndVerify: @escaping (URL, String) async throws -> URL = { u, _ in u }
+        stageAndVerify: @escaping (URL, String) async throws -> URL = { u, _ in u },
+        systemVersion: MinimumSystemVersion = MinimumSystemVersion(major: 27)
     ) -> UpdateChecker {
         UpdateChecker(
             currentVersionString: currentVersion,
             fetchLatest: fetch,
             downloadAsset: downloadAsset,
-            stageAndVerify: stageAndVerify)
+            stageAndVerify: stageAndVerify,
+            systemVersion: systemVersion)
     }
 
     private func release(version: String, body: String = "notes") -> GitHubRelease {
@@ -125,6 +127,90 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertNotNil(checker.pendingQuitInstall)
         await checker.installNow(bundleURL: URL(fileURLWithPath: "/tmp/Maugham.app"), version: "0.2.0")
         XCTAssertNil(checker.pendingQuitInstall)
+    }
+
+    // MARK: - A build this Mac cannot run is not an update
+
+    /// The release body carries the build's minimum macOS (see
+    /// `MinimumSystemVersion`). Above this Mac's OS: no update, no download,
+    /// and one sentence saying what the newer Maugham needs.
+    func test_aBuildAboveThisMacsSystemIsNotOffered() async {
+        var downloaded = false
+        let checker = makeChecker(
+            currentVersion: "0.39.0",
+            fetch: { self.release(version: "0.40.0",
+                                  body: "notes<!-- maugham-minimum-macos: 27.0 -->") },
+            downloadAsset: { url, _, _ in downloaded = true; return url },
+            systemVersion: MinimumSystemVersion(major: 26, minor: 5))
+        await checker.performCheck(trigger: .manual)
+        XCTAssertEqual(checker.state, .newerBuildNeedsNewerSystem(
+            currentVersion: "0.39.0", newerVersion: "0.40.0", requiredSystem: "27"))
+        XCTAssertEqual(checker.state.systemRequirementSentence,
+                       "Maugham 0.40.0 needs macOS 27 or later.")
+        XCTAssertFalse(downloaded, "nothing may be fetched for a build that cannot launch")
+        XCTAssertNil(checker.pendingQuitInstall)
+    }
+
+    /// A background poll is no different — it is a terminal, non-error state,
+    /// and the banner (which draws `.readyToInstall` only) stays away.
+    func test_theBlockIsTheSameOnABackgroundPoll() async {
+        let checker = makeChecker(
+            currentVersion: "0.39.0",
+            fetch: { self.release(version: "0.40.0",
+                                  body: "<!-- maugham-minimum-macos: 27.0 -->") },
+            systemVersion: MinimumSystemVersion(major: 26, minor: 5))
+        await checker.performCheck(trigger: .background)
+        XCTAssertEqual(checker.state, .newerBuildNeedsNewerSystem(
+            currentVersion: "0.39.0", newerVersion: "0.40.0", requiredSystem: "27"))
+        XCTAssertFalse(UpdateBannerView.shouldShow(state: checker.state, dismissed: []))
+    }
+
+    func test_aBuildAtThisMacsSystemIsOffered() async {
+        let checker = makeChecker(
+            currentVersion: "0.39.0",
+            fetch: { self.release(version: "0.40.0",
+                                  body: "<!-- maugham-minimum-macos: 27.0 -->") },
+            stageAndVerify: { _, _ in URL(fileURLWithPath: "/tmp/Maugham.app") },
+            systemVersion: MinimumSystemVersion(major: 27))
+        await checker.performCheck(trigger: .manual)
+        if case .readyToInstall(_, let v, _) = checker.state {
+            XCTAssertEqual(v, "0.40.0")
+        } else {
+            XCTFail("Expected .readyToInstall, got \(checker.state)")
+        }
+    }
+
+    /// Every release before 0.40.0 carries no marker. Those are offered exactly
+    /// as they were — a missing fact is never a refusal.
+    func test_aReleaseCarryingNoMinimumIsOfferedAsBefore() async {
+        let checker = makeChecker(
+            currentVersion: "0.1.0",
+            fetch: { self.release(version: "0.2.0", body: "plain notes") },
+            stageAndVerify: { _, _ in URL(fileURLWithPath: "/tmp/Maugham.app") },
+            systemVersion: MinimumSystemVersion(major: 26))
+        await checker.performCheck(trigger: .manual)
+        if case .readyToInstall(_, let v, _) = checker.state {
+            XCTAssertEqual(v, "0.2.0")
+        } else {
+            XCTFail("Expected .readyToInstall, got \(checker.state)")
+        }
+    }
+
+    /// The sheet draws `releaseNotes` as plain `Text`; the machine line must
+    /// not arrive as literal markup.
+    func test_theMarkerNeverReachesTheNotesTheSheetShows() async {
+        let checker = makeChecker(
+            currentVersion: "0.39.0",
+            fetch: { self.release(version: "0.40.0",
+                                  body: "What's new.\\n\\n<!-- maugham-minimum-macos: 27.0 -->") },
+            stageAndVerify: { _, _ in URL(fileURLWithPath: "/tmp/Maugham.app") },
+            systemVersion: MinimumSystemVersion(major: 27))
+        await checker.performCheck(trigger: .manual)
+        if case .readyToInstall(_, _, let notes) = checker.state {
+            XCTAssertEqual(notes, "What's new.")
+        } else {
+            XCTFail("Expected .readyToInstall, got \(checker.state)")
+        }
     }
 
     func test_stageVerifyFailureSurfacesError() async {

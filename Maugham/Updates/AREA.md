@@ -29,6 +29,35 @@ be substituted.
 
 Other protections:
 - Strict `>` version comparison (`UpdateChecker.swift`) prevents downgrade.
+- **A build this Mac cannot launch is not an update.** `release.yml` appends
+  `<!-- maugham-minimum-macos: <n> -->` to every release body, read out of the built app's own
+  `LSMinimumSystemVersion`; `MinimumSystemVersion.parse` reads it back off the body the checker
+  already fetches, and a minimum above `ProcessInfo`'s OS lands in
+  `.newerBuildNeedsNewerSystem` — up-to-date-shaped, nothing downloaded, one sentence in the
+  sheet. Decided **before** the asset guard and before any byte is fetched. A release with no
+  such line (everything before 0.40.0) is offered exactly as before: absence is never a refusal.
+  The marker is stripped from `releaseNotes` because the sheet draws them as plain `Text`.
+
+**What the BUILD does when `LSMinimumSystemVersion` and `MACOSX_DEPLOYMENT_TARGET` disagree**
+(measured 2026-09-19 on Xcode 27.0, by building the app with each value in turn):
+
+| `project.yml` declares | `MACOSX_DEPLOYMENT_TARGET` | Built `Info.plist` carries | Xcode says |
+|---|---|---|---|
+| `LSMinimumSystemVersion: "15.0"` | `27.0` | **`27.0`** | `warning: LSMinimumSystemVersion of '15.0' is less than the value of MACOSX_DEPLOYMENT_TARGET '27.0' - setting to '27.0'.` |
+| `LSMinimumSystemVersion: "28.0"` | `27.0` | **`28.0`** | nothing |
+
+So the build **floors** the value at the deployment target and does not cap it. Two consequences
+for the marker, which is read off the built plist:
+
+- **A stale-LOW declaration can never publish a lie.** `project.yml` carried `14.0` against a
+  target of 26 for six weeks; had `release.yml` existed then, it would still have published `26.0`,
+  because the build had already raised it. The updater's refusal cannot under-report and offer a
+  build to a Mac that cannot run it.
+- **A stale-HIGH declaration can.** Nothing raises the target to meet it and nothing warns, so the
+  app would declare — and the marker would publish — a floor higher than the code requires, and the
+  updater would withhold an update from Macs that could have run it. That is the direction the
+  census guards: `TripwireGrepTests.test_everyMacOSFloorInProjectYmlIsTheSameNumber`, with
+  `test_theMacOSFloorCensusFiresOnAPlantedOffender` as its control.
 - CI marks patch ≥ 90 as a pre-release; `/releases/latest` excludes pre-releases, so
   throwaway dry-run builds (e.g. `v0.0.91`) never auto-install into production.
 - The staged bundle's quarantine xattr is stripped before install (the app was already
@@ -106,6 +135,7 @@ pre-auto-update behavior. **Worst case == status quo, never worse.**
 | Aspect | Testable? | Where |
 |---|---|---|
 | Verify decision logic (accept/reject/team-mismatch/...) | Yes | `UpdateInstallerTests.test_accepts_*` / `test_rejects_*` |
+| Minimum-macOS block (above → no update + sentence; at/below → offered; no fact → offered) | Yes (injected `systemVersion`) | `MinimumSystemVersionTests`; `UpdateCheckerTests.test_aBuild*System*` |
 | Install mode (writable → inPlace, not writable → finderFallback) | Yes (injected predicate) | `test_installMode_*` |
 | Helper script shape (pid-wait, ditto, open presence) | Yes (string inspection) | `test_helperScript_*` |
 | No rm+mv on installed bundle (brick-prevention assertion) | Yes | `test_helperScript_usesAtomicSwap_notRmMv` |
@@ -144,6 +174,7 @@ and observe the swap. See `docs/superpowers/notes/feedback_dry_run_is_integratio
 | `UpdateSheet.swift` | Sheet variant of the install UI |
 | `UpdateMenuCommand.swift` | Menu bar entry (title derived from `UpdateState`) |
 | `SemanticVersion.swift` | Comparable version parsing; `>` used for strict downgrade prevention |
+| `MinimumSystemVersion.swift` | The build's minimum macOS vs this Mac's: the marker's wire format, its parser, the display stripper |
 
 ---
 

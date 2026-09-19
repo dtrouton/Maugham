@@ -2598,18 +2598,35 @@ struct ProjectWindow: View {
     ///   `.doubleColumn`, `PersonaModifier` hands back `.all`) drops the column
     ///   on the range's `min` — 240 out of a dragged 329, measured.
     ///
-    /// The single-argument spelling holds through both — **measured, and worth
-    /// stating no more strongly than that.** It is tempting to say a range with
-    /// one value in it has nothing left to re-resolve; that overclaims. A pane
-    /// whose content is genuinely unbreakable still raises a real Auto Layout
-    /// conflict against the fixed column, which AppKit resolves by breaking its
-    /// `NSSplitViewItem.MaxSize` constraint rather than the content's
-    /// intrinsic-width demand — undocumented tie-breaking we do not control, and
-    /// the reason the width comes out right today. It logs a
-    /// `Conflicting constraints detected` line when it happens.
-    /// `test_theFixedColumnWinsAgainstAnUnbreakablePane` is the canary on that
-    /// tie-break, not a proof of it. Real Inspector and Outline content wraps or
-    /// scrolls, so the conflict wants a `.fixedSize()` to provoke it.
+    /// **The single-argument spelling is necessary and, since macOS 27, not
+    /// sufficient — so the width is applied TWICE, to the content's frame as
+    /// well as to the column.**
+    ///
+    /// `navigationSplitViewColumnWidth(w)` gives the split item a min AND a max
+    /// of `w`, and a pane whose content is genuinely unbreakable contributes a
+    /// minimum of its own. Until macOS 27 AppKit resolved that conflict by
+    /// breaking the item's `NSSplitViewItem.MaxSize` in the column's favour —
+    /// undocumented tie-breaking we did not control, logged as a
+    /// `Conflicting constraints detected` line, and the sole reason the width
+    /// came out right. On macOS 27 it goes the other way: **the column resolves
+    /// to `max(w, the pane's own minimum)`**, measured exactly, in every cell of
+    /// `docs/superpowers/notes/2026-09-19-split-view-tie-break-spike.md`.
+    ///
+    /// `.frame(width: width)` on the content is what replaces the tie-break: a
+    /// framed pane has no minimum left to contribute, so nothing outranks the
+    /// column and the guarantee stops depending on how Apple breaks a tie. Note
+    /// what does NOT move it — a pane with a large IDEAL and a small minimum
+    /// (`SetAsideRecordsDisclosure`'s shape) never moved the column on either
+    /// OS; it is the pane's FLOOR that wins, never its preference.
+    ///
+    /// `test_theFixedColumnWinsAgainstAnUnbreakablePane` keeps the guarantee,
+    /// `test_plantedOffender_anUnframedPaneTakesTheColumn` keeps the mechanism
+    /// measurable, and `test_theRightColumnFramesItsContentToTheWidthItDeclares`
+    /// is what ties this file to them — without it, giving the test harness the
+    /// fix turns every mounted test green while this method ships the broken
+    /// spelling, which is a thing that actually happened during the fix.
+    /// Real Inspector and Outline content wraps or scrolls, so provoking any of
+    /// this wants a `.fixedSize()` in the harness.
     ///
     /// The cost of the fixed column is that the split view's own divider goes
     /// inert — a fixed column is not draggable — so the column brings its own
@@ -2622,6 +2639,12 @@ struct ProjectWindow: View {
     @ViewBuilder
     private func detailColumn(store: ProjectStore, documentStore: DocumentStore) -> some View {
         if showInspector {
+            // **Bound once, applied twice** — to the content's frame and to the
+            // column. Two calls would lay out identically today and are one
+            // edit away from two different widths; `DetailColumnWidthTests`
+            // counts this call and expects exactly one.
+            let width = Self.effectiveDetailColumnWidth(persisted: detailColumnWidth,
+                                                        containerWidth: containerWidth)
             HStack(spacing: 0) {
                 detailResizeHandle(documentStore: documentStore)
                 // **A studied reference takes this column, in place of the pane
@@ -2659,9 +2682,22 @@ struct ProjectWindow: View {
                     inspectorPane(store: store, documentStore: documentStore)
                 }
             }
-            .navigationSplitViewColumnWidth(
-                Self.effectiveDetailColumnWidth(persisted: detailColumnWidth,
-                                                containerWidth: containerWidth))
+            // **The frame is what holds the column on macOS 27**, not the
+            // modifier below it. See this method's doc comment: the modifier
+            // gives the split item a min AND a max of `width`, and 27 resolves
+            // the item's max against the CONTENT's minimum in the content's
+            // favour. Framing the content to the column's own width leaves it
+            // no minimum to contribute, so there is nothing left to lose.
+            //
+            // `.clipped()` is NOT what holds it — measured across 48 cells in
+            // `docs/superpowers/notes/2026-09-19-split-view-tie-break-spike.md`,
+            // every test here is green without it. It is here so that a pane
+            // whose content genuinely cannot break DRAWS inside its column
+            // instead of over the prose. Nothing guards it; this comment is
+            // why it stays.
+            .frame(width: width)
+            .clipped()
+            .navigationSplitViewColumnWidth(width)
         } else {
             Self.hiddenDetailColumn
         }

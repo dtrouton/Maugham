@@ -78,6 +78,20 @@ struct AdmissionSheet: View {
     static let admitTitle = "Admit"
     static let notNowTitle = "Not now"
 
+    /// **How the known-labels menu is named to the accessibility tree** (macOS
+    /// 27 shell slice, Task 4).
+    ///
+    /// On 27 this `Menu`'s explicit `.accessibilityLabel` arrives as an EMPTY
+    /// `accessibilityLabel` beside an `NSAttributedString` `accessibilityTitle`
+    /// — so a walk that reads labels and values, as the app's own
+    /// `axTexts` reader does, cannot see this control at all. An identifier is
+    /// a plain `String` in a single attribute on both this AppKit-backed cell
+    /// and the SwiftUI-native nodes beside it, which is what lets ONE test
+    /// helper serve this menu and the pass ladder without knowing which is
+    /// which. Additive: the label below is untouched and is still what
+    /// VoiceOver announces.
+    static let knownLabelsIdentifier = "admissionSheet.knownLabels"
+
     /// What the writer is being told the label is FOR. A label is the author's
     /// word for a person, not the device's name, and the distinction is the
     /// whole of labels-only.
@@ -132,6 +146,7 @@ struct AdmissionSheet: View {
                         .menuStyle(.borderlessButton)
                         .fixedSize()
                         .accessibilityLabel(Text(Self.knownLabelsTitle))
+                        .accessibilityIdentifier(Self.knownLabelsIdentifier)
                     }
                 }
                 Text(Self.labelExplanation)

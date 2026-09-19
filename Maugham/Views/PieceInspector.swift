@@ -98,8 +98,25 @@ struct PieceInspector: View {
                 item: piece,
                 passes: store.manifest.effectiveReviewPasses,
                 onSet: { passId, state in
-                    Task { try? await store.setPassState(id: piece.id, passId: passId, state) }
+                    setPass(passId, to: state, on: piece.id)
                 })
+        }
+    }
+
+    /// The ladder's write, named rather than inlined — `InspectorView.setPass`'s
+    /// twin, and for the same two reasons.
+    ///
+    /// It is still this file's write (`PassLadder`'s doc comment, and
+    /// `PersonaPaneRegistryTests`' `setPassState` census, which is by FILE and
+    /// so is unmoved by naming the closure). What naming it buys is a way to
+    /// pin what a choice MEANS with no window in the way: on macOS 27 a
+    /// `Picker(.menu)` publishes no menu, no children and no press action, so
+    /// the menu-item route that used to drive this arm reaches nothing — the
+    /// decision has to be asserted where it is made.
+    func setPass(_ passId: String, to state: PassState?, on pieceId: String) {
+        Task { [weak store] in
+            guard let store else { return }
+            try? await store.setPassState(id: pieceId, passId: passId, state)
         }
     }
 

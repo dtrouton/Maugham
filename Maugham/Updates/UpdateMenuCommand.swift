@@ -33,7 +33,7 @@ public struct UpdateMenuCommand: Commands {
     /// Menu item title for a given state. Exposed as static for reuse + testing.
     public static func menuTitle(for state: UpdateState) -> String {
         switch state {
-        case .idle, .upToDate, .error: return "Check for Updates…"
+        case .idle, .upToDate, .error, .newerBuildNeedsNewerSystem: return "Check for Updates…"
         case .checking: return "Checking for Updates…"
         case .downloading: return "Downloading Update…"
         case .readyToInstall: return "Install Update…"

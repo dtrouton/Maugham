@@ -41,7 +41,9 @@ public struct UpdateSheet: View {
             // URLCache-bypass fix was correct but irrelevant because the
             // fetch wasn't being invoked at all.
             switch checker.state {
-            case .idle, .upToDate, .error:
+            case .idle, .upToDate, .error, .newerBuildNeedsNewerSystem:
+                // Blocked re-checks like up-to-date does: the Mac may have been
+                // upgraded since the last poll.
                 await checker.checkNow()
             case .checking, .downloading, .readyToInstall, .installing:
                 break  // already doing something; don't restart it
@@ -82,6 +84,11 @@ public struct UpdateSheet: View {
         case .upToDate:
             Text("You're running the latest version.")
                 .foregroundColor(.secondary)
+        case .newerBuildNeedsNewerSystem:
+            // One sentence, and no install path: this Mac is on the newest
+            // Maugham it can run.
+            Text(checker.state.systemRequirementSentence ?? "")
+                .foregroundColor(.secondary)
         }
     }
 
@@ -105,7 +112,7 @@ public struct UpdateSheet: View {
                 Task { await checker.checkNow() }
             }
             .keyboardShortcut(.defaultAction)
-        case .upToDate:
+        case .upToDate, .newerBuildNeedsNewerSystem:
             Button("Done", action: dismiss)
                 .keyboardShortcut(.defaultAction)
         }
@@ -121,6 +128,9 @@ public struct UpdateSheet: View {
         case .installing(let v): return "Installing Maugham \(v)…"
         case .error: return "Couldn't Check for Updates"
         case .upToDate(let v): return "Maugham \(v) is Up to Date"
+        // Up-to-date-shaped: this Mac is on the newest Maugham it can run, and
+        // the sentence under the title says what the newer one needs.
+        case .newerBuildNeedsNewerSystem(let v, _, _): return "Maugham \(v) is Up to Date"
         }
     }
 }

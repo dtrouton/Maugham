@@ -21,14 +21,20 @@ import MaughamCore
 /// because it is where the bug was first looked for (stage-3a Task 4 converted
 /// both section headers, and the door demonstrably worked in the 2b smoke). A
 /// plain `Section` header carrying an identical `Button(.plain) { Image(…) }`
-/// measures the identical 10pt band — see
-/// `test_control_aPlainSectionHeaderMeasuresTheSameLiveRegion`. The door had
-/// always been this small.
+/// measured the identical 10pt band, which is what cleared the conversion; the
+/// door had always been this small.
 ///
-/// Both `Section`s went back to plain shortly afterwards, for a reason that has
-/// nothing to do with hit geometry (`SectionChevronTests` — the hover-revealed
-/// chevron). That control therefore now measures production's own shape beside
-/// the one it replaced, and reports the same thing about both.
+/// **The control that measured that comparison is gone** (macOS 27 shell slice,
+/// Task 4). Both `Section`s went back to plain shortly afterwards for a reason
+/// with nothing to do with hit geometry (`SectionChevronTests` — the
+/// hover-revealed chevron), so its subject was already a shape production no
+/// longer had; and on macOS 27 the comparison cannot be made at all, because a
+/// `Section(isExpanded:)` header's own button takes no synthetic click
+/// whatever — 33 clicks down its column, zero fired, against the plain
+/// header's 10pt band beside it in the same window (measured 2026-09-19, the
+/// spike note's *The accessibility tree on 27*, §4). A control that cannot see
+/// its offender is not a control. The finding it existed to hold is the
+/// paragraph above and `openWallButton`'s own comment.
 ///
 /// **Why this suite drives real mouse events rather than `NSView.hitTest`.** The
 /// brief asked for hit-testing, and the attempt is recorded here so the next
@@ -131,17 +137,27 @@ final class PaletteWallDoorHitAreaTests: XCTestCase {
 
     /// **The control that makes the two above mean something.** A sweep that
     /// fired on every click would pass them over any geometry at all; this one
-    /// aims at the header's title, which is as far from the door as the row
-    /// goes, and must reach nothing.
+    /// aims at dead space in the same header row and must reach nothing.
+    ///
+    /// **It aims at the row's middle, not `header.minX + 8`.** That used to be
+    /// the header's title and is now its chevron: D1 moved the disclosure
+    /// triangle to the leading edge, so the old point lands on a live control.
+    /// This one would still have passed — the chevron toggles the section and
+    /// never opens the wall, so the counter stays put — which is exactly the
+    /// problem: a control asserting "nothing here fires" while pointing at
+    /// something that fires is a control in name only. The midpoint is blank in
+    /// every state, the accessories all sitting at the trailing edge.
     func test_control_theSweepCanSeeAMiss() async throws {
         let mount = try await mountTree()
         let door = try doorGeometry(in: mount.window)
 
-        let fired = await click(at: CGPoint(x: door.header.minX + 8,
-                                            y: door.icon.midY),
-                                in: mount.window, counting: mount.opens)
+        let dead = CGPoint(x: door.header.midX, y: door.icon.midY)
+        XCTAssertLessThan(dead.x, door.menu.minX,
+                          "premise: the header's midpoint is clear of its "
+                          + "accessories, which all sit at the trailing edge")
+        let fired = await click(at: dead, in: mount.window, counting: mount.opens)
         XCTAssertFalse(fired,
-                       "a click on the Palette header's own title opened the "
+                       "a click on blank space in the Palette header opened the "
                        + "wall — this harness fires on any click at all, so "
                        + "nothing else in this suite is asserting anything")
     }
@@ -212,53 +228,6 @@ final class PaletteWallDoorHitAreaTests: XCTestCase {
             + "header no longer lines up with the Research one above it")
     }
 
-    // MARK: - Where the defect did NOT come from
-
-    /// **A plain `Section` header measures the same live region**, which is what
-    /// clears stage-3a Task 4's `isExpanded:` conversion of having caused this.
-    ///
-    /// Two headers in one `List`, identical but for the binding, each carrying
-    /// the shape `openWallButton` had *before* the fix — a bare `Image` in a
-    /// `Button(.plain)`. If the collapsible conversion were the cause the two
-    /// bands would differ; measured on this SDK they are the same 10pt.
-    ///
-    /// The old shape is spelled out here rather than reached for, deliberately:
-    /// this is a record of a defect that no longer exists in production, and a
-    /// test that imported the fixed button could not say anything about it.
-    func test_control_aPlainSectionHeaderMeasuresTheSameLiveRegion() async throws {
-        let box = HeaderShapeBox()
-        let mount = try mount(AnyView(HeaderShapeProbeView(box: box)),
-                              opens: Counter())
-        await waitOut(0.5)
-        let content = try XCTUnwrap(mount.window.contentView)
-        let rings = views(in: mount.window)
-            .filter { String(describing: type(of: $0)).contains("FocusRing") }
-            .map { $0.convert($0.bounds, to: content) }
-            .sorted { $0.minY < $1.minY }
-        try XCTSkipUnless(rings.count == 2,
-                          "this display mounted \(rings.count) buttons for two "
-                          + "headers")
-
-        var bands: [ClosedRange<Double>?] = []
-        for (ring, counter) in zip(rings, [box.plain, box.collapsible]) {
-            let column = CGRect(x: ring.minX, y: ring.minY - 6,
-                                width: ring.width, height: ring.height + 12)
-            bands.append(await liveBand(x: ring.midX, over: column,
-                                        in: mount.window, counting: counter))
-        }
-        let plain = try XCTUnwrap(bands[0], "the plain header's button never fired")
-        let collapsible = try XCTUnwrap(bands[1],
-                                        "the collapsible header's button never fired")
-        XCTAssertEqual(
-            plain.length, collapsible.length, accuracy: 1,
-            "a plain `Section` header's button is live over \(plain.length)pt and "
-            + "a collapsible one's over \(collapsible.length)pt. They matched when "
-            + "this was written, which is what cleared the `isExpanded:` "
-            + "conversion of causing the door's dead band — if they have come "
-            + "apart, the two shapes DO differ in hit geometry and both "
-            + "`openWallButton`'s doc comment and this suite's are now wrong")
-    }
-
     // MARK: - Driving
 
     private struct Mount {
@@ -290,9 +259,12 @@ final class PaletteWallDoorHitAreaTests: XCTestCase {
     /// the furniture grows.
     ///
     /// The discriminator is structural instead. Palette is the header carrying
-    /// TWO buttons — the door and its chevron — where Research carries only a
-    /// chevron; and within it the door is the leftmost, the chevron being at the
-    /// trailing edge. Both halves are asserted below rather than assumed.
+    /// TWO buttons — its chevron and the door — where Research carries only a
+    /// chevron; and within it the door is the TRAILING one, the chevron leading
+    /// the title since D1 (2026-09-19). Both halves are asserted below rather
+    /// than assumed, and which edge the chevron is on is established without
+    /// assumption by `SectionChevronTests
+    /// .test_theChevronLeadsTheHeaderInBothSections`.
     private func doorGeometry(in window: NSWindow) throws -> Door {
         let content = try XCTUnwrap(window.contentView)
         let headers = views(in: window).filter {
@@ -315,7 +287,7 @@ final class PaletteWallDoorHitAreaTests: XCTestCase {
             + "asymmetry there is nothing here to tell the two headers apart, "
             + "and every measurement below would be about an arbitrary one")
         let palette = try XCTUnwrap(ringsByHeader.max(by: { $0.count < $1.count }))
-        let ring = try XCTUnwrap(palette.first,
+        let ring = try XCTUnwrap(palette.last,
                                  "the Palette header mounted no button at all")
         var header: NSView? = ring.superview
         while let candidate = header,
@@ -463,57 +435,5 @@ private struct DoorHitAreaProbeView: View {
                    treeState: treeState,
                    paletteWallTravels: false,
                    onOpenPaletteWall: onOpenPaletteWall)
-    }
-}
-
-@MainActor
-final class HeaderShapeBox {
-    let plain = Counter()
-    let collapsible = Counter()
-    init() {}
-}
-
-/// Two section headers, identical but for the `isExpanded:` binding, each
-/// carrying the button shape `openWallButton` had before the fix. See
-/// `test_control_aPlainSectionHeaderMeasuresTheSameLiveRegion`.
-@MainActor
-private struct HeaderShapeProbeView: View {
-    let box: HeaderShapeBox
-    @State private var expanded = true
-
-    var body: some View {
-        List {
-            Section {
-                Text("row")
-            } header: {
-                header("Plain") { box.plain.count += 1 }
-            }
-            Section(isExpanded: $expanded) {
-                Text("row")
-            } header: {
-                header("Collapsible") { box.collapsible.count += 1 }
-            }
-        }
-        .listStyle(.sidebar)
-    }
-
-    private func header(_ title: String, action: @escaping () -> Void) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Button(action: action) {
-                Image(systemName: "rectangle.grid.2x2")
-            }
-            .buttonStyle(.plain)
-            SwiftUI.Menu {
-                Button("New") {}
-            } label: {
-                Image(systemName: "plus.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-        }
-        .contentShape(Rectangle())
     }
 }
