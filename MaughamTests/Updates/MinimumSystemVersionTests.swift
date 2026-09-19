@@ -133,4 +133,62 @@ final class MinimumSystemVersionTests: XCTestCase {
         XCTAssertEqual(MinimumSystemVersion.strippingMarker(from: body),
                        "Requires macOS 27 or later.")
     }
+
+    // MARK: - The writer and the reader are two files apart
+
+    /// `release.yml` writes the marker and this parser reads it, so the
+    /// spelling is a contract across two files with nothing but this test
+    /// between them. Divergence fails in the worst direction and in SILENCE:
+    /// a body whose marker the parser cannot see carries no fact, and every
+    /// release is offered again to Macs that cannot run it — the exact bug
+    /// this machinery exists to close.
+    func test_theWorkflowWritesTheMarkerThisParserReads() throws {
+        let workflow = try String(contentsOf: Self.releaseWorkflowURL, encoding: .utf8)
+
+        // The printf format the Compose step appends, with %s standing for the
+        // app's LSMinimumSystemVersion. Pulled out of the workflow's own text
+        // and round-tripped, so a rename on either side is caught here.
+        let pattern = #"printf '([^']*)' "\$MIN_OS""#
+        let regex = try NSRegularExpression(pattern: pattern)
+        let range = NSRange(workflow.startIndex..., in: workflow)
+        guard let match = regex.firstMatch(in: workflow, range: range),
+              let formatRange = Range(match.range(at: 1), in: workflow) else {
+            return XCTFail("release.yml no longer appends a printf'd minimum-macOS line")
+        }
+        let appended = String(workflow[formatRange])
+            .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: "%s", with: "27.0")
+
+        XCTAssertEqual(MinimumSystemVersion.parse(releaseBody: "notes" + appended),
+                       MinimumSystemVersion(major: 27),
+                       "the line release.yml appends must parse back to what it published")
+        XCTAssertEqual(MinimumSystemVersion.strippingMarker(from: "notes" + appended), "notes")
+    }
+
+    /// The Compose step writes one file and the Create step publishes another;
+    /// if they drift, the marker never reaches the release and every build is
+    /// offered as before — silently.
+    func test_theComposedBodyIsTheOneThatGetsPublished() throws {
+        let workflow = try String(contentsOf: Self.releaseWorkflowURL, encoding: .utf8)
+        // Anchored on the marker's own printf — the workflow is full of
+        // unrelated `>> "$GITHUB_OUTPUT"` appends.
+        let regex = try NSRegularExpression(pattern: #"printf '[^']*' "\$MIN_OS" >> (\S+)"#)
+        let range = NSRange(workflow.startIndex..., in: workflow)
+        guard let match = regex.firstMatch(in: workflow, range: range),
+              let pathRange = Range(match.range(at: 1), in: workflow) else {
+            return XCTFail("release.yml no longer appends the marker to a composed body file")
+        }
+        let composed = String(workflow[pathRange])
+        XCTAssertTrue(workflow.contains("body_path: \(composed)"),
+                      "release.yml composes \(composed) but publishes something else")
+    }
+
+    private static var releaseWorkflowURL: URL {
+        // MaughamTests/Updates/<this file> → repo root.
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent(".github/workflows/release.yml")
+    }
 }

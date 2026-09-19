@@ -78,8 +78,8 @@ public struct MinimumSystemVersion: Equatable, Comparable {
     /// body as plain text.
     public static let markerKey = "maugham-minimum-macos"
 
-    private static let markerPattern =
-        "<!--\\s*\(markerKey)\\s*:\\s*([0-9.]+)\\s*-->"
+    private static let markerRegex = try? NSRegularExpression(
+        pattern: "<!--\\s*\(markerKey)\\s*:\\s*([0-9.]+)\\s*-->")
 
     /// The build's minimum macOS, or nil when the release carries no such fact.
     ///
@@ -88,7 +88,7 @@ public struct MinimumSystemVersion: Equatable, Comparable {
     /// appends its line after the hand-written notes, so a stray earlier one
     /// (notes quoting a marker) loses to the authoritative one.
     public static func parse(releaseBody: String) -> MinimumSystemVersion? {
-        guard let regex = try? NSRegularExpression(pattern: markerPattern) else { return nil }
+        guard let regex = markerRegex else { return nil }
         let range = NSRange(releaseBody.startIndex..., in: releaseBody)
         guard let match = regex.matches(in: releaseBody, range: range).last,
               let valueRange = Range(match.range(at: 1), in: releaseBody) else { return nil }
@@ -99,9 +99,7 @@ public struct MinimumSystemVersion: Equatable, Comparable {
     /// `releaseNotes` as plain `Text`, so an unstripped HTML comment would read
     /// as literal markup at the bottom of the notes.
     public static func strippingMarker(from releaseBody: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: markerPattern) else {
-            return releaseBody
-        }
+        guard let regex = markerRegex else { return releaseBody }
         let range = NSRange(releaseBody.startIndex..., in: releaseBody)
         let stripped = regex.stringByReplacingMatches(
             in: releaseBody, range: range, withTemplate: "")
