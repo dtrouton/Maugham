@@ -49,6 +49,27 @@ public enum DocumentClass: Equatable, Hashable, Sendable {
     /// content is the reviewer row.
     case inbox
 
+    /// **A statement this build cannot place** — its `Statement.Scope` is a word
+    /// a later build invented, so *what it is about* is unreadable. The value is
+    /// the statement's own document id, which is what a diagnostic can name.
+    ///
+    /// It is a class of its own rather than the most restrictive of the two
+    /// statement classes, and the reason is the global rule of this milestone:
+    /// **an older Mac must not set aside what a newer one would apply.** A later
+    /// build's scope vocabulary could put this statement inside a scoped
+    /// author's own piece. Read as `.projectStatement`, her lines there are
+    /// refused — the words go to Backup — where the build that understands the
+    /// word would have applied them. Read as its own case, the exhaustive
+    /// switches make every row decide it, which is the whole point of giving it
+    /// a name.
+    ///
+    /// **Not every cell becomes pending.** Where an answer never depended on
+    /// where the document sits, it is still the answer: a book author may write
+    /// it because she may write every class, and anybody may annotate it
+    /// because annotation is the reviewer row in every class. Only a cell whose
+    /// verdict turns on the placement is held.
+    case unplaceable(String)
+
     /// The synthetic document id of the project stream.
     ///
     /// Spelled here because this is the one type whose job is to say what a
@@ -73,13 +94,16 @@ public enum DocumentClass: Equatable, Hashable, Sendable {
 
     /// The narrow form: the only manifest fact this decision uses.
     ///
-    /// **A statement whose scope this build does not recognise reads as a
-    /// project statement.** It is the most restrictive of the two statement
-    /// classes, and it is the one whose refusal word is right whatever the
-    /// statement turns out to be about — `.statement` rather than a sentence
-    /// about somebody's manuscript. Resolving it as `.piece(docId)` instead
-    /// would hang the answer on whether a statement's own id happened to appear
-    /// in somebody's scope list, which is a coincidence and not a permission.
+    /// **Only the SCOPE decides.** A statement's `kind` is not consulted: what
+    /// a statement is *about* is what a permit's `pieces` list can name, and
+    /// what it *is* — intent, lessons, a first reader, a word this build has
+    /// never seen — changes nobody's authority over it. So a statement of an
+    /// unrecognised KIND at project scope is an ordinary `.projectStatement`,
+    /// and one at document scope is an ordinary `.pieceStatement`, both fully
+    /// judged.
+    ///
+    /// **An unrecognised SCOPE is `.unplaceable`** — see that case for why it
+    /// is not folded into `.projectStatement`.
     public static func resolve(docId: String, statements: [Statement]) -> DocumentClass {
         if docId == projectStreamDocId { return .projectStream }
         if let statement = statements.first(where: { $0.id == docId }) {
@@ -89,7 +113,7 @@ public enum DocumentClass: Equatable, Hashable, Sendable {
             case .document(let pieceId):
                 return .pieceStatement(piece: pieceId)
             case .unknown:
-                return .projectStatement
+                return .unplaceable(docId)
             }
         }
         return .piece(docId)
@@ -105,7 +129,10 @@ public enum DocumentClass: Equatable, Hashable, Sendable {
         case .piece(let id): return id
         case .pieceStatement(let piece): return piece
         case .translation(let piece): return piece
-        case .projectStatement, .projectStream, .inbox: return nil
+        // `.unplaceable` has a docId, and it is deliberately NOT offered here:
+        // a statement's own id is not a piece id, and answering the scope test
+        // with one would be a coincidence rather than a permission.
+        case .projectStatement, .projectStream, .inbox, .unplaceable: return nil
         }
     }
 }

@@ -348,6 +348,7 @@ extension Permit {
 
     /// One row of the ladder: what this permit may write, in this class.
     private func row(_ group: WrittenGroup, _ documentClass: DocumentClass) -> Allowed {
+        if case .unplaceable = documentClass { return unplacedRow(group) }
         switch group {
         case .annotationCreation, .ownAnnotation, .inboxRow:
             // **The reviewer row**, and therefore everybody's: the rungs above
@@ -361,6 +362,57 @@ extension Permit {
         case .unreadable:
             // Unreachable: `allows` answers `.cannotJudge` before it gets here.
             return .cannotJudge
+        }
+    }
+
+    /// **The row for a statement this build cannot place** (`DocumentClass.unplaceable`).
+    ///
+    /// One question decides every cell: *could knowing where this statement sits
+    /// change the answer?* Where it could not, the answer stands — holding a
+    /// line pending forever, against a question that has no second answer, is
+    /// not caution. Where it could, the line is **pending**, because the build
+    /// that understands the scope word might place it somewhere this person may
+    /// write, and an older Mac must not set aside what a newer one would apply.
+    ///
+    /// - **A book author** may write every class, so the placement is not a
+    ///   question she has: `.yes`, exactly as anywhere else.
+    /// - **Annotations and inbox rows** are the reviewer row, which every class
+    ///   grants to everybody: `.yes`, for every rung.
+    /// - **A reviewer's tasks and translations** are refused in every class
+    ///   alike, noun and all, so they are refused here.
+    /// - **Everything else** turns on the placement and is held.
+    ///
+    /// An author of some pieces with an EMPTY list is held a little wider than
+    /// she strictly needs to be — she has no piece this could land in, so her
+    /// translation cell would be uniform too — and that is deliberate: pending
+    /// is always the safe side of this rule, and a degenerate case is not worth
+    /// a second arm that could disagree with the first.
+    private func unplacedRow(_ group: WrittenGroup) -> Allowed {
+        switch self {
+        case .unjudgeable:
+            // Unreachable: `allows` answers `.cannotJudge` before it gets here.
+            return .cannotJudge
+        case .author(.book):
+            return .yes
+        case .reviewer:
+            switch group {
+            case .annotationCreation, .ownAnnotation, .inboxRow:
+                return .yes
+            case .task:
+                return .no(.task)
+            case .translationRecord:
+                return .no(.translation)
+            case .manuscriptText, .disposition, .checkpoint, .unreadable:
+                return .cannotJudge
+            }
+        case .author(.pieces):
+            switch group {
+            case .annotationCreation, .ownAnnotation, .inboxRow:
+                return .yes
+            case .manuscriptText, .disposition, .checkpoint, .task,
+                 .translationRecord, .unreadable:
+                return .cannotJudge
+            }
         }
     }
 
@@ -408,7 +460,10 @@ extension Permit {
     static func refused(_ group: WrittenGroup, _ documentClass: DocumentClass) -> RefusedWhat {
         let onAStatement: Bool
         switch documentClass {
-        case .pieceStatement, .projectStatement:
+        case .pieceStatement, .projectStatement, .unplaceable:
+            // `.unplaceable` is a statement whose SUBJECT is unreadable, not a
+            // stream of unknown kind: if it is refused at all, *a statement* is
+            // the true word for what was refused.
             onAStatement = true
         case .piece, .projectStream, .translation, .inbox:
             onAStatement = false

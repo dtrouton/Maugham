@@ -27,7 +27,7 @@ final class PermitTableTests: XCTestCase {
     private static let hers = "p-hers"
     private static let theirs = "p-theirs"
 
-    /// **Nine streams.** The six `DocumentClass` cases, with the three that
+    /// **Ten streams.** The seven `DocumentClass` cases, with the three that
     /// carry a piece id appearing twice: once about her piece, once about
     /// somebody's.
     private let classes: [DocumentClass] = [
@@ -38,9 +38,19 @@ final class PermitTableTests: XCTestCase {
         .projectStatement,                                  // 4
         .projectStream,                                     // 5
         .translation(piece: PermitTableTests.hers),         // 6
-        .translation(piece: PermitTableTests.theirs),        // 7
-        .inbox                                              // 8
+        .translation(piece: PermitTableTests.theirs),       // 7
+        .inbox,                                             // 8
+        .unplaceable("st_unreadableScope")                  // 9
     ]
+
+    /// The one stream whose PLACEMENT is unknown — the row every other row is
+    /// read against.
+    private let unplaceableIndex = 9
+
+    /// The placements an `.unplaceable` statement could turn out to have: every
+    /// other row of the grid. A cell is answered here only if it is the same in
+    /// all of them.
+    private var placements: [Int] { Array(0..<unplaceableIndex) }
 
     /// **Four permits**, in the order of the grid's four columns.
     private let permits: [Permit] = [
@@ -112,52 +122,89 @@ final class PermitTableTests: XCTestCase {
             "mmyc",  // 5 the project stream
             "myyc",  // 6 her piece's translation
             "mmyc",  // 7 somebody else's piece's translation
-            "mmyc"   // 8 the inbox
+            "mmyc",  // 8 the inbox
+            // 9 a statement this build cannot place. The reviewer and the
+            // scoped author are HELD: a later build's scope word could put this
+            // inside her own piece, and setting her words aside for a placement
+            // we cannot read is exactly what this milestone forbids. The book
+            // author is not held — her answer was `y` in all nine rows above,
+            // so where it sits was never her question.
+            "ccyc"
         ],
 
         // The reviewer row. A reviewer may annotate any piece of the book.
         .annotationCreation: [
-            "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc"
+            "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc",
+            "yyyc"   // 9 — `y` in every row above, so no placement could change it
         ],
 
         // Also the reviewer row — WHOSE annotation is a same-person rule that
         // `AnnotationDeriver` applies, not a permission this table holds.
         .ownAnnotation: [
-            "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc"
+            "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc",
+            "yyyc"   // 9
         ],
 
         // Settling a note is the writer's act. A reviewer raises them; the
         // author of the piece disposes of them.
         .disposition: [
-            "dyyc", "ddyc", "syyc", "ssyc", "ssyc", "ddyc", "dyyc", "ddyc", "ddyc"
+            "dyyc", "ddyc", "syyc", "ssyc", "ssyc", "ddyc", "dyyc", "ddyc", "ddyc",
+            "ccyc"   // 9 — the reviewer's noun differs by placement (d vs s), so held
         ],
 
         // ⌘S's breadcrumb: an author's mark on a stream they may write.
         .checkpoint: [
-            "oyyc", "ooyc", "syyc", "ssyc", "ssyc", "ooyc", "oyyc", "ooyc", "ooyc"
+            "oyyc", "ooyc", "syyc", "ssyc", "ssyc", "ooyc", "oyyc", "ooyc", "ooyc",
+            "ccyc"   // 9
         ],
 
         // The one thing an author of some pieces may write OUTSIDE her pieces:
         // task ops on the project stream (column 5). Never a reviewer's.
         .task: [
-            "tyyc", "ttyc", "tyyc", "ttyc", "ttyc", "tyyc", "tyyc", "ttyc", "ttyc"
+            "tyyc", "ttyc", "tyyc", "ttyc", "ttyc", "tyyc", "tyyc", "ttyc", "ttyc",
+            // 9 — a reviewer signs no task in ANY row above, noun and all, so
+            // there is no second answer to wait for. The scoped author's does
+            // change (`y` on her pieces and on the project stream), so she is held.
+            "tcyc"
         ],
 
         // A translation of a piece is the piece's: hers if the piece is hers.
         .translationRecord: [
-            "ryyc", "rryc", "ryyc", "rryc", "rryc", "rryc", "ryyc", "rryc", "rryc"
+            "ryyc", "rryc", "ryyc", "rryc", "rryc", "rryc", "ryyc", "rryc", "rryc",
+            "rcyc"   // 9 — the reviewer's `r` is uniform above; hers is not
         ],
 
         // The reviewer row's third member.
         .inboxRow: [
-            "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc"
+            "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc",
+            "yyyc"   // 9
         ],
 
         // A later build's kind. Nothing may be decided — not applied, and not
         // refused either (spec §4.2).
         .unreadable: [
-            "cccc", "cccc", "cccc", "cccc", "cccc", "cccc", "cccc", "cccc", "cccc"
+            "cccc", "cccc", "cccc", "cccc", "cccc", "cccc", "cccc", "cccc", "cccc",
+            "cccc"   // 9
         ]
+    ]
+
+    /// **The phrasebook for an unplaceable statement**, which the grid's
+    /// reviewer column cannot supply because that column is mostly `c` there.
+    ///
+    /// Reached only from the two narrowed keys — `translator` writing something
+    /// that is not a translation record, `maugham` writing something that is not
+    /// the rebalance. Whatever else it is, it IS a statement, so that is the
+    /// word; the two groups that name themselves keep their own.
+    private let unplaceableNoun: [Permit.WrittenGroup: RefusedWhat] = [
+        .manuscriptText: .statement,
+        .disposition: .statement,
+        .checkpoint: .statement,
+        .task: .task,
+        .translationRecord: .translation,
+        .annotationCreation: .other,
+        .ownAnnotation: .other,
+        .inboxRow: .other,
+        .unreadable: .other
     ]
 
     /// **The kinds, grouped by hand from their own doc comments.** Manuscript
@@ -218,6 +265,7 @@ final class PermitTableTests: XCTestCase {
     /// are the reviewer row itself, and a refusal there can only come from one
     /// of the two narrowed keys, which refuse it as *something else*.
     private func noun(_ group: Permit.WrittenGroup, _ classIndex: Int) -> RefusedWhat {
+        if classIndex == unplaceableIndex { return unplaceableNoun[group] ?? .other }
         if case .no(let what) = cell(group, classIndex, reviewerColumn) { return what }
         return .other
     }
@@ -480,6 +528,187 @@ final class PermitTableTests: XCTestCase {
             Permit.author(.book).allows(.inboxRow, in: .inbox, actor: .translator), .no(.other))
     }
 
+    // MARK: - A statement this build cannot place
+
+    /// **The safety property, stated once and checked over the whole grid.**
+    ///
+    /// An `.unplaceable` statement is one whose placement is unreadable, so what
+    /// happens to its lines may be what every placement agrees happens to them,
+    /// or it may be *pending* — and it may never be a THIRD outcome that some
+    /// placement would have contradicted. That is the whole of the rule: an
+    /// older Mac must not set aside what a newer one would apply.
+    ///
+    /// **The property is over the DECISION, not the sentence.** Applied, set
+    /// aside, held: those are what a placement could change the meaning of. The
+    /// refusal NOUN is a word in a diagnostic, and it genuinely does differ by
+    /// placement — the two narrowed keys refuse a `typingBurst` here as *a
+    /// statement* and on a piece as *manuscript text*, both being refusals. A
+    /// noun that varies costs nobody a line; asserting it in this property
+    /// would only force the sentence to be vaguer than it can be. The nouns are
+    /// pinned exactly, cell by cell, by the grid.
+    ///
+    /// One-directional on purpose. Where every placement agrees, answering is
+    /// *allowed* and not *required*: pending is always the safe side, and a
+    /// degenerate permit (an author of some pieces with an empty list) is held
+    /// a little wider than it strictly needs to be rather than earning an arm
+    /// of its own.
+    func test_anUnplaceableStatementNeverContradictsAPlacement() {
+        /// Applied, set aside, or held — the three things that can become of a
+        /// line, which is what a placement could change.
+        func decision(_ allowed: Allowed) -> String {
+            switch allowed {
+            case .yes: return "applied"
+            case .no: return "set aside"
+            case .cannotJudge: return "held"
+            }
+        }
+        let unplaceable = classes[unplaceableIndex]
+        for what in ([.translationRecord, .inboxRow] + OpKind.allCases.map(Written.op)) {
+            for permit in permits {
+                for actor in DeviceActor.allCases {
+                    let answer = permit.allows(what, in: unplaceable, actor: actor)
+                    if answer == .cannotJudge { continue }
+                    for placement in placements {
+                        XCTAssertEqual(
+                            decision(answer),
+                            decision(permit.allows(what, in: classes[placement], actor: actor)),
+                            """
+                            \(what) · \(permit) · \(actor): an unplaceable statement's line \
+                            is \(decision(answer)), which \(classes[placement]) contradicts
+                            """)
+                    }
+                }
+            }
+        }
+    }
+
+    /// **The Important this fix round exists for.** Her words are HELD, not set
+    /// aside: a later build's scope word could put this statement inside her own
+    /// piece, and Backup is not where they belong in the meantime.
+    func test_aScopedAuthorsWordsInAnUnplaceableStatementArePending() {
+        let sam = Permit.author(.pieces([Self.hers]))
+        let unplaceable = DocumentClass.unplaceable("st_unreadableScope")
+        for kind in OpKind.allCases where Deriver.appliesToManuscript(kind) {
+            XCTAssertEqual(
+                sam.allows(.op(kind), in: unplaceable, actor: .author), .cannotJudge, "\(kind)")
+        }
+        XCTAssertEqual(
+            sam.allows(.op(.annotationStet), in: unplaceable, actor: .author), .cannotJudge)
+        XCTAssertEqual(
+            sam.allows(.op(.checkpoint), in: unplaceable, actor: .author), .cannotJudge)
+        XCTAssertEqual(
+            sam.allows(.op(.taskCreate), in: unplaceable, actor: .author), .cannotJudge)
+        XCTAssertEqual(
+            sam.allows(.translationRecord, in: unplaceable, actor: .author), .cannotJudge)
+
+        // **End to end, from the manifest**, because the defect this fix round
+        // closes lived in `resolve` and not in the table: read as a project
+        // statement, every one of these becomes `.no(.statement)` and her words
+        // go to Backup.
+        let statements = [
+            Statement(id: "st_unreadableScope", kind: .intent,
+                      scope: .unknown("series:3"), path: "x.md")
+        ]
+        let resolved = DocumentClass.resolve(docId: "st_unreadableScope", statements: statements)
+        XCTAssertEqual(resolved, unplaceable)
+        XCTAssertEqual(sam.allows(.op(.typingBurst), in: resolved, actor: .author), .cannotJudge)
+        XCTAssertEqual(sam.allows(.op(.bootstrap), in: resolved, actor: .author), .cannotJudge)
+    }
+
+    /// **An annotation is `.yes`, and the reason is the rule and not a mood:**
+    /// annotation creation is the reviewer row, and the reviewer row is granted
+    /// in *every* class. There is no placement this statement could turn out to
+    /// have that would refuse it, so there is nothing to wait for.
+    func test_anybodyMayAnnotateAnUnplaceableStatement() {
+        let unplaceable = DocumentClass.unplaceable("st_unreadableScope")
+        for permit in permits where !permit.isUnjudgeable {
+            for kind in OpKind.allCases
+            where Permit.group(of: kind) == .annotationCreation
+                || Permit.group(of: kind) == .ownAnnotation {
+                XCTAssertEqual(
+                    permit.allows(.op(kind), in: unplaceable, actor: .author), .yes,
+                    "\(kind) · \(permit)")
+            }
+            XCTAssertEqual(permit.allows(.inboxRow, in: unplaceable, actor: .author), .yes)
+        }
+    }
+
+    /// A book author's answer never depended on where the statement sits, so
+    /// she is not made to wait for a word this build cannot read to write her
+    /// own book's prose.
+    func test_aBookAuthorWritesAnUnplaceableStatementAsSheWritesAnyOther() {
+        let unplaceable = DocumentClass.unplaceable("st_unreadableScope")
+        for kind in OpKind.allCases where kind != .unknown {
+            XCTAssertEqual(
+                Permit.bookAuthor.allows(.op(kind), in: unplaceable, actor: .author), .yes,
+                "\(kind)")
+        }
+        XCTAssertEqual(
+            Permit.bookAuthor.allows(.translationRecord, in: unplaceable, actor: .author), .yes)
+    }
+
+    /// The assistant key is the reviewer row wherever it is, so on an
+    /// unplaceable statement it gets the reviewer's cell — under the root's own
+    /// permit as under anybody's.
+    func test_theAssistantOnAnUnplaceableStatementGetsTheReviewersCell() {
+        let unplaceable = DocumentClass.unplaceable("st_unreadableScope")
+        for permit in permits where !permit.isUnjudgeable {
+            XCTAssertEqual(
+                permit.allows(.op(.typingBurst), in: unplaceable, actor: .assistant),
+                Permit.reviewer.allows(.op(.typingBurst), in: unplaceable, actor: .author))
+            XCTAssertEqual(
+                permit.allows(.op(.typingBurst), in: unplaceable, actor: .assistant), .cannotJudge)
+            XCTAssertEqual(
+                permit.allows(.op(.claudeComment), in: unplaceable, actor: .assistant), .yes)
+        }
+    }
+
+    /// The two narrowed keys keep exactly the gate they already had: a
+    /// translation record is never written to a statement's stream, and neither
+    /// is anything but the rebalance from the app's own key — so what comes back
+    /// is a refusal in the statement's word, and it is pinned rather than
+    /// designed.
+    func test_theNarrowedKeysOnAnUnplaceableStatementKeepTheirOwnGate() {
+        let unplaceable = DocumentClass.unplaceable("st_unreadableScope")
+        XCTAssertEqual(
+            Permit.bookAuthor.allows(.op(.typingBurst), in: unplaceable, actor: .translator),
+            .no(.statement))
+        XCTAssertEqual(
+            Permit.bookAuthor.allows(.op(.typingBurst), in: unplaceable, actor: .maugham),
+            .no(.statement))
+        XCTAssertEqual(
+            Permit.bookAuthor.allows(.op(.taskCreate), in: unplaceable, actor: .maugham),
+            .no(.task))
+        // And where the gate matches, the row answers: the book author's `y`.
+        XCTAssertEqual(
+            Permit.bookAuthor.allows(
+                .op(.taskPriorityChange), in: unplaceable, actor: .maugham), .yes)
+        XCTAssertEqual(
+            Permit.bookAuthor.allows(.translationRecord, in: unplaceable, actor: .translator), .yes)
+    }
+
+    // MARK: - An author of some pieces with no pieces yet
+
+    /// *She may write what she starts* is a real state, and until she starts it
+    /// she writes no manuscript — but the project's tasks are still hers.
+    func test_anAuthorOfNoPiecesYetWritesNoWordsAndStillSignsTasks() {
+        let newcomer = Permit.author(.pieces([]))
+        for documentClass in [DocumentClass.piece(Self.hers), .piece(Self.theirs),
+                              .piece("d_anythingAtAll")] {
+            XCTAssertEqual(
+                newcomer.allows(.op(.typingBurst), in: documentClass, actor: .author),
+                .no(.manuscriptText),
+                "\(documentClass)")
+        }
+        XCTAssertEqual(
+            newcomer.allows(.op(.taskCreate), in: .projectStream, actor: .author), .yes)
+        XCTAssertEqual(
+            newcomer.allows(.op(.taskPriorityChange), in: .projectStream, actor: .maugham), .yes)
+        // And the reviewer row is hers, as it is everybody's.
+        XCTAssertEqual(
+            newcomer.allows(.op(.claudeComment), in: .piece(Self.theirs), actor: .author), .yes)
+    }
+
     // MARK: - The three that cannot be judged
 
     /// **A key nobody can name is not the writer's own hand.**
@@ -608,16 +837,37 @@ final class DocumentClassTests: XCTestCase {
         }
     }
 
-    /// A statement whose scope a later build invented is still a statement, and
-    /// the restrictive reading is the one whose refusal word is right whatever
-    /// it turns out to be about.
-    func test_aStatementWithAnUnreadableScopeIsAProjectStatement() {
+    /// **A statement whose scope a later build invented is UNPLACEABLE, not a
+    /// project statement.** Folding it into the restrictive class would refuse a
+    /// scoped author's words there — and the scope word this build cannot read
+    /// might be the one that says the statement is about her own piece.
+    func test_aStatementWithAnUnreadableScopeIsUnplaceable() {
         let statements = [
             Statement(id: "st_x", kind: .intent, scope: .unknown("series:3"), path: "x.md")
         ]
         XCTAssertEqual(
             DocumentClass.resolve(docId: "st_x", manifest: manifest(statements: statements)),
+            .unplaceable("st_x"))
+    }
+
+    /// **An unrecognised KIND is fully placeable**, and that asymmetry is the
+    /// point: what a statement IS changes nobody's authority over it, only what
+    /// it is ABOUT does. So only the scope is consulted.
+    func test_aStatementOfAnUnreadableKindIsPlacedByItsScopeLikeAnyOther() {
+        let projectScoped = [
+            Statement(id: "st_p", kind: .unknown("series_bible"), scope: .project, path: "p.md")
+        ]
+        XCTAssertEqual(
+            DocumentClass.resolve(docId: "st_p", manifest: manifest(statements: projectScoped)),
             .projectStatement)
+
+        let documentScoped = [
+            Statement(id: "st_d", kind: .unknown("series_bible"),
+                      scope: .document("d_chapter1"), path: "d.md")
+        ]
+        XCTAssertEqual(
+            DocumentClass.resolve(docId: "st_d", manifest: manifest(statements: documentScoped)),
+            .pieceStatement(piece: "d_chapter1"))
     }
 
     /// *An id the manifest does not know is a piece in nobody's scope* (§4.1) —
@@ -637,5 +887,8 @@ final class DocumentClassTests: XCTestCase {
         XCTAssertNil(DocumentClass.projectStatement.piece)
         XCTAssertNil(DocumentClass.projectStream.piece)
         XCTAssertNil(DocumentClass.inbox.piece)
+        // A statement's own id is not a piece id, so an unplaceable one offers
+        // nothing to the scope test even though it carries a string.
+        XCTAssertNil(DocumentClass.unplaceable("st_x").piece)
     }
 }
