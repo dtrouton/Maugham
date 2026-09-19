@@ -7,7 +7,7 @@
 - **D1 — the section chevrons move to the LEADING edge** of the tree's Research and Palette headers (Finder's and Xcode's convention; nothing on the left to collide with). Not trailing-with-padding.
 - **D2 — CI moves to the `xcode-27` runner in this slice even if the image still carries an Xcode 27 BETA.** The beta SDK is what surfaced these problems and macOS 27 is what Denver runs. Condition: the fifteen are green there before merge.
 - **D3 — scope stays tight:** the column tie-break, the ten AX-tree reds, the chevrons, the CI move. Nothing else in the shell. P3 is waiting.
-- Deployment target stays macOS 26; every fix must hold on 26 AND 27 (CI is 26 until the move lands, and 26 writers exist).
+- **D4 — the deployment target moves to macOS 27 (Denver, 2026-09-19).** The rule set in August (`91512a74`: CI runs the developer machine's OS, and the deployment target says so) holds; the machine is on 27, so the target is 27. One behaviour to fix and test; CI on `xcode-27` is the single authority; no hedged code paths for a tie-break nobody exercises after the move. Cost accepted: a Mac still on 26 cannot take 0.40.0 or later, so the updater must refuse a build the Mac cannot run (Task 6a) — `UpdateChecker` compares versions only today.
 
 ## What is known (measured, not guessed — see the brief)
 
@@ -29,19 +29,23 @@ Mount `PassLadder` and the admission sheet's `Menu(.borderlessButton)` through `
 
 ### Task 3 — the column fix (written against Task 1)
 
-Placeholder until Task 1 lands. Contract: the detail column's width is the writer's persisted width (`UIState.detailColumnWidth`, `ProjectWindow.effectiveDetailColumnWidth`), whatever any pane wants; a pane that wants more is CLIPPED or scrolls inside the column, never widens it; `hiddenDetailColumn` still holds zero. All six `DetailColumnWidthTests` green on 27 with their assertions unchanged (a 7pt tolerance is acceptable for `hidingThePane…` if the inset drift is real and explained). Pin the mechanism the spike names with its own planted-offender control. Must hold on 26 (CI).
+Placeholder until Task 1 lands. Contract: the detail column's width is the writer's persisted width (`UIState.detailColumnWidth`, `ProjectWindow.effectiveDetailColumnWidth`), whatever any pane wants; a pane that wants more is CLIPPED or scrolls inside the column, never widens it; `hiddenDetailColumn` still holds zero. All six `DetailColumnWidthTests` green on 27 with their assertions unchanged (a 7pt tolerance is acceptable for `hidingThePane…` if the inset drift is real and explained). Pin the mechanism the spike names with its own planted-offender control. macOS 27 is the only target (D4).
 
 ### Task 4 — the ten AX-tree reds, re-derived (written against Task 2)
 
-Placeholder until Task 2 lands. Contract: each of the ten pins the DECISION it guards windowlessly (the ladder's state per pass on the model; the sheet's known labels from `AdmissionDecision.knownLabels`) and asserts only that the control is DRAWN by what the tree publishes on both 26 and 27. One decision for the ladder and the sheet together, not two. No press-then-wait (tripwire 33). Delete any case whose decision is already pinned elsewhere rather than re-deriving it.
+Placeholder until Task 2 lands. Contract: each of the ten pins the DECISION it guards windowlessly (the ladder's state per pass on the model; the sheet's known labels from `AdmissionDecision.knownLabels`) and asserts only that the control is DRAWN by what the tree publishes on 27 (the only target, D4). One decision for the ladder and the sheet together, not two. No press-then-wait (tripwire 33). Delete any case whose decision is already pinned elsewhere rather than re-deriving it.
 
 ### Task 5 — the chevrons lead (D1)
 
 `BinderTreeSections`' Research and Palette headers: the disclosure chevron moves to the leading edge of the title, the tap target stays the whole header row, VoiceOver still reads it as a disclosure. `SectionChevronTests` and `PaletteWallDoorHitAreaTests.test_control_…` are re-derived under Task 4's rule (they are among the ten). Guide screenshot/text if either mentions the chevron.
 
-### Task 6 — CI to `xcode-27` (D2)
+### Task 6 — the target and CI move to 27 (D2, D4)
 
-`.github/workflows/ci.yml` and `release.yml` Mac jobs: `runs-on: xcode-27`, Xcode selection to whatever the image carries (check `images/macos/xcode-27-arm64-Readme.md` at the time). Phone jobs stay. CLAUDE.md's build-flow bullet: the interim paragraph rewritten to say the pin is 27 on both sides now; the fifteen-red list deleted; the drift note gets an Outcome. **Merge condition:** the branch's CI run on `xcode-27` green across all jobs, and `macos-26` dropped only after that.
+`project.yml`: `deploymentTarget.macOS` and both `MACOSX_DEPLOYMENT_TARGET` to `27.0`; `./gen.sh`; the `LSMinimumSystemVersion` 14.0-vs-target warning in the Xcode build fixed at the same time (find where 14.0 comes from). `.github/workflows/ci.yml` and `release.yml` Mac jobs: `runs-on: xcode-27` straight over, no `macos-26` overlap; Xcode selection to whatever the image carries (check `images/macos/xcode-27-arm64-Readme.md` at the time). Phone jobs stay on their own floor. CLAUDE.md: the toolchain bullet says the pin is 27 on both sides; the fifteen-red interim paragraph deleted; `docs/RELEASING.md` if it names the runner; the drift note gets an Outcome. `docs/release-notes/v0.40.0.md` draft says the floor is now macOS 27. **Merge condition:** the branch's CI run on `xcode-27` green across all jobs.
+
+### Task 6a — the updater refuses a build this Mac cannot run (D4's cost)
+
+`UpdateChecker` today compares versions only, so a 26 Mac would download 0.40.0 and fail to launch it. The release carries the build's minimum OS (read it from the release asset's `Info.plist`/`LSMinimumSystemVersion`, or publish it in the release body/a sidecar the workflow writes — pick the one the pipeline already makes available and say why); the checker treats a build above this Mac's OS as *no update*, with one sentence in the banner/sheet saying the newer Maugham needs macOS 27. Pin: a release above the OS → `.upToDate`-shaped state with the sentence; at or below → offered as today. The phone is untouched.
 
 ### Task 7 — whole-branch review + docs sweep
 
