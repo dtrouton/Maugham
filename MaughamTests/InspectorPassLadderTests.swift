@@ -7,15 +7,37 @@ import MaughamCore
 /// The Inspector's pass ladder (M3 P1 Task 4) — the control that replaced the
 /// free-string draft/revising/final picker in both inspector arms.
 ///
-/// **The menu item is performed, not the closure called.** SwiftUI's `.menu`
-/// `Picker` bridges to a real `NSPopUpButton` here (measured: macOS 26.5,
-/// Xcode 26 — the mounted inspector publishes one `SwiftUIPopupButton` per
-/// ladder row), and each menu item carries SwiftUI's own `menuAction:` target.
-/// Performing that item is the same act a click is, and it is the only route
-/// that proves the binding reaches the store: `selectItem(withTitle:)` plus
-/// `sendAction` was measured writing NOTHING (the popup's own target and action
-/// are both nil), which is exactly the shape of a green suite over a dead
-/// control.
+/// **The control is READ, and the write is pinned where it is made** (macOS 27
+/// shell slice, Task 4).
+///
+/// This suite used to perform the popup's own menu item, on the argument that
+/// it was the only route proving the binding reaches the store —
+/// `selectItem(withTitle:)` plus `sendAction` had been measured writing
+/// nothing, since the popup's target and action are both nil. That argument
+/// died with its premise. On macOS 27 a SwiftUI `Picker(.menu)` mounts **no
+/// AppKit control at all**: the whole view-hierarchy trace is a `KeyViewProxy`
+/// and a `_FocusRingView`, the inspector publishes zero `NSPopUpButton`, and
+/// the `AccessibilityNode` that replaces it has an empty
+/// `accessibilityActionNames`, no children and no `NSMenu`. There is no
+/// mounted delivery path left to drive.
+///
+/// So the suite is in two halves, and neither presses anything:
+///
+/// - **What a choice MEANS** is asserted at the host that performs it —
+///   `PieceInspector.setPass` / `InspectorView.setPass`, the two files
+///   `PersonaPaneRegistryTests`' `setPassState` census names — with no window
+///   between the call and the answer.
+/// - **That the control is DRAWN, and what it reads**, goes through
+///   `axMenuControl(_:in:)` and nothing else. Each row is found by the
+///   identifier `PassLadder.identifier(forPass:)` mints, never by position:
+///   the row's own label is a separate sibling node, and the inspector
+///   publishes a fifth `AXPopUpButton` that is not a ladder row (Publishing's
+///   *Start on*) — which is the drift this suite already recorded once, when
+///   the page-range menu was measured arriving at index 0 mid-test.
+///
+/// The measurements are in
+/// `docs/superpowers/notes/2026-09-19-split-view-tie-break-spike.md`'s *The
+/// accessibility tree on 27*.
 @MainActor
 final class InspectorPassLadderTests: XCTestCase {
 
@@ -40,33 +62,40 @@ final class InspectorPassLadderTests: XCTestCase {
         return window
     }
 
-    private func collect<T: NSView>(_ type: T.Type, in view: NSView, into out: inout [T]) {
-        if let match = view as? T { out.append(match) }
-        for sub in view.subviews { collect(type, in: sub, into: &out) }
+    /// One ladder row, by the pass it is for — the only way this suite names a
+    /// row.
+    private func ladderRow(_ passId: String,
+                           in window: NSWindow) throws -> AXMenuControl? {
+        try axMenuControl(PassLadder.identifier(forPass: passId), in: window)
     }
 
-    /// The ladder's popups, in mounted order.
-    ///
-    /// **Filtered by their own menu contents, never by index.** The inspector
-    /// mounts other popups (the publishing section's page-range menu arrives
-    /// asynchronously, and was measured landing at index 0 mid-test), so a
-    /// positional read silently drifts onto a control this suite is not about.
-    private func ladderPopups(in window: NSWindow) -> [NSPopUpButton] {
-        var out: [NSPopUpButton] = []
-        if let root = window.contentView { collect(NSPopUpButton.self, in: root, into: &out) }
-        return out.filter { $0.itemTitles.contains(PassLadder.untouchedTitle) }
+    /// The ladder row for `passId`, or a failure naming what the surface DID
+    /// publish.
+    private func requireLadderRow(_ passId: String,
+                                  in window: NSWindow) throws -> AXMenuControl {
+        let row = try ladderRow(passId, in: window)
+        let published = try axIdentifiers(in: window)
+        return try XCTUnwrap(
+            row,
+            "the mounted inspector published no ladder row for \u{201C}\(passId)\u{201D}. "
+            + "Identifiers on the surface: \(published)")
     }
 
-    /// Perform a ladder row's menu item the way a click does.
-    private func choose(_ title: String, inRow row: Int, of window: NSWindow) throws {
-        let popups = ladderPopups(in: window)
-        let popup = try XCTUnwrap(popups.indices.contains(row) ? popups[row] : nil,
-                                  "no ladder row \(row) — the mounted inspector "
-                                  + "published \(popups.count) ladder popups")
-        let index = try XCTUnwrap(
-            popup.menu?.items.firstIndex { $0.title == title },
-            "no \u{201C}\(title)\u{201D} item in this row: \(popup.itemTitles)")
-        popup.menu?.performActionForItem(at: index)
+    /// What each effective pass's row currently reads, in the project's own
+    /// pass order — `nil` for a pass with no row at all.
+    private func ladderReadings(in window: NSWindow,
+                                of store: ProjectStore) throws -> [String?] {
+        try store.manifest.effectiveReviewPasses.map {
+            try ladderRow($0.id, in: window)?.reading
+        }
+    }
+
+    /// What one row reads, for a poll predicate — which cannot throw, and
+    /// should not have to unwrap two layers of optional to ask a question about
+    /// a string. An unreadable tree and an absent row are the same answer here:
+    /// not yet.
+    private func ladderReading(_ passId: String, in window: NSWindow) -> String? {
+        ((try? ladderRow(passId, in: window)) ?? nil)?.reading
     }
 
     // MARK: - Fixtures
@@ -106,14 +135,14 @@ final class InspectorPassLadderTests: XCTestCase {
 
         let presets = mount(AnyView(PieceInspector(
             store: store, pieceId: piece.id, kind: .prose)))
-        XCTAssertEqual(ladderPopups(in: presets).count, ReviewPass.presets.count,
-                       "an uncustomized project shows one row per preset pass")
-        for popup in ladderPopups(in: presets) {
-            XCTAssertEqual(popup.itemTitles,
-                           [PassLadder.untouchedTitle, PassLadder.inProgressTitle,
-                            PassLadder.doneTitle, PassLadder.skipTitle])
-            XCTAssertEqual(popup.title, PassLadder.untouchedTitle,
+        for pass in ReviewPass.presets {
+            let row = try requireLadderRow(pass.id, in: presets)
+            XCTAssertEqual(row.role, "AXPopUpButton",
+                           "\(pass.id)'s row is published as \(row.role ?? "nothing") "
+                           + "— the ladder row must be a pop-up button")
+            XCTAssertEqual(row.reading, PassLadder.untouchedTitle,
                            "a piece nobody has ruled on shows every pass untouched")
+            XCTAssertEqual(row.isEnabled, true, "and every row is rulable")
         }
 
         store.manifest.reviewPasses = [
@@ -122,24 +151,37 @@ final class InspectorPassLadderTests: XCTestCase {
         ]
         let custom = mount(AnyView(PieceInspector(
             store: store, pieceId: piece.id, kind: .prose)))
-        XCTAssertEqual(ladderPopups(in: custom).count, 2,
-                       "the ladder must be the project's own pass list, not the presets")
+        _ = try requireLadderRow("read-aloud", in: custom)
+        let droppedPreset = try ladderRow("line", in: custom)
+        let published = try axIdentifiers(in: custom)
+        XCTAssertNil(
+            droppedPreset,
+            "the ladder must be the project's own pass list, not the presets — "
+            + "a preset the customized list drops still has a row. Identifiers: "
+            + "\(published)")
     }
 
     // MARK: - Choosing a state (the delivery path)
 
-    /// Contract: setting a state from the inspector persists through a manifest
-    /// round-trip. Driven through the Collection arm's ladder.
+    /// Contract: setting a state from the Collection arm persists through a
+    /// manifest round-trip.
+    ///
+    /// **Asserted at `PieceInspector.setPass`, which is where the write is
+    /// made**, rather than through the mounted row — the row publishes no menu,
+    /// no children and no press action on 27, so there is nothing to choose
+    /// from. The window is still here because the claim is about *the
+    /// inspector's* write reaching disk, and the same mount also witnesses that
+    /// the row this write is about is on screen.
     func test_choosingDoneInThePieceInspectorPersistsThroughAManifestRoundTrip() async throws {
         let (url, store, ds, piece) = try await collection()
         defer { Task { await ds.close() } }
-        let window = mount(AnyView(PieceInspector(
-            store: store, pieceId: piece.id, kind: .prose)))
-
-        try choose(PassLadder.doneTitle, inRow: 0, of: window)
-        await pumpUntil(deadline: 5) { self.states(of: piece.id, in: store) != nil }
-
+        let inspector = PieceInspector(store: store, pieceId: piece.id, kind: .prose)
+        let window = mount(AnyView(inspector))
         let firstPassId = try XCTUnwrap(store.manifest.effectiveReviewPasses.first?.id)
+        _ = try requireLadderRow(firstPassId, in: window)
+
+        inspector.setPass(firstPassId, to: .done, on: piece.id)
+        await pumpUntil(deadline: 5) { self.states(of: piece.id, in: store) != nil }
         XCTAssertEqual(states(of: piece.id, in: store)?[firstPassId], .done)
 
         let reloaded = try await ProjectStore.load(from: url)
@@ -153,16 +195,26 @@ final class InspectorPassLadderTests: XCTestCase {
     }
 
     /// Choosing "Untouched" REMOVES the state — the nil arm of the store verb,
-    /// reached through the control rather than through the verb directly.
+    /// reached through the inspector's own write rather than the store's.
     func test_choosingUntouchedClearsThePassFromTheMountedLadder() async throws {
         let (_, store, ds, piece) = try await collection()
         defer { Task { await ds.close() } }
-        let window = mount(AnyView(PieceInspector(
-            store: store, pieceId: piece.id, kind: .prose)))
+        let inspector = PieceInspector(store: store, pieceId: piece.id, kind: .prose)
+        let window = mount(AnyView(inspector))
+        let firstPassId = try XCTUnwrap(store.manifest.effectiveReviewPasses.first?.id)
 
-        try choose(PassLadder.doneTitle, inRow: 0, of: window)
+        inspector.setPass(firstPassId, to: .done, on: piece.id)
         await pumpUntil(deadline: 5) { self.states(of: piece.id, in: store) != nil }
-        try choose(PassLadder.untouchedTitle, inRow: 0, of: window)
+        // The row follows the store on its way through, which is the same live
+        // projection `aPassStateSetElsewhere…` is about — read here because the
+        // mount is already standing.
+        await pumpUntil(deadline: 5) {
+            self.ladderReading(firstPassId, in: window) == PassLadder.doneTitle
+        }
+        XCTAssertEqual(try requireLadderRow(firstPassId, in: window).reading,
+                       PassLadder.doneTitle)
+
+        inspector.setPass(firstPassId, to: nil, on: piece.id)
         await pumpUntil(deadline: 5) { self.states(of: piece.id, in: store) == nil }
 
         XCTAssertNil(states(of: piece.id, in: store),
@@ -175,18 +227,15 @@ final class InspectorPassLadderTests: XCTestCase {
     /// The ladder really is in the document inspector's Form, and it really is
     /// bound to `PassState`.
     ///
-    /// **Identified by the picker coordinator's own generic type, because this
-    /// Form's popups are empty until opened.** Measured (macOS 26.5): a
-    /// `.menu` `Picker` inside `Form(.grouped)` publishes an
-    /// `NSPopUpButton` whose `NSMenu` has ZERO items at mount, and stays empty
-    /// through `menu.update()`, through the delegate's `menuNeedsUpdate`,
-    /// through a 2000pt-tall window and through a second of pumping — the menu
-    /// is built when the writer opens it. (`PieceInspector`'s plain `VStack`
-    /// arm populates at mount, which is why the delivery-path drive above lives
-    /// there.) What survives that is the delegate: SwiftUI's coordinator is
-    /// generic over the picker's selection type, so its type name naming
-    /// `MaughamCore.PassState` is evidence a `PassState?`-bound picker is
-    /// mounted here — a `String`-bound status picker would not match.
+    /// **Identified by the row's own identifier, and read for a `PassState`
+    /// title.** The old spelling asked the picker coordinator's generic type
+    /// name whether it mentioned `MaughamCore.PassState`, because this Form's
+    /// `NSPopUpButton`s were empty until the writer opened them and the
+    /// delegate was the only thing that survived that. There is no
+    /// `NSPopUpButton` here at all any more, and the replacement is better
+    /// evidence rather than a substitute for it: a row identified as *this
+    /// pass* that reads back one of `PassState`'s own titles is bound to a
+    /// `PassState?`, where a `String`-bound status picker would read "Draft".
     func test_theDocumentInspectorMountsAPassBoundLadderPerEffectivePass() async throws {
         let (_, store, ds, item) = try await novel()
         defer { Task { await ds.close() } }
@@ -197,15 +246,15 @@ final class InspectorPassLadderTests: XCTestCase {
             metrics: EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0),
             onOpenProjectSettings: {})))
 
-        var popups: [NSPopUpButton] = []
-        collect(NSPopUpButton.self, in: try XCTUnwrap(window.contentView), into: &popups)
-        let passBound = popups.filter {
-            String(describing: $0.menu?.delegate).contains("PassState")
+        for pass in store.manifest.effectiveReviewPasses {
+            let row = try requireLadderRow(pass.id, in: window)
+            XCTAssertEqual(row.role, "AXPopUpButton")
+            XCTAssertEqual(
+                row.reading, PassLadder.untouchedTitle,
+                "\(pass.id)'s row reads \u{201C}\(row.reading ?? "nothing")\u{201D} — "
+                + "the ladder is bound to something that is not a `PassState?`, "
+                + "which is what the legacy status string would look like here")
         }
-        XCTAssertEqual(passBound.count, store.manifest.effectiveReviewPasses.count,
-                       "the document inspector published \(popups.count) popups, "
-                       + "\(passBound.count) of them bound to PassState — the "
-                       + "ladder is not mounted here, or is bound to something else")
     }
 
     /// …and the write it performs is the store verb, not the debounced draft.
@@ -251,8 +300,8 @@ final class InspectorPassLadderTests: XCTestCase {
     /// the mounted ladder with no reload.
     ///
     /// **This is the milestone's live-projection assertion, and it is made on
-    /// the popups because they are the only status surface whose rendered value
-    /// is observable here.** Measured while writing this suite (macOS 26.5):
+    /// the ladder because it is the only status surface whose rendered value is
+    /// observable here.** Measured while writing this suite (macOS 26.5):
     /// `OutlineTable`'s Status column publishes no `NSTextField` at all — its
     /// cells are `TableCellHostingView<…Text…>` — and the table's whole
     /// accessibility tree comes back as 13 unlabelled nodes with no values, so
@@ -260,12 +309,21 @@ final class InspectorPassLadderTests: XCTestCase {
     /// vacuous. What that column READS is pinned by source census instead
     /// (`PersonaPaneRegistryTests.test_theStatusStringHasNoProductionWriters`
     /// and its outline arm).
+    ///
+    /// **The poll here is not a control's effect** (tripwire 33): nothing on
+    /// this surface was pressed, and what is being waited for is a store change
+    /// made elsewhere reaching a mounted view — which is the entire claim.
+    ///
+    /// It also used to be the suite's crash. `ladderPopups(…).map(\.title)[1]`
+    /// subscripted an array that `NSPopUpButton`'s disappearance had emptied,
+    /// so a premise failure became a trap; reading each row BY ITS PASS means
+    /// there is no index to be out of.
     func test_aPassStateSetElsewhereReachesTheMountedLadderWithNoReload() async throws {
         let (_, store, ds, piece) = try await collection()
         defer { Task { await ds.close() } }
         let window = mount(AnyView(PieceInspector(
             store: store, pieceId: piece.id, kind: .prose)))
-        XCTAssertEqual(ladderPopups(in: window).map(\.title),
+        XCTAssertEqual(try ladderReadings(in: window, of: store),
                        Array(repeating: PassLadder.untouchedTitle,
                              count: ReviewPass.presets.count),
                        "premise: nothing is ruled on yet")
@@ -273,11 +331,16 @@ final class InspectorPassLadderTests: XCTestCase {
         let secondPass = try XCTUnwrap(store.manifest.effectiveReviewPasses.dropFirst().first)
         try await store.setPassState(id: piece.id, passId: secondPass.id, .skipped)
         await pumpUntil(deadline: 5) {
-            self.ladderPopups(in: window).map(\.title).contains(PassLadder.skipTitle)
+            self.ladderReading(secondPass.id, in: window) == PassLadder.skipTitle
         }
 
-        XCTAssertEqual(ladderPopups(in: window).map(\.title)[1], PassLadder.skipTitle,
+        XCTAssertEqual(try requireLadderRow(secondPass.id, in: window).reading,
+                       PassLadder.skipTitle,
                        "the row for the pass that changed did not follow the store")
+        let first = try XCTUnwrap(store.manifest.effectiveReviewPasses.first)
+        XCTAssertEqual(try requireLadderRow(first.id, in: window).reading,
+                       PassLadder.untouchedTitle,
+                       "and no other row moved with it")
     }
 
     /// A state this build cannot interpret gets a row of its own and is not
@@ -291,14 +354,14 @@ final class InspectorPassLadderTests: XCTestCase {
         try await store.setPassState(
             id: piece.id, passId: firstPassId, .unknown("awaiting_reader"))
 
-        let window = mount(AnyView(PieceInspector(
-            store: store, pieceId: piece.id, kind: .prose)))
-        let row = try XCTUnwrap(ladderPopups(in: window).first)
-        XCTAssertEqual(row.title, "awaiting_reader",
+        let inspector = PieceInspector(store: store, pieceId: piece.id, kind: .prose)
+        let window = mount(AnyView(inspector))
+        XCTAssertEqual(try requireLadderRow(firstPassId, in: window).reading,
+                       "awaiting_reader",
                        "the unknown state must be shown as itself")
 
         // …and the writer can still rule on it, which overwrites deliberately.
-        try choose(PassLadder.doneTitle, inRow: 0, of: window)
+        inspector.setPass(firstPassId, to: .done, on: piece.id)
         await pumpUntil(deadline: 5) {
             self.states(of: piece.id, in: store)?[firstPassId] == .done
         }

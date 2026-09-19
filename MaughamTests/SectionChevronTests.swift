@@ -25,13 +25,18 @@ import MaughamCore
 /// only who draws the triangle and who reads the flag to decide whether to emit
 /// rows.
 ///
-/// **Why the chevron is at the trailing edge** rather than in the outline gutter
-/// where every ROW's triangle sits (`BinderTreeIndentationTests` measures those
-/// at x=12). It is where the system put its own, so it is where Denver has been
-/// reaching for it; the header is a `ListTableHeaderView`, not an outline row,
-/// so it has no gutter to sit in and a hand-drawn leading chevron would line up
-/// with nothing. The trade is recorded rather than hidden: the section headers
-/// and the group rows beneath them now disclose from opposite edges.
+/// **The chevron is at the LEADING edge as of D1** (2026-09-19), which is
+/// where every group ROW's triangle already sits
+/// (`BinderTreeIndentationTests` measures those at x=12).
+///
+/// It was trailing for a year, where `Section(isExpanded:)` had put the
+/// system's own, on the argument that a `ListTableHeaderView` is not an outline
+/// row and so has no gutter for a leading chevron to line up with. Denver's
+/// macOS 27 smoke supplied the other half of that trade: at the trailing edge
+/// of a 320pt column the chevrons "sit very close to the scrollbar and are hard
+/// to hit". `test_theChevronLeadsTheHeaderInBothSections` is the pin, and it
+/// establishes the edge without assuming it — which is what the three
+/// position-derived readers in this file and its two siblings now depend on.
 @MainActor
 final class SectionChevronTests: XCTestCase {
 
@@ -144,10 +149,40 @@ final class SectionChevronTests: XCTestCase {
             + "the flag")
     }
 
-    /// Both headers carry one, not just the one that was easiest to reach.
+    /// Both headers carry one, not just the one that was easiest to reach —
+    /// **each clicked in a window of its own.**
+    ///
+    /// It used to click both in one window, and on macOS 27 that made it the
+    /// suite's only red: the first click after ANOTHER click's relayout is
+    /// swallowed. Measured 2026-09-19 (the spike note's *The accessibility tree
+    /// on 27*, §4): Palette's chevron fires 5/5 as the first thing a window is
+    /// asked to do and 10/10 after any other click, and misses exactly once —
+    /// the click straight after collapsing Research moved the Palette header
+    /// from y=183 to y=119. A sweep down that same column immediately
+    /// afterwards fired on all thirty of its samples, the failing point
+    /// included, so nothing about the control had changed. It is tripwire 33's
+    /// shape with a mouse instead of a press, and CLAUDE.md already records the
+    /// mechanism one layer down: stale `appKitDefined` traffic feeds
+    /// `NSTableView`'s drag-disambiguation loop and eats the pair.
+    ///
+    /// A fresh mount per section is the fix, measured at 2/2. That is what this
+    /// suite's three other click cases have always had without saying so —
+    /// each is one click into a window that has seen none.
+    ///
+    /// **Why a click survives here at all.** This is the one WIRING in the two
+    /// section headers with no windowless pin available: the tree's chevron has
+    /// no accessibility hook of any kind to press, because a
+    /// `List(.sidebar)`'s `NSOutlineRow` answers `[]` to the KVC walk (measured
+    /// the same day) — so `axMenuControl` and every identifier reach nothing
+    /// here, and the `_FocusRingView` census can say the chevron is DRAWN but
+    /// not that it is connected to this section's own flag. The flag itself is
+    /// `BinderTreeSectionsState`'s and is pinned windowlessly all over
+    /// `BinderTreeSectionsTests`, `AltitudeKeyspaceTests` and
+    /// `ResearchSubjectRevealTests`; what only a click can say is that THIS
+    /// header's triangle writes THAT section's flag.
     func test_bothSectionsCarryAChevronThatTogglesTheirOwnFlag() async throws {
-        let mount = try await mountTree()
         for section in [Section.research, .palette] {
+            let mount = try await mountTree()
             let geometry = try headerGeometry(section, in: mount.window)
             let before = mount.state.isExpanded(section)
             _ = await click(at: CGPoint(x: geometry.chevron.midX,
@@ -156,6 +191,10 @@ final class SectionChevronTests: XCTestCase {
             await pumpUntil(deadline: 5) { mount.state.isExpanded(section) != before }
             XCTAssertEqual(mount.state.isExpanded(section), !before,
                            "\(section)'s chevron did not toggle its own flag")
+            // …and only its own.
+            let other: Section = section == .research ? .palette : .research
+            XCTAssertTrue(mount.state.isExpanded(other),
+                          "\(section)'s chevron closed \(other) as well")
         }
     }
 

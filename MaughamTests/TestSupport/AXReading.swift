@@ -134,6 +134,47 @@ extension AXReading {
         return object.value(forKey: "isAccessibilityEnabled") as? Bool
     }
 
+    // MARK: - Menu-like controls
+
+
+    /// The menu-like control carrying `identifier`, or `nil` where the surface
+    /// published none.
+    func axMenuControl(_ identifier: String,
+                       in window: NSWindow) throws -> AXMenuControl? {
+        try axElements(in: window)
+            .first { (axAttribute($0, "accessibilityIdentifier") as? String) == identifier }
+            .map { element in
+                AXMenuControl(
+                    role: axAttribute(element, "accessibilityRole") as? String,
+                    reading: axReading(element),
+                    isEnabled: axEnabled(element))
+            }
+    }
+
+    /// Every identifier the surface published, for a failed lookup's message —
+    /// so a miss says what WAS there rather than only what was not.
+    func axIdentifiers(in window: NSWindow) throws -> [String] {
+        try axElements(in: window)
+            .compactMap { axAttribute($0, "accessibilityIdentifier") as? String }
+            .filter { !$0.isEmpty }
+    }
+
+    /// An element's text: `accessibilityValue`, else `accessibilityTitle`.
+    ///
+    /// Both are read as a plain `String` AND through `NSAttributedString`,
+    /// because a `SwiftUIPopupButtonCell` hands back an
+    /// `NSConcreteMutableAttributedString` where a SwiftUI `AccessibilityNode`
+    /// hands back a `String`, and a reader that did one of the two is silently
+    /// blind to whichever control it did not have in mind.
+    func axReading(_ element: AnyObject) -> String? {
+        for key in ["accessibilityValue", "accessibilityTitle"] {
+            guard let raw = axAttribute(element, key) else { continue }
+            if let text = raw as? String, !text.isEmpty { return text }
+            if let text = (raw as? NSAttributedString)?.string, !text.isEmpty { return text }
+        }
+        return nil
+    }
+
     // MARK: - Acting on it
 
     /// Press an element through the tree — the action a click ultimately
@@ -157,4 +198,51 @@ extension AXReading {
         if let hit = view as? T { out.append(hit) }
         for sub in view.subviews { collect(type, in: sub, into: &out) }
     }
+}
+
+// MARK: - What a menu-like control publishes
+
+/// **The one way a mounted `Picker` or `Menu` is read** (macOS 27 shell
+/// slice, Task 4).
+///
+/// On macOS 27 a SwiftUI `Picker(.menu)` mounts **no AppKit control at
+/// all** — the whole view-hierarchy trace is a `KeyViewProxy` and a
+/// `_FocusRingView` — so every `NSPopUpButton` census over an inspector
+/// answers `[]`, which is what took six `InspectorPassLadderTests` down
+/// with it. It is in the accessibility tree, as a SwiftUI
+/// `AccessibilityNode` with role `AXPopUpButton` whose `accessibilityValue`
+/// is the selected item's title. A `Menu(.borderlessButton)` IS still a
+/// real `SwiftUIPopupButton`, but its explicit `.accessibilityLabel`
+/// arrives as an EMPTY `accessibilityLabel` beside an `NSAttributedString`
+/// `accessibilityTitle` — the one attribute ``axTexts(in:)`` does not read,
+/// in the one type it cannot cast, which is the whole of
+/// `AdmissionSheetTests`' red.
+///
+/// **So the difference between the two controls is which attribute holds
+/// their text, and that is this helper's business rather than each suite's.**
+/// `reading` takes `accessibilityValue` first and falls back to
+/// `accessibilityTitle`, bridged through `NSAttributedString` where it is
+/// one. A suite asks for a control by identifier and gets back what it may
+/// honestly assert: that it is there, what it currently reads, and whether
+/// it is enabled.
+///
+/// **Nothing here presses.** The ladder's node publishes an EMPTY
+/// `accessibilityActionNames`, no children and no `NSMenu`, so the mounted
+/// delivery path `InspectorPassLadderTests` used to drive does not exist on
+/// 27 in any form — a write is pinned at the host that performs it, never
+/// through the control. Measured 2026-09-19; the whole spike is
+/// `docs/superpowers/notes/2026-09-19-split-view-tie-break-spike.md`'s
+/// *The accessibility tree on 27*.
+///
+/// **It reaches nothing inside a `List(.sidebar)`**: `NSOutlineRow` answers
+/// `[]` to this KVC walk, so a tree row's control has no accessibility hook
+/// of any kind — identifier included — and the `_FocusRingView` census
+/// stays that furniture's only instrument (`SectionChevronTests`).
+struct AXMenuControl {
+    /// `AXPopUpButton` for a `Picker`, `AXMenuButton` for a `Menu`.
+    let role: String?
+    /// What the control says right now — its value, else its title.
+    let reading: String?
+    /// `nil` only where the element carries no enabled-ness at all.
+    let isEnabled: Bool?
 }
