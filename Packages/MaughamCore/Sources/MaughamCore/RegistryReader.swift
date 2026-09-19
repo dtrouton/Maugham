@@ -64,6 +64,25 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
         /// registry signing about somebody in ANOTHER root's chain, and a
         /// retirement signed by a Mac that is not the one retiring.
         case eventSignerHasNoAuthority(kind: String, subject: String, signer: String)
+        /// **A permit event that would make a root anything but an author of
+        /// the whole book** (P3 spec §2).
+        ///
+        /// The root alone admits, revokes and changes a permit, and a book must
+        /// not end up with no author — so the root's own permit is not a thing
+        /// that changes. An event saying otherwise is correctly signed by a key
+        /// entitled to sign about that subject (a root may write about itself,
+        /// since a root record names itself as its admitter), which is what
+        /// makes it worth refusing by name rather than leaving to the
+        /// entitlement check: it is the one well-formed file that could talk
+        /// this book out of having an author at all.
+        ///
+        /// Refused rather than held pending, which is the opposite of the rule
+        /// for an unrecognised role elsewhere. A root's permit is already the
+        /// maximum permit — there is nothing a later build could widen it to —
+        /// so the cautious answer here is the loud one, and holding the root's
+        /// own lines pending is the one case where caution costs the writer
+        /// their own book.
+        case eventDemotesARoot(kind: String, subject: String, role: String, scope: String)
         /// The bytes are not a JSON object, so there is nothing that could have
         /// been signed — the canonical form has no object to take a signature
         /// slot out of (`RegistryCanonicalError.notAJSONObject`).
@@ -99,6 +118,10 @@ public struct MalformedRecord: Equatable, Hashable, Sendable {
                 return "records “\(kind)” for \(DeviceCode.short(subject)) over "
                     + "the signature of \(DeviceCode.short(signer)), who is not "
                     + "entitled to say so"
+            case .eventDemotesARoot(let kind, let subject, let role, let scope):
+                return "records “\(kind)” making \(DeviceCode.short(subject)) "
+                    + "“\(role)” of “\(scope)”, where the Mac this book was "
+                    + "started on is an author of the whole book"
             case .notAJSONObject:
                 return "isn't a record at all — its bytes are not a JSON object"
             }
@@ -399,6 +422,20 @@ public enum RegistryReader {
                 malformed.append(.init(url: url, reason: .eventSignerHasNoAuthority(
                     kind: record.kind.rawValue, subject: record.subject,
                     signer: record.by)))
+                continue
+            }
+            // The second authority question, and the only one about the
+            // SUBJECT rather than the signer: a root is an author of the whole
+            // book unconditionally (`Permit.contradictsARoot`, which owns the
+            // rule). Entitlement cannot catch this — `chain(underRoot:)`
+            // includes the root itself, so a root writing about itself is
+            // perfectly entitled, and the file it would write is the one that
+            // leaves a book with no author.
+            if sofar.person(record.subject)?.isRoot == true,
+               Permit.contradictsARoot(record) {
+                malformed.append(.init(url: url, reason: .eventDemotesARoot(
+                    kind: record.kind.rawValue, subject: record.subject,
+                    role: record.role, scope: record.scope)))
                 continue
             }
             events.append(record)

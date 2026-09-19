@@ -47,6 +47,13 @@ public enum TrustVerdict: Equatable, Hashable, Sendable {
 /// Who this device trusts in one project, resolved once from a verified
 /// registry and this device's own keys.
 ///
+/// **Since P3 it answers two questions, not one**: what a seal's key IS to this
+/// device (`verdict`), and what the person behind it was allowed to WRITE
+/// (`timeline`, narrowed by `actor`). Both come off the same verified registry,
+/// resolved once — a second table built from the events would be the parallel
+/// trust table tripwire 39 forbids, and the permit half is where such a pair
+/// would disagree in silence.
+///
 /// **It answers verdicts and counts nothing.** How many lines are pending from
 /// which device is the WALK's question (the reader that classifies each line);
 /// a table that counted would have to be rebuilt whenever a file grew, and it
@@ -110,6 +117,18 @@ public struct TrustTable: Equatable, Sendable {
     private let mine: Set<String>
     /// Actor key → the device record that names it. One hop, spelled once.
     private let deviceByActorKey: [String: String]
+    /// Actor key → WHICH of the four writers it is (P3 spec §2's last
+    /// paragraph). A device is four writers and they do not share a permit:
+    /// `assistant` is the reviewer row on every device including the root's,
+    /// because *MCP never mutates manuscript text* — so a reader that knows
+    /// only whose key this is cannot judge the line. Nil for a key no record
+    /// names an actor for, and for an actor word a later build invented.
+    private let actorByKey: [String: DeviceActor]
+    /// Person fingerprint → their permit history, built from this registry's
+    /// events (spec §3.4). Absent for everybody with no events, which is
+    /// everybody in every book written before P3 — and absent answers the
+    /// author-of-the-whole-book default, which is what those admissions meant.
+    private let timelineByPerson: [String: PermitTimeline]
     /// Person fingerprint → the record, for the revoked/admitted split.
     private let personByFingerprint: [String: PersonRecord]
     /// Device fingerprint → the moment that device said it had stopped. Keyed
@@ -150,9 +169,14 @@ public struct TrustTable: Equatable, Sendable {
     nonisolated public static func resolve(
         registry: Registry, mine: LocalIdentities, joinedRoot: String?
     ) -> TrustTable {
-        // `fingerprints` ENUMERATES: it answers over the keys this device has
-        // already written with and mints none. A read path must not mint.
-        let myKeys = mine.fingerprints
+        // `existingActors` ENUMERATES: it answers over the actors this device
+        // has already written as and mints none, and the subscript of one that
+        // exists mints nothing either. A read path must not mint. (`mine
+        // .fingerprints` is exactly this set — it is spelled out here because
+        // P3 needs the actor beside each key, not only the key.)
+        let myIdentityByActor = Dictionary(
+            uniqueKeysWithValues: mine.existingActors.map { ($0, mine[$0]) })
+        let myKeys = Set(myIdentityByActor.values.map(\.fingerprint))
         let roots = registry.roots.sorted { $0.person < $1.person }
 
         // The two arms are kept as named values rather than folded into one
@@ -167,17 +191,53 @@ public struct TrustTable: Equatable, Sendable {
         let myRoot: String? = joinedRoot ?? ownRecord ?? admittingRoots.first
 
         var deviceByActorKey: [String: String] = [:]
+        var actorByKey: [String: DeviceActor] = [:]
         for device in registry.devices.sorted(by: { $0.device < $1.device }) {
             for key in device.actorFingerprints.sorted()
             where deviceByActorKey[key] == nil {
                 deviceByActorKey[key] = device.device
             }
+            // An actor word this build does not know is left unmapped rather
+            // than guessed: the permit narrows by actor, and guessing would
+            // narrow it by the wrong row.
+            for (word, key) in device.actors.sorted(by: { $0.key < $1.key }) {
+                guard let actor = DeviceActor(rawValue: word),
+                      actorByKey[key] == nil else { continue }
+                actorByKey[key] = actor
+            }
+        }
+        // **This device's own keys win.** A device record vouches for its own
+        // actors, and the reader checks only that its `author` entry is
+        // itself — so a foreign record could name one of MY keys as its
+        // translator and, unopposed, decide which row my own line is judged
+        // on. What my key is for is something this device knows first-hand.
+        for (actor, identity) in myIdentityByActor {
+            actorByKey[identity.fingerprint] = actor
         }
 
         var personByFingerprint: [String: PersonRecord] = [:]
         for person in registry.people where personByFingerprint[person.person] == nil {
             personByFingerprint[person.person] = person
         }
+
+        // **The permit history, per person** (spec §3.4). Built here because
+        // this is where the verified registry already is: a second place that
+        // read the events would be the parallel trust table tripwire 39
+        // forbids, and the two would disagree the first time one of them
+        // learned a rule.
+        //
+        // **A root is skipped**, and so answers the author-of-the-whole-book
+        // default however many events name it. `RegistryReader` already lists
+        // such an event malformed, so on disk this is unreachable; it is here
+        // because `resolve` is pure and takes a `Registry` from wherever the
+        // caller got one, and a device must not be talked out of its own
+        // root's authority by a value somebody handed it.
+        let rootFingerprints = Set(roots.map(\.person))
+        var eventsByPerson: [String: [PermitEvent]] = [:]
+        for event in registry.events where !rootFingerprints.contains(event.subject) {
+            eventsByPerson[event.subject, default: []].append(event)
+        }
+        let timelineByPerson = eventsByPerson.mapValues { PermitTimeline(events: $0) }
 
         var retiredAtByDevice: [String: Date] = [:]
         for device in registry.devices {
@@ -229,6 +289,7 @@ public struct TrustTable: Equatable, Sendable {
             myRoot: myRoot, ownRootRecord: ownRecord,
             admittingRoots: admittingRoots, adoptedRoots: adoptedRoots,
             mine: myKeys, deviceByActorKey: deviceByActorKey,
+            actorByKey: actorByKey, timelineByPerson: timelineByPerson,
             personByFingerprint: personByFingerprint,
             retiredAtByDevice: retiredAtByDevice, myChain: myChain,
             otherRootByMember: otherRootByMember)
@@ -263,7 +324,7 @@ public struct TrustTable: Equatable, Sendable {
         guard myRoot != nil else { return .noChain }
 
         let device = deviceByActorKey[fingerprint]
-        let person = device ?? fingerprint
+        let person = person(forSealKey: fingerprint)
 
         if myChain.contains(person) {
             if let record = personByFingerprint[person], record.isRevoked {
@@ -281,5 +342,58 @@ public struct TrustTable: Equatable, Sendable {
             return .otherRoot(root: claimant)
         }
         return .stranger(device: device)
+    }
+
+    // MARK: - The permit (P3)
+
+    /// **Whose a seal key is** — key → device → person, the one hop, spelled
+    /// once and shared with `verdict`.
+    ///
+    /// Under labels-only a person IS a device's author key, which is the device
+    /// record's own `device` field, so an actor key finds its device and the
+    /// device is the person. A key no device record names might still be a
+    /// person named directly — a root whose device record was never written —
+    /// so it stands for itself.
+    nonisolated public func person(forSealKey fingerprint: String) -> String {
+        deviceByActorKey[fingerprint] ?? fingerprint
+    }
+
+    /// **Which of the four writers made this seal**, or nil where nothing on
+    /// disk says (an unrecorded key, or an actor word a later build invented).
+    ///
+    /// Asked beside the verdict, never instead of it: the person's permit says
+    /// what that PERSON may write, and the actor narrows it (spec §2) — the
+    /// assistant is the reviewer row on every device including the root's own
+    /// Mac, which is the storage-layer form of *AI is never the author*. A
+    /// caller that cannot name the actor cannot apply that narrowing, which is
+    /// why this is an `Optional` rather than a defaulted `.author`.
+    nonisolated public func actor(forSealKey fingerprint: String) -> DeviceActor? {
+        actorByKey[fingerprint]
+    }
+
+    /// **One person's permit history**, from this project's verified events.
+    ///
+    /// The role check reads this and never `PersonRecord.role` (spec §3.4): a
+    /// record is re-signed in place and forgets its own past, so a check made
+    /// from one would let a demotion reach backwards and a promotion pardon.
+    ///
+    /// Everybody this registry has no events for — everybody in every book
+    /// written before P3, and every root — answers `PermitTimeline.bookAuthor`:
+    /// author of the whole book, from the start, no mark. That default is what
+    /// makes a permit check behaviour-neutral for every book already on disk.
+    nonisolated public func timeline(forPerson person: String) -> PermitTimeline {
+        timelineByPerson[person] ?? .bookAuthor
+    }
+
+    /// The same, for a caller holding a seal's key rather than a person.
+    ///
+    /// **Including one of this device's own keys.** A second Mac of an admitted
+    /// person answers `.mine` about itself and may perfectly well be a
+    /// reviewer — the verdict says whose hand a line is, and this says what
+    /// that hand was allowed to write. A keyless book resolves through
+    /// `TrustResolution.keyless`, whose registry is empty, so every key here
+    /// answers the author-of-the-whole-book default: P1's behaviour exactly.
+    nonisolated public func timeline(forSealKey fingerprint: String) -> PermitTimeline {
+        timeline(forPerson: person(forSealKey: fingerprint))
     }
 }

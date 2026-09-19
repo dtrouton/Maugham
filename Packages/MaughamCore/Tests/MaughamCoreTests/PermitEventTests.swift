@@ -475,6 +475,80 @@ final class PermitEventTests: XCTestCase {
         }
     }
 
+    // MARK: - A root is an author of the whole book (P3a Task 3, spec §2)
+
+    /// **The one well-formed file that could leave a book with no author.**
+    ///
+    /// Entitlement cannot catch it: `Registry.chain(underRoot:)` includes the
+    /// root itself and a root record names itself as its own admitter, so a
+    /// root writing an event about itself is perfectly entitled to. The rule
+    /// that refuses it is about the SUBJECT — the root alone admits, revokes
+    /// and changes a permit, and its own permit is not a thing that changes.
+    func test_anEventMakingTheRootAReviewerIsListedAndContributesNothing() throws {
+        try writeChain()
+        try write(
+            event(kind: .roleChanged, subject: root, by: root,
+                  role: "reviewer", scope: "book", pieces: []),
+            signedBy: root)
+
+        let registry = try RegistryReader.load(projectURL: projectURL)
+        XCTAssertEqual(registry.events, [])
+        XCTAssertEqual(registry.malformed.count, 1)
+        let listed = try XCTUnwrap(registry.malformed.first)
+        guard case .eventDemotesARoot(let kind, let subject, let role, _)
+                = listed.reason else {
+            return XCTFail("expected a demoted root, got \(listed.reason)")
+        }
+        XCTAssertEqual(kind, "roleChanged")
+        XCTAssertEqual(subject, root.fingerprint)
+        XCTAssertEqual(role, "reviewer")
+        XCTAssertTrue(
+            listed.reason.sentence.contains("author of the whole book"),
+            "the listing says what a root is: \(listed.reason.sentence)")
+    }
+
+    /// Narrowing the root's SCOPE is the same refusal — *some pieces* leaves
+    /// the rest of the book with nobody who may write it.
+    func test_anEventNarrowingTheRootsScopeIsListedToo() throws {
+        try writeChain()
+        try write(event(kind: .scopeChanged, subject: root, by: root), signedBy: root)
+
+        let registry = try RegistryReader.load(projectURL: projectURL)
+        XCTAssertEqual(registry.events, [])
+        guard case .eventDemotesARoot = try XCTUnwrap(registry.malformed.first).reason
+        else { return XCTFail("expected a demoted root") }
+    }
+
+    /// **The converse, so the rule is a rule and not a ban on the subject.**
+    /// An event about the root that leaves it an author of the whole book —
+    /// its own admission, its own retirement — is read like any other.
+    func test_anEventAboutTheRootThatLeavesItABookAuthorIsRead() throws {
+        try writeChain()
+        try write(
+            event(kind: .admitted, subject: root, by: root,
+                  role: "author", scope: "book", pieces: []),
+            signedBy: root)
+        try write(
+            event(kind: .retired, subject: root, by: root,
+                  role: "author", scope: "book", pieces: [], id: "\(root.fingerprint).zz"),
+            signedBy: root)
+
+        let registry = try RegistryReader.load(projectURL: projectURL)
+        XCTAssertEqual(registry.malformed, [])
+        XCTAssertEqual(registry.events.count, 2)
+    }
+
+    /// And the same event about somebody who is NOT a root is read: this is a
+    /// rule about the root's authority, not about the word *reviewer*.
+    func test_theSameEventAboutSomebodyWhoIsNotARootIsRead() throws {
+        try writeChain()
+        try write(event(kind: .roleChanged, role: "reviewer"), signedBy: root)
+
+        let registry = try RegistryReader.load(projectURL: projectURL)
+        XCTAssertEqual(registry.malformed, [])
+        XCTAssertEqual(registry.events.count, 1)
+    }
+
     // MARK: - The cache remembers events like any other record
 
     func test_aDeletedEventIsRestoredByteIdenticalAndReported() throws {

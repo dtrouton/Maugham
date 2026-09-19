@@ -1,0 +1,297 @@
+import Foundation
+import XCTest
+@testable import MaughamCore
+
+/// **A permit is evaluated as of the line** (P3a Task 3, spec §3.4, §5).
+///
+/// Everything here is a pure value: a list of events in, a permit per line out.
+/// No disk, no keys, no registry — `RegistryReader` has already decided which
+/// events are events, and this type is asked only what they MEAN to a line.
+///
+/// The two failures it exists to make impossible are each half of one rule and
+/// each is silent:
+///
+/// - **A demotion reaching backwards.** Judge by today's permit and everything
+///   she wrote as an author is set aside the moment she becomes a reviewer.
+/// - **A promotion pardoning.** Judge by the permit at admission and what she
+///   wrote while the permit said no is applied the moment it says yes — which
+///   makes the refusal worth nothing.
+///
+/// They are tested as a PAIR in one timeline, because a rule with two
+/// directions that is tested in one direction is a rule half-built (P2's two
+/// wrong rulings were each half of a two-sided rule).
+final class PermitTimelineTests: XCTestCase {
+
+    // MARK: - Fixtures
+
+    /// Eight lines of one stream, distinguishable by their bytes.
+    private let stream = "d-chapter-4.author-abc"
+    private lazy var lines: [Data] = (0..<8).map { Data("{\"op\":\($0)}".utf8) }
+
+    /// A mark that cuts this stream after `index` — everything at or before it
+    /// is OLD, everything after is NEW.
+    private func mark(after index: Int) -> [String: PermitEvent.StreamMark] {
+        [stream: .init(segments: [], line: OpLogChain.lineHash(lines[index]))]
+    }
+
+    private func event(
+        _ id: String,
+        kind: PermitEvent.Kind,
+        role: String = Permit.authorRole,
+        scope: String = Permit.bookScope,
+        pieces: [String] = [],
+        mark: [String: PermitEvent.StreamMark] = [:]
+    ) -> PermitEvent {
+        PermitEvent(
+            event: "sam.\(id)", kind: kind, subject: "sam",
+            role: role, scope: scope, pieces: pieces, mark: mark,
+            at: Date(timeIntervalSince1970: 100), by: "root")
+    }
+
+    /// Every line of `lines`, judged against this timeline's own marks.
+    private func permits(of timeline: PermitTimeline) -> [Permit] {
+        timeline.permits(lineCount: lines.count) { mark in
+            mark.judge(streamKey: stream, fileIsSegmentWithDigest: nil, lines: lines)
+        }
+    }
+
+    // MARK: - No events at all
+
+    /// **The whole of P3a's behaviour-neutrality.** Every book on disk today
+    /// has no events, so every admitted person must read as an author of the
+    /// whole book, from the very first line.
+    func test_aPersonWithNoEventsIsAnAuthorOfTheWholeBookFromTheStart() {
+        let timeline = PermitTimeline(events: [])
+
+        XCTAssertEqual(timeline.entries.count, 1)
+        XCTAssertEqual(timeline.entries[0].permit, .author(.book))
+        XCTAssertNil(timeline.entries[0].mark, "there is no previous permit to cut from")
+        XCTAssertNil(timeline.entries[0].event)
+        XCTAssertFalse(timeline.hasEvents)
+        XCTAssertEqual(timeline.current, .author(.book))
+        XCTAssertEqual(permits(of: timeline), Array(repeating: .author(.book), count: 8))
+        XCTAssertEqual(timeline, .bookAuthor)
+    }
+
+    // MARK: - Parsing a permit
+
+    func test_aMissingScopeIsTheWholeBookAndPiecesWithNoListIsTheEmptySet() {
+        XCTAssertEqual(
+            Permit.parse(role: "author", scope: nil, pieces: nil), .author(.book),
+            "every P2-era record: absent MEANS book")
+        XCTAssertEqual(
+            Permit.parse(role: "author", scope: "book", pieces: ["d-one"]),
+            .author(.book),
+            "a list under book is meaningless by the format's own definition")
+        XCTAssertEqual(
+            Permit.parse(role: "author", scope: "pieces", pieces: nil),
+            .author(.pieces([])),
+            "she may write what she starts — an author of no pieces yet is real")
+        XCTAssertEqual(
+            Permit.parse(role: "author", scope: "pieces", pieces: ["d-two", "d-one"]),
+            .author(.pieces(["d-one", "d-two"])))
+        XCTAssertEqual(Permit.parse(role: "reviewer", scope: nil, pieces: nil), .reviewer)
+    }
+
+    /// An older Mac must not quarantine what a newer one would apply, so a word
+    /// this build does not know is `.unjudgeable` — which the table answers
+    /// *cannot judge* and the reader holds PENDING.
+    func test_aRoleOrScopeThisBuildDoesNotKnowIsUnjudgeable() {
+        XCTAssertEqual(
+            Permit.parse(role: "copyeditor", scope: "book", pieces: nil),
+            .unjudgeable(raw: "copyeditor"))
+        XCTAssertEqual(
+            Permit.parse(role: "author", scope: "chapters", pieces: ["d-one"]),
+            .unjudgeable(raw: "chapters"))
+        XCTAssertTrue(Permit.parse(role: "", scope: nil, pieces: nil).isUnjudgeable)
+        XCTAssertFalse(Permit.author(.book).isUnjudgeable)
+    }
+
+    // MARK: - As of the line, both directions
+
+    /// **The pair, in one timeline.** She is admitted as an author, demoted to
+    /// reviewer after line 2, and promoted back after line 5.
+    ///
+    /// - Lines 0–2 are before the demotion's mark: they stay **author**. A
+    ///   demotion does not reach back.
+    /// - Lines 3–5 are between the two marks: they stay **reviewer**. A
+    ///   promotion is not a pardon.
+    /// - Lines 6–7 are after the promotion's mark: **author** again.
+    func test_eachLineLandsUnderThePermitThatHeldWhenItWasWritten() {
+        let timeline = PermitTimeline(events: [
+            event("a", kind: .admitted),
+            event("b", kind: .roleChanged, role: Permit.reviewerRole,
+                  mark: mark(after: 2)),
+            event("c", kind: .roleChanged, role: Permit.authorRole,
+                  mark: mark(after: 5)),
+        ])
+
+        XCTAssertEqual(permits(of: timeline), [
+            .author(.book), .author(.book), .author(.book),
+            .reviewer, .reviewer, .reviewer,
+            .author(.book), .author(.book),
+        ])
+        XCTAssertEqual(timeline.current, .author(.book))
+        XCTAssertTrue(timeline.hasEvents)
+    }
+
+    /// The same rule where what changes is the SCOPE rather than the role: a
+    /// piece leaves her scope, and later another one joins it.
+    func test_aPieceLeavingAndAPieceJoiningCutTheSameWay() {
+        let timeline = PermitTimeline(events: [
+            event("a", kind: .admitted, scope: Permit.piecesScope,
+                  pieces: ["d-chapter-4", "d-chapter-5"]),
+            event("b", kind: .scopeChanged, scope: Permit.piecesScope,
+                  pieces: ["d-chapter-5"], mark: mark(after: 1)),
+            event("c", kind: .scopeChanged, scope: Permit.piecesScope,
+                  pieces: ["d-chapter-5", "d-chapter-9"], mark: mark(after: 4)),
+        ])
+
+        XCTAssertEqual(permits(of: timeline), [
+            .author(.pieces(["d-chapter-4", "d-chapter-5"])),
+            .author(.pieces(["d-chapter-4", "d-chapter-5"])),
+            .author(.pieces(["d-chapter-5"])),
+            .author(.pieces(["d-chapter-5"])),
+            .author(.pieces(["d-chapter-5"])),
+            .author(.pieces(["d-chapter-5", "d-chapter-9"])),
+            .author(.pieces(["d-chapter-5", "d-chapter-9"])),
+            .author(.pieces(["d-chapter-5", "d-chapter-9"])),
+        ])
+    }
+
+    /// A stream the mark does not name is wholly NEW — the strict side, and the
+    /// one that makes a first admission's empty mark mean *nothing was
+    /// applied*. Checked here rather than left to `PermitMarkTests` because it
+    /// is what an event with no mark at all does to a whole file.
+    func test_aStreamNoMarkNamesIsUnderTheNewestPermit() {
+        let timeline = PermitTimeline(events: [
+            event("a", kind: .admitted, role: Permit.reviewerRole),
+        ])
+
+        XCTAssertEqual(permits(of: timeline), Array(repeating: .reviewer, count: 8))
+    }
+
+    // MARK: - Which kinds install a permit
+
+    /// Revocation and retirement are not permits: `TrustVerdict` already has
+    /// `.revoked` and `.retired`, and an entry here would restate a rule that
+    /// lives somewhere else. The role they carry is the state they found.
+    func test_revocationAndRetirementInstallNothing() {
+        let timeline = PermitTimeline(events: [
+            event("a", kind: .admitted, role: Permit.reviewerRole),
+            event("b", kind: .revoked, role: Permit.authorRole, mark: mark(after: 3)),
+            event("c", kind: .retired, role: Permit.authorRole, mark: mark(after: 5)),
+            event("d", kind: .revokedEntirely, role: Permit.authorRole),
+        ])
+
+        XCTAssertEqual(timeline.entries.count, 2, "the opening entry and the admission")
+        XCTAssertEqual(permits(of: timeline), Array(repeating: .reviewer, count: 8))
+    }
+
+    /// A verb a later build invented holds everything after its mark PENDING.
+    /// Skipping it would apply lines under a permit the newer Mac may have
+    /// narrowed; refusing them would quarantine what the newer Mac applies.
+    func test_aKindThisBuildDoesNotKnowHoldsWhatFollowsItUnjudgeable() {
+        let timeline = PermitTimeline(events: [
+            event("a", kind: .admitted),
+            event("b", kind: .unknown("delegatedToTheEditor"), mark: mark(after: 4)),
+        ])
+
+        XCTAssertEqual(permits(of: timeline), [
+            .author(.book), .author(.book), .author(.book),
+            .author(.book), .author(.book),
+            .unjudgeable(raw: "delegatedToTheEditor"),
+            .unjudgeable(raw: "delegatedToTheEditor"),
+            .unjudgeable(raw: "delegatedToTheEditor"),
+        ])
+        XCTAssertTrue(timeline.current.isUnjudgeable)
+    }
+
+    // MARK: - Order
+
+    /// Event ids are `<subject>.<ULID>` and sort into the order they were made,
+    /// whatever order the folder listed them in.
+    func test_eventsAreOrderedByTheirIdsAndNotByArrival() {
+        let shuffled = PermitTimeline(events: [
+            event("c", kind: .roleChanged, role: Permit.authorRole,
+                  mark: mark(after: 5)),
+            event("a", kind: .admitted),
+            event("b", kind: .roleChanged, role: Permit.reviewerRole,
+                  mark: mark(after: 2)),
+        ])
+
+        XCTAssertEqual(shuffled.entries.map(\.event),
+                       [nil, "sam.a", "sam.b", "sam.c"])
+        XCTAssertEqual(permits(of: shuffled), [
+            .author(.book), .author(.book), .author(.book),
+            .reviewer, .reviewer, .reviewer,
+            .author(.book), .author(.book),
+        ])
+    }
+
+    // MARK: - The judgements are computed once per entry
+
+    /// The lookup's shape is what keeps a novel's tail from being hashed once
+    /// per line: `judging` is called once for each entry that HAS a mark, and
+    /// the opening entry — which has none — is never judged at all.
+    func test_oneJudgementPerEntryAndNoneForTheOpeningEntry() {
+        let timeline = PermitTimeline(events: [
+            event("a", kind: .admitted),
+            event("b", kind: .roleChanged, role: Permit.reviewerRole,
+                  mark: mark(after: 2)),
+        ])
+        var judged = 0
+
+        _ = timeline.permits(lineCount: lines.count) { mark in
+            judged += 1
+            return mark.judge(
+                streamKey: stream, fileIsSegmentWithDigest: nil, lines: lines)
+        }
+
+        XCTAssertEqual(judged, 2, "two events, two marks; the opening entry has none")
+        XCTAssertEqual(timeline.entries.count, 3)
+    }
+
+    /// The indexed form is the primitive, and a caller may state the
+    /// judgements as literals — which is how the partition (Task 5) will index
+    /// a file it has already judged.
+    func test_theIndexedFormAnswersFromJudgementsAlone() {
+        let timeline = PermitTimeline(events: [
+            event("a", kind: .admitted),
+            event("b", kind: .roleChanged, role: Permit.reviewerRole, mark: mark(after: 0)),
+        ])
+
+        let permits = timeline.permits(
+            forFile: [nil,
+                      .allNew(count: 3),
+                      PermitMark.Judgement(sides: [.old, .new, .new])],
+            lineCount: 3)
+
+        XCTAssertEqual(permits, [.author(.book), .reviewer, .reviewer])
+        XCTAssertEqual(timeline.permit(ofLineAt: 0, judgements: [nil, .allNew(count: 3),
+                                                                PermitMark.Judgement(
+                                                                    sides: [.old, .new, .new])]),
+                       .author(.book))
+    }
+
+    /// A judgement list shorter than the timeline — a caller that judged only
+    /// some entries — answers from the entries it did judge and never crashes.
+    func test_aShortJudgementListIsAnsweredFromWhatWasJudged() {
+        let timeline = PermitTimeline(events: [
+            event("a", kind: .admitted, role: Permit.reviewerRole),
+        ])
+
+        XCTAssertEqual(timeline.permits(forFile: [], lineCount: 2),
+                       [.author(.book), .author(.book)])
+        XCTAssertEqual(timeline.permits(forFile: [nil, .allNew(count: 2)], lineCount: 2),
+                       [.reviewer, .reviewer])
+    }
+
+    /// A timeline stated as entries directly still opens with something: an
+    /// empty list is the book-author default rather than a value with no
+    /// answer for line 0.
+    func test_aTimelineOfNoEntriesIsStillAnswerable() {
+        XCTAssertEqual(PermitTimeline(entries: []).current, .author(.book))
+        XCTAssertEqual(PermitTimeline(entries: []).entries.count, 1)
+    }
+}

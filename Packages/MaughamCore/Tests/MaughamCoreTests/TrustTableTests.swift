@@ -693,4 +693,213 @@ final class TrustTableTests: XCTestCase {
         XCTAssertEqual(registry.adopted(by: two), [one])
         XCTAssertEqual(registry.adopted(by: three), [])
     }
+
+    // MARK: - The permit (P3a Task 3)
+
+    /// The table's second question. `verdict` says whose hand a line is;
+    /// `timeline` says what that hand was allowed to write, and `actor` says
+    /// which of the four writers on that machine it was.
+
+    private func permitEvent(
+        _ id: String, subject: String, by root: String,
+        kind: PermitEvent.Kind = .roleChanged,
+        role: String = Permit.reviewerRole,
+        scope: String = Permit.bookScope,
+        pieces: [String] = []
+    ) -> PermitEvent {
+        PermitEvent(
+            event: "\(subject).\(id)", kind: kind, subject: subject,
+            role: role, scope: scope, pieces: pieces,
+            at: Date(timeIntervalSince1970: 40), by: root)
+    }
+
+    /// **Behaviour-neutral for every existing book.** No events anywhere means
+    /// everybody — this device, the phone it admitted, a key nobody named — is
+    /// an author of the whole book, which is what every P2 admission meant.
+    func test_aBookWithNoEventsGivesEverybodyTheWholeBook() {
+        let phone = foreignKey()
+        let registry = Registry(
+            devices: [deviceRecord(mine.author.fingerprint), deviceRecord(phone)],
+            people: [rootRecord(mine.author.fingerprint),
+                     admittedRecord(phone, under: mine.author.fingerprint)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.timeline(forSealKey: phone), .bookAuthor)
+        XCTAssertEqual(table.timeline(forSealKey: mine.author.fingerprint), .bookAuthor)
+        XCTAssertEqual(table.timeline(forPerson: foreignKey()).current, .author(.book))
+        XCTAssertFalse(table.timeline(forSealKey: phone).hasEvents)
+    }
+
+    /// A keyless book — no registry at all — is P1's behaviour exactly: this
+    /// device's own keys are its own, and the permit is the whole book.
+    func test_aKeylessTableGivesThisDeviceTheWholeBook() {
+        let table = TrustResolution.keyless(mine: mine)
+
+        XCTAssertEqual(table.verdict(forSealKey: mine.author.fingerprint), .mine)
+        XCTAssertEqual(table.timeline(forSealKey: mine.author.fingerprint).current,
+                       .author(.book))
+        XCTAssertEqual(table.timeline(forSealKey: foreignKey()), .bookAuthor)
+    }
+
+    /// **The role check reads the timeline and never the record** (spec §3.4).
+    /// A record re-signed in place forgets its own past, so a person record
+    /// that says *reviewer* with no event behind it is still read as an author
+    /// here — that state is the crash window the write order leaves (event,
+    /// then record), and Task 7 detects and re-signs it rather than enforcing
+    /// from a field with no history in it.
+    func test_aRecordSayingReviewerWithNoEventBehindItIsStillAnAuthor() {
+        let phone = foreignKey()
+        let saysReviewer = PersonRecord(
+            person: phone, label: "Sam", ownName: "Sam’s Mac",
+            role: Permit.reviewerRole, scope: Permit.piecesScope, pieces: [],
+            admittedAt: Date(timeIntervalSince1970: 20),
+            admittedBy: mine.author.fingerprint)
+        let registry = Registry(
+            devices: [deviceRecord(phone)],
+            people: [rootRecord(mine.author.fingerprint), saysReviewer])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.verdict(forSealKey: phone), .admitted(person: phone))
+        XCTAssertEqual(table.timeline(forSealKey: phone), .bookAuthor,
+                       "the history is what decides, and this person has none")
+    }
+
+    /// An admitted person's events reach the walk through the table they were
+    /// resolved with — one registry read, one table, no second source.
+    func test_anAdmittedPersonsEventsBecomeTheirTimeline() {
+        let phone = foreignKey()
+        let root = mine.author.fingerprint
+        let registry = Registry(
+            devices: [deviceRecord(phone)],
+            people: [rootRecord(root), admittedRecord(phone, under: root)],
+            events: [permitEvent("b", subject: phone, by: root,
+                                 kind: .scopeChanged, role: Permit.authorRole,
+                                 scope: Permit.piecesScope, pieces: ["d-chapter-4"]),
+                     permitEvent("a", subject: phone, by: root, kind: .admitted,
+                                 role: Permit.authorRole)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+        let timeline = table.timeline(forSealKey: phone)
+
+        XCTAssertEqual(timeline.entries.map(\.event), [nil, "\(phone).a", "\(phone).b"])
+        XCTAssertEqual(timeline.current, .author(.pieces(["d-chapter-4"])))
+    }
+
+    /// The timeline is looked up by PERSON, so every actor key of an admitted
+    /// device answers the same history: a device is four writers and one
+    /// person.
+    func test_everyActorKeyOfOneDeviceAnswersThatPersonsTimeline() {
+        let phone = foreignKey()
+        let itsAssistant = foreignKey()
+        let root = mine.author.fingerprint
+        let registry = Registry(
+            devices: [deviceRecord(
+                phone, actors: [DeviceActor.assistant.rawValue: itsAssistant])],
+            people: [rootRecord(root), admittedRecord(phone, under: root)],
+            events: [permitEvent("a", subject: phone, by: root)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.person(forSealKey: itsAssistant), phone)
+        XCTAssertEqual(table.timeline(forSealKey: itsAssistant).current, .reviewer)
+        XCTAssertEqual(table.timeline(forSealKey: itsAssistant),
+                       table.timeline(forSealKey: phone))
+    }
+
+    /// **A root is an author of the whole book, unconditionally.** The reader
+    /// refuses such an event's FILE; this is the other half, because `resolve`
+    /// is pure and takes a registry from wherever the caller got one — a
+    /// device must not be talked out of its own root's authority by a value
+    /// somebody handed it.
+    func test_anEventDemotingARootChangesNothingAboutTheRoot() {
+        let root = mine.author.fingerprint
+        let registry = Registry(
+            devices: [deviceRecord(root, name: "Denver’s MacBook", kind: .mac)],
+            people: [rootRecord(root)],
+            events: [permitEvent("a", subject: root, by: root)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.timeline(forSealKey: root), .bookAuthor)
+        XCTAssertEqual(table.timeline(forPerson: root).current, .author(.book))
+    }
+
+    // MARK: - Which of the four writers signed
+
+    /// **The actor is recoverable on `.mine`.** The assistant row binds on the
+    /// root's own Mac — *the assistant is never the author* is a rule about
+    /// this device as much as anybody else's — so a verdict of `.mine` is not
+    /// the end of the question.
+    func test_everyOneOfMyOwnKeysNamesItsOwnActor() {
+        let table = TrustTable.resolve(
+            registry: Registry(people: [rootRecord(mine.author.fingerprint)]),
+            mine: mine, joinedRoot: nil)
+
+        for actor in mine.existingActors {
+            XCTAssertEqual(table.verdict(forSealKey: mine[actor].fingerprint), .mine)
+            XCTAssertEqual(table.actor(forSealKey: mine[actor].fingerprint), actor)
+        }
+        XCTAssertEqual(mine.existingActors, DeviceActor.allCases)
+    }
+
+    /// And on `.admitted`: an admitted device's record names its actors, and
+    /// the key that signed says which row the line is judged on.
+    func test_anAdmittedDevicesActorKeysNameTheirActors() {
+        let phone = foreignKey()
+        let itsAssistant = foreignKey()
+        let itsTranslator = foreignKey()
+        let registry = Registry(
+            devices: [deviceRecord(phone, actors: [
+                DeviceActor.assistant.rawValue: itsAssistant,
+                DeviceActor.translator.rawValue: itsTranslator,
+            ])],
+            people: [rootRecord(mine.author.fingerprint),
+                     admittedRecord(phone, under: mine.author.fingerprint)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.actor(forSealKey: phone), .author)
+        XCTAssertEqual(table.actor(forSealKey: itsAssistant), .assistant)
+        XCTAssertEqual(table.actor(forSealKey: itsTranslator), .translator)
+        XCTAssertNil(table.actor(forSealKey: foreignKey()),
+                     "a key no record names an actor for cannot be narrowed")
+    }
+
+    /// An actor word a later build invented is left unmapped rather than
+    /// guessed: the permit narrows BY the actor, and a guess would narrow it
+    /// on the wrong row.
+    func test_anActorWordThisBuildDoesNotKnowIsNotGuessed() {
+        let phone = foreignKey()
+        let itsFifth = foreignKey()
+        let registry = Registry(
+            devices: [deviceRecord(phone, actors: ["illustrator": itsFifth])],
+            people: [rootRecord(mine.author.fingerprint),
+                     admittedRecord(phone, under: mine.author.fingerprint)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.verdict(forSealKey: itsFifth), .admitted(person: phone),
+                       "it is still that device's key and still admitted")
+        XCTAssertNil(table.actor(forSealKey: itsFifth))
+    }
+
+    /// A foreign device record naming one of MY keys as one of its actors must
+    /// not decide what my key is for. What this device's own keys are for is
+    /// something it knows first-hand.
+    func test_aForeignRecordCannotRenameMyOwnActorKey() {
+        let liar = foreignKey()
+        let registry = Registry(
+            devices: [deviceRecord(
+                liar, actors: [DeviceActor.translator.rawValue:
+                                mine.assistant.fingerprint])],
+            people: [rootRecord(mine.author.fingerprint),
+                     admittedRecord(liar, under: mine.author.fingerprint)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.actor(forSealKey: mine.assistant.fingerprint), .assistant)
+        XCTAssertEqual(table.verdict(forSealKey: mine.assistant.fingerprint), .mine)
+    }
 }
