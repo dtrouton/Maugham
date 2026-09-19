@@ -29,6 +29,14 @@ be substituted.
 
 Other protections:
 - Strict `>` version comparison (`UpdateChecker.swift`) prevents downgrade.
+- **A build this Mac cannot launch is not an update.** `release.yml` appends
+  `<!-- maugham-minimum-macos: <n> -->` to every release body, read out of the built app's own
+  `LSMinimumSystemVersion`; `MinimumSystemVersion.parse` reads it back off the body the checker
+  already fetches, and a minimum above `ProcessInfo`'s OS lands in
+  `.newerBuildNeedsNewerSystem` — up-to-date-shaped, nothing downloaded, one sentence in the
+  sheet. Decided **before** the asset guard and before any byte is fetched. A release with no
+  such line (everything before 0.40.0) is offered exactly as before: absence is never a refusal.
+  The marker is stripped from `releaseNotes` because the sheet draws them as plain `Text`.
 - CI marks patch ≥ 90 as a pre-release; `/releases/latest` excludes pre-releases, so
   throwaway dry-run builds (e.g. `v0.0.91`) never auto-install into production.
 - The staged bundle's quarantine xattr is stripped before install (the app was already
@@ -106,6 +114,7 @@ pre-auto-update behavior. **Worst case == status quo, never worse.**
 | Aspect | Testable? | Where |
 |---|---|---|
 | Verify decision logic (accept/reject/team-mismatch/...) | Yes | `UpdateInstallerTests.test_accepts_*` / `test_rejects_*` |
+| Minimum-macOS block (above → no update + sentence; at/below → offered; no fact → offered) | Yes (injected `systemVersion`) | `MinimumSystemVersionTests`; `UpdateCheckerTests.test_aBuild*System*` |
 | Install mode (writable → inPlace, not writable → finderFallback) | Yes (injected predicate) | `test_installMode_*` |
 | Helper script shape (pid-wait, ditto, open presence) | Yes (string inspection) | `test_helperScript_*` |
 | No rm+mv on installed bundle (brick-prevention assertion) | Yes | `test_helperScript_usesAtomicSwap_notRmMv` |
@@ -144,6 +153,7 @@ and observe the swap. See `docs/superpowers/notes/feedback_dry_run_is_integratio
 | `UpdateSheet.swift` | Sheet variant of the install UI |
 | `UpdateMenuCommand.swift` | Menu bar entry (title derived from `UpdateState`) |
 | `SemanticVersion.swift` | Comparable version parsing; `>` used for strict downgrade prevention |
+| `MinimumSystemVersion.swift` | The build's minimum macOS vs this Mac's: the marker's wire format, its parser, the display stripper |
 
 ---
 

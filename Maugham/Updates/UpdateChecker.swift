@@ -24,17 +24,20 @@ public final class UpdateChecker: ObservableObject {
     private let fetchLatest: () async throws -> GitHubRelease
     private let downloadAsset: (URL, String, @escaping @MainActor (Double) -> Void) async throws -> URL
     private let stageAndVerify: (URL, String) async throws -> URL
+    private let systemVersion: MinimumSystemVersion
 
     public init(
         currentVersionString: String,
         fetchLatest: @escaping () async throws -> GitHubRelease,
         downloadAsset: @escaping (URL, String, @escaping @MainActor (Double) -> Void) async throws -> URL,
-        stageAndVerify: @escaping (URL, String) async throws -> URL
+        stageAndVerify: @escaping (URL, String) async throws -> URL,
+        systemVersion: MinimumSystemVersion = .runningSystem
     ) {
         self.currentVersionString = currentVersionString
         self.fetchLatest = fetchLatest
         self.downloadAsset = downloadAsset
         self.stageAndVerify = stageAndVerify
+        self.systemVersion = systemVersion
     }
 
     /// Single check + (if needed) download. Trigger drives error visibility.
@@ -58,6 +61,19 @@ public final class UpdateChecker: ObservableObject {
                 state = .upToDate(currentVersion: currentVersionString)
                 return
             }
+            // A newer Maugham this Mac cannot launch is not an update. Decided
+            // BEFORE the asset guard and before any byte is fetched: the whole
+            // point is that nothing is downloaded. A release carrying no
+            // minimum-macOS fact (everything before 0.40.0) is offered as
+            // before — absence is not a refusal.
+            if let required = MinimumSystemVersion.parse(releaseBody: release.body),
+               !required.isSatisfied(by: systemVersion) {
+                state = .newerBuildNeedsNewerSystem(
+                    currentVersion: currentVersionString,
+                    newerVersion: newVersion.string,
+                    requiredSystem: required.displayString)
+                return
+            }
             guard let asset = release.zipAsset ?? release.dmgAsset else {
                 state = trigger == .manual
                     ? .error(GitHubReleasesAPI.Error.noInstallableAsset.localizedDescription)
@@ -70,9 +86,12 @@ public final class UpdateChecker: ObservableObject {
                 self?.state = .downloading(version: versionString, progress: progress)
             }
             let stagedBundle = try await stageAndVerify(downloaded, newVersion.string)
-            state = .readyToInstall(bundleURL: stagedBundle,
-                                    version: newVersion.string,
-                                    releaseNotes: release.body)
+            state = .readyToInstall(
+                bundleURL: stagedBundle,
+                version: newVersion.string,
+                // The sheet renders these as plain Text — the machine line
+                // release.yml appends must not show as literal markup.
+                releaseNotes: MinimumSystemVersion.strippingMarker(from: release.body))
             if stagedBundle.pathExtension == "app" {
                 pendingQuitInstall = (stagedBundle, newVersion.string)
             }

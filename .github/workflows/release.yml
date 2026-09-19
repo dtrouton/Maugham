@@ -339,13 +339,44 @@ jobs:
           ditto -c -k --keepParent "$APP" "Maugham-${VERSION}.zip"
           ls -lh "Maugham-${VERSION}.dmg" "Maugham-${VERSION}.zip"
 
+      - name: Compose the release body (notes + the build's minimum macOS)
+        # The installed app's updater must refuse a build this Mac cannot
+        # launch (plan 2026-09-19-macos-27-shell-slice.md, D4): with the
+        # deployment target at macOS 27, a Mac still on 26 would otherwise
+        # download, verify and swap in a binary that will not start.
+        #
+        # The fact travels in the release BODY, which UpdateChecker already
+        # fetches with the release list — no second request, no second failure
+        # mode. (A sidecar JSON asset would need its own fetch; putting the
+        # minimum in the .zip/.dmg asset name would make the download filename
+        # a wire format.) It is read out of the BUILT APP's own
+        # LSMinimumSystemVersion rather than re-derived from project.yml, so
+        # the published fact is a fact about the artifact being shipped.
+        # An HTML comment is invisible on the GitHub release page;
+        # MinimumSystemVersion.strippingMarker keeps it out of the update sheet.
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          APP: ${{ steps.locate.outputs.app_path }}
+        run: |
+          set -euo pipefail
+          MIN_OS=$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" \
+            "$APP/Contents/Info.plist")
+          if [[ -z "$MIN_OS" ]]; then
+            echo "::error::LSMinimumSystemVersion missing from the built app's Info.plist"
+            exit 1
+          fi
+          cp "docs/release-notes/v${VERSION}.md" /tmp/release-body.md
+          printf '\n\n<!-- maugham-minimum-macos: %s -->\n' "$MIN_OS" >> /tmp/release-body.md
+          echo "Minimum macOS published as $MIN_OS"
+          tail -3 /tmp/release-body.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           files: |
             Maugham-${{ steps.ver.outputs.version }}.dmg
             Maugham-${{ steps.ver.outputs.version }}.zip
-          body_path: docs/release-notes/v${{ steps.ver.outputs.version }}.md
+          body_path: /tmp/release-body.md
           name: Maugham ${{ steps.ver.outputs.version }}
           tag_name: ${{ github.ref_name }}
           draft: false

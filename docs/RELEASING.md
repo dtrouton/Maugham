@@ -13,7 +13,8 @@ Stable releases are tag-triggered via GitHub Actions. The recipe:
    push event when more than three tags land in one push, so a stale local tag riding along
    means `release.yml` silently never starts (v0.36.0, 2026-09-06 — fixed by deleting and
    re-pushing the tag alone). Workflow at `.github/workflows/release.yml` builds Release config,
-   runs tests, packages the `.dmg`, and creates the GitHub Release with the notes file as body.
+   runs tests, packages the `.dmg`, and creates the GitHub Release with the notes file as body
+   **plus one machine line naming the build's minimum macOS** (see below).
 5. ~10 minutes later, the stable app's next check picks it up. Menu title goes to
    "Install Update…"; clicking reveals the `.dmg` in Finder.
 
@@ -25,6 +26,19 @@ releases (same mechanism as the phone pipeline; replaced `github.run_number`). T
 history, so the release checkout uses `fetch-depth: 0`. The Mac and phone targets share
 byte-identical placeholders in `project.yml`, so the release workflow's rewrite is **scoped to the
 `Maugham:` target block** — it must not touch the `MaughamPhone:` placeholders.
+
+**The release body carries the build's minimum macOS, and the updater reads it.** The workflow's
+"Compose the release body" step reads `LSMinimumSystemVersion` out of the **built app's own**
+`Info.plist` and appends `<!-- maugham-minimum-macos: <n> -->` to the notes. It is invisible on
+the GitHub release page, costs the updater no second request (the release body already arrives
+with the release list), and `MinimumSystemVersion.strippingMarker` keeps it out of the update
+sheet. `UpdateChecker` treats a release whose minimum is above this Mac's macOS as **no update** —
+nothing is downloaded, and the sheet says in one sentence what the newer Maugham needs. This
+exists because the deployment target moved to macOS 27 at 0.40.0: without it a Mac still on 26
+would install a binary that cannot launch. A release carrying no such line (everything before
+0.40.0) is offered exactly as before — a missing fact is never a refusal. If the built app ever
+lacks `LSMinimumSystemVersion`, the step fails the release rather than publishing a body that
+lies by omission.
 
 **Workflow fails before publish if `docs/release-notes/v0.X.Y.md` is missing.** Tag pattern
 `v[0-9]+.[0-9]+.[0-9]+` triggers the release workflow; milestone tags (`milestone-*`) don't.
