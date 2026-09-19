@@ -11,13 +11,19 @@
 5. `docs/superpowers/specs/2026-06-17-wf1-human-reviewers-design.md` — Component A is the thing P3 retires; its 2026-09-05 header note says how.
 6. The P2b plan's header (`docs/superpowers/plans/2026-09-10-signed-op-log-p2b-admission-and-surfaces.md`) for decisions P1–P5 and D-C, and the P1 handoff's Decisions owed for the form a ruling takes here.
 
+## State of the world (2026-09-19, end of day)
+
+**P2 is RELEASED** — v0.39.0 + phone-v0.13.0 (2026-09-19), after a smoke wave of nine finds and a re-smoke of three more (`docs/superpowers/notes/2026-09-17-signed-op-log-p2-smoke-finds.md`; rulings there include: revoke keeps what was applied by default with *Revoke and Set Aside Everything* as the second button; People & Devices speaks in "the Mac this book was started on"). **The macOS 27 shell slice is RELEASED** — v0.40.0 (2026-09-19): deployment target macOS 27, CI on the `xcode-27` runner, the detail column frames its content, nine AX-tree tests re-derived (find by identifier, press nothing), leading chevrons, the updater refuses a build the Mac cannot run (`docs/superpowers/plans/2026-09-19-macos-27-shell-slice.md`). Main and origin agree. The section below is therefore DONE except the last item.
+
 ## Before P3 starts — what Denver owes P2
 
 1. **Wipe the dev registries, then smoke.** P2a-era records do not verify under P2b's lossless digest (changed deliberately while nothing had shipped). In each dev project remove `.maugham/people` and `.maugham/devices`; remove the dev variant's `registry-cache.json` and `admission-memory.json` from Application Support. The script is the P1 handoff's Smoke section, step 0 and steps 11–20.
 2. **Push** local main (40+ commits ahead of origin).
 3. **Paired release** `v0.39.0` / `phone-v0.13.0` — drafts at `docs/release-notes/v0.39.0.md` and `docs/release-notes/phone/v0.13.0.md`; numbers and dates are placeholders. One tag by name, never `--tags`.
 
-A smoke find changes P3's ground. Plan P3 after the smoke, not before.
+A smoke find changes P3's ground. Plan P3 after the smoke, not before. **(Done — see above.)** Still open: the untracked Codex files (`AGENTS.md`, `.codex/`, `.agents/`) sit in `stash@{0}` — delete, `.gitignore`, or pop back; the cut scripts refuse a dirty tree, so they must not be left loose.
+
+**Two-Mac smoking on one machine:** `scripts/second-mac.sh` (and `--name third`) launches the dev build under a substituted home — fresh enclave keys, its own registry cache, admission memory and MCP socket. Drive it over its socket with `MAUGHAM_MCP_SOCKET=<home>/Library/Application Support/Maugham Dev/mcp.sock` on `maugham-mcp`. Homes: `~/.maugham-second-mac`, `~/.maugham-third-mac` (Mac C is admitted in P2-Menu/P2-Mid; the P2-* books live in the dev TestWorkspace).
 
 ## What P3 is (parent spec §8)
 
@@ -75,6 +81,16 @@ Present one at a time, pros / cons / recommendation, as the P1 three were.
 - C8. Task 8 minors: the root-write guard keys on the registry, not `myRoot`; an unverifiable claim file is overwritten rather than listed; adopted roots are not checked to exist; `ClaimDecision.title` is dead; `claimedAt` does not move on a later adoption.
 - C9. The hoisted trust resolves in `ProjectStore` still run on the main thread. Measure before moving.
 - Done, note only: the unsettled-segment inner-seal fallback walk (`trusted: { _ in false }`, allow-listed by file+spelling in tripwire 39).
+
+**Carries added 2026-09-19 (P2 re-smoke and the shell slice)**
+- C11. History's silent-admission entry reads *admitted by <root>* like an asked one; *without asking* is derivable on this Mac (the admission memory's label predates the book's admission). Belongs with decision 3 (the durable event log).
+- C12. The derived `.md` lags after a trust change (an admission or revocation rebuilds the live document but re-renders nothing until the next edit). A re-render trigger after trust changes, or say plainly that the `.md` lags.
+- C13. The 17 Sep blank window (all three columns empty after opening History's *Set-aside records* disclosure) is STILL UNEXPLAINED — the shell spike proved a large ideal width does not move a column, so the 559pt theory is dead. Reproduce before theorising again.
+- C14. Tripwire 33 wants a CLICK arm: click-then-wait-then-click is the same defect shape as press-then-wait (the chevron misses exactly once after another click's relayout). Widening the census sweeps in `TreeTravelTests`, `ProjectAltitudeCentreTests`, `PaletteWallDoorHitAreaTests` — its own piece of work.
+- C15. `PieceInspector.setPass` copies `InspectorView.setPass`'s `[weak store]`, so a write whose only strong reference was the view drops silently. Pre-existing; decide whether the capture should be strong for the duration of the write.
+- C16. Set-aside records are content-addressed, so a second harsh revoke of identical bytes files no new record and History keeps the OLDER record's sentence. Fine as evidence; decide whether the sentence should be re-derived from the current record's scope rather than frozen in the sidecar.
+- C17. The test host leaks `xctest-worker-<pid>` folders into the dev variant's real `TestWorkspace/` (~4,500 in a week) — same family as C10.
+- Process rules now in CLAUDE.md that P3's agents must follow: `git commit -- <paths>` in a shared tree (a bare `git commit` sweeps a sibling's staged files); `pgrep -x xcodebuild`, never `-f`; no wait loop with `xcodebuild` in its own argv; `./gen.sh` in the same step as any file add/delete; compile between edits; a worktree gate must run `./gen.sh` first or new test files run as zero tests.
 
 **Test and tooling hygiene**
 - C10. **A census for leaking fixtures.** Seven suites were fixed; the shared `makeTestProject` fixtures and others still leak into `$TMPDIR`. The sweep is bounded and off-main now, so a gate no longer hangs on it, but the directory still grows (230k entries / 12–13 GB remained after three prefix passes, part of it other apps'). Shape: one fixture factory that registers its roots for teardown, plus a tripwire on `temporaryDirectory`/`NSTemporaryDirectory()` in tests outside it (census + planted offender, per `feedback_census_over_warning`).
