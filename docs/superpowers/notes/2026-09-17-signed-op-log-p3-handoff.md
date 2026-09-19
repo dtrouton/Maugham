@@ -25,6 +25,8 @@ A smoke find changes P3's ground. Plan P3 after the smoke, not before. **(Done �
 
 **Two-Mac smoking on one machine:** `scripts/second-mac.sh` (and `--name third`) launches the dev build under a substituted home — fresh enclave keys, its own registry cache, admission memory and MCP socket. Drive it over its socket with `MAUGHAM_MCP_SOCKET=<home>/Library/Application Support/Maugham Dev/mcp.sock` on `maugham-mcp`. Homes: `~/.maugham-second-mac`, `~/.maugham-third-mac` (Mac C is admitted in P2-Menu/P2-Mid; the P2-* books live in the dev TestWorkspace).
 
+**SPECCED 2026-09-19:** `docs/superpowers/specs/2026-09-19-signed-op-log-p3-roles-scope-collaborator-design.md` — it carries every ruling below plus four made in the brainstorm (what an author of some pieces holds at project level; *Not now* on her new piece; whose-piece shows in the Inspector and the altitude table, never the tree; set-aside is line by line) and two design corrections (a mark is chain positions, not an opId; the translation stream joins the trust table). Where this note and the spec differ, the spec wins.
+
 ## What P3 is (parent spec §8)
 
 - **`author` / `reviewer` on the person record.** The field already exists: `PersonRecord.role` is written `"author"` for everyone and read by nothing (`RegistryRecord.swift`). P3 gives it a second value, a writer (the admission sheet and the People & Devices pane), and a reader (the trust table).
