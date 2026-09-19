@@ -126,6 +126,28 @@ static is untouched by any of this.
 reserving is the conservative direction and is correct on 26, which is still the
 deployment target.
 
+## Outcome — Task 3 shipped this
+
+All six recommendations below were built as written, plus one the spike did not
+foresee and the fix uncovered. The contract is the **shape**, not the numbers:
+`ProjectWindow.detailColumn` binds the effective width once and applies it to
+`.frame(width:)` and `.navigationSplitViewColumnWidth` both, `.clipped()` for
+drawing overflow. Point 6 is superseded by D4 — the deployment target moves to
+27 in Task 6, so there is no 26 path and no 26 gate to arrange.
+
+**The thing the spike could not see.** Every mounted test in
+`DetailColumnWidthTests` measures a harness that composes its OWN detail column.
+Giving that harness the fix turned all six reds green while
+`ProjectWindow.detailColumn` still shipped the broken spelling — a whole suite
+agreeing about a column the app did not have. Nothing in the file caught it: the
+existing census asks that the effective width be called once and says nothing
+about what is done with it. So the fix carries a second census,
+`test_theRightColumnFramesItsContentToTheWidthItDeclares`, with three planted
+offenders (frame gone, frame on a different number, called twice instead of
+bound once). **That census, not the canary, is what ties this file to the app**,
+and it was red before the production change and green after — the disable
+experiment for the whole task.
+
 ## Recommended Task 3 contract
 
 1. **The change.** In `ProjectWindow.detailColumn`, bind the effective width
