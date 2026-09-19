@@ -111,9 +111,28 @@ extension Document {
         // re-derived state from disk, clobbered sequence (when the legacy
         // op log doesn't capture sequence per burst), and triggered the
         // orphan sweep to mass-archive paragraph-anchored annotations.
+        // **And ops can now LEAVE** (Denver's re-smoke, 2026-09-19). Every
+        // caller before revocation only ever ADDED — a peer's op syncing in, an
+        // admission letting a held span through — so "nothing new" was the same
+        // question as "nothing changed", and answering it cheaply was the whole
+        // point of the guard. A revocation is the first verb that takes applied
+        // ops out: the registry narrows, the next classification refuses lines
+        // it used to keep, and `loadDiagnosed` comes back SHORTER. With the old
+        // guard `newOps` was empty, this returned, and the revoked device's
+        // paragraph stayed on screen — in the draft, in `displayText`, in the
+        // autosaved `.md` — until the project was closed and reopened. The
+        // record was written and the `.lines` record filed, so everything the
+        // writer could check said it had worked.
+        //
+        // Nothing below needs to change for it: the re-derivation is already a
+        // REBUILD from the loaded ops (`deriveWithSequenceFallback` +
+        // `reconcile`, then `_opLogMirror = ops`), not a merge into what is
+        // held. It only had to be allowed to run. Retirement and a registry
+        // Restore narrow trust the same way and arrive down the same path.
         let mirrorIds = Set(_opLogMirror.map(\.opId))
         let newOps = ops.filter { !mirrorIds.contains($0.opId) }
-        if newOps.isEmpty {
+        let departed = mirrorIds.subtracting(ops.map(\.opId))
+        if newOps.isEmpty, departed.isEmpty {
             return
         }
 

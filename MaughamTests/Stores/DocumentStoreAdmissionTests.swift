@@ -389,6 +389,151 @@ final class DocumentStoreAdmissionTests: XCTestCase {
     /// to reach the button — and nil means *keep nothing*. Every paragraph that
     /// device ever contributed would leave the book, silently, in the
     /// gentlest-sounding of the two choices.
+    /// **A revocation takes the words out of a chapter that is OPEN** (Denver's
+    /// re-smoke, 2026-09-19), under either scope, and re-admission puts them
+    /// back.
+    ///
+    /// Every verb before this one only ever ADDED: admission let a held span
+    /// through, a peer's op synced in. So `handleExternalLogChange`'s echo guard
+    /// asked *is there anything new* and returned when there was not — which is
+    /// exactly what a revocation produces, a load that comes back SHORTER. The
+    /// record was written, the `.lines` record filed in the same second, and the
+    /// revoked device's paragraph stayed in the draft, in `displayText` and in
+    /// the autosaved `.md` until the project was closed and reopened.
+    private func revocationEmptiesAnOpenChapter(
+        keeping scope: RevocationScope
+    ) async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        store.register(document: doc, for: "manuscript/c1.md")
+        let docId = doc.docId
+        let mine = doc.sequence
+        await doc.close()
+
+        try await writeStrangerParagraph(docId: docId, after: mine)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Denver", ownName: "Denver’s iPhone")
+
+        let open = try await openDocument()
+        store.register(document: open, for: "manuscript/c1.md")
+        XCTAssertTrue(open.displayText.contains(Self.theirWords),
+                      "premise: their paragraph is in the open chapter")
+
+        _ = try await store.revoke(person: stranger.fingerprint, keeping: scope)
+
+        XCTAssertFalse(
+            open.opLogSnapshot.map(\.opId).contains(Self.theirOpId),
+            "the live document is rebuilt from what the reader now keeps")
+        XCTAssertFalse(open.displayText.contains(Self.theirWords),
+                       "and the writer stops looking at words this book no longer applies")
+        XCTAssertGreaterThan(open.provenance?.quarantinedLines ?? 0, 0,
+                             "counted as refused, not silently absent")
+        XCTAssertFalse(linesRecords(forDocId: docId).isEmpty, "and filed")
+
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Denver", ownName: "Denver’s iPhone")
+
+        XCTAssertTrue(open.displayText.contains(Self.theirWords),
+                      "re-admission is revocation's inverse in the open document too")
+        await open.close()
+    }
+
+    func test_atotalRevocationEmptiesAnOpenChapter() async throws {
+        try await revocationEmptiesAnOpenChapter(keeping: .nothing)
+    }
+
+    /// **The gentle scope removes nothing from an open chapter, and cannot** —
+    /// find 5's ruling, seen from the live document.
+    ///
+    /// The mark is the highest opId this Mac APPLIES from that device, taken
+    /// over the whole project and over the open documents' own memory, so every
+    /// applied op is at or below it by construction. There is no gentle
+    /// revocation that takes a word off the screen; what it refuses is what
+    /// arrives afterwards, which never enters the document at all.
+    ///
+    /// The pair matters: without this, the fix above could have been "rebuild
+    /// on every revocation" and nobody would notice it was throwing away the
+    /// writer's draft under the button that promises not to.
+    func test_agentleRevocationLeavesWhatWasAlreadyAppliedOnScreen() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        store.register(document: doc, for: "manuscript/c1.md")
+        let docId = doc.docId
+        let mine = doc.sequence
+        await doc.close()
+        try await writeStrangerParagraph(docId: docId, after: mine)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Denver", ownName: "Denver’s iPhone")
+
+        let open = try await openDocument()
+        store.register(document: open, for: "manuscript/c1.md")
+        XCTAssertTrue(open.displayText.contains(Self.theirWords), "premise")
+
+        let record = try await store.revoke(
+            person: stranger.fingerprint, keeping: .whatWasApplied)
+
+        XCTAssertEqual(record.highestOpIdSeen, Self.theirOpId,
+                       "the mark is their newest applied op, so nothing of "
+                           + "theirs is above it")
+        XCTAssertTrue(open.displayText.contains(Self.theirWords),
+                      "and their paragraph stays exactly where the writer has "
+                          + "been reading it")
+        XCTAssertEqual(open.provenance?.quarantinedLines, 0)
+        await open.close()
+    }
+
+    /// The other half of the promise: a chapter the revoked device never wrote
+    /// in is not disturbed at all — the guard still returns for it, so the
+    /// writer's caret and their un-bursted words are where they left them.
+    func test_achapterTheRevokedDeviceNeverWroteInIsLeftAlone() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Denver", ownName: "Denver’s iPhone")
+        // Their work is somewhere else entirely.
+        try await writeStrangerFile(docId: "doc-elsewhere", opIds: [
+            "01K5Q8ZJ3M0000000000000009",
+        ])
+
+        let open = try await openDocument()
+        store.register(document: open, for: "manuscript/c1.md")
+        let before = open.displayText
+        let mirrorBefore = open.opLogSnapshot.map(\.opId)
+
+        _ = try await store.revoke(person: stranger.fingerprint, keeping: .nothing)
+
+        XCTAssertEqual(open.displayText, before, "untouched")
+        XCTAssertEqual(open.opLogSnapshot.map(\.opId), mirrorBefore)
+        await open.close()
+    }
+
+    /// The revoked device's own paragraph, APPENDED to this document rather
+    /// than replacing it: an op declares the whole sequence, so a fixture whose
+    /// sequence names only its own paragraph would drop the writer's by
+    /// last-writer-wins and prove nothing about a revocation. The op id sorts
+    /// after anything minted today, so its sequence is the one that stands.
+    private static let theirOpId = "01Z0Q8ZJ3M0000000000000009"
+    private static let theirWords = "a sentence from their Mac"
+
+    private func writeStrangerParagraph(docId: String, after mine: [String]) async throws {
+        let store = OpLogStore(
+            projectURL: projectURL, identity: stranger, state: strangerState)
+        try await store.append(Op(
+            opId: Self.theirOpId, docId: docId, at: Date(timeIntervalSince1970: 0),
+            device: stranger.deviceId, session: "s", kind: .typingBurst,
+            changes: [.init(paragraphId: "aaaa", prior: nil, next: Self.theirWords)],
+            sequence: mine + ["aaaa"]))
+        let sealed = try await store.sealChain(docId: docId)
+        XCTAssertTrue(sealed)
+    }
+
+    private func linesRecords(forDocId docId: String) -> [QuarantineRecord] {
+        OpLogQuarantine.records(forDocId: docId, in: projectURL)
+            .filter { $0.kind == .lines }
+    }
+
     func test_therevocationMarkIsTakenOverChaptersNobodyHasOpened() async throws {
         beThisMac()
         let store = try await DocumentStore.open(url: projectURL)

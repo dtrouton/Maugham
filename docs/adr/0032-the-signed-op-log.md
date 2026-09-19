@@ -720,6 +720,21 @@ retirement is no candidate whatever its op id. A set-aside record is filed under
 the reason its own lines carry, so a splice is reported as a splice rather than
 as the writer's other Mac having written after the door closed.
 
+**A revocation reaches the OPEN chapter, and says which choice it was** (Denver's
+re-smoke, 2026-09-19). Two things shipped wrong and both were about the same
+asymmetry: every verb before revocation only ever ADDED. `handleExternalLogChange`'s
+echo guard therefore asked *is anything new* and returned when there was not,
+which is precisely what a narrowing of trust produces — so the record was
+written, the `.lines` record filed, and the revoked device's paragraph stayed in
+the live document until the project was closed and reopened. The guard now also
+asks whether ops have LEFT; everything past it was already a rebuild from the
+loaded ops, so nothing else had to change, and retirement and a registry Restore
+arrive down the same path. And `QuarantineCause.afterRevocation` now carries
+`keptNothing`, read off the revocation record's own missing mark: under *set
+aside everything it wrote* a paragraph from last June is refused too, and filing
+it as *written after this device's access was withdrawn* is false about the one
+thing the record exists to say.
+
 **The late-sync distinction is deferred, not deleted.** `revocationLate` and its
 sentence are gone from the code, because the lines they described are applied
 and a cause with no producer is a rule waiting to be made load-bearing wrongly.
