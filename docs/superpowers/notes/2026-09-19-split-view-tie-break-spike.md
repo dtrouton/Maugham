@@ -3,8 +3,9 @@
 Task 1 of `docs/superpowers/plans/2026-09-19-macos-27-shell-slice.md`. **No
 production file was changed.** The instrument is
 `MaughamTests/SplitViewTieBreakSpikeTests.swift`, marked a spike in its own
-header; Task 3 may delete it once what it establishes is re-pinned by a real
-test.
+header. **It is gone** — Task 3 deleted it once what it establishes was
+re-pinned by real tests; read it at `16358eb8`, the commit that added it
+alongside this section.
 
 ## Where the two OSes' numbers come from
 
@@ -225,10 +226,11 @@ nothing red anywhere.
 **Task 2.** Measured on macOS **27.0 (build 26A428)**, Xcode 27.0 (27A266a),
 MacOSX27.0.sdk, deployment target 26.0, main screen 1470×956, assistive client
 attachable (`AXUIElementCopyAttributeValue` → `.success`, `AXApplication`).
-Reproduce with `MAUGHAM_SPIKE=1 … -only-testing:MaughamTests/MacOS27ControlTreeSpikeTests`
-(`MaughamTests/MacOS27ControlTreeSpikeTests.swift`; skipped by name in every
-other run — it asserts nothing, so it has nothing to say in a gate). Dumps land
-in `$TMPDIR/maugham-ax-spike.txt`.
+The instrument was `MaughamTests/MacOS27ControlTreeSpikeTests.swift`, run under
+`MAUGHAM_SPIKE=1` and skipped by name otherwise. **It is gone** — Task 4 deleted
+it with the rule it produced; read it at `ff76f773`, the commit that added it
+alongside this section, where its cases and their dump sink
+(`$TMPDIR/maugham-ax-spike.txt`) are as they were when these numbers were taken.
 
 ### 1. A SwiftUI `Picker(.menu)` is no longer an `NSPopUpButton` at all
 
@@ -424,7 +426,7 @@ what production builds.
 
 Concretely, one helper in `MaughamTests/TestSupport/AXReading.swift` —
 `axMenuControl(_ identifier: String, in: NSWindow)` answering a small value
-(`role`, `reading`, `isEnabled`) — and every one of the eight ladder/sheet cases
+(`role`, `reading`, `isEnabled`) — and every one of the seven ladder/sheet cases
 expressed through it. `reading` reads `accessibilityValue` first and falls back
 to `accessibilityTitle` bridged through `NSAttributedString.string`, because the
 two controls put their text in different attributes and a test should not have
@@ -451,7 +453,7 @@ That leaves each red case with a decision to make windowlessly:
   — present/absent by identifier. The second currently passes for the right
   reason and will keep doing so.
 - **`bothSectionsCarryAChevronThatTogglesTheirOwnFlag`** — a freshly-mounted
-  window per section (measured above). It is the only one of the ten that still
+  window per section (measured above). It is the only one of the nine that still
   needs a click, and the click is then the first the window ever sees, which is
   what its three green siblings already rely on.
 - **`test_control_aPlainSectionHeaderMeasuresTheSameLiveRegion`** — **delete**.
@@ -487,7 +489,7 @@ sheet keeps its explicit label; the ladder keeps its sibling label).
 
 ### The 26 half, and how to prove it
 
-What is hard evidence for 26: these ten were green in the last full gate before
+What is hard evidence for 26: these nine were green in the last full gate before
 the toolchain moved (8,580 / 0, 2026-09-11), and two of the suites record their
 own 26 measurements in their doc comments — `InspectorPassLadderTests` measured
 "one `SwiftUIPopupButton` per ladder row" on macOS 26.5, and
@@ -501,7 +503,7 @@ What is **not** verified and cannot be from this Mac: that
 
 **So the merge order matters, and it is cheap:** land Task 4 while CI is still
 `macos-26` and let that run be the 26 proof; Task 6 flips the runner to
-`xcode-27` only after the ten have gone green on 26 at least once. The plan
+`xcode-27` only after the nine have gone green on 26 at least once. The plan
 already requires both ("Must hold on 26 (CI)"; "`macos-26` dropped only after
 that") — this is the one place in the slice where the ordering is load-bearing
 rather than tidy, because a rule that reads an attribute 26 does not publish
@@ -516,4 +518,4 @@ The unverified claim the ordering existed to cover — whether
 `.accessibilityIdentifier` reaches a bridged `NSPopUpButton`'s cell on 26 — is
 now a question nobody needs answered. Everything else in this section is a
 measurement on 27 and stands. Kept rather than deleted because the 26 numbers
-are the record of what the ten tests used to be asserting.
+are the record of what the nine tests used to be asserting.

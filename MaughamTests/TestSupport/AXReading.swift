@@ -136,7 +136,6 @@ extension AXReading {
 
     // MARK: - Menu-like controls
 
-
     /// The menu-like control carrying `identifier`, or `nil` where the surface
     /// published none.
     func axMenuControl(_ identifier: String,

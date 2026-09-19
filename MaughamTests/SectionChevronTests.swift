@@ -340,27 +340,47 @@ final class SectionChevronTests: XCTestCase {
     /// in a `Button(.plain)` hit-tests the box it draws in and nothing more, so
     /// the chevron gets the same explicit frame and content shape. Swept the way
     /// `PaletteWallDoorHitAreaTests` sweeps the door.
+    ///
+    /// **A window per sample**, for
+    /// `test_bothSectionsCarryAChevronThatTogglesTheirOwnFlag`'s reason: the
+    /// first synthetic click after another click's relayout is swallowed, and
+    /// four clicks with a poll between each is four chances to meet it.
+    ///
+    /// **It had been green in one window, and the measurement says why** — which
+    /// is worth writing down rather than relying on, because it is an accident
+    /// of this particular header. Collapsing Research moves the PALETTE header
+    /// (measured 2026-09-19: y=183 → y=119, the spike note's §4) and leaves the
+    /// Research header exactly where it was, at (14, 87). So the four clicks
+    /// here land on a view that never moved, while its sibling's second click
+    /// landed on one that had. Nothing in the fixture enforces that: give
+    /// Research a second accessory, or put a section above it, and the
+    /// exemption evaporates with no test able to say so. A fresh mount costs a
+    /// project on disk per sample and owes nothing to where the furniture sits.
     func test_theWholeChevronIsClickableTopToBottom() async throws {
-        let mount = try await mountTree()
-        let research = try headerGeometry(.research, in: mount.window)
-
         var dead: [String] = []
-        for (name, point) in [
-            ("top", CGPoint(x: research.chevron.midX, y: research.chevron.minY + 0.5)),
-            ("bottom", CGPoint(x: research.chevron.midX, y: research.chevron.maxY - 0.5)),
-            ("left", CGPoint(x: research.chevron.minX + 0.5, y: research.chevron.midY)),
-            ("right", CGPoint(x: research.chevron.maxX - 0.5, y: research.chevron.midY))
-        ] {
-            let before = mount.state.researchSectionExpanded
-            _ = await click(at: point, in: mount.window)
-            await pumpUntil(deadline: 2) {
-                mount.state.researchSectionExpanded != before
+        for name in ["top", "bottom", "left", "right"] {
+            let mount = try await mountTree()
+            let research = try headerGeometry(.research, in: mount.window)
+            let chevron = research.chevron
+            let point: CGPoint
+            switch name {
+            case "top": point = CGPoint(x: chevron.midX, y: chevron.minY + 0.5)
+            case "bottom": point = CGPoint(x: chevron.midX, y: chevron.maxY - 0.5)
+            case "left": point = CGPoint(x: chevron.minX + 0.5, y: chevron.midY)
+            default: point = CGPoint(x: chevron.maxX - 0.5, y: chevron.midY)
             }
-            if mount.state.researchSectionExpanded == before { dead.append(name) }
+
+            XCTAssertTrue(mount.state.researchSectionExpanded,
+                          "premise: a fresh tree opens open")
+            _ = await click(at: point, in: mount.window)
+            await pumpUntil(deadline: 2) { !mount.state.researchSectionExpanded }
+            if mount.state.researchSectionExpanded {
+                dead.append("\(name) of \(chevron)")
+            }
         }
         XCTAssertTrue(dead.isEmpty,
-                      "\(dead) of the chevron's own \(research.chevron) did not "
-                      + "toggle the section — the chevron has the door's bug")
+                      "\(dead) did not toggle the section — the chevron has the "
+                      + "door's bug")
     }
 
     /// **The chevron did not cost the header its height.** Same guard the door's
