@@ -214,6 +214,16 @@ public struct Registry: Equatable, Sendable {
     /// that finds no entry falls back to encoding the record it holds.
     public let sourceBytes: [RecordRef: Data]
 
+    /// **Actor key fingerprint → the device that OWNS it** — the one answer to
+    /// *whose key is this*, derived once here and asked by everything that
+    /// needs it (fix round 2, the controller's ruling).
+    ///
+    /// Derived rather than passed: it is a function of `devices` and `people`
+    /// and nothing else, and two places computing it from those was the whole
+    /// defect (`TrustTable`'s own loop and `device(withActorFingerprint:)`
+    /// were separately spelled first-wins scans).
+    public let actorKeyOwners: [String: String]
+
     public init(
         devices: [DeviceRecord] = [], people: [PersonRecord] = [],
         claims: [ClaimRecord] = [], events: [PermitEvent] = [],
@@ -226,6 +236,80 @@ public struct Registry: Equatable, Sendable {
         self.events = events
         self.malformed = malformed
         self.sourceBytes = sourceBytes
+        self.actorKeyOwners = Registry.resolveActorKeyOwners(
+            devices: devices, people: people)
+    }
+
+    /// **Who owns each actor key, and what happens when two records claim one**
+    /// (fix round 2; P3's reason for caring, P2's silent hazard).
+    ///
+    /// A device record is signed **once**, by its own author key, and its
+    /// `actors` map is otherwise a list of unsigned strings: nothing in the
+    /// format proves a record's holder possesses the `assistant`, `translator`
+    /// or `maugham` fingerprints it lists. Before permits, a second record
+    /// claiming somebody else's actor key cost a LABEL. Now it would decide
+    /// which person's permit history a line is judged under — so the rule is
+    /// stated here, once, in three clauses:
+    ///
+    /// 1. **The author slot is proven.** A device's author key IS its `device`
+    ///    fingerprint and is the key that signed the record, so a fingerprint
+    ///    that equals some verified record's `device` belongs to THAT device
+    ///    and every other record's claim on it is ignored. This holds whatever
+    ///    the owner's standing: a retired or revoked device still made that
+    ///    signature, and its verdict is then computed about the right person.
+    /// 2. **Only STANDING claimants contest.** A claim by a device whose person
+    ///    is revoked, or that has retired, contests nothing — otherwise a
+    ///    revoked liar would hold another person's keys hostage for good and
+    ///    revocation, the one cure the root has, would not cure it. A
+    ///    non-standing device still keeps its own UNCONTESTED keys; it simply
+    ///    does not take part in an argument.
+    /// 3. **Contested means nobody.** A non-author key that two or more
+    ///    standing records claim is owned by neither: it is absent here, so it
+    ///    resolves to itself, answers `.stranger(device: nil)` and is held
+    ///    PENDING. Nothing is applied under a guessed permit and nothing is set
+    ///    aside — the strict-but-recoverable answer, and the writer is asked.
+    ///
+    /// **Neutral for an honest book**: every key has exactly one claimant, and
+    /// clause 3 never fires.
+    ///
+    /// The residual, stated rather than hidden: a STANDING admitted device can
+    /// still make another person's non-author actor lines pending until the
+    /// root revokes it. Visible (pending is surfaced), recoverable (revoke),
+    /// and closed properly only by per-actor possession proofs in the device
+    /// record — a format change, filed with the signed-structure roadmap item.
+    nonisolated private static func resolveActorKeyOwners(
+        devices: [DeviceRecord], people: [PersonRecord]
+    ) -> [String: String] {
+        var owners: [String: String] = [:]
+
+        // Clause 1, first and unconditionally: the signature decides.
+        for device in devices { owners[device.device] = device.device }
+
+        let revoked = Set(people.filter(\.isRevoked).map(\.person))
+        let standing = Set(
+            devices.filter { $0.retiredAt == nil && !revoked.contains($0.device) }
+                .map(\.device))
+
+        var claimants: [String: Set<String>] = [:]
+        for device in devices {
+            for key in device.actors.values where key != device.device {
+                claimants[key, default: []].insert(device.device)
+            }
+        }
+
+        for (key, claiming) in claimants {
+            // Clause 1 again: an author slot outranks every claim on it.
+            guard owners[key] == nil else { continue }
+            if claiming.count == 1 {
+                owners[key] = claiming.first
+                continue
+            }
+            // Clause 2, then clause 3.
+            let contesting = claiming.filter { standing.contains($0) }
+            guard contesting.count == 1 else { continue }
+            owners[key] = contesting.first
+        }
+        return owners
     }
 
     /// The self-signed person records: everyone who admitted themselves. More
@@ -271,10 +355,16 @@ public struct Registry: Equatable, Sendable {
         return record.actorFingerprints
     }
 
-    /// The device record naming this key among its actors, if any — how a seal
-    /// finds the device it was written on.
+    /// The device record that OWNS this key, if any — how a seal finds the
+    /// device it was written on.
+    ///
+    /// `actorKeyOwners`' answer and nothing of its own, so this and
+    /// `TrustTable`'s join cannot differ about whose a key is. It used to be a
+    /// first-wins scan of its own, which is one of the two sites the fix-round-2
+    /// ruling closed.
     public func device(withActorFingerprint fingerprint: String) -> DeviceRecord? {
-        devices.first { $0.actorFingerprints.contains(fingerprint) }
+        guard let owner = actorKeyOwners[fingerprint] else { return nil }
+        return devices.first { $0.device == owner }
     }
 
     /// The person record for a fingerprint, if this registry holds one.

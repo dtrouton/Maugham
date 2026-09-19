@@ -57,8 +57,19 @@ enum InboxByline {
         let prefix = String(deviceId[deviceId.index(after: dash)...])
         guard !actor.isEmpty, !prefix.isEmpty else { return nil }
 
-        guard let record = registry.devices.first(
-                where: { $0.actors[actor]?.hasPrefix(prefix) == true }),
+        // The record must also OWN the key it names (fix round 2): a device
+        // record's non-author actor fingerprints are unsigned strings any
+        // record may list, so the first record that happens to carry a
+        // matching prefix is not necessarily whose key it is. `actorKeyOwners`
+        // is the one answer to that — the same one `TrustTable` judges by — so
+        // a byline cannot name somebody the verdict does not. A contested key
+        // is owned by nobody and falls to the code line below, which is the
+        // honest thing to say about it.
+        guard let record = registry.devices.first(where: {
+                  guard let key = $0.actors[actor], key.hasPrefix(prefix)
+                  else { return false }
+                  return registry.actorKeyOwners[key] == $0.device
+              }),
               let key = record.actors[actor]
         else {
             // No record at all: the code is everything this book knows about

@@ -198,18 +198,24 @@ public struct TrustTable: Equatable, Sendable {
 
         let myRoot: String? = joinedRoot ?? ownRecord ?? admittingRoots.first
 
-        var deviceByActorKey: [String: String] = [:]
+        // **Whose each actor key is, asked of the registry and never derived a
+        // second time here** (fix round 2). `Registry.actorKeyOwners` is the
+        // one rule — the author slot is proven, only standing records contest,
+        // and a contested key belongs to nobody — and this table and
+        // `Registry.device(withActorFingerprint:)` now cannot disagree about
+        // it, which they could while each kept a first-wins scan of its own.
+        let deviceByActorKey = registry.actorKeyOwners
+
         var actorByKey: [String: DeviceActor] = [:]
         for device in registry.devices.sorted(by: { $0.device < $1.device }) {
-            for key in device.actorFingerprints.sorted()
-            where deviceByActorKey[key] == nil {
-                deviceByActorKey[key] = device.device
-            }
-            // An actor word this build does not know is left unmapped rather
-            // than guessed: the permit narrows by actor, and guessing would
-            // narrow it by the wrong row.
+            // Only the OWNER's record says what one of its keys is FOR: a
+            // record that does not own a key it lists cannot name its row
+            // either. And an actor word this build does not know is left
+            // unmapped rather than guessed — the permit narrows by actor, and
+            // guessing would narrow it by the wrong row.
             for (word, key) in device.actors.sorted(by: { $0.key < $1.key }) {
-                guard let actor = DeviceActor(rawValue: word),
+                guard deviceByActorKey[key] == device.device,
+                      let actor = DeviceActor(rawValue: word),
                       actorByKey[key] == nil else { continue }
                 actorByKey[key] = actor
             }

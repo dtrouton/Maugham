@@ -943,6 +943,174 @@ final class TrustTableTests: XCTestCase {
         }
     }
 
+    // MARK: - A contested actor key belongs to nobody (fix round 2's ruling)
+
+    /// A device record is signed once, by its own author key, and its
+    /// `assistant`/`translator`/`maugham` fingerprints are unsigned strings any
+    /// record may list. Two standing records claiming one key is therefore a
+    /// real state with no honest tie-break — and since P3 it would decide which
+    /// person's permit history judges those lines.
+    ///
+    /// **Nobody owns it**: it resolves to itself, answers `.stranger(device:
+    /// nil)` and is held PENDING. Nothing applied under a guessed permit,
+    /// nothing set aside.
+    func test_anActorKeyTwoStandingRecordsClaimBelongsToNobody() {
+        let honest = foreignKey()
+        let liar = foreignKey()
+        let contested = foreignKey()
+        let root = mine.author.fingerprint
+        let registry = Registry(
+            devices: [deviceRecord(honest, actors: [DeviceActor.translator.rawValue: contested]),
+                      deviceRecord(liar, actors: [DeviceActor.translator.rawValue: contested])],
+            people: [rootRecord(root), admittedRecord(honest, under: root),
+                     admittedRecord(liar, under: root)],
+            events: [permitEvent("a", subject: liar, by: root),
+                     permitEvent("a", subject: honest, by: root,
+                                 kind: .scopeChanged, role: Permit.authorRole,
+                                 scope: Permit.piecesScope, pieces: ["d-chapter-4"])])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.verdict(forSealKey: contested), .stranger(device: nil))
+        XCTAssertEqual(table.person(forSealKey: contested), contested,
+                       "it stands for itself — neither claimant's person")
+        XCTAssertEqual(table.timeline(forSealKey: contested), .bookAuthor,
+                       "and borrows neither claimant's history")
+        XCTAssertNotEqual(table.timeline(forSealKey: contested),
+                          table.timeline(forPerson: liar))
+        XCTAssertNotEqual(table.timeline(forSealKey: contested),
+                          table.timeline(forPerson: honest))
+        XCTAssertNil(table.actor(forSealKey: contested),
+                     "and no record may say what a key it does not own is for")
+        XCTAssertNil(registry.device(withActorFingerprint: contested))
+        XCTAssertNil(registry.actorKeyOwners[contested])
+        // The honest device's own keys are untouched by the argument.
+        XCTAssertEqual(table.verdict(forSealKey: honest), .admitted(person: honest))
+    }
+
+    /// **The author slot is proven.** A device's author key IS its `device`
+    /// fingerprint and is the key that signed the record, so a second record
+    /// listing it as one of ITS actors claims nothing: the signature decides,
+    /// whoever sorts first.
+    func test_aRecordCannotClaimAnotherDevicesAuthorKey() {
+        let honest = foreignKey()
+        let liar = foreignKey()
+        let root = mine.author.fingerprint
+        let registry = Registry(
+            devices: [deviceRecord(honest),
+                      deviceRecord(liar, actors: [DeviceActor.translator.rawValue: honest])],
+            people: [rootRecord(root), admittedRecord(honest, under: root),
+                     admittedRecord(liar, under: root)],
+            events: [permitEvent("a", subject: liar, by: root)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.person(forSealKey: honest), honest)
+        XCTAssertEqual(table.verdict(forSealKey: honest), .admitted(person: honest))
+        XCTAssertEqual(table.timeline(forSealKey: honest), .bookAuthor,
+                       "not the liar's reviewer history")
+        XCTAssertEqual(table.actor(forSealKey: honest), .author)
+        XCTAssertEqual(registry.device(withActorFingerprint: honest)?.device, honest)
+        XCTAssertEqual(registry.actorKeyOwners[honest], honest)
+    }
+
+    /// **Only standing claimants contest.** Otherwise a revoked liar holds
+    /// another person's keys hostage for good and revocation — the one cure the
+    /// root has — cures nothing. Revoke the liar and the honest owner has its
+    /// key back.
+    func test_aRevokedClaimantContestsNothing() {
+        let honest = foreignKey()
+        let liar = foreignKey()
+        let contested = foreignKey()
+        let root = mine.author.fingerprint
+        let devices = [
+            deviceRecord(honest, actors: [DeviceActor.assistant.rawValue: contested]),
+            deviceRecord(liar, actors: [DeviceActor.assistant.rawValue: contested]),
+        ]
+        let standing = Registry(
+            devices: devices,
+            people: [rootRecord(root), admittedRecord(honest, under: root),
+                     admittedRecord(liar, under: root)])
+        let cured = Registry(
+            devices: devices,
+            people: [rootRecord(root), admittedRecord(honest, under: root),
+                     admittedRecord(liar, under: root,
+                                    revokedAt: Date(timeIntervalSince1970: 50),
+                                    revokedBy: root)])
+
+        XCTAssertEqual(
+            TrustTable.resolve(registry: standing, mine: mine, joinedRoot: nil)
+                .verdict(forSealKey: contested),
+            .stranger(device: nil),
+            "while both stand, nobody owns it")
+
+        let table = TrustTable.resolve(registry: cured, mine: mine, joinedRoot: nil)
+        XCTAssertEqual(table.person(forSealKey: contested), honest)
+        XCTAssertEqual(table.verdict(forSealKey: contested), .admitted(person: honest))
+        XCTAssertEqual(table.actor(forSealKey: contested), .assistant)
+        XCTAssertEqual(cured.device(withActorFingerprint: contested)?.device, honest)
+        XCTAssertEqual(cured.actorKeyOwners[contested], honest)
+    }
+
+    /// A retired device contests nothing either — and still keeps its OWN
+    /// uncontested keys, because not taking part in an argument is not the same
+    /// as forfeiting. (The second half is what keeps every P2 retirement test
+    /// passing untouched.)
+    func test_aRetiredClaimantContestsNothingAndKeepsItsOwnKeys() {
+        let honest = foreignKey()
+        let retiree = foreignKey()
+        let contested = foreignKey()
+        let itsOwn = foreignKey()
+        let root = mine.author.fingerprint
+        let registry = Registry(
+            devices: [
+                deviceRecord(honest, actors: [DeviceActor.assistant.rawValue: contested]),
+                retiredDeviceRecord(
+                    retiree, at: Date(timeIntervalSince1970: 60),
+                    actors: [DeviceActor.assistant.rawValue: contested,
+                             DeviceActor.translator.rawValue: itsOwn]),
+            ],
+            people: [rootRecord(root), admittedRecord(honest, under: root),
+                     admittedRecord(retiree, under: root)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.person(forSealKey: contested), honest,
+                       "a retired claimant does not contest")
+        XCTAssertEqual(table.person(forSealKey: itsOwn), retiree,
+                       "but it keeps what nobody else claims")
+        XCTAssertEqual(table.verdict(forSealKey: itsOwn),
+                       .retired(device: retiree,
+                                retiredAt: Date(timeIntervalSince1970: 60)))
+        XCTAssertEqual(registry.actorKeyOwners[itsOwn], retiree)
+    }
+
+    /// An honest book has no contested key, so the rule never fires: every
+    /// listed actor key is owned by the record that lists it, and the registry
+    /// and the table say the same thing about all of them.
+    func test_anHonestBooksKeysAreAllOwnedAndBothSpellingsAgree() {
+        let phone = foreignKey()
+        let itsAssistant = foreignKey()
+        let root = mine.author.fingerprint
+        let registry = Registry(
+            devices: [deviceRecord(root, name: "Denver’s MacBook", kind: .mac),
+                      deviceRecord(phone,
+                                   actors: [DeviceActor.assistant.rawValue: itsAssistant])],
+            people: [rootRecord(root), admittedRecord(phone, under: root)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        for key in [root, phone, itsAssistant] {
+            XCTAssertEqual(registry.actorKeyOwners[key],
+                           registry.device(withActorFingerprint: key)?.device,
+                           "the registry agrees with itself about \(key)")
+            XCTAssertEqual(table.person(forSealKey: key),
+                           registry.device(withActorFingerprint: key)?.device,
+                           "and the table agrees with the registry about \(key)")
+        }
+        XCTAssertEqual(table.actor(forSealKey: itsAssistant), .assistant)
+    }
+
     /// A foreign device record naming one of MY keys as one of its actors must
     /// not decide what my key is for. What this device's own keys are for is
     /// something it knows first-hand.
