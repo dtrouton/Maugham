@@ -285,14 +285,42 @@ final class PeopleAndDevicesModelTests: XCTestCase {
     /// The device's own name is shown beside the label whenever the two differ
     /// — a writer who called both machines "Denver" needs to know which is
     /// which before they revoke one.
-    func test_thedeviceSownNameIsShownWhenItDiffersFromTheLabel() throws {
+    /// **The bracketed name is dropped where a device row beneath already says
+    /// it** (Denver's re-smoke, 2026-09-19). Under P2 a person IS one device,
+    /// so this is every ordinary row: *Denver Trouton (Denver's MacBook Air) ·
+    /// you* sat directly above *Denver's MacBook Air · this Mac*, which is the
+    /// same words twice in two lines.
+    func test_thebracketedNameIsDroppedWhenADeviceRowBeneathAlreadySaysIt() throws {
         let model = model(registry())
         let phoneRow = try XCTUnwrap(
             model.people.first { $0.fingerprint == phone.fingerprint })
 
+        XCTAssertTrue(phoneRow.devices.contains { $0.name == "Denver's iPhone" },
+                      "premise: the machine is named on the row beneath")
+        XCTAssertNil(phoneRow.ownName)
+        XCTAssertEqual(phoneRow.title, "Denver")
+    }
+
+    /// **And kept where nothing beneath can say it.** A person the book holds
+    /// no device record for draws no nested row, so the label would stand alone
+    /// and a writer who called two machines "Denver" could not tell which one
+    /// they were about to revoke — which is what the brackets were for.
+    func test_thebracketedNameIsKeptWhenNoDeviceRowShowsIt() throws {
+        let noDeviceRecord = Registry(
+            devices: [deviceRecord(mac, name: "Denver's MacBook", kind: .mac)],
+            people: [
+                person(mac, label: "Denver", ownName: "Denver's MacBook",
+                       admittedBy: mac),
+                person(phone, label: "Denver", ownName: "Denver's iPhone",
+                       admittedBy: mac),
+            ])
+        let model = model(noDeviceRecord)
+
+        let phoneRow = try XCTUnwrap(
+            model.people.first { $0.fingerprint == phone.fingerprint })
+        XCTAssertTrue(phoneRow.devices.isEmpty, "premise: nothing beneath names it")
         XCTAssertEqual(phoneRow.ownName, "Denver's iPhone")
-        XCTAssertTrue(phoneRow.title.contains("Denver"))
-        XCTAssertTrue(phoneRow.title.contains("Denver's iPhone"))
+        XCTAssertEqual(phoneRow.title, "Denver (Denver's iPhone)")
     }
 
     func test_alabelThatAlreadyIsTheDevicesOwnNameIsNotRepeated() throws {

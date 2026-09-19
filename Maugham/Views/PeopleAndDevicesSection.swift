@@ -16,6 +16,17 @@ import MaughamCore
 /// **Forget this device** is live and touches no registry record — it clears
 /// this Mac's own memory of a label.
 ///
+/// **The share sentence is said once, in the footer** (Denver's re-smoke,
+/// 2026-09-19). It used to be drawn a second time under every revocable
+/// person's row, in `revokeSentence`'s near-identical spelling, so a pane with
+/// two people said *to stop it writing at all, remove it from the iCloud share*
+/// three times on one screen. The footer is the right home: it is a fact about
+/// what this whole section can and cannot do, not about one row. The sentence
+/// still meets the writer at the moment it matters most — inside the Revoke
+/// confirmation, which is the last thing they read before pressing
+/// (`PeopleAndDevicesConfirmation.revoke`), and that is why `revokeSentence`
+/// stays.
+///
 /// A verb that REFUSES says so in `notice`, drawn under the header: the writer
 /// pressed something and it did not happen, and a control that looks dead is
 /// worse than a refusal (RULING-7).
@@ -198,14 +209,6 @@ struct PeopleAndDevicesSection: View {
                         .accessibilityHint(Text(
                             person.whyNotRevocable ?? PeopleAndDevicesModel.revokeHelp))
                 }
-            }
-            if person.canRevoke {
-                // Spec §5's own sentence, beside the button rather than in the
-                // footer: what Revoke does, and the thing it does not do.
-                Text(PeopleAndDevicesModel.revokeSentence)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             ForEach(person.devices) { device in
                 deviceRow(device)
