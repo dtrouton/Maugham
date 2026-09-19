@@ -10,14 +10,33 @@
 #
 #   ./scripts/second-mac.sh          launch (keeps its identity between runs)
 #   ./scripts/second-mac.sh --reset  forget the second Mac entirely, then launch
+#   ./scripts/second-mac.sh --name third   a THIRD Mac (its own home, ~/.maugham-third-mac)
 set -euo pipefail
 
 # SHORT on purpose: the MCP socket lives under it and a Unix socket path is
 # capped at 104 bytes; a home under Application Support silently truncated it.
-home="$HOME/.maugham-second-mac"
-app=$(ls -dt "$HOME"/Library/Developer/Xcode/DerivedData/Maugham-*/Build/Products/Debug/Maugham.app | head -1)
+name="second"
+reset=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --reset) reset=1 ;;
+    --name) name="$2"; shift ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+home="$HOME/.maugham-$name-mac"
+# THIS tree's DerivedData, by its recorded workspace path — never the newest folder,
+# which is usually a review worktree's build of some other commit.
+repo="$(cd "$(dirname "$0")/.." && pwd -P)"
+app=""
+for d in "$HOME"/Library/Developer/Xcode/DerivedData/Maugham-*/; do
+  ws=$(/usr/libexec/PlistBuddy -c 'Print :WorkspacePath' "$d/info.plist" 2>/dev/null) || continue
+  [[ "$ws" == "$repo/Maugham.xcodeproj" ]] && app="$d/Build/Products/Debug/Maugham.app" && break
+done
+[[ -n "$app" && -d "$app" ]] || { echo "no Debug build of $repo found — build the Maugham scheme in Xcode first" >&2; exit 1; }
 
-[[ "${1:-}" == "--reset" ]] && rm -rf "$home"
+[[ $reset -eq 1 ]] && rm -rf "$home"
 support="$home/Library/Application Support/Maugham Dev"
 mkdir -p "$support"
 # Share the dev TestWorkspace, so a test project one Mac made can be opened by
@@ -26,5 +45,6 @@ ln -sfn "$HOME/Library/Application Support/Maugham Dev/TestWorkspace" "$support/
 
 echo "second Mac home: $home"
 echo "binary:          $app"
-CFFIXED_USER_HOME="$home" "$app/Contents/MacOS/Maugham" -ApplePersistenceIgnoreState YES &
+# Detached with its output closed, so a caller that pipes this script does not wait on the app.
+CFFIXED_USER_HOME="$home" nohup "$app/Contents/MacOS/Maugham" -ApplePersistenceIgnoreState YES >/dev/null 2>&1 &
 disown
