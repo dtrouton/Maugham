@@ -218,10 +218,11 @@ public struct Registry: Equatable, Sendable {
     /// *whose key is this*, derived once here and asked by everything that
     /// needs it (fix round 2, the controller's ruling).
     ///
-    /// Derived rather than passed: it is a function of `devices` and `people`
-    /// and nothing else, and two places computing it from those was the whole
-    /// defect (`TrustTable`'s own loop and `device(withActorFingerprint:)`
-    /// were separately spelled first-wins scans).
+    /// Derived rather than passed: it is a function of `devices` alone — who
+    /// is admitted, revoked or retired does not enter into it (fix round 3) —
+    /// and two places computing it separately was the whole defect
+    /// (`TrustTable`'s own loop and `device(withActorFingerprint:)` were each
+    /// a first-wins scan of its own).
     public let actorKeyOwners: [String: String]
 
     public init(
@@ -236,8 +237,7 @@ public struct Registry: Equatable, Sendable {
         self.events = events
         self.malformed = malformed
         self.sourceBytes = sourceBytes
-        self.actorKeyOwners = Registry.resolveActorKeyOwners(
-            devices: devices, people: people)
+        self.actorKeyOwners = Registry.resolveActorKeyOwners(devices: devices)
     }
 
     /// **Who owns each actor key, and what happens when two records claim one**
@@ -257,38 +257,49 @@ public struct Registry: Equatable, Sendable {
     ///    and every other record's claim on it is ignored. This holds whatever
     ///    the owner's standing: a retired or revoked device still made that
     ///    signature, and its verdict is then computed about the right person.
-    /// 2. **Only STANDING claimants contest.** A claim by a device whose person
-    ///    is revoked, or that has retired, contests nothing — otherwise a
-    ///    revoked liar would hold another person's keys hostage for good and
-    ///    revocation, the one cure the root has, would not cure it. A
-    ///    non-standing device still keeps its own UNCONTESTED keys; it simply
-    ///    does not take part in an argument.
-    /// 3. **Contested means nobody.** A non-author key that two or more
-    ///    standing records claim is owned by neither: it is absent here, so it
-    ///    resolves to itself, answers `.stranger(device: nil)` and is held
-    ///    PENDING. Nothing is applied under a guessed permit and nothing is set
-    ///    aside — the strict-but-recoverable answer, and the writer is asked.
+    /// 2. **One claimant owns it.** A non-author key exactly one verified
+    ///    record lists belongs to that record's device, **whatever its
+    ///    standing**. A retired or revoked device keeps its own keys — that is
+    ///    what makes its `.retired`/`.revoked` verdict land on the right
+    ///    person, and it is P2's behaviour unchanged.
+    /// 3. **Two or more claimants mean NOBODY, for good.** Such a key is absent
+    ///    here, so it resolves to itself, answers `.stranger(device: nil)` and
+    ///    is held PENDING. Nothing is applied under a guessed permit and
+    ///    nothing is set aside.
+    ///
+    /// **Standing plays no part, and that is the amendment** (fix round 3,
+    /// re-review). Letting only *standing* records contest looks like it cures
+    /// the hostage — revoke the liar and the owner has its key back — but it is
+    /// half of a two-sided rule, and the other half is worse than the thing it
+    /// cures. Revoke or retire the OWNER and the liar becomes the sole standing
+    /// claimant, so a line the revoked owner signs with that key resolves
+    /// `.admitted(person: liar)` instead of `.revoked(person: owner, …)`: a
+    /// revoked person's writing applied, under somebody else's name. The
+    /// hostage costs AVAILABILITY (lines held, nothing lost); that costs
+    /// INTEGRITY. Possession is unprovable from these records, so nothing here
+    /// can tell the liar from the owner — therefore a disputed key is awarded
+    /// to nobody, ever, and no later revocation or retirement moves it.
+    ///
+    /// It follows that ownership is a function of `devices` alone: who is
+    /// admitted, revoked or retired does not enter into it.
     ///
     /// **Neutral for an honest book**: every key has exactly one claimant, and
     /// clause 3 never fires.
     ///
-    /// The residual, stated rather than hidden: a STANDING admitted device can
-    /// still make another person's non-author actor lines pending until the
-    /// root revokes it. Visible (pending is surfaced), recoverable (revoke),
-    /// and closed properly only by per-actor possession proofs in the device
-    /// record — a format change, filed with the signed-structure roadmap item.
+    /// The residual, stated rather than hidden: any admitted device can make
+    /// another person's NON-author actor lines pending by listing that key, and
+    /// revocation does not cure it. The lines are held — never lost, never
+    /// misattributed. The cure is per-actor possession proofs in the device
+    /// record, a format change filed with the signed-structure roadmap item.
+    /// **The author key — the writer's own hand — can never be disputed**,
+    /// because clause 1 is a signature rather than a claim.
     nonisolated private static func resolveActorKeyOwners(
-        devices: [DeviceRecord], people: [PersonRecord]
+        devices: [DeviceRecord]
     ) -> [String: String] {
         var owners: [String: String] = [:]
 
         // Clause 1, first and unconditionally: the signature decides.
         for device in devices { owners[device.device] = device.device }
-
-        let revoked = Set(people.filter(\.isRevoked).map(\.person))
-        let standing = Set(
-            devices.filter { $0.retiredAt == nil && !revoked.contains($0.device) }
-                .map(\.device))
 
         var claimants: [String: Set<String>] = [:]
         for device in devices {
@@ -300,14 +311,10 @@ public struct Registry: Equatable, Sendable {
         for (key, claiming) in claimants {
             // Clause 1 again: an author slot outranks every claim on it.
             guard owners[key] == nil else { continue }
-            if claiming.count == 1 {
-                owners[key] = claiming.first
-                continue
-            }
-            // Clause 2, then clause 3.
-            let contesting = claiming.filter { standing.contains($0) }
-            guard contesting.count == 1 else { continue }
-            owners[key] = contesting.first
+            // Clause 3 before clause 2: a dispute is never resolved, only a
+            // sole claim is honoured.
+            guard claiming.count == 1 else { continue }
+            owners[key] = claiming.first
         }
         return owners
     }

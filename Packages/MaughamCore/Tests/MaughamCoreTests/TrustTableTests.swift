@@ -943,18 +943,19 @@ final class TrustTableTests: XCTestCase {
         }
     }
 
-    // MARK: - A contested actor key belongs to nobody (fix round 2's ruling)
+    // MARK: - A disputed actor key belongs to nobody, for good (fix round 3)
 
     /// A device record is signed once, by its own author key, and its
     /// `assistant`/`translator`/`maugham` fingerprints are unsigned strings any
-    /// record may list. Two standing records claiming one key is therefore a
-    /// real state with no honest tie-break — and since P3 it would decide which
-    /// person's permit history judges those lines.
+    /// record may list. Two records claiming one key is therefore a real state
+    /// with **no honest tie-break** — possession is unprovable from these
+    /// records — and since P3 it would decide which person's permit history
+    /// judges those lines.
     ///
     /// **Nobody owns it**: it resolves to itself, answers `.stranger(device:
     /// nil)` and is held PENDING. Nothing applied under a guessed permit,
     /// nothing set aside.
-    func test_anActorKeyTwoStandingRecordsClaimBelongsToNobody() {
+    func test_anActorKeyTwoRecordsClaimBelongsToNobody() {
         let honest = foreignKey()
         let liar = foreignKey()
         let contested = foreignKey()
@@ -1014,75 +1015,168 @@ final class TrustTableTests: XCTestCase {
         XCTAssertEqual(registry.actorKeyOwners[honest], honest)
     }
 
-    /// **Only standing claimants contest.** Otherwise a revoked liar holds
-    /// another person's keys hostage for good and revocation — the one cure the
-    /// root has — cures nothing. Revoke the liar and the honest owner has its
-    /// key back.
-    func test_aRevokedClaimantContestsNothing() {
+    /// **A dispute is never resolved by a revocation — in EITHER direction.**
+    ///
+    /// Two devices list one key; the root revokes one of them. It is tempting
+    /// to read that as the argument being settled, and the temptation is a
+    /// two-sided rule with only one side looked at (fix round 3; the round-2
+    /// test this replaces, `test_aRevokedClaimantContestsNothing`, pinned the
+    /// clause this round removes — it was never a P2 test).
+    ///
+    /// This is the reading's *good* direction — the liar revoked — and even
+    /// here the key stays nobody's, because nothing in these records ever said
+    /// which of the two was the liar.
+    func test_revokingAClaimantDoesNotAwardTheDisputedKey() {
         let honest = foreignKey()
         let liar = foreignKey()
-        let contested = foreignKey()
+        let disputed = foreignKey()
         let root = mine.author.fingerprint
-        let devices = [
-            deviceRecord(honest, actors: [DeviceActor.assistant.rawValue: contested]),
-            deviceRecord(liar, actors: [DeviceActor.assistant.rawValue: contested]),
-        ]
-        let standing = Registry(
-            devices: devices,
-            people: [rootRecord(root), admittedRecord(honest, under: root),
-                     admittedRecord(liar, under: root)])
-        let cured = Registry(
-            devices: devices,
+        let registry = Registry(
+            devices: [
+                deviceRecord(honest, actors: [DeviceActor.assistant.rawValue: disputed]),
+                deviceRecord(liar, actors: [DeviceActor.assistant.rawValue: disputed]),
+            ],
             people: [rootRecord(root), admittedRecord(honest, under: root),
                      admittedRecord(liar, under: root,
                                     revokedAt: Date(timeIntervalSince1970: 50),
                                     revokedBy: root)])
 
-        XCTAssertEqual(
-            TrustTable.resolve(registry: standing, mine: mine, joinedRoot: nil)
-                .verdict(forSealKey: contested),
-            .stranger(device: nil),
-            "while both stand, nobody owns it")
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
 
-        let table = TrustTable.resolve(registry: cured, mine: mine, joinedRoot: nil)
-        XCTAssertEqual(table.person(forSealKey: contested), honest)
-        XCTAssertEqual(table.verdict(forSealKey: contested), .admitted(person: honest))
-        XCTAssertEqual(table.actor(forSealKey: contested), .assistant)
-        XCTAssertEqual(cured.device(withActorFingerprint: contested)?.device, honest)
-        XCTAssertEqual(cured.actorKeyOwners[contested], honest)
+        XCTAssertEqual(table.verdict(forSealKey: disputed), .stranger(device: nil))
+        XCTAssertEqual(table.person(forSealKey: disputed), disputed,
+                       "still nobody's — not the surviving claimant's")
+        XCTAssertNil(table.actor(forSealKey: disputed))
+        XCTAssertNil(registry.actorKeyOwners[disputed])
+        XCTAssertNil(registry.device(withActorFingerprint: disputed))
     }
 
-    /// A retired device contests nothing either — and still keeps its OWN
-    /// uncontested keys, because not taking part in an argument is not the same
-    /// as forfeiting. (The second half is what keeps every P2 retirement test
-    /// passing untouched.)
-    func test_aRetiredClaimantContestsNothingAndKeepsItsOwnKeys() {
-        let honest = foreignKey()
-        let retiree = foreignKey()
-        let contested = foreignKey()
-        let itsOwn = foreignKey()
+    /// **And the direction that makes the amendment necessary.** Revoke the
+    /// OWNER and the liar would be the sole standing claimant, so a line the
+    /// revoked owner signs with that key would read `.admitted(person: liar)`
+    /// instead of `.revoked(person: owner, …)`: a revoked person's writing
+    /// APPLIED, under somebody else's name. The hostage costs availability;
+    /// this costs integrity, which is why a disputed key is awarded to nobody
+    /// whatever anybody's standing.
+    func test_revokingTheOwnerDoesNotAwardTheDisputedKeyToTheClaimant() {
+        let owner = foreignKey()
+        let liar = foreignKey()
+        let disputed = foreignKey()
         let root = mine.author.fingerprint
         let registry = Registry(
             devices: [
-                deviceRecord(honest, actors: [DeviceActor.assistant.rawValue: contested]),
+                deviceRecord(owner, actors: [DeviceActor.assistant.rawValue: disputed]),
+                deviceRecord(liar, actors: [DeviceActor.assistant.rawValue: disputed]),
+            ],
+            people: [rootRecord(root), admittedRecord(liar, under: root),
+                     admittedRecord(owner, under: root,
+                                    revokedAt: Date(timeIntervalSince1970: 50),
+                                    revokedBy: root)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.verdict(forSealKey: disputed), .stranger(device: nil))
+        XCTAssertNotEqual(table.verdict(forSealKey: disputed), .admitted(person: liar),
+                          "never the claimant's — that is the integrity failure")
+        XCTAssertNotEqual(table.verdict(forSealKey: disputed),
+                          .revoked(person: owner, highestOpIdSeen: nil),
+                          "and never the owner's either: nothing proved it was theirs")
+        XCTAssertEqual(table.timeline(forSealKey: disputed), .bookAuthor)
+        XCTAssertNil(registry.actorKeyOwners[disputed])
+    }
+
+    /// The same pair for RETIREMENT — the claimant retires.
+    func test_retiringAClaimantDoesNotAwardTheDisputedKey() {
+        let honest = foreignKey()
+        let retiree = foreignKey()
+        let disputed = foreignKey()
+        let root = mine.author.fingerprint
+        let registry = Registry(
+            devices: [
+                deviceRecord(honest, actors: [DeviceActor.assistant.rawValue: disputed]),
                 retiredDeviceRecord(
                     retiree, at: Date(timeIntervalSince1970: 60),
-                    actors: [DeviceActor.assistant.rawValue: contested,
-                             DeviceActor.translator.rawValue: itsOwn]),
+                    actors: [DeviceActor.assistant.rawValue: disputed]),
             ],
             people: [rootRecord(root), admittedRecord(honest, under: root),
                      admittedRecord(retiree, under: root)])
 
         let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
 
-        XCTAssertEqual(table.person(forSealKey: contested), honest,
-                       "a retired claimant does not contest")
-        XCTAssertEqual(table.person(forSealKey: itsOwn), retiree,
-                       "but it keeps what nobody else claims")
+        XCTAssertEqual(table.verdict(forSealKey: disputed), .stranger(device: nil))
+        XCTAssertEqual(table.person(forSealKey: disputed), disputed)
+        XCTAssertNil(registry.actorKeyOwners[disputed])
+    }
+
+    /// And the owner retires: the surviving claimant must not inherit the key,
+    /// or a line the retired owner signed after it stopped would read
+    /// `.admitted` rather than `.retired`.
+    func test_retiringTheOwnerDoesNotAwardTheDisputedKeyToTheClaimant() {
+        let owner = foreignKey()
+        let liar = foreignKey()
+        let disputed = foreignKey()
+        let root = mine.author.fingerprint
+        let registry = Registry(
+            devices: [
+                retiredDeviceRecord(
+                    owner, at: Date(timeIntervalSince1970: 60),
+                    actors: [DeviceActor.assistant.rawValue: disputed]),
+                deviceRecord(liar, actors: [DeviceActor.assistant.rawValue: disputed]),
+            ],
+            people: [rootRecord(root), admittedRecord(owner, under: root),
+                     admittedRecord(liar, under: root)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.verdict(forSealKey: disputed), .stranger(device: nil))
+        XCTAssertNotEqual(table.verdict(forSealKey: disputed), .admitted(person: liar))
+        XCTAssertNil(registry.actorKeyOwners[disputed])
+    }
+
+    /// **A device keeps its own UNCONTESTED keys whatever its standing** — the
+    /// half of the round-2 test that survives the amendment, and the half that
+    /// keeps every P2 retirement verdict landing on the right device.
+    func test_aRetiredDeviceKeepsItsOwnUncontestedKeys() {
+        let retiree = foreignKey()
+        let itsOwn = foreignKey()
+        let root = mine.author.fingerprint
+        let registry = Registry(
+            devices: [retiredDeviceRecord(
+                retiree, at: Date(timeIntervalSince1970: 60),
+                actors: [DeviceActor.translator.rawValue: itsOwn])],
+            people: [rootRecord(root), admittedRecord(retiree, under: root)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.person(forSealKey: itsOwn), retiree)
+        XCTAssertEqual(table.actor(forSealKey: itsOwn), .translator)
         XCTAssertEqual(table.verdict(forSealKey: itsOwn),
                        .retired(device: retiree,
                                 retiredAt: Date(timeIntervalSince1970: 60)))
         XCTAssertEqual(registry.actorKeyOwners[itsOwn], retiree)
+    }
+
+    /// The revocation twin of the same half: a revoked device's sole claim on
+    /// its own key stands, so what it wrote is `.revoked` in its OWN name
+    /// rather than a stranger's. (P2's verdict, unchanged.)
+    func test_aRevokedDeviceKeepsItsOwnUncontestedKeys() {
+        let phone = foreignKey()
+        let itsAssistant = foreignKey()
+        let root = mine.author.fingerprint
+        let registry = Registry(
+            devices: [deviceRecord(
+                phone, actors: [DeviceActor.assistant.rawValue: itsAssistant])],
+            people: [rootRecord(root),
+                     admittedRecord(phone, under: root,
+                                    revokedAt: Date(timeIntervalSince1970: 50),
+                                    revokedBy: root, highestOpIdSeen: "op-9")])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        XCTAssertEqual(table.person(forSealKey: itsAssistant), phone)
+        XCTAssertEqual(table.verdict(forSealKey: itsAssistant),
+                       .revoked(person: phone, highestOpIdSeen: "op-9"))
+        XCTAssertEqual(registry.actorKeyOwners[itsAssistant], phone)
     }
 
     /// An honest book has no contested key, so the rule never fires: every
