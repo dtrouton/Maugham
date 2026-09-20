@@ -396,16 +396,22 @@ public final class OpLogDeviceState: @unchecked Sendable {
     /// CONTENTS are short: a rotation whose tail deletion syncs ahead of its
     /// segment. The sweep asks `ForeignStreamWatch.loss` of these, which is the
     /// same predicate the load settles by.
+    /// **`slugs` nil is *every foreign stream this device remembers here***
+    /// (P3b Task 2), which is what the unsigned snapshot's sweep needs: that
+    /// sweep starts from no person at all — its whole subject is streams
+    /// nobody's record names — so it cannot narrow by slug and must expect
+    /// everything this device has applied from anybody. An empty SET stays
+    /// what it was, *nobody, so nothing is expected*.
     public func foreignStreams(
-        inRoot root: URL, writtenBy slugs: Set<String>
+        inRoot root: URL, writtenBy slugs: Set<String>?
     ) -> [String: ForeignStreamMemory] {
-        guard !slugs.isEmpty else { return [:] }
+        if let slugs, slugs.isEmpty { return [:] }
         lock.lock()
         defer { lock.unlock() }
         let prefix = "\(Self.scopeHash(ofRoot: root))/"
         var out: [String: ForeignStreamMemory] = [:]
         for (key, memory) in stored.foreignStreams
-        where key.hasPrefix(prefix) && slugs.contains(memory.deviceSlug) {
+        where key.hasPrefix(prefix) && (slugs?.contains(memory.deviceSlug) ?? true) {
             out[String(key.dropFirst(prefix.count))] = memory
         }
         return out

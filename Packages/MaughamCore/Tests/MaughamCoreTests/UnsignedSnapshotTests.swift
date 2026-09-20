@@ -724,4 +724,96 @@ final class UnsignedSnapshotTests: XCTestCase {
                 .entries.compactMap(\.kind), [],
             "and installs no timeline entry — see the note above")
     }
+
+    // MARK: - The stream that went missing (Task 2, ruling B)
+
+    /// **A remembered unsigned stream that is gone refuses the act** (Task 1's
+    /// review, Important 2).
+    ///
+    /// `unattributablePositions` took no `expecting:`, so a stream evicted by
+    /// iCloud or caught halfway through a sync was simply absent — and a stream
+    /// the snapshot does not NAME judges wholly new, which holds the whole
+    /// applied history of the very Mac this photograph exists to leave alone.
+    /// The memory `ForeignStreamWatch` keeps is keyed by STREAM and does
+    /// remember an unsigned device's, so it is asked here through the same
+    /// predicate `seenPositions` asks.
+    func test_aRememberedUnsignedStreamThatIsGoneRefusesTheSnapshot() throws {
+        try becomeRoot()
+        let url = try writeUnsealedStream(
+            slug: ghost, ops: [op("o1", device: "ghost")])
+        let key = try XCTUnwrap(PermitMark.streamKey(of: url))
+        let remembered = [key: OpLogDeviceState.ForeignStreamMemory(
+            deviceSlug: ghost.raw,
+            head: try lastLineHash(of: url), segmentDigests: [])]
+
+        // Present: the sweep answers, and names the stream.
+        let mark = try OpLogStore.unattributablePositions(
+            in: projectURL, trust: try table(), expecting: remembered)
+        XCTAssertEqual(mark[key]?.line, try lastLineHash(of: url))
+
+        try FileManager.default.removeItem(at: url)
+        do {
+            _ = try OpLogStore.unattributablePositions(
+                in: projectURL, trust: try table(), expecting: remembered)
+            XCTFail("a stream this Mac had applied from is gone")
+        } catch let error as OpLogStore.ReadError {
+            guard case .streamMissingFromSweep(let missing) = error else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(missing, key)
+            XCTAssertEqual(OpLogStore.unreadableName(error), key)
+        }
+    }
+
+    /// And the verb refuses in its own words, with NOTHING written: no event,
+    /// no record, no remembered label.
+    func test_aNarrowingOverAMissingUnsignedStreamWritesNothing() throws {
+        try becomeRoot()
+        try admitSam()
+        let url = try writeUnsealedStream(
+            slug: ghost, ops: [op("o1", device: "ghost")])
+        let key = try XCTUnwrap(PermitMark.streamKey(of: url))
+        let remembered = [key: OpLogDeviceState.ForeignStreamMemory(
+            deviceSlug: ghost.raw,
+            head: try lastLineHash(of: url), segmentDigests: [])]
+        try FileManager.default.removeItem(at: url)
+
+        let before = try events(about: sam.author.fingerprint).map(\.event)
+        XCTAssertThrowsError(
+            try OpLogStore.unattributablePositions(
+                in: projectURL, trust: try table(), expecting: remembered))
+        XCTAssertEqual(
+            try events(about: sam.author.fingerprint).map(\.event), before,
+            "the sweep refused, so the verb was never reached and nothing moved")
+        XCTAssertEqual(
+            try registry().person(sam.author.fingerprint)?.role,
+            Permit.authorRole)
+    }
+
+    /// The other direction, and the one that must not become a standing
+    /// refusal: a stream this Mac has never applied from is not expected at
+    /// all, and a stream that merely GREW is not a loss.
+    func test_anUnrememberedOrGrownStreamDoesNotRefuseTheSnapshot() throws {
+        try becomeRoot()
+        let url = try writeUnsealedStream(
+            slug: ghost, ops: [op("o1", device: "ghost")])
+        let key = try XCTUnwrap(PermitMark.streamKey(of: url))
+        let firstLine = try lastLineHash(of: url)
+
+        // Never seen: nothing is expected of it.
+        XCTAssertNoThrow(
+            try OpLogStore.unattributablePositions(
+                in: projectURL, trust: try table(), expecting: [:]))
+
+        // Grown: the remembered line is still in the file, further back.
+        try writeUnsealedStream(
+            slug: ghost,
+            ops: [op("o1", device: "ghost"), op("o2", device: "ghost")])
+        let remembered = [key: OpLogDeviceState.ForeignStreamMemory(
+            deviceSlug: ghost.raw, head: firstLine, segmentDigests: [])]
+        let mark = try OpLogStore.unattributablePositions(
+            in: projectURL, trust: try table(), expecting: remembered)
+        XCTAssertEqual(mark[key]?.line, try lastLineHash(of: url),
+                       "and the photograph names where it stands NOW")
+    }
 }

@@ -1098,10 +1098,23 @@ public final class OpLogStore {
     /// **It refuses exactly as the other sweeps do**, and the verb that asked
     /// then writes nothing: a directory that exists and will not list, a file
     /// that is present and will not read, an iCloud placeholder standing in
-    /// for one. *A short snapshot is the reach-back this ruling exists to
-    /// prevent* — a stream this sweep failed to see is a stream the snapshot
-    /// does not name, which judges wholly NEW, which holds the whole of an
-    /// unsigned Mac's history the moment anybody is narrowed.
+    /// for one, and — since P3b Task 2 — a stream this device REMEMBERS having
+    /// applied from and cannot find now (`expecting:`, `ForeignStreamWatch
+    /// .loss`, the same memory and the same predicate `seenPositions` uses).
+    /// *A short snapshot is the reach-back this ruling exists to prevent* — a
+    /// stream this sweep failed to see is a stream the snapshot does not name,
+    /// which judges wholly NEW, which holds the whole of an unsigned Mac's
+    /// history the moment anybody is narrowed.
+    ///
+    /// **What `expecting:` cannot cover, stated.** The memory is of FOREIGN
+    /// streams, keyed by stream and recorded with a device SLUG, so the legacy
+    /// unsuffixed `<docId>.jsonl` — which has no slug, belongs to no device in
+    /// particular, and is exactly the file no key can name — is outside it. A
+    /// legacy file that is missing at sweep time is not noticed here, and the
+    /// snapshot will not name it; nothing writes to one any more
+    /// (`opLogFileURL` always carries a slug), so the lines at risk are lines
+    /// that were already there when the file went missing, and they come back
+    /// applied the moment it does.
     ///
     /// **`state: nil` throughout, exactly as `seenPositions` is** (ledger
     /// L176): a mark must be computable from the shared bytes alone, or a
@@ -1118,7 +1131,8 @@ public final class OpLogStore {
     /// `nonisolated` and presenter-free, so the whole sweep runs off the main
     /// actor.
     nonisolated public static func unattributablePositions(
-        in projectURL: URL, trust: TrustTable
+        in projectURL: URL, trust: TrustTable,
+        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:]
     ) throws -> PermitMark {
         let opsDir = projectURL.appendingPathComponent(".maugham/ops")
         let filenames = try listing(of: opsDir, naming: ".maugham/ops")
@@ -1131,6 +1145,32 @@ public final class OpLogStore {
 
         var segments: [String: Set<String>] = [:]
         var lastKnownLine: [String: String] = [:]
+        // **What this sweep FOUND, per stream this device REMEMBERS** — the
+        // third way a snapshot comes back short, and the only one nothing
+        // inside this function can see (P3b Task 2, out of Task 1's review).
+        //
+        // A stream that is simply ABSENT — evicted by iCloud, halfway through
+        // a sync — is indistinguishable from a stream that never existed, and
+        // a stream the snapshot does not NAME judges wholly new, which holds
+        // the whole applied history of the very Mac this photograph exists to
+        // leave alone. The memory tells the two apart, and it is `positions`'
+        // own memory asked through `positions`' own predicate — never a second
+        // spelling of *what did this stream lose*.
+        //
+        // **It decides REFUSE-or-proceed and never the mark's contents.** The
+        // positions below come from the shared bytes exactly as they did, so a
+        // fresh Mac with no memory at all computes the same photograph the
+        // root does; what it cannot do is notice that a stream went missing
+        // while it read.
+        var found: [String: ForeignStreamWatch.Found] = [:]
+        func note(
+            _ key: String, _ change: (inout ForeignStreamWatch.Found) -> Void
+        ) {
+            guard expecting[key] != nil else { return }
+            var entry = found[key] ?? .init()
+            change(&entry)
+            found[key] = entry
+        }
 
         for docId in docIds.sorted() {
             for url in opLogFileURLs(forDocId: docId, in: projectURL) {
@@ -1140,6 +1180,20 @@ public final class OpLogStore {
                 let classified = classify(
                     url: url, bytes: bytes, state: nil, trust: trust, permit: nil)
                 if url.pathExtension == OpLogSegment.fileExtension {
+                    // **Noted before the attributability guard, on purpose.**
+                    // The memory is of a STREAM's bytes, not of whose it is: a
+                    // stream that became attributable since this device last
+                    // read it — its device record arrived — has lost nothing,
+                    // and refusing over it would stop the verb for a stream
+                    // the photograph does not need to name anyway.
+                    if let digest = classified.wholeSegmentDigest {
+                        note(stream.key) {
+                            $0.digests.insert(digest)
+                            $0.answered = true
+                        }
+                    } else {
+                        note(stream.key) { $0.sawUnsettledSegment = true }
+                    }
                     // A settled segment answers no verification at all, and it
                     // needs none: settling requires a signature whose key this
                     // device stands behind (`TrustVerdict.isOurWord`), which is
@@ -1154,8 +1208,15 @@ public final class OpLogStore {
                     segments[stream.key, default: []].insert(digest)
                     continue
                 }
-                guard let verification = classified.verification,
-                      verification.unattributable,
+                guard let verification = classified.verification else { continue }
+                note(stream.key) { entry in
+                    if verification.head != nil { entry.answered = true }
+                    if let head = expecting[stream.key]?.head,
+                       ForeignStreamWatch.holds(head, verification) {
+                        entry.holdsRemembered = true
+                    }
+                }
+                guard verification.unattributable,
                       let last = verification.lines.last(where: wasSeen)
                 else { continue }
                 lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
@@ -1170,10 +1231,27 @@ public final class OpLogStore {
             else { continue }
             let verification = verificationForPositions(
                 at: url, bytes: bytes, stream: stream, trust: trust)
+            note(stream.key) { entry in
+                if verification.head != nil { entry.answered = true }
+                if let head = expecting[stream.key]?.head,
+                   ForeignStreamWatch.holds(head, verification) {
+                    entry.holdsRemembered = true
+                }
+            }
             guard verification.unattributable,
                   let last = verification.lines.last(where: wasSeen)
             else { continue }
             lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
+        }
+
+        // Sorted, so a sweep short of two streams refuses over the same one
+        // twice running — `positions`' rule, asked of `positions`' predicate.
+        for key in expecting.keys.sorted() {
+            let seen = found[key] ?? .init()
+            guard seen.answered,
+                  ForeignStreamWatch.loss(
+                    remembered: expecting[key], found: seen) == nil
+            else { throw ReadError.streamMissingFromSweep(streamKey: key) }
         }
 
         var marks: [String: PermitMark.StreamMark] = [:]

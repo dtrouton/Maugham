@@ -172,6 +172,7 @@ extension DocumentStore {
         let projectURL = self.projectURL
         let identities = Document.loadIdentities
         let cache = Document.loadRegistryCache
+        let state = Document.loadDeviceState
         let swept: Result<PermitMark, Error> = await Task.detached(
             priority: .userInitiated
         ) { () -> Result<PermitMark, Error> in
@@ -179,7 +180,13 @@ extension DocumentStore {
                 let resolved = try TrustResolution.resolveVerified(
                     projectURL: projectURL, identities: identities, cache: cache)
                 return .success(try OpLogStore.unattributablePositions(
-                    in: projectURL, trust: resolved.table))
+                    in: projectURL, trust: resolved.table,
+                    // What this Mac remembers having applied from ANY other
+                    // device, so a stream that has gone missing mid-sync
+                    // refuses the act rather than silently drawing the line at
+                    // the beginning of it (P3b Task 2).
+                    expecting: DocumentStore.everyExpectedStream(
+                        in: projectURL, state: state)))
             } catch {
                 return .failure(error)
             }
@@ -729,6 +736,21 @@ extension DocumentStore {
         state.foreignStreams(
             inRoot: projectURL,
             writtenBy: Set(ids.map { DeviceSlug.make(from: $0).raw }))
+    }
+
+    /// **Every foreign stream this Mac remembers in this book** — the same
+    /// memory, for the sweep that cannot name a person (P3b Task 2).
+    ///
+    /// The unsigned snapshot's whole subject is streams nobody's record names,
+    /// so it has no set of device ids to narrow by and must expect everything
+    /// this Mac has ever applied from anybody. Its sibling above and this one
+    /// read the same store through the same function, so a stream expected by
+    /// one and not the other would have to be a difference in the SLUG filter
+    /// and nothing else.
+    nonisolated static func everyExpectedStream(
+        in projectURL: URL, state: OpLogDeviceState
+    ) -> [String: OpLogDeviceState.ForeignStreamMemory] {
+        state.foreignStreams(inRoot: projectURL, writtenBy: nil)
     }
 
     private func permitMark(forPerson person: String, seen: Bool) async -> SweptPositions {
