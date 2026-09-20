@@ -224,6 +224,158 @@ final class OpLogChainTests: XCTestCase {
         XCTAssertNil(v.breakReason)
     }
 
+    // MARK: - An unsealed span answers to its file's verdict (Task 11)
+
+    /// **Arm 1**: the file's key is its own last seal's, whatever the verdict —
+    /// so a stranger's unsealed tail is held exactly as the span above it is.
+    func test_aStrangersUnsealedTailIsHeldUnderTheSealBeforeIt() throws {
+        let identity = DeviceIdentity.softwareForTesting()
+        var b = Builder()
+        b.chained(element(0))
+        try b.seal(identity, at: at)
+        b.chained(element(1))
+
+        let v = OpLogChain.verify(
+            bytes: joined(b.lines),
+            trust: { _ in .stranger(device: "their-mac") },
+            rememberedHead: nil)
+
+        XCTAssertEqual(states(v), [
+            .pending(device: "their-mac"), .pending(device: "their-mac"),
+            .pending(device: "their-mac"),
+        ], "the tail takes the same device string the sealed span does, so the "
+            + "admission union asks about one device once")
+        XCTAssertEqual(v.unsealedCount, 0)
+        XCTAssertNil(v.breakReason, "a held span is not a break")
+    }
+
+    /// **Arm 2**: no seal at all, and the caller can name the file's key.
+    func test_aFileWithNoSealTakesTheVerdictOfTheKeyItsCallerNames() throws {
+        var b = Builder()
+        b.chained(element(0))
+        b.chained(element(1))
+
+        let v = OpLogChain.verify(
+            bytes: joined(b.lines),
+            trust: { _ in .stranger(device: "their-mac") },
+            rememberedHead: nil,
+            keyOfAnUnsealedFile: { "their-key" })
+
+        XCTAssertEqual(
+            states(v),
+            [.pending(device: "their-mac"), .pending(device: "their-mac")])
+    }
+
+    /// **Arm 3, the residue**: nothing names the file, so it is what it was —
+    /// `.unsealed`, applied. The unsigned door (P1's B3), open on purpose.
+    func test_aFileNothingCanNameIsLeftExactlyAsTheWalkFoundIt() throws {
+        var b = Builder()
+        b.chained(element(0))
+        b.chained(element(1))
+
+        let v = OpLogChain.verify(
+            bytes: joined(b.lines),
+            trust: { _ in .stranger(device: "their-mac") },
+            rememberedHead: nil)
+
+        XCTAssertEqual(states(v), [.unsealed, .unsealed])
+        XCTAssertEqual(v.unsealedCount, 2)
+    }
+
+    /// **The keyless walk is untouched**, which is what keeps the chained WRITE
+    /// and `ProjectIntegrity.check` byte-for-byte what they were: a closure
+    /// that can only say mine-or-not answers `.noChain`, and `.noChain` leaves
+    /// an unsealed span alone.
+    func test_theKeylessWalkStillLeavesAnUnsealedTailAlone() throws {
+        let identity = DeviceIdentity.softwareForTesting()
+        var b = Builder()
+        b.chained(element(0))
+        try b.seal(identity, at: at)
+        b.chained(element(1))
+
+        let mine = OpLogChain.verify(
+            bytes: joined(b.lines), trusted: trusting(identity),
+            rememberedHead: nil)
+        XCTAssertEqual(states(mine), [.verified, .verified, .unsealed],
+                       "this device's own tail is never held — typing appends "
+                           + "unsealed lines all day")
+
+        let foreign = OpLogChain.verify(
+            bytes: joined(b.lines), trusted: { _ in false }, rememberedHead: nil)
+        XCTAssertEqual(
+            states(foreign),
+            [.unsignedHistory, .unsignedHistory, .unsealed],
+            "and a key it cannot judge answers `.noChain`, which changes nothing")
+    }
+
+    /// A revoked key's unsealed tail is refused **with the revocation's own
+    /// cause on the line**, which is what makes it a candidate for
+    /// `RevocationSplit`'s cut — the rule that keeps what this Mac had already
+    /// applied.
+    func test_aRevokedKeysUnsealedTailCarriesTheRevocationsOwnRefusal() throws {
+        let identity = DeviceIdentity.softwareForTesting()
+        var b = Builder()
+        b.chained(element(0))
+        try b.seal(identity, at: at)
+        b.chained(element(1))
+
+        let v = OpLogChain.verify(
+            bytes: joined(b.lines),
+            trust: { _ in .revoked(person: "sam", highestOpIdSeen: "op-0") },
+            rememberedHead: nil)
+
+        XCTAssertEqual(states(v), [.quarantined, .quarantined, .quarantined])
+        XCTAssertEqual(
+            v.lines.map(\.refusal),
+            Array(repeating: OpLogChain.QuarantineCause
+                .afterRevocation(person: "sam", keptNothing: false), count: 3),
+            "each line's own reason, so the cut can tell a revocation's "
+                + "leavings from a chain fault's")
+        XCTAssertEqual(v.quarantined.count, 3)
+    }
+
+    /// A retired device's unsealed tail is **kept**: its answer turns on when a
+    /// seal was made and there is no seal, and refusing would set aside the
+    /// last tail of every device that ever retired.
+    func test_aRetiredDevicesUnsealedTailIsKept() throws {
+        let identity = DeviceIdentity.softwareForTesting()
+        var b = Builder()
+        b.chained(element(0))
+        try b.seal(identity, at: at)
+        b.chained(element(1))
+
+        let v = OpLogChain.verify(
+            bytes: joined(b.lines),
+            trust: { _ in .retired(device: "sam", retiredAt: self.at.addingTimeInterval(-1)) },
+            rememberedHead: nil)
+
+        XCTAssertEqual(states(v), [.quarantined, .quarantined, .unsealed],
+                       "the SEALED span is refused by its own date, exactly as "
+                           + "P2b refuses it; the tail below has no date and is kept")
+    }
+
+    /// An unsealed span BELOW a broken seal is judged too — it is no more this
+    /// device's word than the tail is, and a forged seal names no key.
+    func test_anUnsealedSpanBeneathAnUnparseableSealIsJudgedByTheSealBeforeIt() throws {
+        let identity = DeviceIdentity.softwareForTesting()
+        var b = Builder()
+        b.chained(element(0))
+        try b.seal(identity, at: at)
+        b.chained(element(1))
+        b.lines.append(Data("{\"seal\":\"not an object\"}".utf8))
+
+        let v = OpLogChain.verify(
+            bytes: joined(b.lines),
+            trust: { _ in .stranger(device: "their-mac") },
+            rememberedHead: nil)
+
+        XCTAssertEqual(states(v), [
+            .pending(device: "their-mac"), .pending(device: "their-mac"),
+            .pending(device: "their-mac"), .quarantined,
+        ], "the span the broken seal never settled is held by the file's key; "
+            + "the broken seal itself is refused for the break")
+    }
+
     func test_blankLinesAreSkippedAndNeverCounted() {
         var b = Builder()
         b.legacy(element(0))

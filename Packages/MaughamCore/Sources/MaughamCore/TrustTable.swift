@@ -675,11 +675,32 @@ public struct TrustTable: Equatable, Sendable {
     /// The answer is `TrustEventSentence.name`'s: the label the root wrote
     /// into the person record, else that person's four-character code.
     nonisolated public func label(forDeviceSlug slug: String) -> String? {
+        guard let key = key(forDeviceSlug: slug) else { return nil }
+        let owner = person(forSealKey: key)
+        return personByFingerprint[owner]?.label ?? DeviceCode.short(owner)
+    }
+
+    /// **The seal key this register can name for a file carrying this slug**,
+    /// or nil where nothing here names one — the ONE slug → key join, and the
+    /// one `label(forDeviceSlug:)` is now written over (Task 11).
+    ///
+    /// It is arm 2 of *the file's key*: a file that holds no usable seal of its
+    /// own is still named for a device, and the filename's slug is the only
+    /// thing about it this device can check against a record. `keyByDeviceId`
+    /// is what does the checking — a device record's own actor entries, a
+    /// person record's derivable `author-<hex>` id (Task 6), and this device's
+    /// own four ids, which win — so the CLAIM a filename makes is only ever
+    /// matched against something signed, never believed.
+    ///
+    /// Forwards only, for `label`'s reason: `DeviceSlug.make` caps length and
+    /// folds every character outside `[a-z0-9]`, so a slug cannot be parsed
+    /// back into an id. Sorted, so a slug two ids somehow collide on answers
+    /// the same key on every device rather than whichever the dictionary
+    /// happened to hand back first.
+    nonisolated public func key(forDeviceSlug slug: String) -> String? {
         for deviceId in keyByDeviceId.keys.sorted()
         where DeviceSlug.make(from: deviceId).raw == slug {
-            guard let key = keyByDeviceId[deviceId] else { continue }
-            let owner = person(forSealKey: key)
-            return personByFingerprint[owner]?.label ?? DeviceCode.short(owner)
+            if let key = keyByDeviceId[deviceId] { return key }
         }
         return nil
     }

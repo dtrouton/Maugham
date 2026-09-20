@@ -251,7 +251,12 @@ public enum TranslationStore {
             let walked = OpLogChain.verify(
                 bytes: bytes,
                 trust: { table.verdict(forSealKey: $0) },
-                rememberedHead: state.head(for: fileKey))
+                rememberedHead: state.head(for: fileKey),
+                // **Arm 2 of *the file's key*** (Task 11): a translation
+                // sidecar another person's device has not sealed yet answers to
+                // the same verdict its sealed spans do, or a stranger's whole
+                // edition arrives in the book by never being signed.
+                keyOfAnUnsealedFile: { PermitMark.keyNaming(url, in: table) })
             // The same absent-head decision the chained WRITE makes. If the two
             // disagreed, a load that held a tail back would be followed by an
             // append that chained onto it.

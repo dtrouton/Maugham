@@ -328,6 +328,48 @@ because a seal is neither a note nor a capture (`OpLogChain.pendingByDevice`
 counts op lines only; the line tallies still count the seal, and the two answer
 different questions).
 
+**Amended 2026-09-20 (P3a Task 11): the verdict settles a SPAN, sealed or not
+— and the table above is about a span rather than about a seal.** Trust was
+consulted at `case .seal` and nowhere else, so everything a signed foreign
+device had written *since* its last seal — up to `chainSealInterval − 1` ops, or
+its whole file before its first one — was `.unsealed`, not held back, and
+applied, whatever the register said. A stranger's text entered the manuscript
+unadmitted and a revoked device's post-revocation tail leaked; the permit
+partition skipped those spans too, for want of a key to attribute them to. This
+shipped in v0.39.0/v0.40.0 and was found by the 2026-09-20 audit (PR #65, F1 +
+F2). Every P2 fixture sealed before it asserted, which is why nothing was red.
+
+**The file's key**, asked once at end-of-walk, in three arms: the key of the
+LAST seal in the file that parsed and chain-verified, *whatever its verdict* —
+ADR 0012 gives a file one writer, so a stranger's seal names the file as surely
+as this device's own; else the key the caller can name for the filename's slug,
+matched against a verified record (a claim checked, never believed); else
+**neither, and the span stays exactly as it was**. That third arm is decision
+B3's door, held open deliberately: an unsigned device — a VM, CI's runner —
+writes chained lines nothing seals and reports nothing wrong, and pre-signing
+legacy history is in the same arm. Closing it is a P3b question.
+
+What the span becomes is `TrustVerdict.settlingAnUnsealedSpan`, a sibling of
+`settling` rather than a call into it, because two arms cannot be answered the
+same way. `.mine`/`.admitted` leave the span `.unsealed` rather than calling it
+verified — nothing has signed these bytes, and more sharply, **this device's own
+unsealed tail must never be held or refused**: typing appends unsealed lines all
+day, and the chained write's own `.mine`-only closure would otherwise refuse to
+seal the very file it is appending to. `.retired` keeps rather than refuses,
+because its answer turns on when a seal was made and there is no seal; the two
+readings are *before it retired* and *at or after it*, and refusing would set
+aside the last tail of every device that ever retired — words written while the
+machine was still in use, since retiring seals no op log — under a sentence that
+is false about them. Its SEALED post-retirement spans are refused exactly as
+this addendum's predecessor refuses them. The residue is bounded: a retired
+device that goes on writing keeps at most `chainSealInterval − 1` ops applied,
+because the app seals after every burst and at every close.
+
+This too is visible on a book that already exists, in the same direction P2b's
+rotation amendment was: a stranger's unsealed tail that applied before the
+upgrade is held afterwards. Nothing is deleted and admitting the device applies
+all of it on the next read.
+
 ### 7. What the writer is told
 
 Two sentences in the History pane, both pure statics, neither with a control

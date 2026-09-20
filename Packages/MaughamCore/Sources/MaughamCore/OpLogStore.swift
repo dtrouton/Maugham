@@ -1119,7 +1119,14 @@ public final class OpLogStore {
         let walked = trust.map { table in
             OpLogChain.verify(
                 bytes: bytes, trust: { table.verdict(forSealKey: $0) },
-                rememberedHead: nil)
+                rememberedHead: nil,
+                // Arm 2 here too: a mark records where this device had got to,
+                // and a line it holds is one it never applied. The lookup is
+                // over the shared REGISTER, so it moves with the bytes and not
+                // with what this Mac happens to remember — which is the whole
+                // of spec §3.3 and the reason the remembered head is skipped
+                // just above.
+                keyOfAnUnsealedFile: { PermitMark.keyNaming(url, in: table) })
         } ?? OpLogChain.verify(
             bytes: bytes, trusted: { _ in false }, rememberedHead: nil)
         let (resolved, _) = OpLogChain.resolveAbsentHead(
@@ -1372,7 +1379,13 @@ public final class OpLogStore {
             OpLogChain.verify(
                 bytes: bytes,
                 trust: { table.verdict(forSealKey: $0) },
-                rememberedHead: state?.head(for: fileKey))
+                rememberedHead: state?.head(for: fileKey),
+                // **Arm 2 of *the file's key*** (Task 11). A file with no
+                // usable seal still has a name, and the name's slug is the one
+                // thing about it this device can match against a signed
+                // record. Lazy: `verify` asks only when something is unsealed
+                // and no seal in the file named it first.
+                keyOfAnUnsealedFile: { PermitMark.keyNaming(url, in: table) })
         } ?? OpLogChain.verify(
             bytes: bytes,
             trusted: { _ in false },
@@ -1642,7 +1655,12 @@ public final class OpLogStore {
         let walked = trust.map { table in
             OpLogChain.verify(
                 bytes: jsonl, trust: { table.verdict(forSealKey: $0) },
-                rememberedHead: nil)
+                rememberedHead: nil,
+                // A segment that did not settle is walked exactly as a tail is,
+                // arm 2 included: rotation is maintenance a device performs on
+                // itself and must pardon nothing (P2b Task 10's rule, one rule
+                // along).
+                keyOfAnUnsealedFile: { PermitMark.keyNaming(url, in: table) })
         } ?? OpLogChain.verify(
             bytes: jsonl, trusted: { _ in false }, rememberedHead: nil)
         let readmitted = readmittingWhatWasAlreadyApplied(

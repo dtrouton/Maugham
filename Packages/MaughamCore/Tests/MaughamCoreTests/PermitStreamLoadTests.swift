@@ -145,6 +145,41 @@ final class PermitStreamLoadTests: XCTestCase {
         return url
     }
 
+    /// The same file with **no seal on the end of it** — a stream mid-burst,
+    /// which is what every fixture above seals past (Task 11, audit PR #65's
+    /// F2).
+    @discardableResult
+    private func writeChainedUnsealed(at url: URL, elements: [Data]) throws -> URL {
+        var bytes = Data()
+        var head: String?
+        for element in elements {
+            let line = OpLogChain.chainedLine(
+                elementJSON: element, prev: head ?? OpLogChain.genesis)
+            bytes.append(line)
+            bytes.append(0x0A)
+            head = OpLogChain.lineHash(line)
+        }
+        try bytes.write(to: url, options: .atomic)
+        return url
+    }
+
+    /// Sam's own device record and nothing else: a machine that has declared
+    /// itself (`RegistryPresence.ensureDeviceRecord` does this at every open)
+    /// and that nobody has admitted. The realistic stranger, and the one whose
+    /// key a filename can be matched to.
+    private func samsDeviceRecordOnly() throws {
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: samPerson, name: "Sam’s Mac", kind: .mac,
+                actors: [
+                    DeviceActor.author.rawValue: samPerson,
+                    DeviceActor.assistant.rawValue: sam.assistant.fingerprint,
+                    DeviceActor.translator.rawValue: sam.translator.fingerprint,
+                ],
+                madeAt: Date(timeIntervalSince1970: 5)),
+            signedBy: sam.author, in: projectURL)
+    }
+
     /// A second run of lines chained onto what the file already holds, then
     /// sealed again — what a device's next write actually does. A rewrite from
     /// genesis would move the seal the mark points at, which is the one thing
@@ -400,6 +435,66 @@ final class PermitStreamLoadTests: XCTestCase {
         XCTAssertEqual(try translations(), ["t1"])
         let rows = try await inboxRows()
         XCTAssertEqual(rows, ["i1"])
+    }
+
+    // MARK: - An unsealed span answers to its file's verdict (Task 11)
+
+    /// **A stranger's unsealed translation sidecar is held**, exactly as her
+    /// sealed one is.
+    ///
+    /// Before Task 11 trust was consulted only at a SEAL, so a whole edition
+    /// arrived in the book by never being signed: on unchanged code this reads
+    /// `["t1", "t2"]`.
+    func test_aStrangersUnsealedTranslationSidecarIsHeld() async throws {
+        try writeRootRecord()
+        try samsDeviceRecordOnly()
+        try writeChainedUnsealed(
+            at: TranslationStore.fileURL(
+                forDocId: docId, language: language,
+                deviceSlug: sam.author.slug, in: projectURL),
+            elements: [try encoded(record("t1")),
+                       try encoded(record("t2", paragraph: "bbbb"))])
+
+        XCTAssertEqual(try translations(), [],
+                       "nobody admitted Sam, and not sealing is not a way in")
+        XCTAssertEqual(try archivedLines(), "",
+                       "held is not refused: nothing is recorded, because "
+                           + "nothing is wrong with it")
+    }
+
+    /// **A stranger's unsealed inbox manifest is held** — the same rule on the
+    /// third chained stream.
+    func test_aStrangersUnsealedInboxManifestIsHeld() async throws {
+        try writeRootRecord()
+        try samsDeviceRecordOnly()
+        try writeChainedUnsealed(
+            at: InboxManifest.inboxManifestURL(
+                forDeviceSlug: sam.author.slug, in: projectURL),
+            elements: [try encoded(entry("i1", by: sam.author))])
+
+        let rows = try await inboxRows()
+        XCTAssertEqual(rows, [], "a capture waits for admission like a note")
+        XCTAssertEqual(try archivedLines(), "")
+    }
+
+    /// And the neutrality half on both streams: **admitted, unsealed, applied.**
+    func test_anAdmittedDevicesUnsealedStreamsAreBothApplied() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeChainedUnsealed(
+            at: TranslationStore.fileURL(
+                forDocId: docId, language: language,
+                deviceSlug: sam.author.slug, in: projectURL),
+            elements: [try encoded(record("t1"))])
+        try writeChainedUnsealed(
+            at: InboxManifest.inboxManifestURL(
+                forDeviceSlug: sam.author.slug, in: projectURL),
+            elements: [try encoded(entry("i1", by: sam.author))])
+
+        XCTAssertEqual(try translations(), ["t1"])
+        let rows = try await inboxRows()
+        XCTAssertEqual(rows, ["i1"])
+        XCTAssertEqual(try archivedLines(), "")
     }
 
     // MARK: - What the load writes down about amendments (fix round 1)

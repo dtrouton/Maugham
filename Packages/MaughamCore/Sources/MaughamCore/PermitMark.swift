@@ -166,6 +166,25 @@ public struct PermitMark: Equatable, Hashable, Sendable {
     /// `stream(of:)`'s key alone, for a caller that wants nothing else.
     public static func streamKey(of url: URL) -> String? { stream(of: url)?.key }
 
+    /// **The seal key a FILE's own name can be matched to** (Task 11) — arm 2
+    /// of *the file's key*, and the one place the two hops are spelled: this
+    /// type's filename parse, then `TrustTable.key(forDeviceSlug:)`.
+    ///
+    /// It lives beside `stream(of:)` because that is already the one parse of
+    /// an op-log, translation or inbox filename, and a second caller doing the
+    /// slug hop by hand would be a second way to map a filename to a key —
+    /// which is exactly how two readers come to disagree about whose file they
+    /// are holding.
+    ///
+    /// Nil is *this device cannot name one*, and its callers must then do what
+    /// P1 did: a legacy unsuffixed file (no slug at all), a device that has
+    /// written no record here, a book with no register. That is arm 3, the
+    /// unsigned door, and nothing here closes it.
+    public static func keyNaming(_ url: URL, in trust: TrustTable?) -> String? {
+        guard let trust, let slug = stream(of: url)?.deviceSlug else { return nil }
+        return trust.key(forDeviceSlug: slug)
+    }
+
     /// `<head>(.<slug>)?(.segNNNN)?.(jsonl|mzseg)` taken apart.
     ///
     /// The segment index is DROPPED rather than returned: a rotated segment

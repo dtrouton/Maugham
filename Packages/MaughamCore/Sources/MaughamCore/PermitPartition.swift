@@ -138,7 +138,8 @@ public enum PermitPartition {
         // Past every early exit: this file's lines are about to be examined.
         walkObserverForTesting?()
         let keys = attributableKeys(
-            of: lines, trust: trust, settledByKey: settledByKey)
+            of: lines, trust: trust, settledByKey: settledByKey,
+            namedBy: deviceSlug)
         guard !keys.isEmpty else { return verification }
         let governing = governingEntries(
             forKeys: Set(keys.values), lines: lines,
@@ -296,7 +297,8 @@ public enum PermitPartition {
         let lines = verification.lines
         guard !lines.isEmpty else { return false }
         let keys = attributableKeys(
-            of: lines, trust: trust, settledByKey: settledByKey)
+            of: lines, trust: trust, settledByKey: settledByKey,
+            namedBy: deviceSlug)
         guard !keys.isEmpty else { return false }
         let governing = governingEntries(
             forKeys: Set(keys.values), lines: lines,
@@ -490,9 +492,26 @@ public enum PermitPartition {
     /// `.admitted` counts. A `.stranger`'s span is already held, a `.revoked`
     /// or `.otherRoot`'s already refused, a `.noChain`'s is unsigned history
     /// which P1 applies and P3 does not start refusing, and a `.retired`
-    /// device's own earlier word is left exactly where P2b put it.
+    /// device's own earlier word is left exactly where P2b put it. Since Task
+    /// 11 the first three of those are held or refused by the WALK as well,
+    /// whether a seal closed them or not, so this filter and
+    /// `TrustVerdict.settlingAnUnsealedSpan` now agree about a span twice over
+    /// rather than the partition being the only thing standing between a
+    /// stranger's tail and the book.
+    ///
+    /// - Parameter namedBy: the file's own device slug, which answers the case
+    ///   no seal can: **a file that has never been sealed at all.** Its lines
+    ///   are applied (an admitted device's unsealed tail is the ordinary shape
+    ///   of a live file), and with no seal to attribute them to they used to be
+    ///   applied UNJUDGED — so *never seal once* was the bypass this function's
+    ///   trailing-span rule exists to close one word along. The slug is matched
+    ///   against a signed record through `TrustTable.key(forDeviceSlug:)`, so
+    ///   it is a claim checked rather than believed, and it can only ever name
+    ///   a key the file's own seals would have named. Nil (a legacy unsuffixed
+    ///   file, a pure caller, a device no record here mentions) is unchanged.
     private static func attributableKeys(
-        of lines: [OpLogChain.Line], trust: TrustTable, settledByKey: String?
+        of lines: [OpLogChain.Line], trust: TrustTable, settledByKey: String?,
+        namedBy deviceSlug: String? = nil
     ) -> [Int: String] {
         // **A settled segment names its own key.** Its lines were never walked
         // — the container's signature settled the whole file at once — so
@@ -519,7 +538,20 @@ public enum PermitPartition {
             case .stranger, .revoked, .retired, .otherRoot, .noChain: continue
             }
         }
-        guard !sealKeyAt.isEmpty else { return [:] }
+        guard !sealKeyAt.isEmpty else {
+            // No seal here names a key this device can judge by. Where the
+            // FILENAME does — and only where the key it names is one whose
+            // lines are applied at all — every line is under it.
+            guard let deviceSlug, let key = trust.key(forDeviceSlug: deviceSlug)
+            else { return [:] }
+            switch trust.verdict(forSealKey: key) {
+            case .mine, .admitted:
+                return Dictionary(
+                    uniqueKeysWithValues: lines.indices.map { ($0, key) })
+            case .stranger, .revoked, .retired, .otherRoot, .noChain:
+                return [:]
+            }
+        }
 
         var keys: [Int: String] = [:]
         // Backwards: the nearest seal at or after each line — the one that

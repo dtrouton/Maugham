@@ -602,6 +602,43 @@ root beyond the joined one is a claimant too. Without this, any Mac that can
 write the folder writes itself a root plus an admission of you and takes over a
 book you created.
 
+**A span answers to its file's verdict, sealed or not** (P3a Task 11, audit
+PR #65's F1 + F2; a defect in released v0.39.0/v0.40.0 that P3a's first ten
+tasks did not close). Trust used to be consulted at `case .seal` and nowhere
+else, so a chained op line with a good `prev` was `.unsealed`, not held back,
+and applied: everything a SIGNED foreign device had written since its last seal
+— up to `chainSealInterval − 1` ops, or its whole file before its first one —
+entered the book whatever the register said about it. A stranger's text was in
+the manuscript unadmitted, a revoked device's post-revocation tail leaked, and
+`PermitPartition.attributableKeys` skipped exactly those spans, so the permit
+never judged them either. Every P2 fixture sealed before it asserted, which is
+why it shipped green.
+
+The rule is in `OpLogChain.verify`, at end-of-walk, because that is where the
+trust closure is and where every seal has been seen — and `OpLogChain` stays
+ignorant of device records, because **the file's key** comes to it in three
+arms, the second of which is a closure the caller supplies: the key of the LAST
+seal in the file that parsed and chain-verified **whatever its verdict** (a file
+is one device's writing, ADR 0012, so a stranger's seal names the file exactly
+as this device's own does); else whatever the caller can name for the filename's
+slug (`PermitMark.keyNaming(_:in:)` → `TrustTable.key(forDeviceSlug:)`, the ONE
+slug → key join, which `label(forDeviceSlug:)` is now written over); else
+**unchanged** — and that third arm IS the unsigned door, decision B3 left open
+on purpose for the unsigned device and pre-signing legacy history, Denver's to
+rule when P3b is planned. What the span then becomes is
+`TrustVerdict.settlingAnUnsealedSpan`, `settling`'s sibling; read its arms, not
+this sentence. Two of them cannot be `settling`'s: `.mine`/`.admitted` leave the
+span `.unsealed` rather than calling it `.verified` (nothing signed these bytes,
+and **this device's own unsealed tail is never held or refused** — typing
+appends unsealed lines all day, and the chained WRITE's own `.mine`-only closure
+would otherwise refuse to seal the file it is appending to), and `.retired`
+keeps rather than refuses, because its answer turns on a seal's moment and there
+is no seal: refusing would set aside the last tail of every device that ever
+retired, under a sentence that is false about it. `PermitPartition`'s
+`attributableKeys` gained the same filename fallback for a file holding no seal
+at all, which is *never seal once* — the bypass its trailing-span rule already
+closes one word along.
+
 **The third line state.** `Line.State.pending(device: String)` joined `legacy`,
 `verified`, `unsealed`, `unsignedHistory`, `quarantined` and `tornTail` — read
 the enum, not this sentence — and the mapping

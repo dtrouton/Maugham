@@ -174,6 +174,33 @@ final class PermitLoadTests: XCTestCase {
         return url
     }
 
+    /// The same file with **nothing sealing it** — a stream mid-burst, and the
+    /// shape every fixture above seals past (Task 11, audit PR #65's F1).
+    ///
+    /// A file with no seal at all has no key the partition can read a verdict
+    /// off, so before Task 11 its lines were applied unjudged: *never seal
+    /// once* was the bypass the trailing-span rule already closes one word
+    /// along. The file's own NAME is what answers it now.
+    @discardableResult
+    private func writeFileUnsealed(by identity: DeviceIdentity, ops: [Op]) throws -> URL {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+        var bytes = Data()
+        var head: String?
+        for element in try ops.map({ try encoder.encode($0) }) {
+            let line = OpLogChain.chainedLine(
+                elementJSON: element, prev: head ?? OpLogChain.genesis)
+            bytes.append(line)
+            bytes.append(0x0A)
+            head = OpLogChain.lineHash(line)
+        }
+        let url = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: identity.slug, in: projectURL)
+        try bytes.write(to: url, options: .atomic)
+        return url
+    }
+
     /// The same bytes, unwritten — for the one test that puts a file where its
     /// own name does not belong.
     private func fileBytes(by identity: DeviceIdentity, ops: [Op]) throws -> Data {
@@ -453,6 +480,53 @@ final class PermitLoadTests: XCTestCase {
             linesRecords().map(\.reason),
             ["written into the manuscript by a device that may not write it here"],
             "written under the permit she was admitted with — nothing changed first")
+    }
+
+    // MARK: - A file with no seal at all is still judged (Task 11, F1)
+
+    /// **A reviewer's UNSEALED manuscript text is refused by permit**, and her
+    /// note beside it applies — the same line-by-line answer a sealed file
+    /// gets, in a file nothing has signed yet.
+    ///
+    /// `attributableKeys` reads a line's key off the seal that covers it, so a
+    /// file holding no seal had no key for any of its lines and the partition
+    /// returned before it judged one. The filename's slug names her key
+    /// instead, matched against her signed device record — a claim checked, not
+    /// believed — and everything downstream is unchanged.
+    ///
+    /// Both readers, through `appliedOpIds`.
+    func test_aReviewersUnsealedManuscriptTextIsRefusedInAFileWithNoSeal()
+    async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("a", kind: .admitted, role: Permit.reviewerRole)
+        try writeFileUnsealed(by: sam.author, ops: [
+            op("text", by: sam.author),
+            op("note", by: sam.author, kind: .claudeComment),
+        ])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["note"],
+                       "a reviewer's note applies; her manuscript text does "
+                           + "not, sealed or not")
+        XCTAssertEqual(
+            linesRecords().map(\.reason),
+            ["written into the manuscript by a device that may not write it here"])
+    }
+
+    /// The neutrality pair: **a book author's unsealed file applies whole**, so
+    /// nothing about an ordinary book moved.
+    func test_aBookAuthorsUnsealedFileAppliesWhole() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeFileUnsealed(by: sam.author, ops: [
+            op("text", by: sam.author),
+            op("note", by: sam.author, kind: .claudeComment),
+        ])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["note", "text"].sorted())
+        XCTAssertEqual(linesRecords(), [])
     }
 
     // MARK: - §5 row 1's scope half, both directions

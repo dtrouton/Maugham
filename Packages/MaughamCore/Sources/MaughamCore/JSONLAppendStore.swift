@@ -123,7 +123,12 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         let walked = OpLogChain.verify(
             bytes: bytes,
             trust: chain.trust,
-            rememberedHead: chain.state.head(for: fileKey))
+            rememberedHead: chain.state.head(for: fileKey),
+            // **Arm 2 of *the file's key*** (Task 11), from the same judge the
+            // permit partition below is given. A caller with no table passes
+            // none, so an inbox manifest or annotation log read without one is
+            // byte-for-byte what it was.
+            keyOfAnUnsealedFile: { PermitMark.keyNaming(fileURL, in: judge?.trust) })
         // The same absent-head decision the op log's own reader and this
         // store's chained WRITE make — one rule for every chained stream, so
         // the inbox and the annotation log cannot grow an opinion of their own

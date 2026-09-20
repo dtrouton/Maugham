@@ -707,6 +707,8 @@ public enum OpLogChain {
     ///    every `.unsealed` line since the last seal to whatever `trust`
     ///    answers about the key that made it — `.verified`, `.pending`,
     ///    `.unsignedHistory` or `.quarantined`, per `TrustVerdict.settling`.
+    /// 6. **And what NO seal has closed answers to the file's own key** (Task
+    ///    11, audit PR #65's F1 + F2). See `judgingWhatNoSealHasClosed`.
     ///
     /// **A refused span does not break the chain.** A verdict is about WHOSE
     /// word a span is, not about whether the bytes follow from each other, so
@@ -715,10 +717,20 @@ public enum OpLogChain {
     /// this path — `applied` filters by state and never by position, and the
     /// chained WRITE (whose rewrite does assume a prefix) judges by `.mine`
     /// alone, so it cannot produce one of these.
+    ///
+    /// - Parameter keyOfAnUnsealedFile: **arm 2 of *the file's key*** — the key
+    ///   this device can NAME for a file that holds no usable seal at all,
+    ///   asked at most once and only when there is something unsealed to judge.
+    ///   It is a closure rather than a value so this type stays ignorant of
+    ///   device records and filenames: the caller that can join a slug to a key
+    ///   supplies one, and every other caller — the keyless walks, the chained
+    ///   write, the tests that pin the chain's own rules — takes the default
+    ///   and behaves exactly as it did.
     public nonisolated static func verify(
         bytes: Data,
         trust: (String) -> TrustVerdict,
-        rememberedHead: String?
+        rememberedHead: String?,
+        keyOfAnUnsealedFile: () -> String? = { nil }
     ) -> Verification {
         verifyObserverForTesting?()
         var lines: [Line] = []
@@ -729,6 +741,10 @@ public enum OpLogChain {
         var cause: QuarantineCause?
         var foreignSealCount = 0
         var reachedRememberedHead = false
+        // Arm 1 of *the file's key*: the LAST seal in the file that parsed and
+        // chain-verified, whatever this device makes of its key. Set past all
+        // three of the seal guards, so a forged or misplaced seal names nothing.
+        var lastSealKey: String?
 
         // One cause per verification, and it is the first one met.
         func broke(_ reason: BreakReason) {
@@ -819,6 +835,7 @@ public enum OpLogChain {
                                       refusal: .chainBroke(reason)))
                     continue
                 }
+                lastSealKey = seal.key
                 let verdict = trust(seal.key)
                 if verdict != .mine { foreignSealCount += 1 }
                 // The seal's own moment, because one verdict — `.retired` —
@@ -842,6 +859,15 @@ public enum OpLogChain {
 
             head = lineHash(line)
             if let rememberedHead, head == rememberedHead { reachedRememberedHead = true }
+        }
+
+        // **Rule 6, after the walk, because only here has every seal been
+        // seen.** What no seal closed is judged by the file's own key.
+        if let judged = judgingWhatNoSealHasClosed(
+            &lines, trust: trust,
+            fileKey: { lastSealKey ?? keyOfAnUnsealedFile() }),
+           cause == nil {
+            cause = judged
         }
 
         // One pass, not five. The tallies used to be four `filter`s and a `map`
@@ -871,6 +897,67 @@ public enum OpLogChain {
             quarantined: quarantined,
             breakReason: breakReason,
             quarantineCause: quarantined.isEmpty ? nil : cause)
+    }
+
+    /// **A span no seal has closed answers to the verdict of its FILE** (Task
+    /// 11, audit PR #65's F1 + F2) — the rule that stops *never seal again*
+    /// being a way past admission, revocation and the claim alike.
+    ///
+    /// Before this, trust was consulted at `case .seal` and nowhere else. A
+    /// chained op line with a good `prev` was `.unsealed`, `isHeldBack` false,
+    /// and applied — so everything a SIGNED foreign device had written since
+    /// its last seal (up to `OpLogStore.chainSealInterval − 1` ops, or its whole
+    /// file before its first one) entered the book whatever the register said
+    /// about it. A stranger's text was in the manuscript unadmitted; a revoked
+    /// device's post-revocation tail leaked. Every P2 fixture sealed before it
+    /// asserted, which is why it shipped green in v0.39.0/v0.40.0.
+    ///
+    /// **The file's key, in three arms**, and the third one is a door left open
+    /// on purpose:
+    ///
+    /// 1. the key of the LAST seal in the file that parsed and chain-verified,
+    ///    **whatever its verdict** — a stranger's seal names the file just as
+    ///    this device's own does, because ADR 0012 gives a file one writer and
+    ///    the question here is whose file this is, not whose word to take;
+    /// 2. where there is no such seal, whatever `keyOfAnUnsealedFile` can name
+    ///    for it — in production the key this device's register holds under the
+    ///    device id the filename's slug is made from;
+    /// 3. **neither ⇒ the span is what it was: `.unsealed`, and applied.** That
+    ///    residue IS the unsigned door (P1's decision B3, ADR 0032 §3): a device
+    ///    with no enclave — a VM, CI's runner — writes chained lines nothing
+    ///    seals and reports nothing wrong, and pre-signing legacy history sits
+    ///    in the same arm. Closing it is Denver's to rule when P3b is planned;
+    ///    it is not closed here.
+    ///
+    /// What the span then becomes is `settlingAnUnsealedSpan`'s, which is
+    /// `settling`'s sibling and defers to it arm for arm.
+    ///
+    /// Every line still `.unsealed` is judged, not only the trailing span: a
+    /// seal that failed to parse or verify breaks the walk WITHOUT settling the
+    /// lines below it, so those are unsealed too, and they are no more this
+    /// device's word than the tail is.
+    ///
+    /// Answers the cause when it refused something, so the walk can keep its
+    /// one-cause-per-verification rule — and nil when it held, applied or left
+    /// everything alone, because holding names no reason for holding.
+    private nonisolated static func judgingWhatNoSealHasClosed(
+        _ lines: inout [Line],
+        trust: (String) -> TrustVerdict,
+        fileKey: () -> String?
+    ) -> QuarantineCause? {
+        // Asked before the key is, so a file whose every line a seal already
+        // settled never pays for the lookup arm 2 would do.
+        guard lines.contains(where: { $0.state == .unsealed }),
+              let key = fileKey()
+        else { return nil }
+        let verdict = trust(key)
+        guard let settled = verdict.settlingAnUnsealedSpan(sealKey: key)
+        else { return nil }
+        let refusal = settled == .quarantined ? verdict.refusal : nil
+        for index in lines.indices where lines[index].state == .unsealed {
+            lines[index].settle(settled, because: refusal)
+        }
+        return refusal
     }
 
     /// The keyless walk: `true` is this device's own key, `false` is a key it
@@ -914,6 +1001,62 @@ extension TrustVerdict {
         case let .retired(_, retiredAt):
             sealedAt < retiredAt ? .verified : .quarantined
         case .noChain: .unsignedHistory
+        }
+    }
+
+    /// **The same table, for a span NO seal has closed** (Task 11) — the state
+    /// such a span settles to, or **nil for *leave it exactly as the walk found
+    /// it***, which is `.unsealed` and applied.
+    ///
+    /// It is a sibling of `settling` rather than a call into it, because two of
+    /// the seven arms cannot be answered the same way and the difference is the
+    /// whole of this function. Arm by arm, against `settling`'s own line:
+    ///
+    /// - `.mine`, `.admitted` — `settling` says `.verified`; here, nil.
+    ///   `.verified` means *covered by a seal whose key the caller trusts*, and
+    ///   these bytes are covered by no seal at all, so claiming it would be a
+    ///   lie about provenance in the writer's own History pane. Nothing is held
+    ///   either way, which is what matters: **this device's own unsealed tail
+    ///   is never held and never refused**, because typing appends unsealed
+    ///   lines all day and a writer whose words waited for a seal would be
+    ///   watching their sentence disappear between bursts.
+    /// - `.stranger` — `.pending(device: device ?? sealKey)`, the SAME device
+    ///   string the sealed case uses. The admission union keys on it, so a
+    ///   different string here would ask the writer about one device twice.
+    /// - `.revoked`, `.otherRoot` — `.quarantined`, in the verdict's own words,
+    ///   exactly as `settling` refuses them. A revoked span then travels
+    ///   through `RevocationSplit` like any other refused one, so *keep what
+    ///   this Mac had already applied* still keeps it: the lines carry
+    ///   `.afterRevocation` as their OWN refusal, which is what makes them
+    ///   candidates for the cut.
+    /// - `.retired` — nil, and this is the one arm `settling` cannot be matched
+    ///   on. Its answer turns on `sealedAt`, and a span no seal has closed has
+    ///   no sealed-at: the only two readings are *before it retired* (keep) and
+    ///   *at or after it* (refuse). Refusing would set aside the last tail of
+    ///   every device that ever retired — the words it wrote while it was still
+    ///   in use, since nothing in `RegistryAdmission.retire` seals an op log —
+    ///   under a sentence (*written after this device was retired*) that is
+    ///   false about them. The arm that cannot lose the retired device's own
+    ///   view is therefore to keep. The residue is bounded and stated in
+    ///   `AREA.md`: a retired device that goes on writing keeps at most
+    ///   `chainSealInterval − 1` ops applied, because the app seals after every
+    ///   burst and at every close, and any span it seals after `retiredAt` is
+    ///   refused exactly as P2b refuses it.
+    /// - `.noChain` — nil, NOT `settling`'s `.unsignedHistory`. Both are
+    ///   applied, so nothing about the book changes; what changes is the
+    ///   sentence History draws off the count, and a live tail is partly
+    ///   unsealed by construction. Calling it unsigned history would put a
+    ///   standing notice on every ordinary file. Arm 3's door is this one and
+    ///   it stays open.
+    ///
+    /// A seventh verdict is a compile error here, as it is in `settling`.
+    nonisolated func settlingAnUnsealedSpan(sealKey: String) -> OpLogChain.Line.State? {
+        switch self {
+        case .mine, .admitted: nil
+        case let .stranger(device): .pending(device: device ?? sealKey)
+        case .revoked, .otherRoot: .quarantined
+        case .retired: nil
+        case .noChain: nil
         }
     }
 
