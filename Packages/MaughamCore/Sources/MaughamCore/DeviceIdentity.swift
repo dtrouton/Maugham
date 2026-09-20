@@ -124,7 +124,20 @@ public struct DeviceIdentity: Sendable {
         guard parts.count >= 2 else { return nil }
         let hex = parts[1]
         guard hex.count >= 8, key.hasPrefix(hex) else { return nil }
-        return DeviceActor(rawValue: String(parts[0]))
+        return claimedActor(ofDeviceId: id)
+    }
+
+    /// **The actor word an id or a slug CLAIMS**, with nothing to check it
+    /// against.
+    ///
+    /// Its one honest use is deciding whether a file is worth the work of
+    /// being read more carefully — never what a line is judged by, which is
+    /// `actor(ofDeviceId:signingWith:)`'s, and which checks the claim against
+    /// the key that actually signed. Here rather than at either caller so the
+    /// shape of the name is taken apart in one place (tripwire 35).
+    nonisolated public static func claimedActor(ofDeviceId id: String) -> DeviceActor? {
+        guard let hyphen = id.firstIndex(of: "-") else { return nil }
+        return DeviceActor(rawValue: String(id[id.startIndex..<hyphen]))
     }
 
     /// Sign a 32-byte digest, answering the 64-byte **raw** representation of

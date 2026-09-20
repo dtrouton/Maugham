@@ -689,6 +689,51 @@ final class PermitLoadTests: XCTestCase {
                        "the mark cuts inside the segment, exactly as in the tail")
     }
 
+    /// **A contested actor key stays nobody's** (fix round 3, minor 2).
+    ///
+    /// Two device records claim one key, so `Registry.actorKeyOwners` awards
+    /// it to neither — and the filename must not step in and decide the one
+    /// thing the dispute rule refuses to decide. A person record naming that
+    /// key makes its lines APPLIED at the verdict, so they really do reach the
+    /// partition; they are held there, never narrowed by a name.
+    func test_aContestedActorKeyIsNarrowedByNothing() async throws {
+        try writeRootRecord()
+        // Two verified device records, both claiming Sam's assistant key.
+        for (owner, name) in [(sam.author, "Sam’s Mac"), (sam.translator, "A liar")] {
+            try RegistryWriter.write(
+                DeviceRecord(
+                    device: owner.fingerprint, name: name, kind: .mac,
+                    actors: [
+                        DeviceActor.author.rawValue: owner.fingerprint,
+                        DeviceActor.assistant.rawValue: sam.assistant.fingerprint,
+                    ],
+                    madeAt: Date(timeIntervalSince1970: 5)),
+                signedBy: owner, in: projectURL)
+        }
+        // And a person record for the contested key itself, which is what the
+        // admission sheet offers when a held span has no owner to name.
+        try RegistryWriter.write(
+            PersonRecord(
+                person: sam.assistant.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+                admittedAt: Date(timeIntervalSince1970: 20), admittedBy: rootPerson),
+            signedBy: root.author, in: projectURL)
+        try writeFile(
+            by: sam.assistant,
+            ops: [op("aNote", by: sam.assistant, kind: .claudeComment)])
+
+        let table = try await reader().trust()
+        XCTAssertNil(table.actor(forSealKey: sam.assistant.fingerprint),
+                     "the dispute rule awards it to nobody")
+        XCTAssertTrue(table.aDeviceRecordNames(sam.assistant.fingerprint),
+                      "and the registry HAS an opinion about it, so no filename may")
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, [], "held, not narrowed by a name")
+        let provenance = try await loadedProvenance()
+        XCTAssertEqual(provenance.pendingOpLines, 1)
+        XCTAssertEqual(provenance.quarantinedLines, 0)
+    }
+
     // MARK: - Which of the four writers a key is (fix round 1, I5)
 
     /// **A person record written for somebody's ASSISTANT key does not make
@@ -759,6 +804,111 @@ final class PermitLoadTests: XCTestCase {
         let provenance = try await loadedProvenance()
         XCTAssertEqual(provenance.pendingOpLines, 1, "held, never refused")
         XCTAssertEqual(provenance.quarantinedLines, 0)
+    }
+
+    // MARK: - What governs a stranger's lines once she is let in (fix round 3)
+
+    /// **A stranger admitted as a REVIEWER is a reviewer for what she wrote
+    /// while she was a stranger.**
+    ///
+    /// Her held lines are SEEN, so the admission's mark names them and they
+    /// judge OLD — and if the opening entry were the book author's, admitting
+    /// her would apply her manuscript text. Her notes are hers on any rung and
+    /// are applied; her text is not and is set aside.
+    func test_aStrangerAdmittedAsAReviewerHasHerTextRefusedAndHerNotesKept() async throws {
+        try writeRootRecord()
+        try samsFile([
+            op("herNote", by: sam.author, kind: .claudeComment),
+            op("herText", by: sam.author),
+        ])
+        let held = try await loadedProvenance().pendingOpLines
+        XCTAssertEqual(held, 2, "a stranger's span is held before she is let in")
+
+        let seen = try await seenMark()
+        try admitSam()
+        try writeEvent("a", kind: .admitted, role: Permit.reviewerRole, mark: seen)
+
+        let applied = try await appliedOpIds("once she is a reviewer")
+        XCTAssertEqual(applied, ["herNote"])
+        XCTAssertEqual(
+            linesRecords().map(\.reason),
+            ["written into the manuscript by a device that may not write it here"])
+    }
+
+    /// The other direction: admitted as an author of the whole book, the same
+    /// held span applies whole.
+    func test_aStrangerAdmittedAsABookAuthorHasEverythingApplied() async throws {
+        try writeRootRecord()
+        try samsFile([
+            op("herNote", by: sam.author, kind: .claudeComment),
+            op("herText", by: sam.author),
+        ])
+        let seen = try await seenMark()
+        try admitSam()
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole, mark: seen)
+
+        let applied = try await appliedOpIds("once she is a book author")
+        XCTAssertEqual(applied, ["herNote", "herText"])
+        XCTAssertTrue(linesRecords().isEmpty)
+    }
+
+    /// **And a P2-admitted author's demotion still does not reach back.** She
+    /// has a person record and no `admitted` event, which is what every P2
+    /// admission looks like, so her opening permit is the whole book.
+    func test_aP2AdmittedAuthorsDemotionDoesNotReachBack() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try samsFile([op("before", by: sam.author), op("after", by: sam.author)])
+        let url = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: sam.author.slug, in: projectURL)
+        try writeEvent("a", kind: .roleChanged, role: Permit.reviewerRole,
+                       mark: try mark(of: url, cuttingAfterLineAt: 0))
+
+        let applied = try await appliedOpIds("her first event is a demotion")
+        XCTAssertEqual(applied, ["before"])
+    }
+
+    /// A first event of a kind this build cannot read holds her lines and sets
+    /// nothing aside.
+    func test_aFirstEventOfAnUnknownKindHoldsHerLinesAndRefusesNothing() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try samsFile([op("hers", by: sam.author)])
+        try writeEvent("a", kind: .unknown("enrolled"), role: Permit.authorRole)
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, [])
+        let provenance = try await loadedProvenance()
+        XCTAssertEqual(provenance.pendingOpLines, 1)
+        XCTAssertEqual(provenance.quarantinedLines, 0)
+        XCTAssertTrue(linesRecords().isEmpty)
+    }
+
+    // MARK: - A `.sig` that is gone only costs a walk where one is due
+
+    /// **A no-events book keeps the fast path** (fix round 3, minor 1). With
+    /// no permit history and the AUTHOR's own name on the file, the partition
+    /// could refuse nothing in it, so a missing signature buys a walk that
+    /// could only ever reach answers the fast path never would.
+    func test_aNoEventsBookKeepsTheFastPathWhenTheSignatureIsGone() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try samsFile([op("t0", by: sam.author), op("t1", by: sam.author)])
+        let samsStore = OpLogStore(
+            projectURL: projectURL, identities: sam, state: samState)
+        let segment = try await samsStore.sealTailIfNeeded(
+            docId: docId, deviceSlug: sam.author.slug, threshold: 1)
+        let first = try await appliedOpIds("before the signature goes")
+        XCTAssertEqual(first, ["t0", "t1"])
+        try FileManager.default.removeItem(
+            at: OpLogStore.segmentSignatureURL(for: try XCTUnwrap(segment)))
+
+        let applied = try await appliedOpIds("and after")
+        XCTAssertEqual(applied, ["t0", "t1"])
+        let provenance = try await loadedProvenance()
+        let file = try XCTUnwrap(provenance.files.first)
+        XCTAssertEqual(file.segmentVerified, true,
+                       "the settled fast path, not the walk")
     }
 
     // MARK: - A mark selects a PERMIT; it blesses nothing (fix round 2)

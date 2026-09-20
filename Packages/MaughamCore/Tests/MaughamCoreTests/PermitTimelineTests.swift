@@ -323,15 +323,109 @@ final class PermitTimelineTests: XCTestCase {
 
     /// A judgement list shorter than the timeline — a caller that judged only
     /// some entries — answers from the entries it did judge and never crashes.
+    ///
+    /// The event is a role CHANGE rather than an admission, so the opening
+    /// entry is still the book author's and the two arms below stay
+    /// distinguishable: after fix round 3 an `admitted` first event installs
+    /// its own permit as the opening too, which would make both arms read
+    /// `.reviewer` and this test stop discriminating.
     func test_aShortJudgementListIsAnsweredFromWhatWasJudged() {
         let timeline = PermitTimeline(events: [
-            event("a", kind: .admitted, role: Permit.reviewerRole),
+            event("a", kind: .roleChanged, role: Permit.reviewerRole),
         ])
 
         XCTAssertEqual(timeline.permits(forFile: [], lineCount: 2),
                        [.author(.book), .author(.book)])
         XCTAssertEqual(timeline.permits(forFile: [nil, .allNew(count: 2)], lineCount: 2),
                        [.reviewer, .reviewer])
+    }
+
+    // MARK: - What governs a line before the first event (fix round 3)
+
+    /// **There is nothing before an admission.** A person admitted as a
+    /// reviewer is a reviewer for everything they ever wrote — including the
+    /// lines that were held while they were a stranger, which are SEEN and so
+    /// fall at or before the admission's own mark.
+    func test_anAdmissionGovernsWhatCameBeforeItToo() {
+        let timeline = PermitTimeline(events: [
+            event("a", kind: .admitted, role: Permit.reviewerRole,
+                  mark: ["s": .init(line: "somewhere")]),
+        ])
+
+        XCTAssertEqual(timeline.entries.first?.permit, .reviewer)
+        XCTAssertEqual(
+            timeline.permits(forFile: [nil, PermitMark.Judgement(sides: [.old, .new])],
+                             lineCount: 2),
+            [.reviewer, .reviewer],
+            "both sides of the admission's mark are hers as a reviewer")
+    }
+
+    /// The other direction of the same rule: admitted as an author of the
+    /// whole book, everything she ever wrote is an author's.
+    func test_anAdmissionAsABookAuthorGovernsWhatCameBeforeItToo() {
+        let timeline = PermitTimeline(events: [
+            event("a", kind: .silentlyAdmitted, role: Permit.authorRole,
+                  mark: ["s": .init(line: "somewhere")]),
+        ])
+
+        XCTAssertEqual(timeline.entries.first?.permit, .author(.book))
+        XCTAssertEqual(
+            timeline.permits(forFile: [nil, PermitMark.Judgement(sides: [.old, .new])],
+                             lineCount: 2),
+            [.author(.book), .author(.book)])
+    }
+
+    /// **A role change is not an admission.** A person whose first event is a
+    /// change was admitted under P2, with no event to point at — and P2
+    /// admitted everybody as an author of the whole book. The opening stays
+    /// that, which is what keeps a demotion from reaching back.
+    func test_aFirstEventThatIsAChangeLeavesTheOpeningAsP2MeantIt() {
+        for kind in [PermitEvent.Kind.roleChanged, .scopeChanged, .readmitted] {
+            let timeline = PermitTimeline(events: [
+                event("a", kind: kind, role: Permit.reviewerRole,
+                      mark: ["s": .init(line: "somewhere")]),
+            ])
+
+            XCTAssertEqual(timeline.entries.first?.permit, .author(.book), "\(kind)")
+            XCTAssertEqual(
+                timeline.permits(forFile: [nil, PermitMark.Judgement(sides: [.old, .new])],
+                                 lineCount: 2),
+                [.author(.book), .reviewer],
+                "\(kind): what she wrote before it stays an author's")
+        }
+    }
+
+    /// **A first event of a kind this build cannot read holds everything.**
+    /// It cannot tell whether a later build's first event was an admission,
+    /// and the two answers are not interchangeable.
+    func test_aFirstEventOfAnUnknownKindOpensUnjudgeable() {
+        let timeline = PermitTimeline(events: [
+            event("a", kind: .unknown("enrolled"), role: Permit.authorRole),
+        ])
+
+        XCTAssertEqual(timeline.entries.first?.permit, .unjudgeable(raw: "enrolled"))
+        XCTAssertTrue(timeline.permits(forFile: [], lineCount: 2)
+            .allSatisfy(\.isUnjudgeable))
+    }
+
+    /// **The verdict's own kinds install nothing and are skipped when looking
+    /// for the first event**, so a person with only a revocation reads exactly
+    /// as they did under P2.
+    func test_aRevocationIsNotAFirstEvent() {
+        for kind in [PermitEvent.Kind.revoked, .revokedEntirely, .retired] {
+            let timeline = PermitTimeline(events: [
+                event("a", kind: kind, role: Permit.reviewerRole),
+            ])
+
+            XCTAssertEqual(timeline.entries, [.opening], "\(kind)")
+            XCTAssertEqual(timeline.current, .author(.book), "\(kind)")
+        }
+        // And one in FRONT of a real first event does not hide it.
+        let timeline = PermitTimeline(events: [
+            event("a", kind: .retired),
+            event("b", kind: .admitted, role: Permit.reviewerRole),
+        ])
+        XCTAssertEqual(timeline.entries.first?.permit, .reviewer)
     }
 
     /// A timeline stated as entries directly still opens with something: an

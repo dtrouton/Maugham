@@ -1129,7 +1129,16 @@ public final class OpLogStore {
         // A container whose signature settled it is never walked, so the lines
         // have to be constructed and the signing key read back off the `.sig`
         // beside it; `settledSegmentVerification` does both or answers nil.
-        let attributable = (settled && permit != nil && trust != nil)
+        // **And only where the partition could refuse something in a file
+        // named like this one** (fix round 3, minor 1). The gate used to be
+        // *a permit context exists*, which is every load: a no-events book's
+        // author segment whose `.sig` had gone missing was walked for nothing,
+        // and a walk can reach answers the fast path never would.
+        let mayJudge = permit != nil && trust.map {
+            PermitPartition.couldJudge(
+                aFileNamedBy: PermitMark.stream(of: url)?.deviceSlug, trust: $0)
+        } ?? false
+        let attributable = (settled && mayJudge)
             ? settledSegmentVerification(at: url, bytes: container) : nil
         // **A digest this device remembers, with the `.sig` beside it since
         // DELETED, does not get the fast path.** It used to fall through and
@@ -1140,7 +1149,7 @@ public final class OpLogStore {
         // file whose signature has gone missing — and the walk's own inner
         // seals attribute every span correctly, which is the answer that needs
         // no memory at all.
-        if settled, permit != nil, trust != nil, attributable == nil { settled = false }
+        if settled, mayJudge, attributable == nil { settled = false }
 
         let parsedAll = JSONLAppendStore<Op>.parse(
             bytes: jsonl, dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })

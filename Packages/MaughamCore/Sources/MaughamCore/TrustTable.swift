@@ -143,6 +143,14 @@ public struct TrustTable: Equatable, Sendable {
     /// .knownPeople`, carried so `isStrangerDevice` can answer without the
     /// registry the table deliberately does not keep.
     private let knownPeople: Set<String>
+    /// Every fingerprint ANY verified device record mentions, whether or not
+    /// that record ended up OWNING it. The two sets differ by exactly the
+    /// contested keys — the ones two records claim, which
+    /// `Registry.actorKeyOwners` awards to nobody — and that difference is the
+    /// whole point: a contested key is one the registry has an opinion about
+    /// even though the opinion is *nobody's*, so nothing else may step in and
+    /// name it (fix round 3, minor 2).
+    private let keysNamedByADeviceRecord: Set<String>
     /// Device fingerprint → the moment that device said it had stopped. Keyed
     /// on the DEVICE, because retirement is a machine's own act and every actor
     /// key it holds retires with it.
@@ -224,7 +232,7 @@ public struct TrustTable: Equatable, Sendable {
                 actorByKey[key] = actor
             }
         }
-                // **This device's own keys win.** A device record vouches for its own
+        // **This device's own keys win.** A device record vouches for its own
         // actors, and the reader checks only that its `author` entry is
         // itself — so a foreign record could name one of MY keys as its
         // translator and, unopposed, decide which row my own line is judged
@@ -311,6 +319,9 @@ public struct TrustTable: Equatable, Sendable {
             actorByKey: actorByKey, timelineByPerson: timelineByPerson,
             personByFingerprint: personByFingerprint,
             knownPeople: registry.knownPeople,
+            keysNamedByADeviceRecord: registry.devices.reduce(into: Set()) {
+                $0.formUnion($1.actorFingerprints)
+            },
             retiredAtByDevice: retiredAtByDevice, myChain: myChain,
             otherRootByMember: otherRootByMember)
     }
@@ -476,16 +487,38 @@ public struct TrustTable: Equatable, Sendable {
         !knownPeople.contains(fingerprint)
     }
 
-    /// **Does a verified device record OWN this key**, whatever it calls it?
+    /// **Does a verified device record NAME this key**, whatever it calls it
+    /// and whoever ends up owning it?
     ///
     /// The question a reader asks before it falls back to reading an actor off
-    /// a filename (P3a Task 5's fix round 1, I5). `actor(forSealKey:)` answers
-    /// nil for two quite different situations — a record owns the key and
-    /// calls it an actor word this build cannot read, and no record mentions
-    /// the key at all — and only the second may be narrowed by anything else.
-    /// The first must stay nil, or a later build's fifth writer would be
-    /// guessed at.
-    nonisolated public func aDeviceRecordOwns(_ fingerprint: String) -> Bool {
-        deviceByActorKey[fingerprint] != nil
+    /// a filename (fix round 1's I5). `actor(forSealKey:)` answers nil for
+    /// **three** quite different situations, and only the last of them may be
+    /// narrowed by anything else:
+    ///
+    /// 1. **A record owns the key and calls it an actor word this build cannot
+    ///    read** — a later build's fifth writer. It must stay nil, or the word
+    ///    would be guessed at.
+    /// 2. **Two records claim the key, so it is nobody's** (round 2 of Task 3's
+    ///    review: *a disputed actor key belongs to nobody for good*). It must
+    ///    stay nil too, and this is why the question is NAMES rather than
+    ///    OWNS: `Registry.actorKeyOwners` drops a contested key, so an
+    ///    ownership test would hand it to the filename — letting the one thing
+    ///    the dispute rule refuses to decide be decided by a file's name.
+    /// 3. **No record mentions the key at all** — a person admitted before
+    ///    their device record has synced. Only here does the filename narrow.
+    ///
+    /// (In practice a contested key's lines are usually never seen by the
+    /// partition at all: with no owner it resolves to itself, and a key no
+    /// person record names is a `.stranger`, held. But a contested key CAN
+    /// carry a person record — the admission sheet offers a held span under
+    /// `device ?? sealKey` — and then its lines are applied and do reach here,
+    /// which is why this is a rule and not an observation.)
+    nonisolated public func aDeviceRecordNames(_ fingerprint: String) -> Bool {
+        keysNamedByADeviceRecord.contains(fingerprint)
     }
+
+    /// **Has anything ever happened to anybody's permit in this book?** False
+    /// is every book written before P3, and it is what lets a reader skip work
+    /// whose only possible product is *yes* (fix round 3, minor 1).
+    nonisolated public var hasPermitEvents: Bool { !timelineByPerson.isEmpty }
 }

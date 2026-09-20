@@ -287,6 +287,34 @@ public enum PermitPartition {
         trust.myRoot != nil
     }
 
+    /// **Could this partition refuse or hold anything in a file named like
+    /// this, without knowing which key sealed it?** (fix round 3, minor 1.)
+    ///
+    /// The one caller is `classifySegment`, deciding whether a segment whose
+    /// signature it cannot read is worth WALKING rather than applying whole.
+    /// Walking such a file is what stops a demoted device escaping the permit
+    /// by deleting its own `.sig` — but a walk is not free, and it can reach
+    /// answers the fast path never would (a break inside the container), so it
+    /// must not happen where the partition would refuse nothing anyway.
+    ///
+    /// Three questions, narrowing: this device must be on a chain at all; any
+    /// permit history in the book means some key here might be narrowed; and
+    /// with NO history the only thing that can refuse is one of the three
+    /// narrowed actor rows, so a file the AUTHOR's own name is on has nothing
+    /// to judge. The name is a CLAIM with nothing checking it — which is safe
+    /// in this direction only, because a lie about it costs a walk and buys
+    /// nothing: the walk is the careful path.
+    public static func couldJudge(
+        aFileNamedBy deviceSlug: String?, trust: TrustTable
+    ) -> Bool {
+        guard judgesAnything(trust) else { return false }
+        if trust.hasPermitEvents { return true }
+        guard let deviceSlug,
+              let claimed = DeviceIdentity.claimedActor(ofDeviceId: deviceSlug)
+        else { return true }
+        return claimed != .author
+    }
+
     /// Applied by the walk: neither held back nor a torn last line.
     private static func isApplied(_ line: OpLogChain.Line) -> Bool {
         !line.state.isHeldBack && line.state != .tornTail
@@ -416,7 +444,7 @@ public enum PermitPartition {
         ofSealKey key: String, trust: TrustTable, deviceSlug: String?
     ) -> DeviceActor? {
         if let recorded = trust.actor(forSealKey: key) { return recorded }
-        guard !trust.aDeviceRecordOwns(key), let deviceSlug else { return nil }
+        guard !trust.aDeviceRecordNames(key), let deviceSlug else { return nil }
         return DeviceIdentity.actor(ofDeviceId: deviceSlug, signingWith: key)
     }
 

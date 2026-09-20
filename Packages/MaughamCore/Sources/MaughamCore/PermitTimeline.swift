@@ -101,14 +101,61 @@ public struct PermitTimeline: Equatable, Hashable, Sendable {
     ///   permit a newer Mac may have narrowed, and refusing them would
     ///   quarantine what a newer Mac applies.
     public init(events: [PermitEvent]) {
-        var built: [Entry] = [.opening]
-        for event in events.sorted(by: { $0.event < $1.event }) {
+        let ordered = events.sorted(by: { $0.event < $1.event })
+        var built: [Entry] = [Self.opening(before: ordered)]
+        for event in ordered {
             guard let permit = Self.installedPermit(of: event) else { continue }
             built.append(Entry(
                 permit: permit, mark: PermitMark(event.mark),
                 event: event.event, kind: event.kind, at: event.at))
         }
         entries = built
+    }
+
+    /// **What governs a line written before this person's first event**
+    /// (P3a Task 5's fix round 3).
+    ///
+    /// The opening entry is where every line lands that every mark judges
+    /// OLD, and reading it as *author of the whole book* unconditionally is
+    /// wrong in one direction and load-bearing in the other:
+    ///
+    /// - **A stranger's held lines are SEEN.** So the `admitted` event that
+    ///   lets them in carries a mark naming them, they judge OLD, and they
+    ///   fall to the opening entry — which would apply a REVIEWER's manuscript
+    ///   text as a book author's, the moment she was admitted. There is
+    ///   nothing before an admission: that event's permit governs everything
+    ///   the person ever wrote, on both sides of its mark, and the mark is
+    ///   meaningless for judging (the entry the event installs carries the
+    ///   same permit, so which side a line falls on does not matter).
+    /// - **A role or scope change is not an admission.** A person whose first
+    ///   event is one of those was admitted under P2, with no `admitted` event
+    ///   to point at, and **P2 admitted everybody as an author of the whole
+    ///   book**. Reading the opening as anything else would make every
+    ///   demotion reach back through work the writer has read for months.
+    ///
+    /// An `unknown` first kind is **pending**: this build cannot tell whether
+    /// a later one's first event was an admission, and the two answers are not
+    /// interchangeable. Pending is recoverable; applying wrongly is not.
+    ///
+    /// `revoked` / `revokedEntirely` / `retired` are skipped, because they
+    /// install no entry at all — they are the VERDICT's business, and the role
+    /// they carry is the state they found rather than a change they make.
+    private static func opening(before ordered: [PermitEvent]) -> Entry {
+        guard let first = ordered.first(where: { installedPermit(of: $0) != nil })
+        else { return .opening }
+        switch first.kind {
+        case .admitted, .silentlyAdmitted:
+            return Entry(permit: Permit(event: first), mark: nil)
+        case .roleChanged, .scopeChanged, .readmitted:
+            return .opening
+        case let .unknown(raw):
+            return Entry(permit: .unjudgeable(raw: raw), mark: nil)
+        case .revoked, .revokedEntirely, .retired:
+            // Unreachable — `installedPermit` answered nil for these, so
+            // `first(where:)` skipped them. Spelled rather than defaulted, so
+            // a ninth kind is a compile error here too.
+            return .opening
+        }
     }
 
     /// A timeline built from entries directly — the door a test uses to state
