@@ -143,6 +143,21 @@ public final class PendingBuffer {
         case unrecoverable(name: String, reason: String, raw: String?)
     }
 
+    /// **This device's pending file, named without being touched** (P3a Task 8).
+    ///
+    /// A device that may not write this piece must not fold the file — and must
+    /// not READ it into the buffer either, because a buffer with something in
+    /// it is a buffer `flushBurstNow` turns into an op at the next close. So
+    /// the load asks only whether there IS one, and names it in the report the
+    /// writer sees. Nothing is opened, nothing is decoded, nothing moves: the
+    /// bytes stay exactly where the crashed session left them, for a later load
+    /// under a permit that allows the fold.
+    public func fileNameIfOnDisk() -> String? {
+        let url = file()
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url.lastPathComponent
+    }
+
     @discardableResult
     public func loadFromDisk() async -> LoadOutcome {
         let url = file()

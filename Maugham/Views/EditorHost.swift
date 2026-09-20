@@ -107,11 +107,32 @@ struct EditorHost: View {
     /// and it is correct whichever of the two returns first.
     @State private var loads = EditorHostLoadGeneration()
 
-    /// The load failure the writer is shown instead of an eternal "Loading…"
-    /// (RULING-7 + RULING-54): a document that REFUSES to open — an unreadable
-    /// op-log file, an unlistable ops directory — says why, in the load
-    /// error's own words, right where the manuscript would have been.
-    @State private var loadError: String? = nil
+    /// **What a document that did not open is showing**, instead of an eternal
+    /// "Loading…" (RULING-7 + RULING-54, widened by signed op log P3a Task 8).
+    ///
+    /// ONE `@State`, widened rather than joined by a second (tripwire 6): a
+    /// refusal and the waiting state are the same slot — no manuscript on
+    /// screen and a sentence saying why — and two pieces of state for one slot
+    /// could disagree about which is true.
+    enum LoadOutcome: Equatable {
+        /// A document that REFUSES to open — an unreadable op-log file, an
+        /// unlistable ops directory — said why in the load error's own words.
+        case refused(String)
+        /// Spec §4.6: this Mac may not write this piece and its history has not
+        /// arrived here yet. **Not a failure**: no notice is posted, no
+        /// recovery ladder is offered, and the load is re-attempted by itself
+        /// when the piece's ops change on disk.
+        case waitingForPiece(docId: String, sentence: String)
+
+        var sentence: String {
+            switch self {
+            case .refused(let message): return message
+            case .waitingForPiece(_, let sentence): return sentence
+            }
+        }
+
+    }
+    @State private var loadOutcome: LoadOutcome? = nil
 
     /// The derived translated surface shown in read-only translation review
     /// (Task 11), or nil when the editor shows the source manuscript. This is
@@ -357,19 +378,51 @@ struct EditorHost: View {
         // when the window arrives. `consumePendingRecoveryFailure` is
         // consume-once, so at most one of the two triggers posts.
         .onChange(of: window) { _, _ in deliverPendingRecoveryNoticeIfPossible() }
+        // **The waiting state's own re-attempt** (spec §4.6, P3a Task 8). A
+        // piece this Mac may not write yet is waiting for its OPS, and the
+        // presenter already routes every `.maugham/ops/` change through
+        // `MaughamSidecarPath` — `DocumentStore` posts this for a document
+        // nothing has open, which is precisely the waiting one. Guarded on the
+        // waiting state AND on the doc id, so an ordinary refusal is never
+        // re-attempted (its notice would post again) and another chapter's
+        // sync never disturbs this one.
+        .onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: window) { note in
+            guard case .waitingForPiece(let waitingFor, _) = loadOutcome,
+                  note.userInfo?[MaughamEvent.annotationDocIdKey] as? String
+                    == waitingFor
+            else { return }
+            loadOutcome = nil
+            loadedItemId = nil
+            Task { await loadDocumentIfNeeded() }
+        }
     }
 
     /// RULING-54 (M9-OL-010): post the crash-recovery notice exactly once,
     /// and only when a window exists to render it. Without a window the stamp
     /// stays on the document for the next trigger.
+    ///
+    /// **Two causes, two sentences** (P3a Task 8). RULING-54's is *we could not
+    /// read it, and what could be salvaged is in a record*. The permit's is *we
+    /// read nothing and touched nothing* — saying a record was set aside there
+    /// would be untrue, and the file is not lost but waiting.
     private func deliverPendingRecoveryNoticeIfPossible() {
         guard window != nil, let doc = document,
               let failure = doc.consumePendingRecoveryFailure() else { return }
-        MaughamEvent.postNotice(
-            "Maugham couldn’t recover unsaved keystrokes from your last session "
-            + "(\(failure.name): \(failure.reason)). Everything you saved is intact; "
-            + "a record of what couldn’t be read was set aside inside the project.",
-            projectURL: store.url)
+        switch failure.cause {
+        case .unreadable:
+            MaughamEvent.postNotice(
+                "Maugham couldn’t recover unsaved keystrokes from your last session "
+                + "(\(failure.name): \(failure.reason)). Everything you saved is intact; "
+                + "a record of what couldn’t be read was set aside inside the project.",
+                projectURL: store.url)
+        case .notPermitted:
+            MaughamEvent.postNotice(
+                "Unsaved keystrokes from an earlier session are still here, "
+                + "untouched (\(failure.name)) — \(failure.reason), so they "
+                + "haven’t been added to it. They’ll be picked up the next time "
+                + "you open it after that changes.",
+                projectURL: store.url)
+        }
     }
 
     /// What a document that did not open shows: the recovery ladder when the
@@ -394,7 +447,7 @@ struct EditorHost: View {
             DocumentRecoveryPane(model: paneModel)
                 .id(ObjectIdentifier(paneModel))
         } else {
-            placeholder(loadError ?? "Loading…")
+            placeholder(loadOutcome?.sentence ?? "Loading…")
         }
     }
 
@@ -466,7 +519,7 @@ struct EditorHost: View {
             document = doc
             loadedItemId = item.id
             priorLoadedPath = path
-            loadError = nil
+            loadOutcome = nil
             // Symmetry with every other teardown: stop the watch before
             // dropping the model. The pane is about to leave the screen, but
             // its `.onDisappear` cannot run until a render pass this bind
@@ -484,7 +537,7 @@ struct EditorHost: View {
             // rung, Restore from Backup, is still the right offer — so the
             // refusal is told as a notice rather than into a `loadError` the
             // pane is covering (RULING-5: never a silent refusal).
-            loadError = error.localizedDescription
+            loadOutcome = .refused(error.localizedDescription)
             MaughamEvent.postNotice(
                 "Maugham couldn’t open a read-only view of this document "
                 + "(\(error.localizedDescription)).",
@@ -562,7 +615,7 @@ struct EditorHost: View {
             do {
                 docId = try resolveDocId(for: docURL)
             } catch {
-                loadError = error.localizedDescription
+                loadOutcome = .refused(error.localizedDescription)
                 MaughamEvent.postNotice(
                     "Maugham couldn’t work out which document this history "
                     + "belongs to, so it set nothing aside "
@@ -587,7 +640,7 @@ struct EditorHost: View {
                 // stays put, and their next attempt reclassifies against
                 // whatever STILL blocks the load — which is exactly the files
                 // that did not move.
-                loadError = error.localizedDescription
+                loadOutcome = .refused(error.localizedDescription)
                 MaughamEvent.postNotice(
                     "Maugham couldn’t set “\(target.url.lastPathComponent)” aside "
                     + "(\(Self.explainSetAsideFailure(error))). Nothing was lost — "
@@ -1062,7 +1115,7 @@ struct EditorHost: View {
             document = doc
             loadedItemId = item.id
             priorLoadedPath = path
-            loadError = nil
+            loadOutcome = nil
             // A document that opened has no refusal to show: the ladder goes
             // away with the failure that raised it. This is the belt — the
             // stop-and-drop before the load's first suspension (defence 1)
@@ -1161,10 +1214,25 @@ struct EditorHost: View {
             recoveryBannerModel = nil
             loadedItemId = item.id
             priorLoadedPath = nil
+            // **Spec §4.6's waiting state, which is not a failure** (P3a Task
+            // 8). This Mac may not write this piece and its history has not
+            // arrived here yet — so nothing is wrong, there is nothing to
+            // recover, and the writer is owed a sentence rather than an alarm.
+            // No notice (a toast says *something happened*, and nothing did),
+            // no recovery ladder (its three rungs all propose writing), and
+            // nothing at all is read from the `.md` (tripwire 20): the pane
+            // draws the sentence and the re-attempt below waits for the ops.
+            if case DocumentLoadError.waitingForPiece(let docId, _) = error {
+                recoveryPaneModel = nil
+                loadOutcome = .waitingForPiece(
+                    docId: docId,
+                    sentence: error.localizedDescription)
+                return
+            }
             // RULING-7 + RULING-54: the refusal is SHOWN — in the pane where
             // the manuscript would be, and as a project notice — never an
             // eternal "Loading…" placeholder over a real error.
-            loadError = error.localizedDescription
+            loadOutcome = .refused(error.localizedDescription)
             MaughamEvent.postNotice(error.localizedDescription, projectURL: store.url)
             // Recovery spec §3: classify the refusal, and mint the ladder's
             // model HERE — the one place a cause is known — so the pane's
