@@ -1031,6 +1031,296 @@ own device folder what is in it.
 takes the author's fingerprint as its identity, because a device that re-keys
 re-keys all four. P2's registry admits a person, a device **and an actor**.
 
+## Addendum — the permit, enforced, 2026-09-20 (P3a)
+
+P2 asked one question of a key: *is this somebody this book admits?* P3 asks
+the next one — **admitted to write WHAT** — and answers it where lines are
+read. No surface; a permit cannot yet be given to anybody from inside Maugham
+(that is P3b), and the membrane and the phone are P3c's. What ships is the
+mechanism, and it is **behaviour-neutral for every book that exists**: a book
+with no permit events makes every admitted person an author of the whole book
+from the start, which is exactly what P2 meant, and the whole P2 suite passes
+untouched.
+
+### The ladder, and the one table
+
+Three rungs (spec §2): a **reviewer** may sign annotations, edits of their own
+annotations, and inbox rows; an **author of some pieces** may sign everything
+inside her pieces and takes the reviewer's row everywhere else; an **author of
+the whole book** may sign everything, project statements included. `Permit` is
+the value, `Permit.allows` the one table, and its switch over `OpKind` carries
+no `default:` on purpose — a kind a later build adds fails to compile there
+until somebody decides who may sign it. Which ops become words is **asked of
+`Deriver.appliesToManuscript`** rather than restated: a second copy would
+drift, and the drift would wave a prose-moving kind through on the reviewer
+row.
+
+**The fourth answer is the one that matters most.** A permit is parsed from
+strings in a signed file, and a build meeting a `role`, a `scope`, an event
+`kind` or an `OpKind` it does not recognise has met a LATER build's
+vocabulary. It must not guess, and above all must not guess *reviewer*: an
+unrecognised anything holds that person's lines PENDING and never sets them
+aside. `Permit.unjudgeable` and `Allowed.cannotJudge` are how that reaches the
+table. An older Mac must not quarantine what a newer one would apply.
+
+**The actor rows are the constitution's sentence at the storage layer.** A
+person's permit gates their devices; the actor gates each of that device's
+four keys within it. `assistant` — anything through MCP — gets exactly the
+reviewer's row, which is what *MCP never mutates manuscript text* becomes when
+it is enforced by the reader rather than by the tool catalogue;
+`translator` gets a row of its own (translation records and nothing else);
+`maugham` signs only the rebalance; `author` keeps everything the person's own
+rung allows. These bind in EVERY book, evented or not — they are not a permit
+anybody was given, they are what each key is for.
+
+### Events are the history, and the timeline is what the check reads
+
+`PersonRecord.role` is a convenience: what somebody may write *today*. What
+judges a LINE is the permit its signer held **when they wrote it**. A person
+demoted on Tuesday wrote her chapters on Monday as an author; a check reading
+the record's field would set every one of them aside, and the same mistake in
+the other direction would pardon text the book had already refused. Both
+failures are silent.
+
+So the register gains a **fourth directory**, `.maugham/people/events`, one
+signed record per event (a shared append-only file is tripwire 17), written by
+`RegistryAdmission` alone and spelled — like the other three — only in
+`RegistryWriter.directoryURL`. `PermitTimeline` turns a person's events into
+an ordered run of `(permit, mark)` entries; `TrustTable` builds one per person
+from `TrustResolution.verifiedRegistry`'s single read, and the permit travels
+to the walk on the verdict. There is **no second table** (tripwire 39).
+
+Two authority questions guard an event, and the second is about its subject
+rather than its signer. `RegistryReader` lists an event malformed when its
+signer is not a root entitled to make it
+(`MalformedRecord.Reason.eventSignerHasNoAuthority`) — an event whose subject
+has no person record yet counts only when `by` is a verified root, because the
+write order is event-then-record and that window is real. And a root is an
+author of the whole book unconditionally, so an event that would narrow one is
+`Reason.eventDemotesARoot`: `Registry.chain(underRoot:)` includes the root
+itself, so entitlement alone cannot catch the one file that would leave a book
+with no author.
+
+**What governs the lines before a person's first event depends on that
+event's KIND**, and it is not a detail. An `admitted` or `silentlyAdmitted`
+event's permit governs everything on both sides of its mark — nothing precedes
+an admission, and a stranger's HELD manuscript text would otherwise fall to the
+book-author default the moment she was let in as a reviewer. A
+`roleChanged`, `scopeChanged` or `readmitted` event first means the person was
+admitted under P2, so the opening stays book author: **a demotion must not
+reach back**. An unrecognised kind first leaves the opening unjudgeable, so
+those lines are held pending rather than guessed at. `revoked` and `retired`
+are skipped when finding *first*, because neither installs a permit.
+`PermitTimeline.opening(before:)` is the five arms; read them, not this
+paragraph.
+
+### A mark is chain positions, and two alternatives were rejected
+
+An event needs to say *from when*. P2's mark is one opId per person
+(`highestOpIdSeen`), and P3 does not use it, for two reasons found in design:
+
+- **An opId is not evidence.** Its ULID timestamp is chosen by its own writer,
+  so a demoted author could stamp new text with an old id and slip under the
+  mark. A mark made of the subject's own claims is not a mark.
+- **This device's own memory is worse.** Fix the first by marking against what
+  THIS Mac had recorded, and a fresh Mac with no memory applies what the root's
+  Mac refused. The divergence is silent and permanent, and it is exactly the
+  class of bug the whole signed op log exists to remove.
+
+A mark is therefore **positions in the shared bytes**, per STREAM of the
+subject's — `<docId>.<slug>` and the translation and inbox streams alike: the
+**digest of every whole segment** the root had read and judged, and the
+`OpLogChain.lineHash` of the **last line** it had read and judged. Keyed by
+stream rather than by filename, because a rotation moves the marked line out of
+the tail and into a `.mzseg` without changing anything about the chain; ordered
+by containment rather than by a segment index, because an index is part of a
+filename and a filename is not evidence either. Every device computes the same
+answer from the same bytes.
+
+**SEEN, not applied** (corrected during the P3a build; spec §3.3 amended in
+place). A mark does not bless lines — it selects which permit judges them.
+Were it *the last line applied*, refused text sitting at the end of what the
+root had read would fall after a promotion's mark and be applied under the new
+permit, which is the pardon this milestone forbids; and a segment holding one
+refused line, left out of the mark for that reason, would have its honestly
+applied lines re-judged under a demotion's permit. *Seen* excludes only a torn
+tail and what a broken chain quarantined. **A revocation is the one act whose
+mark means APPLIED**, because *keep what this Mac had already applied* is about
+the draft the writer has been reading — so the store answers two questions,
+`OpLogStore.seenPositions` for permit events and `OpLogStore.appliedPositions`
+for a revocation, and `DocumentStore.permitMark(forPerson:seen:)` chooses.
+
+### The check is line by line, and it runs where the revocation cut runs
+
+Spec §4.9's *quarantined whole* is superseded: a batch is not a unit of
+authority. `PermitPartition` judges **each line**, before the parse — a line it
+refuses must never reach the element decoder, and a line it holds must never
+reach the document — and it runs immediately after `RevocationSplit`, which is
+the only order in which both answers survive: a revocation is a verdict about a
+whole KEY cut on a mark, a permit is about one line judged against the history
+its signer had at that line.
+
+A refusal is `QuarantineCause.notPermitted`, carrying the person, the rung, what
+was refused and whether the line fell after a mark, so the sentence can say
+which. A line the build cannot judge is **pending**, held with no `.lines`
+record, because nothing is wrong with it.
+
+**Annotation amendments are judged as of the line.** Editing or withdrawing a
+note is on the reviewer's row, and *whose note* is a same-person rule rather
+than a per-file one. Judged by the signer's CURRENT permit, a demotion would
+revert an author's honest edit of a reviewer's note and a promotion would
+pardon an ignored withdrawal — the two-sided failure again. So the partition
+carries the governing permit out per amendment op (`AmendmentPermits`, empty
+for every existing book) and `AnnotationOwnership` honours the amendment under
+the permit that was in force at that line.
+
+**Where the partition runs is a named list**, not a number in prose:
+`OpLogStore.partitioningByPermit` (the op-log door, reached from the live tail,
+a settled segment and the fallback walk), `OpLogStore.verificationForPositions`
+(the mark sweep, which must judge a file exactly as the load does or the two
+would cut it in different places), `TranslationStore.loadMerged`, and
+`JSONLAppendStore.loadVerifiedStrict` for the inbox manifest and the annotation
+log. `TripwireGrepTests.partitionCallSites` is the array.
+
+### The load asks the question of itself
+
+`Document.load` writes before it reads, so it has to know whether this device
+may write this piece before its first line exists.
+`OpLogStore.localWritePermit(as:documentClass:)` is the one function that
+answers — this device's own timeline, narrowed by actor, against the stream's
+class — and it never throws and never suspends. Where the answer is no, the
+load mints nothing and refuses with `DocumentLoadError.waitingForPiece`,
+because on such a device *no op log* means *its ops have not synced yet*
+rather than *a new file whose `.md` is the seed*, and a bootstrap the partition
+sets aside derives the document EMPTY.
+
+**The Bootstrap invariant is amended to match**: `Bootstrap.run` must be called
+from any new manuscript load path *that may write the piece*. The contract
+surface is still `Document.load` and `BootstrapWiringTests` still enforces it.
+
+**And everything the load path emits on its own account is the AUTHOR actor's,
+whoever opened the file** — the bootstrap, the two pending-recovery folds, the
+task anchors `rebuildTasksCache` splices back in and the `taskCreate` beside
+each. None is the act of whoever opened the document, and every one is a kind
+the table refuses to `assistant` and `translator`; they are the writer's own
+words arriving through whichever door happened to be first.
+`Document.authorEmissionDevice(loadedAs:)` is the redirect. Only what the
+CALLER then writes stays the calling actor's, which is what tripwire 38 has
+always been about: the actor names who is acting.
+
+### Possession, and a contested key
+
+A device record lists the fingerprints of its four actor keys — and **nothing
+proves possession of a listed key**. The actors map is a claim inside a
+signed record, and only the author slot is self-proving (the record is signed
+by it). Under permits the join decides which permit judges a line, so guessing
+is worse than asking:
+
+- the **author** slot is proven and wins;
+- a non-author key with exactly ONE claimant is that device's, whatever its
+  standing;
+- a non-author key **two or more device records claim is NOBODY's, forever** —
+  whoever is revoked or retired later.
+
+Standing plays no part, and that is the second draft of this rule rather than
+the first. Awarding a disputed key to the only *standing* claimant let a
+revoked owner's later lines read as the standing liar's — the same defect from
+the other side. `Registry.actorKeyOwners` is the one resolution, and the three
+sites that used to join first-wins by sorted fingerprint all ask it.
+
+**The residual is named rather than papered over**: an admitted device can now
+hold another person's NON-author actor lines pending indefinitely by listing
+that key, and revocation no longer cures it. It costs availability and never
+words (the lines stay in the log and apply the moment the dispute is resolved),
+it never touches the author key, and the cure is a format change — per-actor
+possession proofs in the device record — filed under the roadmap's *Signed
+structure* item.
+
+### A sweep that cannot read refuses; it never shortens
+
+Four verbs compute a mark — admit, changePermit, revoke, retire — and a mark
+that does not NAME a stream judges that stream wholly new. So a sweep that
+comes back short is not a small inaccuracy: it turns a lost or evicted file
+into a demotion that reaches back through every line of it, or a *keep what was
+applied* revocation that sets aside words this Mac had already put in front of
+the writer. Every one of the four therefore **refuses and writes nothing** — no
+event, no record — when it cannot list an existing directory, cannot read a
+present stream file, meets an old-style `.icloud` placeholder standing in for
+one, or cannot name a stream this device REMEMBERS having read
+(`ReadError.unlistableStreamDirectory`, `ReadError.streamMissingFromSweep`).
+Retirement refuses with the others: its mark is what P3b's *N paragraphs
+written while retired* is derived from, and an empty mark would call a whole
+history post-retirement. The refusal is the existing `historyUnreadable`
+sentence, which now names the ACT it is about — `RegistryAdmissionError.Act`,
+four words for four verbs — because a writer who pressed *make Sam a reviewer*
+should not be told a revocation was refused. The silent admission at project
+open is the one exception and skips rather than blocking the open.
+
+**Remembered foreign streams** are what make *absent* distinguishable from
+*never existed* — and they are their own finding as well. `ForeignStreamWatch`
+records, per stream, the head this device last saw and the digest of every
+segment it took in whole, but **only once that stream has ANSWERED**: a file
+that is present, readable and yields nothing this device can point at (a
+zero-byte `.jsonl` that synced ahead of its contents) would otherwise be
+demanded of every later sweep for ever. A stream that answered and has stopped
+is the truncation case, reported and never refused — the surviving lines stay
+applied, because they are exactly what a backup is for — and the finding CLEARS
+when the bytes come back.
+
+### Task 11 — an unsealed span answers to its file
+
+Recorded above, as an amendment to §6 where the states are defined, because it
+corrects §6 rather than extending it: trust was consulted at `case .seal` and
+nowhere else, so a signed foreign device's writing since its last seal was
+applied whatever the register said. It shipped in v0.39.0/v0.40.0 and was found
+by the 2026-09-20 audit (PR #65, F1 + F2). **Release consequence**: on books
+that already exist, a stranger's unsealed tail that used to apply now waits for
+admission. Nothing is deleted, and admitting the device applies all of it on the
+next read.
+
+### What P3a does NOT do — the limits, stated
+
+- **Roles guard the words, not the binder.** `OpKind` has no structural cases:
+  create, rename, reorder and trash go through the unsigned manifest, and
+  `__project__` carries tasks only. Storage cannot prove who shaped the binder,
+  and P3 does not pretend otherwise — the membrane refuses structural verbs
+  cooperatively and *Signed structure* is its own roadmap milestone.
+- **The unsigned door is open, by P1's design, and P3a leaves it open.** A file
+  with no attributable seal — an unsigned device's history (a VM, CI's runner),
+  pre-signing legacy history, or a file nothing has ever sealed — is applied
+  unjudged. Under permits that means a hostile client that never seals bypasses
+  the check entirely. This contradicts what the P2 handoff told Denver
+  (*"an unsigned device's lines can never pass a role check, so they sit
+  pending"*): they are in fact applied. There is a further asymmetry inside it —
+  the WRITE side narrows by actor even with no register (`LocalWritePermit`
+  falls back to keyless, which is P1 exactly), while the READ side does not.
+  The candidate close, for P3b's planning: the first permit event snapshots the
+  book's unsigned files by digest, and unsigned lines outside that snapshot are
+  PENDING in a book that has events. **Parked for Denver.** Until it is closed,
+  enforcement is cooperative against a modified client — which is what ADR
+  0032 has always claimed to be (provenance, not a lock) but is worth saying in
+  the place where somebody will look for it.
+- **A file's fast path rests on one key per file.** A stream whose every line
+  is one kind, written by an actor the table allows that kind under a book
+  author, is answered whole rather than line by line. That is sound because
+  ADR 0012 gives a file one writer and the filename encodes the slug — but it
+  is an assumption encoded in a filename, not a check, and only a device mixing
+  its OWN keys into one file could slip past it.
+- **Permits are per person RECORD, and P2b merges devices under one LABEL.** So
+  a demoted Sam would keep writing from her phone's own record.
+  `RegistryAdmission.records(sharingLabelWith:in:)` and
+  `DocumentStore.changePermit(everyRecordOf:to:)` are the label-wide verb —
+  each record its own mark and its own event, refused whole up front if any
+  would be (`PermitChangePartlyApplied`), revoked siblings skipped — and it
+  exists for P3b's pane to press. Nothing presses it in P3a.
+- **A revocation's cut is positions only where the revocation HAS a mark.** A
+  P2-era revocation carries `highestOpIdSeen` and no event, so `RevocationSplit`
+  still reads the opId off the line for it. That is the residue of the audit's
+  Low finding (*the revocation mark is taken off an unsigned `op.device`*):
+  closed for every revocation this build writes, open for every one already on
+  disk, and it stays open because rewriting a signed record to change what it
+  means is not something a later build gets to do.
+
 ## Consequences
 
 - **A device is its key, so a device that loses its key is a new device.** It

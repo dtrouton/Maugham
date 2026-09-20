@@ -1,6 +1,66 @@
 # Signed op log P3 — roles, scope and the collaborator
 
-**Status:** DESIGNED 2026-09-19 (brainstorm with Denver; every ruling below is his, dated that day). Unbuilt. Three plans, each built before the next is written (rule 11).
+**Status:** DESIGNED 2026-09-19 (brainstorm with Denver; every ruling below is his, dated that day). **P3a BUILT 2026-09-20** on branch `claude/signed-op-log-p3a-2026-09-19` — see *As built in P3a* below. P3b and P3c unbuilt; re-derive each against the built code (rule 11).
+
+## As built in P3a — where the build corrected this spec (2026-09-20)
+
+Written so P3b is planned against the truth rather than against the design. Each
+of these was found by building the thing, and each is a change to what this spec
+says, not an implementation detail.
+
+- **§3.3's mark is what the root had SEEN, not what it had applied** (amended in
+  place above). A mark selects which permit judges a line; it does not bless the
+  line. *Last applied* would let refused text at the end of what the root had
+  read fall after a promotion's mark and be applied under the new permit — the
+  pardon §5 forbids — and would re-judge a segment's honestly applied lines under
+  a demotion because one refused line had kept the segment out of the mark. A
+  **revocation** is the one act whose mark means applied, so the store answers
+  two questions: `OpLogStore.seenPositions` and `OpLogStore.appliedPositions`.
+- **§3.4 does not say what governs the lines BEFORE a person's first event, and
+  the answer is *it depends on that event's kind*.** `admitted` /
+  `silentlyAdmitted` ⇒ that event's permit governs everything on both sides of
+  its mark, because nothing precedes an admission and a stranger's HELD
+  manuscript text would otherwise fall to the book-author default the instant she
+  was admitted as a reviewer. `roleChanged` / `scopeChanged` / `readmitted` first
+  ⇒ the person was admitted under P2, so the opening stays book author: **a
+  demotion must not reach back**. An unknown kind first ⇒ unjudgeable, so the
+  lines are held. `revoked` / `retired` are skipped when finding *first*.
+  `PermitTimeline.opening(before:)` is the five arms. **Consequence for P3b: a
+  re-admission must mint `.readmitted` and never `.admitted`.**
+- **A contested non-author actor key belongs to NOBODY, forever.** Nothing proves
+  possession of a key a device record merely LISTS; only the author slot is
+  self-proving. One claimant ⇒ that device's, whatever its standing; two or more
+  ⇒ nobody's, and revocation does not cure it. Standing plays no part, because
+  awarding a disputed key to the only standing claimant made a revoked owner's
+  later lines read as the standing liar's. `Registry.actorKeyOwners` is the one
+  resolution. **Carry to P3b: the admission sheet must not offer a CONTESTED key
+  as a stranger to admit — it is a disputed key, not a new device — and it must
+  not offer a NON-AUTHOR actor key at all** (a held span whose slug reads
+  `assistant-`/`translator-`/`maugham-` waits for its device record instead).
+- **Everything the LOAD PATH or a derivation emits on its own account is the
+  AUTHOR actor's, whatever actor opened the file** — the bootstrap, both
+  pending-recovery folds, the task anchors and their `taskCreate`. §4.6 does not
+  say this and it has to: each is a kind the table refuses to `assistant` and
+  `translator`, so under MCP they were lines the partition would set aside, with
+  `bootstrap` the worst (a document whose opening op leaves the book derives
+  EMPTY, and the first autosave writes that empty render over the manuscript).
+  `Document.authorEmissionDevice(loadedAs:)`.
+- **An UNSEALED span answers to its file's verdict** (Task 11, from the
+  2026-09-20 audit, PR #65 F1+F2; a defect in released v0.39.0/v0.40.0 that this
+  spec did not notice). Trust was consulted at `case .seal` alone, so a signed
+  foreign device's writing since its last seal was applied whatever the register
+  said. The file's key is the last chain-verified seal's whatever ITS verdict,
+  else the key a verified device record gives the filename's slug, else
+  unchanged — and that third arm is the unsigned door.
+- **§4.9's *quarantined whole* and its two-row table were already superseded
+  here**; the parent spec now carries the annotation in place.
+
+Three things this spec asked for that P3a deliberately did **not** do, each with
+its reason recorded in the ADR's *limits* section: the unsigned door stays open
+(parked for Denver); roles guard the words and not the binder; and the label-wide
+permit verb exists but nothing presses it, because permits are per person RECORD
+and P2b merges devices under one LABEL.
+
 
 **Parents:** `2026-09-05-signed-op-log-design.md` (§4.9–§4.11, §5, §6, §8 — **amended here**, see §11), `2026-09-09-signed-op-log-p2-people-and-admission-design.md` (BUILT), [ADR 0032](../../adr/0032-the-signed-op-log.md). The brief and the first six rulings are in `docs/superpowers/notes/2026-09-17-signed-op-log-p3-handoff.md`.
 

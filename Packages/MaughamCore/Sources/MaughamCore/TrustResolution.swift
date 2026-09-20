@@ -411,8 +411,8 @@ public enum TrustResolution {
         folderPresent || remembered != nil
     }
 
-    /// Does this project have a registry at all? Any of the three directories
-    /// being present is enough — a folder holding only devices, or only a
+    /// Does this project have a registry at all? Any ONE of `RegistryDirectory`'s
+    /// directories being present is enough — a folder holding only devices, or only a
     /// claim, is still a folder this device must read before it judges anyone.
     nonisolated public static func hasRegistry(in projectURL: URL) -> Bool {
         RegistryDirectory.allCases.contains {
