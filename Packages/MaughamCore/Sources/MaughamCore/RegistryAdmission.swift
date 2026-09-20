@@ -1083,20 +1083,25 @@ public enum RegistryAdmission {
             // `resign` rather than a fresh record, for Task 1's reason: a claim
             // a LATER build wrote carries fields this one has no property for,
             // and re-encoding what this build decoded would quietly drop them.
-            // The FILE's object is what is edited.
+            // The FILE's object is what is edited, and `claimedAt` is not part
+            // of the edit.
             //
-            // **`claimedAt` MOVES** (C8). It dates every `.adopted` row History
-            // draws off this record, and a root taken in a week after the book
-            // was claimed was not adopted the day the book was claimed —
-            // History said it was, because the date never moved. The claim's
-            // own `.claimed` row moves with it, which is the honest reading:
-            // what this record says is *these roots, as of now*.
-            let at = try RegistryCanonical.dateString(now())
+            // **C8's fifth minor is NOT done, and that is a ruling** (P3a Task
+            // 7, fix round 0). The handoff's one-line finding says the date
+            // should move on a later adoption; `RegistryAdmissionTests
+            // .test_adoptingASecondRootKeepsTheDayTheBookWasClaimed` is a
+            // deliberately named P2 test saying it should not. A test outranks
+            // a line of prose, and *the day the book was claimed* not moving
+            // reads as intent rather than accident. The cost is real and is
+            // stated rather than fixed: `TrustEvents` dates every `.adopted`
+            // row off this one field, so a root taken in a week later is drawn
+            // as having been adopted the day the book was claimed. Closing it
+            // properly wants a date per adopted root, which this record has no
+            // room for; surfaced to Denver.
             try RegistryWriter.resign(
                 standing, signedBy: me, in: projectURL, presenter: presenter
             ) { object in
                 object["adopted"] = widened
-                object["claimedAt"] = at
             }
         } else {
             try RegistryWriter.write(

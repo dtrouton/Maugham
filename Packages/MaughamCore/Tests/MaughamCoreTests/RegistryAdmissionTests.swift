@@ -979,20 +979,8 @@ final class RegistryAdmissionTests: XCTestCase {
 
     /// A second root adopted later joins the claim this Mac already wrote — one
     /// claim record per root, because the file is named by the root — and the
-    /// date **moves to the day of the later adoption** (C8, ruled for P3a Task
-    /// 7; this test pinned the opposite until then).
-    ///
-    /// The record carries one date and History dates every `.adopted` row off
-    /// it, so a root taken in a week after the book was claimed read as having
-    /// been adopted the day the book was claimed — the wrong fact, said
-    /// confidently, about the act the writer had just performed. The format has
-    /// no room for a date per adopted root, so the honest reading of the record
-    /// is *these roots, as of now*, and the claim's own row moves with it.
-    ///
-    /// The idempotent case is untouched and is pinned by the test above:
-    /// adopting a root already adopted writes no file at all, so the date does
-    /// not move for a press that changed nothing.
-    func test_adoptingASecondRootMovesTheDateToTheLaterAdoption() throws {
+    /// day the book was claimed does not move.
+    func test_adoptingASecondRootKeepsTheDayTheBookWasClaimed() throws {
         let borrowed = LocalIdentities.softwareForTesting()
         try becomeRootBeside(otherRoot, name: "The old MacBook")
         try becomeRootBeside(borrowed, name: "A borrowed Mac")
@@ -1009,10 +997,7 @@ final class RegistryAdmissionTests: XCTestCase {
         XCTAssertEqual(
             claim.adopted,
             [otherRoot.author.fingerprint, borrowed.author.fingerprint].sorted())
-        XCTAssertEqual(
-            claim.claimedAt, Date(timeIntervalSince1970: 200),
-            "the record says what it holds AS OF NOW, and History dates every "
-                + "adopted root off it")
+        XCTAssertEqual(claim.claimedAt, Date(timeIntervalSince1970: 100))
         XCTAssertEqual(try registry().claims.count, 1)
     }
 
