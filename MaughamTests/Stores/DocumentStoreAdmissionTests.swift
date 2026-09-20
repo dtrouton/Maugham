@@ -263,8 +263,14 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/inbox"),
             withIntermediateDirectories: true)
+        // **The slug is the device's own** (P3a Task 6). Every P1b-or-later
+        // writer names its manifest off `identity.slug`, which is
+        // `<actor>-<fingerprint…>`; a hand-built string here is a shape no
+        // production device can produce, and under the permit check it is a
+        // capture whose ACTOR cannot be named, which is held rather than
+        // applied. A fixture made realistic — no assertion in this test moved.
         let manifest = InboxManifest.inboxManifestURL(
-            forDeviceSlug: DeviceSlug.make(from: "stranger-phone"), in: projectURL)
+            forDeviceSlug: stranger.slug, in: projectURL)
         let store = JSONLAppendStore<InboxEntry>(
             fileURL: manifest,
             chain: ChainPolicy(

@@ -591,12 +591,26 @@ public struct TrustTable: Equatable, Sendable {
     /// withdraw her own note*, which is about the writer and not the machine.
     ///
     /// So the join is the fingerprint, **or** the LABEL both person records
-    /// carry. A label is the one person-level identity this format has, and it
-    /// is not a coincidence: the admission sheet merges a typed label matching
-    /// a known one under that label's own spelling, which is the writer saying
-    /// *this is the same person* in the only place they are ever asked
-    /// (`AdmissionMemory`'s own premise). Two people the writer labelled
-    /// identically are therefore one writer here, which is what they said.
+    /// carry. A label is not a coincidence and it is not the device's own word
+    /// for itself (that is `ownName`): it is **the ROOT's word for whose
+    /// machine this is**, written by the root into a signed record, and P2b's
+    /// admission already merges a typed label matching a known one under that
+    /// label's own spelling. Same label therefore means *the root said these
+    /// are the same person*, which is the only person-level identity this
+    /// format has.
+    ///
+    /// **A RENAME splits them again, and that is the root's act too**
+    /// (`RegistryAdmission.rename`, the one registry verb that moves no
+    /// verdict). Relabel one of her machines and its amendments stop counting
+    /// as hers — which is correct, because the writer has just said it is
+    /// somebody else's.
+    ///
+    /// **Exact strings, and an unnamed machine is nobody.** No case folding and
+    /// no trimming beyond whatever admission itself applied before signing the
+    /// record: the comparison must be the one the root made, not a looser one
+    /// invented here. An EMPTY or absent label never equals another empty or
+    /// absent label — two machines nobody has named are two machines, and
+    /// folding them together would make *unnamed* an identity.
     ///
     /// **Not a general-purpose answer.** It is asked by the ownership rule and
     /// nothing else: a verdict, a permit and a mark are all about the machine,
@@ -609,7 +623,7 @@ public struct TrustTable: Equatable, Sendable {
         if a == b { return true }
         guard let left = personByFingerprint[a]?.label,
               let right = personByFingerprint[b]?.label,
-              !left.isEmpty else { return false }
+              !left.isEmpty, !right.isEmpty else { return false }
         return left == right
     }
 

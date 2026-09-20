@@ -227,6 +227,29 @@ final class AnnotationOwnershipTests: XCTestCase {
         XCTAssertEqual(derived(ops, try amendments()).map(\.id), ["01"])
     }
 
+    /// **The label join is EXACT**, and it is the root's own word: no case
+    /// folding, no trimming this function invented, and two machines nobody has
+    /// named are two machines rather than one.
+    func test_theLabelJoinIsExactAndAnUnnamedMachineIsNobody() throws {
+        try writeRoot()
+        try admit(sam, label: "Sam")
+        try admit(samPhone, label: "sam", kind: .phone)     // same name, other case
+        try admit(kim, label: "")                            // and two unnamed
+        let anonymous = LocalIdentities.softwareForTesting()
+        try admit(anonymous, label: "")
+
+        let judged = try table()
+        XCTAssertFalse(
+            judged.sameWriter(sam.author.fingerprint, samPhone.author.fingerprint),
+            "the comparison is the one the root made, not a looser one")
+        XCTAssertFalse(
+            judged.sameWriter(kim.author.fingerprint, anonymous.author.fingerprint),
+            "unnamed is not an identity")
+        XCTAssertTrue(
+            judged.sameWriter(sam.author.fingerprint, sam.author.fingerprint),
+            "and a key is always itself")
+    }
+
     /// A book author may edit a reviewer's note: the authority to settle a note
     /// and the authority to amend one are the same, and she has it.
     func test_aBookAuthorEditingAReviewersNoteIsHonoured() throws {

@@ -117,6 +117,66 @@ final class InboxPermitTests: XCTestCase {
             deviceId: identity.deviceId, kind: .text, inlineText: id)
     }
 
+    /// Sam's Mac admitted as a PERSON with no device record yet — the real
+    /// window between her first manifest syncing and her `DeviceRecord`
+    /// syncing, which are separate files on separate schedules.
+    private func admitSamWithNoDeviceRecord() throws {
+        try RegistryWriter.write(
+            PersonRecord(
+                person: theirs.author.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+                role: Permit.reviewerRole,
+                admittedAt: Date(timeIntervalSince1970: 20),
+                admittedBy: mine.author.fingerprint),
+            signedBy: mine.author, in: projectURL)
+        try RegistryWriter.write(
+            PermitEvent(
+                event: PermitEvent.mintID(subject: theirs.author.fingerprint),
+                kind: .admitted, subject: theirs.author.fingerprint,
+                role: Permit.reviewerRole, scope: Permit.bookScope,
+                pieces: [], mark: [:],
+                at: Date(timeIntervalSince1970: 20),
+                by: mine.author.fingerprint),
+            signedBy: mine.author, in: projectURL)
+    }
+
+    // MARK: - The window between a manifest and its device record
+
+    /// **An admitted device whose record has not arrived is read off its own
+    /// filename, and its captures apply** (P3a Task 6, fix round 1; Task 5's
+    /// I5 rule one stream over).
+    ///
+    /// A person record and a device record are two files that sync separately,
+    /// and `RegistryAdmission.admit` writes only the first — so there is a real
+    /// window in which this book knows WHO Sam is and not what her keys are
+    /// for. The permit narrows by actor, so without a second source that window
+    /// would hold every capture she made in it.
+    ///
+    /// The second source is the stream's own name. Every P1b-or-later writer
+    /// names its manifest off `identity.slug`, which carries `<actor>-<hex…>`,
+    /// and the claim is believed only where the hex really is the sealing key's
+    /// — so it can narrow and never widen. **The window does not exist for a
+    /// real slug**, which is what this pins.
+    func test_anAdmittedDeviceWithNoRecordYetIsNamedByItsOwnFilename() async throws {
+        try plantMyRoot()
+        try admitSamWithNoDeviceRecord()
+        try await write([entry("a", by: theirs.author)], by: theirs.author)
+
+        let table = try TrustResolution.resolve(
+            projectURL: projectURL, identities: mine, cache: cache)
+        XCTAssertNil(
+            table.actor(forSealKey: theirs.author.fingerprint),
+            "no record says what this key is for")
+        XCTAssertFalse(
+            table.aDeviceRecordNames(theirs.author.fingerprint),
+            "and none names it at all, so the filename may")
+
+        let inbox = makeInbox()
+        await inbox.refresh()
+        XCTAssertEqual(inbox.entries.map(\.id), ["a"],
+                       "her captures arrive while her device record is in flight")
+        XCTAssertTrue(inbox.setAsideRecords.isEmpty)
+    }
+
     // MARK: - The pair
 
     /// **A reviewer's captures arrive.** Capture is always offered — it is the
