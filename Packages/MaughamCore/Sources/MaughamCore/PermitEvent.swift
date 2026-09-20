@@ -31,9 +31,10 @@ import Foundation
 /// `RegistryCanonicalCensusTests` walks it by name, `Permit*` being in the
 /// population since P3a.)
 ///
-/// **Nothing in production writes one yet.** The verbs that do are the root's
-/// (`RegistryAdmission`, tripwire 41); this task builds the record, the
-/// directory, the reader's verification and the cache's memory of it.
+/// **Only the root's own verbs write one** — `RegistryAdmission.admit`,
+/// `changePermit`, `revoke` and `retire`, through the single private
+/// `writeEvent` (tripwire 41). Everything else here — the directory, the
+/// reader's verification, the cache's memory of it — is read-side.
 public struct PermitEvent: RegistryRecordProtocol {
 
     // MARK: - What happened

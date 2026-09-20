@@ -40,18 +40,34 @@ import Foundation
 ///
 /// ## Which snapshot governs
 ///
-/// **The earliest narrowing event's**, by the event's own id ordering — never
-/// the newest. A later narrowing that superseded the first would MOVE the
-/// cliff, and moving it forward applies lines that had been held while moving
-/// it back withdraws lines that had been applied; the first narrowing is the
-/// moment the book started caring, and it is the only position that does not
-/// move again.
+/// **The earliest narrowing event's, by DATE** — never the newest. A later
+/// narrowing that superseded the first would MOVE the cliff, and moving it
+/// forward applies lines that had been held while moving it back withdraws
+/// lines that had been applied; the first narrowing is the moment the book
+/// started caring, and it is the only position that does not move again.
 ///
-/// Event ids are `<subject>.<ULID>`, so within one subject the ordering is
-/// chronological. Across subjects — and across two roots that have adopted
-/// each other — it is deterministic rather than chronological, and
-/// determinism is the load-bearing half: every device must reach the same
-/// answer from the same bytes, and a date is a number its own writer chose.
+/// **Earliest means earliest in time**, and the event's own id is only the
+/// tie-break. An id is `<subject>.<ULID>`, so it is chronological *within* one
+/// subject and sorts by SUBJECT FINGERPRINT across two — which is not
+/// *earliest* in any sense a writer would recognise, and which across two
+/// roots that have adopted each other would pick whichever person's key sorts
+/// lower rather than whichever narrowing happened first.
+///
+/// **Determinism survives the change**, which is the other half and the one
+/// S4(c) turns on: `at` is a signed field of the record, so every device reads
+/// the same number out of the same bytes, and two events made in the same
+/// millisecond fall back to the id, which is unique. A fresh Mac and the root
+/// reach the same governing snapshot.
+///
+/// **Nobody who could gain by it chooses `at`.** Only a ROOT may sign a
+/// narrowing event (`RegistryReader` refuses one signed by anybody else, and
+/// `Permit.contradictsARoot` keeps a root from being narrowed at all), so the
+/// clock here is the clock of the device that is doing the narrowing — never
+/// the demoted party's. A root whose own clock has stepped back can make a
+/// LATER narrowing govern, and that costs only the permissive direction:
+/// unsigned lines written between the two narrowings are applied rather than
+/// held. It cannot withdraw anything, because a snapshot taken later never
+/// sits before one taken earlier in the file each names.
 ///
 /// ## What it is not
 ///
@@ -94,10 +110,14 @@ public struct UnsignedSnapshot: Equatable, Hashable, Sendable {
     /// Nil is *there is no narrowing event*, which is the same condition
     /// `TrustTable.hasNarrowingPermits` answers false to — the equivalence is
     /// pinned rather than assumed.
+    ///
+    /// **Ordered by `(at, event)`** — the date first, the id only where two
+    /// events share a millisecond. See *Which snapshot governs* above for why
+    /// the id alone was the wrong key and why the date is safe to trust here.
     public static func governing(events: [PermitEvent]) -> UnsignedSnapshot? {
         guard let first = events
             .filter({ PermitTimeline.narrows($0) })
-            .min(by: { $0.event < $1.event })
+            .min(by: { ($0.at, $0.event) < ($1.at, $1.event) })
         else { return nil }
         return UnsignedSnapshot(
             event: first.event, at: first.at,

@@ -443,30 +443,60 @@ final class UnsignedSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.mark["s"]?.line, "first")
     }
 
-    /// The same across two people — the shape two roots that adopted each
-    /// other produce, where neither's events are the other's.
-    func test_theEarliestGovernsAcrossTwoSubjects() throws {
-        let theirs = PermitEvent(
+    /// **Earliest means earliest IN TIME**, and here the two orders disagree
+    /// (fix round 1, the controller's ruling).
+    ///
+    /// The shape two roots that adopted each other produce: neither's events
+    /// are the other's, and an event id is `<subject>.<ULID>`, so ordering by
+    /// id alone sorts by whichever PERSON FINGERPRINT is lower — which is not
+    /// *earliest* in any sense the writer would recognise. `aaa…` sorts first
+    /// and happened second; the one that happened FIRST governs.
+    func test_theEarliestGovernsByDateEvenWhereTheIdOrderDisagrees() throws {
+        let second = PermitEvent(
             event: "aaa.01JAAAAAAAAAAAAAAAAAAAAAAA", kind: .roleChanged,
             subject: "aaa", role: Permit.reviewerRole, scope: Permit.bookScope,
             pieces: [], mark: [:], unsigned: ["s": .init(line: "aaa")],
             at: Date(timeIntervalSince1970: 10), by: "rootA")
-        let mineEvent = PermitEvent(
+        let first = PermitEvent(
             event: "bbb.01JAAAAAAAAAAAAAAAAAAAAAAA", kind: .roleChanged,
             subject: "bbb", role: Permit.reviewerRole, scope: Permit.bookScope,
             pieces: [], mark: [:], unsigned: ["s": .init(line: "bbb")],
             at: Date(timeIntervalSince1970: 5), by: "rootB")
+        XCTAssertLessThan(
+            second.event, first.event, "the id order is the other way round")
 
-        // Deterministic rather than chronological, and determinism is the
-        // load-bearing half: every device must reach the same answer from the
-        // same bytes, and a date is a number its own writer chose.
         let snapshot = try XCTUnwrap(
-            UnsignedSnapshot.governing(events: [mineEvent, theirs]))
-        XCTAssertEqual(snapshot.event, theirs.event)
+            UnsignedSnapshot.governing(events: [second, first]))
+        XCTAssertEqual(snapshot.event, first.event)
+        XCTAssertEqual(snapshot.mark["s"]?.line, "bbb")
         XCTAssertEqual(
-            UnsignedSnapshot.governing(events: [theirs, mineEvent])?.event,
+            UnsignedSnapshot.governing(events: [first, second])?.event,
             snapshot.event,
             "and the listing order cannot change it")
+    }
+
+    /// **The other direction: the id is the tie-break, so two Macs still agree
+    /// from the same bytes.** Two narrowings in one millisecond are ordered by
+    /// the id, which is unique — `at` alone would leave the answer to whatever
+    /// order the folder was listed in.
+    func test_twoNarrowingsInOneMomentAreOrderedByTheirIds() throws {
+        let moment = Date(timeIntervalSince1970: 7)
+        let lower = PermitEvent(
+            event: "aaa.01JAAAAAAAAAAAAAAAAAAAAAAA", kind: .roleChanged,
+            subject: "aaa", role: Permit.reviewerRole, scope: Permit.bookScope,
+            pieces: [], mark: [:], unsigned: ["s": .init(line: "aaa")],
+            at: moment, by: "rootA")
+        let higher = PermitEvent(
+            event: "bbb.01JAAAAAAAAAAAAAAAAAAAAAAA", kind: .roleChanged,
+            subject: "bbb", role: Permit.reviewerRole, scope: Permit.bookScope,
+            pieces: [], mark: [:], unsigned: ["s": .init(line: "bbb")],
+            at: moment, by: "rootB")
+
+        for listing in [[lower, higher], [higher, lower]] {
+            XCTAssertEqual(
+                UnsignedSnapshot.governing(events: listing)?.event, lower.event,
+                "the same answer whatever order the folder was read in")
+        }
     }
 
     /// A non-narrowing event is never a candidate, however narrow the role it
