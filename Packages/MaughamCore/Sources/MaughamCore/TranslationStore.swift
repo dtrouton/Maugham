@@ -221,6 +221,16 @@ public enum TranslationStore {
         // resolution is a verified read of the registry folder.
         let table = try trust ?? TrustResolution.resolve(
             projectURL: projectURL, identities: identities)
+        // **Where the other devices' translation streams stood** (P3a Task 9).
+        // A translation sidecar never rotates — `sealTailIfNeeded` is the op
+        // log's alone — so each file IS its whole stream, and one watch over
+        // this language's files settles them together in one write.
+        // It settles AFTER the loop rather than in a `defer`: this read refuses
+        // whole over a file that is present and unreadable, and a memory taken
+        // from a reading that refused would be a memory of a short one.
+        let foreign = ForeignStreamWatch(
+            projectURL: projectURL, state: state,
+            mine: ForeignStreamWatch.slugs(of: identities))
         for url in fileURLs(forDocId: docId, language: language, in: projectURL) {
             // The URL came from the directory listing, so it exists; a read
             // failure here means the device file is present but unreadable
@@ -241,14 +251,32 @@ public enum TranslationStore {
             let walked = OpLogChain.verify(
                 bytes: bytes,
                 trust: { table.verdict(forSealKey: $0) },
-                rememberedHead: state.head(for: fileKey))
+                rememberedHead: state.head(for: fileKey),
+                // **Arm 2 of *the file's key*** (Task 11): a translation
+                // sidecar another person's device has not sealed yet answers to
+                // the same verdict its sealed spans do, or a stranger's whole
+                // edition arrives in the book by never being signed.
+                keyOfAnUnsealedFile: { PermitMark.keyNaming(url, in: table) })
             // The same absent-head decision the chained WRITE makes. If the two
             // disagreed, a load that held a tail back would be followed by an
             // append that chained onto it.
-            let (verification, _) = OpLogChain.resolveAbsentHead(
+            let (resolved, _) = OpLogChain.resolveAbsentHead(
                 walked,
                 rememberedHead: state.head(for: fileKey),
                 previousHead: state.previousHead(for: fileKey))
+            // **And then the permit, line by line** (P3a Task 6, spec §4.3's
+            // first bullet). A translation record is a signed line another
+            // person's device wrote and this one applies, so it answers to the
+            // same ladder as an op: a reviewer may not translate at all, and an
+            // author of some pieces may translate hers and no others. The class
+            // is CONSTRUCTED — this reader knows which piece it is reading —
+            // so no manifest is decoded on any book, and a book with no permit
+            // events short-circuits inside the partition before anything is
+            // hashed or judged.
+            let verification = PermitPartition.partition(
+                of: resolved, file: url,
+                judging: .translation(ofPiece: docId, trust: table))
+            foreign.observe(url: url, verification: verification)
             do {
                 try JSONLAppendStore<TranslationRecord>.setAside(
                     verification, from: url, docId: docId, in: projectURL)
@@ -265,6 +293,7 @@ public enum TranslationStore {
                 bytes: JSONLAppendStore<TranslationRecord>.applied(verification, whole: bytes),
                 dedupKey: nil, sortedBy: nil).elements)
         }
+        foreign.settle()
         let enc = JSONEncoder()
         enc.outputFormatting = [.sortedKeys]
         enc.dateEncodingStrategy = JSONLAppendStore<TranslationRecord>.dateEncoding

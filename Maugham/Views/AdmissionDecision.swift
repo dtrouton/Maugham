@@ -102,7 +102,13 @@ enum AdmissionDecision {
         let labels = knownLabels(registry: registry, memory: memory)
         return pending.keys.sorted().compactMap { fingerprint -> AdmissionRequest? in
             guard let waiting = pending[fingerprint], waiting > 0 else { return nil }
-            guard registry.person(fingerprint) == nil else { return nil }
+            // **THE stranger predicate** (P3a Task 5's D5), in Core, so every
+            // admission-worded count and notice narrows by the same rule this
+            // sheet does. A permit-pending line is held under the same
+            // `.pending(device:)` state and belongs to a device that is
+            // already in the book — offering a sheet about it would offer a
+            // control that changes nothing.
+            guard registry.isStrangerDevice(fingerprint) else { return nil }
             let record = registry.devices.first { $0.device == fingerprint }
             let ownName = record?.name
             return AdmissionRequest(
@@ -281,8 +287,14 @@ enum AdmissionDecision {
     static func sentence(for refusal: RegistryAdmissionError) -> String {
         switch refusal {
         case .notARoot:
+            // Shared by four verbs since P3a — admit, revoke, rename and
+            // changePermit all refuse a Mac that is no root here — so it names
+            // the two acts rather than only the first. A sentence reading *it
+            // can't let a device in* over a refused role change tells the
+            // writer about a door they were not standing at.
             return "This book wasn’t started on this Mac, so it can’t let a device "
-                + "in. Admit from the Mac it was started on."
+                + "in or change what one may write. Do that from the Mac it was "
+                + "started on."
         case .alreadyAdmittedElsewhere(let root):
             return "Another Mac (code \(DeviceCode.short(root))) has already let this "
                 + "device in. Two Macs that both started this book are brought "
@@ -301,8 +313,15 @@ enum AdmissionDecision {
                 + "usually another Mac letting it in, before that Mac has finished "
                 + "syncing. Admitting now would overwrite it. Try again in a minute."
         case .notAdmitted(let fingerprint):
-            return "This book knows no device with code "
-                + "\(DeviceCode.short(fingerprint)), so there’s nothing to withdraw."
+            // Four verbs reach this now, and two of them are not withdrawals
+            // (fix round 2): a permit change over somebody this book never let
+            // in, and one over somebody it has already shut out. Both are the
+            // same fact — there is nobody here to act on — and the sentence
+            // says it once rather than naming one verb's noun.
+            return "This book has no device with code "
+                + "\(DeviceCode.short(fingerprint)) it can act on: either it was "
+                + "never let in, or it has already been shut out. Re-admit it "
+                + "first if you meant to change what it may write."
         case .cannotRevokeARoot(let fingerprint):
             return "The device with code \(DeviceCode.short(fingerprint)) is the Mac "
                 + "this book was started on, and that Mac answers to itself. To move "
@@ -316,20 +335,40 @@ enum AdmissionDecision {
             return "This book was already started on this Mac (code "
                 + "\(DeviceCode.short(root))), so there is nothing of its own for it "
                 + "to take in."
-        case .historyUnreadable(let name):
+        case .historyUnreadable(let name, let act):
             // The one refusal here that is about a FILE rather than about
             // authority, and the only one that promises nothing happened. It
             // says so first, because a writer who has just pressed a
             // destructive button needs to know the destruction did not occur
             // before they need to know why.
+            //
+            // **It names the ACT** (fix round 2, minor C). Four verbs compute
+            // a mark and all four refuse over a short reading; this said *a
+            // revocation* to all of them, so a writer who pressed *make Sam a
+            // reviewer* was told a revocation had been refused.
             return "Nothing was changed. Maugham couldn’t read everything this "
-                + "device wrote (\(name)), and a revocation decided on a partial "
+                + "device wrote (\(name)), and \(act.phrase) decided on a partial "
                 + "reading would set aside more than you asked it to. Try again "
                 + "in a moment."
         case .notThatDevice(let device):
             return "Only the device with code \(DeviceCode.short(device)) can retire "
                 + "itself — a retirement from anything else is one no other Mac would "
                 + "accept. Retire it from that machine."
+        case .cannotChangeARoot(let fingerprint):
+            // The subject is the Mac this book was started on, and a book must
+            // not end up with no author (spec §2). It names the CODE rather
+            // than the file, for `recordUnreadable`'s reason: a path under
+            // `.maugham/people/` may not be spelled outside `RegistryWriter`,
+            // and a code is what the writer can check against a screen.
+            return "The device with code \(DeviceCode.short(fingerprint)) is the Mac "
+                + "this book was started on, and it writes the whole book — changing "
+                + "that would leave the book with no author. To move the book, claim "
+                + "it on the Mac you want to keep."
+        case .cannotAdoptANonRoot(let fingerprint):
+            return "The device with code \(DeviceCode.short(fingerprint)) didn’t start "
+                + "a book of its own here, so there is no history of its own to take "
+                + "in. If it has written in this book, it was let in by somebody — "
+                + "nothing needs merging."
         }
     }
 }

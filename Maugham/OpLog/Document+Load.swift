@@ -139,6 +139,40 @@ extension Document {
         loadIdentities[actor].deviceId
     }
 
+    /// **What the LOAD itself writes is the writer's own hand, whatever door
+    /// opened the file** (signed op log P3a Task 8, the controller's ruling on
+    /// Task 5's census).
+    ///
+    /// Five emissions are the load path's or a derivation's rather than the
+    /// caller's: `Bootstrap`'s opening op, the two pending-recovery folds, the
+    /// task anchors spliced back into the paragraphs, and the `taskCreate`
+    /// breadcrumb beside each. None of them is the act of whoever opened the
+    /// document — they are the writer's own words arriving through whichever
+    /// door happened to be first — and every one of them is a kind the
+    /// permission table (Task 4) refuses to `assistant` and to `translator`.
+    /// Signed under the loading actor they are lines the permit partition
+    /// (Task 5) sets aside on the next read, and the census put `bootstrap` at
+    /// the top of that list: a document whose opening op leaves the book
+    /// derives EMPTY, and the first autosave writes the empty render over the
+    /// manuscript.
+    ///
+    /// **The redirect fires only where the load NAMED one of this device's
+    /// other actors.** A `device:` string naming no local key — every test call
+    /// site, which is what tripwire 38's `internal` door is for — is left
+    /// exactly as it was: it signs nothing, so there is nothing to
+    /// re-attribute. And the lookup ENUMERATES (`LocalIdentities.existingActors`
+    /// plus a subscript of an actor already on disk), so asking the question
+    /// mints no key; only the answer does, and minting the author's key to
+    /// write the writer's own words is the lazy rule's own case.
+    internal static func authorEmissionDevice(loadedAs device: String) -> String {
+        let identities = loadIdentities
+        guard let actor = identities.existingActors.first(
+                where: { identities[$0].deviceId == device }),
+              actor != .author
+        else { return device }
+        return identities[.author].deviceId
+    }
+
     internal static func load(
         url: URL,
         device: String,
@@ -324,10 +358,46 @@ extension Document {
         let opStore = Document.makeLoadOpStore(
             projectURL: projectURL, presenter: presenter)
 
+        // P3a Task 8: everything the LOAD emits on its own account is the
+        // author's, whatever actor opened the file. See
+        // `authorEmissionDevice(loadedAs:)` for why. Everything the CALLER then
+        // writes through the returned Document — an annotation through MCP, a
+        // translation record — stays the loading actor's.
+        let emissionDevice = Document.authorEmissionDevice(loadedAs: device)
+
+        // P3a Task 8: and NOT AT ALL where this device's own hand may not write
+        // this piece.
+        //
+        // **Asked WITHOUT suspending, and that is load-bearing.**
+        // `Document.load`'s suspension points are part of its contract —
+        // `ProjectStore.withStatementDocument`'s own comment is about a pane
+        // binding mid-load — and a bare `await Task.yield()` inserted here
+        // fails `PromotionPerformerTests
+        // .test_promotingWhileTheIntentPaneIsOpenDoesNotOpenASecondDocument`
+        // with none of this task's logic in the picture (measured). So the
+        // permit resolves on this actor (`OpLogStore.trustOnThisActor`), which
+        // also warms the table `loadDiagnosed` reads below. A project with no
+        // register at all — every book written before P2a — asks nothing.
+        let writePermit = opStore.localWritePermit {
+            Document.documentClass(forDocId: docId, in: projectURL)
+        }
+
         if needsBootstrap {
+            // Spec §4.6. A document with no op log usually means a new or
+            // imported file whose `.md` is the seed; on a Mac that may not
+            // write this piece the likelier reading is that its ops have not
+            // synced yet, and minting the opening op would put a line in the
+            // book the next read sets aside. Refuse, mint nothing, and say what
+            // is happening — never a word of the `.md` as truth (tripwire 20).
+            guard writePermit.allows(.op(.bootstrap)) == .yes else {
+                throw DocumentLoadError.waitingForPiece(
+                    docId: docId,
+                    from: Document.rootLabelForWaiting(in: projectURL))
+            }
             _ = try await Bootstrap.run(
                 projectURL: projectURL, docId: docId,
-                mdURL: url, device: device, session: session, opStore: opStore)
+                mdURL: url, device: emissionDevice, session: session,
+                opStore: opStore)
         }
         let pending = PendingBuffer(projectURL: projectURL, docId: docId, device: device)
         // RULING-54: a pending file that exists but can't be read or decoded
@@ -343,7 +413,30 @@ extension Document {
         // Best-effort like the torn-line block below: a quarantine-write
         // failure must never abort the load.
         var pendingFailure: Document.PendingRecoveryFailure?
-        if case .unrecoverable(let name, let reason, let raw) = await pending.loadFromDisk() {
+        // P3a Task 8: a device that may not write this piece does not fold the
+        // pending file — and does not READ it either. A buffer with something
+        // in it is a buffer the next `close()` turns into a `typingBurst`, so
+        // loading it here and merely declining to append would move the refusal
+        // one hop and lose the same words. The bytes stay exactly where the
+        // crashed session left them: not read, not decoded, not cleared, not
+        // quarantined. A later load under a permit that allows the fold
+        // recovers them normally, and the writer is told in the meantime.
+        //
+        // The presence check comes FIRST, and is what keeps the permit question
+        // off the ordinary load: a clean close leaves no pending file at all
+        // (Issue 2a), so on almost every open there is nothing here to ask
+        // about. `loadFromDisk` answers `.absent` for exactly the same state,
+        // so skipping it where there is no file changes nothing.
+        let pendingOnDisk = pending.fileNameIfOnDisk()
+        if let name = pendingOnDisk,
+           writePermit.allows(.op(.typingBurst)) != .yes {
+            pendingFailure = .init(
+                name: name,
+                reason: "this Mac can’t write this piece yet",
+                cause: .notPermitted)
+        } else if pendingOnDisk != nil,
+                  case .unrecoverable(let name, let reason, let raw) =
+                    await pending.loadFromDisk() {
             let stamp = ISO8601DateFormatter.quarantineStamp(from: Date())
             do {
                 _ = try IntegrityQuarantine.record(
@@ -357,7 +450,13 @@ extension Document {
             pendingFailure = .init(name: name, reason: reason)
         }
 
-        let loaded = try await opStore.loadDiagnosed(docId: docId)
+        // P3a Task 6 fix round 1: the load collects the permit each amendment
+        // line was written UNDER, as the partition judged it — a permit is
+        // evaluated as of the line and never as of today, and the deriver has
+        // no way to ask that question once the bytes are parsed.
+        let amendmentPermits = AmendmentPermits()
+        let loaded = try await opStore.loadDiagnosed(
+            docId: docId, amendmentPermits: amendmentPermits)
         var ops = loaded.ops
 
         // Forensics (audit 0.6 / Sweep 6): any op-log line that failed to decode
@@ -428,7 +527,7 @@ extension Document {
             let recoveredSequence = basisStale ? [] : pending.sequence
             let recovered = Op(
                 opId: ULID.generate(), docId: docId, at: Date(),
-                device: device, session: session, kind: .typingBurst,
+                device: emissionDevice, session: session, kind: .typingBurst,
                 changes: pending.snapshot(),
                 sequence: recoveredSequence.isEmpty ? nil : recoveredSequence)
             try await opStore.append(recovered)
@@ -445,7 +544,7 @@ extension Document {
             // peer's while-closed delete never reasserts a superseded order.
             let recovered = Op(
                 opId: ULID.generate(), docId: docId, at: Date(),
-                device: device, session: session, kind: .typingBurst,
+                device: emissionDevice, session: session, kind: .typingBurst,
                 changes: [],
                 sequence: pending.sequence)
             try await opStore.append(recovered)
@@ -532,6 +631,25 @@ extension Document {
             Document.isAnnotationOpKind($0.kind)
         }
         doc.unrecoveredPendingFailure = pendingFailure
+        // P3a Task 8: carried, so the derivations that emit on their own
+        // account — `rebuildTasksCache`'s anchor splice and its `taskCreate`
+        // breadcrumbs — can ask the same question the load asked, without a
+        // registry read of their own on a path a plain `tasks(filter:)` READ
+        // reaches.
+        doc.localWritePermit = writePermit
+        // P3a Task 6: and the same for the OTHER direction — not what this
+        // device may write, but which of the amendments already in the log this
+        // derivation honours. Resolved here because the table `localWritePermit`
+        // warmed is still warm; the projection it feeds is rebuilt at every
+        // burst boundary and must not reach for a register of its own.
+        doc.annotationAmendments = opStore.annotationAmendments(
+            permits: amendmentPermits.resolved
+        ) {
+            // `OpLogStore`'s own door rather than `Document.documentClass`,
+            // which is the same function behind a `@MainActor` extension this
+            // `@Sendable` closure cannot reach.
+            OpLogStore.documentClass(forDocId: docId, in: projectURL)
+        }
         // Signed op log P1: what this document's history turned out to be made
         // of. STAMPED, never posted — a notice from this windowless context is
         // dropped by the receive helpers' liveness guard, exactly the pending

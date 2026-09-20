@@ -71,6 +71,46 @@ public enum ULID {
         return encode(millis, length: 10) + encodeBytes(randomBytes, length: 16)
     }
 
+    /// **A ULID at a timestamp this process did not read off the clock.**
+    ///
+    /// `generate()` is monotonic within a PROCESS — it remembers the last
+    /// millisecond it used and never goes behind it — and that is the whole of
+    /// its guarantee. Across a relaunch with a clock that has stepped back, it
+    /// has nothing to remember and will happily mint an id that sorts before
+    /// one this machine wrote yesterday. Where an id's ORDER is a fact other
+    /// code depends on (`PermitEvent`'s, which decides which permit is the
+    /// latest), the writer has to be able to say *after this one*, and this is
+    /// the door for it.
+    ///
+    /// **It deliberately does NOT join `generate()`'s monotonicity state.**
+    /// The millisecond handed in was read off a file, and a file is somebody
+    /// else's word: letting it move this process's clock would let one event
+    /// carrying an absurd timestamp — a Mac whose clock ran fast, a
+    /// hand-edited id — push every op id this process mints afterwards into
+    /// the same future, permanently and for every document. The caller wants
+    /// an id after a GIVEN one, not after this process's last one, and it
+    /// re-asks the question each time it mints.
+    ///
+    /// The randomness is fresh rather than incremented: the id being compared
+    /// against came from another process, so there is no previous random part
+    /// of ours to step past — and the caller asks for a STRICTLY greater
+    /// millisecond, which makes the 10-character timestamp prefix decide the
+    /// comparison whatever the random 16 say.
+    ///
+    /// **Its one limit, stated rather than hidden:** the timestamp is 50 bits,
+    /// so a millisecond at or past `maxMillis` (the year 36812 — no clock
+    /// produces one, only a hand-written id does) clamps, and an id there
+    /// cannot be stepped past. The caller's comparison still holds; it simply
+    /// has nothing better to offer than what it minted.
+    public static let maxMillis: UInt64 = (1 << 50) - 1
+
+    public static func generate(atMillis millis: UInt64) -> String {
+        var randomBytes = [UInt8](repeating: 0, count: 10)
+        _ = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
+        return encode(min(millis, maxMillis), length: 10)
+            + encodeBytes(randomBytes, length: 16)
+    }
+
     public static func timestampMillis(of ulid: String) -> UInt64? {
         guard ulid.count == 26 else { return nil }
         let prefix = String(ulid.prefix(10))

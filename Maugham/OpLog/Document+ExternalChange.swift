@@ -98,7 +98,14 @@ extension Document {
         // document's whole merged history on the main actor (tripwire 3's
         // shape). `OpLogProvenance` is `Equatable`, so the guard costs one
         // comparison and removes the churn entirely.
-        let loaded = try await opStore.loadDiagnosed(docId: docId)
+        // P3a Task 6 fix round 1: re-collected, because a merge is how another
+        // device's amendment ARRIVES — and an amendment with no recorded permit
+        // falls back to today's, which is the reach-back this carry exists to
+        // stop. Reassigned below only past the echo guard, so this Document's
+        // own appends change nothing.
+        let amendmentPermits = AmendmentPermits()
+        let loaded = try await opStore.loadDiagnosed(
+            docId: docId, amendmentPermits: amendmentPermits)
         let ops = loaded.ops
         if provenance != loaded.provenance { provenance = loaded.provenance }
 
@@ -169,6 +176,19 @@ extension Document {
             flagSweep(reason)
         }
         self._opLogMirror = ops
+        // P3a Task 6 fix round 1: and the permits those ops' amendments were
+        // written under, re-collected by the load above. A merge is how another
+        // device's edit or withdrawal arrives, and the rule that judges it has
+        // to be the one that was in force when it was written.
+        // Bound out here: the class closure is `@Sendable` and may reach
+        // neither `self` nor a main-actor property of the store.
+        let classDocId = self.docId
+        let classProjectURL = opStore.projectURL
+        self.annotationAmendments = opStore.annotationAmendments(
+            permits: amendmentPermits.resolved
+        ) {
+            OpLogStore.documentClass(forDocId: classDocId, in: classProjectURL)
+        }
         // Re-derive the sticky flag from the merged log: cross-Mac sync
         // could deliver annotation ops on a doc that previously had none.
         self._hasAnyAnnotationOps = ops.contains {

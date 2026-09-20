@@ -1,6 +1,7 @@
 import Foundation
 
-/// The three records a project's registry is made of (P2 spec §2), and the one
+/// The records a project's registry is made of (P2 spec §2; P3 §3.2 adds the
+/// permit event, which lives in `PermitEvent.swift`), and the one
 /// thing they have in common: each is named on disk by a fingerprint it carries
 /// itself, and each is SIGNED over its own canonical bytes.
 ///
@@ -16,13 +17,20 @@ import Foundation
 
 // MARK: - Where a record lives
 
-/// Which of the registry's three directories a record belongs to. A CASE rather
+/// Which of the registry's directories a record belongs to. A CASE rather
 /// than a path, so the paths themselves live in exactly one file
 /// (`RegistryWriter`) and a census can say so.
+///
+/// **The raw values are the folder names**, which is what lets
+/// `MalformedRecord.ref` read a directory off a path rather than spelling one.
 public enum RegistryDirectory: String, Sendable, CaseIterable {
     case devices
     case people
     case claims
+    /// P3's history: one signed file per permit event (`PermitEvent`), under
+    /// `people/events`. Fourth because it was added fourth — nothing orders
+    /// these but declaration.
+    case events
 }
 
 // MARK: - The common shape
@@ -146,6 +154,21 @@ public struct PersonRecord: RegistryRecordProtocol {
     /// wherever the two differ.
     public let ownName: String
     public let role: String
+    /// `"book"` | `"pieces"` — whether this person writes the whole book or
+    /// some pieces of it (P3 spec §3.1).
+    ///
+    /// **Absent on every P2-era record, and absent MEANS `"book"`** — what
+    /// every one of them was written to mean. Optional rather than defaulted
+    /// to a string for exactly that reason: a non-optional property would be
+    /// encoded, and a P2 record re-signed by this build would then carry a key
+    /// it did not carry when it was signed. Written as an explicit string
+    /// whenever it is written at all, because a frozen signed format must not
+    /// hang two opposite meanings on a missing key: *an author of some pieces
+    /// with none yet* is a real state and is `"pieces"` with an empty list.
+    public let scope: String?
+    /// The document ids this person may write, meaningful under `"pieces"`
+    /// alone. Absent on a P2-era record, and legitimately empty on a P3 one.
+    public let pieces: [String]?
     public let admittedAt: Date
     /// The root that admitted them; equal to `person` on a root's own record.
     public let admittedBy: String
@@ -158,6 +181,7 @@ public struct PersonRecord: RegistryRecordProtocol {
 
     public init(
         person: String, label: String, ownName: String, role: String = "author",
+        scope: String? = nil, pieces: [String]? = nil,
         admittedAt: Date, admittedBy: String,
         revokedAt: Date? = nil, revokedBy: String? = nil,
         highestOpIdSeen: String? = nil, sig: OpLogChain.Credentials? = nil
@@ -166,6 +190,8 @@ public struct PersonRecord: RegistryRecordProtocol {
         self.label = label
         self.ownName = ownName
         self.role = role
+        self.scope = scope
+        self.pieces = pieces
         self.admittedAt = admittedAt
         self.admittedBy = admittedBy
         self.revokedAt = revokedAt

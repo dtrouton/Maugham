@@ -254,8 +254,12 @@ extension ProjectStore {
         // above), so the resolve is a small fraction of a cost that is
         // deliberate and cached: the aggregation key folds every closed doc's
         // op-log mtime, so nothing here runs again until something moved.
+        // One fallback for every reader (fix round 2, minor 2) — see
+        // `TrustResolution.rememberedOrKeyless` for why `keyless` alone is the
+        // wrong answer to an unreadable record.
         let trust = (try? TrustResolution.resolve(projectURL: url, identities: .current))
-            ?? TrustResolution.keyless(mine: .current)
+            ?? TrustResolution.rememberedOrKeyless(
+                projectURL: url, identities: .current)
         for item in Self.collectDocuments(in: manifest.structure) {
             if openDocIds.contains(item.id) { continue }
             guard item.path != nil else { continue }
@@ -265,7 +269,8 @@ extension ProjectStore {
             // RULING-54 lenient, reason recorded: the task pane skips an
             // unreadable closed doc; opening it refuses loudly.
             guard let ops = try? OpLogStore.loadSyncMerged(
-                forDocId: item.id, in: url, trust: trust)
+                forDocId: item.id, in: url, trust: trust,
+                statements: manifest.statements)
             else { continue }
             let paragraphs = Deriver.deriveWithSequenceFallback(ops: ops).paragraphs
             // `maughamDeviceId: nil` — this projection reads and never writes,

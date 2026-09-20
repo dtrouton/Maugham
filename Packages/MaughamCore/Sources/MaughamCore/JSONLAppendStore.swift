@@ -102,7 +102,15 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     /// this is where a stream with no provenance of its own — the inbox's
     /// manifest — gets it. Empty for a store with no chain policy, which holds
     /// nothing back.
-    public func loadVerifiedStrict() async throws -> (
+    ///
+    /// `permit` is P3a Task 6's ladder, and **nil is the explicit *do not
+    /// judge*** — a caller with no verified table (the phone, a test) reads
+    /// exactly what it read before. The inbox's reader passes
+    /// `PermitJudge.inbox`, so a row another person's device captured answers
+    /// to the same permit its ops do.
+    public func loadVerifiedStrict(
+        permit judge: PermitJudge? = nil
+    ) async throws -> (
         elements: [Element], diagnostics: ParseDiagnostics,
         pendingByDevice: [String: Int]
     ) {
@@ -115,15 +123,33 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         let walked = OpLogChain.verify(
             bytes: bytes,
             trust: chain.trust,
-            rememberedHead: chain.state.head(for: fileKey))
+            rememberedHead: chain.state.head(for: fileKey),
+            // **Arm 2 of *the file's key*** (Task 11), from the same judge the
+            // permit partition below is given. A caller with no table passes
+            // none, so an inbox manifest or annotation log read without one is
+            // byte-for-byte what it was.
+            keyOfAnUnsealedFile: { PermitMark.keyNaming(fileURL, in: judge?.trust) })
         // The same absent-head decision the op log's own reader and this
         // store's chained WRITE make — one rule for every chained stream, so
         // the inbox and the annotation log cannot grow an opinion of their own
         // about what a missing remembered head means.
-        let (verification, _) = OpLogChain.resolveAbsentHead(
+        let (resolved, _) = OpLogChain.resolveAbsentHead(
             walked,
             rememberedHead: chain.state.head(for: fileKey),
             previousHead: chain.state.previousHead(for: fileKey))
+        // Then the permit, line by line, before the parse — a line it refuses
+        // must never reach the element decoder.
+        let verification = PermitPartition.partition(
+            of: resolved, file: fileURL, judging: judge)
+        // **Where another device's stream stood** (P3a Task 9). The one-file
+        // door, because every stream that reaches this reader is one file — an
+        // inbox manifest, an annotation log — and only the op log rotates.
+        // *Mine* is this policy's own signer: a chained store has one writer
+        // by ADR 0012, so a file named for any other slug is somebody else's.
+        ForeignStreamWatch.note(
+            url: fileURL, verification: verification,
+            projectURL: chain.projectURL, state: chain.state,
+            mine: [DeviceSlug.make(from: chain.identity.deviceId).raw])
         let parsed = Self.parse(
             bytes: Self.applied(verification, whole: bytes),
             dedupKey: dedupKey, sortedBy: sortedBy)
@@ -171,16 +197,24 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     /// right only where there is no table to ask. A caller that HAS one owes
     /// every seal the same six-way answer the live tail gets: a stranger's span
     /// held, a revoked key's refused, this device's own settled `verified`.
+    ///
+    /// It owes the unsealed remainder the same answer (Task 11), so
+    /// `keyOfAnUnsealedFile` is threaded rather than defaulted away: this
+    /// overload has no caller today, and the next table-holding reader to pick
+    /// it up would otherwise get arm-2-less behaviour silently — a file with no
+    /// seal in it applied unjudged, which is the defect one door along.
     nonisolated static func verifiedParse(
         bytes: Data,
         trust: (String) -> TrustVerdict,
         rememberedHead: String?,
+        keyOfAnUnsealedFile: () -> String? = { nil },
         dedupKey: ((Element) -> String)? = nil,
         sortedBy: ((Element, Element) -> Bool)? = nil
     ) -> (elements: [Element], diagnostics: ParseDiagnostics,
           verification: OpLogChain.Verification) {
         let verification = OpLogChain.verify(
-            bytes: bytes, trust: trust, rememberedHead: rememberedHead)
+            bytes: bytes, trust: trust, rememberedHead: rememberedHead,
+            keyOfAnUnsealedFile: keyOfAnUnsealedFile)
         let parsed = parse(
             bytes: applied(verification, whole: bytes),
             dedupKey: dedupKey, sortedBy: sortedBy)
@@ -506,9 +540,63 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
             return "written after this device was retired"
         case .anotherClaimants:
             return "written under another claimant's copy of this book"
+        case let .notPermitted(_, what, afterMark, actor):
+            return notPermittedReason(what: what, afterMark: afterMark, actor: actor)
         default:
             return "the history's chain is broken"
         }
+    }
+
+    /// **The permit's own clause** (P3 spec §4.4), in the same register as the
+    /// five above: one lower-case phrase naming the EVENT, with no label, no
+    /// count and no name in it.
+    ///
+    /// That register is the existing contract rather than a choice made here —
+    /// `afterRevocation` carries a person and its sentence names nobody, and
+    /// the surfaces that draw these (`HistoryPane.setAsideChangesNotice`,
+    /// `InboxPane.setAsideNotice`) put the number and the label in front of
+    /// the clause themselves. The spec's *Sam's Mac wrote 2 changes to the
+    /// manuscript, which a reviewer can't* is that whole sentence; this is its
+    /// last clause.
+    ///
+    /// **The AI actor is never given a product name**: *the assistant*.
+    ///
+    /// Two dimensions, in this order. A line refused because one of the four
+    /// KEYS is narrower than the person's own permit says so in the key's
+    /// terms — the assistant never changes the manuscript on any device, the
+    /// root's included — because telling the writer their own permission was
+    /// the problem would be false. Everything else is the person's permit, and
+    /// `afterMark` is spec §4.4's *…after it stopped being hers*: the line was
+    /// written after something about that permit changed, which is a different
+    /// fact from never having had it.
+    nonisolated static func notPermittedReason(
+        what: RefusedWhat, afterMark: Bool, actor: String?
+    ) -> String {
+        if let actor, let narrowed = DeviceActor(rawValue: actor), narrowed != .author {
+            switch narrowed {
+            case .assistant:
+                return "written by the assistant, which never changes the manuscript"
+            case .translator:
+                return "written by the translation pipeline, which writes only translations"
+            case .maugham:
+                return "written by this app's own housekeeping, which writes only task order"
+            case .author:
+                break
+            }
+        }
+        let clause: String
+        switch what {
+        case .manuscriptText: clause = "written into the manuscript"
+        case .disposition: clause = "a decision on a note"
+        case .passState: clause = "a review pass set"
+        case .statement: clause = "written into this book's own statements"
+        case .task: clause = "a task written"
+        case .translation: clause = "a translation written"
+        case .other: clause = "written"
+        }
+        return afterMark
+            ? "\(clause) by a device after its permission here changed"
+            : "\(clause) by a device that may not write it here"
     }
 
     private func plainAppend(_ line: Data) throws {

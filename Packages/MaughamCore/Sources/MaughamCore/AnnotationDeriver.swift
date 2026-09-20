@@ -4,10 +4,18 @@ public enum AnnotationDeriver {
 
     /// Build the annotation projection from an op log + current paragraph map.
     /// Pure function: same inputs → same output.
+    ///
+    /// `amendments` is P3a Task 6's *whose annotation is it* rule, and its
+    /// default is the pre-P3a behaviour — every edit and every withdrawal
+    /// stands. A caller holding a verified trust table passes
+    /// `AnnotationAmendments.judged`; a caller with none (the phone, a rewind
+    /// projection, a test) does not, and gets exactly what it always got.
     public static func derive(
         ops: [Op],
-        paragraphs: [String: String]
+        paragraphs: [String: String],
+        amendments: AnnotationAmendments = .honourEverything
     ) -> [Annotation] {
+        let creations = creationOps(in: ops)
         // 1. Index lifecycle ops by sourceAnnotationId; latest wins.
         var latestLifecycle: [String: Op] = [:]
         for op in ops where isLifecycleKind(op.kind) {
@@ -26,7 +34,8 @@ public enum AnnotationDeriver {
         var latestEdit: [String: Op] = [:]
         for op in ops {
             guard op.kind == .annotationEdit,
-                  let src = op.provenance?.sourceAnnotationId else { continue }
+                  let src = op.provenance?.sourceAnnotationId,
+                  honours(op, src, creations, amendments) else { continue }
             if let prior = latestEdit[src] {
                 if op.opId > prior.opId { latestEdit[src] = op }
             } else {
@@ -57,6 +66,11 @@ public enum AnnotationDeriver {
         for op in ops {
             guard op.kind == .annotationWithdraw || op.kind == .annotationReopen,
                   let src = op.provenance?.sourceAnnotationId else { continue }
+            // Only the WITHDRAW is an amendment. A reopen is a disposition —
+            // `Permit.group` puts it with accept, reject and stet — so it is
+            // the per-line partition's to judge and not this rule's.
+            if op.kind == .annotationWithdraw,
+               !honours(op, src, creations, amendments) { continue }
             if let prior = withdrawState[src] {
                 if op.opId > prior.opId { withdrawState[src] = op }
             } else {
@@ -226,15 +240,22 @@ public enum AnnotationDeriver {
     /// The annotations whose latest withdraw/reopen op is a WITHDRAW — the
     /// Deleted view's content, newest withdrawal first. Body honours the
     /// latest self-service edit, same as the live projection.
-    public static func deriveWithdrawn(ops: [Op]) -> [WithdrawnAnnotation] {
+    public static func deriveWithdrawn(
+        ops: [Op], amendments: AnnotationAmendments = .honourEverything
+    ) -> [WithdrawnAnnotation] {
+        let creations = creationOps(in: ops)
         var latestEdit: [String: Op] = [:]
         var withdrawState: [String: Op] = [:]
         for op in ops {
             guard let src = op.provenance?.sourceAnnotationId else { continue }
             switch op.kind {
             case .annotationEdit:
+                guard honours(op, src, creations, amendments) else { break }
                 if latestEdit[src].map({ op.opId > $0.opId }) ?? true { latestEdit[src] = op }
-            case .annotationWithdraw, .annotationReopen:
+            case .annotationWithdraw:
+                guard honours(op, src, creations, amendments) else { break }
+                if withdrawState[src].map({ op.opId > $0.opId }) ?? true { withdrawState[src] = op }
+            case .annotationReopen:
                 if withdrawState[src].map({ op.opId > $0.opId }) ?? true { withdrawState[src] = op }
             default:
                 break
@@ -259,17 +280,49 @@ public enum AnnotationDeriver {
     /// opId is a withdraw — the same latest-first resolution `derive` applies.
     /// The Mac's accept guard and the phone's writer both call this; neither
     /// restates it.
-    public static func isWithdrawn(annotationId: String, in ops: [Op]) -> Bool {
+    public static func isWithdrawn(
+        annotationId: String, in ops: [Op],
+        amendments: AnnotationAmendments = .honourEverything
+    ) -> Bool {
+        let creation = ops.first { $0.opId == annotationId }
         var latest: Op?
         for op in ops {
             guard op.kind == .annotationWithdraw || op.kind == .annotationReopen,
                   op.provenance?.sourceAnnotationId == annotationId else { continue }
+            if op.kind == .annotationWithdraw, let creation,
+               !amendments.honours(op, creation: creation) { continue }
             if latest.map({ op.opId > $0.opId }) ?? true { latest = op }
         }
         return latest?.kind == .annotationWithdraw
     }
 
     // MARK: - Helpers
+
+    /// Every annotation-CREATION op, by its own opId — which is the id an
+    /// amendment names in `sourceAnnotationId`.
+    ///
+    /// Built once per derivation rather than searched per amendment: the
+    /// ownership rule needs the creation op (its `device` is who made the
+    /// note), and a project's queue walk runs this over every document.
+    private static func creationOps(in ops: [Op]) -> [String: Op] {
+        var out: [String: Op] = [:]
+        for op in ops where AnnotationKind.fromOpKind(op.kind) != nil {
+            if out[op.opId] == nil { out[op.opId] = op }
+        }
+        return out
+    }
+
+    /// Does this amendment stand? **An amendment naming a creation op this
+    /// stream does not hold is left alone**, which is the pre-P3a answer and
+    /// the only honest one: the note it amends is not in the projection
+    /// either, so there is nothing to decide and nothing to protect.
+    private static func honours(
+        _ amendment: Op, _ sourceAnnotationId: String,
+        _ creations: [String: Op], _ amendments: AnnotationAmendments
+    ) -> Bool {
+        guard let creation = creations[sourceAnnotationId] else { return true }
+        return amendments.honours(amendment, creation: creation)
+    }
 
     /// The subset of an annotation op's `toolArgs` we read back — the
     /// translation-pass language tag written by add_query.

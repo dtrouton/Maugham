@@ -123,3 +123,242 @@ Two plans under the ~10-task cap, the second re-derived against the first once b
 - **P3b — the collaborator.** Reviewer inbox attribution; the phone's posture off `DeviceStanding` (+C5, C7); Component A retired, share keys as the sheet's default; guides, constitution amendment, ADR 0032 P3 addendum, roadmap flip and sibling-doc sweep; C4 and C10.
 
 Then the milestone's closing smoke (a second Apple ID is the honest test — WF1's participant-side iCloud review is still UNVERIFIED) and the release.
+
+---
+
+# P3a OUTCOME — the permit, enforced (2026-09-20)
+
+**Where it is.** Branch `claude/signed-op-log-p3a-2026-09-19`, eleven tasks,
+**unmerged** at the time of writing: the whole-branch review and the merge to
+LOCAL main both follow this note. Nothing pushed, nothing tagged — the milestone
+ships whole (P3a + P3b + P3c), and the release is a Mac+phone paired one because
+this changes what a reader APPLIES.
+
+## What shipped
+
+The mechanism, with **no surface**. Nothing in Maugham can yet give anybody a
+permit; that is P3b. Behaviour-neutral for every book that exists — no permit
+events means every admitted person is an author of the whole book from the
+start, which is exactly what P2 meant — and the whole P2 suite passes untouched.
+
+- **A fourth registry record**, `.maugham/people/events`, one signed file per
+  event, written by `RegistryAdmission` alone; two new authority checks in
+  `RegistryReader` (`eventSignerHasNoAuthority`, `eventDemotesARoot`);
+  `PersonRecord` gained `scope` and `pieces` beside the `role` P2 already wrote.
+- **A mark is chain positions** — per stream, the digest of every whole segment
+  the root had read and the hash of the last line it had — computed from shared
+  bytes, so every device reaches the same answer. **Seen**, not applied, except
+  a revocation's, which alone means applied.
+- **`PermitTimeline`** — the events in order as `(permit, mark)` entries; what
+  the check reads, never `PersonRecord.role`. Its opening entry depends on the
+  first event's KIND.
+- **`Permit.allows`** — the one table, `default:`-less over `OpKind`, with
+  manuscript text asked of `Deriver.appliesToManuscript` and a third answer
+  (`cannotJudge`) for everything a later build might mean.
+- **`PermitPartition`** — line by line, before the parse, immediately after
+  `RevocationSplit`, in every read path that applies somebody else's lines:
+  the op log's three, the mark sweep, the translation sidecars, and the inbox
+  manifest plus the annotation log through `JSONLAppendStore`.
+- **`AnnotationOwnership`** — an amendment is judged under the permit in force
+  **at that line**, so a demotion cannot revert an author's honest edit of a
+  reviewer's note and a promotion cannot pardon an ignored withdrawal.
+- **The authority verbs** — `changePermit` and its label-wide sibling; all four
+  mark-computing verbs refuse (and write nothing) rather than record a short
+  sweep; `historyUnreadable` now names which ACT was refused.
+- **The load seam** — `OpLogStore.localWritePermit` is the one write-side
+  question; where this device may not write the piece the load mints nothing
+  and answers `DocumentLoadError.waitingForPiece`; everything the load path
+  emits on its own account is the AUTHOR actor's whoever opened the file.
+- **Remembered foreign streams** — `ForeignStreamWatch`, so *absent* is
+  distinguishable from *never existed*, with truncation as a report that clears
+  when the bytes come back.
+- **An unsealed span answers to its file's verdict** (Task 11, from the audit):
+  a stranger's tail is held, a revoked one refused.
+
+Measured, on a quiet machine, ordinary book, medians of 7: the two main-actor
+project walks over 30 documents moved 59.5 → 59.6 ms and 63.3 → 63.4 ms against
+`main`; one `Document.load` of a 1,001-op document 24.9 → 26.0 ms. C9 is
+answered and nothing was moved off the main actor.
+
+## The final fix wave (2026-09-20) — what the whole-branch review changed
+
+Four items, four commits, each with both directions tested and a disable
+experiment recorded in `.superpowers/sdd/…/final-fix-wave-report.md`.
+
+- **W1 (Critical): a book judges itself when somebody is NARROWED, not when an
+  event exists.** *No events before P3b* was false — P3a's own `admit` writes
+  one for every device the writer lets in, and `DocumentStore.open`'s silent
+  admission writes another. `TrustTable.hasNarrowingPermits` replaces
+  `hasPermitEvents` at all four neutrality gates (the amendment record,
+  `couldJudge`, `answersWholeFile`, `AnnotationOwnership.unplaced`), asking the
+  permits rather than the events, over every entry of every timeline, with an
+  unreadable role word counting as narrowing. The sharpest consequence it
+  closes: an UNSIGNED Mac's annotation edits and withdrawals stopped being
+  honoured on every signed Mac from the day the writer admitted their phone —
+  P3 refusing what P1 applied, for a state the constitution calls first-class.
+- **W2: a sweep asks what a stream CONTAINS.** `expectedStreams` checked names,
+  which leaves the rotation-mid-sync case the shipped Revoke button walks into.
+  The MEMORY travels now (`expecting:`), and the guard asks
+  `ForeignStreamWatch.loss` — the load's own predicate, extracted rather than
+  restated. `writeEvent`'s carry-forward unions segment digests per key.
+- **W3(a): what RELEASED builds wrote is judged as the author's, permanently.**
+  `Permit.isALoadEmission` + `Permit.actorJudging`. **With a stated stop** —
+  see the ADR's limits: the three `typingBurst` load emissions write no
+  `synthesisSource`, so they are not covered and an assistant-signed ordinary
+  burst stays refused. W3(b)'s disk census over every project this Mac can
+  reach (23 projects, 194 tails, 5 `.mzseg`, 11,064 lines) found no line the
+  rule does not cover.
+- **W4: the two automations.** `sweepOrphanedAnnotations` and
+  `repairRejectedButSplicedAnnotations` now sign with `authorEmissionDevice`
+  and are not made where `localWritePermit` disallows the kind.
+- **W5: the narrowed book is measured** — see the ADR's *cost of a narrowed
+  book* table and `Maugham/OpLog/AREA.md`. An admissions-only book pays
+  nothing; one reviewer costs **+15 ms (+65 %) on a document open**.
+
+## For the release notes
+
+> On books shared between Macs, a device this book does not know had its
+> **unsealed** writing — everything since its last seal — applied. It now waits
+> for admission like the rest of its history. Nothing is lost: admitting the
+> device applies all of it on the next read.
+
+## The decision still owed for the release
+
+**Should an OLD build refuse a book that has permit events?** A v0.40.0 Mac
+knows nothing about roles, so it applies exactly what a P3 Mac refuses — and
+the two Macs then hold different manuscripts with nothing red on either. The
+paired release makes every Mac on a book update, but that is a request rather
+than a mechanism. Options, for Denver when P3c's release task is planned: leave
+it (the paired release is the answer, and a mixed fleet is a transient);
+make a book with events REFUSE to open on a build that cannot read them (loud,
+costs a writer their book until they update); or a one-way notice on the old
+build (*this book uses permissions this version cannot read*) that stops it
+writing but lets it read. Raise it with Denver when P3b is planned.
+
+## PARKED for Denver — the unsigned door
+
+**The state of it.** A file with ZERO attributable seals is applied unjudged.
+That is P1/P2 by design (unsigned is a first-class state: a VM, CI's runner;
+pre-signing legacy history is applied). Under permits it means a hostile client
+that never seals — or forges a *legacy*-shaped file — bypasses the permit check
+entirely. There is a further asymmetry inside it: the WRITE side narrows by
+actor even with no register (`LocalWritePermit` falls back to keyless, P1
+exactly), while the READ side does not.
+
+**Why it needs a ruling.** It contradicts what this handoff told Denver under
+decision #8 — *"an unsigned device's lines can never pass a role check, so they
+sit pending"*. They are in fact applied. Honest Maugham always seals and ADR
+0032 has always claimed provenance rather than a lock, so this is the stated
+threat model's edge; but it is the edge a reader will look for, so it is now
+written down in the ADR's *limits* section too.
+
+**Candidate close, for P3b's planning:** the first permit event snapshots the
+book's unsigned files by digest, and unsigned lines outside that snapshot are
+PENDING in a book that has events. Cheap, needs no new record kind, and leaves
+every genuinely unsigned device working until somebody starts handing out
+permits.
+
+## Carries into P3b — a list to plan against
+
+1. **The admission sheet must not offer a CONTESTED key** as a stranger to
+   admit: it is a disputed key, not a new device, and it needs its own sentence.
+2. **The admission sheet must not offer a NON-AUTHOR actor key at all.** A held
+   span whose slug reads `assistant-`/`translator-`/`maugham-` waits for its
+   device record; then the person is admitted by their author key. This closes
+   both the I5 seeding window and Task 6's residual (a stranger admitted via a
+   non-author key gets a spurious `author-<hex>` seeding while her real author
+   id stays unplaced, so her own amendment is not honoured until her device
+   record syncs).
+3. **Permits are per person RECORD, and P2b merges devices under one LABEL.**
+   The pane calls `DocumentStore.changePermit(everyRecordOf:to:)`, which is
+   built, pre-flights every record's sweep, skips revoked siblings and includes
+   retired ones. Nothing presses it today.
+4. **An event whose person record has not arrived draws no History row.**
+   `RegistryAdmission.recordBehindEvents` detects it; it needs a surface.
+5. **`IntegrityReport.truncatedStreams` / `TruncatedStream.sentence` have no
+   drawer.** P3b's dated History entry reads them.
+6. **`retire`'s mark can overcount *written while retired*** — it expects no
+   streams, so an own stream evicted at retire time is counted post-retirement
+   in P3b's prompt. The prompt ASKS before applying, so an overcount is
+   harmless; say so in the prompt's copy.
+7. **Permit-pending lines are invisible.** They reuse `.pending(device:)` and
+   are filtered out of every admission-worded count by one Core predicate (*is
+   this pending device a stranger?*), so they are held SILENTLY in P3a. P3b owes
+   them a surface of their own.
+8. **C8 item 5 is not done** — `claimedAt` does not move on a later adoption.
+   Closing it without contradicting the P2 test that pins it wants a date per
+   ADOPTED root, i.e. a `ClaimRecord` format change. Filed under *Signed
+   structure* on the roadmap.
+9. **Audit PR #65's F4** — a cold-cache tamper of a SOLE root record — is
+   P3b's, by Denver's 2026-09-20 triage.
+10. **Two format changes are filed on the roadmap's *Signed structure* item**,
+    both found here: per-actor possession proofs in the device record (the cure
+    for a contested key), and a per-adoption date on the claim record (item 8).
+11. **MUST — the first NARROWING event bumps the manifest schema gate** (the
+    whole-branch review's F5, and the answer to *the decision still owed*
+    above for the narrowed case). A v0.40.0 author Mac in a narrowed book
+    applies a reviewer's refused text, and its next burst re-asserts those
+    words under ITS OWN book-author key through `sequence`/`changes` — which
+    every new Mac then applies. That is somebody else's words under the
+    writer's name, with nothing red anywhere, and a paired release is a request
+    rather than a mechanism. The bump must happen the moment a NARROWING event
+    is written (not an admission: those carry the book-author permit and change
+    nothing an old build would get wrong), the same way `schemaVersion` 5 did.
+    **P3a does not need it now that W1 has landed** — only book-author events
+    can exist, and v0.40.0 ignores `people/events` benignly: its reader filters
+    `.json` files and skips directories, and `reconcile` deletes nothing.
+12. **`.retired`'s rolling ≤99-op unsealed tail is applied elsewhere and then
+    quarantined once sealed.** Task 11 ruled that a retired device KEEPS its
+    unsealed tail, because `retire` seals no op log and that tail is
+    pre-retirement work. The consequence is a shape P3b's re-admission prompt
+    is where the writer meets it: text appears on other Macs and then vanishes
+    when the device next seals. Spec §5 says such lines are HELD; today they
+    are applied then quarantined. Decide which, in the prompt's copy or in the
+    rule.
+13. **Two things nothing exercises.** Task 2's minor — a replayed MARKED line
+    as the first line of a forged tail, whose following lines must judge NEW —
+    has no test; the controller's analysis says it is harmless (a replayed line
+    can only sit where its `prev` allows) but the analysis is unpinned.
+    `AmendmentPermits`' restrictiveness tie-break has no production exerciser
+    at all: nothing in P3a can produce two governing permits for one amendment
+    op, so the arm that picks between them is written and never run.
+
+## What the fix wave's re-review left for P3b (2026-09-20 — merge verdict: safe for LOCAL main, unreleased)
+
+Recorded by the controller from the scoped re-review of `1c82d17f..0c600276`. Nothing here blocked the merge; every item is P3b's or the release's.
+
+- **IMPORTANT — a position sweep can refuse FOR EVER.** `ForeignStreamWatch.settle` keeps a stream's memory frozen while a loss stands, so a remembered segment digest (or a whole stream) that is *legitimately gone for good* — a collaborator's project folder deleted, history that will never sync back — makes `loss` answer on every later sweep, and `revoke`, `changePermit` and `admit` for that person refuse permanently, naming history that no longer exists: the root can never demote or revoke her. Nothing in the app deletes segments, so it needs an outside cause; it is Task 9's Important with one more arm, not new. **The escape belongs with P3b's loss surface, where it is decidable:** a standing loss the writer has been SHOWN stops being expected (the sweep skips a digest `state.truncations(inRoot:)` carries as acknowledged) — or the verb offers *proceed, judging that stream as new*. Build one of them with the truncated-stream drawer; do not ship P3 without it.
+- **The unsigned Mac's cliff — say it on a surface.** On a Mac with no enclave (a VM, an old Intel machine), the day the root FIRST narrows anybody, every note that Mac withdrew reappears and every edit it made to a note reverts, on every signed Mac, silently (`AnnotationOwnership.unplaced`: a production-shaped id that resolves to no key is not honoured in a narrowed book). It is the ruled behaviour and the sharpest edge of the parked unsigned door: a cliff, not a slope, with nothing that tells the writer. It goes in front of Denver WITH the unsigned-door decision, and whichever way that is ruled, People & Devices' unsigned line (#8) must say what narrowing will do to that Mac's notes BEFORE the first reviewer is created.
+- **The load-emission rule is by KIND, and one of its kinds rests on an unenforced invariant.** `Permit.isALoadEmission` is exactly `bootstrap` and `taskCreate`, judged as the author's whoever signed. That is safe because **no MCP tool writes a task op** (verified 2026-09-20: nothing under `Maugham/MCP` names `appendTaskOp`/`createPaneTask`/`taskCreate`). The day a `create_task` tool lands, the assistant's *no tasks* row is silently bypassed at read time on every Mac. P3b: add the census (no file under `Maugham/MCP` emits a task op) with a planted offender, or give the load's `taskCreate` a discriminator.
+- `Permit.actorJudging` widens the `maugham` actor too (`taskCreate` signed by the rebalance key would be judged as the author's). No build ever had the rebalance sign one and it is a local key on the same device — threat-model-neutral, wider than the ruling needed. Narrow the guard to `assistant`/`translator` when the file is next open.
+- `ForeignStreamWatch.settle` still computes `rotated`/`missing` locally beside the one shared `loss` predicate — the VERDICT is single-sourced, two partial re-spellings of the tolerance are not. Fold them into `loss` (or a sibling) before they drift.
+- AREA.md says a reviewer "will feel two frames" of the measured +15.5 ms per document open; the ADR and the fix-wave report say about one 16 ms frame. Make them agree — and P3b measures again once its surfaces exist.
+- A reviewer's Mac logs one `documentLog.error` per orphan on every sweep for the EXPECTED `AutomationNotPermitted` refusal — make it a debug-level line.
+- **W3's typingBurst STOP — Denver's call before ANY release.** The load's three `typingBurst` emissions (both pending-recovery folds, the task-anchor splice) carry no `synthesisSource`, so lines of that shape which v0.37–v0.40 signed under the assistant or translator key stay REFUSED (set aside into recoverable `.lines` records). The Swift census of this Mac (23 projects, 194 tails, the five `.mzseg` decoded, iCloud empty) found none. **Release checklist: run that census on EVERY Mac that has opened a book**, and give those three emissions a `synthesisSource` prospectively so the next such question has an answer.
+
+## Open question the whole-branch review did NOT verify
+
+**S4(c): are two roots' marks for one stream comparable after an adoption?** A
+mark is a set of chain positions in a stream, and after two roots adopt each
+other each holds marks it computed from its own copy of the folder. Whether
+those two marks can be compared — or merged, or ordered — for the same stream
+is not established anywhere, and the review states plainly that it did not
+verify it. It cannot bite in P3a (nothing creates a non-book permit), but P3b
+gives the writer a verb that writes marks, and two adopted roots both using it
+is the first moment the question has an answer worth having.
+
+## Carries into P3c
+
+- **⌘S on a piece this device may not write.** The table refuses a
+  `checkpoint` op there, correctly. The cure is Posture: keep the flash (muscle
+  memory, a constitution position) and write NO op. If P3c forgets, a reviewer's
+  ⌘S produces a set-aside record in her name.
+- **The PHONE reads annotations without the ownership rule**
+  (`AnnotationLoading.swift` ~68/74, `AnnotationDetailView` ~561), so it honours
+  what the Mac judges away.
+- **`Posture` itself** — the membrane widened to the table — plus the phone's
+  posture off `DeviceStanding`, Component A's retirement, the guides and the
+  constitution's amendment.
+- **On a not-permitted device, `close()`'s failed-flush arm declines to
+  re-persist**, so un-bursted keystrokes of a failed burst are lost from memory
+  (logged). Unreachable once Posture makes such a piece read-only.

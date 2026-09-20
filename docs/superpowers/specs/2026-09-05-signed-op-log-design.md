@@ -302,6 +302,14 @@ applied.* The `.md` is re-materialised without them, the same fate an outside
   KEEPS what this Mac had already applied, so there is no late-sync half to
   notice or to Apply; the distinction and its Apply are P3's. See
   [ADR 0032](../../adr/0032-the-signed-op-log.md)'s 2026-09-18 amendment.
+  **AMENDED 2026-09-20, as built in P3a:** the mark a revocation records is no
+  longer only *the highest opId seen*. It is **chain positions** — the digest of
+  every whole segment this Mac had taken in and the hash of the last line it had
+  applied, per stream (P3 spec §3.3) — because an opId carries a timestamp its
+  own writer chose and a shut-out device can stamp fresh text with an old one.
+  `highestOpIdSeen` is still written, for P2-era readers, and
+  `RevocationSplit.Cut` holds both forms: a revocation with an event cuts
+  `byPosition`, one already on disk cuts `byOpId` as before.
 - **This is soft by construction.** A revoked device with folder access can
   still write files. Hard revocation is removing the participant from the
   iCloud share, which the author owns. Settings says so in one sentence next
@@ -368,6 +376,24 @@ manuscript op is quarantined whole, and History says *Sam's Mac wrote 2
 changes to the manuscript, which a reviewer can't; kept in backup.* WF1's
 membrane (Component B) stays in the UI as the cooperative half; this is the
 enforced half it explicitly deferred.
+
+> **AMENDED 2026-09-20, as built in P3a** (see the P3 spec
+> `2026-09-19-signed-op-log-p3-roles-scope-collaborator-design.md`, which wins
+> where the two differ):
+>
+> - **Two rows became three.** The table above is superseded by the P3 spec's
+>   §2 ladder: reviewer, **author of some pieces**, author of the whole book.
+>   Denver's scope ruling (handoff decision 5) is what added the middle rung,
+>   and it is why P3 became three plans rather than one.
+> - **Quarantined WHOLE became line by line** (P3 spec §4.3). A batch is not a
+>   unit of authority: one refused line must not take the rest of the batch
+>   with it, and a line this build cannot judge is HELD rather than set aside.
+> - **There is a fourth answer.** An unrecognised role, scope, event kind or
+>   `OpKind` is PENDING and never refused — an older Mac must not quarantine
+>   what a newer one would apply.
+> - **The role is read from the TIMELINE, not the record** (§3.4). The field on
+>   the person record says what somebody may write today; a line is judged by
+>   the permit its signer held when they wrote it.
 
 **The author lock and the baton** (roadmap; WF2) are this record: an
 admission with `role: author` signed by the current author, downgrading the
@@ -536,6 +562,20 @@ Recorded. P1 can be planned; P2 waits on §8's decision.
   attribution; the phone reading its role and taking its posture; WF1's
   Component A retired in favour of the registry (iCloud share keys as the
   request's default only); the guides and the constitution's amendment.
+  **AMENDED 2026-09-19/20: this one bullet became THREE plans**, because
+  Denver's scope ruling added a middle rung to the ladder and a rung with a
+  lifecycle is not a slice of a plan about a field. See the P3 spec's §13.
+  - **P3a — the permit, enforced (BUILT 2026-09-20, on branch
+    `claude/signed-op-log-p3a-2026-09-19`).** Permit events and their marks,
+    the timeline, the table, the line-by-line partition in every read path
+    (the translation and inbox streams included), the authority verbs, the
+    load seam, and remembered foreign streams. No surfaces.
+  - **P3b — scope's lifecycle and the Mac's surfaces.** Her new piece's
+    question, the admission sheet's rung, People & Devices' permit control,
+    the three questions a load can raise, the inbox door, whose-piece-is-whose.
+  - **P3c — the collaborator.** The membrane widened to the table, the phone's
+    posture, WF1's Component A retired, the guides and the constitution's
+    amendment. Then the smoke and the release.
 
 ## 9. Out of scope
 

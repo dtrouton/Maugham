@@ -40,8 +40,15 @@ final class RegistryCanonicalCensusTests: XCTestCase {
     }
 
     /// A registry or trust source file, by name. The registry's own files are
-    /// `Registry*`, the trust layer's are `Trust*`, and both are places somebody
-    /// would plausibly reach for a hash.
+    /// `Registry*`, the trust layer's are `Trust*`, P3's permit layer's are
+    /// `Permit*`, and all three are places somebody would plausibly reach for a
+    /// hash.
+    ///
+    /// **`Permit*` joined in P3a**, with the first record kind that is not
+    /// named `Registry…`: `PermitEvent` is a signed registry record like any
+    /// other, so a digest rolled there would be an opinion about what was
+    /// signed in a file the census was not looking at — the very failure the
+    /// derived population was built to prevent.
     ///
     /// **`AdmissionMemory.swift` is in the population by name** (P2b Task 10,
     /// from Task 3's carry). It matches neither prefix and is the one other
@@ -54,6 +61,7 @@ final class RegistryCanonicalCensusTests: XCTestCase {
         guard url.pathExtension == "swift" else { return false }
         let name = url.lastPathComponent
         return name.hasPrefix("Registry") || name.hasPrefix("Trust")
+            || name.hasPrefix("Permit")
             || name == "AdmissionMemory.swift"
     }
 
@@ -97,6 +105,14 @@ final class RegistryCanonicalCensusTests: XCTestCase {
             }
         }
 
+        XCTAssertTrue(
+            censused.contains("PermitEvent.swift"),
+            """
+            The census found \(censused.count) registry/trust/permit sources and \
+            PermitEvent.swift was not among them, so P3's record kinds are \
+            outside the population that decides what a signature covers. Found: \
+            \(censused.sorted().joined(separator: ", "))
+            """)
         XCTAssertTrue(
             censused.contains("RegistryPresence.swift"),
             """
@@ -175,6 +191,9 @@ final class RegistryCanonicalCensusTests: XCTestCase {
         XCTAssertEqual(
             Self.offenders(in: planted, named: "TrustPresence.swift").count, 2,
             "and neither does a new trust file")
+        XCTAssertEqual(
+            Self.offenders(in: planted, named: "PermitTimeline.swift").count, 2,
+            "nor a new permit file — P3's records are registry records")
 
         // The allow-list is a file PLUS a spelling: the memory's own encoder
         // passes under its own name, a hash in the same file does not.
@@ -212,6 +231,7 @@ final class RegistryCanonicalCensusTests: XCTestCase {
         // The population predicate itself, since everything rests on it.
         XCTAssertTrue(Self.isRegistryOrTrustSource(URL(fileURLWithPath: "/x/RegistryAdmission.swift")))
         XCTAssertTrue(Self.isRegistryOrTrustSource(URL(fileURLWithPath: "/x/TrustTable.swift")))
+        XCTAssertTrue(Self.isRegistryOrTrustSource(URL(fileURLWithPath: "/x/PermitEvent.swift")))
         XCTAssertFalse(Self.isRegistryOrTrustSource(URL(fileURLWithPath: "/x/OpLogChain.swift")))
         XCTAssertFalse(Self.isRegistryOrTrustSource(URL(fileURLWithPath: "/x/RegistryNotes.md")))
     }

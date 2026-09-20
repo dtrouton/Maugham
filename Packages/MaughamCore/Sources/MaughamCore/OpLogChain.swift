@@ -489,13 +489,34 @@ public enum OpLogChain {
         /// op id says.
         public private(set) var refusal: QuarantineCause?
 
+        /// **Did a seal ever close the span this line is in?** (Task 11, fix
+        /// round 1.)
+        ///
+        /// Set by the walk when a seal settles a span, and left false for a
+        /// line the FILE'S KEY judged instead — the unsealed remainder, which
+        /// no signature covers.
+        ///
+        /// The one reader is `readmitting`, which puts a refused line back into
+        /// the state it would have had if nothing had refused it: `.verified`
+        /// where a seal covers it, `.unsealed` where none ever did. Without
+        /// this it called every re-admitted line `.verified`, which for an
+        /// unsealed one is the same misstatement `settlingAnUnsealedSpan`'s
+        /// `.mine` arm exists to avoid — telling the writer's History pane that
+        /// bytes nobody signed are verified. It is a fact the walk has in hand
+        /// and nothing downstream can re-derive: *covered by a seal* is not
+        /// *has a seal after it in the file* (a span stranded below a seal that
+        /// failed to parse has one and was never settled by it).
+        public private(set) var coveredByASeal: Bool
+
         public init(
-            bytes: Data, kind: Kind, state: State, refusal: QuarantineCause? = nil
+            bytes: Data, kind: Kind, state: State, refusal: QuarantineCause? = nil,
+            coveredByASeal: Bool = false
         ) {
             self.bytes = bytes
             self.kind = kind
             self.state = state
             self.refusal = refusal
+            self.coveredByASeal = coveredByASeal
         }
 
         /// Only the walk in this file promotes a span when its seal arrives,
@@ -504,6 +525,19 @@ public enum OpLogChain {
         fileprivate mutating func settle(_ state: State, because cause: QuarantineCause? = nil) {
             self.state = state
             self.refusal = state == .quarantined ? cause : nil
+        }
+
+        /// A seal has closed the span this line is in. Recorded beside the
+        /// state rather than inferred from it, because every state a seal can
+        /// settle a span to is also reachable without one.
+        fileprivate mutating func markCoveredByASeal() {
+            coveredByASeal = true
+        }
+
+        /// The state this line would be in if nothing had refused it —
+        /// `readmitting`'s one question.
+        fileprivate var stateIfNothingHadRefusedIt: State {
+            coveredByASeal ? .verified : .unsealed
         }
     }
 
@@ -564,6 +598,31 @@ public enum OpLogChain {
         /// writing (spec §5). Its earlier spans are untouched — this is the one
         /// cause whose subject is a date rather than a key.
         case afterRetirement(device: String)
+        /// **A line its signer's permit does not allow** (P3 spec §4.4).
+        ///
+        /// The one cause that is about a LINE rather than about a key: the
+        /// chain held, the seal verified, the device is admitted and in good
+        /// standing — and what the line says is not something that person, or
+        /// that one of their four keys, may write here. Its neighbours under
+        /// the same seal are applied.
+        ///
+        /// - `person` is who the key resolves to (`TrustTable.person`). A
+        ///   surface turns it into a label; nothing here does, for the reason
+        ///   `afterRevocation` carries a person and no name either — the words
+        ///   in `JSONLAppendStore.quarantineReason` are one clause about the
+        ///   event, and the writer's own name for a machine belongs to the
+        ///   pane that draws it.
+        /// - `what` is the noun: manuscript text, a disposition, a pass state,
+        ///   a statement, a task, a translation.
+        /// - `afterMark` is whether the governing permit was installed by an
+        ///   EVENT rather than being the one this person has always had —
+        ///   spec §4.4's *…after it stopped being hers*.
+        /// - `actor` is the raw actor word when the refusal is one of the four
+        ///   keys narrowing within the person's permit (the assistant never
+        ///   changes the manuscript, whoever holds it), and nil when the
+        ///   person's own permit is what refused.
+        case notPermitted(
+            person: String, what: RefusedWhat, afterMark: Bool, actor: String?)
 
         // **There is no `revocationLate` any more** (find 5, ruled 2026-09-18).
         // A line from a revoked key whose opId is at or below the mark the root
@@ -682,6 +741,8 @@ public enum OpLogChain {
     ///    every `.unsealed` line since the last seal to whatever `trust`
     ///    answers about the key that made it — `.verified`, `.pending`,
     ///    `.unsignedHistory` or `.quarantined`, per `TrustVerdict.settling`.
+    /// 6. **And what NO seal has closed answers to the file's own key** (Task
+    ///    11, audit PR #65's F1 + F2). See `judgingWhatNoSealHasClosed`.
     ///
     /// **A refused span does not break the chain.** A verdict is about WHOSE
     /// word a span is, not about whether the bytes follow from each other, so
@@ -690,10 +751,20 @@ public enum OpLogChain {
     /// this path — `applied` filters by state and never by position, and the
     /// chained WRITE (whose rewrite does assume a prefix) judges by `.mine`
     /// alone, so it cannot produce one of these.
+    ///
+    /// - Parameter keyOfAnUnsealedFile: **arm 2 of *the file's key*** — the key
+    ///   this device can NAME for a file that holds no usable seal at all,
+    ///   asked at most once and only when there is something unsealed to judge.
+    ///   It is a closure rather than a value so this type stays ignorant of
+    ///   device records and filenames: the caller that can join a slug to a key
+    ///   supplies one, and every other caller — the keyless walks, the chained
+    ///   write, the tests that pin the chain's own rules — takes the default
+    ///   and behaves exactly as it did.
     public nonisolated static func verify(
         bytes: Data,
         trust: (String) -> TrustVerdict,
-        rememberedHead: String?
+        rememberedHead: String?,
+        keyOfAnUnsealedFile: () -> String? = { nil }
     ) -> Verification {
         verifyObserverForTesting?()
         var lines: [Line] = []
@@ -704,6 +775,10 @@ public enum OpLogChain {
         var cause: QuarantineCause?
         var foreignSealCount = 0
         var reachedRememberedHead = false
+        // Arm 1 of *the file's key*: the LAST seal in the file that parsed and
+        // chain-verified, whatever this device makes of its key. Set past all
+        // three of the seal guards, so a forged or misplaced seal names nothing.
+        var lastSealKey: String?
 
         // One cause per verification, and it is the first one met.
         func broke(_ reason: BreakReason) {
@@ -794,6 +869,7 @@ public enum OpLogChain {
                                       refusal: .chainBroke(reason)))
                     continue
                 }
+                lastSealKey = seal.key
                 let verdict = trust(seal.key)
                 if verdict != .mine { foreignSealCount += 1 }
                 // The seal's own moment, because one verdict — `.retired` —
@@ -807,16 +883,29 @@ public enum OpLogChain {
                 // on the seal itself: what refused them is the key, not a break.
                 let sealRefusal = settled == .quarantined ? verdict.refusal : nil
                 for covered in spanStart..<index where lines[covered].state == .unsealed {
+                    lines[covered].markCoveredByASeal()
                     lines[covered].settle(settled, because: sealRefusal)
                 }
+                // The seal is covered by itself: it is the signature over the
+                // span, so a re-admission puts it back verified with the lines
+                // it closed.
                 lines.append(Line(bytes: line, kind: kind, state: settled,
-                                  refusal: sealRefusal))
+                                  refusal: sealRefusal, coveredByASeal: true))
                 sawChainOrSeal = true
                 spanStart = index + 1
             }
 
             head = lineHash(line)
             if let rememberedHead, head == rememberedHead { reachedRememberedHead = true }
+        }
+
+        // **Rule 6, after the walk, because only here has every seal been
+        // seen.** What no seal closed is judged by the file's own key.
+        if let judged = judgingWhatNoSealHasClosed(
+            &lines, trust: trust,
+            lastSealKey: lastSealKey, keyNamingTheFile: keyOfAnUnsealedFile),
+           cause == nil {
+            cause = judged
         }
 
         // One pass, not five. The tallies used to be four `filter`s and a `map`
@@ -846,6 +935,127 @@ public enum OpLogChain {
             quarantined: quarantined,
             breakReason: breakReason,
             quarantineCause: quarantined.isEmpty ? nil : cause)
+    }
+
+    /// **A span no seal has closed answers to the verdict of its FILE** (Task
+    /// 11, audit PR #65's F1 + F2) — the rule that stops *never seal again*
+    /// being a way past admission, revocation and the claim alike.
+    ///
+    /// Before this, trust was consulted at `case .seal` and nowhere else. A
+    /// chained op line with a good `prev` was `.unsealed`, `isHeldBack` false,
+    /// and applied — so everything a SIGNED foreign device had written since
+    /// its last seal (up to `OpLogStore.chainSealInterval − 1` ops, or its whole
+    /// file before its first one) entered the book whatever the register said
+    /// about it. A stranger's text was in the manuscript unadmitted; a revoked
+    /// device's post-revocation tail leaked. Every P2 fixture sealed before it
+    /// asserted, which is why it shipped green in v0.39.0/v0.40.0.
+    ///
+    /// **The file's key, in three arms**, and the third one is a door left open
+    /// on purpose:
+    ///
+    /// 1. the key of the LAST seal in the file that parsed and chain-verified,
+    ///    **whatever this device's register makes of it** — a stranger's, a
+    ///    revoked device's or a retired device's seal names the file just as
+    ///    this device's own does, because ADR 0012 gives a file one writer and
+    ///    the question here is whose file this is, not whose word to take;
+    /// 2. where there is no such seal, **or where that seal's key is one this
+    ///    register has never heard of** (`.noChain`), whatever
+    ///    `keyOfAnUnsealedFile` can name for the file — in production the key
+    ///    this device's register holds under the device id the filename's slug
+    ///    is made from;
+    /// 3. **neither ⇒ the span is what it was: `.unsealed`, and applied.** That
+    ///    residue IS the unsigned door (P1's decision B3, ADR 0032 §3): a device
+    ///    with no enclave — a VM, CI's runner — writes chained lines nothing
+    ///    seals and reports nothing wrong, and pre-signing legacy history sits
+    ///    in the same arm. Closing it is Denver's to rule when P3b is planned;
+    ///    it is not closed here.
+    ///
+    /// **Why arm 1 falls THROUGH when it cannot be attributed** (fix round 1's
+    /// ruling). An unconditional arm 1 makes one seal under a throwaway key a
+    /// way to buy the whole unsealed remainder a gentler answer: a revoked
+    /// device seals its tail with a key nothing here names, arm 1 answers about
+    /// THAT key, and the span this rule exists to refuse is merely held —
+    /// offered to the writer for admission under a code that is not the
+    /// revoked device's — while the file's own NAME still carries that
+    /// device's slug, which arm 2 resolves to `.revoked`.
+    ///
+    /// *Unattributable* is `.noChain` — which only a reader with no root of
+    /// its own ever sees (`TrustTable.verdict` guards on `myRoot`) — **or
+    /// `.stranger` with no device**, which is what a rooted book actually
+    /// answers for a key no record mentions. Both are *the register has
+    /// nothing to say about this key*.
+    ///
+    /// **The fall-through cannot WIDEN, and that is structural rather than
+    /// guarded.** A filename must never buy a span a gentler answer than its
+    /// seal got, and here it cannot: the fall-through is reached only where arm
+    /// 1 is unattributable, an unattributable arm 1 settles to nil or
+    /// `.pending` (`TrustVerdict.isUnattributable`'s two verdicts against
+    /// `settlingAnUnsealedSpan`'s arms), and arm 2 is taken only when it
+    /// answers a STATE — so a `.mine`/`.admitted`/`.retired` filename answers
+    /// nil, the `if let` declines it, and arm 1's hold stands. The property is
+    /// pinned by `OpLogChainTests
+    /// .test_anUnattributableVerdictCanOnlyHoldOrLeaveASpanAlone`, which is
+    /// what goes red if a later arm makes an unattributable verdict refuse, or
+    /// makes an attributable one settle where it used to answer nil. A severity
+    /// comparison was written here first and removed: it could not be made to
+    /// fail, because the `if let` already is it.
+    ///
+    /// The fall-through costs an honest unsigned device nothing: it has no
+    /// record for arm 2 to find either, so it lands in arm 3 and is applied
+    /// exactly as P1 applied it.
+    ///
+    /// **And the span an unattributable seal COVERS is untouched.** The walk
+    /// settles it at `case .seal` — `.unsignedHistory` for `.noChain`,
+    /// `.pending` for a stranger — and this rule never looks at it. Those bytes
+    /// are the unsigned door; widening into them would start refusing history
+    /// P1 applies. This is about the unsealed remainder and nothing else.
+    ///
+    /// What the span then becomes is `settlingAnUnsealedSpan`'s, which is
+    /// `settling`'s sibling and defers to it arm for arm.
+    ///
+    /// Every line still `.unsealed` is judged, not only the trailing span: a
+    /// seal that failed to parse or verify breaks the walk WITHOUT settling the
+    /// lines below it, so those are unsealed too, and they are no more this
+    /// device's word than the tail is.
+    ///
+    /// Answers the cause when it refused something, so the walk can keep its
+    /// one-cause-per-verification rule — and nil when it held, applied or left
+    /// everything alone, because holding names no reason for holding.
+    private nonisolated static func judgingWhatNoSealHasClosed(
+        _ lines: inout [Line],
+        trust: (String) -> TrustVerdict,
+        lastSealKey: String?,
+        keyNamingTheFile: () -> String?
+    ) -> QuarantineCause? {
+        // Asked before either key is, so a file whose every line a seal already
+        // settled never pays for the lookup arm 2 would do.
+        guard lines.contains(where: { $0.state == .unsealed }) else { return nil }
+
+        // Arm 1.
+        let armOne = lastSealKey.map { ($0, trust($0)) }
+        var chosen = armOne.flatMap { key, verdict in
+            verdict.settlingAnUnsealedSpan(sealKey: key).map { ($0, verdict) }
+        }
+        // Arm 2, where arm 1 named nothing or named a key this register cannot
+        // attribute — and then only where it judges the span more strictly, so
+        // a filename can never buy a gentler answer than the seal's own.
+        if armOne == nil || armOne.map({ $0.1.isUnattributable }) == true,
+           let named = keyNamingTheFile() {
+            let verdict = trust(named)
+            // Only where arm 2 answers a STATE. A filename naming a device
+            // this book trusts answers nil, and arm 1's hold stands — see the
+            // narrowing argument above.
+            if let settled = verdict.settlingAnUnsealedSpan(sealKey: named) {
+                chosen = (settled, verdict)
+            }
+        }
+        // Arm 3 is either answer being nothing at all.
+        guard let (settled, verdict) = chosen else { return nil }
+        let refusal = settled == .quarantined ? verdict.refusal : nil
+        for index in lines.indices where lines[index].state == .unsealed {
+            lines[index].settle(settled, because: refusal)
+        }
+        return refusal
     }
 
     /// The keyless walk: `true` is this device's own key, `false` is a key it
@@ -889,6 +1099,86 @@ extension TrustVerdict {
         case let .retired(_, retiredAt):
             sealedAt < retiredAt ? .verified : .quarantined
         case .noChain: .unsignedHistory
+        }
+    }
+
+    /// **The same table, for a span NO seal has closed** (Task 11) — the state
+    /// such a span settles to, or **nil for *leave it exactly as the walk found
+    /// it***, which is `.unsealed` and applied.
+    ///
+    /// It is a sibling of `settling` rather than a call into it, because two of
+    /// the seven arms cannot be answered the same way and the difference is the
+    /// whole of this function. Arm by arm, against `settling`'s own line:
+    ///
+    /// - `.mine`, `.admitted` — `settling` says `.verified`; here, nil.
+    ///   `.verified` means *covered by a seal whose key the caller trusts*, and
+    ///   these bytes are covered by no seal at all, so claiming it would be a
+    ///   lie about provenance in the writer's own History pane. Nothing is held
+    ///   either way, which is what matters: **this device's own unsealed tail
+    ///   is never held and never refused**, because typing appends unsealed
+    ///   lines all day and a writer whose words waited for a seal would be
+    ///   watching their sentence disappear between bursts.
+    /// - `.stranger` — `.pending(device: device ?? sealKey)`, the SAME device
+    ///   string the sealed case uses. The admission union keys on it, so a
+    ///   different string here would ask the writer about one device twice.
+    /// - `.revoked`, `.otherRoot` — `.quarantined`, in the verdict's own words,
+    ///   exactly as `settling` refuses them. A revoked span then travels
+    ///   through `RevocationSplit` like any other refused one, so *keep what
+    ///   this Mac had already applied* still keeps it: the lines carry
+    ///   `.afterRevocation` as their OWN refusal, which is what makes them
+    ///   candidates for the cut.
+    /// - `.retired` — nil, and this is the one arm `settling` cannot be matched
+    ///   on. Its answer turns on `sealedAt`, and a span no seal has closed has
+    ///   no sealed-at: the only two readings are *before it retired* (keep) and
+    ///   *at or after it* (refuse). Refusing would set aside the last tail of
+    ///   every device that ever retired — the words it wrote while it was still
+    ///   in use, since nothing in `RegistryAdmission.retire` seals an op log —
+    ///   under a sentence (*written after this device was retired*) that is
+    ///   false about them. The arm that cannot lose the retired device's own
+    ///   view is therefore to keep. The residue is bounded and stated in
+    ///   `AREA.md`: a retired device that goes on writing keeps at most
+    ///   `chainSealInterval − 1` ops applied, because the app seals after every
+    ///   burst and at every close, and any span it seals after `retiredAt` is
+    ///   refused exactly as P2b refuses it.
+    /// - `.noChain` — nil, NOT `settling`'s `.unsignedHistory`. Both are
+    ///   applied, so nothing about the book changes; what changes is the
+    ///   sentence History draws off the count, and a live tail is partly
+    ///   unsealed by construction. Calling it unsigned history would put a
+    ///   standing notice on every ordinary file. Arm 3's door is this one and
+    ///   it stays open.
+    ///
+    /// A seventh verdict is a compile error here, as it is in `settling`.
+    nonisolated func settlingAnUnsealedSpan(sealKey: String) -> OpLogChain.Line.State? {
+        switch self {
+        case .mine, .admitted: nil
+        case let .stranger(device): .pending(device: device ?? sealKey)
+        case .revoked, .otherRoot: .quarantined
+        case .retired: nil
+        case .noChain: nil
+        }
+    }
+
+    /// **Has this register nothing to say about the key?** (Task 11, fix
+    /// round 1.)
+    ///
+    /// Two verdicts mean it, and which one a reader meets depends on something
+    /// other than the key: `.noChain` is what a device with no root of its own
+    /// answers about everybody (`TrustTable.verdict` guards on `myRoot` before
+    /// it looks anything up), and `.stranger` **with no device** is what a
+    /// ROOTED book answers for a key no device record names — which is every
+    /// book since P2a, and therefore the one that matters in practice.
+    ///
+    /// A `.stranger` that DOES name a device is attributable: the register
+    /// knows whose key it is and is merely waiting to be told whether to admit
+    /// it.
+    ///
+    /// Its one reader is the arm-2 fall-through, which is why this is a
+    /// question about the REGISTER's knowledge rather than about trust.
+    nonisolated var isUnattributable: Bool {
+        switch self {
+        case .noChain: true
+        case let .stranger(device): device == nil
+        case .mine, .admitted, .revoked, .retired, .otherRoot: false
         }
     }
 
@@ -1007,11 +1297,16 @@ extension OpLogChain {
     /// mirror of `quarantining(_:after:)`, and the one place a quarantined line
     /// becomes an applied one (find 5, ruled 2026-09-18).
     ///
-    /// Every `.quarantined` line whose bytes appear in `lines` is re-settled
-    /// `.verified`; the tallies and `quarantined` are rebuilt off the states,
-    /// and the cause is dropped when nothing is refused any more — a
-    /// verification that holds nothing back must not go on naming a reason for
-    /// holding it.
+    /// Every `.quarantined` line whose bytes appear in `lines` is re-settled to
+    /// **the state it would have had if nothing had refused it** — `.verified`
+    /// where a seal covers it, `.unsealed` where none ever did (Task 11's fix
+    /// round 1; `Line.coveredByASeal`). Re-admitting an unsealed line as
+    /// `.verified` would tell the writer's History pane that bytes no signature
+    /// covers are verified, which is the same misstatement
+    /// `settlingAnUnsealedSpan` refuses to make in the other direction. The
+    /// tallies and `quarantined` are rebuilt off the states, and the cause is
+    /// dropped when nothing is refused any more — a verification that holds
+    /// nothing back must not go on naming a reason for holding it.
     ///
     /// **The head does not move**, and that is deliberate rather than an
     /// oversight. `Verification.head` is what the next chained APPEND builds
@@ -1033,7 +1328,7 @@ extension OpLogChain {
         var lines = verification.lines
         for index in lines.indices
         where lines[index].state == .quarantined && keep.contains(lines[index].bytes) {
-            lines[index].settle(.verified)
+            lines[index].settle(lines[index].stateIfNothingHadRefusedIt)
         }
         let counted = tallies(of: lines)
         return Verification(
@@ -1052,6 +1347,66 @@ extension OpLogChain {
             // that kept every line.
             quarantineCause: counted.quarantined.isEmpty
                 ? nil : verification.quarantineCause)
+    }
+
+    /// **Take applied lines OUT of the book, one by one** — `readmitting`'s
+    /// mirror, and the one door the permit partition re-settles through
+    /// (P3 spec §4.3). `Line.settle` is `fileprivate`, so a partition living
+    /// anywhere else has to come here, which is what keeps the states this
+    /// file defines decided in this file.
+    ///
+    /// Keyed by INDEX rather than by bytes, unlike `readmitting`: two
+    /// identical lines in one file are not a shape the chain can produce, but
+    /// a rule that refuses one line and not the other is a rule that has to be
+    /// able to say which, and an index can while a byte set cannot.
+    ///
+    /// - `refusing` quarantines a line with its OWN cause, because a permit
+    ///   partition can refuse two lines of one file for two different reasons
+    ///   (a manuscript line and a task, or the same line before and after a
+    ///   mark) and `setAside` files one record per cause.
+    /// - `holding` holds a line PENDING under a device — an unjudgeable kind,
+    ///   an unreadable role, a piece nobody has claimed yet. Held, never
+    ///   recorded: nothing is wrong with it.
+    ///
+    /// **The head does not move**, for `readmitting`'s reason exactly:
+    /// `Verification.head` is what the next chained append builds on and is
+    /// shared with the write through `resolveAbsentHead`. Refusing a line
+    /// decides what the DOCUMENT is made of, not what the file's next line
+    /// chains onto — and the bytes on disk are untouched by any of this.
+    nonisolated static func repartitioned(
+        _ verification: Verification,
+        refusing: [Int: QuarantineCause],
+        holding: [Int: String]
+    ) -> Verification {
+        guard !refusing.isEmpty || !holding.isEmpty else { return verification }
+        var lines = verification.lines
+        for (index, cause) in refusing where lines.indices.contains(index) {
+            lines[index].settle(.quarantined, because: cause)
+        }
+        for (index, device) in holding
+        where lines.indices.contains(index) && refusing[index] == nil {
+            lines[index].settle(.pending(device: device))
+        }
+        let counted = tallies(of: lines)
+        return Verification(
+            lines: lines,
+            // Unmoved, on purpose — see above.
+            head: verification.head,
+            legacyCount: counted.legacy,
+            verifiedCount: counted.verified,
+            unsealedCount: counted.unsealed,
+            pendingCount: counted.pending,
+            foreignSealCount: verification.foreignSealCount,
+            quarantined: counted.quarantined,
+            breakReason: verification.breakReason,
+            // One cause per verification and it is the FIRST one met — the
+            // walk's own, where it had one, else the earliest line this
+            // partition refused. It is only ever a fallback for a line with no
+            // refusal of its own; `setAside` reads the LINE's cause first.
+            quarantineCause: counted.quarantined.isEmpty
+                ? nil
+                : (verification.quarantineCause
+                    ?? refusing.min(by: { $0.key < $1.key })?.value))
     }
 
     /// The four counts and the refused bytes, taken off the line states — one

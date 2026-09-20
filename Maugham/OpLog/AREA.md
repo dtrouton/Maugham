@@ -16,14 +16,17 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 - `LocalIdentities.swift` (MaughamCore) — this device's four writers in one value: `subscript(actor:)` (exhaustive, so a fifth case is a compile error), `all` in `DeviceActor.allCases` order, `fingerprints` (the keys this device holds, which `TrustTable.resolve` reads to answer `.mine` — it ENUMERATES and mints nothing), and `identity(forDeviceId:)`, which matches on the WHOLE id and never a prefix — another Mac's author carries `author-` too. `current` is computed over `DeviceIdentity.identity(for:)`'s per-actor memoization, so nothing is minted until it is asked for; the phone, which is the author alone, must reach `DeviceIdentity.author` directly rather than through here.
 - `DeviceIdentity.swift` / `DeviceState.swift` (MaughamCore) — one enclave key **per actor**, each persisted by the app as a plain blob under Application Support (`device-key.blob`/`device-token` for the author, `device-key.<actor>.blob`/`device-token.<actor>` for the other three), and the id/fingerprint/slug derived from it. `DeviceIdentity.author` is the writer's; `DeviceIdentity.identity(for:)` is any of the four. `DeviceIdentity+Testing.swift` holds the test-only software signer, and is the one allow-list entry of `TripwireGrepTests.test_noSoftwarePrivateKeyInProduction`.
 - `OpLogChain.swift` (MaughamCore) — the wire format (`prev` as the first key; the seal line) and the pure verifier that classifies every line. No I/O, no clock, no policy about who is trusted: the `trusted` closure and the remembered head are parameters. `Hex` lives here too, shared with the segment container and the fingerprint.
-- `OpLogDeviceState.swift` (MaughamCore) — what this device remembers: the chain head it last wrote into each file, and the digests of segments it has already verified. Also `ChainPolicy`, the value a chained `JSONLAppendStore` carries.
-- `RegistryRecord.swift` / `RegistryCanonical.swift` / `RegistryWriter.swift` / `RegistryWriter+Restore.swift` / `RegistryReader.swift` (MaughamCore) — the book's register of who may write in it: the three record shapes, the bytes a signature is made over, the one writer (and the restore door beside it), and the reader that verifies a record's filename, signature, signer and own author actor before it counts as one, and lists what fails.
+- `OpLogDeviceState.swift` (MaughamCore) — what this device remembers: the chain head it last wrote into each file, the digests of segments it has already verified, and (P3a Task 9) where OTHER devices' streams stood. Also `ChainPolicy`, the value a chained `JSONLAppendStore` carries.
+- `ForeignStreamWatch.swift` (MaughamCore) — P3a Task 9's half of that memory: the collector a load carries so a truncated foreign stream is noticed. See *A foreign stream that got shorter* below.
+- `RegistryRecord.swift` / `RegistryCanonical.swift` / `RegistryWriter.swift` / `RegistryWriter+Restore.swift` / `RegistryReader.swift` (MaughamCore) — the book's register of who may write in it: the record shapes (count `RegistryDirectory`'s cases — `PermitEvent` joined them in P3a), the bytes a signature is made over, the one writer (and the restore door beside it), and the reader that verifies a record's filename, signature, signer and own author actor before it counts as one, and lists what fails.
+- `Permit.swift` / `PermitEvent.swift` / `PermitMark.swift` / `PermitTimeline.swift` / `DocumentClass.swift` / `PermitPartition.swift` / `AnnotationOwnership.swift` / `LocalWritePermit.swift` / `OpLogPermitContext.swift` (MaughamCore) — P3a's permit layer: what a person may write, the event that changes it, the chain positions an event is marked at, the timeline the check reads, which kind of stream a file is, the line-by-line partition, the same-person rule for annotation amendments, and the write-side answer. See *The permit* below.
 - `RegistryCache.swift` (MaughamCore) — this device's memory of the last verified registry, and the root it joined. Restores a record something deleted or tampered with, byte-faithfully, and reports it.
 - `TrustTable.swift` / `TrustResolution.swift` (MaughamCore) — `TrustVerdict`'s six answers to *who is this seal's key to me*, as a pure function of the registry (`TrustTable`) and the impure half that reads the folder, reconciles the cache and records the join (`TrustResolution`). `keyless(mine:)` is P1's behaviour exactly.
 - `RegistryPresence.swift` (MaughamCore) — what a device says about itself at open, and the first Mac's root. `Maugham/Stores/DocumentStore.swift` calls it; the phone's `PhoneDeviceRecord` is its other caller.
 - `ISO8601Fast.swift` (MaughamCore) — the byte-level parser for the two ISO-8601 spellings the app writes (no fraction, or exactly three digits), tried before `ISO8601DateFormatter` on the op log's decode path. Equivalence by construction rather than by replicating Foundation's undocumented truncation: every other shape falls through to the formatter chain untouched. See "Where the time goes" item 4.
 - `OpLogProvenance.swift` (MaughamCore) — `FileProvenance` per file and `OpLogProvenance` over a document, the load's own account of what its history is made of. What `HistoryPane`'s unsigned-history sentence reads.
-- `Bootstrap.swift` — mints `¶id` anchors on first-open of a document. **Must be called from any production load path.** Wired into `Document.load` since `milestone-document-first-class` (2026-05-19); `BootstrapWiringTests` enforces the contract. Any new manuscript-load path must route through `Document.load`.
+- `Bootstrap.swift` — mints `¶id` anchors on first-open of a document. **Must be called from any production load path *that may write the piece*.** Wired into `Document.load` since `milestone-document-first-class` (2026-05-19); `BootstrapWiringTests` enforces the contract. Any new manuscript-load path must route through `Document.load`. The qualifier is P3a Task 8's — see *The load seam* below.
+- `Document+Waiting.swift` — P3a Task 8's half of the load: `DocumentLoadError.waitingForPiece`, the document-class resolution the permit check asks for (a manifest that will not read answers `.piece(docId)`, the WIDENING direction, and never a refusal), and the root's label for the sentence. See *The load seam* below.
 - `EchoState.swift` — typed snapshot of "bytes we just wrote to disk." The `init` is `private`; the only construction paths are the three named factories (`initialLoad`, `afterWrite`, `afterIngest`), which is a compile-checked invariant. The echo guard in `Document.handleExternalDiskChange` reads `lastDiskEcho.bytes` to suppress presenter callbacks that arrive in response to our own writes. See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
 - `SweepReason.swift` — typed pending orphan-annotation sweep carrying the *observed* removed-paragraph-id set. Replaces an earlier bool flag. Sweep archives only annotations on `reason.removed` — never "anything missing from sequence." See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md). **The sweep also REPORTS (RULING-32):** each successful archive bumps `Document._sweptSinceLastReport`, and `flushBurstNow` spends that running total on one quiet sentence at the burst boundary — the writing pause. Batched across every sweep the burst contained, silent during it, never a prompt.
 - `ParagraphID.swift` — paragraph IDs are 4 chars from a restricted alphabet (`0123456789abcdefghjkmnpqrstvwxyz`, no `iloux` to dodge ambiguity). `mint()` produces them; `parseComment()` only accepts strings matching `[alphabet]{4}`. The 4-char rule is enforced **at the .md round-trip boundary** — `recordChange(paragraphId:)` and other in-memory APIs accept any string, so OpLog unit tests legitimately use short IDs like `"a"`/`"b"`. If your test crosses the .md ↔ op log boundary (Bootstrap, RenderFilter against parsed comments), use 4-char alphabet-restricted IDs or `ParagraphID.mint()`.
@@ -600,6 +603,64 @@ root beyond the joined one is a claimant too. Without this, any Mac that can
 write the folder writes itself a root plus an admission of you and takes over a
 book you created.
 
+**A span answers to its file's verdict, sealed or not** (P3a Task 11, audit
+PR #65's F1 + F2; a defect in released v0.39.0/v0.40.0 that P3a's first ten
+tasks did not close). Trust used to be consulted at `case .seal` and nowhere
+else, so a chained op line with a good `prev` was `.unsealed`, not held back,
+and applied: everything a SIGNED foreign device had written since its last seal
+— up to `chainSealInterval − 1` ops, or its whole file before its first one —
+entered the book whatever the register said about it. A stranger's text was in
+the manuscript unadmitted, a revoked device's post-revocation tail leaked, and
+`PermitPartition.attributableKeys` skipped exactly those spans, so the permit
+never judged them either. Every P2 fixture sealed before it asserted, which is
+why it shipped green.
+
+The rule is in `OpLogChain.verify`, at end-of-walk, because that is where the
+trust closure is and where every seal has been seen — and `OpLogChain` stays
+ignorant of device records, because **the file's key** comes to it in three
+arms, the second of which is a closure the caller supplies: the key of the LAST
+seal in the file that parsed and chain-verified **whatever its verdict** (a file
+is one device's writing, ADR 0012, so a stranger's seal names the file exactly
+as this device's own does); else — **or where that seal's key is one the
+register cannot attribute to anybody** — whatever the caller can name for the
+filename's slug (`PermitMark.keyNaming(_:in:)` → `TrustTable.key(forDeviceSlug:)`,
+the ONE slug → key join, which `label(forDeviceSlug:)` is now written over);
+else **unchanged** — and that third arm IS the unsigned door, decision B3 left
+open on purpose for the unsigned device and pre-signing legacy history, Denver's
+to rule when P3b is planned. **Arm 1 falls through rather than winning
+outright** (fix round 1) because one seal under a throwaway key would otherwise
+buy the whole unsealed remainder a gentler answer — a revoked device's tail
+merely HELD, and offered to the writer for admission under a code that is not
+that device's, while the file's own name still carries its slug.
+*Unattributable* is `TrustVerdict.isUnattributable`: `.noChain`, which only a
+reader with no root of its own ever sees, or `.stranger` **with no device**,
+which is what a rooted book — every book since P2a — actually answers for a key
+no record mentions. The fall-through cannot WIDEN, and structurally rather than
+by a guard: an unattributable verdict settles to nil or `.pending` and arm 2 is
+taken only when it answers a state at all, so a filename naming an admitted
+device answers nil and arm 1's hold stands (`OpLogChainTests
+.test_anUnattributableVerdictCanOnlyHoldOrLeaveASpanAlone` is what goes red if
+an arm changes). The span an unattributable seal COVERS is untouched — `case
+.seal` settles it and this rule never looks at it. What the span then becomes is
+`TrustVerdict.settlingAnUnsealedSpan`, `settling`'s sibling; read its arms, not
+this sentence. Two of them cannot be `settling`'s: `.mine`/`.admitted` leave the
+span `.unsealed` rather than calling it `.verified` (nothing signed these bytes,
+and **this device's own unsealed tail is never held or refused** — typing
+appends unsealed lines all day, and the chained WRITE's own `.mine`-only closure
+would otherwise refuse to seal the file it is appending to), and `.retired`
+keeps rather than refuses, because its answer turns on a seal's moment and there
+is no seal: refusing would set aside the last tail of every device that ever
+retired, under a sentence that is false about it. `PermitPartition`'s
+`attributableKeys` gained the same filename fallback for a file holding no seal
+at all, which is *never seal once* — the bypass its trailing-span rule already
+closes one word along. And `OpLogChain.readmitting` now puts a re-admitted line
+back into **the state it would have had if nothing had refused it** —
+`.verified` where a seal covers it, `.unsealed` where none ever did
+(`Line.coveredByASeal`, a fact the walk has in hand and nothing downstream can
+re-derive, since *covered by a seal* is not *has a seal after it*) — because
+calling unsigned bytes verified on the way back in is the same misstatement the
+`.mine` arm exists to avoid on the way out.
+
 **The third line state.** `Line.State.pending(device: String)` joined `legacy`,
 `verified`, `unsealed`, `unsignedHistory`, `quarantined` and `tornTail` — read
 the enum, not this sentence — and the mapping
@@ -848,6 +909,476 @@ in `RegistryCacheTests.test_aProjectWithNoRegistryNeverReachesForTheEnclave`.
 The public `init(fileURL:identity:)` is unchanged for a caller that already
 holds the fingerprint.
 
+## The permit — what a person may write (P3a, [ADR 0032](../../docs/adr/0032-the-signed-op-log.md)'s P3a addendum)
+
+P2 answered *is this key somebody this book admits?* P3a answers **admitted to
+write WHAT**, and answers it where lines are read. **No surface** — nothing in
+Maugham can yet give anybody a permit (P3b), and the membrane and the phone are
+P3c's. It is **behaviour-neutral for every existing book**: no permit events ⇒
+every admitted person is an author of the whole book from the start ⇒ the P2
+suite passes untouched.
+
+### The values, and what each one is for
+
+- `Permit.swift` — `Permit` (`.reviewer`, `.author(.book)`, `.author(.pieces)`,
+  `.unjudgeable(raw:)`), `Permit.parse` (the one parse, from the three wire
+  strings), and **`Permit.allows` — THE table**. Its switch over `OpKind`
+  (`Permit.group(of:)`) has no `default:`: a kind a later build adds fails to
+  compile there until somebody decides who may sign it. Manuscript text is
+  **asked of `Deriver.appliesToManuscript`** and never restated, because a
+  second copy of that list would drift and a prose-moving kind missing from
+  this copy would be waved through on the reviewer row. Answers are
+  `Allowed.yes` / `.no(RefusedWhat)` / **`.cannotJudge`**, and the third is not
+  a failure: an unrecognised role, scope, event kind or op kind holds lines
+  PENDING and never sets them aside, because an older Mac must not quarantine
+  what a newer one would apply.
+- `PermitEvent.swift` — the fourth registry record. Count `PermitEvent.Kind`'s
+  cases, not a number here; `.unknown(String)` is the tolerated later-build
+  one.
+- `PermitMark.swift` — the mark value and `judge(streamKey:…)`, plus
+  `PermitMark.stream(of:)` / `streamKey(of:)`, **the one URL → stream parse**
+  (`<docId>`, `translation:<docId>.<lang>.<slug>`, `inbox:<slug>`), and
+  `PermitMark.keyNaming(_:in:)`, the one slug → key join.
+- `PermitTimeline.swift` — a person's events in order as `(permit, mark)`
+  entries, `current`, `permits(forFile:…)` and `permit(ofLineAt:…)`.
+- `DocumentClass.swift` — which kind of stream a file is, resolved from the
+  manifest; `.unplaceable(String)` is the statement whose scope this build does
+  not know.
+- `PermitPartition.swift` — the pure partition, `RevocationSplit`'s sibling.
+- `AnnotationOwnership.swift` — the one same-person rule for amendments.
+- `LocalWritePermit.swift` + `OpLogStore.localWritePermit(as:documentClass:)` —
+  the write side; see *The load seam* below.
+- `OpLogPermitContext.swift` — `PermitContext`/`PermitJudge`, what a read path
+  hands the partition, plus `PermitMemo` and `AmendmentPermits`.
+
+### The mark, and the two alternatives that were rejected
+
+A mark says *from when*. It is **not** an opId: a ULID's timestamp is chosen by
+its own writer, so a demoted author could stamp new text with an old id and
+slip under it. And it is **not** this device's own memory: fix the first that
+way and a fresh Mac with no memory applies what the root's Mac refused, which
+is silent, permanent divergence.
+
+A mark is **chain positions in the shared bytes**, per STREAM: the digest of
+every whole segment the root had read and judged, and the `lineHash` of the
+last line it had. Keyed by stream, never by filename, because a rotation moves
+the marked line from the tail into a `.mzseg` without touching the chain.
+
+**SEEN, not applied.** A mark selects which permit judges a line; it does not
+bless the line. *Last applied* would let refused text at the end of what the
+root read fall after a promotion's mark and be applied under the new permit —
+the pardon spec §5 forbids — and would re-judge a segment's honestly-applied
+lines under a demotion because one refused line kept the segment out of the
+mark. *Seen* excludes only a torn tail and what a broken chain quarantined.
+**A revocation is the one act whose mark means APPLIED**, so the store answers
+two questions — `OpLogStore.seenPositions` (permit events) and
+`OpLogStore.appliedPositions` (revocation) — and
+`DocumentStore.permitMark(forPerson:seen:)` chooses between them.
+
+**What governs the lines before a person's FIRST event turns on that event's
+kind** (`PermitTimeline.opening(before:)`, five arms — read them): an
+`admitted`/`silentlyAdmitted` event's permit governs both sides of its mark
+(nothing precedes an admission, and a stranger's held text would otherwise fall
+to the book-author default the moment she is let in as a reviewer); a
+`roleChanged`/`scopeChanged`/`readmitted` event first means a P2 admission, so
+the opening stays book author and **a demotion never reaches back**; an unknown
+kind first leaves the opening unjudgeable. This is why a re-admission must mint
+`.readmitted` and never `.admitted`.
+
+### Where the check runs
+
+After `RevocationSplit` and before the parse, line by line. The order is the
+only one in which both answers survive: a revocation is a verdict about a whole
+KEY cut on a mark, a permit is about one LINE judged against the history its
+signer had at that line. A refusal is `QuarantineCause.notPermitted` (person,
+rung, what was refused, whether it fell after a mark); a line this build cannot
+judge is `.pending`, held with no `.lines` record, because nothing is wrong
+with it.
+
+**The call sites are a named list, and the list is in the census, not here**:
+`TripwireGrepTests.partitionCallSites` holds them with the reason for each —
+`OpLogStore.partitioningByPermit` (the op-log door: live tail, settled segment,
+fallback walk), `OpLogStore.verificationForPositions` (the mark SWEEP, which
+must judge a file exactly as the load does or the two cut it in different
+places), `TranslationStore.loadMerged`, and
+`JSONLAppendStore.loadVerifiedStrict` (the inbox manifest and the annotation
+log).
+
+**Annotation amendments are judged AS OF THE LINE.** Judged by the signer's
+current permit instead, a demotion would revert an author's honest edit of a
+reviewer's note and a promotion would pardon an ignored withdrawal. The
+partition carries the governing permit out per amendment op (`AmendmentPermits`
+— empty for every book that has no events) and `AnnotationOwnership` honours
+the amendment under the permit in force at that line.
+
+**Cost is bought back structurally, not by a flag.** A registerless book judges
+nothing (`judgesAnything`); a book author's author key skips the per-line
+decode (`Permit.allowsEverything`); a stream whose every line is one kind,
+written by an actor the table allows that kind under a book author, is answered
+whole (`PermitPartition.answersWholeFile`); the document class travels as a
+CLOSURE inside the `PermitJudge` so no manifest is read where nothing is judged.
+Measured 2026-09-20, ordinary book, quiet machine: the two main-actor project
+walks over 30 documents moved 59.5 → 59.6 ms and 63.3 → 63.4 ms against `main`,
+and one `Document.load` of a 1,001-op document 24.9 → 26.0 ms.
+
+**Every one of those exits turns on NARROWING, not on events** (final fix wave,
+W1 — `TrustTable.hasNarrowingPermits`). P3a's own verbs write events: `admit`
+files one for every device the writer lets in, and the silent admission at
+project open files another. Every event P3a can write carries the book-author
+permit, so gating the exits on *are there events* made the first admitted phone
+turn a book into *judge everything* for a reason that has nothing to do with
+permits — and took the annotation ownership rule with it, which stopped
+honouring an UNSIGNED Mac's edits and withdrawals from that day on. The
+question is asked of the permits: *has anybody in this book ever been anything
+but an author of the whole book*, over every entry of every timeline, with an
+unreadable role word counting as narrowing. The ACTOR rows are not part of that
+and bind in every book, evented or not.
+
+**And the narrowed book is measured too** (final fix wave, W5 — it was P3a's
+one unmeasured path). Same machine, same day, one fixture, both shapes; the
+absolute numbers are not comparable with the ordinary-book row above because
+the fixture is a different one, but the two columns here are comparable with
+each other, which is the question.
+
+| measure (medians of 7) | admissions-only | one reviewer |
+|---|---|---|
+| annotations walk, 30 documents | 157.8 ms | 157.4 ms |
+| aggregation walk, 30 documents | 153.3 ms | 163.8 ms |
+| `Document.load`, 1,001 ops | 23.8 ms | 39.2 ms |
+| `TranslationStore.loadMerged`, 40 records | 0.82 ms | 0.89 ms |
+
+An admissions-only book pays nothing — it takes every exit, which is exactly
+what W1 restored. The moment ONE person is a reviewer the book starts judging,
+and the cost lands where the work is: **+15 ms on a document open**, +65 %, the
+per-line decode plus the class resolution over 1,001 ops. The walks and the
+translation read barely move, because those streams are still one kind each and
+the aggregation's +7 % is inside its own spread. This is P3b's number to carry:
+it is paid once per open rather than per keystroke, and it is the price of the
+rung existing at all — but a reviewer opening a large document will feel two
+frames of it.
+
+### Possession, and a contested actor key
+
+A device record LISTS the fingerprints of its four actor keys, and **nothing
+proves possession of a listed key** — the actors map is a claim inside a signed
+record, and only the author slot is self-proving (the record is signed by it).
+`Registry.actorKeyOwners` is the one resolution, asked at all three join sites:
+the author slot is proven and wins; a non-author key with exactly ONE claimant
+is that device's whatever its standing; **a non-author key two or more records
+claim is NOBODY's, forever**. Standing plays no part — awarding a disputed key
+to the only standing claimant let a revoked owner's later lines read as the
+standing liar's, which is the same defect from the other side.
+
+The residual, named: an admitted device can hold another person's NON-author
+actor lines pending indefinitely by listing that key, and revocation no longer
+cures it. Availability only, never words, never the author key; the cure is
+per-actor possession proofs in the device record — a format change, filed under
+the roadmap's *Signed structure*.
+
+### The acts, and why each one refuses rather than shortens
+
+`RegistryAdmission` stays the only authority that writes (tripwire 13).
+`changePermit` is its fifth verb; events are written from it and nowhere else,
+and `RegistryCache` restores them byte-faithfully like any other record.
+
+Four verbs compute a mark — admit, `changePermit`, revoke, retire — and a mark
+that does not NAME a stream judges that stream wholly new. So a short sweep is
+not a small inaccuracy: it turns a lost or evicted file into a demotion that
+reaches back through all of it, or a *keep what was applied* revocation that
+sets aside words this Mac had already shown the writer. **All four refuse and
+write nothing** — no event, no record — when they cannot list an existing
+directory (`ReadError.unlistableStreamDirectory`), cannot read a present stream
+file, meet an old-style `.icloud` placeholder standing in for one
+(`OpLogStore.nameBehindICloudPlaceholder`, sweep-only and the subject's streams
+only), or cannot name a stream this device REMEMBERS having read
+(`ReadError.streamMissingFromSweep`). The silent admission at project open is
+the one exception: it skips this time rather than blocking the open. The
+refusal is the existing `historyUnreadable` sentence, which now names its ACT
+(`RegistryAdmissionError.Act` — four words for four verbs), because a writer
+who pressed *make Sam a reviewer* should not be told a revocation was refused.
+
+**A permit is about a PERSON and P2b merges devices under one LABEL**, so
+`RegistryAdmission.records(sharingLabelWith:in:)` +
+`DocumentStore.changePermit(everyRecordOf:to:)` is the label-wide verb: every
+record's sweep pre-flighted before any write, each record its own mark and
+event, revoked siblings skipped (a `roleChanged` after a revocation would draw
+a History row about a machine already shut out), retired ones included.
+`PermitChangePartlyApplied` is what a failure mid-run reports. **Nothing
+presses it in P3a** — it exists for P3b's pane.
+
+## The load seam (P3a Task 8, spec §4.6)
+
+P2 asked of a key *is this somebody this book admits?* P3 asks *admitted to
+write WHAT* — and the load has to ask it of ITSELF, before its first line
+exists, because `Document.load` writes before it reads.
+
+**What the load emits is the writer's own hand, whoever opened the file.**
+Five emissions are the load path's or a derivation's rather than the caller's:
+`Bootstrap`'s opening op, the two pending-recovery folds, the task anchors
+`rebuildTasksCache` splices back into the paragraphs, and the `taskCreate`
+beside each. None is the act of whoever opened the document, and every one is a
+kind the table refuses to `assistant` and `translator` — so under MCP they were
+lines the permit partition would set aside on the next read, with `bootstrap`
+the worst of them (a document whose opening op leaves the book derives EMPTY,
+and the first autosave writes that empty render over the manuscript). They are
+now the AUTHOR's: `Document.authorEmissionDevice(loadedAs:)` redirects where
+the load named one of this device's OTHER actors and leaves a `device:` string
+naming no local key exactly as it was. `OpLogStore.append` derives the file and
+the signer from `op.device`, so such a line is chained into the author's file
+and sealed under the author's key with nothing else to change — and
+`sealChain(docId:)` seals it at the close of the very Document that wrote it,
+because its counters are keyed on the file APPENDED to and not on the
+Document's own actor. Rotation is unchanged and stays the Document's own actor
+(`sealTailIfNeeded`): a transient MCP Document must never rotate the tail the
+writer's open Document is appending to.
+
+**And not at all where this device may not write the piece.**
+`OpLogStore.localWritePermit` is the ONE question — this device's own
+`TrustTable.myTimeline.current`, narrowed by actor, against the stream's
+`DocumentClass` — and `LocalWritePermit` is the answer, resolved once per load
+and stamped on the `Document` so a derivation can ask it without a registry
+read of its own. Three properties are load-bearing:
+
+- **It never throws.** A present-but-unreadable registry record refuses a READ
+  (RULING-54) and must not newly refuse a LOAD. **The fallback is two-deep, and
+  the order is the point.** First the registry this device REMEMBERS
+  (`TrustResolution.remembered` — `RegistryCache`'s byte-faithful copy, the
+  same pure `TrustTable.resolve` a reconciled folder gets, recording no join
+  and no claimant because a memory read taken over a hiccup must decide
+  nothing); `keyless` only when there is nothing remembered either. Falling
+  straight to `keyless` was the shape fix round 1 caught: it answers *author of
+  the whole book* about everybody, so a REVIEWER's Mac meeting one
+  half-downloaded record would bootstrap and mint anchors that every other
+  device then sets aside. Keyless is right for a device that has verified
+  nothing here — that is P1 exactly — and wrong for one that has.
+- **It never suspends.** `trustOnThisActor` resolves here rather than off this
+  actor, because `Document.load`'s suspension points are part of its contract
+  — `ProjectStore.withStatementDocument`'s own comment is about a pane binding
+  mid-load, and a bare `await Task.yield()` before the bootstrap fails
+  `PromotionPerformerTests.test_promotingWhileTheIntentPaneIsOpen…` with no
+  other change. It stores the table under the signature `trust()` compares, so
+  the read that follows finds it warm.
+- **A book with no register pays nothing** — no folder read, no verify, no
+  manifest decode. `TrustResolution.hasAnythingToResolve` is
+  `verifiedRegistry`'s own first question in its own spelling, and it asks
+  about the MEMORY as well as the folder, because a register deleted wholesale
+  is restored from that memory.
+
+What the refusal does, in each of its three places:
+
+| | |
+|---|---|
+| **bootstrap** | `DocumentLoadError.waitingForPiece(docId:from:)` — mint nothing, read not a word of the `.md` as truth (tripwire 20). `EditorHost` draws it as its own calm state rather than an error (no notice, no recovery ladder) on the ONE widened load-outcome `@State` (tripwire 6), and re-attempts when the piece's ops change — the presenter already routes a closed document's op-log change through `MaughamSidecarPath`. |
+| **the pending file** | Not folded, and **not read**: a buffer with something in it is one the next `close()` turns into a `typingBurst`, so reading it and merely declining to append would move the loss one hop. `PendingBuffer.fileNameIfOnDisk` names it without opening it. **`Document.mayWriteThePendingFile` is ONE expression at FOUR sites** — `performAutosave`'s mirror, `flushBurstNow`'s clear, `close()`'s failed-flush re-persist and `close()`'s clean clear — because the file has exactly one writer's worth of rules and four copies of them would drift. The burst's clear is the sharp one (fix round 1's C1): a burst's EMISSION is deliberately not permit-guarded, but its `clear()` UNLINKS the file, so one keystroke would have undone the promise the load had just made in a notice; `PendingBuffer.clearInMemoryOnly` is the same reset minus the unlink, and the writer's new words go where they always go, into the op log. `close()`'s failed-flush arm is the one place the rule costs something — this Document's un-bursted keystrokes stay in memory — and that is the right way round: they are words this device may not write at all, and the file holds words a load under a wider permit CAN fold. The writer is told through `PendingRecoveryFailure`, whose `cause` distinguishes RULING-54's *we could not read it* from *we touched nothing*. |
+| **task anchors** | No mint and no `taskCreate` — a READ must not write where this device may not write — and the rebalance is guarded on its own key's row (`.maugham` signs `taskPriorityChange` only where the person may sign a task there at all). Tasks still derive and still show; the anchors are re-minted by whichever read happens after the permit widens. |
+
+A keyless book, a P2-era book, the root and a book author reach `.unrestricted`
+and behave exactly as they did. `DocumentWaitingTests` holds both halves;
+`BootstrapWiringTests`' four tests are untouched.
+
+**Two automations of that same hand were missed and are now in the rule**
+(final fix wave, W4): `sweepOrphanedAnnotations`, which archives a note whose
+paragraph a merge took away, and `repairRejectedButSplicedAnnotations`, which
+puts a paragraph back when a reject beat an accept across a merge. Nobody does
+either — the app does — so both sign with `authorEmissionDevice` and are not
+made at all where `localWritePermit` disallows the kind
+(`appendLifecycleOp(automation:)`, the one flag that carries both halves). On a
+reviewer's Mac with somebody else's piece open the repair would otherwise have
+been her machine signing text and dispositions the table refuses, filed in her
+name, with her live document diverging until she reloaded. Declining costs
+nothing: the piece's own author makes the same repair the next time she opens
+it, and a disagreement standing visibly is what the repair already does when a
+paragraph has drifted.
+
+**And what RELEASED builds wrote is judged as the author's, permanently**
+(final fix wave, W3(a)). The attribution rule above fixes what this build
+writes; v0.37–v0.40 signed the same emissions with whichever actor opened the
+document, so books exist holding `assistant-…` / `translator-…` files whose
+lines are `bootstrap` and the anchor `taskCreate` — kinds the actor rows
+refuse, and a refused `bootstrap` is a document whose OPENING op is gone,
+deriving empty under the first autosave. `Permit.isALoadEmission` names those
+two kinds and `Permit.actorJudging` answers which actor judges a line; the
+partition asks both. It widens the ACTOR and never the permit, so a reviewer's
+device's assistant-signed bootstrap is still refused under her own permit, with
+the sentence her own hand's line would get. It is NOT gated on
+`hasNarrowingPermits`, because a grandfather switched off by the first reviewer
+P3b creates is the same defect arriving later. **The three other load emissions
+are not covered and that is a stated stop**: both pending-recovery folds and
+the anchor splice are `typingBurst` and none of them writes a
+`synthesisSource`, so on disk they are indistinguishable from a person typing.
+An assistant-signed ordinary burst therefore stays refused, which is the
+constitution's sentence about MCP and the manuscript. A disk census over every
+project this Mac can reach (23 projects, 194 tails, 5 `.mzseg` segments, 11,064
+lines) found no such line: the only non-author actor lines anywhere were
+`claude_comment` and `claude_query`, which are the reviewer row.
+
+## A foreign stream that got shorter (P3a Task 9, spec §4.7)
+
+P1's remembered head is about this device's OWN files, and it catches an agent
+appending a correctly chained line to one of them. It says nothing about
+anybody else's: another Mac's history can be cut back to a seal and every rule
+the chain has still holds, because the bytes that remain follow from each other
+perfectly. So `OpLogDeviceState` gained a second memory —
+`foreignStreams`, one `ForeignStreamMemory` per FOREIGN stream under the same
+project-root hash the heads use — and `ForeignStreamWatch` is what fills it.
+
+**It is keyed by STREAM and never by filename**, because a rotation copies the
+live tail into a `.mzseg` and deletes the tail: the remembered line moves from
+one filename to another while staying in the same stream, and a filename-keyed
+memory reads that maintenance as a truncation. The key is
+`PermitMark.stream(of:)`'s, the one parse. The key alone is not enough — a
+segment its own signature settled is never walked (`classifySegment`'s fast
+path counts its lines rather than splitting them), so after a rotation the
+remembered line sits in a file the load has no lines for — which is why the
+memory also carries **the digest of every segment this device took in whole**:
+a tail that no longer holds the remembered line while the stream has taken in a
+digest it had not seen has rotated. Both halves are per stream, and
+`ForeignHeadTests`' *remember, rotate, read ⇒ no finding* pin goes red under a
+filename key.
+
+**A stream is remembered only once it has ANSWERED** (fix round 1's Important).
+A file can be present, readable and yield nothing this device can point at — a
+zero-byte `.jsonl` that synced ahead of its contents, or one whose first line
+somebody corrupted so every line after it is `chainBroke` and none was ever
+*seen*. `positions` names no such stream in a mark, so remembering it would make
+`expectedStreams` demand a name the sweep can never produce, and every verb of
+the root's would refuse for ever over a file sitting there perfectly readable,
+with nothing the writer could do short of deleting `op-log-state.json`. The
+ENTRY's existence is therefore the fact *this device has applied something of
+theirs*. Once it exists it is kept: a stream that answered and has stopped
+answering is the truncation case, and is supposed to refuse. **The two notions
+of *answered* are one value** — `FileClassification.wholeSegmentDigest`, which
+both this memory and `positions`' `segments` list are built from, because a
+disagreement between them is that same bug in another coat.
+
+**The digests do a second job.** A digest this device remembers that no segment
+of the stream carries any more is a **whole sealed span that went missing** —
+`StreamTruncation.Loss.segment`, its own finding with its own sentence, because
+the history's copy is gone even though every line already applied stays applied.
+A `.mzseg` that is PRESENT and cannot be settled (evicted, corrupt, signed by a
+key this device cannot stand behind) is not a deletion: while one is in the
+stream no digest is reported missing at all, so under-counting can never read as
+somebody removing one.
+
+**Nothing is refused and nothing is set aside.** The surviving lines stay
+applied — that is the spec's own clause — so this is a REPORT: an
+`OpLogDeviceState.StreamTruncation`, read back through
+`OpLogStore.truncatedStreams(in:state:trust:)`, which names the device the way
+every other finding does (`TrustTable.label(forDeviceSlug:)` → the root's label,
+else the four-character code) and carries the writer's sentence for which loss
+it was. `IntegrityReport.truncatedStreams` carries it; it makes a report
+**unhealthy** and deliberately does **not** block a backup, because the
+surviving words are exactly what a backup is for. P3b's dated History entry
+reads the same values.
+
+**A finding is a fact that holds NOW, and it is dated once.** A stream with a
+standing loss keeps the position it lost — it does not move its memory on —
+because a memory that moved would find what it now remembers on the very next
+load and clear a finding about history that is still gone. So the loss is
+re-derived every load and `settleForeign` keeps the day it was first noticed
+(same `loss`, same `lost` ⇒ no rewrite). When the bytes come BACK — iCloud
+finishes, a file is restored — the finding is cleared and the project stops
+being unhealthy, rather than being unhealthy for ever over something that is no
+longer true.
+
+**The PHONE runs it too** (final fix wave, M1 — correcting Task 9's review,
+which said it ran neither half). `OpLogStore.load` goes through
+`loadDiagnosed`, which builds the watch unconditionally, so a phone that reads
+a chapter records what it saw and rewrites `op-log-state.json` like any other
+device. That is harmless and is left alone rather than switched off: the memory
+is the same derived bookkeeping there as here, it costs one state rewrite per
+changed stream, and the phone benefits from the same truncation detection. What
+the phone does NOT do is the SECOND job below — it writes no registry record
+and runs no marking verb (tripwires 40/41), so nothing on it ever asks
+`expectedStreams` a question.
+
+**Where it is filled, and where it deliberately is not.** The STRICT load fills
+it — `loadDiagnosed` carries one watch for the whole document and settles once,
+so a chapter spread over four foreign files costs one rewrite of the state file
+and an unchanged stream costs none. `TranslationStore.loadMerged` carries its
+own (a sidecar never rotates, so each file is its whole stream) and
+`JSONLAppendStore.loadVerifiedStrict` uses the one-file door
+(`ForeignStreamWatch.note`, which refuses an `ops` stream on purpose). Three
+paths do not: `loadSyncMerged` writes nothing at all, by design and still;
+`loadDiagnosedPartial` is the read-only recovery rung, whose whole purpose is to
+answer over the files that DID read, so a stream whose tail it could not open
+looks exactly like a short one; and `ProjectIntegrity.check` classifies
+keylessly and only REPORTS what a load recorded.
+
+**Downgrading loses it, and that is fine — with one consequence worth naming**
+(final fix wave, M2). An older build decodes this state file, ignores the keys
+it has no property for, and rewrites the file without them; coming back up
+finds the foreign memory empty and starts again from the next load. It is
+derived bookkeeping — the same stance `heads` takes on a moved project — so the
+cost is one load's worth of detection, never a word. The consequence is that
+the SWEEP GUARD below goes quiet with it: a Mac that has been down to an older
+build and back expects nothing of any stream until it has loaded each one
+again, so for that window a verb that marks cannot tell an absent stream from
+one that never existed and will not refuse over it. It is the pre-P3a
+behaviour, arrived at honestly, and it heals on the next load of each
+document — but it is a window, and it is here rather than in a comment because
+it is invisible from either side.
+
+**Its second job is a REGISTRY verb's, not a load's** (Task 7's
+`expectedStreams` hook, supplied here). A mark that does not NAME a stream
+judges that stream wholly new, so a stream that is merely ABSENT at sweep
+time — iCloud has moved it, a sync is halfway through — would make a demotion
+reach back through every line of it and a *keep what was applied* revocation set
+aside words this Mac had already put in front of the writer. Nothing inside the
+sweep can tell absent from never-existed; this memory can.
+
+**And it is asked about CONTENTS, not names** (final fix wave, W2). Checking
+that each remembered key came back in the mark catches a stream that has
+vanished and nothing else, which leaves the case the shipped Revoke button
+walks into: Sam's Mac rotates, and the tail DELETION reaches this disk before
+the new segment does. The key is there — a fresh tail exists — so the sweep
+passed with a position that had forgotten a whole segment; the root pressed
+Revoke (*keep what was applied*), the segment arrived, and every line in it
+judged NEW and was set aside. So `positions` takes the memories themselves and
+asks `ForeignStreamWatch.loss` of what it found — the LOAD's own predicate,
+rotation tolerance and all, called rather than restated, so the two cannot
+disagree about whether a rotation is maintenance or a truncation. A stream that
+legitimately grew is not refused; a stream whose name never came back answers
+an empty `Found`, which the same predicate reads as the head being gone, so
+both conditions are one call. The same rule reaches the EVENT: `writeEvent`'s
+carry-forward unions segment digests per key (keeping an older line only where
+the new sweep found none), because per-key-only was the identical defect one
+field lower down.
+
+`DocumentStore.expectedStreams(ofDeviceIds:in:state:)` is the one builder, and
+its two call sites are `DocumentStore.permitMark(forPerson:seen:)` (which serves
+`changePermit`, `admit` and `revoke`) and `DocumentStore.rememberedAdmissionMark`
+(the silent admission). The verb then refuses with its existing
+`historyUnreadable` sentence, naming the stream, and writes nothing — no event,
+no record. **A stream this Mac has never read is not expected**, which is honest
+late sync and ruling 1's answer. **And `retire` is unchanged, by ruling**: its
+subject is this device, whose streams live in `heads` and never here, so it
+expects nothing; its mark installs no `PermitTimeline` entry and no revocation
+cut reads it, and a retirement that could be refused would leave a writer unable
+to stand a machine down at all.
+
+**Known limits, stated rather than hidden.** The LINE half is watched on the
+live tail, so a stream whose tail is empty is watched by its digests alone until
+it has a line again. A stream this device had remembered under the round-0 build
+carries a segment COUNT this one has no property for, so it reads as *no digests
+known* and is watched by its head alone until the next load learns them
+(tripwire 11: no migration, just tolerate). The memory is bounded by (documents
+× devices × actors) per live project and prunes on `rootIsGone`, the same clause
+and the same pass as the heads.
+
+**The digest list GROWS, and only the root prunes it.** One entry per whole
+segment this device has taken in from that stream, and a stream gains a segment
+every time its writer's tail rotates — so the list is monotonic for the life of
+the book and is only ever dropped wholesale, with the stream, when its root goes
+(`rootIsGone`). The arithmetic, stated so nobody has to re-derive it: a 64-hex
+digest plus JSON quoting is ~70 bytes, a 30-chapter book on three devices with
+two live actors each is ~180 streams, and a heavy year is a few rotations per
+stream per chapter — tens to a low hundreds of kilobytes of
+`op-log-state.json` over years. That is derived, device-local bookkeeping a
+downgrade throws away for free, so the size is a fact to know rather than a
+thing to fix; if it ever stops being one, the honest cure is a cap plus *older
+than the oldest mark anything still reads*, not a silent trim.
+
 ## Sealed segments (ADR 0016, M2)
 
 When a device's own live tail `<docId>.<slug>.jsonl` exceeds
@@ -1056,7 +1587,7 @@ Failure modes:
 
 8. **A seal line is recognised in `OpLogChain` only.** `isSealLine` is the one door onto the `{"seal":` prefix, and `JSONLAppendStore.parse` — the one parser every reader shares (tails, decompressed segments, the inbox) — is its one caller. A second recogniser is a second opinion about what a seal is, and the failure is silent: a reader that hands a seal to an element decoder reports a healthy file as damaged.
 
-9. **A production `Document.load` names an actor, never a device string.** `Document.load(url:actor:session:presenter:)` is the production door; the `device: String` overloads are `internal` and test-only. A literal names no key, so `OpLogStore.append` takes the plain unchained path and the op is signed by nobody — which is exactly what happened to everything Claude wrote through MCP (`"mcp"`), both automations of the writer's hand (`"wiki-rename"`, `"find-replace"`) and the task rebalance (`"rebalance"`) under P1. `TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad` is the census; `test_theDocumentLoadActorCensusFiresOnAPlantedOffender` is its control. CLAUDE.md tripwire 38.
+9. **A production `Document.load` names an actor, never a device string — and the actor it names is the CALLER's, never the load's.** `Document.load(url:actor:session:presenter:)` is the production door; the `device: String` overloads are `internal` and test-only. A literal names no key, so `OpLogStore.append` takes the plain unchained path and the op is signed by nobody — which is exactly what happened to everything Claude wrote through MCP (`"mcp"`), both automations of the writer's hand (`"wiki-rename"`, `"find-replace"`) and the task rebalance (`"rebalance"`) under P1. **What the LOAD itself emits is the `.author` actor's whatever actor opened the file** (P3a Task 8, `Document.authorEmissionDevice(loadedAs:)`) — see *The load seam* below. `TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad` is the census; `test_theDocumentLoadActorCensusFiresOnAPlantedOffender` is its control. CLAUDE.md tripwire 38.
 
 10. **Every trust closure is built from a `TrustTable`.** The walk takes a `TrustVerdict`; the Bool `trusted:` overload is P1's shape and can only say *mine* or *nobody*, and the middle of that range is the whole of P2a — an admitted device's sealed span applied as this device's own, or a stranger's applied as unsigned history instead of HELD. Both failures are silent: the words land in the manuscript and nothing goes red. Three keyless sites survive, each allow-listed by file AND spelling in `TripwireGrepTests.trustClosureAllowedSpellings` — two `trusted: { _ in false }` in `OpLogStore.swift`, both of them the *no table was given* arm (the keyless reader `ProjectIntegrity.check` passes none; and the same arm of an unsettled segment's fallback walk, which since P2b Task 10 goes through the table whenever there IS one) and `trusted: { chain.trust($0) == .mine }` in `JSONLAppendStore.swift` (the chained write, which must not widen past this device's own hand). `ChainPolicy.trustedFingerprints` is gone. Census: `TripwireGrepTests.test_everyTrustClosureIsBuiltFromTheTrustTable` + `test_theAdmissionCensusesFireOnPlantedOffenders`; phone twin `TripwirePhoneGrepTest.test_noTrustDecisionOrRegistryWriteOnThePhone`. CLAUDE.md tripwire 39.
 
@@ -1068,6 +1599,18 @@ Failure modes:
 
 14. **No not-yet flag is left standing in production.** P2a drew several controls it could not yet wire and gated each on a constant — `admitIsAvailable` was the pattern. P2b wired them, and a gate that is now a constant `true` feeding a `.disabled(!…)` is worse than no gate: it draws as conditionally live, cannot be anything but live, and the next writer of the file has to prove it is dead before touching it. A `static let|var <name>IsAvailable = true|false` declaration is the shape; a system API's `isAvailable` READ (`SecureEnclave.isAvailable`) is a fact about the machine and passes. Census: `TripwireGrepTests.test_noAvailabilityFlagIsLeftStandingInProduction` with the same planted-offender control. (P2b Task 10.)
 
+
+15. **Which of the four writers a key is has TWO sources, and the second can only ever narrow** (P3a Task 5). A device record is what says what a key is FOR, and where one exists it decides (`TrustTable.actor(forSealKey:)`). But a person record and a device record are separate files that sync separately, and a book can hold the first without the second — `RegistryAdmission.admit` writes a person record and nothing else — so a reader that answered *nobody* there would hold every line that person ever wrote PENDING, and one that answered `.author` there would be worse: a stranger's held span is keyed on `device ?? sealKey`, so before the device record arrives the writer can be asked about — and admit — somebody's ASSISTANT fingerprint, and calling that key `.author` applies assistant-signed manuscript text into the book. So where **no device record owns the key** the actor is read off the op log's own naming: `DeviceIdentity.actor(ofDeviceId:signingWith:)` takes the stream's slug (or an op's `device`), and believes its actor word only where the hex run that follows it really is a prefix of the sealing key. It is a CLAIM, used only to NARROW — an honest assistant's file is named `assistant-…`, and a client lying about it gains nothing it could not have by signing with its author key instead. Three cases stay nil (⇒ pending, never set aside): a device record that owns the key but calls it an actor word this build cannot read (a later build's fifth writer, which must not be guessed at), a stream with no device slug (the legacy unsuffixed file, whose lines are unsigned history and are not judged anyway), and an id whose fingerprint run is not this key's. **Note the slug is TRUNCATED at 24 readable characters**, so `author-<16 hex>` survives whole while `assistant-…` and `translator-…` keep only 13–14 hex characters — which is why the match is a prefix test with a floor rather than a fixed sixteen. Pinned in `PermitLoadTests` (all three cases) and `DeviceIdentityTests`.
+
+16. **The role check reads the TIMELINE, never `PersonRecord.role`** (P3a). The field says what somebody may write TODAY; what judges a line is the permit its signer held WHEN THEY WROTE IT. Read the field instead and a demotion reaches back through every chapter the person wrote as an author, while a promotion pardons text the book had already refused — both silently, both with nothing red. `PermitTimeline` is built once, in `TrustResolution.verifiedRegistry`'s one read, and reaches the walk on the verdict. Census: `TripwireGrepTests.test_theRoleCheckReadsTheTimelineAndNotTheRecordsField` + `test_thePermitCensusesFireOnPlantedOffenders`; the allow-list is file AND spelling and names the writer (`RegistryAdmission`), the parse (`Permit`), the malformed reason (`RegistryReader`) and the display (`PeopleAndDevicesModel`). CLAUDE.md tripwire 43.
+
+17. **`Permit.allows` is the one table, and `Deriver.appliesToManuscript` the one classifier of which ops become words** (P3a). The table's switch over `OpKind` has no `default:`, so a kind a later build adds cannot ship until somebody decides who may sign it — a second switch anywhere else takes that gate away, keeps compiling, and waves the new kind through or refuses it depending on which copy the reader reached. Restating the manuscript list is the sharper half: the copy that is missing a prose-moving kind lets a reviewer sign it. Census: `TripwireGrepTests.test_thePermissionTableIsSpelledInThePermitLayerOnly` + `test_theManuscriptClassifierHasOneNamedSetOfCallers` (its callers are an array — read it, not a number). CLAUDE.md tripwire 44.
+
+18. **The partition's call sites are a named list, and a missing one is worse than a new one** (P3a). Every read path that applies somebody else's lines runs `PermitPartition.partition` before the parse. A site that disappears is a path applying unjudged text; a site that appears is a second opinion about where the judging happens, and the two disagree the first time one is changed. Census: `TripwireGrepTests.test_thePartitionsCallSitesAreExactlyTheNamedList`, whose `partitionCallSites` array carries each site with its reason. CLAUDE.md tripwire 45.
+
+19. **The write-side question has ONE function, and a rung is compared only in the permit layer** (P3a Task 8). `OpLogStore.localWritePermit(as:documentClass:)` is the one answer to *may this device's actor write here* — it never throws, never suspends, and falls back to this Mac's REMEMBERED register before keyless, because keyless says *author of the whole book* about everybody and a reviewer's Mac meeting one half-downloaded record would otherwise bootstrap. A hand-built `LocalWritePermit` is `.unrestricted` by another name. And a surface that decides by testing a permit against `.reviewer` instead of asking the table is P3c's Posture done wrong: the two drift the first time a rung is added, and the surface is the copy that does not compile-error. Censuses: `TripwireGrepTests.test_theWriteSidePermitQuestionHasOneFunction` + `test_aPermitRungIsComparedOnlyInThePermitLayer`. CLAUDE.md tripwires 46, 47.
+
+20. **Which lines the LOAD emitted is decided once, and the rule is permanent** (final fix wave, W3(a)). `Permit.isALoadEmission` names the two kinds — `bootstrap` and the anchor `taskCreate` — and `Permit.actorJudging` answers which actor judges a line; the partition asks both and restates neither. Released builds v0.37–v0.40 signed those emissions with whichever actor opened the document, and a refused `bootstrap` is a document whose opening op is gone. The rule widens the ACTOR and never the permit, so a reviewer's device's assistant-signed bootstrap is still refused under her own permit; and it is NOT gated on `hasNarrowingPermits`, because a grandfather the first reviewer switches off is the same defect later. **The stop, stated**: the three `typingBurst` load emissions write no `synthesisSource` and are not covered — an assistant-signed ordinary burst stays refused, which is the constitution's sentence about MCP and the manuscript. Census: `TripwireGrepTests.test_theLoadEmissionRuleIsSpelledInThePermitLayerOnly` + the shared planted-offender control. CLAUDE.md tripwire 48.
 
 - **Cross-surface contracts:** if you touch op-log/inbox filenames, ids, formats, or Fountain rendering, you may be in shared phone↔Mac territory — the reach-around tripwires will tell you. Registry: `docs/superpowers/notes/cross-surface-contracts.md`.
 

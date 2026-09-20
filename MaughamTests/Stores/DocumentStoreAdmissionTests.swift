@@ -86,6 +86,29 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         XCTAssertTrue(sealed, "the stranger's file is sealed")
     }
 
+    /// `writeStrangerFile` for any device — the I3 pair needs a SECOND
+    /// machine of the same writer, with a file and a chain of its own.
+    ///
+    /// It APPENDS: the store chains from the head its own state remembers, so
+    /// a second call adds lines after the first's seal rather than rewriting
+    /// the file. That matters for a mark, which names a line by its hash.
+    private func writeFile(
+        docId: String, opIds: [String],
+        by identity: DeviceIdentity, state: OpLogDeviceState
+    ) async throws {
+        let store = OpLogStore(
+            projectURL: projectURL, identity: identity, state: state)
+        for id in opIds {
+            try await store.append(Op(
+                opId: id, docId: docId, at: Date(timeIntervalSince1970: 0),
+                device: identity.deviceId, session: "s", kind: .typingBurst,
+                changes: [.init(paragraphId: "aaaa", prior: nil, next: id)],
+                sequence: ["aaaa"]))
+        }
+        let sealed = try await store.sealChain(docId: docId)
+        XCTAssertTrue(sealed, "the file is sealed")
+    }
+
     private func registry() throws -> Registry {
         try RegistryReader.load(projectURL: projectURL)
     }
@@ -263,8 +286,14 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/inbox"),
             withIntermediateDirectories: true)
+        // **The slug is the device's own** (P3a Task 6). Every P1b-or-later
+        // writer names its manifest off `identity.slug`, which is
+        // `<actor>-<fingerprint…>`; a hand-built string here is a shape no
+        // production device can produce, and under the permit check it is a
+        // capture whose ACTOR cannot be named, which is held rather than
+        // applied. A fixture made realistic — no assertion in this test moved.
         let manifest = InboxManifest.inboxManifestURL(
-            forDeviceSlug: DeviceSlug.make(from: "stranger-phone"), in: projectURL)
+            forDeviceSlug: stranger.slug, in: projectURL)
         let store = JSONLAppendStore<InboxEntry>(
             fileURL: manifest,
             chain: ChainPolicy(
@@ -708,5 +737,678 @@ final class DocumentStoreAdmissionTests: XCTestCase {
 
     private var opsDirectory: URL {
         projectURL.appendingPathComponent(".maugham/ops")
+    }
+
+    // MARK: - The permit verb, through the window (P3a Task 7, spec §6)
+
+    private func events(about subject: String) throws -> [PermitEvent] {
+        try registry().events
+            .filter { $0.subject == subject }
+            .sorted { $0.event < $1.event }
+    }
+
+    /// **A demotion takes what she writes afterwards and leaves what she wrote
+    /// before it**, on the store's own next read — both halves of spec §5
+    /// through the one production door P3b's pane will press.
+    ///
+    /// The mark is computed here, off the project, which is what makes the
+    /// *before* half true: it names the position her file had reached when the
+    /// writer pressed the control.
+    func test_ademotionTakesWhatComesAfterItAndLeavesWhatCameBefore() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+        try await writeStrangerFile(docId: docId, opIds: ["02", "03"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        let open = try await openDocument()
+        store.register(document: open, for: "manuscript/c1.md")
+        let before = try await open.opStore.loadDiagnosed(docId: docId)
+        XCTAssertTrue(before.ops.map(\.opId).contains("03"))
+
+        _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
+        try await writeStrangerFile(docId: docId, opIds: ["04"])
+
+        let after = try await reader().loadDiagnosed(docId: docId)
+        XCTAssertTrue(
+            after.ops.map(\.opId).contains("03"),
+            "what she wrote as an author stays in the book")
+        XCTAssertFalse(
+            after.ops.map(\.opId).contains("04"),
+            "and her manuscript text after the mark does not")
+        XCTAssertEqual(
+            try events(about: stranger.fingerprint).map(\.kind),
+            [.admitted, .roleChanged])
+        await open.close()
+    }
+
+    /// The record follows the event, and the two agree afterwards — which is
+    /// what `recordBehindEvents` is the detector for.
+    func test_thepermitChangeWritesBothAndLeavesNothingBehind() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+
+        let record = try await store.changePermit(
+            person: stranger.fingerprint, to: .author(.pieces(["d-one"])))
+
+        XCTAssertEqual(record.role, Permit.authorRole)
+        XCTAssertEqual(record.scope, Permit.piecesScope)
+        XCTAssertEqual(record.pieces, ["d-one"])
+        XCTAssertFalse(RegistryAdmission.recordBehindEvents(
+            person: stranger.fingerprint, in: try registry()))
+    }
+
+    /// **No surface, and no permit change, from a Mac that is not the root** —
+    /// the refusal is thrown rather than swallowed (RULING-7).
+    func test_anonRootCannotChangeAPermitThroughTheWindowEither() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        // This Mac's own root record, removed: it is now on nobody's chain.
+        try FileManager.default.removeItem(
+            at: RegistryWriter.url(
+                .people,
+                fingerprint: try XCTUnwrap(Document.localIdentitiesForTesting)
+                    .author.fingerprint,
+                in: projectURL))
+        cache.forget(projectURL)
+
+        do {
+            _ = try await store.changePermit(
+                person: stranger.fingerprint, to: .reviewer)
+            XCTFail("a Mac on no chain here changes nobody's permit")
+        } catch let error as RegistryAdmissionError {
+            XCTAssertEqual(error, .notARoot)
+        }
+    }
+
+    // MARK: - Every machine of one writer (fix round 1, I3)
+
+    /// **A demotion reaches every record under one label.** A permit lives on
+    /// a person RECORD and a record is one device; P2b's admission merges a
+    /// typed label matching a known one under that label's own spelling, so
+    /// Sam's Mac and Sam's phone are two records the root has said are one
+    /// person. Moving one of them leaves her writing manuscript text from the
+    /// other, applied by every reader, with nothing saying why.
+    func test_ademotionReachesEveryMachineUnderOneLabel() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+
+        let secondDevice = LocalIdentities.softwareForTesting()
+        let second = secondDevice.author
+        let secondState = OpLogDeviceState(
+            fileURL: projectURL.appendingPathComponent("second-state.json"))
+        try await writeStrangerFile(docId: docId, opIds: ["02"])
+        try await writeFile(
+            docId: docId, opIds: ["03"], by: second, state: secondState)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        _ = try await store.admit(
+            device: second.fingerprint, label: "Sam", ownName: "Sam’s iPhone")
+        // This Mac's own bootstrap op is in the document too; what these
+        // assertions are about is the two machines' lines.
+        let before = Set(try await reader().loadDiagnosed(docId: docId).ops.map(\.opId))
+        XCTAssertTrue(before.isSuperset(of: ["02", "03"]))
+
+        let moved = try await store.changePermit(
+            everyRecordOf: stranger.fingerprint, to: .reviewer)
+
+        XCTAssertEqual(
+            Set(moved.map(\.person)), [stranger.fingerprint, second.fingerprint],
+            "both machines moved, each with its own event")
+        try await writeStrangerFile(docId: docId, opIds: ["04"])
+        try await writeFile(
+            docId: docId, opIds: ["05"], by: second, state: secondState)
+
+        let after = Set(try await reader().loadDiagnosed(docId: docId).ops.map(\.opId))
+        XCTAssertTrue(
+            after.isSuperset(of: ["02", "03"]),
+            "what each machine wrote as an author stays in the book")
+        XCTAssertTrue(
+            after.isDisjoint(with: ["04", "05"]),
+            "and manuscript text from EITHER machine is refused after its own mark")
+    }
+
+    /// The up-front refusal: a label shared with the ROOT refuses the whole
+    /// act rather than demoting the collaborator and stopping at the root.
+    func test_thewholeActIsRefusedWhenOneRecordIsTheRoot() async throws {
+        let mine = beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        // The root's own label, given to the stranger too — the state P2b's
+        // *this is also…* produces when the writer merges a device under their
+        // own name.
+        let rootLabel = try XCTUnwrap(registry().person(mine.author.fingerprint)?.label)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: rootLabel, ownName: "Sam’s Mac")
+
+        do {
+            _ = try await store.changePermit(
+                everyRecordOf: stranger.fingerprint, to: .reviewer)
+            XCTFail("a set holding the root is refused entire")
+        } catch let error as RegistryAdmissionError {
+            XCTAssertEqual(
+                error, .cannotChangeARoot(fingerprint: mine.author.fingerprint))
+        }
+        XCTAssertEqual(
+            try registry().person(stranger.fingerprint)?.role, Permit.authorRole,
+            "and nothing was half-applied")
+    }
+
+    /// **A sweep that came back short refuses, and writes nothing** (I2). The
+    /// translations folder exists and will not list, so the positions this
+    /// mark would record are a reading Maugham knows is incomplete — and a
+    /// stream a mark does not name is judged wholly NEW.
+    func test_apermitChangeRefusesOverAFolderItCannotList() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        let translations = projectURL.appendingPathComponent(".maugham/translations")
+        try FileManager.default.createDirectory(
+            at: translations, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000], ofItemAtPath: translations.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: translations.path)
+        }
+
+        do {
+            _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
+            XCTFail("a short reading is a refusal, never a shorter mark")
+        } catch let error as RegistryAdmissionError {
+            guard case .historyUnreadable(let name, let act) = error else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(name, ".maugham/translations")
+            XCTAssertEqual(act, .permitChange, "and the sentence says which act")
+        }
+        XCTAssertEqual(
+            try registry().person(stranger.fingerprint)?.role, Permit.authorRole)
+        XCTAssertTrue(
+            try registry().events.isEmpty || !registry().events.contains {
+                $0.subject == stranger.fingerprint && $0.kind == .roleChanged
+            },
+            "no event, no record — nothing was changed")
+    }
+
+    // MARK: - P3a Task 9: a stream this Mac applied, missing at sweep time
+
+    /// **A mark that does not NAME a stream judges every line of it new**, so a
+    /// stream that is simply absent — iCloud has moved it, a sync is halfway
+    /// through — would make a demotion reach back through the whole of it. This
+    /// Mac remembers which streams it has applied, so the verb refuses by name
+    /// and writes nothing (P3a Task 9, spec §4.7's second job).
+    func test_apermitChangeRefusesOverAStreamThisMacHadApplied() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+        try await writeStrangerFile(docId: docId, opIds: ["02", "03"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        // The read that REMEMBERS where her stream stood.
+        let read = try await openDocument()
+        let appliedIds = try await read.opStore.loadDiagnosed(docId: docId).ops.map(\.opId)
+        XCTAssertTrue(
+            appliedIds.contains("02"),
+            "this Mac applied her lines, which is what makes the memory a fact")
+        await read.close()
+
+        let streamKey = try XCTUnwrap(PermitMark.streamKey(of: OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: stranger.slug, in: projectURL)))
+        try FileManager.default.removeItem(at: OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: stranger.slug, in: projectURL))
+
+        do {
+            _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
+            XCTFail("a stream this Mac had applied and cannot find is a refusal")
+        } catch let error as RegistryAdmissionError {
+            guard case .historyUnreadable(let name, let act) = error else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(name, streamKey, "the refusal names the stream")
+            XCTAssertEqual(act, .permitChange, "and the sentence says which act")
+        }
+        XCTAssertEqual(
+            try registry().person(stranger.fingerprint)?.role, Permit.authorRole)
+        XCTAssertFalse(
+            try registry().events.contains {
+                $0.subject == stranger.fingerprint && $0.kind == .roleChanged
+            },
+            "no event, no record — nothing was changed")
+    }
+
+    /// The same, for the act a short mark damages most: *revoke, keeping what
+    /// this Mac had applied* would set aside words already in front of the
+    /// writer.
+    func test_arevocationRefusesOverAStreamThisMacHadApplied() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+        try await writeStrangerFile(docId: docId, opIds: ["02"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        let read = try await openDocument()
+        _ = try await read.opStore.loadDiagnosed(docId: docId)
+        await read.close()
+        try FileManager.default.removeItem(at: OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: stranger.slug, in: projectURL))
+
+        do {
+            _ = try await store.revoke(person: stranger.fingerprint)
+            XCTFail("nothing is taken back on a reading this Mac knows is short")
+        } catch let error as RegistryAdmissionError {
+            guard case .historyUnreadable = error else { return XCTFail("\(error)") }
+        }
+        XCTAssertNil(
+            try registry().person(stranger.fingerprint)?.revokedAt,
+            "no record — nothing was changed")
+    }
+
+    /// **The other direction, and it is the point of the memory being of
+    /// streams this Mac has READ.** A device whose file this Mac has never
+    /// loaded is honest late sync: it is not expected, the sweep answers, and
+    /// the verb goes through.
+    func test_astreamThisMacNeverReadIsNotExpectedAndTheVerbGoesThrough() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+        try await writeStrangerFile(docId: docId, opIds: ["02"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        // No load of the document since her file arrived, so nothing of hers
+        // is remembered — and then it goes away again.
+        try FileManager.default.removeItem(at: OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: stranger.slug, in: projectURL))
+
+        _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
+        XCTAssertEqual(
+            try registry().person(stranger.fingerprint)?.role, Permit.reviewerRole)
+    }
+
+    /// **`retire` EXPECTS no stream, and that is a ruling rather than an
+    /// oversight.** Its subject is THIS device, whose streams live in
+    /// `OpLogDeviceState.heads` and never in the foreign memory, so the
+    /// expected set is empty however much of its own history it has written —
+    /// and a missing own file is simply an absent one, which nothing demands
+    /// the sweep name. (A folder it cannot LIST is a different matter and
+    /// refuses; fix round 2 made that rule the same for all four verbs, and its
+    /// own test is below.)
+    func test_retiringExpectsNoneOfItsOwnStreamsAndStillStandsTheMacDown() async throws {
+        let mine = beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        try await doc.setFullText("Hello, and a second line.\n")
+        await doc.close()
+        XCTAssertTrue(
+            DocumentStore.expectedStreams(
+                ofDeviceIds: [mine.author.deviceId], in: projectURL,
+                state: Document.loadDeviceState).isEmpty,
+            "this device's own streams are `heads`' business, not this memory's")
+        let ownFile = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: mine.author.slug, in: projectURL)
+        try? FileManager.default.removeItem(at: ownFile)
+
+        let record = try await store.retire(device: mine.author.fingerprint)
+        XCTAssertNotNil(record.retiredAt)
+    }
+
+    /// **A present, readable foreign file that answered NOTHING must not block
+    /// the root for ever** (fix round 1's Important). A zero-byte `.jsonl` that
+    /// synced ahead of its contents yields no line this Mac ever saw and no
+    /// segment it took in whole, so `positions` names no such stream — and if
+    /// the memory recorded it anyway, every verb of the root's would refuse
+    /// against a name the sweep can never produce, over a file sitting there
+    /// perfectly readable, with nothing the writer could do about it.
+    func test_apresentFileThatAnsweredNothingDoesNotBlockThePermitVerbs() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam\u{2019}s Mac")
+        // Her file arrives with nothing in it yet, and this Mac reads the
+        // chapter while it is like that.
+        try Data().write(
+            to: OpLogStore.opLogFileURL(
+                forDocId: docId, deviceSlug: stranger.slug, in: projectURL),
+            options: .atomic)
+        let read = try await openDocument()
+        _ = try await read.opStore.loadDiagnosed(docId: docId)
+        await read.close()
+
+        _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
+        XCTAssertEqual(
+            try registry().person(stranger.fingerprint)?.role, Permit.reviewerRole,
+            "a file that told this Mac nothing is not a reason to refuse for ever")
+    }
+
+    /// **The plural verb sweeps every record BEFORE it writes any of them**
+    /// (fix round 1, minor 2). A stream that has gone missing under the machine
+    /// the loop reaches LAST is knowable up front, and a writer who is going to
+    /// be refused should be refused with nothing changed rather than with two
+    /// of three records already re-signed.
+    func test_ademotionOfAWriterRefusesBeforeAnyRecordMovesWhenOneStreamIsGone()
+        async throws
+    {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+
+        let secondDevice = LocalIdentities.softwareForTesting()
+        let second = secondDevice.author
+        let secondState = OpLogDeviceState(
+            fileURL: projectURL.appendingPathComponent("second-state.json"))
+        let thirdDevice = LocalIdentities.softwareForTesting()
+        let third = thirdDevice.author
+        let thirdState = OpLogDeviceState(
+            fileURL: projectURL.appendingPathComponent("third-state.json"))
+        try await writeStrangerFile(docId: docId, opIds: ["02"])
+        try await writeFile(docId: docId, opIds: ["03"], by: second, state: secondState)
+        try await writeFile(docId: docId, opIds: ["04"], by: third, state: thirdState)
+        for (device, own) in [(stranger!, "Sam\u{2019}s Mac"), (second, "Sam\u{2019}s iPhone"),
+                              (third, "Sam\u{2019}s iPad")] {
+            _ = try await store.admit(
+                device: device.fingerprint, label: "Sam", ownName: own)
+        }
+        // The read that remembers all three streams.
+        let read = try await openDocument()
+        _ = try await read.opStore.loadDiagnosed(docId: docId)
+        await read.close()
+
+        // Whichever of them the loop reaches LAST loses its file.
+        let records = RegistryAdmission.records(
+            sharingLabelWith: stranger.fingerprint, in: try registry())
+        let last = try XCTUnwrap(records.last)
+        let slug = try XCTUnwrap(
+            [stranger!, second, third].first { $0.fingerprint == last.person }?.slug)
+        try FileManager.default.removeItem(at: OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: slug, in: projectURL))
+
+        do {
+            _ = try await store.changePermit(
+                everyRecordOf: stranger.fingerprint, to: .reviewer)
+            XCTFail("a sweep that cannot answer refuses before anything is written")
+        } catch let error as RegistryAdmissionError {
+            guard case .historyUnreadable = error else { return XCTFail("\(error)") }
+        }
+
+        let after = try registry()
+        XCTAssertTrue(
+            after.people.allSatisfy { $0.role == nil || $0.role == Permit.authorRole },
+            "no record moved")
+        XCTAssertTrue(
+            after.events.allSatisfy { $0.kind != .roleChanged },
+            "and no event was written — not one, not two")
+    }
+
+    // MARK: - Fix round 2
+
+    /// **A retirement refuses over a short reading too**, exactly as the other
+    /// three marking verbs do. It used to record `.nothingApplied` and let the
+    /// retirement through — and an empty mark calls EVERY paragraph that
+    /// machine ever wrote *written while retired*, so P3b's *N paragraphs were
+    /// written on it while retired* would offer the writer their whole history
+    /// as something to bring back in.
+    func test_aretirementRefusesOverAFolderItCannotList() async throws {
+        let mine = beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let translations = projectURL.appendingPathComponent(".maugham/translations")
+        try FileManager.default.createDirectory(
+            at: translations, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000], ofItemAtPath: translations.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: translations.path)
+        }
+
+        do {
+            _ = try await store.retire(device: mine.author.fingerprint)
+            XCTFail("a retirement decided on a partial reading marks everything")
+        } catch let error as RegistryAdmissionError {
+            guard case .historyUnreadable(let name, let act) = error else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(name, ".maugham/translations")
+            XCTAssertEqual(act, .retirement, "and the sentence says which act")
+        }
+        XCTAssertNil(
+            try registry().devices.first { $0.device == mine.author.fingerprint }?.retiredAt,
+            "nothing was changed")
+        XCTAssertTrue(
+            try registry().events.filter { $0.kind == .retired }.isEmpty,
+            "and no event either")
+    }
+
+    /// The converse, so the refusal above is about the reading and not about
+    /// retirement: with the folder readable the very same press succeeds and
+    /// records a real mark.
+    func test_thesameRetirementSucceedsOnceTheFolderCanBeListed() async throws {
+        let mine = beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+
+        _ = try await store.retire(device: mine.author.fingerprint)
+
+        let event = try XCTUnwrap(
+            try registry().events.first { $0.kind == .retired })
+        XCTAssertFalse(
+            event.mark.isEmpty,
+            "its own files' positions, which is what *written while retired* is "
+                + "derived from")
+    }
+
+    /// **A revoked machine of the same writer is left out** (minor A). Its
+    /// lines are refused by the VERDICT, which outranks any permit, so a
+    /// `roleChanged` on its record would put *became a reviewer* in History
+    /// after the revocation — about a machine already shut out.
+    func test_ademotionSkipsARevokedMachineOfTheSameWriter() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let secondDevice = LocalIdentities.softwareForTesting()
+        let second = secondDevice.author
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        _ = try await store.admit(
+            device: second.fingerprint, label: "Sam", ownName: "Sam’s old Mac")
+        _ = try await store.revoke(person: second.fingerprint)
+
+        let moved = try await store.changePermit(
+            everyRecordOf: stranger.fingerprint, to: .reviewer)
+
+        XCTAssertEqual(moved.map(\.person), [stranger.fingerprint])
+        XCTAssertTrue(
+            try registry().events.filter {
+                $0.subject == second.fingerprint && $0.kind == .roleChanged
+            }.isEmpty,
+            "no *became a reviewer* row after a revocation")
+        XCTAssertEqual(
+            try registry().person(second.fingerprint)?.role, Permit.authorRole,
+            "and its record was not re-signed for nothing")
+    }
+
+    /// And the other side of the same rule: a RETIRED machine IS included,
+    /// because its pre-retirement lines are still judged by permit.
+    func test_ademotionReachesARetiredMachineOfTheSameWriter() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let secondDevice = LocalIdentities.softwareForTesting()
+        let second = secondDevice.author
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        _ = try await store.admit(
+            device: second.fingerprint, label: "Sam", ownName: "Sam’s old Mac")
+        // `admit` writes a PERSON record; a device's own record is its own to
+        // write, and a retirement edits that one.
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: second.fingerprint, name: "Sam’s old Mac", kind: .mac,
+                actors: [DeviceActor.author.rawValue: second.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 5)),
+            signedBy: second, in: projectURL)
+        // The device retires ITSELF — the one registry verb nobody else can
+        // perform on your behalf.
+        try RegistryWriter.resign(
+            try XCTUnwrap(try registry().devices.first { $0.device == second.fingerprint }),
+            signedBy: second, in: projectURL
+        ) { object in
+            object["retiredAt"] = try RegistryCanonical.dateString(
+                Date(timeIntervalSince1970: 500))
+        }
+
+        let moved = try await store.changePermit(
+            everyRecordOf: stranger.fingerprint, to: .reviewer)
+
+        XCTAssertEqual(
+            Set(moved.map(\.person)), [stranger.fingerprint, second.fingerprint])
+        XCTAssertEqual(
+            try registry().person(second.fingerprint)?.role, Permit.reviewerRole)
+    }
+
+    /// A revoked SUBJECT refuses rather than quietly doing nothing — the loop
+    /// would otherwise skip her own record and the pane would draw the old
+    /// permit with no sentence saying why.
+    func test_ademotionOfARevokedPersonRefuses() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        _ = try await store.revoke(person: stranger.fingerprint)
+
+        do {
+            _ = try await store.changePermit(
+                everyRecordOf: stranger.fingerprint, to: .reviewer)
+            XCTFail("re-admit her first; a re-admission carries its own permit")
+        } catch let error as RegistryAdmissionError {
+            XCTAssertEqual(error, .notAdmitted(fingerprint: stranger.fingerprint))
+        }
+    }
+
+    /// **The open-time silent admission signs the SAME mark the mid-session
+    /// one does.** `DocumentStore.open` called `admitRemembered` with no mark
+    /// closure, so the event it signed carried an empty mark — *everything
+    /// after the beginning* — while the identical act performed a minute later
+    /// carried a swept one.
+    func test_theOpenTimeSilentAdmissionCarriesTheSweptMark() async throws {
+        beThisMac()
+        // A first open, so this Mac is the root and the document exists.
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+        try await writeStrangerFile(docId: docId, opIds: ["02", "03"])
+        memory.remember(
+            stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: stranger.fingerprint, name: "Sam’s Mac", kind: .mac,
+                actors: [DeviceActor.author.rawValue: stranger.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 5)),
+            signedBy: stranger, in: projectURL)
+
+        _ = try await DocumentStore.open(url: projectURL)
+
+        let event = try XCTUnwrap(
+            try registry().events.first { $0.subject == stranger.fingerprint })
+        XCTAssertEqual(event.kind, .silentlyAdmitted)
+        XCTAssertFalse(
+            event.mark.isEmpty,
+            "the open swept her streams, exactly as the mid-session path does")
+        let key = try XCTUnwrap(PermitMark.streamKey(of: OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: stranger.slug, in: projectURL)))
+        XCTAssertNotNil(event.mark[key]?.line, "and named the stream it read")
+    }
+
+    // MARK: - The fourth act (P3a Task 10, from Task 7's fix-round-2 carry)
+
+    /// **An admission refuses over a short reading too, and says so in its own
+    /// words** — the last of the four acts that compute a mark.
+    ///
+    /// Three of them were pinned when the `Act` vocabulary landed (a
+    /// revocation's is the default, a permit change's and a retirement's have
+    /// tests of their own) and this one was not, which left the sentence a
+    /// writer sees after pressing **Admit…** unguarded: the arm that produces
+    /// it is one `act:` label away from telling them *a revocation* was
+    /// refused.
+    ///
+    /// The refusal itself matters as much as its wording. An admission's mark
+    /// is where the new permit STARTS, so one recorded over a folder that
+    /// would not list is a demotion at the door, reaching back through
+    /// everything that person ever wrote.
+    func test_anadmissionRefusesOverAFolderItCannotListAndNamesItsOwnAct() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let translations = projectURL.appendingPathComponent(".maugham/translations")
+        try FileManager.default.createDirectory(
+            at: translations, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000], ofItemAtPath: translations.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: translations.path)
+        }
+
+        do {
+            _ = try await store.admit(
+                device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+            XCTFail("an admission decided on a partial reading puts everything "
+                    + "she ever wrote under the permit she is let in with")
+        } catch let error as RegistryAdmissionError {
+            guard case .historyUnreadable(let name, let act) = error else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(name, ".maugham/translations")
+            XCTAssertEqual(act, .admission, "and the sentence says which act")
+        }
+
+        XCTAssertNil(try registry().person(stranger.fingerprint),
+                     "nobody was admitted")
+        XCTAssertTrue(try registry().events.isEmpty,
+                      "and no event was written")
+    }
+
+    /// The control, so the refusal above is about the reading and not about
+    /// admission: with the folder readable the very same press succeeds.
+    func test_theSameAdmissionSucceedsOnceTheFolderCanBeListed() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        try FileManager.default.createDirectory(
+            at: projectURL.appendingPathComponent(".maugham/translations"),
+            withIntermediateDirectories: true)
+
+        let record = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+
+        XCTAssertEqual(record.person, stranger.fingerprint)
     }
 }

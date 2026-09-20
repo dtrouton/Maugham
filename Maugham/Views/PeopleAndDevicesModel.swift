@@ -4,7 +4,8 @@ import MaughamCore
 /// **Who may write in this book, on which devices, and what is waiting**
 /// (signed op log P2, spec §6) — as a value.
 ///
-/// The registry is three directories of signed records; the trust table turns
+/// The registry is four directories of signed records (P3a added the permit
+/// events); the trust table turns
 /// them into verdicts; this device's own memory holds the labels it gave and
 /// the claimants it has heard. A writer asking *who is in my book* needs all
 /// three put together, and the putting-together is the part with the judgment
@@ -745,8 +746,9 @@ struct PeopleAndDevicesModel: Equatable {
         return record.person == me ? "you" : "\(record.label)\u{2019}s Mac"
     }
 
-    /// Which of the registry's three kinds of record a row is about, as a
-    /// word. The enum rather than a path, so no surface spells `.maugham/people`
+    /// Which of the registry's kinds of record a row is about, as a word —
+    /// count `RegistryDirectory`'s cases, not this comment. The enum rather
+    /// than a path, so no surface spells `.maugham/people`
     /// (tripwire 40) and an unfamiliar directory a later build adds still reads
     /// as something.
     private static func word(for directory: RegistryDirectory) -> String {
@@ -754,6 +756,7 @@ struct PeopleAndDevicesModel: Equatable {
         case .people: return "person"
         case .devices: return "device"
         case .claims: return "claim"
+        case .events: return "permit event"
         }
     }
 

@@ -229,12 +229,32 @@ public enum RegistryPresence {
     /// refreshes the cache once at the end, so an open that admits three
     /// devices costs one verified read, three writes and one more read — not
     /// two reads per device.
+    ///
+    /// **Each admission writes a `silentlyAdmitted` event** (P3a Task 7) —
+    /// the `TrustEvent.Kind` that has existed since P2b with nothing to write
+    /// it (C11), and the one word that tells History *this Mac let it in
+    /// because you had already named it* apart from *you were asked*. The event
+    /// is minted inside `RegistryAdmission`, which stays the registry's one
+    /// event writer (tripwire 41).
+    ///
+    /// `mark` is asked **per device actually admitted**, never per device
+    /// present: where the root had read to in somebody's streams is a sweep of
+    /// every op-log file in the project, and an open with nobody to admit —
+    /// which is every open of every book — must not pay for one.
+    ///
+    /// **It THROWS rather than shortening** (fix round 1, I2). A sweep that
+    /// could not list a folder or could not read a file must not answer with
+    /// the positions it happened to find: a stream a mark does not name is
+    /// judged wholly NEW. A throw here admits nobody else this time and leaves
+    /// the devices already admitted standing — the open is not blocked, the
+    /// caller logs it, and the next open runs the whole thing again.
     @discardableResult
     nonisolated public static func admitRemembered(
         in projectURL: URL,
         identities: LocalIdentities,
         cache: RegistryCache,
         memory: AdmissionMemory,
+        mark: (String) throws -> PermitMark = { _ in .nothingApplied },
         now: () -> Date = { Date() },
         presenter: NSFilePresenter? = nil
     ) throws -> [PersonRecord] {
@@ -263,6 +283,7 @@ public enum RegistryPresence {
                   !unreadable.contains(device.device) else { continue }
             admitted.append(try RegistryAdmission.admit(
                 device: device.device, label: remembered.label, ownName: device.name,
+                mark: mark, silently: true,
                 in: projectURL, by: author, within: registry,
                 memory: memory, now: now, presenter: presenter))
         }

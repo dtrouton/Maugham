@@ -210,10 +210,19 @@ extension ProjectStore {
         do {
             trust = try TrustResolution.resolve(projectURL: url, identities: .current)
         } catch {
-            trust = TrustResolution.keyless(mine: .current)
+            // One fallback for every reader (fix round 2, minor 2): this
+            // device's own memory of the register first, and `keyless` only
+            // where there is none — `keyless` says *author of the whole book*
+            // about everybody, so reaching for it over one unreadable record
+            // would un-narrow every reviewer in the book.
+            trust = TrustResolution.rememberedOrKeyless(
+                projectURL: url, identities: .current)
             unreadable.append(OpLogStore.unreadableName(error))
         }
 
+        // Bound out of the manifest once, for the amendment rule's class
+        // closure: it is `@Sendable`, so it may not reach back through `self`.
+        let statements = manifest.statements
         for item in Self.collectDocuments(in: manifest.structure) {
             if let doc = openDocs[item.id] {
                 sequences[item.id] = doc.sequence
@@ -232,8 +241,15 @@ extension ProjectStore {
             // read — opening that document still refuses loudly. It is not
             // silent, though: the id goes into `unreadableDocIds` so a count
             // surface can render "unknown" rather than a number that is short.
+            // P3a Task 6 fix round 1: the queue judges an amendment as of its
+            // own line too, off the permits this walk's own classification
+            // recorded — one collector per document, because the map is keyed
+            // by op id and two chapters must not share one.
+            let amendmentPermits = AmendmentPermits()
             guard let ops = try? OpLogStore.loadSyncMerged(
-                forDocId: item.id, in: url, trust: trust)
+                forDocId: item.id, in: url, trust: trust,
+                statements: manifest.statements,
+                amendmentPermits: amendmentPermits)
             else {
                 unreadable.append(item.id)
                 continue
@@ -244,8 +260,18 @@ extension ProjectStore {
             // legacy sequence-less logs).
             let derived = Deriver.deriveWithSequenceFallback(ops: ops)
             sequences[item.id] = derived.sequence
+            // P3a Task 6: the same *whose annotation is it* rule the open
+            // document applies, off the table this walk already resolved and
+            // the manifest it already holds. The queue counts notes in pieces
+            // nobody has opened, so a rule only the editor applied would have
+            // two surfaces disagreeing about whether a note is still there.
             annotations.append(contentsOf: AnnotationAggregation.allAnnotations(
-                ops: ops, paragraphs: derived.paragraphs)
+                ops: ops, paragraphs: derived.paragraphs,
+                amendments: .judged(
+                    by: trust, permits: amendmentPermits.resolved,
+                    class: {
+                        DocumentClass.resolve(docId: item.id, statements: statements)
+                    }))
                 .map { ProjectAnnotation(docId: item.id, annotation: $0) })
         }
 

@@ -120,6 +120,54 @@ final class InboxBylineTests: XCTestCase {
         XCTAssertEqual(byline(phone, in: registry(revoked: true)), "from Denver (revoked)")
     }
 
+    // MARK: - A disputed actor key names nobody
+
+    /// **The byline asks the same question the verdict does** (P3a fix rounds
+    /// 2–3). A device record's non-author actor fingerprints are unsigned
+    /// strings any record may list, so the first record carrying a matching
+    /// deviceId prefix is not necessarily whose key it is. Two records listing
+    /// one `assistant` key means the key is NOBODY's
+    /// (`Registry.actorKeyOwners`), and a row must not then be bylined with
+    /// either claimant's name — least of all the one that happens to sort
+    /// first. It falls to the code line, which is the honest thing to say
+    /// about a key nobody owns, and is exactly what the writer needs in order
+    /// to check it against the device's own Settings screen.
+    func test_adisputedActorKeyIsNamedByItsCodeAndNotByAClaimant() {
+        let assistant = DeviceIdentity.softwareForTesting()
+        let claimant = DeviceIdentity.softwareForTesting()
+        func claiming(_ identity: DeviceIdentity, name: String) -> DeviceRecord {
+            DeviceRecord(
+                device: identity.fingerprint, name: name, kind: .phone,
+                actors: [DeviceActor.author.rawValue: identity.fingerprint,
+                         DeviceActor.assistant.rawValue: assistant.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 1_000))
+        }
+        let registry = Registry(
+            devices: [deviceRecord(mac, name: "Denver's MacBook", kind: .mac),
+                      claiming(phone, name: "Denver's iPhone"),
+                      claiming(claimant, name: "Somebody's iPad")],
+            people: [person(mac, label: "Denver", ownName: "Denver's MacBook",
+                            admittedBy: mac),
+                     person(phone, label: "Denver", ownName: "Denver's iPhone",
+                            admittedBy: mac),
+                     person(claimant, label: "Sam", ownName: "Sam's iPad",
+                            admittedBy: mac)])
+        let capture = "\(DeviceActor.assistant.rawValue)-"
+            + String(assistant.fingerprint.prefix(16))
+
+        XCTAssertNil(registry.actorKeyOwners[assistant.fingerprint],
+                     "two records claim it, so nobody owns it")
+        let line = InboxByline.text(
+            forDeviceId: capture, registry: registry, table: table(registry))
+
+        XCTAssertEqual(
+            line,
+            "from \(DeviceCode.short(String(assistant.fingerprint.prefix(16)))) "
+                + "(not yet admitted)")
+        XCTAssertFalse(line?.contains("Sam") ?? false)
+        XCTAssertFalse(line?.contains("iPad") ?? false)
+    }
+
     // MARK: - The wiring
 
     /// The wiring, on the delivery path: a refresh resolves the byline for
@@ -139,15 +187,20 @@ final class InboxBylineTests: XCTestCase {
         }
         let cache = RegistryCache(fileURL: cacheURL, identity: mac.fingerprint)
 
-        // The folder: this Mac's root record, both devices, and the phone
-        // admitted under it. The stranger declares itself and waits.
+        // The folder: this Mac's root record, its own phone, and the phone
+        // admitted under it. **The stranger writes NO record of its own**
+        // (P3a Task 11): a device this register can name has its unsealed span
+        // held like its sealed one, so a row that is still APPLIED under a
+        // *not yet admitted* byline is one from a device nothing here has ever
+        // heard of — the unsigned door, arm 3 of *the file's key*. A recorded
+        // stranger's row is held instead, and the Inbox meets it through the
+        // pending banner; `PermitStreamLoadTests
+        // .test_aStrangersUnsealedInboxManifestIsHeld` is where that is pinned.
         try RegistryWriter.write(
             deviceRecord(mac, name: "Denver's MacBook", kind: .mac),
             signedBy: mac, in: projectURL)
         try RegistryWriter.write(
             deviceRecord(phone, name: "Denver's iPhone"), signedBy: phone, in: projectURL)
-        try RegistryWriter.write(
-            deviceRecord(stranger, name: "The old iPhone"), signedBy: stranger, in: projectURL)
         try RegistryWriter.write(
             person(mac, label: "Denver", ownName: "Denver's MacBook", admittedBy: mac),
             signedBy: mac, in: projectURL)
@@ -182,8 +235,12 @@ final class InboxBylineTests: XCTestCase {
 
         XCTAssertNil(inbox.unreadableRegistry)
         XCTAssertEqual(inbox.bylines[phone.deviceId], "from Denver")
-        XCTAssertEqual(inbox.bylines[stranger.deviceId],
-                       "from The old iPhone (not yet admitted)")
+        // The code its own Settings screen shows, because no record here names
+        // it — which is exactly what the writer needs in order to admit it.
+        XCTAssertEqual(
+            inbox.bylines[stranger.deviceId],
+            "from \(DeviceCode.short(String(stranger.fingerprint.prefix(16)))) "
+                + "(not yet admitted)")
         XCTAssertEqual(inbox.bylines.count, 2,
                        "one answer per device that captured, not one per row")
     }

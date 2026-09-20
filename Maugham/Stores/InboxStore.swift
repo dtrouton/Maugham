@@ -278,7 +278,15 @@ final class InboxStore {
             // same implementation.
             let store = manifestStore(at: url, trust: table)
             do {
-                let read = try await store.loadVerifiedStrict()
+                // **And the permit, line by line** (P3a Task 6). A capture is a
+                // signed line another person's device wrote and this one
+                // applies, so it answers to the same ladder an op does — and
+                // the inbox is the one class whose whole content is the
+                // reviewer row, so every rung's rows are applied and only a
+                // narrowed actor's could ever be refused. The table is the one
+                // this refresh already resolved; nothing extra is read.
+                let read = try await store.loadVerifiedStrict(
+                    permit: .inbox(trust: table))
                 rows.append(contentsOf: read.elements)
                 for (device, count) in read.pendingByDevice {
                     held[device, default: 0] += count
@@ -329,8 +337,14 @@ final class InboxStore {
             .sorted { writeTime($0) > writeTime($1) }
         bylines = Self.bylines(
             for: entries + trashedEntries, registry: registry, table: table)
-        pendingByDevice = held
-        pendingDeviceNames = held.keys.reduce(into: [:]) { names, device in
+        // **Strangers only** (P3a Task 5's D5): this map's one reader puts
+        // *waiting for admission* after its number, and a line held because
+        // its signer's permit is one this build cannot judge belongs to a
+        // device already in the book. Narrowed here because this is where the
+        // verified registry is in hand; the rule is `Registry`'s, asked once.
+        let strangers = registry.strangersAwaitingAdmission(among: held)
+        pendingByDevice = strangers
+        pendingDeviceNames = strangers.keys.reduce(into: [:]) { names, device in
             names[device] = InboxByline.name(forDevice: device, registry: registry)
         }
     }

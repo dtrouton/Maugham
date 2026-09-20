@@ -22,19 +22,29 @@ public struct IntegrityReport: Equatable, Sendable {
     /// *reduced* this report's findings — fewer checkpoints meant fewer
     /// dangling pointers to find — exactly when the project was least healthy.
     public let unreadableCheckpointFiles: [CheckpointLoad.UnreadableFile]
+    /// Another device's streams that this Mac has found SHORTER than it
+    /// remembered them (P3a Task 9, spec §4.7). A finding and never a refusal:
+    /// the lines that remain are good and stay applied, and what the writer
+    /// does about it is reach for a backup.
+    ///
+    /// Recorded at the load that met it and merely REPORTED here, which is why
+    /// it survives a check that judges nobody.
+    public let truncatedStreams: [OpLogStore.TruncatedStream]
 
     public init(
         docSkips: [DocSkips],
         conflictTwins: [String],
         danglingPointers: [IntegrityChecks.DanglingPointer],
         invalidParagraphIds: [IntegrityChecks.InvalidParagraphId] = [],
-        unreadableCheckpointFiles: [CheckpointLoad.UnreadableFile] = []
+        unreadableCheckpointFiles: [CheckpointLoad.UnreadableFile] = [],
+        truncatedStreams: [OpLogStore.TruncatedStream] = []
     ) {
         self.docSkips = docSkips
         self.conflictTwins = conflictTwins
         self.danglingPointers = danglingPointers
         self.invalidParagraphIds = invalidParagraphIds
         self.unreadableCheckpointFiles = unreadableCheckpointFiles
+        self.truncatedStreams = truncatedStreams
     }
 
     /// `docSkips` only ever holds docs *with* skips (the aggregator filters empties),
@@ -49,6 +59,7 @@ public struct IntegrityReport: Equatable, Sendable {
     public var isHealthy: Bool {
         docSkips.isEmpty && conflictTwins.isEmpty && danglingPointers.isEmpty
             && invalidParagraphIds.isEmpty && unreadableCheckpointFiles.isEmpty
+            && truncatedStreams.isEmpty
     }
 
     /// The findings that BLOCK a backup: the manuscript-derived corruption
@@ -61,6 +72,13 @@ public struct IntegrityReport: Equatable, Sendable {
     /// must not be held hostage by a non-manuscript index (constitution
     /// must #1). The op-log findings DO block, because the backup would
     /// propagate a corrupt or shortened manuscript into every generation.
+    ///
+    /// A truncated foreign stream is NOT among them either, and for a sharper
+    /// reason (P3a Task 9): the surviving lines are exactly what a backup is
+    /// for. Refusing to back a manuscript up because part of another device's
+    /// history went missing would put the writer's remaining words at risk to
+    /// protest the loss of some — the same inversion the checkpoint clause
+    /// above refuses.
     ///
     /// Known residue: `danglingPointers` is computed FROM the checkpoint set,
     /// so while a checkpoint file is unreadable that blocking check runs on
@@ -75,7 +93,16 @@ public struct IntegrityReport: Equatable, Sendable {
 
 @MainActor
 public enum ProjectIntegrity {
-    public static func check(projectURL: URL) async throws -> IntegrityReport {
+    /// `state` is this device's own memory of where other devices' streams
+    /// stood (P3a Task 9). It is a parameter rather than `.shared` because
+    /// reaching for the process-wide memory would resolve — and on a machine
+    /// that has never written, MINT — this device's author key on a path that
+    /// asks nothing of it (`RegistryCache.shared`'s own lesson). A caller with
+    /// no memory to offer gets a report with no truncations in it, which is
+    /// what a reader that has never settled a foreign line honestly knows.
+    public static func check(
+        projectURL: URL, state: OpLogDeviceState? = nil
+    ) async throws -> IntegrityReport {
         let opsDir = projectURL.appendingPathComponent(".maugham/ops")
         let filenames = ((try? FileManager.default.contentsOfDirectory(
             at: opsDir, includingPropertiesForKeys: nil)) ?? []).map(\.lastPathComponent)
@@ -110,6 +137,14 @@ public enum ProjectIntegrity {
             conflictTwins: IntegrityChecks.conflictTwins(inOpsDirectoryFilenames: filenames),
             danglingPointers: dangling,
             invalidParagraphIds: IntegrityChecks.invalidParagraphIds(inOps: allOps),
-            unreadableCheckpointFiles: checkpointLoad.unreadableFiles)
+            unreadableCheckpointFiles: checkpointLoad.unreadableFiles,
+            // Named by stream rather than by label: this check holds no key and
+            // judges nobody, and reading the registry for a NAME would mean a
+            // `try?` on a trust reader (RULING-54). The label is the door's —
+            // `OpLogStore.truncatedStreams(in:state:trust:)` — for the surface
+            // that already holds a verified table.
+            truncatedStreams: state.map {
+                OpLogStore.truncatedStreams(in: projectURL, state: $0)
+            } ?? [])
     }
 }

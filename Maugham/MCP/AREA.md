@@ -166,8 +166,10 @@ URI** (per the draft, names aren't unique identifiers) and fails loudly (protoco
 only — any other URI fails loudly too (Maugham's server has no general resources support).
 These three are **protocol methods**, registered directly on the router in
 `MaughamApp.registerTools` alongside `initialize`/`tools/list`/`tools/call` — not tools,
-so **the tool catalogue count stays 56** whether or not a connecting client speaks the
-extension.
+so **they add nothing to the tool catalogue** whether or not a connecting client speaks
+the extension — the catalogue is `MCPToolCatalog.all` and its size is that array's,
+never a number in this file (audit PR #65, F10: this sentence said 56 for four
+milestones after the catalogue had passed it).
 
 **Content source:** `docs/skills/<name>/SKILL.md` (agentskills.io flat-frontmatter format:
 `name`, `description`, markdown body) is bundled as a `folder` resource in `project.yml`

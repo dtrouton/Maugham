@@ -54,6 +54,14 @@ public final class OpLogDeviceState: @unchecked Sendable {
         /// be looked for on disk. Absent for every entry written before this
         /// field, which is why a head with no record here is kept.
         var roots: [String: String] = [:]
+        /// **Where ANOTHER device's streams stood** (P3a Task 9, spec §4.7).
+        /// Keyed `<project-root hash>/<stream key>` — the same hash half the
+        /// heads use, so one `prune` pass covers both.
+        var foreignStreams: [String: ForeignStreamMemory] = [:]
+        /// Streams this device has found SHORTER than it remembered them,
+        /// keyed the same way. One entry per stream: a stream truncated twice
+        /// is one standing fact, not two rows.
+        var foreignTruncations: [String: StreamTruncation] = [:]
 
         init() {}
 
@@ -66,6 +74,150 @@ public final class OpLogDeviceState: @unchecked Sendable {
             verifiedSegments = try container.decodeIfPresent(
                 Set<String>.self, forKey: .verifiedSegments) ?? []
             roots = try container.decodeIfPresent([String: String].self, forKey: .roots) ?? [:]
+            // Optional, like every field above: a state file written before
+            // P3a decodes with these empty, which is the never-seen-anybody
+            // case and is exactly right. A synthesized `KeyedDecodingContainer`
+            // ignores keys it has no case for, so an OLDER build reading a file
+            // this one wrote drops these two and keeps everything else.
+            foreignStreams = try container.decodeIfPresent(
+                [String: ForeignStreamMemory].self, forKey: .foreignStreams) ?? [:]
+            foreignTruncations = try container.decodeIfPresent(
+                [String: StreamTruncation].self, forKey: .foreignTruncations) ?? [:]
+        }
+    }
+
+    // MARK: - What another device's stream looked like
+
+    /// **What this device remembers about one OTHER device's stream** (P3a
+    /// Task 9, spec §4.7).
+    ///
+    /// Keyed by STREAM and never by filename. A rotation copies the live tail
+    /// into a `.mzseg` and deletes it, so the line this device last settled
+    /// MOVES from one filename to another while staying in the same stream —
+    /// and a memory keyed on the filename would read that ordinary maintenance
+    /// as the file having been shortened.
+    public struct ForeignStreamMemory: Codable, Equatable, Sendable {
+        /// The slug that stream's files are named for. Carried rather than
+        /// re-derived from the key, so asking *which streams are this person's*
+        /// is a lookup and not a second parse of a filename
+        /// (`PermitMark.stream(of:)` is the one parse and it takes a URL).
+        public let deviceSlug: String
+        /// The hash of the last line of the live TAIL that this device saw the
+        /// chain verify. **Nil is a real answer** — a stream with no tail, an
+        /// empty one, or one that has just rotated everything away — and it
+        /// means *nothing to check*, never *nothing was ever there*.
+        public let head: String?
+        /// The digest of every sealed segment of this stream this device has
+        /// taken in WHOLE — the same value `PermitMark.StreamMark.segments`
+        /// is built from, so a mark and this memory cannot disagree about what
+        /// the stream is made of.
+        ///
+        /// Two jobs. It is the **rotation tolerance**: a tail that no longer
+        /// holds the remembered line while the stream has taken in a digest
+        /// this device had not seen has rotated, which is maintenance and not a
+        /// truncation. And a digest here that no segment of the stream carries
+        /// any more is a **segment that went missing**, which the count this
+        /// replaced could not see at all.
+        public let segmentDigests: Set<String>
+
+        public init(deviceSlug: String, head: String?, segmentDigests: Set<String>) {
+            self.deviceSlug = deviceSlug
+            self.head = head
+            self.segmentDigests = segmentDigests
+        }
+
+        /// **An entry written before the digests decodes, and reads as *no
+        /// digests known*** (tripwire 11: no migration, just tolerate). Such an
+        /// entry carries a `segments` COUNT this build has no property for, so
+        /// the synthesized decoder would simply ignore it — this one is written
+        /// out because `segmentDigests` has to be optional, and an absent set
+        /// is the honest answer: the first load after the upgrade learns the
+        /// digests, and until it does the stream is watched by its head alone.
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            deviceSlug = try container.decode(String.self, forKey: .deviceSlug)
+            head = try container.decodeIfPresent(String.self, forKey: .head)
+            segmentDigests = try container.decodeIfPresent(
+                Set<String>.self, forKey: .segmentDigests) ?? []
+        }
+    }
+
+    /// **A foreign stream found shorter than this device remembered it.**
+    ///
+    /// Nothing is refused over one and no line is set aside: the lines that
+    /// remain are good (spec §4.7). This is the fact P3b dates under History's
+    /// Project heading — dated when it is NOTICED, because dating it when a
+    /// pane opens would stamp last week's loss with this morning.
+    public struct StreamTruncation: Codable, Equatable, Sendable {
+        /// **What went missing**, because the two are different losses and a
+        /// writer can act on knowing which. An entry written before this field
+        /// reads `.line`, which is the only kind that build could record.
+        public enum Loss: String, Codable, Equatable, Sendable {
+            /// The last line this device settled in the live tail is nowhere in
+            /// the stream any more.
+            case line
+            /// A whole sealed segment this device had taken in is gone. Every
+            /// line it held that is still applied stays applied; what is lost
+            /// is the history's own copy of them.
+            case segment
+        }
+
+        public let streamKey: String
+        public let deviceSlug: String
+        public let loss: Loss
+        /// The line hash (`.line`) or the segment digest (`.segment`) that is
+        /// no longer anywhere in the stream.
+        public let lost: String
+        public let noticedAt: Date
+
+        public init(
+            streamKey: String, deviceSlug: String,
+            loss: Loss = .line, lost: String, noticedAt: Date
+        ) {
+            self.streamKey = streamKey
+            self.deviceSlug = deviceSlug
+            self.loss = loss
+            self.lost = lost
+            self.noticedAt = noticedAt
+        }
+
+        /// Tolerates an entry written before `loss`/`lost` existed — its hash
+        /// lived under `lostHead` and its kind could only be `.line`.
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            streamKey = try container.decode(String.self, forKey: .streamKey)
+            deviceSlug = try container.decode(String.self, forKey: .deviceSlug)
+            loss = try container.decodeIfPresent(Loss.self, forKey: .loss) ?? .line
+            lost = try container.decodeIfPresent(String.self, forKey: .lost) ?? ""
+            noticedAt = try container.decode(Date.self, forKey: .noticedAt)
+        }
+    }
+
+    /// One stream's new memory and, where there is one, the finding that came
+    /// with it. A whole load's worth is settled in ONE call, so a document
+    /// spread over six foreign files costs one file write rather than six.
+    public struct ForeignStreamUpdate: Sendable {
+        public let streamKey: String
+        public let root: URL
+        /// **Nil is *keep what is remembered***, which is how a stream that
+        /// answered nothing this load keeps the position it once answered with
+        /// — the position whose absence IS the finding (fix round 1).
+        public let memory: ForeignStreamMemory?
+        public let truncation: StreamTruncation?
+        /// The stream found everything it was remembered by, so a standing
+        /// finding about it is over: the file came back, or iCloud finished.
+        public let clearsTruncation: Bool
+
+        public init(
+            streamKey: String, root: URL,
+            memory: ForeignStreamMemory?, truncation: StreamTruncation?,
+            clearsTruncation: Bool = false
+        ) {
+            self.streamKey = streamKey
+            self.root = root
+            self.memory = memory
+            self.truncation = truncation
+            self.clearsTruncation = clearsTruncation
         }
     }
 
@@ -171,6 +323,109 @@ public final class OpLogDeviceState: @unchecked Sendable {
             stored.previousHeads.removeValue(forKey: fileKey)
         }
         persistLocked()
+    }
+
+    // MARK: - Foreign streams (P3a Task 9)
+
+    /// What this device remembers about `streamKey` in this project, or nil
+    /// where it has never settled a line of it.
+    public func foreignStream(_ streamKey: String, inRoot root: URL) -> ForeignStreamMemory? {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored.foreignStreams[Self.foreignKey(streamKey, root: root)]
+    }
+
+    /// **Settle a whole load's foreign observations at once.**
+    ///
+    /// One lock and at most one file write, for the reason `remember` batches a
+    /// chained append: a diagnosed load of a chapter with four other devices in
+    /// it must not become four rewrites of this file. And a write is skipped
+    /// entirely where nothing moved — the steady state, since a foreign stream
+    /// that has not changed answers the same memory it already holds.
+    public func settleForeign(_ updates: [ForeignStreamUpdate]) {
+        guard !updates.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        var changed = false
+        for update in updates {
+            let key = Self.foreignKey(update.streamKey, root: update.root)
+            let hash = Self.scopeHash(ofKey: key)
+            let path = update.root.standardizedFileURL.path
+            if stored.roots[hash] != path {
+                stored.roots[hash] = path
+                changed = true
+            }
+            if let memory = update.memory, stored.foreignStreams[key] != memory {
+                stored.foreignStreams[key] = memory
+                changed = true
+            }
+            if let truncation = update.truncation {
+                // **The same loss is the same finding**, keeping the day it
+                // was noticed. A stream that stays short is re-detected on
+                // every load — it has nothing left to move its memory on to —
+                // and re-dating it would put this morning on last week's loss
+                // and make *once* mean *every open*.
+                let standing = stored.foreignTruncations[key]
+                if standing?.loss != truncation.loss || standing?.lost != truncation.lost {
+                    stored.foreignTruncations[key] = truncation
+                    changed = true
+                }
+            } else if update.clearsTruncation,
+                      stored.foreignTruncations.removeValue(forKey: key) != nil {
+                // What came back is not missing. A finding is a fact that holds
+                // now, so a project whose evicted chapter iCloud has restored
+                // stops being unhealthy rather than being unhealthy for ever.
+                changed = true
+            }
+        }
+        if changed { persistLocked() }
+    }
+
+    /// Every stream this device remembers in `root` that one of `slugs` wrote.
+    ///
+    /// This is `expectedStreams`' source (spec §3.3's marks, P3a Task 7's
+    /// `ReadError.streamMissingFromSweep`): a stream a mark does not NAME is
+    /// judged wholly new, so a sweep that cannot see a stream this device has
+    /// applied must refuse rather than draw the line at the beginning of it.
+    /// A stream this device has never seen is legitimately absent — honest late
+    /// sync — and is deliberately not here.
+    ///
+    /// **It answers the MEMORIES, not the names** (final fix wave, W2). A name
+    /// is enough to catch a stream that has vanished and nothing else, and the
+    /// case that costs words is the one where the name is there and the
+    /// CONTENTS are short: a rotation whose tail deletion syncs ahead of its
+    /// segment. The sweep asks `ForeignStreamWatch.loss` of these, which is the
+    /// same predicate the load settles by.
+    public func foreignStreams(
+        inRoot root: URL, writtenBy slugs: Set<String>
+    ) -> [String: ForeignStreamMemory] {
+        guard !slugs.isEmpty else { return [:] }
+        lock.lock()
+        defer { lock.unlock() }
+        let prefix = "\(Self.scopeHash(ofRoot: root))/"
+        var out: [String: ForeignStreamMemory] = [:]
+        for (key, memory) in stored.foreignStreams
+        where key.hasPrefix(prefix) && slugs.contains(memory.deviceSlug) {
+            out[String(key.dropFirst(prefix.count))] = memory
+        }
+        return out
+    }
+
+    /// Every truncation this device has noticed in `root`, oldest first.
+    public func truncations(inRoot root: URL) -> [StreamTruncation] {
+        lock.lock()
+        defer { lock.unlock() }
+        let prefix = "\(Self.scopeHash(ofRoot: root))/"
+        return stored.foreignTruncations
+            .filter { $0.key.hasPrefix(prefix) }
+            .values
+            .sorted { ($0.noticedAt, $0.streamKey) < ($1.noticedAt, $1.streamKey) }
+    }
+
+    /// `<project-root hash>/<stream key>` — the heads' key shape with a stream
+    /// where a filename goes, so `prune`'s one pass covers both.
+    private nonisolated static func foreignKey(_ streamKey: String, root: URL) -> String {
+        "\(scopeHash(ofRoot: root))/\(streamKey)"
     }
 
     // MARK: - Verified segments
@@ -293,6 +548,17 @@ public final class OpLogDeviceState: @unchecked Sendable {
         let hashes = Set(dead.keys)
         stored.heads = stored.heads.filter { !hashes.contains(scopeHash(ofKey: $0.key)) }
         stored.previousHeads = stored.previousHeads.filter {
+            !hashes.contains(scopeHash(ofKey: $0.key))
+        }
+        // The foreign memory prunes on the same clause from its first day
+        // (P3a Task 9): it is keyed by the same project hash, and a memory
+        // whose project is gone is a memory of nothing. `verifiedSegments`
+        // stays untouched for its own reason — a digest is a hash of bytes and
+        // belongs to no project.
+        stored.foreignStreams = stored.foreignStreams.filter {
+            !hashes.contains(scopeHash(ofKey: $0.key))
+        }
+        stored.foreignTruncations = stored.foreignTruncations.filter {
             !hashes.contains(scopeHash(ofKey: $0.key))
         }
         for hash in hashes { stored.roots.removeValue(forKey: hash) }

@@ -1,6 +1,66 @@
 # Signed op log P3 — roles, scope and the collaborator
 
-**Status:** DESIGNED 2026-09-19 (brainstorm with Denver; every ruling below is his, dated that day). Unbuilt. Three plans, each built before the next is written (rule 11).
+**Status:** DESIGNED 2026-09-19 (brainstorm with Denver; every ruling below is his, dated that day). **P3a BUILT 2026-09-20** on branch `claude/signed-op-log-p3a-2026-09-19` — see *As built in P3a* below. P3b and P3c unbuilt; re-derive each against the built code (rule 11).
+
+## As built in P3a — where the build corrected this spec (2026-09-20)
+
+Written so P3b is planned against the truth rather than against the design. Each
+of these was found by building the thing, and each is a change to what this spec
+says, not an implementation detail.
+
+- **§3.3's mark is what the root had SEEN, not what it had applied** (amended in
+  place above). A mark selects which permit judges a line; it does not bless the
+  line. *Last applied* would let refused text at the end of what the root had
+  read fall after a promotion's mark and be applied under the new permit — the
+  pardon §5 forbids — and would re-judge a segment's honestly applied lines under
+  a demotion because one refused line had kept the segment out of the mark. A
+  **revocation** is the one act whose mark means applied, so the store answers
+  two questions: `OpLogStore.seenPositions` and `OpLogStore.appliedPositions`.
+- **§3.4 does not say what governs the lines BEFORE a person's first event, and
+  the answer is *it depends on that event's kind*.** `admitted` /
+  `silentlyAdmitted` ⇒ that event's permit governs everything on both sides of
+  its mark, because nothing precedes an admission and a stranger's HELD
+  manuscript text would otherwise fall to the book-author default the instant she
+  was admitted as a reviewer. `roleChanged` / `scopeChanged` / `readmitted` first
+  ⇒ the person was admitted under P2, so the opening stays book author: **a
+  demotion must not reach back**. An unknown kind first ⇒ unjudgeable, so the
+  lines are held. `revoked` / `retired` are skipped when finding *first*.
+  `PermitTimeline.opening(before:)` is the five arms. **Consequence for P3b: a
+  re-admission must mint `.readmitted` and never `.admitted`.**
+- **A contested non-author actor key belongs to NOBODY, forever.** Nothing proves
+  possession of a key a device record merely LISTS; only the author slot is
+  self-proving. One claimant ⇒ that device's, whatever its standing; two or more
+  ⇒ nobody's, and revocation does not cure it. Standing plays no part, because
+  awarding a disputed key to the only standing claimant made a revoked owner's
+  later lines read as the standing liar's. `Registry.actorKeyOwners` is the one
+  resolution. **Carry to P3b: the admission sheet must not offer a CONTESTED key
+  as a stranger to admit — it is a disputed key, not a new device — and it must
+  not offer a NON-AUTHOR actor key at all** (a held span whose slug reads
+  `assistant-`/`translator-`/`maugham-` waits for its device record instead).
+- **Everything the LOAD PATH or a derivation emits on its own account is the
+  AUTHOR actor's, whatever actor opened the file** — the bootstrap, both
+  pending-recovery folds, the task anchors and their `taskCreate`. §4.6 does not
+  say this and it has to: each is a kind the table refuses to `assistant` and
+  `translator`, so under MCP they were lines the partition would set aside, with
+  `bootstrap` the worst (a document whose opening op leaves the book derives
+  EMPTY, and the first autosave writes that empty render over the manuscript).
+  `Document.authorEmissionDevice(loadedAs:)`.
+- **An UNSEALED span answers to its file's verdict** (Task 11, from the
+  2026-09-20 audit, PR #65 F1+F2; a defect in released v0.39.0/v0.40.0 that this
+  spec did not notice). Trust was consulted at `case .seal` alone, so a signed
+  foreign device's writing since its last seal was applied whatever the register
+  said. The file's key is the last chain-verified seal's whatever ITS verdict,
+  else the key a verified device record gives the filename's slug, else
+  unchanged — and that third arm is the unsigned door.
+- **§4.9's *quarantined whole* and its two-row table were already superseded
+  here**; the parent spec now carries the annotation in place.
+
+Three things this spec asked for that P3a deliberately did **not** do, each with
+its reason recorded in the ADR's *limits* section: the unsigned door stays open
+(parked for Denver); roles guard the words and not the binder; and the label-wide
+permit verb exists but nothing presses it, because permits are per person RECORD
+and P2b merges devices under one LABEL.
+
 
 **Parents:** `2026-09-05-signed-op-log-design.md` (§4.9–§4.11, §5, §6, §8 — **amended here**, see §11), `2026-09-09-signed-op-log-p2-people-and-admission-design.md` (BUILT), [ADR 0032](../../adr/0032-the-signed-op-log.md). The brief and the first six rulings are in `docs/superpowers/notes/2026-09-17-signed-op-log-p3-handoff.md`.
 
@@ -60,7 +120,7 @@ P2's mark is one opId per person (`highestOpIdSeen`). **P3's marks are not that*
 
 So a mark is **chain positions, from shared data**. Verified against the code 2026-09-19, and it shapes the format: **each file is its own chain** — `classify` yields one `Verification` per file, and after a rotation the new tail's first line links to `genesis`, not to the segment's last line (`sealTailIfNeeded` copies the whole tail into a segment and deletes it). So *position in the file* cannot be keyed by filename (the marked line MOVES from the tail into a segment at the next rotation) and cannot be ordered across files by anything the writer does not control (a segment index is a filename).
 
-A mark is therefore, per STREAM of the subject's (`<docId>.<slug>`, and the translation and inbox streams likewise), two things the root saw: **the digest of every whole segment it had applied**, and **the `OpLogChain.lineHash` of the last line it applied**. Judging a file: a segment whose digest the mark lists is wholly under the OLD permit; the file that CONTAINS the marked line hash (the tail then, some later segment now — a line's hash covers its `prev`, so it is unique in its chain) is old up to and including that line and new after it; every other file, and every stream the mark does not name, is under the NEW permit. Every device computes the same answer from the same bytes; backdating an opId, renumbering a segment or rewriting one buys nothing.
+A mark is therefore, per STREAM of the subject's (`<docId>.<slug>`, and the translation and inbox streams likewise), two things the root SAW: **the digest of every whole segment it had read and judged**, and **the `OpLogChain.lineHash` of the last line it had read and judged** — *seen*, not *applied* (corrected 2026-09-20 in the P3a build). A mark does not bless lines; it selects which PERMIT judges them. Were the position *the last line applied*, refused text sitting at the end of what the root had read would fall AFTER a promotion's mark and be applied under the new permit — the pardon §5 forbids — and a segment with one refused line in it, left out of the mark, would have its honestly-applied lines judged under a demotion's new permit and refused retroactively. Lines the root refused under the old permit stay under the old permit and stay refused; lines it applied stay applied. Not *seen*: a torn tail line, and anything a broken chain quarantined. **A revocation is the one act whose mark means *applied*** (*keep what this Mac had applied*), so the store answers two questions — `seenPositions` for permit events, `appliedPositions` for revocation. Judging a file: a segment whose digest the mark lists is wholly under the OLD permit; the file that CONTAINS the marked line hash (the tail then, some later segment now — a line's hash covers its `prev`, so it is unique in its chain) is old up to and including that line and new after it; every other file, and every stream the mark does not name, is under the NEW permit. Every device computes the same answer from the same bytes; backdating an opId, renumbering a segment or rewriting one buys nothing.
 
 Honest late sync — her offline second Mac's writing from before the change — lands as *after the mark* and is refused, with the inbox door (§7.4). That is ruling 1's choice, applied uniformly to every kind of mark.
 

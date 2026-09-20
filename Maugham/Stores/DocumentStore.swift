@@ -240,10 +240,29 @@ public final class DocumentStore {
             // first read of this project already judges by the admissions this
             // open decided rather than holding a device's lines for the length
             // of one session.
+            //
+            // **The mark closure is the one `DocumentStore.admitRemembered`
+            // passes** (P3a Task 7, fix round 2). This call had none, so the
+            // open-time silent admission signed an event with an EMPTY mark
+            // while the mid-session one signed a swept mark for the same act —
+            // and an empty mark is *everything after the beginning*, which for
+            // a re-admission would judge a whole history under the new permit.
+            // Two paths, one act, one answer.
+            //
+            // A sweep that throws skips the silent admission and does not
+            // block the open: the `catch` below logs it, the devices already
+            // admitted stand, and the next open runs the whole thing again.
             let admitted = try RegistryPresence.admitRemembered(
                 in: url, identities: Document.loadIdentities,
                 cache: Document.loadRegistryCache,
                 memory: Document.loadAdmissionMemory,
+                mark: {
+                    try DocumentStore.rememberedAdmissionMark(
+                        forPerson: $0, in: url,
+                        identities: Document.loadIdentities,
+                        cache: Document.loadRegistryCache,
+                        state: Document.loadDeviceState)
+                },
                 presenter: store.presenter)
             for record in admitted {
                 documentStoreLog.info(
@@ -979,7 +998,14 @@ public final class DocumentStore {
     /// the post to *something not seen before is held*, and the window decides
     /// whether there is anything to ask about.
     private func announcePendingHistory(of document: Document) {
-        let waiting = Set((document.provenance?.pendingByDevice ?? [:])
+        // **Strangers only** (P3a Task 5's D5). The load stamps which of the
+        // held devices this book has no person record for, using the table it
+        // already resolved — so the narrowing costs this path nothing, and the
+        // rule is `Registry.isStrangerDevice`'s, asked once, in Core. A line
+        // held because its signer's permit is one this build cannot judge
+        // belongs to an ADMITTED device: announcing it would put an Admit…
+        // sheet in front of the writer about somebody already in the book.
+        let waiting = Set((document.provenance?.pendingStrangersByDevice ?? [:])
             .filter { $0.value > 0 }.keys)
         let newcomers = waiting.subtracting(announcedPendingDevices)
         guard !newcomers.isEmpty else { return }
@@ -1025,17 +1051,40 @@ public final class DocumentStore {
     ///
     /// The write runs off the main actor: it is a folder read, a P256
     /// signature and a verified re-read, and this class is `@MainActor`.
+    ///
+    /// **`permit` is which rung the sheet let them in at** (P3 spec §7.1). It
+    /// defaults to the whole book, which is what every P2 admission meant and
+    /// what the sheet still asks for until P3b gives it a control — so this
+    /// signature widening moves nothing about an existing book.
+    ///
+    /// The mark is `seenPositions`: where this Mac had read to in their streams
+    /// when it let them in. **For an admission it is informational**, because
+    /// an `admitted` event's permit governs everything the person ever wrote on
+    /// both sides of its mark (`PermitTimeline.opening(before:)`, and the
+    /// reason is that a stranger's held lines are SEEN, so they would otherwise
+    /// fall to the book-author default the moment she was admitted as a
+    /// reviewer). It is load-bearing for a RE-admission of somebody revoked,
+    /// which `RegistryAdmission` mints as `readmitted` for exactly that reason.
     @discardableResult
     public func admit(
-        device fingerprint: String, label: String, ownName: String
+        device fingerprint: String, label: String, ownName: String,
+        permit: Permit = .bookAuthor
     ) async throws -> PersonRecord {
         let projectURL = self.projectURL
         let author = Document.loadIdentities.author
         let cache = Document.loadRegistryCache
         let memory = Document.loadAdmissionMemory
+        // Refused rather than recorded short, for the revocation's reason: a
+        // re-admission's mark is where the new permit STARTS, so a mark that
+        // came back empty over an unreadable chapter would put everything that
+        // person ever wrote under the permit they are being let back in with —
+        // a demotion at the door, reaching back through the book.
+        let mark = try await seenMarkOrRefuse(forPerson: fingerprint)
         let record = try await Task.detached(priority: .userInitiated) {
             try RegistryAdmission.admit(
                 device: fingerprint, label: label, ownName: ownName,
+                role: permit.wireRole, scope: permit.wireScope,
+                pieces: permit.wirePieces, mark: mark,
                 in: projectURL, by: author, cache: cache, memory: memory)
         }.value
 

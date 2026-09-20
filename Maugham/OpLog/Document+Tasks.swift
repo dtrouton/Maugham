@@ -83,14 +83,33 @@ extension Document {
         // authoritative creation timestamp + session id; appendTaskOpInternal
         // does invalidate the cache but the re-entrancy guard catches that
         // and short-circuits, which is exactly the intended behavior.
-        if !mintedAnchors.isEmpty {
+        // **P3a Task 8: a READ must not write where this device may not write.**
+        // `rebuildTasksCache` runs from a plain `tasks(filter:)`, and the two
+        // things it emits are manuscript text (the anchor spliced into the
+        // paragraph, which the next burst carries) and a `taskCreate` beside
+        // each. Where this device's own hand may not write them, neither is
+        // emitted at all and the tasks derive from what is already anchored:
+        // the pane is unchanged, the anchors are simply re-minted by whichever
+        // read happens after the permit widens. Both questions are asked,
+        // because the two kinds are different rows of the table — an author of
+        // some pieces signs tasks on the project stream where she signs no
+        // manuscript text.
+        let mayAnchor = localWritePermit.allows(.op(.typingBurst)) == .yes
+        let maySignTasks = localWritePermit.allows(.op(.taskCreate)) == .yes
+        if !mintedAnchors.isEmpty && mayAnchor && maySignTasks {
             applyMintedAnchors(mintedAnchors)
+            // The anchor and its creation breadcrumb are a DERIVATION's
+            // emission, not the caller's, so they are the author's whatever
+            // actor opened this document. `taskCreate` is a kind the table
+            // refuses to the assistant, and `TaskReadTools` loads as the
+            // assistant.
+            let taskDevice = Document.authorEmissionDevice(loadedAs: device)
             for mint in mintedAnchors {
                 let synth = "inline:\(docId):\(mint.anchorId)"
                 let op = Op(
                     opId: ULID.generate(),
                     docId: docId, at: Date(),
-                    device: device, session: session,
+                    device: taskDevice, session: session,
                     kind: .taskCreate,
                     changes: [], sequence: nil,
                     provenance: Op.Provenance(
@@ -109,7 +128,16 @@ extension Document {
         // path. The rebalance is mathematically idempotent (next derive
         // emits zero rebalance ops since priorities are now well-spaced),
         // so the re-invalidation triggered by the appends is harmless.
-        for op in rebalanceOps {
+        //
+        // Guarded by the same question one row over (P3a Task 8): the rebalance
+        // is Maugham's own key, which the table allows `taskPriorityChange` and
+        // nothing else — but only where the PERSON may sign a task here, and a
+        // reviewer never may. Asked of `.maugham` rather than of the author,
+        // because that is the key these lines are signed with and the narrowing
+        // is part of the question.
+        let mayRebalance = localWritePermit.allows(
+            .op(.taskPriorityChange), signedBy: .maugham) == .yes
+        for op in rebalanceOps where mayRebalance {
             let standardized = op.withReplacedOpId(ULID.generate())
             appendTaskOpInternal(standardized)
         }

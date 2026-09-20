@@ -237,4 +237,25 @@ public struct Op: Codable, Equatable, Sendable {
             session: session, kind: kind, changes: changes,
             sequence: sequence, provenance: provenance)
     }
+
+    /// **The kind a raw op line carries**, read off the OBJECT rather than by
+    /// decoding an `Op` — `RevocationSplit.opId(ofLine:)`'s sibling, and here
+    /// for its reason exactly.
+    ///
+    /// A line a later build wrote — a field this build has no property for, a
+    /// shape its decoder refuses — still has a readable `kind`, where a full
+    /// decode would fail and let a caller file the line as unjudgeable on the
+    /// strength of something the decision does not turn on. An unrecognised
+    /// word answers `.unknown`, which is the forward-tolerant case ADR 0015
+    /// already gives the decoder; a line with no `kind` at all answers nil,
+    /// which is not an op and is `JSONLAppendStore.parse`'s to report.
+    ///
+    /// The key is this type's own `CodingKeys`, asked rather than spelled
+    /// again: a second spelling would go on reading nil, silently, the day
+    /// that name changed.
+    nonisolated public static func kind(ofLine line: Data) -> OpKind? {
+        let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any]
+        guard let raw = object?[CodingKeys.kind.stringValue] as? String else { return nil }
+        return OpKind(rawValue: raw) ?? .unknown
+    }
 }

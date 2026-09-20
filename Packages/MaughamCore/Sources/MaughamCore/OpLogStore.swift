@@ -7,7 +7,9 @@ import os
 /// recording the lines it set aside, and signing a segment it just minted.
 /// Neither may cost the writer their manuscript, so neither throws — and a
 /// silent best-effort is only honest if it says so somewhere.
-private let opLogLoadLog = Logger(
+/// `internal` since P3a Task 5's fix round 1: `OpLogPermitContext` reports a
+/// manifest it could not read through the same channel the load already uses.
+let opLogLoadLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.core",
     category: "OpLogStore")
 
@@ -176,6 +178,38 @@ public final class OpLogStore {
         return table
     }
 
+    /// **The same table, resolved ON this actor rather than off it** (P3a
+    /// Task 8).
+    ///
+    /// `trust()`'s detached hop is the right shape for a READ, which is already
+    /// deep in file I/O and has a suspension either way. It is the wrong shape
+    /// for a question asked BEFORE the load's first write: an added suspension
+    /// point in `Document.load` is a behaviour change on every document open —
+    /// `ProjectStore.withStatementDocument`'s own comment is about a pane
+    /// binding mid-load, and a bare `await Task.yield()` inserted there fails
+    /// `PromotionPerformerTests.test_promotingWhileTheIntentPaneIsOpen…` with
+    /// nothing else changed. `ProjectStore+Annotations` resolves on the main
+    /// actor for the same kind of reason, and states it.
+    ///
+    /// The cost is a folder read plus a P256 verify per record, once per store
+    /// — **which in production is once per document OPEN**, because
+    /// `Document.makeLoadOpStore` builds a store per load. It is stored under
+    /// the same signature `trust()` compares, so the read that follows finds it
+    /// warm and does not resolve again; the caller that wants only a permit
+    /// (`localWritePermit`) asks nothing at all of a project with no register.
+    /// Pre-warming it somewhere longer-lived is deliberately NOT done here —
+    /// the cost is Task 10's to measure before anybody moves it.
+    func trustOnThisActor() throws -> TrustTable {
+        let signature = TrustResolution.signature(of: projectURL)
+        if let resolvedTrust, resolvedTrust.signature == signature {
+            return resolvedTrust.table
+        }
+        let table = try TrustResolution.resolve(
+            projectURL: projectURL, identities: identities, cache: registryCache)
+        resolvedTrust = (signature, table)
+        return table
+    }
+
     /// Forget the resolved table, so the next read builds a fresh one.
     ///
     /// The signature check above catches a registry that changed on disk, but a
@@ -183,6 +217,101 @@ public final class OpLogStore {
     /// record — should say so rather than hope a modification time moved far
     /// enough to be seen.
     public func invalidateTrust() { resolvedTrust = nil }
+
+    /// **May this device's own hand write here, and what?** — the ONE question
+    /// asked before a line exists (P3a Task 8).
+    ///
+    /// The load seam asks it of `.bootstrap`, of the pending-recovery burst and
+    /// of a task anchor; P3c's membrane will ask it of a keystroke. One
+    /// function so the two cannot answer differently, and on this store because
+    /// this is where the verified table already is — resolving a second one per
+    /// document would be a folder read and a P256 verify per record, per open.
+    ///
+    /// **It never throws, and that is the point.** `trust()` refuses on a
+    /// registry record that is present and unreadable (RULING-54), and a load
+    /// that asks this question must not start refusing over one where it did
+    /// not before (constitution must #1). The fallback is the keyless table,
+    /// which is P1's behaviour exactly — this device's own keys, nobody else's,
+    /// no events, so the answer is *yes* — and the caller that goes on to READ
+    /// will meet the same refusal through its own door with its own sentence.
+    ///
+    /// `documentClass` is a CLOSURE because resolving one means decoding a
+    /// manifest, and the neutral case never needs it: a permit that covers the
+    /// whole book answers `.yes` in the hardest class there is, so the closure
+    /// is not called at all. `PermitPartition`'s `unowned` is the same shape
+    /// for the same reason.
+    public func localWritePermit(
+        as actor: DeviceActor = .author,
+        documentClass: () -> DocumentClass
+    ) -> LocalWritePermit {
+        // **A project that has never had a register pays nothing at all** — not
+        // a folder read, not a verify, not a question. The test is
+        // `verifiedRegistry`'s own first one, asked through its own spelling:
+        // the FOLDER or this device's MEMORY of one, because a register deleted
+        // wholesale is restored from that memory and treating its absence as
+        // *no register* would make deleting one an escape from a demotion.
+        let permit = registerTable().map(\.myTimeline.current) ?? .bookAuthor
+        if LocalWritePermit.answersWithoutTheClass(permit, as: actor) {
+            return LocalWritePermit(permit: permit, actor: actor, documentClass: nil)
+        }
+        return LocalWritePermit(
+            permit: permit, actor: actor, documentClass: documentClass())
+    }
+
+    /// **The verified table, or nil where this project has never had a
+    /// register at all** — the one question `localWritePermit` and
+    /// `annotationAmendments` both open with, spelled once (P3a Task 6).
+    ///
+    /// A project with no register pays nothing — not a folder read, not a
+    /// verify, not a question. The test is `verifiedRegistry`'s own first one,
+    /// asked through its own spelling: the FOLDER or this device's MEMORY of
+    /// one, because a register deleted wholesale is restored from that memory
+    /// and treating its absence as *no register* would make deleting one an
+    /// escape from a demotion.
+    ///
+    /// **It never throws, and that is the point.** `trust()` refuses on a
+    /// registry record that is present and unreadable (RULING-54), and a load
+    /// that asks these questions must not start refusing over one where it did
+    /// not before (constitution must #1). The caller that goes on to READ will
+    /// meet the same refusal through its own door with its own sentence.
+    private func registerTable() -> TrustTable? {
+        guard TrustResolution.hasAnythingToResolve(
+            in: projectURL, cache: registryCache) else { return nil }
+        do { return try trustOnThisActor() }
+        catch {
+            // **Forget the folder, not this device** (fix round 1's I2), and
+            // through the one spelling every reader shares since fix round 2's
+            // minor 2 — `TrustResolution.rememberedOrKeyless`, which carries
+            // the reasoning.
+            return TrustResolution.rememberedOrKeyless(
+                projectURL: projectURL, identities: identities,
+                cache: registryCache)
+        }
+    }
+
+    /// **Whose annotation it is, for this document** (P3a Task 6, spec §4.2's
+    /// last paragraph) — `localWritePermit`'s sibling, and neutral in the same
+    /// way.
+    ///
+    /// The deriver is pure and holds no register, so the rule is resolved here,
+    /// once, where the verified table already is — resolving a second one per
+    /// annotation-cache rebuild would be a folder read and a P256 verify per
+    /// record on a keystroke-adjacent path.
+    ///
+    /// A project with no register answers `honourEverything`, which is the
+    /// pre-P3a behaviour exactly.
+    /// `permits` is what the LOAD collected — the permit each amendment line
+    /// was judged under, as of that line (`AmendmentPermits`). Empty is the
+    /// honest answer for a book with no events and for a caller that did not
+    /// ask, and an amendment with no entry falls back to the signer's current
+    /// permit, which is what those cases mean.
+    public func annotationAmendments(
+        permits: [String: Permit] = [:],
+        documentClass: @escaping @Sendable () -> DocumentClass
+    ) -> AnnotationAmendments {
+        guard let table = registerTable() else { return .honourEverything }
+        return .judged(by: table, permits: permits, class: documentClass)
+    }
 
     /// Lines this device has appended to each file since that file's last seal.
     /// In memory and per store instance on purpose: it is a cadence, not a
@@ -223,23 +352,44 @@ public final class OpLogStore {
     /// caller can write a forensic record (`IntegrityQuarantine`) instead of
     /// dropping it silently. `load(docId:)` delegates here and discards the
     /// diagnostics, so existing callers are unaffected.
-    public func loadDiagnosed(docId: String)
-        async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: OpLogProvenance)
+    ///
+    /// `amendmentPermits` is P3a Task 6's second product and is **opt-in**: a
+    /// caller that means to judge annotation amendments as of their own line
+    /// hands one over and reads it afterwards; everybody else passes nothing
+    /// and nothing is recorded. See `AmendmentPermits`.
+    public func loadDiagnosed(
+        docId: String, amendmentPermits: AmendmentPermits? = nil
+    ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: OpLogProvenance)
     {
         let urls = Self.opLogFileURLs(forDocId: docId, in: projectURL)
         guard !urls.isEmpty else { return ([], ParseDiagnostics(), OpLogProvenance()) }
         let table = try await trust()
+        // **The permit partition's two document-level answers** (P3a Task 5).
+        // One context for the whole document: its class is resolved at most
+        // once however many per-actor files the history is spread across, and
+        // not at all in a book with no permit events.
+        let permit = Self.permitContext(
+            forDocId: docId, in: projectURL, trust: table,
+            amendments: amendmentPermits)
         var merged: [Op] = []
         var skipped: [ParseDiagnostics.SkippedLine] = []
         var files: [FileProvenance] = []
+        // One watch for the whole document: a stream is a run of segments plus
+        // a tail, and whether its remembered line is still anywhere in it can
+        // only be asked once every file has been seen (P3a Task 9).
+        let foreign = ForeignStreamWatch(
+            projectURL: projectURL, state: deviceState,
+            mine: ForeignStreamWatch.slugs(of: identities))
         for url in urls {
             let result = try await Self.loadFileDiagnosed(
                 url: url, presenter: presenter,
-                identities: identities, state: deviceState, trust: table)
+                identities: identities, state: deviceState, trust: table,
+                permit: permit, foreign: foreign)
             merged.append(contentsOf: result.ops)
             skipped.append(contentsOf: result.diagnostics.skipped)
             files.append(result.provenance)
         }
+        foreign.settle()
         return (Self.mergeSortedDedup(merged),
                 ParseDiagnostics(skipped: skipped),
                 OpLogProvenance(files: files))
@@ -264,6 +414,13 @@ public final class OpLogStore {
     /// lenient read — `loadDiagnosed` stays the strict default, and the one
     /// production caller is `Document.load(recovery: .readOnlyPartial)`,
     /// whose Document can write nothing.
+    ///
+    /// **It carries no `ForeignStreamWatch`, and that is deliberate** (P3a
+    /// Task 9). This rung's whole purpose is to answer over the files that DID
+    /// read, so a stream whose tail it could not open looks exactly like a
+    /// stream whose tail is short — and the memory taken from it would record a
+    /// truncation that is really a permissions error. A memory of where another
+    /// device stood is taken from the STRICT load or not at all.
     public func loadDiagnosedPartial(docId: String) async -> PartialOpLogLoad {
         var all: [Op] = []
         var skipped: [ParseDiagnostics.SkippedLine] = []
@@ -284,11 +441,14 @@ public final class OpLogStore {
                 reason: error.localizedDescription))
             table = TrustResolution.keyless(mine: identities)
         }
+        let permit = Self.permitContext(
+            forDocId: docId, in: projectURL, trust: table)
         for url in Self.opLogFileURLs(forDocId: docId, in: projectURL) {
             do {
                 let result = try await Self.loadFileDiagnosed(
                     url: url, presenter: presenter,
-                    identities: identities, state: deviceState, trust: table)
+                    identities: identities, state: deviceState, trust: table,
+                    permit: permit)
                 all.append(contentsOf: result.ops)
                 skipped.append(contentsOf: result.diagnostics.skipped)
                 files.append(result.provenance)
@@ -399,6 +559,26 @@ public final class OpLogStore {
         /// having to say so.
         case unreadableFile(name: String, underlying: String, kind: FileKind = .history)
         case unlistableOpsDirectory(underlying: String)
+        /// **A directory the MARK sweep must see exists and will not list**
+        /// (P3a Task 7, fix round 1). `.maugham/translations` and
+        /// `.maugham/inbox` — the ops folder has its own case above, with its
+        /// own sentence about a second parallel history.
+        ///
+        /// It is an error rather than an empty listing because of what an
+        /// omission MEANS to a mark: a stream a mark does not name is judged
+        /// wholly NEW, so a sweep that quietly saw nothing draws the line at
+        /// the very beginning of everything it missed. For a revocation that
+        /// sets aside words this Mac HAD applied — strictly more destructive
+        /// than the opId path it replaced, in the one direction find-5's
+        /// ruling forbids. For a demotion it reaches back through the whole
+        /// stream.
+        case unlistableStreamDirectory(name: String, underlying: String)
+        /// **A stream the caller said must be found was not** (P3a Task 7's
+        /// hook for Task 9). A file simply ABSENT at sweep time — evicted by
+        /// iCloud, halfway through a sync — is indistinguishable from a stream
+        /// that never existed unless somebody remembers it; the caller that
+        /// remembers says so through `expectedStreams`, and this is the answer.
+        case streamMissingFromSweep(streamKey: String)
         public var errorDescription: String? {
             switch self {
             case .unreadableFile(let name, let underlying, let kind):
@@ -409,6 +589,15 @@ public final class OpLogStore {
                 return "The manuscript's history folder (.maugham/ops) exists but can't be listed "
                      + "(\(underlying)). Check its permissions, then reopen — opening without it "
                      + "would start a second, parallel history."
+            case .unlistableStreamDirectory(let name, let underlying):
+                return "The folder “\(name)” exists but can't be listed (\(underlying)). "
+                     + "Your words are intact inside it — check its permissions or wait for "
+                     + "iCloud to finish syncing. Maugham won't decide what a device may "
+                     + "write from a reading it knows is short."
+            case .streamMissingFromSweep(let streamKey):
+                return "Part of this device's history (“\(streamKey)”) is one Maugham has "
+                     + "read before and can't find now — most often iCloud has moved it "
+                     + "out of the way. Nothing was changed; try again once it is back."
             }
         }
     }
@@ -432,7 +621,10 @@ public final class OpLogStore {
     /// The coordinated read of one op-log file's exact bytes. Nil when the file
     /// is not there (which is not a failure); a throw when it is there and
     /// cannot be read (RULING-54: unreadable-yet-present is never empty).
-    nonisolated private static func readCoordinated(
+    // `internal` rather than `private` since P3a Task 5: `unownedPiece`'s
+    // second pass reads the document's other files through the same door, so
+    // the coordination policy stays one decision.
+    nonisolated static func readCoordinated(
         url: URL, presenter: NSFilePresenter?
     ) throws -> Data? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
@@ -459,17 +651,35 @@ public final class OpLogStore {
     /// KEYLESS reader — `ProjectIntegrity.check`, and anything else that
     /// inspects a project without opening it — which holds no key and judges
     /// nobody, so every seal it meets is somebody's unsigned history.
+    ///
+    /// `foreign` is P3a Task 9's memory of where OTHER devices' streams stood,
+    /// and it is the LOAD path's alone for `state`'s own reason: a check that
+    /// classifies keylessly forms a weaker picture than a load, and a memory
+    /// taken from it would be a memory of a reading nobody acted on. It is
+    /// carried as a collector rather than returned, because the decision is
+    /// about a STREAM and this function sees one FILE of one — the caller
+    /// settles it once every file of the document has been observed.
     public static func loadFileDiagnosed(
         url: URL, presenter: NSFilePresenter?,
         identities: LocalIdentities? = nil, state: OpLogDeviceState? = nil,
-        trust: TrustTable? = nil
+        trust: TrustTable? = nil, permit: PermitContext? = nil,
+        foreign: ForeignStreamWatch? = nil
     ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: FileProvenance) {
         guard let bytes = try readCoordinated(url: url, presenter: presenter) else {
             return ([], ParseDiagnostics(),
                     FileProvenance(name: url.lastPathComponent,
                                    isSealedSegment: url.pathExtension == OpLogSegment.fileExtension))
         }
-        let classified = classify(url: url, bytes: bytes, state: state, trust: trust)
+        let classified = classify(
+            url: url, bytes: bytes, state: state, trust: trust, permit: permit)
+
+        // **Where another device's stream stood** (P3a Task 9). An observation
+        // and not a write: the watch settles the whole document's worth at
+        // once, so a chapter spread over four foreign files costs one rewrite
+        // of the state file rather than four.
+        foreign?.observe(
+            url: url, verification: classified.verification,
+            segmentDigest: classified.wholeSegmentDigest)
 
         // The three writes a load is allowed to make, all of them derived
         // bookkeeping and every one best-effort: nothing here may cost the
@@ -551,13 +761,21 @@ public final class OpLogStore {
         // same reason the project-open sweep names it when it rotates tails.
         docIds.insert("__project__")
 
+        // **The permit partition runs here too** (P3a Task 5): a refused line
+        // is not *applied*, and a mark that counted one would record a
+        // position this Mac never reached. Resolved once for the whole sweep.
+        let statements = manifestStatements(in: projectURL)
         var highest: String?
         for docId in docIds.sorted() {
+            let permit = permitContext(
+                forDocId: docId, in: projectURL, trust: trust,
+                statements: statements)
             for url in opLogFileURLs(forDocId: docId, in: projectURL) {
                 guard let bytes = try readCoordinated(url: url, presenter: nil)
                 else { continue }
                 let classified = classify(
-                    url: url, bytes: bytes, state: nil, trust: trust)
+                    url: url, bytes: bytes, state: nil, trust: trust,
+                    permit: permit)
                 for op in classified.ops where ids.contains(op.device) {
                     if highest == nil || op.opId > highest! { highest = op.opId }
                 }
@@ -566,11 +784,522 @@ public final class OpLogStore {
         return highest
     }
 
+    /// **Where in each of this device's streams the reader had got to** — the
+    /// P3 mark, and `highestAppliedOpId`'s sibling in every respect but what it
+    /// answers (spec §3.3).
+    ///
+    /// Same listing, same `classify` with `state: nil` and `identities`
+    /// unreachable, so it is read-only in fact and not merely in intent: it
+    /// writes no forensic record, adopts no head, and remembers no segment
+    /// digest over forty chapters nobody has opened. It THROWS for the same
+    /// reason its sibling does — a mark that silently came back short would
+    /// quietly move a permission boundary — and the caller turns that into a
+    /// refusal rather than into a position.
+    ///
+    /// **What it records, per stream** (`PermitMark.stream(of:)` names them):
+    ///
+    /// - the digest of every SEGMENT the reader took in whole;
+    /// - the `OpLogChain.lineHash` of the last APPLIED line of the live
+    ///   `.jsonl` tail — never a held-back line, never a quarantined one,
+    ///   never a torn one.
+    ///
+    /// **`applied` here is the word it says**, and that is what makes this the
+    /// REVOCATION's question and not the permit's: *Revoke, keeping what this
+    /// Mac already had* means the lines that are in the draft the writer has
+    /// been reading. `seenPositions` is the other question — see it for why
+    /// one answer cannot serve both acts.
+    ///
+    /// **The last line is taken from the TAIL and no other file, which is what
+    /// keeps this free of any ordering.** A stream is a run of sealed segments
+    /// plus one tail, and only the tail is still being appended to; the
+    /// segments are whole and are named by digest. So nothing here has to
+    /// decide which file came after which — and nothing may, because a segment
+    /// index is part of a filename and a filename is the writer's to choose.
+    ///
+    /// **The known gap, stated rather than hidden:** a segment that neither
+    /// settled nor could be walked through to its last line contributes no
+    /// digest, so lines inside it judge as *new* later. That is the strict
+    /// side of the format the spec fixes — a mark can say *this whole segment*
+    /// or *up to this line*, and such a segment is neither.
+    ///
+    /// `nonisolated` and presenter-free, so the whole sweep runs off the main
+    /// actor; it only reads, so there is no write of this process's own for a
+    /// presenter to keep from bouncing back.
+    nonisolated public static func appliedPositions(
+        ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
+        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:]
+    ) throws -> PermitMark {
+        try positions(
+            ofDeviceIds: ids, in: projectURL, trust: trust,
+            expecting: expecting
+        ) { line in
+            !line.state.isHeldBack && line.state != .tornTail
+        }
+    }
+
+    /// **Where in each of this device's streams the reader had READ TO** — the
+    /// position a PERMIT event records (spec §3.3, corrected in P3a Task 5's
+    /// fix round 2).
+    ///
+    /// **A mark does not bless lines; it selects which PERMIT judges them.**
+    /// At or before the position the OLD permit decides, after it the NEW one.
+    /// Once that is the rule, *the last line the root APPLIED* is the wrong
+    /// position, and it is wrong in both directions whenever refused or held
+    /// lines sit at the END of what the root had read:
+    ///
+    /// - **A promotion becomes a pardon.** Sam is a reviewer and the tail of
+    ///   her file ends in manuscript text this Mac refused. The root promotes
+    ///   her. The last APPLIED line is before that text, so the text judges
+    ///   NEW — under her new author permit — and is applied. Spec §5 forbids
+    ///   exactly that.
+    /// - **A demotion reaches back.** A segment holding a thousand honestly
+    ///   applied lines and one refused line is not *wholly applied*, so it
+    ///   would go unlisted, so all thousand judge NEW — under the demoted
+    ///   permit — and are refused retroactively.
+    ///
+    /// So the position is the last line the root **saw and judged**: the last
+    /// line the chain verified, whatever the partition then did with it —
+    /// applied, refused by the permit, or held. Lines the root refused under
+    /// the old permit stay under the old permit and stay refused; lines it
+    /// applied stay applied. Nothing is blessed either way, because the
+    /// refusal is re-derived from the permit rather than read off the mark.
+    ///
+    /// **Two things are not *seen*.** A torn tail line is a write that stopped
+    /// mid-line — bytes nobody finished, let alone judged. And everything a
+    /// broken chain quarantined: the root never trusted those bytes, so it
+    /// never formed an opinion about what they said.
+    ///
+    /// A SEGMENT the reader took in whole is listed by digest **whether or not
+    /// any of its lines were refused**, for the same reason: the digest says
+    /// *the root read this whole file*, not *the root applied all of it*.
+    nonisolated public static func seenPositions(
+        ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
+        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:]
+    ) throws -> PermitMark {
+        try positions(
+            ofDeviceIds: ids, in: projectURL, trust: trust,
+            expecting: expecting, lastLine: wasSeen)
+    }
+
+    /// Did the reader see and JUDGE this line? — `seenPositions`' predicate,
+    /// and the one place the two exclusions are spelled.
+    nonisolated static func wasSeen(_ line: OpLogChain.Line) -> Bool {
+        if line.state == .tornTail { return false }
+        if case .chainBroke = line.refusal { return false }
+        return true
+    }
+
+    /// **The walk both position sweeps share.** They differ in one thing and
+    /// it is the `lastLine` predicate: what counts as the last line of a tail.
+    /// Everything else — the listing, the classification, the segment rule,
+    /// the read-only guarantee, the throw — is one implementation, because two
+    /// copies of it would be two answers to *which files are this device's*.
+    ///
+    /// **Three families of stream, not one** (P3a Task 6). A mark names a
+    /// person's `<docId>.<slug>` op streams, their `translation:…` sidecars and
+    /// their `inbox:<slug>` manifests, because those last two answer to the
+    /// same permit and `PermitMark.judge` asks the mark by stream key: a stream
+    /// the mark does not name is judged wholly NEW, so leaving the translation
+    /// and inbox families out would make every demotion reach back through
+    /// every translation and every capture the subject had ever written. The
+    /// families share the predicate and the read-only guarantee; they differ in
+    /// how a file is walked, which is what `verificationForPositions` holds.
+    ///
+    /// **A short answer is a refusal, never a shorter mark** (fix round 1, I2).
+    /// A stream the mark does not name is judged wholly NEW, so every way of
+    /// failing to SEE a stream is a way of drawing the line at the beginning
+    /// of it — which for a revocation sets aside words this Mac had applied
+    /// and for a demotion reaches back through the whole file. So: a directory
+    /// that exists and will not list throws (`listing(of:naming:)` tells that
+    /// from a directory that is simply not there), a file that is present and
+    /// will not read throws (`readCoordinated`, RULING-54), and every verb
+    /// that marks turns either into its own *nothing was changed* refusal.
+    ///
+    /// **`expecting` is the third way, and it is a caller's to supply.**
+    /// A file that is simply ABSENT — evicted by iCloud, halfway through a
+    /// sync — looks exactly like a stream that never existed, and nothing in
+    /// this function can tell them apart. A caller that REMEMBERS what it has
+    /// applied from each stream says so here and gets
+    /// `ReadError.streamMissingFromSweep` naming the first one short.
+    ///
+    /// **It is the MEMORY and not a set of names** (final fix wave, W2).
+    /// Checking that the name came back caught a stream that had vanished and
+    /// nothing else, which left the case the shipped UI can walk into: Sam's
+    /// Mac rotates, and the tail DELETION reaches the root's disk before the
+    /// new segment does. The key is there, the mark names the stream, nothing
+    /// refuses — and the mark's position is short. The root presses Revoke
+    /// (*keep what was applied*); the late segment arrives; every line in it is
+    /// unlisted and unmarked, so every line judges NEW, so the revocation sets
+    /// aside words this Mac had already applied. The mark is a signed shared
+    /// event, so every device inherits the cut.
+    ///
+    /// So the guard asks `ForeignStreamWatch.loss` — the load's own predicate,
+    /// rotation tolerance and all, called rather than restated — of what this
+    /// sweep actually read. A stream that legitimately GREW (a new segment and
+    /// a new tail) is not refused; a stream this device never remembered is not
+    /// expected at all.
+    private nonisolated static func positions(
+        ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
+        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:],
+        lastLine: (OpLogChain.Line) -> Bool
+    ) throws -> PermitMark {
+        guard !ids.isEmpty else { return .nothingApplied }
+        // A device's files are named for its SLUG, and `DeviceSlug.make` is
+        // deterministic, so which files are the subject's is decided here
+        // rather than by reading ops out of them — a file whose every line is
+        // held back still has a position, and a legacy shared file has none.
+        let slugs = Set(ids.map { DeviceSlug.make(from: $0).raw })
+        let opsDir = projectURL.appendingPathComponent(".maugham/ops")
+        // **Listed ONCE** (fix round 2, minor D). This used to call
+        // `verifyOpsDirectoryListable` and then list the folder again for the
+        // names, which is two directory reads per sweep for one question — and
+        // the sentence that came with the first is about a LOAD starting a
+        // second parallel history, which is not what a mark sweep is doing.
+        // `listing` answers both halves: empty where the folder is not there,
+        // a throw where it is there and will not read.
+        let filenames = try listing(of: opsDir, naming: ".maugham/ops")
+        try refuseAnyPlaceholder(
+            among: filenames, in: opsDir, forSlugs: slugs, kind: .history)
+        var docIds = docIds(inOpsDirectoryFilenames: filenames)
+        // Named, because the manuscript reader excludes it by contract — the
+        // same reason the project-open sweep names it when it rotates tails.
+        docIds.insert("__project__")
+
+        let statements = manifestStatements(in: projectURL)
+        var segments: [String: Set<String>] = [:]
+        var lastKnownLine: [String: String] = [:]
+        // What this sweep FOUND, per stream, in the shape the load's own
+        // predicate takes (final fix wave, W2). Gathered only for the streams
+        // a caller remembers, because that is the only question it answers.
+        var found: [String: ForeignStreamWatch.Found] = [:]
+        func note(
+            _ key: String, _ change: (inout ForeignStreamWatch.Found) -> Void
+        ) {
+            guard expecting[key] != nil else { return }
+            var entry = found[key] ?? .init()
+            change(&entry)
+            found[key] = entry
+        }
+        for docId in docIds.sorted() {
+            let permit = permitContext(
+                forDocId: docId, in: projectURL, trust: trust,
+                statements: statements)
+            for url in opLogFileURLs(forDocId: docId, in: projectURL) {
+                guard let stream = PermitMark.stream(of: url),
+                      let slug = stream.deviceSlug, slugs.contains(slug)
+                else { continue }
+                guard let bytes = try readCoordinated(url: url, presenter: nil)
+                else { continue }
+                let classified = classify(
+                    url: url, bytes: bytes, state: nil, trust: trust,
+                    permit: permit)
+                if url.pathExtension == OpLogSegment.fileExtension {
+                    // **The one answer to *did this reader take the segment in
+                    // whole*** (Task 9's fix round 1). It used to be computed
+                    // here, by a SECOND decode of a container `classify` had
+                    // already decoded; it is now the classification's own
+                    // `wholeSegmentDigest`, which is also what the foreign
+                    // stream memory records — and two spellings of it would be
+                    // a stream that memory expects and this mark can never
+                    // name, which is a root's verb refusing for ever.
+                    if let digest = classified.wholeSegmentDigest {
+                        segments[stream.key, default: []].insert(digest)
+                        note(stream.key) {
+                            $0.digests.insert(digest)
+                            $0.answered = true
+                        }
+                    } else {
+                        note(stream.key) { $0.sawUnsettledSegment = true }
+                    }
+                    continue
+                }
+                guard let verification = classified.verification else { continue }
+                note(stream.key) { entry in
+                    if verification.head != nil { entry.answered = true }
+                    if let head = expecting[stream.key]?.head,
+                       ForeignStreamWatch.holds(head, verification) {
+                        entry.holdsRemembered = true
+                    }
+                }
+                guard let last = verification.lines.last(where: lastLine)
+                else { continue }
+                lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
+            }
+        }
+
+        // The other two families. Neither rotates — `sealTailIfNeeded` is the
+        // op log's alone — so there is no segment rule here and no digest to
+        // record, only the last line the reader got to in each file.
+        for url in try otherStreamFileURLs(in: projectURL, forSlugs: slugs) {
+            guard let stream = PermitMark.stream(of: url),
+                  let slug = stream.deviceSlug, slugs.contains(slug),
+                  let bytes = try readCoordinated(url: url, presenter: nil)
+            else { continue }
+            let verification = verificationForPositions(
+                at: url, bytes: bytes, stream: stream, trust: trust)
+            note(stream.key) { entry in
+                if verification.head != nil { entry.answered = true }
+                if let head = expecting[stream.key]?.head,
+                   ForeignStreamWatch.holds(head, verification) {
+                    entry.holdsRemembered = true
+                }
+            }
+            guard let last = verification.lines.last(where: lastLine) else { continue }
+            lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
+        }
+
+        var marks: [String: PermitMark.StreamMark] = [:]
+        for key in Set(segments.keys).union(lastKnownLine.keys) {
+            // Sorted, because `opLogFileURLs` is UNSORTED and a mark two
+            // devices compare byte for byte must not depend on what
+            // `contentsOfDirectory` felt like saying.
+            marks[key] = .init(
+                segments: segments[key].map { $0.sorted() } ?? [],
+                line: lastKnownLine[key])
+        }
+        // Sorted, so a sweep short of two streams refuses over the same one
+        // twice running and the writer is not chasing a different name each
+        // time they press.
+        //
+        // A stream whose NAME never came back answers `Found()` — nothing
+        // found, nothing answered — which `loss` reads as the remembered head
+        // being gone, so the two conditions the ruling names are one call.
+        for key in expecting.keys.sorted() {
+            let seen = found[key] ?? .init()
+            guard seen.answered,
+                  ForeignStreamWatch.loss(
+                    remembered: expecting[key], found: seen) == nil
+            else { throw ReadError.streamMissingFromSweep(streamKey: key) }
+        }
+        return PermitMark(marks)
+    }
+
+    /// Every translation sidecar and inbox manifest in this project, in a
+    /// stable order (P3a Task 6). Whose they are is decided by the caller off
+    /// `PermitMark.stream(of:)`'s slug, exactly as it is for the op streams.
+    ///
+    /// A directory that is NOT THERE answers empty — a book with no
+    /// translations has no such folder and there is nothing to mark. A
+    /// directory that exists and **will not list** throws (fix round 1, I2):
+    /// the two used to be one `try?`, and the second of them produced a mark
+    /// that silently omitted every stream in the folder, which is a mark that
+    /// judges every line of them NEW.
+    private nonisolated static func otherStreamFileURLs(
+        in projectURL: URL, forSlugs slugs: Set<String>
+    ) throws -> [URL] {
+        var out: [URL] = []
+        for (directory, name, kind) in [
+            (TranslationStore.directoryURL(in: projectURL),
+             ".maugham/translations", ReadError.FileKind.translation),
+            (projectURL.appendingPathComponent(".maugham/inbox"),
+             ".maugham/inbox", ReadError.FileKind.history),
+        ] {
+            let names = try listing(of: directory, naming: name)
+            try refuseAnyPlaceholder(
+                among: names, in: directory, forSlugs: slugs, kind: kind)
+            out.append(contentsOf: names.sorted()
+                .filter { $0.hasSuffix(".jsonl") }
+                .map { directory.appendingPathComponent($0) })
+        }
+        return out
+    }
+
+    /// **The real name an old-style iCloud placeholder stands in for**, or nil
+    /// where the name is not one (P3a Task 7, fix round 2, minor B).
+    ///
+    /// macOS evicts a file's contents and leaves `.<name>.icloud` beside it —
+    /// dot-prefixed, `.icloud`-suffixed, and named for nothing this app's own
+    /// filename rules recognise. The sweep's suffix filters
+    /// (`hasSuffix(".jsonl")`, `docIds(inOpsDirectoryFilenames:)`) therefore
+    /// drop it, and a dropped stream is an ABSENT stream, which a mark does
+    /// not name, which judges every line of it NEW. It is I2's hole with no
+    /// unreadable folder needed — an evicted chapter is enough.
+    ///
+    /// A dataless file under its REAL name is already caught, by
+    /// `readCoordinated` throwing when the bytes will not come; this is the
+    /// shape that has no real name to throw over.
+    nonisolated static func nameBehindICloudPlaceholder(_ filename: String) -> String? {
+        let placeholder = ".icloud"
+        guard filename.hasPrefix("."), filename.hasSuffix(placeholder) else { return nil }
+        let real = filename.dropFirst().dropLast(placeholder.count)
+        return real.isEmpty ? nil : String(real)
+    }
+
+    /// **A placeholder standing in for one of these devices' streams is
+    /// present-but-unreadable**, and refuses the sweep by the real file's name.
+    ///
+    /// It is the same ruling as an unreadable file and the same refusal
+    /// (RULING-54: present and unreadable is never silently skipped). The
+    /// writer's next move is the same too — wait for iCloud, or open the
+    /// document to pull it down.
+    ///
+    /// **This is the SWEEP's rule and nothing else's.** What a LOAD does with
+    /// a placeholder is `RecoveryCause`'s and is untouched: a load can offer to
+    /// wait and download, where a sweep has only the choice between refusing
+    /// and signing a boundary over a reading it knows is short.
+    ///
+    /// Sorted, so a folder holding two refuses over the same name twice
+    /// running and the writer is not chasing a different file each press.
+    private nonisolated static func refuseAnyPlaceholder(
+        among names: [String], in directory: URL,
+        forSlugs slugs: Set<String>, kind: ReadError.FileKind
+    ) throws {
+        for name in names.sorted() {
+            guard let real = nameBehindICloudPlaceholder(name),
+                  let stream = PermitMark.stream(of: directory.appendingPathComponent(real)),
+                  let slug = stream.deviceSlug, slugs.contains(slug)
+            else { continue }
+            throw ReadError.unreadableFile(
+                name: real,
+                underlying: "it hasn’t been downloaded from iCloud yet",
+                kind: kind)
+        }
+    }
+
+    /// One translation sidecar or inbox manifest, walked exactly as its own
+    /// READER walks it — verify, resolve the absent head, then the permit.
+    ///
+    /// The same three steps `TranslationStore.loadMerged` and
+    /// `JSONLAppendStore.loadVerifiedStrict` take, with ONE difference and it
+    /// is deliberate: the remembered head is not consulted (`rememberedHead:
+    /// nil`). A mark has to be computable from the shared bytes alone — that is
+    /// the whole of spec §3.3, and the reason a mark is not an opId — so a
+    /// position that moved with what THIS device happened to remember would
+    /// make two Macs cut the same file in two places. `state: nil` throughout
+    /// for the same reason and one more: this remembers nothing and writes
+    /// nothing.
+    private nonisolated static func verificationForPositions(
+        at url: URL, bytes: Data, stream: PermitMark.Stream, trust: TrustTable?
+    ) -> OpLogChain.Verification {
+        let walked = trust.map { table in
+            OpLogChain.verify(
+                bytes: bytes, trust: { table.verdict(forSealKey: $0) },
+                rememberedHead: nil,
+                // Arm 2 here too, so both sweeps judge a file the way the LOAD
+                // judges it. **It moves `appliedPositions` and not
+                // `seenPositions`**: a held or verdict-refused line was seen
+                // and judged — `wasSeen` excludes only a torn tail and what a
+                // broken chain quarantined — so a mark recording where the
+                // root had READ TO is unchanged, while one recording what it
+                // APPLIED correctly stops counting a span this device holds.
+                // The lookup is over the shared REGISTER, so it moves with the
+                // bytes and not with what this Mac happens to remember, which
+                // is the whole of spec §3.3 and the reason the remembered head
+                // is skipped just above.
+                keyOfAnUnsealedFile: { PermitMark.keyNaming(url, in: table) })
+        } ?? OpLogChain.verify(
+            bytes: bytes, trusted: { _ in false }, rememberedHead: nil)
+        let (resolved, _) = OpLogChain.resolveAbsentHead(
+            walked, rememberedHead: nil, previousHead: nil)
+        guard let trust else { return resolved }
+        let judge: PermitJudge
+        switch stream.kind {
+        case .translation: judge = .translation(ofPiece: stream.docId, trust: trust)
+        case .inbox: judge = .inbox(trust: trust)
+        case .ops: return resolved
+        }
+        return PermitPartition.partition(of: resolved, file: url, judging: judge)
+    }
+
+    /// **A foreign stream this device has found shorter than it remembered
+    /// it**, with the device named the way every other finding names one
+    /// (P3a Task 9, spec §4.7).
+    public struct TruncatedStream: Equatable, Sendable {
+        public let truncation: OpLogDeviceState.StreamTruncation
+        /// The writer's word for whose stream it was: the label the root gave
+        /// them, else their four-character code, else — with no table to ask —
+        /// the slug their files are named for.
+        public let label: String
+
+        public var streamKey: String { truncation.streamKey }
+        public var deviceSlug: String { truncation.deviceSlug }
+        public var noticedAt: Date { truncation.noticedAt }
+
+        /// **What went missing, in the writer's words** — and the two losses
+        /// are different enough to say apart (fix round 1, minor 1).
+        ///
+        /// A LINE loss is the live tail having been cut back; a SEGMENT loss
+        /// is a whole sealed span of history that is not in the folder any
+        /// more. Neither takes a word out of the draft — what was applied
+        /// stays applied — so both sentences end the same way, pointing at the
+        /// one place a writer can get the lost history back from.
+        public var sentence: String {
+            let what = truncation.loss == .segment
+                ? "part of \(label)’s sealed history is missing from this book"
+                : "\(label)’s history here is shorter than it was"
+            return "\(what.prefix(1).uppercased())\(what.dropFirst()). "
+                + "Nothing has left the draft — every word Maugham had already "
+                + "applied is still in it — but what is gone is gone from the "
+                + "folder. A backup is where it can be got back from."
+        }
+
+        public init(truncation: OpLogDeviceState.StreamTruncation, label: String) {
+            self.truncation = truncation
+            self.label = label
+        }
+    }
+
+    /// **What this device has noticed going missing from other devices'
+    /// streams**, oldest first — P3b's History entry and the integrity
+    /// report's own finding, read from one place.
+    ///
+    /// It reads a memory and touches no file of the project: the finding was
+    /// recorded at the load that met it, because a load is the only reader
+    /// that ever held both the remembered line and the bytes that no longer
+    /// carry it.
+    ///
+    /// `trust` is optional for the reason the keyless readers exist: a caller
+    /// that already holds a verified table names the device, and one that
+    /// holds none — `ProjectIntegrity.check` — still names the stream, which is
+    /// the fact the writer acts on.
+    nonisolated public static func truncatedStreams(
+        in projectURL: URL, state: OpLogDeviceState, trust: TrustTable? = nil
+    ) -> [TruncatedStream] {
+        state.truncations(inRoot: projectURL).map { truncation in
+            TruncatedStream(
+                truncation: truncation,
+                label: trust?.label(forDeviceSlug: truncation.deviceSlug)
+                    ?? truncation.deviceSlug)
+        }
+    }
+
     /// The file a `ReadError` names, for a caller that reports unreadable
     /// files by name and has caught something that might not be one.
     nonisolated public static func unreadableName(_ error: Error) -> String {
         if case let ReadError.unreadableFile(name, _, _) = error { return name }
+        // A DIRECTORY that would not list, and a stream that was there before
+        // and is not now, are both things a verb refuses over (P3a Task 7's
+        // fix round 1) — and the writer's next move turns on which file it
+        // was, so each names itself rather than falling through to the
+        // registry.
+        if case let ReadError.unlistableStreamDirectory(name, _) = error { return name }
+        if case ReadError.unlistableOpsDirectory = error { return ".maugham/ops" }
+        if case let ReadError.streamMissingFromSweep(streamKey) = error { return streamKey }
         return "the project's registry"
+    }
+
+    /// **Every name in a directory — or nothing, where the directory is not
+    /// there** (P3a Task 7, fix round 1).
+    ///
+    /// The distinction is the whole of it. A book with no translations has no
+    /// `.maugham/translations`, and that is not a failure: there is nothing to
+    /// mark. A directory that EXISTS and will not list is a short answer
+    /// wearing the same clothes, and `(try? …) ?? []` cannot tell them apart —
+    /// which is how a mark came to omit a stream and, by omitting it, judge
+    /// every line of it NEW.
+    ///
+    /// The existence check runs AFTER the failure rather than before it, so an
+    /// ordinary listing costs one syscall and the discriminator is paid only
+    /// where something has already gone wrong.
+    private nonisolated static func listing(
+        of directory: URL, naming name: String
+    ) throws -> [String] {
+        do { return try FileManager.default.contentsOfDirectory(atPath: directory.path) }
+        catch {
+            guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
+            throw ReadError.unlistableStreamDirectory(
+                name: name, underlying: error.localizedDescription)
+        }
     }
 
     /// The project root a `.maugham/ops/<file>` URL sits under.
@@ -605,15 +1334,81 @@ public final class OpLogStore {
         /// Non-nil when a segment's signature settled it for the first time and
         /// the digest is worth remembering.
         let verifiedSegmentDigest: String?
+        /// **The digest of a segment this reader took in WHOLE** — P3a Task
+        /// 9's fix round 1, and the ONE answer to that question.
+        ///
+        /// Whole means every line of it reached a verdict, not that every line
+        /// was applied: a mark's `segments` list says *the root read this whole
+        /// file*, and a later reader uses it to decide which PERMIT judges the
+        /// lines inside, never to decide that they were allowed.
+        ///
+        /// Two ways in. A container that SETTLED was taken in whole by
+        /// definition — that is the claim a segment signature makes, and it is
+        /// the same claim this device's memory of the digest makes one load
+        /// later. One that did not settle is walked instead, and counts only
+        /// if the walk reached the END of it: a chain that broke inside means
+        /// the reader never trusted the bytes after the break, so it did not
+        /// read the file whole and must not say it did. A container that did
+        /// not verify is nil, because the digest a file CARRIES is the digest
+        /// a tamperer leaves alone.
+        ///
+        /// It lives here rather than beside each caller because there are two
+        /// of them — the mark sweep and the foreign-stream memory — and a
+        /// disagreement between them is a stream the memory expects and the
+        /// mark can never name, which is a root's verb refusing for ever.
+        let wholeSegmentDigest: String?
     }
 
+    /// `permit` is the P3a partition's two document-level answers (spec §4.1,
+    /// §4.5). **Nil is the explicit *do not judge*** — the keyless readers,
+    /// which pass no table either, and `unownedPiece`'s own second pass, which
+    /// is what stops it recursing.
     nonisolated static func classify(
         url: URL, bytes: Data,
-        state: OpLogDeviceState?, trust: TrustTable? = nil
+        state: OpLogDeviceState?, trust: TrustTable? = nil,
+        permit: PermitContext? = nil
     ) -> FileClassification {
         url.pathExtension == OpLogSegment.fileExtension
-            ? classifySegment(url: url, container: bytes, state: state, trust: trust)
-            : classifyTail(url: url, bytes: bytes, state: state, trust: trust)
+            ? classifySegment(
+                url: url, container: bytes, state: state,
+                trust: trust, permit: permit)
+            : classifyTail(
+                url: url, bytes: bytes, state: state,
+                trust: trust, permit: permit)
+    }
+
+    /// **The permit partition, in the one place both classify paths reach it**
+    /// (P3a Task 5, spec §4.3) — `readmittingWhatWasAlreadyApplied`'s sibling,
+    /// and run immediately after it.
+    ///
+    /// The order is verify → revocation split → permit partition → parse, and
+    /// every step of it has to be before the parse: a line this refuses must
+    /// never reach the element decoder, and a line it holds must never reach
+    /// the document.
+    ///
+    /// The two are never folded. A revocation is a verdict about a whole KEY,
+    /// cut on a mark the root recorded; a permit is about one LINE, judged
+    /// against the history its signer had when the line was written. Running
+    /// this second means it judges what the revocation left applied, which is
+    /// the only order in which both answers survive.
+    ///
+    /// With no table or no context there is nothing to ask, so a keyless
+    /// reader is unchanged — P1's behaviour exactly.
+    private nonisolated static func partitioningByPermit(
+        _ verification: OpLogChain.Verification,
+        url: URL, trust: TrustTable?, permit: PermitContext?,
+        fileSegmentDigest: String? = nil, settledByKey: String? = nil
+    ) -> OpLogChain.Verification {
+        guard let trust, let permit else { return verification }
+        // **The class travels as the CLOSURE it is** (fix round 1, I1), inside
+        // the `PermitJudge`. Calling it here would make it an argument,
+        // evaluated before the partition's own first guard — a manifest read
+        // and decode for every op-log file of every book, including a
+        // registerless one that then judges nothing.
+        return PermitPartition.partition(
+            of: verification, file: url,
+            judging: PermitJudge(trust: trust, context: permit),
+            fileSegmentDigest: fileSegmentDigest, settledByKey: settledByKey)
     }
 
     /// A live `.jsonl` tail: verified against this device's remembered head,
@@ -625,7 +1420,8 @@ public final class OpLogStore {
     /// no table and silently judge nobody where P1 judged its own.
     private nonisolated static func classifyTail(
         url: URL, bytes: Data,
-        state: OpLogDeviceState?, trust: TrustTable?
+        state: OpLogDeviceState?, trust: TrustTable?,
+        permit: PermitContext? = nil
     ) -> FileClassification {
         let fileKey = OpLogDeviceState.fileKey(url)
         // The table answers `.mine` for EVERY actor on this device — the
@@ -643,7 +1439,13 @@ public final class OpLogStore {
             OpLogChain.verify(
                 bytes: bytes,
                 trust: { table.verdict(forSealKey: $0) },
-                rememberedHead: state?.head(for: fileKey))
+                rememberedHead: state?.head(for: fileKey),
+                // **Arm 2 of *the file's key*** (Task 11). A file with no
+                // usable seal still has a name, and the name's slug is the one
+                // thing about it this device can match against a signed
+                // record. Lazy: `verify` asks only when something is unsealed
+                // and no seal in the file named it first.
+                keyOfAnUnsealedFile: { PermitMark.keyNaming(url, in: table) })
         } ?? OpLogChain.verify(
             bytes: bytes,
             trusted: { _ in false },
@@ -666,7 +1468,12 @@ public final class OpLogStore {
         // both are in hand, and it has to happen before `applied` builds the
         // bytes the parser sees, or a line the revocation keeps never reaches
         // the document.
-        let settled = readmittingWhatWasAlreadyApplied(verification, trust: trust)
+        let readmitted = readmittingWhatWasAlreadyApplied(
+            verification, url: url, trust: trust)
+        // **Then the permit, line by line** (P3a Task 5). It judges what the
+        // revocation left applied; see `partitioningByPermit`.
+        let settled = partitioningByPermit(
+            readmitted, url: url, trust: trust, permit: permit)
 
         let parsed = JSONLAppendStore<Op>.parse(
             bytes: JSONLAppendStore<Op>.applied(settled, whole: bytes),
@@ -677,10 +1484,12 @@ public final class OpLogStore {
             diagnostics: parsed.diagnostics,
             provenance: provenance(
                 name: url.lastPathComponent, lines: settled.lines,
-                isSealedSegment: false, segmentVerified: nil),
+                isSealedSegment: false, segmentVerified: nil, trust: trust),
             verification: settled,
             adoptedHead: adopted,
-            verifiedSegmentDigest: nil)
+            verifiedSegmentDigest: nil,
+            // A live tail is not a segment and carries no digest at all.
+            wholeSegmentDigest: nil)
     }
 
     /// **What a revocation keeps** — `RevocationSplit`'s answer applied to a
@@ -695,13 +1504,42 @@ public final class OpLogStore {
     /// With no table there is no mark and nothing to ask, so a keyless reader
     /// is unchanged: it holds no key, judges nobody, and never meets
     /// `.afterRevocation` at all.
+    ///
+    /// **Two forms of the same line** (P3a Task 7). Where the register holds a
+    /// revocation EVENT for that person, the cut is by chain POSITION —
+    /// tamper-proof, because an opId carries a timestamp its own writer chose
+    /// and a device shut out could stamp new text with an old one. Where it
+    /// does not — every revocation on disk before P3 — the opId path is
+    /// untouched, which is what keeps the P2 suite passing without an edit.
+    ///
+    /// The judgement is computed **once per person** and only for a person
+    /// whose revocation carries a map, so a book with no events hashes nothing
+    /// here and a book with one hashes a file's lines once, not once per line.
     private nonisolated static func readmittingWhatWasAlreadyApplied(
-        _ verification: OpLogChain.Verification, trust: TrustTable?
+        _ verification: OpLogChain.Verification,
+        url: URL, trust: TrustTable?, fileSegmentDigest: String? = nil
     ) -> OpLogChain.Verification {
-        guard let trust, let split = RevocationSplit.partition(
-            of: verification,
-            highestOpIdSeen: { trust.highestOpIdSeen(forPerson: $0) })
-        else { return verification }
+        // **The quarantine short-circuit, restated here as a COST guard** (fix
+        // round 1, minor 4). `RevocationSplit.partition` makes the same check
+        // first, but it makes it after this function has already parsed the
+        // file's name into a stream key — on every file of every load, for a
+        // question that only arises where something was refused.
+        guard let trust, !verification.quarantined.isEmpty else { return verification }
+        let streamKey = PermitMark.stream(of: url)?.key
+        var judged: [String: PermitMark.Judgement] = [:]
+        let split = RevocationSplit.partition(of: verification) { person in
+            if let streamKey, let mark = trust.revocationMark(forPerson: person) {
+                if let already = judged[person] { return .byPosition(already) }
+                let judgement = mark.judge(
+                    streamKey: streamKey,
+                    fileIsSegmentWithDigest: fileSegmentDigest,
+                    lines: verification.lines.map(\.bytes))
+                judged[person] = judgement
+                return .byPosition(judgement)
+            }
+            return trust.highestOpIdSeen(forPerson: person).map(RevocationSplit.Cut.byOpId)
+        }
+        guard let split else { return verification }
         return OpLogChain.readmitting(verification, lines: split.readmitted)
     }
 
@@ -716,7 +1554,8 @@ public final class OpLogStore {
     /// this signature ours, and is this key trusted — are both the table's now.
     private nonisolated static func classifySegment(
         url: URL, container: Data,
-        state: OpLogDeviceState?, trust: TrustTable?
+        state: OpLogDeviceState?, trust: TrustTable?,
+        permit: PermitContext? = nil
     ) -> FileClassification {
         let decoded = OpLogSegment.decodeVerifying(container)
         var skipped: [ParseDiagnostics.SkippedLine] = []
@@ -732,7 +1571,10 @@ public final class OpLogStore {
                     name: url.lastPathComponent,
                     isSealedSegment: true, segmentVerified: false),
                 verification: nil,
-                adoptedHead: nil, verifiedSegmentDigest: nil)
+                adoptedHead: nil, verifiedSegmentDigest: nil,
+                // The container did not decode, so there is no digest to
+                // believe and nothing to say this file was read whole.
+                wholeSegmentDigest: nil)
         }
 
         // Only a container that verified may be keyed on: the digest a file
@@ -761,6 +1603,33 @@ public final class OpLogStore {
             }
         }
 
+        // **What the partition would judge this settled segment by** — built
+        // once, and only where a partition is actually due (fix round 1, I4).
+        // A container whose signature settled it is never walked, so the lines
+        // have to be constructed and the signing key read back off the `.sig`
+        // beside it; `settledSegmentVerification` does both or answers nil.
+        // **And only where the partition could refuse something in a file
+        // named like this one** (fix round 3, minor 1). The gate used to be
+        // *a permit context exists*, which is every load: a no-events book's
+        // author segment whose `.sig` had gone missing was walked for nothing,
+        // and a walk can reach answers the fast path never would.
+        let mayJudge = permit != nil && trust.map {
+            PermitPartition.couldJudge(
+                aFileNamedBy: PermitMark.stream(of: url)?.deviceSlug, trust: $0)
+        } ?? false
+        let attributable = (settled && mayJudge)
+            ? settledSegmentVerification(at: url, bytes: container) : nil
+        // **A digest this device remembers, with the `.sig` beside it since
+        // DELETED, does not get the fast path.** It used to fall through and
+        // apply the whole segment unjudged: demote Sam with a mark inside her
+        // rotated segment, let this Mac load once so the digest is remembered,
+        // then delete her `.mzseg.sig` in the shared folder, and her post-mark
+        // manuscript text comes back. Walking instead costs a walk — for a
+        // file whose signature has gone missing — and the walk's own inner
+        // seals attribute every span correctly, which is the answer that needs
+        // no memory at all.
+        if settled, mayJudge, attributable == nil { settled = false }
+
         let parsedAll = JSONLAppendStore<Op>.parse(
             bytes: jsonl, dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
         if settled {
@@ -768,6 +1637,46 @@ public final class OpLogStore {
             // itself verified (otherwise the container record covers it) — and
             // a settled segment always verified.
             skipped.append(contentsOf: parsedAll.diagnostics.skipped)
+            // **A settled segment is partitioned too** (P3a Task 5). The
+            // container's signature settles the whole file at once, so there
+            // are no inner seals to read a verdict off and the key that signed
+            // it is the key every line is under. Skipping this would let a
+            // demoted device escape the partition by ROTATING — maintenance a
+            // device performs on itself, silently pardoning it, which is P2b
+            // Task 10's asymmetry one rule along.
+            //
+            // The lines are built (and the bytes split) only where a permit
+            // context was supplied; the neutral fast path is untouched, and
+            // `AREA.md`'s performance note 2 still holds for it.
+            //
+            // The signing key comes from `settledSegmentVerification`'s own
+            // read of the sidecar rather than from the branch above, because
+            // this file may have settled from MEMORY
+            // (`isVerified(segmentDigest:)`) on a second load, and a remembered
+            // digest carries no key.
+            //
+            // Where that read cannot be made, `settled` was cleared above and
+            // this branch is not reached at all (fix round 1, I4).
+            if let trust, permit != nil, let digest, let built = attributable {
+                let partitioned = partitioningByPermit(
+                    built.verification, url: url, trust: trust, permit: permit,
+                    fileSegmentDigest: digest, settledByKey: built.key)
+                if partitioned != built.verification {
+                    let read = JSONLAppendStore<Op>.parse(
+                        bytes: JSONLAppendStore<Op>.applied(partitioned, whole: jsonl),
+                        dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
+                    return FileClassification(
+                        ops: read.elements,
+                        diagnostics: ParseDiagnostics(skipped: skipped),
+                        provenance: provenance(
+                            name: url.lastPathComponent, lines: partitioned.lines,
+                            isSealedSegment: true, segmentVerified: true,
+                            trust: trust),
+                        verification: partitioned,
+                        adoptedHead: nil, verifiedSegmentDigest: toRemember,
+                        wholeSegmentDigest: digest)
+                }
+            }
             let lines = nonEmptyLineCount(jsonl)
             return FileClassification(
                 ops: parsedAll.elements,
@@ -776,7 +1685,12 @@ public final class OpLogStore {
                     name: url.lastPathComponent, verified: lines,
                     isSealedSegment: true, segmentVerified: true),
                 verification: nil,
-                adoptedHead: nil, verifiedSegmentDigest: toRemember)
+                adoptedHead: nil, verifiedSegmentDigest: toRemember,
+                // A segment that settled was taken in whole by definition —
+                // whether by its own signature or by this device's memory of
+                // its digest, which is the SAME claim one load later. Under
+                // the mark sweep, which passes no state, the two coincide.
+                wholeSegmentDigest: digest)
         }
 
         // **The fallback walk judges by the TABLE too** (P2b Task 10).
@@ -801,10 +1715,19 @@ public final class OpLogStore {
         let walked = trust.map { table in
             OpLogChain.verify(
                 bytes: jsonl, trust: { table.verdict(forSealKey: $0) },
-                rememberedHead: nil)
+                rememberedHead: nil,
+                // A segment that did not settle is walked exactly as a tail is,
+                // arm 2 included: rotation is maintenance a device performs on
+                // itself and must pardon nothing (P2b Task 10's rule, one rule
+                // along).
+                keyOfAnUnsealedFile: { PermitMark.keyNaming(url, in: table) })
         } ?? OpLogChain.verify(
             bytes: jsonl, trusted: { _ in false }, rememberedHead: nil)
-        let verification = readmittingWhatWasAlreadyApplied(walked, trust: trust)
+        let readmitted = readmittingWhatWasAlreadyApplied(
+            walked, url: url, trust: trust, fileSegmentDigest: digest)
+        let verification = partitioningByPermit(
+            readmitted, url: url, trust: trust, permit: permit,
+            fileSegmentDigest: digest)
         let read = JSONLAppendStore<Op>.parse(
             bytes: JSONLAppendStore<Op>.applied(verification, whole: jsonl),
             dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
@@ -816,9 +1739,16 @@ public final class OpLogStore {
             diagnostics: ParseDiagnostics(skipped: skipped),
             provenance: provenance(
                 name: url.lastPathComponent, lines: verification.lines,
-                isSealedSegment: true, segmentVerified: false),
+                isSealedSegment: true, segmentVerified: false, trust: trust),
             verification: verification,
-            adoptedHead: nil, verifiedSegmentDigest: nil)
+            adoptedHead: nil, verifiedSegmentDigest: nil,
+            // Walked rather than settled, so it counts only where the walk
+            // reached the END: a chain that broke inside means this reader
+            // never trusted the bytes after the break.
+            wholeSegmentDigest: digest.flatMap {
+                !verification.lines.isEmpty && verification.lines.allSatisfy(wasSeen)
+                    ? $0 : nil
+            })
     }
 
     /// How many non-blank lines these bytes hold — counted, never SPLIT.
@@ -847,7 +1777,8 @@ public final class OpLogStore {
     /// on `OpLogChain.Line` is a compile error here rather than a silent zero.
     private nonisolated static func provenance(
         name: String, lines: [OpLogChain.Line],
-        isSealedSegment: Bool, segmentVerified: Bool?
+        isSealedSegment: Bool, segmentVerified: Bool?,
+        trust: TrustTable? = nil
     ) -> FileProvenance {
         var legacy = 0, verified = 0, unsealed = 0, unsignedHistory = 0, quarantined = 0
         var pending = 0
@@ -876,6 +1807,14 @@ public final class OpLogStore {
             name: name, legacy: legacy, verified: verified, unsealed: unsealed,
             unsignedHistory: unsignedHistory, quarantined: quarantined,
             pending: pending, pendingByDevice: pendingByDevice,
+            // **Which of them the writer can be asked to ADMIT** (Task 5's D5).
+            // The permit partition holds a line it cannot judge under the same
+            // `.pending` state a stranger's seal does, and only the table can
+            // tell the two apart. With no table nothing is pending at all, so
+            // the `?? []` arm is unreachable rather than lenient.
+            pendingStrangerDevices: trust.map { table in
+                Set(pendingByDevice.keys.filter(table.isStrangerDevice))
+            },
             isSealedSegment: isSealedSegment, segmentVerified: segmentVerified)
     }
 
@@ -1331,11 +2270,18 @@ public final class OpLogStore {
     /// function called twice, and `OpLogVerifiedLoadTests` pins it anyway,
     /// because this is the reader MCP's `read_document` and the Practice walk
     /// see a closed manuscript through.
+    /// `statements` is the manifest's, for a caller LOOPING over a book: the
+    /// permit partition resolves a `DocumentClass` per document, and a caller
+    /// that already holds a manifest must not make this decode one per chapter
+    /// (P3a Task 5). Nil reads it off disk, lazily, and only where some line's
+    /// permit makes the answer turn on it.
     public nonisolated static func loadSyncMerged(
         forDocId docId: String, in projectURL: URL,
         identities: LocalIdentities? = .current,
         state: OpLogDeviceState? = .shared,
-        trust: TrustTable? = nil
+        trust: TrustTable? = nil,
+        statements: [Statement]? = nil,
+        amendmentPermits: AmendmentPermits? = nil
     ) throws -> [Op] {
         // Resolved here when the caller did not hand one over, so this reader
         // and the coordinated one hold a document to be made of the same ops.
@@ -1344,6 +2290,12 @@ public final class OpLogStore {
         let table = try trust ?? identities.map {
             try TrustResolution.resolve(projectURL: projectURL, identities: $0)
         }
+        // **The permit partition, in the second read path** (P3a Task 5). One
+        // context for the document, so its class is resolved at most once
+        // however many files its history is spread over.
+        let permit = permitContext(
+            forDocId: docId, in: projectURL, trust: table, statements: statements,
+            amendments: amendmentPermits)
         var ops: [Op] = []
         for url in opLogFileURLs(forDocId: docId, in: projectURL) {
             let data: Data
@@ -1359,7 +2311,8 @@ public final class OpLogStore {
                     underlying: error.localizedDescription)
             }
             ops.append(contentsOf: classify(
-                url: url, bytes: data, state: state, trust: table).ops)
+                url: url, bytes: data, state: state, trust: table,
+                permit: permit).ops)
         }
         return mergeSortedDedup(ops)
     }
