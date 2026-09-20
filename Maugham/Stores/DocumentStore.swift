@@ -240,10 +240,29 @@ public final class DocumentStore {
             // first read of this project already judges by the admissions this
             // open decided rather than holding a device's lines for the length
             // of one session.
+            //
+            // **The mark closure is the one `DocumentStore.admitRemembered`
+            // passes** (P3a Task 7, fix round 2). This call had none, so the
+            // open-time silent admission signed an event with an EMPTY mark
+            // while the mid-session one signed a swept mark for the same act —
+            // and an empty mark is *everything after the beginning*, which for
+            // a re-admission would judge a whole history under the new permit.
+            // Two paths, one act, one answer.
+            //
+            // A sweep that throws skips the silent admission and does not
+            // block the open: the `catch` below logs it, the devices already
+            // admitted stand, and the next open runs the whole thing again.
             let admitted = try RegistryPresence.admitRemembered(
                 in: url, identities: Document.loadIdentities,
                 cache: Document.loadRegistryCache,
                 memory: Document.loadAdmissionMemory,
+                mark: {
+                    try DocumentStore.rememberedAdmissionMark(
+                        forPerson: $0, in: url,
+                        identities: Document.loadIdentities,
+                        cache: Document.loadRegistryCache,
+                        state: Document.loadDeviceState)
+                },
                 presenter: store.presenter)
             for record in admitted {
                 documentStoreLog.info(

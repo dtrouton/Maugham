@@ -933,11 +933,16 @@ public final class OpLogStore {
         // held back still has a position, and a legacy shared file has none.
         let slugs = Set(ids.map { DeviceSlug.make(from: $0).raw })
         let opsDir = projectURL.appendingPathComponent(".maugham/ops")
-        // The ops folder gets `verifyOpsDirectoryListable`'s own sentence,
-        // which is about a second parallel history rather than about a mark —
-        // but the condition and the refusal are the same one.
-        try verifyOpsDirectoryListable(in: projectURL)
+        // **Listed ONCE** (fix round 2, minor D). This used to call
+        // `verifyOpsDirectoryListable` and then list the folder again for the
+        // names, which is two directory reads per sweep for one question — and
+        // the sentence that came with the first is about a LOAD starting a
+        // second parallel history, which is not what a mark sweep is doing.
+        // `listing` answers both halves: empty where the folder is not there,
+        // a throw where it is there and will not read.
         let filenames = try listing(of: opsDir, naming: ".maugham/ops")
+        try refuseAnyPlaceholder(
+            among: filenames, in: opsDir, forSlugs: slugs, kind: .history)
         var docIds = docIds(inOpsDirectoryFilenames: filenames)
         // Named, because the manuscript reader excludes it by contract — the
         // same reason the project-open sweep names it when it rotates tails.
@@ -976,7 +981,7 @@ public final class OpLogStore {
         // The other two families. Neither rotates — `sealTailIfNeeded` is the
         // op log's alone — so there is no segment rule here and no digest to
         // record, only the last line the reader got to in each file.
-        for url in try otherStreamFileURLs(in: projectURL) {
+        for url in try otherStreamFileURLs(in: projectURL, forSlugs: slugs) {
             guard let stream = PermitMark.stream(of: url),
                   let slug = stream.deviceSlug, slugs.contains(slug),
                   let bytes = try readCoordinated(url: url, presenter: nil)
@@ -1016,19 +1021,75 @@ public final class OpLogStore {
     /// that silently omitted every stream in the folder, which is a mark that
     /// judges every line of them NEW.
     private nonisolated static func otherStreamFileURLs(
-        in projectURL: URL
+        in projectURL: URL, forSlugs slugs: Set<String>
     ) throws -> [URL] {
         var out: [URL] = []
-        for (directory, name) in [
-            (TranslationStore.directoryURL(in: projectURL), ".maugham/translations"),
-            (projectURL.appendingPathComponent(".maugham/inbox"), ".maugham/inbox"),
+        for (directory, name, kind) in [
+            (TranslationStore.directoryURL(in: projectURL),
+             ".maugham/translations", ReadError.FileKind.translation),
+            (projectURL.appendingPathComponent(".maugham/inbox"),
+             ".maugham/inbox", ReadError.FileKind.history),
         ] {
             let names = try listing(of: directory, naming: name)
+            try refuseAnyPlaceholder(
+                among: names, in: directory, forSlugs: slugs, kind: kind)
             out.append(contentsOf: names.sorted()
                 .filter { $0.hasSuffix(".jsonl") }
                 .map { directory.appendingPathComponent($0) })
         }
         return out
+    }
+
+    /// **The real name an old-style iCloud placeholder stands in for**, or nil
+    /// where the name is not one (P3a Task 7, fix round 2, minor B).
+    ///
+    /// macOS evicts a file's contents and leaves `.<name>.icloud` beside it —
+    /// dot-prefixed, `.icloud`-suffixed, and named for nothing this app's own
+    /// filename rules recognise. The sweep's suffix filters
+    /// (`hasSuffix(".jsonl")`, `docIds(inOpsDirectoryFilenames:)`) therefore
+    /// drop it, and a dropped stream is an ABSENT stream, which a mark does
+    /// not name, which judges every line of it NEW. It is I2's hole with no
+    /// unreadable folder needed — an evicted chapter is enough.
+    ///
+    /// A dataless file under its REAL name is already caught, by
+    /// `readCoordinated` throwing when the bytes will not come; this is the
+    /// shape that has no real name to throw over.
+    nonisolated static func nameBehindICloudPlaceholder(_ filename: String) -> String? {
+        let placeholder = ".icloud"
+        guard filename.hasPrefix("."), filename.hasSuffix(placeholder) else { return nil }
+        let real = filename.dropFirst().dropLast(placeholder.count)
+        return real.isEmpty ? nil : String(real)
+    }
+
+    /// **A placeholder standing in for one of these devices' streams is
+    /// present-but-unreadable**, and refuses the sweep by the real file's name.
+    ///
+    /// It is the same ruling as an unreadable file and the same refusal
+    /// (RULING-54: present and unreadable is never silently skipped). The
+    /// writer's next move is the same too — wait for iCloud, or open the
+    /// document to pull it down.
+    ///
+    /// **This is the SWEEP's rule and nothing else's.** What a LOAD does with
+    /// a placeholder is `RecoveryCause`'s and is untouched: a load can offer to
+    /// wait and download, where a sweep has only the choice between refusing
+    /// and signing a boundary over a reading it knows is short.
+    ///
+    /// Sorted, so a folder holding two refuses over the same name twice
+    /// running and the writer is not chasing a different file each press.
+    private nonisolated static func refuseAnyPlaceholder(
+        among names: [String], in directory: URL,
+        forSlugs slugs: Set<String>, kind: ReadError.FileKind
+    ) throws {
+        for name in names.sorted() {
+            guard let real = nameBehindICloudPlaceholder(name),
+                  let stream = PermitMark.stream(of: directory.appendingPathComponent(real)),
+                  let slug = stream.deviceSlug, slugs.contains(slug)
+            else { continue }
+            throw ReadError.unreadableFile(
+                name: real,
+                underlying: "it hasn’t been downloaded from iCloud yet",
+                kind: kind)
+        }
     }
 
     /// One translation sidecar or inbox manifest, walked exactly as its own

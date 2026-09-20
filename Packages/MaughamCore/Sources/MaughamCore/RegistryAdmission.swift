@@ -71,11 +71,18 @@ public enum RegistryAdmissionError: Error, Equatable {
     case notAdmitted(fingerprint: String)
     /// A file this device had to read to answer *how far had I got with them*
     /// is present and will not read (find-5 review, the High). It refuses the
-    /// whole revocation rather than recording a mark that came back short: a
-    /// short mark silently widens what the revocation takes back, and the
-    /// shortest of all — nil — is wire-identical to the writer having asked for
-    /// everything to be set aside.
-    case historyUnreadable(name: String)
+    /// whole act rather than recording a mark that came back short: a short
+    /// mark silently widens what the act takes back, and the shortest of all —
+    /// an empty one — means *everything after the beginning*.
+    ///
+    /// **`act` is which verb refused** (fix round 2, minor C). It arrived as a
+    /// revocation's refusal alone and is now four verbs' — a demotion, an
+    /// admission and a retirement reach it too — and the sentence must not go
+    /// on telling the writer a revocation was refused when what they pressed
+    /// was *make Sam a reviewer*. It carries a DEFAULT rather than widening
+    /// every construction site, so every `.historyUnreadable(name:)` written
+    /// before this still compiles and still means what it meant.
+    case historyUnreadable(name: String, act: Act = .revocation)
     /// The target is a self-signed ROOT. A root answers to itself (spec §5:
     /// *a root is claimed over, never revoked*), so revoking one would be this
     /// Mac re-signing somebody else’s own word about themselves — which
@@ -117,6 +124,8 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// writer looking at a book that had accepted their merge and gone on
     /// quarantining everything in it. A refusal says so at the press.
     ///
+    /// (`Act`, below, is the vocabulary `historyUnreadable` names its verb by.)
+    ///
     /// **It therefore also refuses a root whose own record has not synced
     /// yet**, and that is by design rather than an edge it missed (fix round
     /// 1, minor 5). Such a Mac is indistinguishable here from one that never
@@ -126,6 +135,27 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// says *nothing needs merging*, and pressing again once the record has
     /// landed works.
     case cannotAdoptANonRoot(fingerprint: String)
+
+    /// **Which act a refusal is about** (fix round 2, minor C).
+    ///
+    /// The four verbs that compute a mark all refuse over a short reading, and
+    /// they refused in a revocation's words because a revocation was the first
+    /// of them. It is a noun the writer reads, not a verb name from the code:
+    /// each says what did not happen, in the vocabulary of the control that
+    /// was pressed.
+    public enum Act: String, Equatable, Sendable {
+        case admission, permitChange, revocation, retirement
+
+        /// The phrase the one sentence puts in the middle of itself.
+        public var phrase: String {
+            switch self {
+            case .admission: return "letting a device in"
+            case .permitChange: return "a change to what a device may write"
+            case .revocation: return "a revocation"
+            case .retirement: return "standing a device down"
+            }
+        }
+    }
 }
 
 /// **The author's key names a device** (spec §4).

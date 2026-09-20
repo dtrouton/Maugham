@@ -927,10 +927,11 @@ final class DocumentStoreAdmissionTests: XCTestCase {
             _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
             XCTFail("a short reading is a refusal, never a shorter mark")
         } catch let error as RegistryAdmissionError {
-            guard case .historyUnreadable(let name) = error else {
+            guard case .historyUnreadable(let name, let act) = error else {
                 return XCTFail("\(error)")
             }
             XCTAssertEqual(name, ".maugham/translations")
+            XCTAssertEqual(act, .permitChange, "and the sentence says which act")
         }
         XCTAssertEqual(
             try registry().person(stranger.fingerprint)?.role, Permit.authorRole)
@@ -975,10 +976,11 @@ final class DocumentStoreAdmissionTests: XCTestCase {
             _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
             XCTFail("a stream this Mac had applied and cannot find is a refusal")
         } catch let error as RegistryAdmissionError {
-            guard case .historyUnreadable(let name) = error else {
+            guard case .historyUnreadable(let name, let act) = error else {
                 return XCTFail("\(error)")
             }
             XCTAssertEqual(name, streamKey, "the refusal names the stream")
+            XCTAssertEqual(act, .permitChange, "and the sentence says which act")
         }
         XCTAssertEqual(
             try registry().person(stranger.fingerprint)?.role, Permit.authorRole)
@@ -1065,5 +1067,186 @@ final class DocumentStoreAdmissionTests: XCTestCase {
 
         let record = try await store.retire(device: mine.author.fingerprint)
         XCTAssertNotNil(record.retiredAt)
+    }
+
+    // MARK: - Fix round 2
+
+    /// **A retirement refuses over a short reading too**, exactly as the other
+    /// three marking verbs do. It used to record `.nothingApplied` and let the
+    /// retirement through — and an empty mark calls EVERY paragraph that
+    /// machine ever wrote *written while retired*, so P3b's *N paragraphs were
+    /// written on it while retired* would offer the writer their whole history
+    /// as something to bring back in.
+    func test_aretirementRefusesOverAFolderItCannotList() async throws {
+        let mine = beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let translations = projectURL.appendingPathComponent(".maugham/translations")
+        try FileManager.default.createDirectory(
+            at: translations, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000], ofItemAtPath: translations.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: translations.path)
+        }
+
+        do {
+            _ = try await store.retire(device: mine.author.fingerprint)
+            XCTFail("a retirement decided on a partial reading marks everything")
+        } catch let error as RegistryAdmissionError {
+            guard case .historyUnreadable(let name, let act) = error else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(name, ".maugham/translations")
+            XCTAssertEqual(act, .retirement, "and the sentence says which act")
+        }
+        XCTAssertNil(
+            try registry().devices.first { $0.device == mine.author.fingerprint }?.retiredAt,
+            "nothing was changed")
+        XCTAssertTrue(
+            try registry().events.filter { $0.kind == .retired }.isEmpty,
+            "and no event either")
+    }
+
+    /// The converse, so the refusal above is about the reading and not about
+    /// retirement: with the folder readable the very same press succeeds and
+    /// records a real mark.
+    func test_thesameRetirementSucceedsOnceTheFolderCanBeListed() async throws {
+        let mine = beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+
+        _ = try await store.retire(device: mine.author.fingerprint)
+
+        let event = try XCTUnwrap(
+            try registry().events.first { $0.kind == .retired })
+        XCTAssertFalse(
+            event.mark.isEmpty,
+            "its own files' positions, which is what *written while retired* is "
+                + "derived from")
+    }
+
+    /// **A revoked machine of the same writer is left out** (minor A). Its
+    /// lines are refused by the VERDICT, which outranks any permit, so a
+    /// `roleChanged` on its record would put *became a reviewer* in History
+    /// after the revocation — about a machine already shut out.
+    func test_ademotionSkipsARevokedMachineOfTheSameWriter() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let secondDevice = LocalIdentities.softwareForTesting()
+        let second = secondDevice.author
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        _ = try await store.admit(
+            device: second.fingerprint, label: "Sam", ownName: "Sam’s old Mac")
+        _ = try await store.revoke(person: second.fingerprint)
+
+        let moved = try await store.changePermit(
+            everyRecordOf: stranger.fingerprint, to: .reviewer)
+
+        XCTAssertEqual(moved.map(\.person), [stranger.fingerprint])
+        XCTAssertTrue(
+            try registry().events.filter {
+                $0.subject == second.fingerprint && $0.kind == .roleChanged
+            }.isEmpty,
+            "no *became a reviewer* row after a revocation")
+        XCTAssertEqual(
+            try registry().person(second.fingerprint)?.role, Permit.authorRole,
+            "and its record was not re-signed for nothing")
+    }
+
+    /// And the other side of the same rule: a RETIRED machine IS included,
+    /// because its pre-retirement lines are still judged by permit.
+    func test_ademotionReachesARetiredMachineOfTheSameWriter() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let secondDevice = LocalIdentities.softwareForTesting()
+        let second = secondDevice.author
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        _ = try await store.admit(
+            device: second.fingerprint, label: "Sam", ownName: "Sam’s old Mac")
+        // `admit` writes a PERSON record; a device's own record is its own to
+        // write, and a retirement edits that one.
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: second.fingerprint, name: "Sam’s old Mac", kind: .mac,
+                actors: [DeviceActor.author.rawValue: second.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 5)),
+            signedBy: second, in: projectURL)
+        // The device retires ITSELF — the one registry verb nobody else can
+        // perform on your behalf.
+        try RegistryWriter.resign(
+            try XCTUnwrap(try registry().devices.first { $0.device == second.fingerprint }),
+            signedBy: second, in: projectURL
+        ) { object in
+            object["retiredAt"] = try RegistryCanonical.dateString(
+                Date(timeIntervalSince1970: 500))
+        }
+
+        let moved = try await store.changePermit(
+            everyRecordOf: stranger.fingerprint, to: .reviewer)
+
+        XCTAssertEqual(
+            Set(moved.map(\.person)), [stranger.fingerprint, second.fingerprint])
+        XCTAssertEqual(
+            try registry().person(second.fingerprint)?.role, Permit.reviewerRole)
+    }
+
+    /// A revoked SUBJECT refuses rather than quietly doing nothing — the loop
+    /// would otherwise skip her own record and the pane would draw the old
+    /// permit with no sentence saying why.
+    func test_ademotionOfARevokedPersonRefuses() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        _ = try await store.revoke(person: stranger.fingerprint)
+
+        do {
+            _ = try await store.changePermit(
+                everyRecordOf: stranger.fingerprint, to: .reviewer)
+            XCTFail("re-admit her first; a re-admission carries its own permit")
+        } catch let error as RegistryAdmissionError {
+            XCTAssertEqual(error, .notAdmitted(fingerprint: stranger.fingerprint))
+        }
+    }
+
+    /// **The open-time silent admission signs the SAME mark the mid-session
+    /// one does.** `DocumentStore.open` called `admitRemembered` with no mark
+    /// closure, so the event it signed carried an empty mark — *everything
+    /// after the beginning* — while the identical act performed a minute later
+    /// carried a swept one.
+    func test_theOpenTimeSilentAdmissionCarriesTheSweptMark() async throws {
+        beThisMac()
+        // A first open, so this Mac is the root and the document exists.
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+        try await writeStrangerFile(docId: docId, opIds: ["02", "03"])
+        memory.remember(
+            stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: stranger.fingerprint, name: "Sam’s Mac", kind: .mac,
+                actors: [DeviceActor.author.rawValue: stranger.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 5)),
+            signedBy: stranger, in: projectURL)
+
+        _ = try await DocumentStore.open(url: projectURL)
+
+        let event = try XCTUnwrap(
+            try registry().events.first { $0.subject == stranger.fingerprint })
+        XCTAssertEqual(event.kind, .silentlyAdmitted)
+        XCTAssertFalse(
+            event.mark.isEmpty,
+            "the open swept her streams, exactly as the mid-session path does")
+        let key = try XCTUnwrap(PermitMark.streamKey(of: OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: stranger.slug, in: projectURL)))
+        XCTAssertNotNil(event.mark[key]?.line, "and named the stream it read")
     }
 }

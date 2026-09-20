@@ -145,7 +145,8 @@ extension DocumentStore {
             // revocation's reason: a short mark moves a permission boundary
             // silently, and the direction it moves it in is *more set aside
             // than the writer asked for*.
-            throw RegistryAdmissionError.historyUnreadable(name: name)
+            throw RegistryAdmissionError.historyUnreadable(
+                name: name, act: .permitChange)
         }
         let record = try await Task.detached(priority: .userInitiated) {
             try RegistryAdmission.changePermit(
@@ -199,7 +200,29 @@ extension DocumentStore {
                 projectURL: projectURL, presenter: nil, cache: cache)
         }.value
 
-        let records = RegistryAdmission.records(sharingLabelWith: person, in: registry)
+        // **A REVOKED subject is a refusal, not a quiet no-op** (fix round 2,
+        // minor A). The loop below would skip her own record as it skips a
+        // revoked sibling's, press would do nothing, and the pane would draw
+        // the old permit with no sentence saying why. Re-admit her first; the
+        // re-admission carries a permit of its own.
+        guard let subject = registry.person(person), !subject.isRevoked else {
+            throw RegistryAdmissionError.notAdmitted(fingerprint: person)
+        }
+        // **Revoked siblings are left out; RETIRED ones are not** (fix round
+        // 2, minor A). A revoked machine's lines are refused by the VERDICT,
+        // which outranks any permit, so writing a `roleChanged` on its record
+        // would put *became a reviewer* in History AFTER the revocation — a
+        // row about a machine that is already shut out, and a re-signed record
+        // nobody asked for. A later re-admission brings its own permit. A
+        // RETIRED machine is the opposite case: its pre-retirement lines are
+        // still judged by permit, so a demotion must reach it.
+        //
+        // The label rule itself stays label-only
+        // (`RegistryAdmission.records(sharingLabelWith:in:)`): who is the same
+        // WRITER is one question, and who this act should touch is another.
+        let records = RegistryAdmission
+            .records(sharingLabelWith: person, in: registry)
+            .filter { !$0.isRevoked }
         guard !records.isEmpty else {
             throw RegistryAdmissionError.notAdmitted(fingerprint: person)
         }
@@ -279,15 +302,29 @@ extension DocumentStore {
         // **Its own files, and everything it wrote it both saw and applied**
         // (P3a Task 7, ruling 2C). The mark is what *written while retired* is
         // derived from on every OTHER device: a line of this Mac's after it is
-        // one written after this Mac said it had stopped. A sweep that will not
-        // read costs the retirement its mark and not the retirement — the date
-        // is still the line P2 drew, and a retirement refused over an
-        // unreadable chapter would leave the writer unable to stand a machine
-        // down at all.
+        // one written after this Mac said it had stopped.
+        //
+        // **And a short reading refuses, exactly as the other three do** (fix
+        // round 2). This arm recorded `.nothingApplied` and let the retirement
+        // through, which is the I2 defect wearing a different hat: an empty
+        // mark calls EVERY paragraph this machine ever wrote *written while
+        // retired*, so P3b's *N paragraphs were written on it while retired*
+        // would offer the writer their whole history as something to bring
+        // back in. A retirement is not typing — refusing one breaks no
+        // constitutional must — and a folder that will not read is a fact the
+        // writer can fix, while a mark signed over it is not. The root can
+        // still revoke a device whose folder will not open.
+        //
+        // The `expectedStreams` half stays as Task 9 left it: this verb's
+        // subject is its own machine, which names no FOREIGN stream, so the
+        // memory answers empty and the refusal here is for a directory that
+        // will not list or a file that will not read.
         let positions: PermitMark
         switch await permitMark(forPerson: fingerprint, seen: true) {
-        case .mark(let found): positions = found
-        case .unreadable: positions = .nothingApplied
+        case .mark(let found):
+            positions = found
+        case .unreadable(let name):
+            throw RegistryAdmissionError.historyUnreadable(name: name, act: .retirement)
         }
         let record = try await Task.detached(priority: .userInitiated) {
             try RegistryAdmission.retire(
@@ -547,7 +584,7 @@ extension DocumentStore {
         switch await permitMark(forPerson: person, seen: true) {
         case .mark(let found): return found
         case .unreadable(let name):
-            throw RegistryAdmissionError.historyUnreadable(name: name)
+            throw RegistryAdmissionError.historyUnreadable(name: name, act: .admission)
         }
     }
 

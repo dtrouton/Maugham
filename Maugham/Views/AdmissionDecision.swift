@@ -313,8 +313,15 @@ enum AdmissionDecision {
                 + "usually another Mac letting it in, before that Mac has finished "
                 + "syncing. Admitting now would overwrite it. Try again in a minute."
         case .notAdmitted(let fingerprint):
-            return "This book knows no device with code "
-                + "\(DeviceCode.short(fingerprint)), so there’s nothing to withdraw."
+            // Four verbs reach this now, and two of them are not withdrawals
+            // (fix round 2): a permit change over somebody this book never let
+            // in, and one over somebody it has already shut out. Both are the
+            // same fact — there is nobody here to act on — and the sentence
+            // says it once rather than naming one verb's noun.
+            return "This book has no device with code "
+                + "\(DeviceCode.short(fingerprint)) it can act on: either it was "
+                + "never let in, or it has already been shut out. Re-admit it "
+                + "first if you meant to change what it may write."
         case .cannotRevokeARoot(let fingerprint):
             return "The device with code \(DeviceCode.short(fingerprint)) is the Mac "
                 + "this book was started on, and that Mac answers to itself. To move "
@@ -328,14 +335,19 @@ enum AdmissionDecision {
             return "This book was already started on this Mac (code "
                 + "\(DeviceCode.short(root))), so there is nothing of its own for it "
                 + "to take in."
-        case .historyUnreadable(let name):
+        case .historyUnreadable(let name, let act):
             // The one refusal here that is about a FILE rather than about
             // authority, and the only one that promises nothing happened. It
             // says so first, because a writer who has just pressed a
             // destructive button needs to know the destruction did not occur
             // before they need to know why.
+            //
+            // **It names the ACT** (fix round 2, minor C). Four verbs compute
+            // a mark and all four refuse over a short reading; this said *a
+            // revocation* to all of them, so a writer who pressed *make Sam a
+            // reviewer* was told a revocation had been refused.
             return "Nothing was changed. Maugham couldn’t read everything this "
-                + "device wrote (\(name)), and a revocation decided on a partial "
+                + "device wrote (\(name)), and \(act.phrase) decided on a partial "
                 + "reading would set aside more than you asked it to. Try again "
                 + "in a moment."
         case .notThatDevice(let device):

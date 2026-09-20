@@ -1558,4 +1558,70 @@ final class PermitLoadTests: XCTestCase {
             judged.isAllOld,
             "every line this device has written is already in the file the sweep reads")
     }
+
+    // MARK: - An evicted stream is present, not absent (fix round 2, minor B)
+
+    /// **An old-style iCloud placeholder refuses the sweep.**
+    ///
+    /// macOS evicts a file's contents and leaves `.<name>.icloud` beside it.
+    /// The sweep's suffix filters drop that name, so the stream reads as
+    /// ABSENT — unnamed by the mark, and therefore judged wholly NEW. It is
+    /// I2's hole with no unreadable folder needed: one evicted chapter is
+    /// enough, and iCloud evicts chapters for a living.
+    func test_anEvictedStreamsPlaceholderRefusesTheSweep() async throws {
+        try writeRootRecord()
+        try declareSam()
+        let url = try samsFile([op("01", by: sam.author), op("02", by: sam.author)])
+        let real = url.lastPathComponent
+        // What eviction leaves behind: the bytes gone, a placeholder in their
+        // place, under a name nothing in the sweep's filters recognises.
+        try FileManager.default.removeItem(at: url)
+        try Data().write(
+            to: url.deletingLastPathComponent()
+                .appendingPathComponent(".\(real).icloud"))
+
+        do {
+            _ = try await seenMark()
+            XCTFail("an evicted stream is present-but-unreadable, not absent")
+        } catch let error as OpLogStore.ReadError {
+            guard case .unreadableFile(let name, _, let kind) = error else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(name, real, "named by the REAL file, not the placeholder")
+            XCTAssertEqual(kind, .history)
+            XCTAssertEqual(OpLogStore.unreadableName(error), real)
+        }
+    }
+
+    /// And it refuses only for a stream of the DEVICE being marked: somebody
+    /// else's evicted chapter is not this mark's business, and refusing over
+    /// one would make every sweep hostage to every file in the project.
+    func test_anotherDevicesPlaceholderDoesNotRefuseThisSweep() async throws {
+        try writeRootRecord()
+        try declareSam()
+        let url = try samsFile([op("01", by: sam.author)])
+        let elsewhere = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: root.author.slug, in: projectURL)
+        try Data().write(
+            to: elsewhere.deletingLastPathComponent()
+                .appendingPathComponent(".\(elsewhere.lastPathComponent).icloud"))
+
+        let mark = try await seenMark()
+
+        XCTAssertNotNil(mark[try XCTUnwrap(PermitMark.streamKey(of: url))]?.line)
+    }
+
+    /// The name rule itself, both directions — an ordinary file is not a
+    /// placeholder, and a placeholder names the file it stands in for.
+    func test_thePlaceholderNameRuleReadsBothWays() {
+        XCTAssertEqual(
+            OpLogStore.nameBehindICloudPlaceholder(".d-one.mac-a.jsonl.icloud"),
+            "d-one.mac-a.jsonl")
+        XCTAssertNil(OpLogStore.nameBehindICloudPlaceholder("d-one.mac-a.jsonl"))
+        XCTAssertNil(OpLogStore.nameBehindICloudPlaceholder(".DS_Store"))
+        XCTAssertNil(
+            OpLogStore.nameBehindICloudPlaceholder("d-one.jsonl.icloud"),
+            "a placeholder is dot-prefixed; this is somebody's oddly named file")
+        XCTAssertNil(OpLogStore.nameBehindICloudPlaceholder(".icloud"))
+    }
 }
