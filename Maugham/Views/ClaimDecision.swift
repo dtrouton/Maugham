@@ -75,7 +75,10 @@ enum ClaimDecision {
         "If it isn’t yours, Maugham goes on reading this history as unsigned and "
         + "changes nothing."
 
-    static let title = "Is this book yours?"
+    // `title` lived here and was read by nothing: `ClaimSheet` builds its own
+    // headline from the project's name (`ClaimSheet.title(projectTitle:)`), so
+    // this was a second, quieter answer to what the sheet is called — the shape
+    // a reviewer has to prove dead before touching the file. Deleted with C8.
     static let claimTitle = "Claim"
     static let notMineTitle = "Not mine"
 

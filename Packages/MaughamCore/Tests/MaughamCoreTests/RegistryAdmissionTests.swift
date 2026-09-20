@@ -979,8 +979,20 @@ final class RegistryAdmissionTests: XCTestCase {
 
     /// A second root adopted later joins the claim this Mac already wrote — one
     /// claim record per root, because the file is named by the root — and the
-    /// day the book was claimed does not move.
-    func test_adoptingASecondRootKeepsTheDayTheBookWasClaimed() throws {
+    /// date **moves to the day of the later adoption** (C8, ruled for P3a Task
+    /// 7; this test pinned the opposite until then).
+    ///
+    /// The record carries one date and History dates every `.adopted` row off
+    /// it, so a root taken in a week after the book was claimed read as having
+    /// been adopted the day the book was claimed — the wrong fact, said
+    /// confidently, about the act the writer had just performed. The format has
+    /// no room for a date per adopted root, so the honest reading of the record
+    /// is *these roots, as of now*, and the claim's own row moves with it.
+    ///
+    /// The idempotent case is untouched and is pinned by the test above:
+    /// adopting a root already adopted writes no file at all, so the date does
+    /// not move for a press that changed nothing.
+    func test_adoptingASecondRootMovesTheDateToTheLaterAdoption() throws {
         let borrowed = LocalIdentities.softwareForTesting()
         try becomeRootBeside(otherRoot, name: "The old MacBook")
         try becomeRootBeside(borrowed, name: "A borrowed Mac")
@@ -997,7 +1009,10 @@ final class RegistryAdmissionTests: XCTestCase {
         XCTAssertEqual(
             claim.adopted,
             [otherRoot.author.fingerprint, borrowed.author.fingerprint].sorted())
-        XCTAssertEqual(claim.claimedAt, Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(
+            claim.claimedAt, Date(timeIntervalSince1970: 200),
+            "the record says what it holds AS OF NOW, and History dates every "
+                + "adopted root off it")
         XCTAssertEqual(try registry().claims.count, 1)
     }
 
@@ -1919,5 +1934,75 @@ final class RegistryAdmissionTests: XCTestCase {
         XCTAssertEqual(
             try kinds(about: phone.author.fingerprint),
             [.admitted, .scopeChanged, .roleChanged, .revoked, .readmitted])
+    }
+
+    // MARK: - The claim's five minors (C8)
+
+    /// **The root write is gated on MY ROOT, not on the folder.** A device
+    /// that has JOINED somebody's chain and whose person record has not come
+    /// down yet reads as absent from the registry, and used to be written a
+    /// self-signed root of its own — a second root in a book it is already on
+    /// somebody else's chain in.
+    func test_aDeviceThatJoinedAChainDoesNotRootItselfByClaiming() throws {
+        try becomeRootBeside(otherRoot, name: "The old MacBook")
+        try declare(mine, name: "Denver's new MacBook", kind: .mac)
+        let cache = makeCache()
+        _ = cache.join(root: otherRoot.author.fingerprint, for: projectURL)
+
+        XCTAssertThrowsError(try RegistryAdmission.claim(
+            adopting: [otherRoot.author.fingerprint], in: projectURL,
+            by: mine.author, cache: cache, now: { Date(timeIntervalSince1970: 100) })
+        ) {
+            XCTAssertEqual(
+                $0 as? RegistryAdmissionError,
+                .alreadyAdmittedElsewhere(root: otherRoot.author.fingerprint))
+        }
+        XCTAssertNil(try registry().person(mine.author.fingerprint))
+    }
+
+    /// **A claim file present and unverifiable is LISTED, never written over.**
+    /// The `else` branch used to write a fresh claim straight across it,
+    /// silently dropping every root the unreadable one had taken in.
+    func test_anUnverifiableClaimFileIsNotWrittenOver() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try becomeRootBeside(otherRoot, name: "The old MacBook")
+        try RegistryWriter.writeUnchecked(
+            ClaimRecord(
+                newRoot: mine.author.fingerprint,
+                adopted: [otherRoot.author.fingerprint],
+                claimedAt: Date(timeIntervalSince1970: 100)),
+            signedBy: phone.author, in: projectURL)
+        let bytes = try Data(contentsOf: claimFile(mine.author.fingerprint))
+
+        XCTAssertThrowsError(try RegistryAdmission.claim(
+            adopting: [otherRoot.author.fingerprint], in: projectURL,
+            by: mine.author, cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 200) })
+        ) {
+            XCTAssertEqual(
+                $0 as? RegistryAdmissionError,
+                .recordUnreadable(fingerprint: mine.author.fingerprint))
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: claimFile(mine.author.fingerprint)), bytes)
+    }
+
+    /// **A root taken in has to BE one.** `chain(underRoot:)` answers empty
+    /// for anything else, so such a claim was written, verified and adopted
+    /// nobody — a merge the book accepted and that changed nothing.
+    func test_adoptingSomethingThatIsNoRootRefuses() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+
+        XCTAssertThrowsError(try RegistryAdmission.claim(
+            adopting: [phone.author.fingerprint], in: projectURL,
+            by: mine.author, cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 100) })
+        ) {
+            XCTAssertEqual(
+                $0 as? RegistryAdmissionError,
+                .cannotAdoptANonRoot(fingerprint: phone.author.fingerprint))
+        }
+        XCTAssertTrue(try registry().claims.isEmpty)
     }
 }

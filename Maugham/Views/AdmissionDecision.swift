@@ -352,6 +352,11 @@ enum AdmissionDecision {
                 + "this book was started on, and it writes the whole book — changing "
                 + "that would leave the book with no author. To move the book, claim "
                 + "it on the Mac you want to keep."
+        case .cannotAdoptANonRoot(let fingerprint):
+            return "The device with code \(DeviceCode.short(fingerprint)) didn’t start "
+                + "a book of its own here, so there is no history of its own to take "
+                + "in. If it has written in this book, it was let in by somebody — "
+                + "nothing needs merging."
         }
     }
 }

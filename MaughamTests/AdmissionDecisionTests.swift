@@ -256,10 +256,12 @@ final class AdmissionDecisionTests: XCTestCase {
             .notAdmitted(fingerprint: phone),
             .cannotRevokeARoot(fingerprint: root),
             .notThatDevice(device: other),
-            // P3a Task 7's: a permit change whose subject is the Mac the book
-            // was started on. A refusal of AUTHORITY, with a next move of its
-            // own.
+            // P3a Task 7's two: a permit change whose subject is the Mac the
+            // book was started on, and a merge naming a Mac that started no
+            // book here. Both are refusals of AUTHORITY and both want a next
+            // move of their own.
             .cannotChangeARoot(fingerprint: root),
+            .cannotAdoptANonRoot(fingerprint: phone),
         ].map(AdmissionDecision.sentence(for:))
 
         XCTAssertEqual(Set(sentences).count, sentences.count,

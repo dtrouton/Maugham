@@ -108,6 +108,15 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// Distinct from `cannotRevokeARoot`, which is the same asymmetry one verb
     /// over: a root is claimed over, never revoked, and never narrowed either.
     case cannotChangeARoot(fingerprint: String)
+    /// A claim whose `adopted` list names a fingerprint that is not a verified
+    /// root of this book (C8).
+    ///
+    /// Adoption takes in a ROOT's chain, and `Registry.chain(underRoot:)`
+    /// answers empty for anything that is not one — so a claim naming a
+    /// stranger used to be written, verified and adopt nobody, leaving the
+    /// writer looking at a book that had accepted their merge and gone on
+    /// quarantining everything in it. A refusal says so at the press.
+    case cannotAdoptANonRoot(fingerprint: String)
 }
 
 /// **The author's key names a device** (spec §4).
@@ -1010,6 +1019,17 @@ public enum RegistryAdmission {
         let registry = try TrustResolution.verifiedRegistry(
             projectURL: projectURL, presenter: presenter, cache: cache)
 
+        // **A root taken in has to BE one** (C8). `Registry.chain(underRoot:)`
+        // answers empty for anything that is not a self-signed root here, so a
+        // claim naming a stranger used to be written, verified and adopt
+        // nobody — leaving the writer looking at a book that had accepted their
+        // merge and gone on quarantining everything in it. Sorted, so a list
+        // with two bad names refuses on the same one twice running.
+        let rootsHere = Set(registry.roots.map(\.person))
+        for candidate in adopting.sorted() where !rootsHere.contains(candidate) {
+            throw RegistryAdmissionError.cannotAdoptANonRoot(fingerprint: candidate)
+        }
+
         if let existing = registry.person(me.fingerprint) {
             // Already on somebody's chain: there is no root record to write
             // that would not be written over theirs, and a device that is not a
@@ -1023,6 +1043,19 @@ public enum RegistryAdmission {
             if unreadablePeople(in: registry).contains(me.fingerprint) {
                 throw RegistryAdmissionError.recordUnreadable(fingerprint: me.fingerprint)
             }
+            // **The root write is gated on MY ROOT, not on the folder** (C8).
+            // `TrustTable.myRoot` is `joinedRoot ?? ownRecord ?? admittingRoots
+            // .first`, and the registry answers the last two — a root record
+            // for one of my keys, or a chain that holds one — but not the
+            // first. A device that has JOINED somebody's chain and whose person
+            // record has not come down yet reads as absent from the folder, so
+            // this arm would write it a self-signed root of its own: a second
+            // root in a book it is already on somebody else's chain in, which
+            // is the two-roots quarantine created by the act meant to leave it.
+            if let joined = cache.joinedRoot(for: projectURL),
+               joined != me.fingerprint {
+                throw RegistryAdmissionError.alreadyAdmittedElsewhere(root: joined)
+            }
             let name = registry.devices.first { $0.device == me.fingerprint }?.name
                 ?? DeviceCode.short(me.fingerprint)
             try RegistryWriter.write(
@@ -1032,6 +1065,17 @@ public enum RegistryAdmission {
                 signedBy: me, in: projectURL, presenter: presenter)
         }
 
+        // **A claim file that is present and will not verify is LISTED, never
+        // written over** (C8, and RULING-54's rule everywhere else in this
+        // milestone). Without this the `else` branch below wrote a fresh claim
+        // straight over it: a record this device could not read, replaced by
+        // one that adopts only what THIS press named, silently dropping every
+        // root the unreadable one had taken in. The reachable case is a
+        // half-synced file, and it fixes itself.
+        if unreadableClaims(in: registry).contains(me.fingerprint) {
+            throw RegistryAdmissionError.recordUnreadable(fingerprint: me.fingerprint)
+        }
+
         if let standing = registry.claims.first(where: { $0.newRoot == me.fingerprint }) {
             let already = Set(standing.adopted)
             guard !adopting.isSubset(of: already) else { return standing }
@@ -1039,12 +1083,20 @@ public enum RegistryAdmission {
             // `resign` rather than a fresh record, for Task 1's reason: a claim
             // a LATER build wrote carries fields this one has no property for,
             // and re-encoding what this build decoded would quietly drop them.
-            // The FILE's object is what is edited, and `claimedAt` is not part
-            // of the edit.
+            // The FILE's object is what is edited.
+            //
+            // **`claimedAt` MOVES** (C8). It dates every `.adopted` row History
+            // draws off this record, and a root taken in a week after the book
+            // was claimed was not adopted the day the book was claimed —
+            // History said it was, because the date never moved. The claim's
+            // own `.claimed` row moves with it, which is the honest reading:
+            // what this record says is *these roots, as of now*.
+            let at = try RegistryCanonical.dateString(now())
             try RegistryWriter.resign(
                 standing, signedBy: me, in: projectURL, presenter: presenter
             ) { object in
                 object["adopted"] = widened
+                object["claimedAt"] = at
             }
         } else {
             try RegistryWriter.write(
@@ -1084,6 +1136,13 @@ public enum RegistryAdmission {
     /// over, for the reason its person twin must not be.
     nonisolated static func unreadableDevices(in registry: Registry) -> Set<String> {
         unreadable(in: registry, directory: .devices)
+    }
+
+    /// And of the CLAIMS directory, which `claim` asks (C8): a claim record
+    /// present and unverified is one this Mac must not write over, because what
+    /// it would replace is a list of adopted roots nobody can read back.
+    nonisolated static func unreadableClaims(in registry: Registry) -> Set<String> {
+        unreadable(in: registry, directory: .claims)
     }
 
     nonisolated private static func unreadable(
