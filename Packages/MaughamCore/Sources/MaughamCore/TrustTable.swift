@@ -635,7 +635,7 @@ public struct TrustTable: Equatable, Sendable {
     /// Read the registry's own doc comment for why a held line and a line
     /// *waiting for admission* stopped being the same fact in P3a.
     nonisolated public func isStrangerDevice(_ fingerprint: String) -> Bool {
-        !knownPeople.contains(fingerprint)
+        !HeldLines.isUnsignedHolder(fingerprint) && !knownPeople.contains(fingerprint)
     }
 
     /// **Does a verified device record NAME this key**, whatever it calls it

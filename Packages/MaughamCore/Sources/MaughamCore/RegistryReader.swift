@@ -403,8 +403,15 @@ public struct Registry: Equatable, Sendable {
     /// `AdmissionDecision.requests` asks this, and so does everything that
     /// counts or announces: `TrustTable.isStrangerDevice` is the same rule
     /// asked of the set this registry already handed the table.
+    /// **And P3b adds a third reason**, which is the one this predicate has to
+    /// exclude by SHAPE rather than by lookup: a line held because the file it
+    /// is in is one no key can name (`UnsignedSnapshot`, after the first
+    /// narrowing). It is held under `HeldLines.unsignedHolder`'s own string —
+    /// never a fingerprint — so no person record could ever name it and this
+    /// predicate would otherwise call every one of them a stranger and offer
+    /// an Admit… sheet about a Mac that has no key to admit.
     public func isStrangerDevice(_ fingerprint: String) -> Bool {
-        person(fingerprint) == nil
+        !HeldLines.isUnsignedHolder(fingerprint) && person(fingerprint) == nil
     }
 
     /// The admission-worded subset of a held-lines map: the devices with no

@@ -269,6 +269,8 @@ extension ProjectStore {
                 ops: ops, paragraphs: derived.paragraphs,
                 amendments: .judged(
                     by: trust, permits: amendmentPermits.resolved,
+                    insideTheUnsignedSnapshot:
+                        amendmentPermits.resolvedInsideTheUnsignedSnapshot,
                     class: {
                         DocumentClass.resolve(docId: item.id, statements: statements)
                     }))

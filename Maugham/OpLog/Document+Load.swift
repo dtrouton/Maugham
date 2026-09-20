@@ -643,7 +643,7 @@ extension Document {
         // warmed is still warm; the projection it feeds is rebuilt at every
         // burst boundary and must not reach for a register of its own.
         doc.annotationAmendments = opStore.annotationAmendments(
-            permits: amendmentPermits.resolved
+            from: amendmentPermits
         ) {
             // `OpLogStore`'s own door rather than `Document.documentClass`,
             // which is the same function behind a `@MainActor` extension this

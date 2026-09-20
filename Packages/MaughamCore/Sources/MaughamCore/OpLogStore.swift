@@ -305,12 +305,24 @@ public final class OpLogStore {
     /// honest answer for a book with no events and for a caller that did not
     /// ask, and an amendment with no entry falls back to the signer's current
     /// permit, which is what those cases mean.
+    ///
+    /// **It takes the CARRIER, not one of its products** (P3b Task 2). The
+    /// partition fills two maps now — the permit each amendment line was
+    /// written under, and which lines the unsigned door found inside the
+    /// book's photograph — and a door that took one of them by value is a door
+    /// the next product has to be remembered at. `AmendmentPermits` is what
+    /// travels through `PermitContext`; this reads it whole.
     public func annotationAmendments(
-        permits: [String: Permit] = [:],
+        from amendments: AmendmentPermits? = nil,
         documentClass: @escaping @Sendable () -> DocumentClass
     ) -> AnnotationAmendments {
         guard let table = registerTable() else { return .honourEverything }
-        return .judged(by: table, permits: permits, class: documentClass)
+        return .judged(
+            by: table,
+            permits: amendments?.resolved ?? [:],
+            insideTheUnsignedSnapshot:
+                amendments?.resolvedInsideTheUnsignedSnapshot ?? [],
+            class: documentClass)
     }
 
     /// Lines this device has appended to each file since that file's last seal.

@@ -98,10 +98,15 @@ public enum AnnotationOwnership {
         signerPermit: Permit,
         signerActor: DeviceActor?,
         in documentClass: DocumentClass,
-        trust: TrustTable
+        trust: TrustTable,
+        insideTheUnsignedSnapshot: Bool = false
     ) -> Bool {
         guard let signer = trust.deviceKey(forDeviceId: signerDevice)
-        else { return unplaced(signerDevice, trust: trust) }
+        else {
+            return unplaced(
+                signerDevice, trust: trust,
+                insideTheUnsignedSnapshot: insideTheUnsignedSnapshot)
+        }
         guard signer.isOwned else { return false }
         // Settling a note and amending one are the same authority, so the
         // question is put to the table in the vocabulary the table already has.
@@ -143,8 +148,34 @@ public enum AnnotationOwnership {
     /// a book that has a reviewer, a scoped author, or a role word this build
     /// cannot read, an unattributable production-shaped id could be any of
     /// them and is not waved through.
-    static func unplaced(_ deviceId: String, trust: TrustTable) -> Bool {
+    ///
+    /// **And narrowing still does not reach BACK** (P3b Task 2, Denver's
+    /// ruling of 2026-09-20). The W1 fix above narrowed *when* this rule
+    /// fires; it left it reaching backwards *once it does*. The day the root
+    /// makes anybody a reviewer, every withdrawal an enclave-less Mac had ever
+    /// made stops being honoured — deleted notes come back, edits revert, on
+    /// every signed Mac, with nothing red anywhere. That is the same defect
+    /// the W1 fix was about, one condition along.
+    ///
+    /// So the photograph decides. A line at or before the first narrowing is
+    /// **exactly what P1 made of it**, amendments included; a line after it is
+    /// not waved through — and in practice is not here at all, because the
+    /// unsigned door holds it and a held line never reaches the deriver. What
+    /// remains after the snapshot, and is what this guard is now FOR, is an id
+    /// this register cannot place arriving in a file it CAN: a signed device
+    /// naming somebody else's fingerprint on its own line, which no photograph
+    /// covers and which stays refused.
+    ///
+    /// `insideTheUnsignedSnapshot` is the amending line's own side, carried by
+    /// op id out of the partition that judged it (`AmendmentPermits`). False
+    /// is the answer for every caller that has no carrier and for every line
+    /// no unsigned door judged, which is P3a's answer exactly.
+    static func unplaced(
+        _ deviceId: String, trust: TrustTable,
+        insideTheUnsignedSnapshot: Bool = false
+    ) -> Bool {
         guard DeviceIdentity.looksLikeADeviceId(deviceId) else { return true }
+        if insideTheUnsignedSnapshot { return true }
         return !trust.hasNarrowingPermits
     }
 }
@@ -201,17 +232,26 @@ public struct AnnotationAmendments: Sendable {
     /// timeline is one entry, so current *is* as-of-the-line), and a line no
     /// partition judged — legacy history, an unsigned device, a book with no
     /// register. None of those has a past permit to be wrong about.
+    ///
+    /// **`insideTheUnsignedSnapshot` is the same carrier's second product**
+    /// (P3b Task 2): the op ids of amendment lines the unsigned door found at
+    /// or before the book's first narrowing. It reaches exactly one arm —
+    /// `AnnotationOwnership.unplaced`, after that function has already decided
+    /// it cannot place the signer — and empty is P3a's behaviour exactly.
     public static func judged(
         by trust: TrustTable,
         permits: [String: Permit] = [:],
+        insideTheUnsignedSnapshot: Set<String> = [],
         class documentClass: @escaping @Sendable () -> DocumentClass
     ) -> AnnotationAmendments {
         let memo = PermitMemo<DocumentClass>()
         return AnnotationAmendments { amendment, creation in
+            let inside = insideTheUnsignedSnapshot.contains(amendment.opId)
             guard let signer = trust.deviceKey(forDeviceId: amendment.device)
             else {
                 return AnnotationOwnership.unplaced(
-                    amendment.device, trust: trust)
+                    amendment.device, trust: trust,
+                    insideTheUnsignedSnapshot: inside)
             }
             let permit = permits[amendment.opId]
                 ?? trust.timeline(forSealKey: signer.key).current
@@ -225,7 +265,8 @@ public struct AnnotationAmendments: Sendable {
                 signerPermit: permit,
                 signerActor: signer.actor,
                 in: memo { documentClass() },
-                trust: trust)
+                trust: trust,
+                insideTheUnsignedSnapshot: inside)
         }
     }
 }

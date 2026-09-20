@@ -112,8 +112,28 @@ public struct PermitContext: Sendable {
 public final class AmendmentPermits: @unchecked Sendable {
     private let lock = NSLock()
     private var byOpId: [String: Permit] = [:]
+    private var insideTheUnsignedSnapshot: Set<String> = []
 
     public init() {}
+
+    /// **This amendment line was inside the unsigned photograph** (P3b Task 2,
+    /// ruling 1's second direction).
+    ///
+    /// The same carrier as the governing permit, for the same reason: the fact
+    /// is about ONE LINE, it is known only inside the partition that judged
+    /// it, and it is needed a long way downstream where the bytes are gone. A
+    /// second carrier would be a second opinion about which line was which.
+    ///
+    /// Recorded by the unsigned door alone, and only for a line it judged OLD
+    /// in a file no key can name. An op id that is not here is not evidence of
+    /// anything — it is the ordinary case, every line of every attributable
+    /// file — so `AnnotationOwnership.unplaced` reads this only after it has
+    /// already decided the id is one it cannot place.
+    func recordInsideTheUnsignedSnapshot(_ opId: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        insideTheUnsignedSnapshot.insert(opId)
+    }
 
     /// Record one amendment line's governing permit.
     ///
@@ -168,6 +188,14 @@ public final class AmendmentPermits: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return byOpId
+    }
+
+    /// The amendment lines the unsigned door found at or before the
+    /// photograph, across every file of the document.
+    public var resolvedInsideTheUnsignedSnapshot: Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+        return insideTheUnsignedSnapshot
     }
 }
 

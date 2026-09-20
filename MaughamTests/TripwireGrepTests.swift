@@ -8020,6 +8020,75 @@ final class TripwireGrepTests: XCTestCase {
             + "the same commit, or put the call back. Found: \(found.sorted(by: { $0.key < $1.key }))")
     }
 
+    // MARK: - The unsigned holder is spelled once (P3b Task 2)
+
+    /// **The one file that may spell the unsigned holder, and the one that may
+    /// classify a held line's holder.**
+    ///
+    /// A held line now has three reasons and one storage state, and which of
+    /// the three it is turns entirely on the STRING the walk held it under.
+    /// The unsigned holder is `unsigned:<stream>` — a shape no fingerprint and
+    /// no device id can be — and the whole classification is total only while
+    /// that literal exists in one place: a second spelling is a holder one
+    /// surface recognises and another calls a stranger, which is an Admit…
+    /// sheet offered about a Mac that has no key to admit.
+    ///
+    /// `HeldLines.holder(of:registry:)` is the one classifier for the same
+    /// reason. `Registry.isStrangerDevice` and `TrustTable.isStrangerDevice`
+    /// ASK it (they name `isUnsignedHolder`, which is the allowed spelling
+    /// outside the file), so every admission-worded count narrows in one
+    /// place; a `hasPrefix("unsigned:")` anywhere else is a filter per surface.
+    static let unsignedHolderSpellings = ["\"unsigned:\"", "unsigned:\\("]
+
+    static let heldLinesClassifierFiles: Set<String> = ["HeldLines.swift"]
+
+    private func unsignedHolderOffenders() throws -> [String] {
+        var offenders: [String] = []
+        for root in admissionRoots {
+            offenders.append(contentsOf: try grepSwift(
+                in: root,
+                patterns: Self.unsignedHolderSpellings,
+                allowed: Self.heldLinesClassifierFiles,
+                excludeLine: Self.admissionExcludeLine))
+        }
+        return offenders
+    }
+
+    func test_theUnsignedHolderIsSpelledInHeldLinesOnly() throws {
+        let offenders = try unsignedHolderOffenders()
+        XCTAssertTrue(offenders.isEmpty,
+            "The unsigned holder’s own spelling escaped `HeldLines`. It is the "
+            + "only thing that tells an unsigned stream from a stranger's key, "
+            + "and a second literal fails silently in the direction that offers "
+            + "an Admit… sheet about a Mac with no key. Ask "
+            + "`HeldLines.isUnsignedHolder`/`unsignedHolder(for:)` instead. "
+            + "Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    func test_theUnsignedHolderCensusFiresOnAPlantedOffender() throws {
+        let planted = """
+            // A comment naming "unsigned:" must not fire.
+            func holdIt(_ stream: String) -> String { "unsigned:\\(stream)" }
+            func isIt(_ device: String) -> Bool { device.hasPrefix("unsigned:") }
+            """
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("held-lines-census-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try planted.write(
+            to: dir.appendingPathComponent("Offender.swift"),
+            atomically: true, encoding: .utf8)
+
+        let hits = try grepSwift(
+            in: dir,
+            patterns: Self.unsignedHolderSpellings,
+            allowed: Self.heldLinesClassifierFiles,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(hits.count, 2,
+            "the census must catch both spellings and let the comment through")
+    }
+
     // MARK: - The write-side question has one function (P3a Task 8)
 
     /// The one "may this device's actor write here" answer, and the type it

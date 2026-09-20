@@ -185,7 +185,7 @@ extension Document {
         let classDocId = self.docId
         let classProjectURL = opStore.projectURL
         self.annotationAmendments = opStore.annotationAmendments(
-            permits: amendmentPermits.resolved
+            from: amendmentPermits
         ) {
             OpLogStore.documentClass(forDocId: classDocId, in: classProjectURL)
         }
