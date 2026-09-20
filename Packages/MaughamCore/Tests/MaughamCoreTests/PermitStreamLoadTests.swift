@@ -279,6 +279,57 @@ final class PermitStreamLoadTests: XCTestCase {
         XCTAssertEqual(rows, ["i1"])
     }
 
+    // MARK: - What the load writes down about amendments (fix round 1)
+
+    /// One device's op-log file, chained and sealed by the key that wrote it.
+    @discardableResult
+    private func opsFile(by identity: DeviceIdentity, ops: [Op]) throws -> URL {
+        try writeChained(
+            at: OpLogStore.opLogFileURL(
+                forDocId: docId, deviceSlug: identity.slug, in: projectURL),
+            by: identity, elements: try ops.map { try encoded($0) })
+    }
+
+    private func amendment(_ opId: String, by identity: DeviceIdentity) -> Op {
+        Op(opId: opId, docId: docId, at: Date(timeIntervalSince1970: 30),
+           device: identity.deviceId, session: "s", kind: .annotationWithdraw,
+           changes: [], provenance: .init(sourceAnnotationId: "whatever"))
+    }
+
+    private func collectedPermits() async throws -> [String: Permit] {
+        let permits = AmendmentPermits()
+        _ = try await OpLogStore(
+            projectURL: projectURL, identities: root,
+            state: rootState, cache: cache)
+            .loadDiagnosed(docId: docId, amendmentPermits: permits)
+        return permits.resolved
+    }
+
+    /// **A book with no permit events writes down nothing**, which is what
+    /// keeps the new decode off every existing book's load: with one entry in
+    /// every timeline, as-of-the-line and as-of-today are the same permit, so
+    /// there is nothing a map could tell a deriver that the table cannot.
+    func test_aBookWithNoEventsRecordsNoAmendmentPermitAtAll() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try opsFile(by: sam.author, ops: [amendment("w1", by: sam.author)])
+
+        let permits = try await collectedPermits()
+        XCTAssertTrue(permits.isEmpty, "nothing to say, so nothing is decoded")
+    }
+
+    /// And a book WITH events writes down the permit that governed the line —
+    /// the one the deriver is owed, and never today's.
+    func test_aBookWithEventsRecordsTheAmendmentsGoverningPermit() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("01", kind: .admitted, role: Permit.reviewerRole)
+        try opsFile(by: sam.author, ops: [amendment("w1", by: sam.author)])
+
+        let permits = try await collectedPermits()
+        XCTAssertEqual(permits, ["w1": .reviewer])
+    }
+
     // MARK: - Translations
 
     /// A reviewer may not translate at all: the ladder gives her annotations

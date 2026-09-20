@@ -103,9 +103,10 @@ final class DocumentAmendmentOwnershipTests: XCTestCase {
         return root
     }
 
-    /// A third machine, admitted by the root as a reviewer.
+    /// A third machine, admitted by the root at whichever rung.
     private func makeReviewer(
-        label: String, admittedBy root: DeviceIdentity
+        label: String, admittedBy root: DeviceIdentity,
+        role: String = Permit.reviewerRole
     ) throws -> DeviceIdentity {
         let who = DeviceIdentity.softwareForTesting()
         try RegistryWriter.write(
@@ -117,7 +118,7 @@ final class DocumentAmendmentOwnershipTests: XCTestCase {
         try RegistryWriter.write(
             PersonRecord(
                 person: who.fingerprint, label: label, ownName: label,
-                role: Permit.reviewerRole,
+                role: role,
                 admittedAt: Date(timeIntervalSince1970: 2_500),
                 admittedBy: root.fingerprint),
             signedBy: root, in: projectURL)
@@ -125,11 +126,40 @@ final class DocumentAmendmentOwnershipTests: XCTestCase {
             PermitEvent(
                 event: PermitEvent.mintID(subject: who.fingerprint),
                 kind: .admitted, subject: who.fingerprint,
-                role: Permit.reviewerRole, scope: Permit.bookScope,
+                role: role, scope: Permit.bookScope,
                 pieces: [], mark: [:],
                 at: Date(timeIntervalSince1970: 2_500), by: root.fingerprint),
             signedBy: root, in: projectURL)
         return who
+    }
+
+    /// The root changing somebody's rung, with a mark taken through the
+    /// production door — `seenPositions`, which is what
+    /// `RegistryAdmission.changePermit` will compute (Task 7).
+    private func changeRole(
+        of who: DeviceIdentity, to role: String, by root: DeviceIdentity
+    ) throws {
+        let mark = try OpLogStore.seenPositions(
+            ofDeviceIds: [who.deviceId], in: projectURL,
+            trust: try TrustResolution.resolve(
+                projectURL: projectURL, identities: identities)).streams
+        XCTAssertFalse(mark.isEmpty, "the mark names the file she wrote in")
+        try RegistryWriter.write(
+            PermitEvent(
+                event: PermitEvent.mintID(subject: who.fingerprint),
+                kind: .roleChanged, subject: who.fingerprint,
+                role: role, scope: Permit.bookScope, pieces: [], mark: mark,
+                at: Date(timeIntervalSince1970: 4_000), by: root.fingerprint),
+            signedBy: root, in: projectURL)
+    }
+
+    private func edit(
+        _ opId: String, of target: String, by identity: DeviceIdentity, body: String
+    ) -> Op {
+        Op(opId: opId, docId: Self.docId, at: Date(timeIntervalSince1970: 1_600),
+           device: identity.deviceId, session: "s", kind: .annotationEdit,
+           changes: [],
+           provenance: .init(annotationBody: body, sourceAnnotationId: target))
     }
 
     /// One device's own op-log file: chained from genesis and sealed by the key
@@ -269,6 +299,63 @@ final class DocumentAmendmentOwnershipTests: XCTestCase {
             reopened.annotations(filter: AnnotationFilter(statuses: nil)).isEmpty)
         XCTAssertEqual(reopened.withdrawnAnnotations().map(\.id), [id])
         await reopened.close()
+    }
+
+    // MARK: - As of the line, not as of today (fix round 1)
+
+    /// **A demotion does not reach back.** Sid edits Kim's note while he is an
+    /// author of the whole book — which he may — and is demoted afterwards,
+    /// with a mark past the edit. The edit stands.
+    ///
+    /// Judged by today's permit instead, Sid is now a reviewer with no author
+    /// rights over Kim's note, the edit is dropped, and the note's body
+    /// silently reverts on every device that reads it. That is spec §5's
+    /// forbidden direction one act over.
+    func test_anEditMadeAsAnAuthorSurvivesItsWritersLaterDemotion() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        let kim = try makeReviewer(label: "Kim", admittedBy: root)
+        let sid = try makeReviewer(
+            label: "Sid", admittedBy: root, role: Permit.authorRole)
+
+        try writeFile(by: kim, ops: [note("01AAA", by: kim)])
+        try writeFile(by: sid, ops: [
+            edit("01BBB", of: "01AAA", by: sid, body: "as edited"),
+        ])
+        try changeRole(of: sid, to: Permit.reviewerRole, by: root)
+
+        let doc = try await openDoc(docURL)
+        XCTAssertEqual(
+            doc.annotations(filter: AnnotationFilter(statuses: nil)).first?.body,
+            "as edited",
+            "what he wrote while he could write it stays in the book")
+        await doc.close()
+    }
+
+    /// **And a promotion is not a pardon.** Sid withdraws Kim's note while he
+    /// is a reviewer — which he may not — and is promoted afterwards, with a
+    /// mark past the withdrawal. It stays ignored.
+    ///
+    /// Judged by today's permit instead, the withdrawal he was refused becomes
+    /// honoured the day he is promoted, which makes the refusal worth nothing:
+    /// do it anyway, ask later.
+    func test_aWithdrawalRefusedToAReviewerIsNotPardonedByHisPromotion() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        let kim = try makeReviewer(label: "Kim", admittedBy: root)
+        let sid = try makeReviewer(label: "Sid", admittedBy: root)
+
+        try writeFile(by: kim, ops: [note("01AAA", by: kim)])
+        try writeFile(by: sid, ops: [withdrawal("01BBB", of: "01AAA", by: sid)])
+        try changeRole(of: sid, to: Permit.authorRole, by: root)
+
+        let doc = try await openDoc(docURL)
+        XCTAssertEqual(
+            doc.annotations(filter: AnnotationFilter(statuses: nil)).map(\.id),
+            ["01AAA"],
+            "a promotion is not a pardon")
+        XCTAssertTrue(doc.withdrawnAnnotations().isEmpty)
+        await doc.close()
     }
 
     /// **Neutrality**: with no permit events in the book, every amendment

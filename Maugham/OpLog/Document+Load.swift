@@ -450,7 +450,13 @@ extension Document {
             pendingFailure = .init(name: name, reason: reason)
         }
 
-        let loaded = try await opStore.loadDiagnosed(docId: docId)
+        // P3a Task 6 fix round 1: the load collects the permit each amendment
+        // line was written UNDER, as the partition judged it — a permit is
+        // evaluated as of the line and never as of today, and the deriver has
+        // no way to ask that question once the bytes are parsed.
+        let amendmentPermits = AmendmentPermits()
+        let loaded = try await opStore.loadDiagnosed(
+            docId: docId, amendmentPermits: amendmentPermits)
         var ops = loaded.ops
 
         // Forensics (audit 0.6 / Sweep 6): any op-log line that failed to decode
@@ -636,7 +642,9 @@ extension Document {
         // derivation honours. Resolved here because the table `localWritePermit`
         // warmed is still warm; the projection it feeds is rebuilt at every
         // burst boundary and must not reach for a register of its own.
-        doc.annotationAmendments = opStore.annotationAmendments {
+        doc.annotationAmendments = opStore.annotationAmendments(
+            permits: amendmentPermits.resolved
+        ) {
             // `OpLogStore`'s own door rather than `Document.documentClass`,
             // which is the same function behind a `@MainActor` extension this
             // `@Sendable` closure cannot reach.

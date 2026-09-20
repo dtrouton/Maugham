@@ -307,11 +307,17 @@ public final class OpLogStore {
     ///
     /// A project with no register answers `honourEverything`, which is the
     /// pre-P3a behaviour exactly.
+    /// `permits` is what the LOAD collected — the permit each amendment line
+    /// was judged under, as of that line (`AmendmentPermits`). Empty is the
+    /// honest answer for a book with no events and for a caller that did not
+    /// ask, and an amendment with no entry falls back to the signer's current
+    /// permit, which is what those cases mean.
     public func annotationAmendments(
+        permits: [String: Permit] = [:],
         documentClass: @escaping @Sendable () -> DocumentClass
     ) -> AnnotationAmendments {
         guard let table = registerTable() else { return .honourEverything }
-        return .judged(by: table, class: documentClass)
+        return .judged(by: table, permits: permits, class: documentClass)
     }
 
     /// Lines this device has appended to each file since that file's last seal.
@@ -353,8 +359,14 @@ public final class OpLogStore {
     /// caller can write a forensic record (`IntegrityQuarantine`) instead of
     /// dropping it silently. `load(docId:)` delegates here and discards the
     /// diagnostics, so existing callers are unaffected.
-    public func loadDiagnosed(docId: String)
-        async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: OpLogProvenance)
+    ///
+    /// `amendmentPermits` is P3a Task 6's second product and is **opt-in**: a
+    /// caller that means to judge annotation amendments as of their own line
+    /// hands one over and reads it afterwards; everybody else passes nothing
+    /// and nothing is recorded. See `AmendmentPermits`.
+    public func loadDiagnosed(
+        docId: String, amendmentPermits: AmendmentPermits? = nil
+    ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: OpLogProvenance)
     {
         let urls = Self.opLogFileURLs(forDocId: docId, in: projectURL)
         guard !urls.isEmpty else { return ([], ParseDiagnostics(), OpLogProvenance()) }
@@ -364,7 +376,8 @@ public final class OpLogStore {
         // once however many per-actor files the history is spread across, and
         // not at all in a book with no permit events.
         let permit = Self.permitContext(
-            forDocId: docId, in: projectURL, trust: table)
+            forDocId: docId, in: projectURL, trust: table,
+            amendments: amendmentPermits)
         var merged: [Op] = []
         var skipped: [ParseDiagnostics.SkippedLine] = []
         var files: [FileProvenance] = []
@@ -1884,7 +1897,8 @@ public final class OpLogStore {
         identities: LocalIdentities? = .current,
         state: OpLogDeviceState? = .shared,
         trust: TrustTable? = nil,
-        statements: [Statement]? = nil
+        statements: [Statement]? = nil,
+        amendmentPermits: AmendmentPermits? = nil
     ) throws -> [Op] {
         // Resolved here when the caller did not hand one over, so this reader
         // and the coordinated one hold a document to be made of the same ops.
@@ -1897,7 +1911,8 @@ public final class OpLogStore {
         // context for the document, so its class is resolved at most once
         // however many files its history is spread over.
         let permit = permitContext(
-            forDocId: docId, in: projectURL, trust: table, statements: statements)
+            forDocId: docId, in: projectURL, trust: table, statements: statements,
+            amendments: amendmentPermits)
         var ops: [Op] = []
         for url in opLogFileURLs(forDocId: docId, in: projectURL) {
             let data: Data

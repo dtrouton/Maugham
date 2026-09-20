@@ -62,12 +62,76 @@ public struct PermitContext: Sendable {
     /// in a piece outside her scope.
     public let unowned: @Sendable () -> PermitPartition.UnownedPiece
 
+    /// **Where the governing permit of each amendment line is written down**
+    /// (P3a Task 6, fix round 1), or nil where no caller asked for it.
+    ///
+    /// It rides in the context rather than beside it because the context is
+    /// already threaded through `classify` to every file of a document, and the
+    /// answer is a fact about the DOCUMENT gathered file by file — the same
+    /// reason the other two halves are here.
+    public let amendments: AmendmentPermits?
+
     public init(
         documentClass: @escaping @Sendable () -> DocumentClass,
-        unowned: @escaping @Sendable () -> PermitPartition.UnownedPiece
+        unowned: @escaping @Sendable () -> PermitPartition.UnownedPiece,
+        amendments: AmendmentPermits? = nil
     ) {
         self.documentClass = documentClass
         self.unowned = unowned
+        self.amendments = amendments
+    }
+}
+
+/// **The permit each own-annotation amendment was written under** — the
+/// partition's second product (P3a Task 6, fix round 1).
+///
+/// *A reviewer may edit or withdraw their OWN annotations* is judged where the
+/// annotations are derived, long after the bytes have been parsed and the
+/// partition's per-line judgements thrown away. Asking the signer's permit
+/// again at that point means asking today's, and this milestone has tripped on
+/// that twice already: by today's permit a **demotion reaches back** (an author
+/// edits a reviewer's note body, is later demoted, and her honest edit is
+/// silently un-done on every device) and a **promotion pardons** (a reviewer's
+/// ignored withdrawal of somebody else's note becomes honoured the day she is
+/// promoted).
+///
+/// So the permit travels. The partition already computes the governing entry
+/// for every line it judges; where that line is an `annotationEdit` or an
+/// `annotationWithdraw`, its op id and its permit are written here, and the
+/// load hands the merged map to `AnnotationAmendments.judged`.
+///
+/// **Empty for every existing book**, because nothing is recorded unless the
+/// book has permit events at all — and an amendment with no entry falls back to
+/// exactly what it did before, so an unjudged file (legacy, unsigned, a book
+/// with no register) is untouched.
+///
+/// A class because it is filled by a `classify` per file and read once by the
+/// load; `@unchecked Sendable` over one lock, which is `PermitMemo`'s own shape
+/// in this file and is honest for the same reason — the one piece of state is
+/// behind the one lock.
+public final class AmendmentPermits: @unchecked Sendable {
+    private let lock = NSLock()
+    private var byOpId: [String: Permit] = [:]
+
+    public init() {}
+
+    /// Record one amendment line's governing permit.
+    ///
+    /// **First writer wins**, which matters only where a document's files
+    /// somehow carry the same op id twice: the merge itself is first-wins by
+    /// opId (`mergeSortedDedup`), so the permit and the op that survives are
+    /// chosen by the same rule.
+    func record(_ opId: String, _ permit: Permit) {
+        lock.lock()
+        defer { lock.unlock() }
+        if byOpId[opId] == nil { byOpId[opId] = permit }
+    }
+
+    /// What was gathered, across every file of the document.
+    public var resolved: [String: Permit] {
+        lock.lock()
+        defer { lock.unlock() }
+        return byOpId
     }
 }
 
@@ -305,7 +369,8 @@ extension OpLogStore {
     /// about across isolation.
     nonisolated public static func permitContext(
         forDocId docId: String, in projectURL: URL, trust: TrustTable?,
-        statements: [Statement]? = nil
+        statements: [Statement]? = nil,
+        amendments: AmendmentPermits? = nil
     ) -> PermitContext {
         // One memo each, so a document spread over four actor files resolves
         // its class once and answers §4.5 once (fix round 1, I1 / minor (d)).
@@ -324,6 +389,7 @@ extension OpLogStore {
                 unownedMemo {
                     unownedPiece(forDocId: docId, in: projectURL, trust: trust)
                 }
-            })
+            },
+            amendments: amendments)
     }
 }

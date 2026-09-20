@@ -235,9 +235,15 @@ extension ProjectStore {
             // read — opening that document still refuses loudly. It is not
             // silent, though: the id goes into `unreadableDocIds` so a count
             // surface can render "unknown" rather than a number that is short.
+            // P3a Task 6 fix round 1: the queue judges an amendment as of its
+            // own line too, off the permits this walk's own classification
+            // recorded — one collector per document, because the map is keyed
+            // by op id and two chapters must not share one.
+            let amendmentPermits = AmendmentPermits()
             guard let ops = try? OpLogStore.loadSyncMerged(
                 forDocId: item.id, in: url, trust: trust,
-                statements: manifest.statements)
+                statements: manifest.statements,
+                amendmentPermits: amendmentPermits)
             else {
                 unreadable.append(item.id)
                 continue
@@ -255,9 +261,11 @@ extension ProjectStore {
             // two surfaces disagreeing about whether a note is still there.
             annotations.append(contentsOf: AnnotationAggregation.allAnnotations(
                 ops: ops, paragraphs: derived.paragraphs,
-                amendments: .judged(by: trust, class: {
-                    DocumentClass.resolve(docId: item.id, statements: statements)
-                }))
+                amendments: .judged(
+                    by: trust, permits: amendmentPermits.resolved,
+                    class: {
+                        DocumentClass.resolve(docId: item.id, statements: statements)
+                    }))
                 .map { ProjectAnnotation(docId: item.id, annotation: $0) })
         }
 

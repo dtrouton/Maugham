@@ -144,6 +144,7 @@ public enum PermitPartition {
         trust: TrustTable,
         settledByKey: String? = nil,
         decoding: WrittenDecoder = writtenOp,
+        recordingAmendmentsInto amendments: AmendmentPermits? = nil,
         unowned: () -> UnownedPiece
     ) -> OpLogChain.Verification {
         guard judgesAnything(trust) else { return verification }
@@ -166,6 +167,13 @@ public enum PermitPartition {
         // the whole book pays for neither.
         var resolvedClass: DocumentClass?
         var unownedAnswer: UnownedPiece?
+        // **Is the governing permit of an amendment line worth writing down?**
+        // (fix round 1.) Only where the book HAS permit events: with none,
+        // every timeline is one entry — author of the whole book — so the
+        // answer a deriver would look up is the answer it already gets by
+        // asking the table today, and recording it would put a decode on every
+        // line of every load for nothing. See `AmendmentPermits`.
+        let recordAmendments = amendments != nil && trust.hasPermitEvents
 
         for (index, line) in lines.enumerated() {
             guard isApplied(line), line.kind == .op,
@@ -179,8 +187,20 @@ public enum PermitPartition {
             // to parse again — nor where the stream sits. `Permit
             // .allowsEverything` is the table's own answer, asked rather than
             // restated; see it for what it does with an unreadable kind.
-            if entry.permit.allowsEverything(actor: actor) { continue }
+            //
+            // **A book with events pays the decode anyway**, because the line
+            // whose permit most needs recording is exactly one this skip would
+            // step over: an AUTHOR's edit of somebody else's note is
+            // `allowsEverything`, and it is her later demotion that would
+            // otherwise reach back and un-do it.
+            let skip = entry.permit.allowsEverything(actor: actor)
+            if skip, !recordAmendments { continue }
             guard let what = decoding(line.bytes) else { continue }
+            if recordAmendments, Permit.group(of: what) == .ownAnnotation,
+               let opId = RevocationSplit.opId(ofLine: line.bytes) {
+                amendments?.record(opId, entry.permit)
+            }
+            if skip { continue }
             let documentClass = resolvedClass ?? documentClass()
             resolvedClass = documentClass
             switch entry.permit.allows(what, in: documentClass, actor: actor) {
@@ -251,7 +271,9 @@ public enum PermitPartition {
             streamKey: stream.key, deviceSlug: stream.deviceSlug,
             fileSegmentDigest: fileSegmentDigest,
             trust: judge.trust, settledByKey: settledByKey,
-            decoding: judge.decoding, unowned: judge.context.unowned)
+            decoding: judge.decoding,
+            recordingAmendmentsInto: judge.context.amendments,
+            unowned: judge.context.unowned)
     }
 
     /// §4.5's pass 1: **did a book author apply a manuscript-text line here?**

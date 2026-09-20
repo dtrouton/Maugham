@@ -62,12 +62,10 @@ public enum AnnotationOwnership {
     ///   shown to have written, is not honoured.
     ///
     /// **`signerPermit` is the caller's to resolve**, because only the caller
-    /// knows which permit it means. The production caller
-    /// (`AnnotationAmendments.judged`) passes the signer's permit **in force
-    /// now** rather than as of the amendment's own line: an `Op` carries no
-    /// chain position, and the positions the partition judged by are discarded
-    /// when the bytes are parsed. The cost of that is stated where it is paid
-    /// — see `AnnotationAmendments.judged`.
+    /// knows which permit it means — and the production caller
+    /// (`AnnotationAmendments.judged`) passes the permit **as of the amending
+    /// line**, carried out of the partition that judged it. See that function
+    /// for why today's permit is the wrong one and what it costs.
     ///
     /// **The unplaced arm is spelled here AND in `AnnotationAmendments.judged`**,
     /// which asks the same question first because it needs the signer's key to
@@ -134,26 +132,31 @@ public struct AnnotationAmendments: Sendable {
     /// `OpLogStore.localWritePermit`'s own shape, for its own reason, and it
     /// is what keeps a book with no permit events paying nothing.
     ///
-    /// **The stated limit.** The permit asked is the signer's **current** one,
-    /// not the one in force as of the amending line. An `Op` carries no chain
-    /// position and the judgements the partition made are gone by the time the
-    /// bytes are parsed, so there is nothing honest to ask "as of the line"
-    /// with. The two consequences are both small and both about note bodies
-    /// rather than manuscript words: a demoted author's past amendment of
-    /// somebody else's note stops being honoured (the note stands as it was —
-    /// no words lost, and the op is still in the log), and a promoted
-    /// reviewer's past amendment of somebody else's note starts being
-    /// honoured. Her own notes are unaffected in both directions, because
-    /// same-person does not depend on a permit at all.
+    /// **`permits` is the permit AS OF THE LINE**, carried out of the partition
+    /// that judged it (`AmendmentPermits`) and keyed by the amending op's id.
+    /// A permit is evaluated as of the line and never as of today — both ways
+    /// of getting that wrong are silent, and this rule has two of them: by
+    /// today's permit a demotion reaches back and un-does an author's honest
+    /// edit of somebody else's note, and a promotion pardons a reviewer's
+    /// withdrawal of one.
+    ///
+    /// **An op with no entry falls back to the signer's current permit**, which
+    /// is what this did before the map existed and is right for exactly the
+    /// cases that produce no entry: a book with no permit events (where every
+    /// timeline is one entry, so current *is* as-of-the-line), and a line no
+    /// partition judged — legacy history, an unsigned device, a book with no
+    /// register. None of those has a past permit to be wrong about.
     public static func judged(
         by trust: TrustTable,
+        permits: [String: Permit] = [:],
         class documentClass: @escaping @Sendable () -> DocumentClass
     ) -> AnnotationAmendments {
         let memo = PermitMemo<DocumentClass>()
         return AnnotationAmendments { amendment, creation in
             guard let signer = trust.deviceKey(forDeviceId: amendment.device)
             else { return true }
-            let permit = trust.timeline(forSealKey: signer.key).current
+            let permit = permits[amendment.opId]
+                ?? trust.timeline(forSealKey: signer.key).current
             // The same skip the partition makes, and for the same reason: a
             // permit that can refuse nothing cannot refuse this either, so the
             // manifest is never read for it.
