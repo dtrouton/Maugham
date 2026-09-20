@@ -607,21 +607,55 @@ extension Permit {
     /// other two `.taskCreate` emitters are the writer's own pane acts, reached
     /// only from editor surfaces), so both are load emissions by KIND alone.
     /// The pending-recovery folds and the anchor burst are `.typingBurst`, and
-    /// **none of the three writes a `synthesisSource`** — they are
-    /// indistinguishable on disk from real typing, so there is no discriminator
-    /// to write the rule against and it is not widened to every `typingBurst`.
-    /// An assistant-signed ordinary `typingBurst` therefore stays REFUSED,
-    /// which is the constitution's sentence about MCP and the manuscript.
+    /// the rule is not widened to reach them.
+    ///
+    /// **Since P3b Task 3 those three DO write a `synthesisSource`**
+    /// (`.pendingRecovery`, `.anchorSplice`) — and the rule is still not
+    /// widened, which is the point worth stating rather than the change. Two
+    /// reasons, either sufficient. It only helps lines written AFTER it ships,
+    /// so every v0.37–v0.40 line the census is about is still unlabelled; and a
+    /// field the assistant writes is a field the assistant can write, so a rule
+    /// keyed on it would make *MCP never mutates manuscript text* rest on the
+    /// assistant's own good manners. An assistant-signed ordinary `typingBurst`
+    /// therefore stays REFUSED, which is the constitution's sentence about MCP
+    /// and the manuscript. The label is provenance — it is what `LoadBurstCensus`
+    /// reads and what History can say — and it reaches no table: `PermitPartition
+    /// .writtenOp` decodes a KIND and nothing else.
     ///
     /// **Nil stays nil.** A key this register cannot attribute names no actor,
     /// and handing it the widest of the four would be the one mistake that
     /// turns the table into decoration (see `allows`). Widening nobody to the
     /// author is not a grandfather, it is a hole.
+    ///
+    /// **And the waiver is the two DOORS' actors, not every actor that is not
+    /// the author** (P3b Task 3). What this rule is for is a document opened
+    /// through a door that is not the writer's editor: MCP, which loads
+    /// `.assistant`, and the translation pipeline, which loads `.translator`.
+    /// Those are the only two actors a v0.37–v0.40 load could have signed an
+    /// emission with, because they are the only two a `Document.load` names.
+    /// `.maugham` is not a door — it is the app acting on nobody's instruction,
+    /// and the single thing the table lets it sign is the task rebalance's
+    /// `taskPriorityChange`. Waiving the actor for a `.maugham`-signed
+    /// `taskCreate` would hand the app's own key a row it has never held, on
+    /// the strength of a shape nothing has ever written; judged as `.maugham`'s
+    /// it is refused, which is the honest answer to a line that should not
+    /// exist.
     public static func actorJudging(
         _ what: Written, signedBy actor: DeviceActor?
     ) -> DeviceActor? {
-        guard let actor, actor != .author, isALoadEmission(what) else { return actor }
+        guard let actor, isADoorTheLoadIsOpenedThrough(actor),
+              isALoadEmission(what) else { return actor }
         return .author
+    }
+
+    /// The two actors a `Document.load` can name that are not the writer's own
+    /// hand — spelled as an exhaustive switch for `isALoadEmission`'s reason: a
+    /// fifth actor has to be decided here rather than inherited.
+    private static func isADoorTheLoadIsOpenedThrough(_ actor: DeviceActor) -> Bool {
+        switch actor {
+        case .assistant, .translator: return true
+        case .author, .maugham: return false
+        }
     }
 
     /// **Is this a line the load path emits on its own account?** — the two

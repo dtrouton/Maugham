@@ -379,6 +379,16 @@ enum AdmissionDecision {
                 + "to note where every unsigned Mac’s writing had got to — otherwise "
                 + "the limit would reach back through work already in the book. Try "
                 + "again in a moment."
+        case .manifestNotGated(let reason, let act):
+            // The gate runs BEFORE the event, so nothing was written — and the
+            // sentence has to say why the writer should care that a *version
+            // number* could not be saved, because on its face that is the
+            // dullest failure in the app.
+            return "Nothing was changed. Before this book can limit what a device "
+                + "may write, it has to be marked as needing this version of "
+                + "Maugham — otherwise an older copy would go on applying writing "
+                + "this book has set aside. Saving that mark failed, so "
+                + "\(act.phrase) did not happen: \(reason)"
         }
     }
 }

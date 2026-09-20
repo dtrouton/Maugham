@@ -8204,6 +8204,93 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - MCP emits no task op (P3b Task 3, Census A)
+
+    /// Every production emitter of a task op, and the wire kind they all carry.
+    ///
+    /// The seven names are `Document+Tasks.swift`'s five and
+    /// `ProjectStore+Tasks.swift`'s two; `kind: .task` is the prefix every task
+    /// `OpKind` shares, so a new emitter that spells its own `Op(...)` rather
+    /// than calling one of them is caught too.
+    static let taskOpEmitterPatterns = [
+        "appendTaskOpInternal",
+        "createPaneTask(",
+        "setTaskStatus(",
+        "setTaskPriority(",
+        "archiveTask(",
+        "createProjectPaneTask(",
+        "appendProjectTaskOp(",
+        "kind: .task",
+    ]
+
+    /// **Nothing under `Maugham/MCP` emits a task op** (P3b Task 3, Census A).
+    ///
+    /// `Permit.isALoadEmission` names `taskCreate` a load emission **by KIND
+    /// alone**, and judges it under the person's own permit whichever actor
+    /// signed it. That is right today because the one `taskCreate` a non-author
+    /// actor can reach is the anchor breadcrumb `Document.rebuildTasksCache`
+    /// writes — the other two emitters are the writer's own pane acts, reached
+    /// only from editor surfaces — so *signed by the assistant* and *emitted by
+    /// the load* are the same set.
+    ///
+    /// Give MCP a tool that creates a task and they stop being the same set,
+    /// silently: Claude's own `taskCreate` would then be waved through the
+    /// actor row on the strength of a rule written for the load's housekeeping,
+    /// in a book where a reviewer is meant to sign no task anywhere. Nothing
+    /// goes red; the row simply stops meaning what it says.
+    ///
+    /// The census is the gate. A tool that genuinely should write a task is a
+    /// decision about `isALoadEmission`, made here first.
+    func test_nothingUnderMCPEmitsATaskOp() throws {
+        let mcp = sourceDir.appendingPathComponent("MCP", isDirectory: true)
+        let offenders = try grepSwift(
+            in: mcp,
+            patterns: Self.taskOpEmitterPatterns,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A file under Maugham/MCP emits a task op. `Permit.isALoadEmission` "
+            + "waives the actor narrowing for `taskCreate` by KIND, which is "
+            + "safe only while the load path is the one non-author emitter of "
+            + "one. Decide that rule before adding the tool. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the census above: it is not passing because the patterns
+    /// match nothing. A planted emitter is caught by its verb AND by the wire
+    /// kind; a comment naming either is not.
+    func test_theTaskOpEmitterCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-mcp-taskop-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may say appendTaskOpInternal and kind: .taskCreate freely.
+        struct CreateTaskTool: MCPTool {
+            func run() async throws {
+                doc.createPaneTask(body: body, kind: .checkbox)
+                let op = Op(opId: id, docId: docId, at: Date(), device: d,
+                            session: s, kind: .taskCreate, changes: [])
+                doc.appendTaskOpInternal(op)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("CreateTaskTool.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: Self.taskOpEmitterPatterns,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(offenders.count, 3,
+            "Self-check: the pane verb, the hand-built kind and the internal "
+            + "append should each be caught, and not the comment. Caught:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(
+            offenders.allSatisfy { $0.hasPrefix("CreateTaskTool.swift:") },
+            offenders.joined(separator: "\n"))
+    }
+
     // MARK: - CONTROL for the five P3a censuses
 
     /// The same patterns and the same exclusions, over planted files: every

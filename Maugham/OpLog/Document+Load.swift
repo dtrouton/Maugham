@@ -525,11 +525,18 @@ extension Document {
             // with `sequence: nil` so the deriver carries the last explicit
             // sequence forward instead of reasserting a superseded order.
             let recoveredSequence = basisStale ? [] : pending.sequence
+            // **It says what it is** (P3b Task 3, handoff ruling 3). This burst
+            // is the LOAD's own — a crashed session's buffer, folded in before
+            // the writer has touched anything — and until this label it was
+            // indistinguishable on disk from a person typing. Provenance only:
+            // `PermitPartition.writtenOp` decodes a KIND and nothing else, so
+            // the field cannot reach the permission table from either side.
             let recovered = Op(
                 opId: ULID.generate(), docId: docId, at: Date(),
                 device: emissionDevice, session: session, kind: .typingBurst,
                 changes: pending.snapshot(),
-                sequence: recoveredSequence.isEmpty ? nil : recoveredSequence)
+                sequence: recoveredSequence.isEmpty ? nil : recoveredSequence,
+                provenance: Op.Provenance(synthesisSource: .pendingRecovery))
             try await opStore.append(recovered)
             try await pending.clear()
             ops.append(recovered)
@@ -542,11 +549,16 @@ extension Document {
             // order predates ops it never saw — skip, so a clean-quit
             // `{sequence, changes: []}` mirror (Issue 2a already deletes it) or a
             // peer's while-closed delete never reasserts a superseded order.
+            // The same cause, its other half: the buffer's ORDER survived and
+            // its text did not. One `SynthesisSource` for both arms — what a
+            // reader needs to know is *the load wrote this*, and which half
+            // survived is already legible from `changes` being empty.
             let recovered = Op(
                 opId: ULID.generate(), docId: docId, at: Date(),
                 device: emissionDevice, session: session, kind: .typingBurst,
                 changes: [],
-                sequence: pending.sequence)
+                sequence: pending.sequence,
+                provenance: Op.Provenance(synthesisSource: .pendingRecovery))
             try await opStore.append(recovered)
             try await pending.clear()
             ops.append(recovered)

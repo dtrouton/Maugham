@@ -93,6 +93,23 @@ public final class DocumentStore {
     /// archive). See `ManifestEcho` + findings 1.2 / O2.
     private var lastWrittenManifest: ManifestEcho?
 
+    /// The `ProjectStore` looking at this project, where one is. Set by
+    /// `ProjectWindow` at open time, beside `ProjectStore.documentStore`, and
+    /// weak for the same reason: the window owns them both and neither must
+    /// outlive it.
+    ///
+    /// **One reader, and it is a cache refresh rather than a second writer**
+    /// (P3b Task 3). `ProjectStore` holds the manifest and re-encodes its own
+    /// copy on every structural save, and `schemaVersion` is a DECODED field
+    /// carried through that round trip — so the schema gate the first narrowing
+    /// writes (`gateOldBuildsOut`) would be undone by the writer's next chapter
+    /// rename if the live store went on believing the old number. The gate
+    /// writes the bytes through this store's own coordinated door and then
+    /// tells the open store what disk now says. Nil is a real and ordinary
+    /// state — a headless store, a transient one, a test — and the gate is on
+    /// disk either way.
+    weak var projectStore: ProjectStore?
+
     /// Tracks the active writing session in-memory. Driven by
     /// `recordSessionActivity(...)` and the idle timer below; flushed on
     /// app quit via `flushSessionOnQuit()`.
@@ -1087,6 +1104,12 @@ public final class DocumentStore {
         // admission this build's sheet can make — sweeps nothing and writes
         // no such field.
         let unsigned = try await sweptUnsignedSnapshot(for: permit, act: .admission)
+        // **And it gates older builds out of the book, before the event**
+        // (P3b Task 3). Letting somebody in as a reviewer narrows the book
+        // exactly as demoting somebody does, so it owes the same gate — and a
+        // book-author admission, which is every admission this build's sheet
+        // can make, never reaches it and leaves the manifest untouched.
+        try await gateOldBuildsOut(before: permit, act: .admission)
         let record = try await Task.detached(priority: .userInitiated) {
             try RegistryAdmission.admit(
                 device: fingerprint, label: label, ownName: ownName,

@@ -138,9 +138,89 @@ extension DocumentStore {
         // silently, and the direction it moves it in is *more set aside than
         // the writer asked for*.
         let mark = try await sweptPermitMark(forPerson: fingerprint)
+        let unsigned = try await sweptUnsignedSnapshot(for: permit)
+        // Gate, then event, then record (P3b Task 3).
+        try await gateOldBuildsOut(before: permit)
         return try await changePermit(
-            person: fingerprint, to: permit, mark: mark,
-            unsigned: try await sweptUnsignedSnapshot(for: permit))
+            person: fingerprint, to: permit, mark: mark, unsigned: unsigned)
+    }
+
+    /// **Shut older builds out of this book before it is narrowed** (P3b
+    /// Task 3's MUST) — and do nothing at all to a book that is not being
+    /// narrowed.
+    ///
+    /// ## Why a version number is load-bearing here
+    ///
+    /// The moment a person in this book is anything other than an author of the
+    /// whole of it, reading the book means judging every line against a permit.
+    /// A build without a permit layer — v0.40 and everything before it — cannot
+    /// do that. It applies the reviewer's refused text, folds it into the
+    /// manuscript, and its own next burst re-asserts those words in ITS file
+    /// under ITS book-author key, which every signed Mac then has to accept.
+    /// The writer's demotion is undone by the oldest machine in the house, with
+    /// nothing anywhere saying it happened. `ProjectManifest
+    /// .decodeGuardingSchema` is the only thing that can stop that, and the way
+    /// it stops it is by refusing the project.
+    ///
+    /// ## The order, and why this way round
+    ///
+    /// Gate → event → record. A crash after the gate and before the event
+    /// leaves a **gated, un-narrowed book**: one old build loses one project it
+    /// could still open yesterday, which is a nuisance the writer can see and
+    /// ask about. The reverse order leaves a **narrowed, ungated book**, which
+    /// is the defect above with nothing to say so. If the gate cannot be
+    /// written the verb refuses (`RegistryAdmissionError.manifestNotGated`) and
+    /// no event exists.
+    ///
+    /// ## What it touches
+    ///
+    /// Only the number, and only upwards, and only once: a book already at this
+    /// build's schema is left byte-identical, so the SECOND narrowing writes no
+    /// manifest at all — and a non-narrowing admission, revocation, retirement
+    /// or rename never gets here. The bytes go through `writeManifest`, the
+    /// store's own coordinated door, with `ProjectManifest`'s own encoder (never
+    /// hand-written JSON — tripwire 14's neighbourhood).
+    ///
+    /// ## The in-memory copy
+    ///
+    /// `ProjectStore` holds the manifest and re-encodes ITS copy on every
+    /// structural save, and `schemaVersion` is a DECODED field carried through
+    /// that round trip rather than re-stamped. So a gate written behind the
+    /// live store's back is undone by the writer's next chapter rename. The
+    /// open store is told what disk now says — a cache refresh after the one
+    /// write, not a second writer — and it is a weak, optional reference for
+    /// exactly `ProjectStore.documentStore`'s reason: a headless or transient
+    /// store has none, and its gate is on disk where it belongs whether or not
+    /// anybody is looking at the project.
+    /// Internal rather than private for `sweptUnsignedSnapshot`'s reason: the
+    /// admission door lives one file over and is the other narrowing verb.
+    func gateOldBuildsOut(
+        before permit: Permit, act: RegistryAdmissionError.Act = .permitChange
+    ) async throws {
+        guard permit.narrows else { return }
+        do {
+            let manifest = try ProjectManifest.decodeGuardingSchema(
+                try await readManifest())
+            if manifest.schemaVersion < ProjectManifest.currentSchemaVersion {
+                var raised = manifest
+                raised.schemaVersion = ProjectManifest.currentSchemaVersion
+                try await writeManifest(
+                    try ProjectManifest.makeEncoder().encode(raised))
+            }
+        } catch {
+            throw RegistryAdmissionError.manifestNotGated(
+                reason: error.localizedDescription, act: act)
+        }
+        // On BOTH paths, including the one that wrote nothing: a book already
+        // gated by another Mac, whose gate synced in after this window opened,
+        // leaves the same stale in-memory number behind the same next save.
+        // Never downwards — a live store at a HIGHER number than this build
+        // writes is a newer build's manifest, and lowering it is the forward-
+        // data-loss `decodeGuardingSchema` exists to refuse.
+        if let live = projectStore,
+           live.manifest.schemaVersion < ProjectManifest.currentSchemaVersion {
+            live.manifest.schemaVersion = ProjectManifest.currentSchemaVersion
+        }
     }
 
     /// **The photograph, where this act is the kind that needs one** (P3b
@@ -323,6 +403,12 @@ extension DocumentStore {
         // was first narrowed. Taken here, with the marks, so an unreadable
         // folder refuses before a byte is written.
         let unsigned = try await sweptUnsignedSnapshot(for: permit)
+        // **Gated ONCE, first, for the whole act** (P3b Task 3). The gate is
+        // about the BOOK rather than about a record, so the loop below must not
+        // reach it: the second record's gate would be a no-op anyway, and a
+        // manifest that could not be written must refuse before the first
+        // record moves rather than half way through three of them.
+        try await gateOldBuildsOut(before: permit)
 
         var moved: [PersonRecord] = []
         for record in records {

@@ -1326,15 +1326,29 @@ next read.
   is judged under the person's permit without the actor narrowing — permanently,
   because a time-boxed rule would be un-applied by the first reviewer P3b
   creates. The other three load emissions — both pending-recovery folds and the
-  anchor splice — are `typingBurst` and **none of them writes a
-  `synthesisSource`**, so nothing on the line distinguishes them from a person
-  typing. Widening the rule to every `typingBurst` would say MCP may move the
+  anchor splice — are `typingBurst`, and on every RELEASED build nothing on the
+  line distinguishes them from a person typing (they wrote no
+  `synthesisSource`; see the amendment below). Widening the rule to every `typingBurst` would say MCP may move the
   manuscript after all, so an assistant-signed ordinary burst stays refused. A
   disk census of every project this developer's Mac can reach (23 projects, 194
   tails, 5 `.mzseg` segments, 11,064 lines) found no such line; the exposure is
   a shape this format allows rather than one anybody has been observed to hold.
   The close, if one is ever wanted, is a `synthesisSource` on those three
   emissions, which only helps lines written AFTER it ships.
+  **Amended by P3b Task 3 (2026-09-20), and the amendment does not move the
+  rule.** Those three emissions now DO carry a `synthesisSource`
+  (`.pendingRecovery`, `.anchorSplice`), written prospectively under handoff
+  ruling 3, and `Permit.isALoadEmission` is still NOT widened to `typingBurst`
+  — two reasons, either sufficient: the label only reaches lines written after
+  it ships, so every released-build line the census is about is still
+  unlabelled; and a field the assistant writes is a field the assistant can
+  write, so a rule keyed on it would rest on the assistant's good manners. The
+  label is provenance, read by `LoadBurstCensus` and History, and it reaches no
+  table (`PermitPartition.writtenOp` decodes a KIND and nothing else). The
+  census is kept rather than thrown away — `scripts/census-load-bursts.sh` over
+  `LoadBurstCensus` — and is on the P3c release checklist for every Mac that
+  has opened a book before the release. The two `SynthesisSource` cases are
+  half of why `ProjectManifest.currentSchemaVersion` is 9.
 - **A downgrade takes the foreign-stream memory with it, and the sweep guard
   goes quiet with it.** A Mac that has been down to an older build and back
   expects nothing of any stream until it has loaded each one again, so for that

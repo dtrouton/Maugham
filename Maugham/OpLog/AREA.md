@@ -1204,10 +1204,14 @@ the sentence her own hand's line would get. It is NOT gated on
 `hasNarrowingPermits`, because a grandfather switched off by the first reviewer
 P3b creates is the same defect arriving later. **The three other load emissions
 are not covered and that is a stated stop**: both pending-recovery folds and
-the anchor splice are `typingBurst` and none of them writes a
-`synthesisSource`, so on disk they are indistinguishable from a person typing.
-An assistant-signed ordinary burst therefore stays refused, which is the
-constitution's sentence about MCP and the manuscript. A disk census over every
+the anchor splice are `typingBurst`, and an assistant-signed ordinary burst
+stays refused, which is the constitution's sentence about MCP and the
+manuscript. **P3b Task 3 gave those three a `synthesisSource` of their own**
+(`.pendingRecovery`, `.anchorSplice`) and deliberately left the rule where it
+was: the label only reaches lines written after it ships, and a field the
+assistant writes is a field the assistant can write. It is provenance — what
+`LoadBurstCensus` reads and what History can say — and it reaches no table,
+because `PermitPartition.writtenOp` decodes a KIND and nothing else. A disk census over every
 project this Mac can reach (23 projects, 194 tails, 5 `.mzseg` segments, 11,064
 lines) found no such line: the only non-author actor lines anywhere were
 `claude_comment` and `claude_query`, which are the reviewer row.
@@ -1610,7 +1614,7 @@ Failure modes:
 
 19. **The write-side question has ONE function, and a rung is compared only in the permit layer** (P3a Task 8). `OpLogStore.localWritePermit(as:documentClass:)` is the one answer to *may this device's actor write here* — it never throws, never suspends, and falls back to this Mac's REMEMBERED register before keyless, because keyless says *author of the whole book* about everybody and a reviewer's Mac meeting one half-downloaded record would otherwise bootstrap. A hand-built `LocalWritePermit` is `.unrestricted` by another name. And a surface that decides by testing a permit against `.reviewer` instead of asking the table is P3c's Posture done wrong: the two drift the first time a rung is added, and the surface is the copy that does not compile-error. Censuses: `TripwireGrepTests.test_theWriteSidePermitQuestionHasOneFunction` + `test_aPermitRungIsComparedOnlyInThePermitLayer`. CLAUDE.md tripwires 46, 47.
 
-20. **Which lines the LOAD emitted is decided once, and the rule is permanent** (final fix wave, W3(a)). `Permit.isALoadEmission` names the two kinds — `bootstrap` and the anchor `taskCreate` — and `Permit.actorJudging` answers which actor judges a line; the partition asks both and restates neither. Released builds v0.37–v0.40 signed those emissions with whichever actor opened the document, and a refused `bootstrap` is a document whose opening op is gone. The rule widens the ACTOR and never the permit, so a reviewer's device's assistant-signed bootstrap is still refused under her own permit; and it is NOT gated on `hasNarrowingPermits`, because a grandfather the first reviewer switches off is the same defect later. **The stop, stated**: the three `typingBurst` load emissions write no `synthesisSource` and are not covered — an assistant-signed ordinary burst stays refused, which is the constitution's sentence about MCP and the manuscript. Census: `TripwireGrepTests.test_theLoadEmissionRuleIsSpelledInThePermitLayerOnly` + the shared planted-offender control. CLAUDE.md tripwire 48.
+20. **Which lines the LOAD emitted is decided once, and the rule is permanent** (final fix wave, W3(a)). `Permit.isALoadEmission` names the two kinds — `bootstrap` and the anchor `taskCreate` — and `Permit.actorJudging` answers which actor judges a line; the partition asks both and restates neither. Released builds v0.37–v0.40 signed those emissions with whichever actor opened the document, and a refused `bootstrap` is a document whose opening op is gone. The rule widens the ACTOR and never the permit, so a reviewer's device's assistant-signed bootstrap is still refused under her own permit; and it is NOT gated on `hasNarrowingPermits`, because a grandfather the first reviewer switches off is the same defect later. **The stop, stated**: the three `typingBurst` load emissions are not covered — an assistant-signed ordinary burst stays refused, which is the constitution's sentence about MCP and the manuscript. They DO carry a `synthesisSource` since P3b Task 3 (`.pendingRecovery`, `.anchorSplice`) and the rule was deliberately not widened to read it: the label only reaches lines written after it ships, and a field the assistant writes is a field the assistant can write. Census: `TripwireGrepTests.test_theLoadEmissionRuleIsSpelledInThePermitLayerOnly` + the shared planted-offender control. CLAUDE.md tripwire 48.
 
 - **Cross-surface contracts:** if you touch op-log/inbox filenames, ids, formats, or Fountain rendering, you may be in shared phone↔Mac territory — the reach-around tripwires will tell you. Registry: `docs/superpowers/notes/cross-surface-contracts.md`.
 

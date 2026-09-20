@@ -92,7 +92,37 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// As with M1A and M3, this makes the milestone a **paired Mac + phone
     /// release**: shipped phone builds refuse a v8 manifest via
     /// `decodeGuardingSchema` until they are updated together.
-    public static let currentSchemaVersion = 8
+    ///
+    /// 8 → 9 (signed op log P3b, the permit's schema gate): **two causes, and
+    /// the second is the one that matters.**
+    ///
+    /// First, the letter of the contract — `SynthesisSource` gained two cases
+    /// (`pendingRecovery`, `anchorSplice`) so the load path's own `typingBurst`
+    /// emissions say what they are. On its own that is the mildest kind of bump:
+    /// the op log is append-only, so the lossy `.unknown` re-encode never
+    /// happens, and an older build reading one of those ops simply shows a
+    /// generic label in History.
+    ///
+    /// Second, and load-bearing: **this is the number the first NARROWING event
+    /// writes.** Once a book's register says somebody is a reviewer, or an
+    /// author of some pieces, every reader has to judge lines against that
+    /// permit — and a v0.40 Mac cannot. It has no permit layer at all: it
+    /// applies the reviewer's refused text, folds it into the manuscript, and
+    /// re-asserts those words in its own file under its own book-author key,
+    /// where every signed Mac then has to accept them. The demotion the writer
+    /// made is undone by the oldest machine in the house, silently.
+    /// `decodeGuardingSchema` is the only thing that can stop it, and it stops
+    /// it by REFUSING the project — which is why the gate raises this number
+    /// on disk before the narrowing event is written, and never after.
+    ///
+    /// **Only a narrowing raises it.** A manifest's `schemaVersion` is DECODED
+    /// and carried through every ordinary save (`init(from:)` above), so a book
+    /// nobody has narrowed keeps the number it has and opens on every build
+    /// that ever opened it. Nothing about a one-writer book moves.
+    ///
+    /// As with M1A, M3 and the publish department, this makes the milestone a
+    /// **paired Mac + phone release**.
+    public static let currentSchemaVersion = 9
 
     /// The filename used by every Maugham project for its manifest.
     /// Both the Mac app and the iOS companion look for this name in a

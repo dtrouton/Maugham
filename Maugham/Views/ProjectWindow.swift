@@ -4005,6 +4005,12 @@ struct ProjectWindow: View {
             let s = try await ProjectStore.load(from: url)
             let ds = try await DocumentStore.open(url: url)
             s.documentStore = ds
+            // The other direction, and set here for the same reason: the
+            // registry's narrowing verbs live on `DocumentStore` and the
+            // manifest lives on `ProjectStore`, so the schema gate at the first
+            // narrowing (P3b Task 3) has to be able to tell the live store what
+            // it just wrote to disk. Weak on both sides; the window owns them.
+            ds.projectStore = s
             // The canvas's equivalent, and set here for the same reason: the
             // model is `@State` on this view, so nothing an MCP tool is handed
             // can reach it otherwise. In `load()` and never in `body` — a store

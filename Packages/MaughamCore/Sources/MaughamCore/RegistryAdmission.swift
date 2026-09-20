@@ -157,6 +157,28 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// admission, revocation, retirement or rename can meet this.
     case narrowingWithoutASnapshot(fingerprint: String)
 
+    /// **The manifest could not be raised to this build's schema before the
+    /// narrowing event was written** (P3b Task 3).
+    ///
+    /// The first narrowing changes what READING this book means: every line has
+    /// to be judged against a permit, and a build with no permit layer cannot
+    /// do it. A v0.40 Mac in a narrowed book applies the reviewer's refused
+    /// text, folds it into the manuscript and re-asserts those words under its
+    /// own book-author key, where every signed Mac then has to take them — the
+    /// writer's demotion undone by the oldest machine in the house, silently.
+    /// `ProjectManifest.decodeGuardingSchema` is the only thing that stops it,
+    /// and it stops it by refusing the project.
+    ///
+    /// So the order is **gate, then event, then record**, and a gate that could
+    /// not be written refuses the act. A crash between the gate and the event
+    /// leaves a gated, un-narrowed book, which costs one old build one project;
+    /// the other order costs the book its permits with nothing to say so.
+    ///
+    /// `reason` is the underlying failure's own words — a folder that would not
+    /// read, a disk that would not take the write — because *the manifest could
+    /// not be written* tells the writer nothing they can act on.
+    case manifestNotGated(reason: String, act: Act)
+
     /// **Which act a refusal is about** (fix round 2, minor C).
     ///
     /// The four verbs that compute a mark all refuse over a short reading, and
