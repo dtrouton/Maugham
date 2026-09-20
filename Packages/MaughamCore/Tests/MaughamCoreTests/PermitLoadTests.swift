@@ -49,6 +49,7 @@ final class PermitLoadTests: XCTestCase {
 
     override func tearDown() async throws {
         PermitPartition.judgeObserverForTesting = nil
+        OpLogStore.manifestReadObserverForTesting = nil
         try? FileManager.default.removeItem(at: projectURL)
     }
 
@@ -173,9 +174,41 @@ final class PermitLoadTests: XCTestCase {
         return url
     }
 
+    /// The same bytes, unwritten — for the one test that puts a file where its
+    /// own name does not belong.
+    private func fileBytes(by identity: DeviceIdentity, ops: [Op]) throws -> Data {
+        let url = try writeFile(by: identity, ops: ops)
+        let bytes = try Data(contentsOf: url)
+        try FileManager.default.removeItem(at: url)
+        return bytes
+    }
+
     @discardableResult
     private func samsFile(_ ops: [Op], extraLines: [Data] = []) throws -> URL {
         try writeFile(by: sam.author, ops: ops, extraLines: extraLines)
+    }
+
+    /// A counter a `@Sendable` observer can safely increment.
+    private final class Counter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var n = 0
+        func tick() { lock.lock(); n += 1; lock.unlock() }
+        var count: Int { lock.lock(); defer { lock.unlock() }; return n }
+    }
+
+    /// A manifest on disk, so the partition has somewhere to read a stream's
+    /// placement from. `statements` is all this decision uses.
+    private func writeManifest(statements: [Statement]) throws {
+        let manifest = ProjectManifest(
+            type: .novel, title: "A book", author: "Denver",
+            created: Date(timeIntervalSince1970: 0),
+            modified: Date(timeIntervalSince1970: 0),
+            structure: [], research: [], statements: statements)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: projectURL.appendingPathComponent(ProjectManifest.fileName),
+            options: .atomic)
     }
 
     /// Everything in the `.lines` archive, as text — what the writer keeps.
@@ -239,8 +272,8 @@ final class PermitLoadTests: XCTestCase {
         try writeFile(by: root.author, ops: [op("01", by: root.author)])
         try samsFile([op("02", by: sam.author), op("03", by: sam.author)])
 
-        var judged = 0
-        PermitPartition.judgeObserverForTesting = { judged += 1 }
+        let judged = Counter()
+        PermitPartition.judgeObserverForTesting = { judged.tick() }
         let applied = try await appliedOpIds()
         let provenance = try await loadedProvenance()
 
@@ -249,7 +282,7 @@ final class PermitLoadTests: XCTestCase {
         XCTAssertEqual(provenance.pendingLines, 0)
         XCTAssertEqual(provenance.unsignedHistoryLines, 0)
         XCTAssertTrue(linesRecords().isEmpty)
-        XCTAssertEqual(judged, 0, "a book with no events hashes nothing")
+        XCTAssertEqual(judged.count, 0, "a book with no events hashes nothing")
     }
 
     /// And the partition really is the identity function there: the walk the
@@ -264,13 +297,83 @@ final class PermitLoadTests: XCTestCase {
             bytes: bytes, trust: { table.verdict(forSealKey: $0) },
             rememberedHead: nil)
 
+        let stream = try XCTUnwrap(PermitMark.stream(of: url))
         let partitioned = PermitPartition.partition(
-            of: walked, class: .piece(docId),
-            streamKey: try XCTUnwrap(PermitMark.streamKey(of: url)),
+            of: walked, class: { .piece(self.docId) },
+            streamKey: stream.key, deviceSlug: stream.deviceSlug,
             fileSegmentDigest: nil, trust: table,
             unowned: { .aBookAuthorHasWrittenItsText })
 
         XCTAssertEqual(partitioned, walked)
+    }
+
+    /// **A book with no permit events reads no manifest at all** (fix round 1,
+    /// I1). The class is asked for only where a line's own (permit, actor)
+    /// pair makes the answer turn on it, and in such a book no line's does —
+    /// so a load costs neither the file read nor the decode.
+    func test_aBookWithNoEventsReadsNoManifest() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeManifest(statements: [])
+        try writeFile(by: root.author, ops: [op("01", by: root.author)])
+        try samsFile([op("02", by: sam.author)])
+
+        let manifestReads = Counter()
+        OpLogStore.manifestReadObserverForTesting = { manifestReads.tick() }
+        let applied = try await appliedOpIds()
+
+        XCTAssertEqual(applied, ["01", "02"])
+        XCTAssertEqual(manifestReads.count, 0,
+                       "nothing turned on where the streams sit")
+    }
+
+    // MARK: - Where the stream sits (minor (c))
+
+    /// A project statement is the book author's, and an author of some pieces
+    /// is refused on it — which is a decision the CLASS makes, so it is also
+    /// the case that proves the manifest is read when it matters.
+    func test_aScopedAuthorIsRefusedOnAProjectStatementAndTheBookAuthorIsNot() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeManifest(statements: [
+            Statement(id: docId, kind: .intent, scope: .project, path: "intent.md"),
+        ])
+        try samsFile([op("hers", by: sam.author)])
+        try writeFile(by: root.author, ops: [op("theRoots", by: root.author)])
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: ["doc-some-piece"])
+
+        let manifestReads = Counter()
+        OpLogStore.manifestReadObserverForTesting = { manifestReads.tick() }
+        let applied = try await appliedOpIds()
+
+        XCTAssertEqual(applied, ["theRoots"])
+        XCTAssertEqual(
+            linesRecords().map(\.reason),
+            ["written into this book's own statements by a device that may not write it here"])
+        XCTAssertGreaterThan(manifestReads.count, 0,
+                             "and here it did turn on the class")
+    }
+
+    /// **A manifest that will not read never makes a load refuse, and it
+    /// widens** (fix round 1, minor (a)/(c) and R2's other half): no
+    /// statements places every stream as a manuscript PIECE, which is the
+    /// class an author of some pieces can actually hold.
+    func test_anUnreadableManifestWidensAndDoesNotRefuseTheLoad() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try Data("{ this is not a manifest".utf8).write(
+            to: projectURL.appendingPathComponent(ProjectManifest.fileName))
+        try samsFile([op("hers", by: sam.author)])
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: [docId])
+
+        // The stream is a project STATEMENT on disk in the previous test's
+        // shape; with no readable manifest it is a piece, and `docId` is one
+        // of hers, so her line applies rather than being refused.
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["hers"])
+        XCTAssertTrue(linesRecords().isEmpty)
     }
 
     // MARK: - §5 row 1 — demotion, both directions
@@ -412,12 +515,13 @@ final class PermitLoadTests: XCTestCase {
 
     // MARK: - Pending, never set aside
 
-    func test_anUnknownOpKindIsHeldAndNeverSetAside() async throws {
+    func test_anUnknownOpKindIsHeldWhereTheLineIsJudged() async throws {
         try writeRootRecord()
         try admitSam()
-        try samsFile(
-            [op("today", by: sam.author)],
-            extraLines: [try futureKindLine("fromTomorrow", by: sam.author)])
+        try writeFile(
+            by: sam.assistant,
+            ops: [op("today", by: sam.assistant, kind: .claudeComment)],
+            extraLines: [try futureKindLine("fromTomorrow", by: sam.assistant)])
 
         let applied = try await appliedOpIds()
         XCTAssertEqual(applied, ["today"])
@@ -427,15 +531,33 @@ final class PermitLoadTests: XCTestCase {
         XCTAssertTrue(linesRecords().isEmpty)
     }
 
+    /// **A book author's own hand is not judged, so her unknown kind reaches
+    /// the parser exactly as it did before P3** (fix round 1, I3's ruling) —
+    /// through both readers, which is where a divergence would show.
+    func test_aBookAuthorsUnknownKindIsLeftToTheParser() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try samsFile(
+            [op("today", by: sam.author)],
+            extraLines: [try futureKindLine("fromTomorrow", by: sam.author)])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied.sorted(), ["fromTomorrow", "today"])
+        let provenance = try await loadedProvenance()
+        XCTAssertEqual(provenance.pendingLines, 0)
+        XCTAssertEqual(provenance.quarantinedLines, 0)
+    }
+
     /// **D5 — a permit-pending line does not speak the admission vocabulary.**
     /// Sam is ADMITTED; a line of hers this build cannot judge is held, and
     /// nothing counts it as waiting for somebody to be let in.
     func test_anAdmittedPersonsUnjudgeableLineIsNotWaitingForAdmission() async throws {
         try writeRootRecord()
         try admitSam()
-        try samsFile(
-            [op("today", by: sam.author)],
-            extraLines: [try futureKindLine("fromTomorrow", by: sam.author)])
+        try writeFile(
+            by: sam.assistant,
+            ops: [op("today", by: sam.assistant, kind: .claudeComment)],
+            extraLines: [try futureKindLine("fromTomorrow", by: sam.assistant)])
 
         let provenance = try await loadedProvenance()
         XCTAssertEqual(provenance.pendingOpLines, 1, "it IS held")
@@ -549,6 +671,153 @@ final class PermitLoadTests: XCTestCase {
         let partitioned = try await appliedOpIds("after the demotion")
         XCTAssertEqual(partitioned, ["before"],
                        "the mark cuts inside the segment, exactly as in the tail")
+    }
+
+    // MARK: - Which of the four writers a key is (fix round 1, I5)
+
+    /// **A person record written for somebody's ASSISTANT key does not make
+    /// that key an author.**
+    ///
+    /// The window is real: a stranger's held span is keyed on the sealing key
+    /// where no device record names it, so before Sam's device record syncs
+    /// the writer can be asked about — and admit — her assistant fingerprint.
+    /// Reading `.author` off the person record there would apply
+    /// assistant-signed manuscript text into the book. The actor comes off the
+    /// file's own name instead, which can only ever narrow.
+    func test_aPersonRecordOnAnAssistantKeyStillGetsTheAssistantsRow() async throws {
+        try writeRootRecord()
+        // Sam's ASSISTANT admitted as a person, with NO device record at all.
+        try RegistryWriter.write(
+            PersonRecord(
+                person: sam.assistant.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+                admittedAt: Date(timeIntervalSince1970: 20), admittedBy: rootPerson),
+            signedBy: root.author, in: projectURL)
+        try writeFile(
+            by: sam.assistant,
+            ops: [
+                op("aNote", by: sam.assistant, kind: .claudeComment),
+                op("aParagraph", by: sam.assistant),
+            ])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["aNote"], "her note is the assistant's row")
+        XCTAssertEqual(
+            linesRecords().map(\.reason),
+            ["written by the assistant, which never changes the manuscript"])
+    }
+
+    /// The P2 case, unchanged: a person record on an AUTHOR key, no device
+    /// record, everything applies as it always did.
+    func test_aPersonRecordOnAnAuthorKeyIsAnAuthorAsItAlwaysWas() async throws {
+        try writeRootRecord()
+        try RegistryWriter.write(
+            PersonRecord(
+                person: samPerson, label: "Sam", ownName: "Sam’s Mac",
+                admittedAt: Date(timeIntervalSince1970: 20), admittedBy: rootPerson),
+            signedBy: root.author, in: projectURL)
+        try samsFile([op("hers", by: sam.author)])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["hers"])
+        XCTAssertTrue(linesRecords().isEmpty)
+    }
+
+    /// And a filename that does not describe its own contents narrows nothing:
+    /// the line is HELD, because nothing here can say which row it is on.
+    func test_aDeviceIdWhoseFingerprintIsNotTheSealsHoldsTheLine() async throws {
+        try writeRootRecord()
+        try RegistryWriter.write(
+            PersonRecord(
+                person: samPerson, label: "Sam", ownName: "Sam’s Mac",
+                admittedAt: Date(timeIntervalSince1970: 20), admittedBy: rootPerson),
+            signedBy: root.author, in: projectURL)
+        // Sam's key, sealed by Sam — in a file named for somebody else's slug.
+        let bytes = try fileBytes(by: sam.author, ops: [op("hers", by: sam.author)])
+        try bytes.write(
+            to: OpLogStore.opLogFileURL(
+                forDocId: docId, deviceSlug: root.assistant.slug, in: projectURL),
+            options: .atomic)
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, [])
+        let provenance = try await loadedProvenance()
+        XCTAssertEqual(provenance.pendingOpLines, 1, "held, never refused")
+        XCTAssertEqual(provenance.quarantinedLines, 0)
+    }
+
+    // MARK: - A mark never blesses what this Mac refused (minor (b))
+
+    /// A segment with ANY line held back is not listed in an applied position.
+    /// `segments` says *this whole segment was applied*, and a later reader
+    /// believes it without looking — so listing a partitioned one would let a
+    /// mark bless the very lines this Mac refused.
+    func test_aPartitionedSegmentIsNotRecordedAsAWholeAppliedSegment() async throws {
+        try writeRootRecord()
+        try admitSam()
+        let tail = try samsFile([
+            op("before", by: sam.author), op("after", by: sam.author),
+        ])
+        let cut = try mark(of: tail, cuttingAfterLineAt: 0)
+        let samsStore = OpLogStore(
+            projectURL: projectURL, identities: sam, state: samState)
+        let rotated = try await samsStore.sealTailIfNeeded(
+            docId: docId, deviceSlug: sam.author.slug, threshold: 1)
+        XCTAssertNotNil(rotated, "the fixture really rotated")
+
+        let table = try await reader().trust()
+        let whole = try OpLogStore.appliedPositions(
+            ofDeviceIds: [sam.author.deviceId], in: projectURL, trust: table)
+        XCTAssertEqual(
+            whole.streams.values.first?.segments.count, 1,
+            "before the demotion the segment IS wholly applied")
+
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole)
+        try writeEvent("b", kind: .roleChanged, role: Permit.reviewerRole, mark: cut)
+
+        let after = try OpLogStore.appliedPositions(
+            ofDeviceIds: [sam.author.deviceId], in: projectURL,
+            trust: try await reader().trust())
+        XCTAssertEqual(
+            after.streams.values.first?.segments ?? [], [],
+            "a segment this Mac refused lines inside is listed nowhere")
+    }
+
+    /// **And deleting the signature beside it does not un-demote her** (fix
+    /// round 1, I4).
+    ///
+    /// The escape this closes: this Mac loads once, remembers the digest, and
+    /// from then on the container settles from MEMORY — at which point the
+    /// `.sig` that named the signing key could be deleted in the shared folder
+    /// and the whole segment applied unjudged. A remembered digest with no
+    /// attributable signature no longer takes the fast path at all; the
+    /// segment is walked, and the walk's own inner seals attribute every span.
+    func test_deletingASegmentsSignatureDoesNotUndoTheDemotion() async throws {
+        try writeRootRecord()
+        try admitSam()
+        let tail = try samsFile([
+            op("before", by: sam.author), op("after", by: sam.author),
+        ])
+        let cut = try mark(of: tail, cuttingAfterLineAt: 0)
+        let samsStore = OpLogStore(
+            projectURL: projectURL, identities: sam, state: samState)
+        let segment = try await samsStore.sealTailIfNeeded(
+            docId: docId, deviceSlug: sam.author.slug, threshold: 1)
+        let segmentURL = try XCTUnwrap(segment)
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole)
+        try writeEvent("b", kind: .roleChanged, role: Permit.reviewerRole, mark: cut)
+
+        // One load, so this device remembers the digest as verified.
+        let first = try await appliedOpIds("the first load")
+        XCTAssertEqual(first, ["before"])
+
+        // Sam deletes the signature in the shared folder.
+        let signature = OpLogStore.segmentSignatureURL(for: segmentURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: signature.path))
+        try FileManager.default.removeItem(at: signature)
+
+        let second = try await appliedOpIds("and after the signature is gone")
+        XCTAssertEqual(second, ["before"],
+                       "the segment is walked rather than applied whole")
     }
 
     // MARK: - The revocation runs first, and its answer survives

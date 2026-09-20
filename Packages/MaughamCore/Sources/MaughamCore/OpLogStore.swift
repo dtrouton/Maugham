@@ -7,7 +7,9 @@ import os
 /// recording the lines it set aside, and signing a segment it just minted.
 /// Neither may cost the writer their manuscript, so neither throws — and a
 /// silent best-effort is only honest if it says so somewhere.
-private let opLogLoadLog = Logger(
+/// `internal` since P3a Task 5's fix round 1: `OpLogPermitContext` reports a
+/// manifest it could not read through the same channel the load already uses.
+let opLogLoadLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.core",
     category: "OpLogStore")
 
@@ -761,7 +763,20 @@ public final class OpLogStore {
                     url: url, bytes: bytes, state: nil, trust: trust,
                     permit: permit)
                 if let digest = classified.verifiedSegmentDigest {
-                    segments[stream.key, default: []].insert(digest)
+                    // **A segment is listed WHOLE or not at all** (fix round
+                    // 1, minor (b)). Since the permit partition reaches a
+                    // settled segment, one can come back with lines refused or
+                    // held inside it — and `segments` says *this whole segment
+                    // was applied*, which a later reader believes without
+                    // looking. Listing it would let a mark bless the very
+                    // lines this Mac refused. A segment that did not settle
+                    // whole contributes nothing, exactly as one with no
+                    // signature does; its lines judge NEW later, which is the
+                    // strict side and the side ruling 1 picks.
+                    let heldBack = classified.verification.map { walk in
+                        walk.lines.contains { $0.state.isHeldBack }
+                    } ?? false
+                    if !heldBack { segments[stream.key, default: []].insert(digest) }
                     continue
                 }
                 guard url.pathExtension != OpLogSegment.fileExtension,
@@ -867,11 +882,17 @@ public final class OpLogStore {
         fileSegmentDigest: String? = nil, settledByKey: String? = nil
     ) -> OpLogChain.Verification {
         guard let trust, let permit,
-              let streamKey = PermitMark.streamKey(of: url)
+              let stream = PermitMark.stream(of: url)
         else { return verification }
+        // **The class is handed over as the CLOSURE it is** (fix round 1, I1).
+        // Calling it here would make it an argument, evaluated before the
+        // partition's own first guard — a manifest read and decode for every
+        // op-log file of every book, including a registerless one that then
+        // judges nothing.
         return PermitPartition.partition(
-            of: verification, class: permit.documentClass(),
-            streamKey: streamKey, fileSegmentDigest: fileSegmentDigest,
+            of: verification, class: permit.documentClass,
+            streamKey: stream.key, deviceSlug: stream.deviceSlug,
+            fileSegmentDigest: fileSegmentDigest,
             trust: trust, settledByKey: settledByKey,
             unowned: permit.unowned)
     }
@@ -1027,6 +1048,24 @@ public final class OpLogStore {
             }
         }
 
+        // **What the partition would judge this settled segment by** — built
+        // once, and only where a partition is actually due (fix round 1, I4).
+        // A container whose signature settled it is never walked, so the lines
+        // have to be constructed and the signing key read back off the `.sig`
+        // beside it; `settledSegmentVerification` does both or answers nil.
+        let attributable = (settled && permit != nil && trust != nil)
+            ? settledSegmentVerification(at: url, bytes: container) : nil
+        // **A digest this device remembers, with the `.sig` beside it since
+        // DELETED, does not get the fast path.** It used to fall through and
+        // apply the whole segment unjudged: demote Sam with a mark inside her
+        // rotated segment, let this Mac load once so the digest is remembered,
+        // then delete her `.mzseg.sig` in the shared folder, and her post-mark
+        // manuscript text comes back. Walking instead costs a walk — for a
+        // file whose signature has gone missing — and the walk's own inner
+        // seals attribute every span correctly, which is the answer that needs
+        // no memory at all.
+        if settled, permit != nil, trust != nil, attributable == nil { settled = false }
+
         let parsedAll = JSONLAppendStore<Op>.parse(
             bytes: jsonl, dedupKey: { $0.opId }, sortedBy: { $0.opId < $1.opId })
         if settled {
@@ -1048,13 +1087,13 @@ public final class OpLogStore {
             //
             // The signing key comes from `settledSegmentVerification`'s own
             // read of the sidecar rather than from the branch above, because
-            // this file may have settled from MEMORY (`isVerified(segmentDigest:)`)
-            // on a second load, and a remembered digest carries no key. A
-            // segment remembered as verified whose `.sig` has since been
-            // deleted therefore goes unjudged — the pre-P3 answer, and the
-            // safe direction.
-            if let trust, permit != nil, let digest,
-               let built = settledSegmentVerification(at: url, bytes: container) {
+            // this file may have settled from MEMORY
+            // (`isVerified(segmentDigest:)`) on a second load, and a remembered
+            // digest carries no key.
+            //
+            // Where that read cannot be made, `settled` was cleared above and
+            // this branch is not reached at all (fix round 1, I4).
+            if let trust, permit != nil, let digest, let built = attributable {
                 let partitioned = partitioningByPermit(
                     built.verification, url: url, trust: trust, permit: permit,
                     fileSegmentDigest: digest, settledByKey: built.key)

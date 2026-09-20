@@ -122,8 +122,9 @@ public enum PermitPartition {
     /// person's permit says.
     public static func partition(
         of verification: OpLogChain.Verification,
-        class documentClass: DocumentClass,
+        class documentClass: () -> DocumentClass,
         streamKey: String,
+        deviceSlug: String? = nil,
         fileSegmentDigest: String?,
         trust: TrustTable,
         settledByKey: String? = nil,
@@ -143,16 +144,30 @@ public enum PermitPartition {
 
         var refusing: [Int: OpLogChain.QuarantineCause] = [:]
         var holding: [Int: String] = [:]
-        // Asked at most once, and only where §4.5 is actually reached.
+        // Both asked at most once per file, and only where a line's own
+        // (permit, actor) pair makes the answer turn on them. Resolving a
+        // class reads and decodes a manifest; answering `unowned` classifies
+        // the document's other files again. A book whose people are authors of
+        // the whole book pays for neither.
+        var resolvedClass: DocumentClass?
         var unownedAnswer: UnownedPiece?
 
         for (index, line) in lines.enumerated() {
             guard isApplied(line), line.kind == .op,
                   let key = keys[index],
-                  let entry = governing[key]?[index],
-                  let what = decoding(line.bytes)
+                  let entry = governing[key]?[index]
             else { continue }
-            let actor = trust.actor(forSealKey: key)
+            let actor = actor(ofSealKey: key, trust: trust, deviceSlug: deviceSlug)
+            // **The skip, before the two expensive questions** (fix round 1,
+            // I1 and I3). A permit that can refuse nothing does not need to be
+            // told what the line was — a JSON parse of bytes `parse` is about
+            // to parse again — nor where the stream sits. `Permit
+            // .allowsEverything` is the table's own answer, asked rather than
+            // restated; see it for what it does with an unreadable kind.
+            if entry.permit.allowsEverything(actor: actor) { continue }
+            guard let what = decoding(line.bytes) else { continue }
+            let documentClass = resolvedClass ?? documentClass()
+            resolvedClass = documentClass
             switch entry.permit.allows(what, in: documentClass, actor: actor) {
             case .yes:
                 continue
@@ -208,6 +223,7 @@ public enum PermitPartition {
     public static func bookAuthorWroteManuscriptText(
         in verification: OpLogChain.Verification,
         streamKey: String,
+        deviceSlug: String? = nil,
         fileSegmentDigest: String?,
         trust: TrustTable,
         settledByKey: String? = nil,
@@ -227,7 +243,7 @@ public enum PermitPartition {
         for (index, line) in lines.enumerated() {
             guard isApplied(line), line.kind == .op,
                   let key = keys[index],
-                  trust.actor(forSealKey: key) == .author,
+                  actor(ofSealKey: key, trust: trust, deviceSlug: deviceSlug) == .author,
                   let entry = governing[key]?[index],
                   let what = decoding(line.bytes),
                   Permit.group(of: what) == .manuscriptText
@@ -363,6 +379,45 @@ public enum PermitPartition {
                 }
         }
         return out
+    }
+
+    /// **Which of the four writers a key is** — the registry's answer, and
+    /// where the registry has none, the op log's own filename (fix round 1,
+    /// I5).
+    ///
+    /// A device record is what says what a key is FOR, and where one exists it
+    /// decides (Task 3's rule, unchanged). But a person record and a device
+    /// record are two files that sync separately, and a book can hold the
+    /// first without the second — `RegistryAdmission.admit` writes a person
+    /// record and nothing else. Answering nil there would hold every line that
+    /// person ever wrote; answering `.author` there, which is what the first
+    /// cut of this did, is worse in the one direction that costs words:
+    /// a held span is keyed on `device ?? sealKey`, so before the device
+    /// record arrives the writer can be asked about — and admit — somebody's
+    /// ASSISTANT fingerprint, and calling that key `.author` would apply
+    /// assistant-signed manuscript text into the book.
+    ///
+    /// So it is read off the id the ops and the filenames are named for:
+    /// `DeviceIdentity.deviceId(actor:fingerprint:)` is `<actor>-<16 hex of
+    /// the key>`, and the claim is only believed where the hex really is this
+    /// sealing key's. **It can only ever NARROW.** An honest assistant's file
+    /// is named `assistant-…`, and a client lying about it gains nothing it
+    /// could not have by signing with its author key instead — which is
+    /// outside this milestone's threat model in the same way.
+    ///
+    /// Nil — *pending* — in three cases, all of them right: a device record
+    /// OWNS the key but calls it an actor word this build cannot read (a later
+    /// build's fifth writer, which must not be guessed at); the stream has no
+    /// device slug (the legacy unsuffixed file, whose lines are unsigned
+    /// history and are not judged anyway); and an id whose fingerprint part is
+    /// not this key's, which is a filename that does not describe its own
+    /// contents.
+    private static func actor(
+        ofSealKey key: String, trust: TrustTable, deviceSlug: String?
+    ) -> DeviceActor? {
+        if let recorded = trust.actor(forSealKey: key) { return recorded }
+        guard !trust.aDeviceRecordOwns(key), let deviceSlug else { return nil }
+        return DeviceIdentity.actor(ofDeviceId: deviceSlug, signingWith: key)
     }
 
     /// **Spec §4.4's third sentence** — *…after it stopped being hers.*

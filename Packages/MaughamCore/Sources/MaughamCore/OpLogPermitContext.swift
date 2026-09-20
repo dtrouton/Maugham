@@ -23,6 +23,34 @@ import Foundation
 /// no permit events, which is every book on disk today, so neither runs there.
 /// `LocalWritePermit.answersWithoutTheClass` is the write side's spelling of
 /// the same idea and was built for the same reason (Task 8).
+/// **One answer, computed at most once, however many files ask for it.**
+///
+/// Both halves of a `PermitContext` are expensive and both are asked per FILE,
+/// while their answers are facts about the DOCUMENT — so without this a
+/// document spread over four actor files decodes four manifests, and
+/// `unownedPiece` (which itself classifies every file) becomes quadratic
+/// (fix round 1, I1 and minor (d)).
+///
+/// A class with a lock rather than a captured `var`, because the closures are
+/// `@Sendable`: they are handed to `classify`, which is `nonisolated` and
+/// called from both an `async` reader and a synchronous one. `@unchecked
+/// Sendable` is honest here — the one piece of state is behind the one lock,
+/// and `make` runs inside it, so a second caller waits rather than duplicating
+/// the work.
+final class PermitMemo<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var answer: Value?
+
+    func callAsFunction(_ make: () -> Value) -> Value {
+        lock.lock()
+        defer { lock.unlock() }
+        if let answer { return answer }
+        let made = make()
+        answer = made
+        return made
+    }
+}
+
 public struct PermitContext: Sendable {
 
     /// Where this stream sits. Called at most once per file, and only where
@@ -73,13 +101,45 @@ extension OpLogStore {
     nonisolated public static func manifestStatements(
         in projectURL: URL
     ) -> [Statement] {
-        guard let data = try? Data(  // adr-0018-ok: project manifest JSON read, not manuscript
-            contentsOf: projectURL.appendingPathComponent(ProjectManifest.fileName)),
-              let manifest = try? ProjectManifest.makeDecoder()
-                .decode(ProjectManifest.self, from: data)
+        manifestReadObserverForTesting?()
+        let url = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        guard let data = try? Data(contentsOf: url)  // adr-0018-ok: project manifest JSON read, not manuscript
         else { return [] }
-        return manifest.statements
+        do {
+            return try ProjectManifest.makeDecoder()
+                .decode(ProjectManifest.self, from: data).statements
+        } catch {
+            // **Reported, never thrown** (fix round 1, minor (a), and R2's
+            // other half). A manifest this build cannot read WIDENS the permit
+            // rather than narrowing it — every stream then reads as a
+            // manuscript piece — and the writer learns about a broken manifest
+            // from `ProjectStore.load`, which is the right door for it. But a
+            // widening that happens in silence is a widening nobody can find,
+            // so it says so once, here, where it happened.
+            opLogLoadLog.error(
+                """
+                Could not read the project manifest while placing a stream for \
+                the permit check: \(String(describing: error), privacy: .public). \
+                Every stream in this project is judged as a manuscript piece \
+                until it reads.
+                """)
+            return []
+        }
     }
+
+    /// Test-only counting seam: called once per manifest READ this path makes.
+    ///
+    /// It exists to pin the cost claim rather than argue it: **a book with no
+    /// permit events reads no manifest at all**, because every line in it is
+    /// under a permit that can refuse nothing and the class is never asked for
+    /// (`Permit.allowsEverything`). A regression that made the class an
+    /// ARGUMENT again would put a file read and a JSON decode on every op-log
+    /// file of every load, and nothing else would go red.
+    ///
+    /// `nonisolated(unsafe)` because it is a test's own variable, set and
+    /// cleared on one thread; production never assigns it.
+    nonisolated(unsafe) public static var manifestReadObserverForTesting:
+        (@Sendable () -> Void)?
 
     /// **§4.5's pass 1, over every file of one document**: has any key holding
     /// an author-of-the-whole-book permit applied a manuscript-text line here?
@@ -100,7 +160,7 @@ extension OpLogStore {
         guard let trust else { return .nobodyHasWrittenItsText }
         for url in opLogFileURLs(forDocId: docId, in: projectURL) {
             guard let bytes = (try? readCoordinated(url: url, presenter: nil)) ?? nil,
-                  let streamKey = PermitMark.streamKey(of: url)
+                  let stream = PermitMark.stream(of: url)
             else { continue }
             let classified = classify(
                 url: url, bytes: bytes, state: nil, trust: trust)
@@ -113,13 +173,15 @@ extension OpLogStore {
                 guard let settled = settledSegmentVerification(
                     at: url, bytes: bytes) else { continue }
                 if PermitPartition.bookAuthorWroteManuscriptText(
-                    in: settled.verification, streamKey: streamKey,
+                    in: settled.verification, streamKey: stream.key,
+                    deviceSlug: stream.deviceSlug,
                     fileSegmentDigest: settled.digest, trust: trust,
                     settledByKey: settled.key) { return .aBookAuthorHasWrittenItsText }
                 continue
             }
             if PermitPartition.bookAuthorWroteManuscriptText(
-                in: verification, streamKey: streamKey,
+                in: verification, streamKey: stream.key,
+                deviceSlug: stream.deviceSlug,
                 fileSegmentDigest: classified.verifiedSegmentDigest,
                 trust: trust) { return .aBookAuthorHasWrittenItsText }
         }
@@ -180,15 +242,23 @@ extension OpLogStore {
         forDocId docId: String, in projectURL: URL, trust: TrustTable?,
         statements: [Statement]? = nil
     ) -> PermitContext {
-        PermitContext(
+        // One memo each, so a document spread over four actor files resolves
+        // its class once and answers §4.5 once (fix round 1, I1 / minor (d)).
+        let classMemo = PermitMemo<DocumentClass>()
+        let unownedMemo = PermitMemo<PermitPartition.UnownedPiece>()
+        return PermitContext(
             documentClass: {
-                if let statements {
-                    return DocumentClass.resolve(docId: docId, statements: statements)
+                classMemo {
+                    if let statements {
+                        return DocumentClass.resolve(docId: docId, statements: statements)
+                    }
+                    return documentClass(forDocId: docId, in: projectURL)
                 }
-                return documentClass(forDocId: docId, in: projectURL)
             },
             unowned: {
-                unownedPiece(forDocId: docId, in: projectURL, trust: trust)
+                unownedMemo {
+                    unownedPiece(forDocId: docId, in: projectURL, trust: trust)
+                }
             })
     }
 }

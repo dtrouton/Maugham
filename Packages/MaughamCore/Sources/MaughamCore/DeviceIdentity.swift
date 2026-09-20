@@ -92,6 +92,41 @@ public struct DeviceIdentity: Sendable {
         "\(actor)-\(fingerprint.prefix(16))"
     }
 
+    /// **The actor a device id names — but only where the id really is this
+    /// key's** (P3a Task 5's fix round 1, I5).
+    ///
+    /// `deviceId(actor:fingerprint:)` read backwards, and here rather than at
+    /// the reader for that function's own stated reason: the format lives in
+    /// this type and nowhere else (tripwire 35), and a join spelled somewhere
+    /// else fails by matching nothing, silently.
+    ///
+    /// Two conditions, both necessary. The word before the first hyphen must
+    /// be one of the four writers this build knows — a fifth is a later
+    /// build's and must not be guessed at. And what follows must BEGIN with
+    /// the 16 hex characters of `key`, which is what makes this a narrowing
+    /// rather than a claim: an id can only ever say which of ITS OWN key's
+    /// four rows a line is on, never whose key it is.
+    ///
+    /// **It takes a SLUG as readily as an id**, which is the form a reader in
+    /// front of a FILE actually has — and the slug is where the second
+    /// condition has to be stated carefully. `DeviceSlug.make` caps its
+    /// readable part at 24 characters and appends `-<8 hex>` of its own, so
+    /// `author-<16 hex>` survives whole (23) while `assistant-…` (26) and
+    /// `translator-…` (27) are TRUNCATED: the hex run in a slug is between 13
+    /// and 16 characters of the fingerprint, not always 16. So the test is
+    /// that the run is a PREFIX of the key rather than that it is its first
+    /// sixteen, with a floor of eight characters so a short run cannot match
+    /// by accident.
+    nonisolated public static func actor(
+        ofDeviceId id: String, signingWith key: String
+    ) -> DeviceActor? {
+        let parts = id.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count >= 2 else { return nil }
+        let hex = parts[1]
+        guard hex.count >= 8, key.hasPrefix(hex) else { return nil }
+        return DeviceActor(rawValue: String(parts[0]))
+    }
+
     /// Sign a 32-byte digest, answering the 64-byte **raw** representation of
     /// the P256 signature (`r || s`) — the form the op log stores and
     /// `P256.Signing.ECDSASignature(rawRepresentation:)` reads back.

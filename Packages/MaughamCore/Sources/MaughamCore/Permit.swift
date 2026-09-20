@@ -434,6 +434,40 @@ extension Permit {
         }
     }
 
+    /// **Can this permit refuse anything at all, whatever the line says and
+    /// wherever the stream sits?** (P3a Task 5's fix round 1, I1 and I3.)
+    ///
+    /// True for exactly one pair — an author of the whole book, writing with
+    /// her own hand — and that is the pair every book on disk today is made of.
+    /// A reader that has it can skip the two expensive questions before it
+    /// asks them: **what** the line was (a JSON parse of bytes the element
+    /// decoder is about to parse again) and **where** the stream sits (a
+    /// manifest read and decode). Neither can change the answer, so paying for
+    /// them would be paying to be told `.yes`.
+    ///
+    /// It lives here, beside the table, rather than in the partition: the fact
+    /// it states is the table's — *this permit's row is `.yes` in every class
+    /// for every group* — and restating it one file over is how a skip and the
+    /// table it is skipping come to disagree in silence.
+    /// `PermitTableTests` pins it against the grid, cell by cell.
+    ///
+    /// **The one thing it steps over is `OpKind.unknown`.** `allows` answers
+    /// `.cannotJudge` for an unreadable kind under every permit, this one
+    /// included, so a book author's own line carrying a kind from a later
+    /// build would otherwise be HELD. That is the wrong answer for her: she
+    /// may write everything, so there is no narrower build for the hold to be
+    /// protecting, and P2 already had an answer for such a line — `OpKind`'s
+    /// own `.unknown` decode, which the deriver folds inertly. So the skip
+    /// stands and her unknown kind is left to `parse` exactly as before P3
+    /// (neutrality). Where a line is being JUDGED at all — a narrowed actor,
+    /// or a permit that is not the whole book — `.cannotJudge` applies as
+    /// written and the line is held.
+    public func allowsEverything(actor: DeviceActor?) -> Bool {
+        guard actor == .author else { return false }
+        if case .author(.book) = self { return true }
+        return false
+    }
+
     /// **Whether this permit may sign a task op here.**
     ///
     /// Tasks are the one thing an author of some pieces may write outside her

@@ -381,6 +381,55 @@ final class PermitTableTests: XCTestCase {
             OpKind.allCases.count * classes.count * permits.count * DeviceActor.allCases.count)
     }
 
+    /// **`allowsEverything` is the grid's own answer, not a second one**
+    /// (P3a Task 5's fix round 1, I1/I3).
+    ///
+    /// The partition skips both of its expensive questions — what the line was
+    /// and where the stream sits — for a (permit, actor) pair that can refuse
+    /// nothing. This asserts the skip is exactly right, cell by cell, over the
+    /// same grid every other test here reads: `allowsEverything` is true if
+    /// and only if every class × every `Written` answers `.yes`.
+    ///
+    /// **`OpKind.unknown` is excluded, and it is the one exclusion.** `allows`
+    /// answers `.cannotJudge` for an unreadable kind under every permit,
+    /// including the book author's, so including it here would make the
+    /// predicate false for everybody and the skip impossible. The ruling
+    /// (`Permit.allowsEverything`'s own doc) is that a book author's own hand
+    /// carrying a kind from a later build is left to `parse` exactly as it was
+    /// before P3 — she may write everything, so there is no narrower build for
+    /// a hold to protect — and `test_aBookAuthorsUnknownKindIsNotHeld` pins
+    /// that half at the partition.
+    func test_allowsEverythingIsTrueForExactlyTheCellsThatAreAllYes() {
+        var trueFor: [String] = []
+        for permit in permits {
+            for actor in DeviceActor.allCases {
+                var everyCellIsYes = true
+                for documentClass in classes {
+                    for kind in OpKind.allCases where kind != .unknown {
+                        if permit.allows(.op(kind), in: documentClass, actor: actor) != .yes {
+                            everyCellIsYes = false
+                        }
+                    }
+                    for what in [Written.translationRecord, .inboxRow] {
+                        if permit.allows(what, in: documentClass, actor: actor) != .yes {
+                            everyCellIsYes = false
+                        }
+                    }
+                }
+                XCTAssertEqual(
+                    permit.allowsEverything(actor: actor), everyCellIsYes,
+                    "\(permit) · \(actor)")
+                if everyCellIsYes { trueFor.append("\(permit) · \(actor)") }
+            }
+        }
+        XCTAssertEqual(
+            trueFor, ["author(MaughamCore.Permit.Scope.book) · author"],
+            "exactly one pair, and it is the one every book on disk is made of")
+        XCTAssertFalse(
+            Permit.author(.book).allowsEverything(actor: nil),
+            "a key this device cannot name an actor for is never skipped")
+    }
+
     /// The two things written that are not ops.
     func test_theTableIsTheLadderForTranslationRecordsAndInboxRows() {
         for what in [Written.translationRecord, .inboxRow] {

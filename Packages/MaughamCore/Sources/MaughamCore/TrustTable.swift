@@ -224,29 +224,7 @@ public struct TrustTable: Equatable, Sendable {
                 actorByKey[key] = actor
             }
         }
-        // **A person IS a device's author key** (labels-only, P2a's own
-        // premise, spelled in `RegistryRecord`'s doc comment and enforced by
-        // the reader's `actors["author"] == device` check). So a fingerprint
-        // this book admits as a PERSON is an author key by the register's own
-        // vocabulary, whether or not its device record has arrived — and a
-        // device record is a separate file that syncs separately.
-        //
-        // Without this, an admitted person with no device record here resolves
-        // to NO actor, the permit cannot be narrowed, and every line that
-        // person ever wrote is held PENDING — an admission that admits nothing
-        // (`PendingLoadTests.test_admittingTheStrangerAppliesEverythingItHeld`
-        // is the shape, and it is a real state: `RegistryAdmission.admit`
-        // writes a person record and nothing else).
-        //
-        // Last of the three passes and only where nothing is mapped yet, so a
-        // device record that owns the key still says what it is for, and a
-        // contested key (`actorKeyOwners` dropped it) stays unowned — a person
-        // record is signed by the ROOT rather than by the key it names, so it
-        // is the register's vocabulary talking and not a proof of possession.
-        for person in registry.people where actorByKey[person.person] == nil {
-            actorByKey[person.person] = .author
-        }
-        // **This device's own keys win.** A device record vouches for its own
+                // **This device's own keys win.** A device record vouches for its own
         // actors, and the reader checks only that its `author` entry is
         // itself — so a foreign record could name one of MY keys as its
         // translator and, unopposed, decide which row my own line is judged
@@ -496,5 +474,18 @@ public struct TrustTable: Equatable, Sendable {
     /// *waiting for admission* stopped being the same fact in P3a.
     nonisolated public func isStrangerDevice(_ fingerprint: String) -> Bool {
         !knownPeople.contains(fingerprint)
+    }
+
+    /// **Does a verified device record OWN this key**, whatever it calls it?
+    ///
+    /// The question a reader asks before it falls back to reading an actor off
+    /// a filename (P3a Task 5's fix round 1, I5). `actor(forSealKey:)` answers
+    /// nil for two quite different situations — a record owns the key and
+    /// calls it an actor word this build cannot read, and no record mentions
+    /// the key at all — and only the second may be narrowed by anything else.
+    /// The first must stay nil, or a later build's fifth writer would be
+    /// guessed at.
+    nonisolated public func aDeviceRecordOwns(_ fingerprint: String) -> Bool {
+        deviceByActorKey[fingerprint] != nil
     }
 }

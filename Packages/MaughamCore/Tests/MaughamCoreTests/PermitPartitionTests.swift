@@ -149,11 +149,13 @@ final class PermitPartitionTests: XCTestCase {
         _ verification: OpLogChain.Verification,
         class documentClass: DocumentClass,
         trust: TrustTable,
+        deviceSlug: String? = nil,
         unowned: PermitPartition.UnownedPiece = .aBookAuthorHasWrittenItsText
     ) -> OpLogChain.Verification {
         PermitPartition.partition(
-            of: verification, class: documentClass,
-            streamKey: streamKey, fileSegmentDigest: nil, trust: trust,
+            of: verification, class: { documentClass },
+            streamKey: streamKey, deviceSlug: deviceSlug,
+            fileSegmentDigest: nil, trust: trust,
             unowned: { unowned })
     }
 
@@ -450,15 +452,16 @@ final class PermitPartitionTests: XCTestCase {
 
     // MARK: - Pending, never set aside
 
-    /// **An op kind this build has never heard of is HELD.** An older Mac must
-    /// not quarantine what a newer one would apply, so it is not applied and
-    /// not recorded either — no `.lines` record, nothing set aside.
-    func test_anUnknownOpKindIsHeldAndNeverSetAside() throws {
+    /// **An op kind this build has never heard of is HELD — where the line is
+    /// being judged at all.** An older Mac must not quarantine what a newer
+    /// one would apply, so it is not applied and not recorded either: no
+    /// `.lines` record, nothing set aside.
+    func test_anUnknownOpKindIsHeldWhereTheLineIsJudged() throws {
         let trust = table()
         var file = Chained()
-        file.append(try futureKindJSON("fromTomorrow", by: sam.author))
-        file.append(try opJSON("today", by: sam.author))
-        try file.seal(by: sam.author)
+        file.append(try futureKindJSON("fromTomorrow", by: sam.assistant))
+        file.append(try opJSON("today", kind: .claudeComment, by: sam.assistant))
+        try file.seal(by: sam.assistant)
 
         let result = partition(walk(file, trust: trust), class: .piece(docId), trust: trust)
 
@@ -466,6 +469,29 @@ final class PermitPartitionTests: XCTestCase {
         XCTAssertTrue(refused(result).isEmpty, "nothing is wrong with it")
         XCTAssertTrue(result.quarantined.isEmpty)
         XCTAssertEqual(applied(result), ["today"])
+    }
+
+    /// **And a book author's own hand is not judged at all, so her unknown
+    /// kind is left to the parser exactly as it was before P3** (fix round 1,
+    /// I3's ruling).
+    ///
+    /// She may write everything, so there is no narrower build for a hold to
+    /// be protecting, and `OpKind`'s own `.unknown` decode is P2's answer for
+    /// such a line — the deriver folds it inertly. Holding it would be a
+    /// behaviour change on every existing book, for a line nobody can act on.
+    func test_aBookAuthorsUnknownKindIsNotHeld() throws {
+        let trust = table()
+        var file = Chained()
+        file.append(try futureKindJSON("fromTomorrow", by: sam.author))
+        file.append(try opJSON("today", by: sam.author))
+        try file.seal(by: sam.author)
+        let walked = walk(file, trust: trust)
+
+        let result = partition(walked, class: .piece(docId), trust: trust)
+
+        XCTAssertEqual(result, walked, "the partition never looked at the line")
+        XCTAssertTrue(held(result).isEmpty)
+        XCTAssertTrue(refused(result).isEmpty)
     }
 
     /// **A role word this build cannot read holds that person's lines**, for

@@ -484,3 +484,52 @@ final class LocalIdentitiesTests: XCTestCase {
         XCTAssertTrue(local.all.allSatisfy(\.canSign))
     }
 }
+
+/// **Reading an actor back off a device id or a slug** (P3a Task 5's fix
+/// round 1, I5). A claim that can only ever narrow, so every way of failing to
+/// match must answer nil rather than guess.
+extension DeviceIdentityTests {
+
+    func test_theActorIsReadBackFromAnIdAndFromASlug() {
+        let key = String(repeating: "a", count: 32) + String(repeating: "b", count: 32)
+
+        for actor in DeviceActor.allCases {
+            let id = DeviceIdentity.deviceId(actor: actor.rawValue, fingerprint: key)
+            XCTAssertEqual(
+                DeviceIdentity.actor(ofDeviceId: id, signingWith: key), actor,
+                "the id \(id) names \(actor)")
+            // And the SLUG, which truncates its readable part at 24 characters
+            // — so `assistant-` and `translator-` keep only 13–14 hex digits.
+            let slug = DeviceSlug.make(from: id).raw
+            XCTAssertEqual(
+                DeviceIdentity.actor(ofDeviceId: slug, signingWith: key), actor,
+                "the slug \(slug) names \(actor)")
+        }
+    }
+
+    func test_anIdThatDoesNotDescribeThisKeyNamesNobody() {
+        let key = String(repeating: "a", count: 64)
+        let other = String(repeating: "c", count: 64)
+        let id = DeviceIdentity.deviceId(actor: "author", fingerprint: key)
+
+        XCTAssertNil(
+            DeviceIdentity.actor(ofDeviceId: id, signingWith: other),
+            "a filename that does not describe its own contents narrows nothing")
+        XCTAssertNil(
+            DeviceIdentity.actor(
+                ofDeviceId: DeviceIdentity.deviceId(actor: "curator", fingerprint: key),
+                signingWith: key),
+            "a fifth writer a later build invented is never guessed at")
+        XCTAssertNil(
+            DeviceIdentity.actor(ofDeviceId: "author", signingWith: key),
+            "no hex run at all")
+        XCTAssertNil(
+            DeviceIdentity.actor(ofDeviceId: "author-aaaa", signingWith: key),
+            "a run too short to mean anything")
+        XCTAssertNil(
+            DeviceIdentity.actor(
+                ofDeviceId: DeviceSlug.make(from: "denvers-macbook-pro").raw,
+                signingWith: key),
+            "a pre-P1 hostname slug names no actor")
+    }
+}

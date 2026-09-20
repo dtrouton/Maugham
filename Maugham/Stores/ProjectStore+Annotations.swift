@@ -233,7 +233,8 @@ extension ProjectStore {
             // silent, though: the id goes into `unreadableDocIds` so a count
             // surface can render "unknown" rather than a number that is short.
             guard let ops = try? OpLogStore.loadSyncMerged(
-                forDocId: item.id, in: url, trust: trust)
+                forDocId: item.id, in: url, trust: trust,
+                statements: manifest.statements)
             else {
                 unreadable.append(item.id)
                 continue
