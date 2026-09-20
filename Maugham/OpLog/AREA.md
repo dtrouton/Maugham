@@ -1021,6 +1021,42 @@ Measured 2026-09-20, ordinary book, quiet machine: the two main-actor project
 walks over 30 documents moved 59.5 → 59.6 ms and 63.3 → 63.4 ms against `main`,
 and one `Document.load` of a 1,001-op document 24.9 → 26.0 ms.
 
+**Every one of those exits turns on NARROWING, not on events** (final fix wave,
+W1 — `TrustTable.hasNarrowingPermits`). P3a's own verbs write events: `admit`
+files one for every device the writer lets in, and the silent admission at
+project open files another. Every event P3a can write carries the book-author
+permit, so gating the exits on *are there events* made the first admitted phone
+turn a book into *judge everything* for a reason that has nothing to do with
+permits — and took the annotation ownership rule with it, which stopped
+honouring an UNSIGNED Mac's edits and withdrawals from that day on. The
+question is asked of the permits: *has anybody in this book ever been anything
+but an author of the whole book*, over every entry of every timeline, with an
+unreadable role word counting as narrowing. The ACTOR rows are not part of that
+and bind in every book, evented or not.
+
+**And the narrowed book is measured too** (final fix wave, W5 — it was P3a's
+one unmeasured path). Same machine, same day, one fixture, both shapes; the
+absolute numbers are not comparable with the ordinary-book row above because
+the fixture is a different one, but the two columns here are comparable with
+each other, which is the question.
+
+| measure (medians of 7) | admissions-only | one reviewer |
+|---|---|---|
+| annotations walk, 30 documents | 157.8 ms | 157.4 ms |
+| aggregation walk, 30 documents | 153.3 ms | 163.8 ms |
+| `Document.load`, 1,001 ops | 23.8 ms | 39.2 ms |
+| `TranslationStore.loadMerged`, 40 records | 0.82 ms | 0.89 ms |
+
+An admissions-only book pays nothing — it takes every exit, which is exactly
+what W1 restored. The moment ONE person is a reviewer the book starts judging,
+and the cost lands where the work is: **+15 ms on a document open**, +65 %, the
+per-line decode plus the class resolution over 1,001 ops. The walks and the
+translation read barely move, because those streams are still one kind each and
+the aggregation's +7 % is inside its own spread. This is P3b's number to carry:
+it is paid once per open rather than per keystroke, and it is the price of the
+rung existing at all — but a reviewer opening a large document will feel two
+frames of it.
+
 ### Possession, and a contested actor key
 
 A device record LISTS the fingerprints of its four actor keys, and **nothing
@@ -1140,6 +1176,42 @@ A keyless book, a P2-era book, the root and a book author reach `.unrestricted`
 and behave exactly as they did. `DocumentWaitingTests` holds both halves;
 `BootstrapWiringTests`' four tests are untouched.
 
+**Two automations of that same hand were missed and are now in the rule**
+(final fix wave, W4): `sweepOrphanedAnnotations`, which archives a note whose
+paragraph a merge took away, and `repairRejectedButSplicedAnnotations`, which
+puts a paragraph back when a reject beat an accept across a merge. Nobody does
+either — the app does — so both sign with `authorEmissionDevice` and are not
+made at all where `localWritePermit` disallows the kind
+(`appendLifecycleOp(automation:)`, the one flag that carries both halves). On a
+reviewer's Mac with somebody else's piece open the repair would otherwise have
+been her machine signing text and dispositions the table refuses, filed in her
+name, with her live document diverging until she reloaded. Declining costs
+nothing: the piece's own author makes the same repair the next time she opens
+it, and a disagreement standing visibly is what the repair already does when a
+paragraph has drifted.
+
+**And what RELEASED builds wrote is judged as the author's, permanently**
+(final fix wave, W3(a)). The attribution rule above fixes what this build
+writes; v0.37–v0.40 signed the same emissions with whichever actor opened the
+document, so books exist holding `assistant-…` / `translator-…` files whose
+lines are `bootstrap` and the anchor `taskCreate` — kinds the actor rows
+refuse, and a refused `bootstrap` is a document whose OPENING op is gone,
+deriving empty under the first autosave. `Permit.isALoadEmission` names those
+two kinds and `Permit.actorJudging` answers which actor judges a line; the
+partition asks both. It widens the ACTOR and never the permit, so a reviewer's
+device's assistant-signed bootstrap is still refused under her own permit, with
+the sentence her own hand's line would get. It is NOT gated on
+`hasNarrowingPermits`, because a grandfather switched off by the first reviewer
+P3b creates is the same defect arriving later. **The three other load emissions
+are not covered and that is a stated stop**: both pending-recovery folds and
+the anchor splice are `typingBurst` and none of them writes a
+`synthesisSource`, so on disk they are indistinguishable from a person typing.
+An assistant-signed ordinary burst therefore stays refused, which is the
+constitution's sentence about MCP and the manuscript. A disk census over every
+project this Mac can reach (23 projects, 194 tails, 5 `.mzseg` segments, 11,064
+lines) found no such line: the only non-author actor lines anywhere were
+`claude_comment` and `claude_query`, which are the reviewer row.
+
 ## A foreign stream that got shorter (P3a Task 9, spec §4.7)
 
 P1's remembered head is about this device's OWN files, and it catches an agent
@@ -1209,6 +1281,17 @@ finishes, a file is restored — the finding is cleared and the project stops
 being unhealthy, rather than being unhealthy for ever over something that is no
 longer true.
 
+**The PHONE runs it too** (final fix wave, M1 — correcting Task 9's review,
+which said it ran neither half). `OpLogStore.load` goes through
+`loadDiagnosed`, which builds the watch unconditionally, so a phone that reads
+a chapter records what it saw and rewrites `op-log-state.json` like any other
+device. That is harmless and is left alone rather than switched off: the memory
+is the same derived bookkeeping there as here, it costs one state rewrite per
+changed stream, and the phone benefits from the same truncation detection. What
+the phone does NOT do is the SECOND job below — it writes no registry record
+and runs no marking verb (tripwires 40/41), so nothing on it ever asks
+`expectedStreams` a question.
+
 **Where it is filled, and where it deliberately is not.** The STRICT load fills
 it — `loadDiagnosed` carries one watch for the whole document and settles once,
 so a chapter spread over four foreign files costs one rewrite of the state file
@@ -1222,11 +1305,19 @@ answer over the files that DID read, so a stream whose tail it could not open
 looks exactly like a short one; and `ProjectIntegrity.check` classifies
 keylessly and only REPORTS what a load recorded.
 
-**Downgrading loses it, and that is fine.** An older build decodes this state
-file, ignores the keys it has no property for, and rewrites the file without
-them; coming back up finds the foreign memory empty and starts again from the
-next load. It is derived bookkeeping — the same stance `heads` takes on a moved
-project — so the cost is one load's worth of detection, never a word.
+**Downgrading loses it, and that is fine — with one consequence worth naming**
+(final fix wave, M2). An older build decodes this state file, ignores the keys
+it has no property for, and rewrites the file without them; coming back up
+finds the foreign memory empty and starts again from the next load. It is
+derived bookkeeping — the same stance `heads` takes on a moved project — so the
+cost is one load's worth of detection, never a word. The consequence is that
+the SWEEP GUARD below goes quiet with it: a Mac that has been down to an older
+build and back expects nothing of any stream until it has loaded each one
+again, so for that window a verb that marks cannot tell an absent stream from
+one that never existed and will not refuse over it. It is the pre-P3a
+behaviour, arrived at honestly, and it heals on the next load of each
+document — but it is a window, and it is here rather than in a comment because
+it is invisible from either side.
 
 **Its second job is a REGISTRY verb's, not a load's** (Task 7's
 `expectedStreams` hook, supplied here). A mark that does not NAME a stream
@@ -1235,6 +1326,25 @@ time — iCloud has moved it, a sync is halfway through — would make a demotio
 reach back through every line of it and a *keep what was applied* revocation set
 aside words this Mac had already put in front of the writer. Nothing inside the
 sweep can tell absent from never-existed; this memory can.
+
+**And it is asked about CONTENTS, not names** (final fix wave, W2). Checking
+that each remembered key came back in the mark catches a stream that has
+vanished and nothing else, which leaves the case the shipped Revoke button
+walks into: Sam's Mac rotates, and the tail DELETION reaches this disk before
+the new segment does. The key is there — a fresh tail exists — so the sweep
+passed with a position that had forgotten a whole segment; the root pressed
+Revoke (*keep what was applied*), the segment arrived, and every line in it
+judged NEW and was set aside. So `positions` takes the memories themselves and
+asks `ForeignStreamWatch.loss` of what it found — the LOAD's own predicate,
+rotation tolerance and all, called rather than restated, so the two cannot
+disagree about whether a rotation is maintenance or a truncation. A stream that
+legitimately grew is not refused; a stream whose name never came back answers
+an empty `Found`, which the same predicate reads as the head being gone, so
+both conditions are one call. The same rule reaches the EVENT: `writeEvent`'s
+carry-forward unions segment digests per key (keeping an older line only where
+the new sweep found none), because per-key-only was the identical defect one
+field lower down.
+
 `DocumentStore.expectedStreams(ofDeviceIds:in:state:)` is the one builder, and
 its two call sites are `DocumentStore.permitMark(forPerson:seen:)` (which serves
 `changePermit`, `admit` and `revoke`) and `DocumentStore.rememberedAdmissionMark`

@@ -180,6 +180,41 @@ project walks over 30 documents moved 59.5 → 59.6 ms and 63.3 → 63.4 ms agai
 `main`; one `Document.load` of a 1,001-op document 24.9 → 26.0 ms. C9 is
 answered and nothing was moved off the main actor.
 
+## The final fix wave (2026-09-20) — what the whole-branch review changed
+
+Four items, four commits, each with both directions tested and a disable
+experiment recorded in `.superpowers/sdd/…/final-fix-wave-report.md`.
+
+- **W1 (Critical): a book judges itself when somebody is NARROWED, not when an
+  event exists.** *No events before P3b* was false — P3a's own `admit` writes
+  one for every device the writer lets in, and `DocumentStore.open`'s silent
+  admission writes another. `TrustTable.hasNarrowingPermits` replaces
+  `hasPermitEvents` at all four neutrality gates (the amendment record,
+  `couldJudge`, `answersWholeFile`, `AnnotationOwnership.unplaced`), asking the
+  permits rather than the events, over every entry of every timeline, with an
+  unreadable role word counting as narrowing. The sharpest consequence it
+  closes: an UNSIGNED Mac's annotation edits and withdrawals stopped being
+  honoured on every signed Mac from the day the writer admitted their phone —
+  P3 refusing what P1 applied, for a state the constitution calls first-class.
+- **W2: a sweep asks what a stream CONTAINS.** `expectedStreams` checked names,
+  which leaves the rotation-mid-sync case the shipped Revoke button walks into.
+  The MEMORY travels now (`expecting:`), and the guard asks
+  `ForeignStreamWatch.loss` — the load's own predicate, extracted rather than
+  restated. `writeEvent`'s carry-forward unions segment digests per key.
+- **W3(a): what RELEASED builds wrote is judged as the author's, permanently.**
+  `Permit.isALoadEmission` + `Permit.actorJudging`. **With a stated stop** —
+  see the ADR's limits: the three `typingBurst` load emissions write no
+  `synthesisSource`, so they are not covered and an assistant-signed ordinary
+  burst stays refused. W3(b)'s disk census over every project this Mac can
+  reach (23 projects, 194 tails, 5 `.mzseg`, 11,064 lines) found no line the
+  rule does not cover.
+- **W4: the two automations.** `sweepOrphanedAnnotations` and
+  `repairRejectedButSplicedAnnotations` now sign with `authorEmissionDevice`
+  and are not made where `localWritePermit` disallows the kind.
+- **W5: the narrowed book is measured** — see the ADR's *cost of a narrowed
+  book* table and `Maugham/OpLog/AREA.md`. An admissions-only book pays
+  nothing; one reviewer costs **+15 ms (+65 %) on a document open**.
+
 ## For the release notes
 
 > On books shared between Macs, a device this book does not know had its
@@ -259,6 +294,45 @@ permits.
 10. **Two format changes are filed on the roadmap's *Signed structure* item**,
     both found here: per-actor possession proofs in the device record (the cure
     for a contested key), and a per-adoption date on the claim record (item 8).
+11. **MUST — the first NARROWING event bumps the manifest schema gate** (the
+    whole-branch review's F5, and the answer to *the decision still owed*
+    above for the narrowed case). A v0.40.0 author Mac in a narrowed book
+    applies a reviewer's refused text, and its next burst re-asserts those
+    words under ITS OWN book-author key through `sequence`/`changes` — which
+    every new Mac then applies. That is somebody else's words under the
+    writer's name, with nothing red anywhere, and a paired release is a request
+    rather than a mechanism. The bump must happen the moment a NARROWING event
+    is written (not an admission: those carry the book-author permit and change
+    nothing an old build would get wrong), the same way `schemaVersion` 5 did.
+    **P3a does not need it now that W1 has landed** — only book-author events
+    can exist, and v0.40.0 ignores `people/events` benignly: its reader filters
+    `.json` files and skips directories, and `reconcile` deletes nothing.
+12. **`.retired`'s rolling ≤99-op unsealed tail is applied elsewhere and then
+    quarantined once sealed.** Task 11 ruled that a retired device KEEPS its
+    unsealed tail, because `retire` seals no op log and that tail is
+    pre-retirement work. The consequence is a shape P3b's re-admission prompt
+    is where the writer meets it: text appears on other Macs and then vanishes
+    when the device next seals. Spec §5 says such lines are HELD; today they
+    are applied then quarantined. Decide which, in the prompt's copy or in the
+    rule.
+13. **Two things nothing exercises.** Task 2's minor — a replayed MARKED line
+    as the first line of a forged tail, whose following lines must judge NEW —
+    has no test; the controller's analysis says it is harmless (a replayed line
+    can only sit where its `prev` allows) but the analysis is unpinned.
+    `AmendmentPermits`' restrictiveness tie-break has no production exerciser
+    at all: nothing in P3a can produce two governing permits for one amendment
+    op, so the arm that picks between them is written and never run.
+
+## Open question the whole-branch review did NOT verify
+
+**S4(c): are two roots' marks for one stream comparable after an adoption?** A
+mark is a set of chain positions in a stream, and after two roots adopt each
+other each holds marks it computed from its own copy of the folder. Whether
+those two marks can be compared — or merged, or ordered — for the same stream
+is not established anywhere, and the review states plainly that it did not
+verify it. It cannot bite in P3a (nothing creates a non-book permit), but P3b
+gives the writer a verb that writes marks, and two adopted roots both using it
+is the first moment the question has an answer worth having.
 
 ## Carries into P3c
 

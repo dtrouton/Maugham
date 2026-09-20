@@ -1320,6 +1320,49 @@ next read.
   closed for every revocation this build writes, open for every one already on
   disk, and it stays open because rewriting a signed record to change what it
   means is not something a later build gets to do.
+- **The load's own `typingBurst` emissions from released builds are not
+  grandfathered.** `Permit.isALoadEmission` covers `bootstrap` and the anchor
+  `taskCreate`, so a line those released builds signed with the loading actor
+  is judged under the person's permit without the actor narrowing — permanently,
+  because a time-boxed rule would be un-applied by the first reviewer P3b
+  creates. The other three load emissions — both pending-recovery folds and the
+  anchor splice — are `typingBurst` and **none of them writes a
+  `synthesisSource`**, so nothing on the line distinguishes them from a person
+  typing. Widening the rule to every `typingBurst` would say MCP may move the
+  manuscript after all, so an assistant-signed ordinary burst stays refused. A
+  disk census of every project this developer's Mac can reach (23 projects, 194
+  tails, 5 `.mzseg` segments, 11,064 lines) found no such line; the exposure is
+  a shape this format allows rather than one anybody has been observed to hold.
+  The close, if one is ever wanted, is a `synthesisSource` on those three
+  emissions, which only helps lines written AFTER it ships.
+- **A downgrade takes the foreign-stream memory with it, and the sweep guard
+  goes quiet with it.** A Mac that has been down to an older build and back
+  expects nothing of any stream until it has loaded each one again, so for that
+  window a marking verb cannot tell an absent stream from one that never
+  existed. Pre-P3a behaviour, arrived at honestly, healing per document on the
+  next load — but a window.
+
+### The cost of a narrowed book, measured (2026-09-20)
+
+P3a's own measurement covered the ordinary book, which is what every existing
+book becomes the day it ships, and left the NARROWED book unmeasured because no
+P3a surface can create one. It is measured now, on one fixture, both shapes,
+one machine, medians of 7:
+
+| measure | admissions-only | one reviewer |
+|---|---|---|
+| annotations walk, 30 documents | 157.8 ms | 157.4 ms |
+| aggregation walk, 30 documents | 153.3 ms | 163.8 ms |
+| `Document.load`, 1,001 ops | 23.8 ms | 39.2 ms |
+| `TranslationStore.loadMerged`, 40 records | 0.82 ms | 0.89 ms |
+
+An **admissions-only** book — which is what P3a's own verbs produce, and what
+the first admitted phone makes of every book — pays nothing: it takes every
+exit, which is what `TrustTable.hasNarrowingPermits` restored. The moment one
+person is a reviewer the book judges, and the cost lands on the document open:
+**+15 ms, +65 %**, the per-line decode plus the class resolution over 1,001
+ops. It is paid once per open rather than per keystroke, and it is the price of
+the rung existing; P3b carries it as a known number rather than a surprise.
 
 ## Consequences
 

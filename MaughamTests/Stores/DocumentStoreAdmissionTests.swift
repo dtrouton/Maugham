@@ -1399,7 +1399,7 @@ final class DocumentStoreAdmissionTests: XCTestCase {
 
     /// The control, so the refusal above is about the reading and not about
     /// admission: with the folder readable the very same press succeeds.
-    func test_thesameAdmissionSucceedsOnceTheFolderCanBeListed() async throws {
+    func test_theSameAdmissionSucceedsOnceTheFolderCanBeListed() async throws {
         beThisMac()
         let store = try await DocumentStore.open(url: projectURL)
         try FileManager.default.createDirectory(

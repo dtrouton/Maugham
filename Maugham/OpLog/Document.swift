@@ -1422,7 +1422,10 @@ public final class Document {
         // Recovery guarantee: `flushBurstNow` clears the pending buffer ONLY
         // after a successful `opStore.append` — so on an append failure the
         // in-memory `PendingBuffer` is still intact. We durably re-persist it
-        // to `.maugham/ops/<docId>.pending.jsonl`, which the next
+        // to `.maugham/pending/<docId>.<slug>.pending.jsonl` (`PendingBuffer`
+        // owns that path; it is NOT under `.maugham/ops/`, which the mark
+        // sweep's `PermitMark.stream` reads and which the pending file has
+        // never been in), which the next
         // `Document.load` folds back into a real op via the crash-recovery
         // path. That makes the durable re-persist explicit and local to
         // `close()` rather than leaning on `performAutosave`'s incidental
