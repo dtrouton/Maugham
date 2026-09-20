@@ -701,11 +701,23 @@ final class TripwirePhoneGrepTest: XCTestCase {
     /// that decided trust locally would apply a stranger's sealed captures as
     /// this device's own, and a record it wrote by hand is one no reader can
     /// vouch for.
+    ///
+    /// **At PARITY with the Mac's list since the 2026-09-20 audit (PR #65, F3).**
+    /// It used to carry the literal-with-a-leading-dot spelling of each
+    /// directory and nothing else, so a phone source composing the path a
+    /// component at a time — `.appendingPathComponent("people")
+    /// .appendingPathComponent("claims")` — or writing it bare under some other
+    /// prefix walked straight past it. Those are exactly the two shapes a
+    /// second writer takes, which is why the Mac carries three spellings of
+    /// each directory; the phone now carries the same three, and the control
+    /// below plants one of each.
     private var admissionPatterns: [String] {
         ["trusted: {", "trustedFingerprints",
          "identities.fingerprints", ".fingerprints.contains",
          "\".maugham/devices", "\".maugham/people", "\".maugham/claims",
-         "maugham/events", "PathComponent(\"events",
+         "maugham/devices", "maugham/people", "maugham/claims", "maugham/events",
+         "PathComponent(\"devices", "PathComponent(\"people",
+         "PathComponent(\"claims", "PathComponent(\"events",
          "digestHex(ofRecord:", "RegistryWriter.url("]
     }
 
@@ -747,6 +759,8 @@ final class TripwirePhoneGrepTest: XCTestCase {
         let dir = projectURL.appendingPathComponent(\".maugham/devices\", isDirectory: true)
         let digest = try RegistryCanonical.digestHex(ofRecord: record)
         let events = people.appendingPathComponent("events", isDirectory: true)
+        let bare = container.appendingPathComponent("maugham/people", isDirectory: true)
+        let composed = m.appendingPathComponent("people").appendingPathComponent("claims")
         let good = PhoneDeviceRecord.ensure(in: projectURL, identity: identity)
         """.write(to: tmp.appendingPathComponent("BadPhoneTrust.swift"),
                   atomically: true, encoding: .utf8)
@@ -757,8 +771,8 @@ final class TripwirePhoneGrepTest: XCTestCase {
             excludeLine: admissionExcludeLine,
             extraOffender: { _ in false })
 
-        XCTAssertEqual(offenders.count, 5,
-            "Self-check: the five planted offenders should be caught, and "
+        XCTAssertEqual(offenders.count, 7,
+            "Self-check: the seven planted offenders should be caught, and "
             + "neither the comment nor the sanctioned call. Caught:\n"
             + offenders.joined(separator: "\n"))
         XCTAssertTrue(offenders.contains(where: { $0.contains("let bad") }))
@@ -768,6 +782,13 @@ final class TripwirePhoneGrepTest: XCTestCase {
         XCTAssertTrue(offenders.contains(where: { $0.contains("let events") }),
             "the permit-event directory is composed from its parent (P3a), "
             + "which is the one spelling a literal prefix would miss")
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let bare") }),
+            "a registry path written without the leading dot is still one "
+            + "(audit PR #65, F3)")
+        XCTAssertTrue(offenders.contains(where: { $0.contains("let composed") }),
+            "and so is one built a component at a time — which is exactly how "
+            + "`RegistryWriter` builds it, and so exactly how a second writer "
+            + "would (audit PR #65, F3)")
         XCTAssertFalse(offenders.contains(where: { $0.contains("let good") }))
     }
 

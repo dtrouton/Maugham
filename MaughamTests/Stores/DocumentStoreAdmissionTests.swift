@@ -1348,4 +1348,67 @@ final class DocumentStoreAdmissionTests: XCTestCase {
             forDocId: docId, deviceSlug: stranger.slug, in: projectURL)))
         XCTAssertNotNil(event.mark[key]?.line, "and named the stream it read")
     }
+
+    // MARK: - The fourth act (P3a Task 10, from Task 7's fix-round-2 carry)
+
+    /// **An admission refuses over a short reading too, and says so in its own
+    /// words** — the last of the four acts that compute a mark.
+    ///
+    /// Three of them were pinned when the `Act` vocabulary landed (a
+    /// revocation's is the default, a permit change's and a retirement's have
+    /// tests of their own) and this one was not, which left the sentence a
+    /// writer sees after pressing **Admit…** unguarded: the arm that produces
+    /// it is one `act:` label away from telling them *a revocation* was
+    /// refused.
+    ///
+    /// The refusal itself matters as much as its wording. An admission's mark
+    /// is where the new permit STARTS, so one recorded over a folder that
+    /// would not list is a demotion at the door, reaching back through
+    /// everything that person ever wrote.
+    func test_anadmissionRefusesOverAFolderItCannotListAndNamesItsOwnAct() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let translations = projectURL.appendingPathComponent(".maugham/translations")
+        try FileManager.default.createDirectory(
+            at: translations, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000], ofItemAtPath: translations.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: translations.path)
+        }
+
+        do {
+            _ = try await store.admit(
+                device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+            XCTFail("an admission decided on a partial reading puts everything "
+                    + "she ever wrote under the permit she is let in with")
+        } catch let error as RegistryAdmissionError {
+            guard case .historyUnreadable(let name, let act) = error else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(name, ".maugham/translations")
+            XCTAssertEqual(act, .admission, "and the sentence says which act")
+        }
+
+        XCTAssertNil(try registry().person(stranger.fingerprint),
+                     "nobody was admitted")
+        XCTAssertTrue(try registry().events.isEmpty,
+                      "and no event was written")
+    }
+
+    /// The control, so the refusal above is about the reading and not about
+    /// admission: with the folder readable the very same press succeeds.
+    func test_thesameAdmissionSucceedsOnceTheFolderCanBeListed() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        try FileManager.default.createDirectory(
+            at: projectURL.appendingPathComponent(".maugham/translations"),
+            withIntermediateDirectories: true)
+
+        let record = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+
+        XCTAssertEqual(record.person, stranger.fingerprint)
+    }
 }

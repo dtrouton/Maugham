@@ -7791,6 +7791,476 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertFalse(stale.contains(where: { $0.contains("admitTitle") }))
     }
 
+    // MARK: - The role check reads the timeline (P3a Task 10, spec §3.4)
+
+    /// A read of a registry record's PERMIT FIELDS, as a Swift source can spell
+    /// one: `role`, `scope` and `pieces` on a receiver that reads like a
+    /// registry record or a permit event.
+    ///
+    /// **The receiver is part of the pattern because the three field names are
+    /// ordinary English**, and each is a property of unrelated types all over
+    /// this app — `ResearchItem.role`, `ProductionRole.role`,
+    /// `Collaborator.role`, `Statement.scope`, `TaskFilter.scope`,
+    /// `CanvasSubject.pieces`. A bare `.role` census would be hundreds of lines
+    /// of noise, which is a census nobody reads.
+    ///
+    /// **Its known limit**, stated rather than hidden: a receiver named
+    /// something else — `existing`, `theirs`, `subject` — escapes it. Those
+    /// words are all bound to OTHER types in this tree today (`existing` is a
+    /// `ResearchItem` in `ProjectStore+Palette`, `subject` a `CanvasSubject`),
+    /// so widening the receiver list would buy offenders it cannot tell apart
+    /// and allow-list entries that teach the wrong rule.
+    static let permitFieldPatterns: [String] = {
+        var out: [String] = []
+        for receiver in ["record", "person", "standing", "event"] {
+            for field in ["role", "scope", "pieces"] {
+                out.append("\(receiver).\(field)")
+                out.append("\(receiver)?.\(field)")
+            }
+        }
+        return out
+    }()
+
+    /// Where a permit field may be read, by file AND by spelling.
+    ///
+    /// - `RegistryAdmission.swift` — the WRITER. It carries a standing
+    ///   person's permit forward when a rename re-signs their record
+    ///   (`standing.role`), reads a subject's own permit onto the event a
+    ///   retirement writes (`person?.role`), and compares the record's parsed
+    ///   permit against the timeline to answer *is there anything to do*
+    ///   (`record.role`, `recordBehindEvents`). All three are write-side.
+    /// - `Permit.swift` — the one PARSE, off a `PermitEvent`'s three strings.
+    /// - `RegistryReader.swift` — the malformed reason for an event that would
+    ///   demote a root, which names the role and scope the event ASKED FOR so
+    ///   the writer can see what was refused. It reads an event, not a person.
+    /// - `PeopleAndDevicesModel.swift` — DISPLAY, and display only: the word
+    ///   goes into the person row's `detail` line and decides nothing.
+    ///
+    /// `PermitTimeline.swift` has no entry and needs none: it reads an event
+    /// through `Permit(event:)` and never a field of its own. The same is true
+    /// of every reader in the trust layer — `TrustTable.timeline(forPerson:)`
+    /// is built from `Registry.events`, never from `PersonRecord.role`.
+    static let permitFieldAllowedFiles: [String: Set<String>] = [
+        "RegistryAdmission.swift": ["standing.role", "standing.scope",
+                                    "standing.pieces", "record.role",
+                                    "record.scope", "record.pieces",
+                                    "person?.role", "person?.scope",
+                                    "person?.pieces"],
+        "Permit.swift": ["event.role", "event.scope", "event.pieces"],
+        "RegistryReader.swift": ["record.role", "record.scope"],
+        "PeopleAndDevicesModel.swift": ["record.role"],
+    ]
+
+    /// **The role check reads the TIMELINE, never the record's `role` field**
+    /// (P3 spec §3.4).
+    ///
+    /// `PersonRecord.role` is a CONVENIENCE — the permit as it stands today,
+    /// written so a reader can show it without replaying anything. What judges
+    /// a LINE is `PermitTimeline`, because a line is judged by the permit its
+    /// signer held WHEN THEY WROTE IT: a person demoted to reviewer on Tuesday
+    /// wrote her chapters on Monday as an author, and a check that read the
+    /// field would set every one of them aside. The same mistake in the other
+    /// direction is worse — a promotion would pardon text the book had already
+    /// refused.
+    ///
+    /// Both failures are silent. Nothing goes red; the words simply leave, or
+    /// arrive.
+    func test_theRoleCheckReadsTheTimelineAndNotTheRecordsField() throws {
+        let offenders = try grepSwift(
+            in: admissionRoots,
+            patterns: Self.permitFieldPatterns,
+            allowedSpellings: Self.permitFieldAllowedFiles,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file reads a registry record's `role` / `scope` / "
+            + "`pieces` outside the writer, the parse, the malformed reason and "
+            + "the People & Devices row. The field says what somebody may write "
+            + "TODAY; what judges a line is `PermitTimeline`, which says what "
+            + "they could write when they wrote it. Deciding from the field "
+            + "makes a demotion reach back through the book and a promotion "
+            + "pardon what was already refused — both silently. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    // MARK: - One table (P3a Task 10, spec §2, §4.2)
+
+    /// The one classifier that says which ops become words.
+    static let manuscriptClassifierPattern = "Deriver.appliesToManuscript("
+
+    /// Its callers, named. `Deriver.swift` is its own file and folds the ops;
+    /// `Permit.swift` asks it rather than restating the list (a second copy
+    /// would drift, and the drift would wave a manuscript-moving kind through
+    /// on the reviewer row); `ProcessSignals.swift` finds the writer's frontier
+    /// by it; `DeltaBuilder.swift` builds a run's delta by it.
+    static let manuscriptClassifierCallers: Set<String> = [
+        "Deriver.swift", "Permit.swift", "ProcessSignals.swift", "DeltaBuilder.swift",
+    ]
+
+    /// **Which ops become words is asked, never restated** — and the list of
+    /// askers is the array, not a number in prose.
+    func test_theManuscriptClassifierHasOneNamedSetOfCallers() throws {
+        var callers: Set<String> = []
+        for root in admissionRoots {
+            let hits = try grepSwift(
+                in: root,
+                patterns: [Self.manuscriptClassifierPattern],
+                allowed: [],
+                excludeLine: Self.admissionExcludeLine)
+            for hit in hits {
+                callers.insert(String(hit.prefix(while: { $0 != ":" })))
+            }
+        }
+        XCTAssertEqual(callers, Self.manuscriptClassifierCallers,
+            "The set of files asking `Deriver.appliesToManuscript` moved. A NEW "
+            + "one is a new opinion about which ops move the prose unless it is "
+            + "asking rather than deciding; a MISSING one has stopped asking "
+            + "and is very likely restating. Add it to "
+            + "`manuscriptClassifierCallers` with its reason, or take the "
+            + "second opinion out. Found: \(callers.sorted())")
+    }
+
+    /// The spellings that would restate the permission table somewhere else.
+    ///
+    /// `WrittenGroup` is the table's left-hand column; `-> Allowed` is its
+    /// answer type; `Permit.parse(` turns the wire strings into a permit;
+    /// `Permit(event:` does the same off an event. Each is a way to decide, or
+    /// to decide what was decided, and a second one fails in the direction that
+    /// costs words.
+    static let permitTablePatterns = [
+        "WrittenGroup", "-> Allowed", "Permit.parse(", "Permit(event:",
+    ]
+
+    /// File AND spelling. `Permit.swift` is the table and holds all four.
+    /// `LocalWritePermit.swift` FORWARDS to it — two wrappers that take the
+    /// hardest class where none is known — so it may name the answer type and
+    /// nothing else. `RegistryAdmission.swift` parses on the WRITE side (what a
+    /// verb is about to write, and whether it differs from what is on disk).
+    /// `PermitTimeline.swift` and `TrustEvents.swift` turn an event into the
+    /// permit it installs — the timeline to judge by, the events file to
+    /// narrate.
+    static let permitTableAllowed: [String: Set<String>] = [
+        "Permit.swift": ["WrittenGroup", "-> Allowed", "Permit.parse(", "Permit(event:"],
+        "LocalWritePermit.swift": ["-> Allowed"],
+        "RegistryAdmission.swift": ["Permit.parse(", "Permit(event:"],
+        "PermitTimeline.swift": ["Permit(event:"],
+        "TrustEvents.swift": ["Permit(event:"],
+    ]
+
+    /// **`Permit.allows` is the one table** (spec §2's ladder).
+    ///
+    /// Its switch over `OpKind` has no `default:` on purpose: a kind added by a
+    /// later build of this app fails to compile there until somebody decides
+    /// who may sign it. A second switch somewhere else takes that gate away —
+    /// it keeps compiling, and the new kind is waved through or refused by
+    /// whichever copy the reader happened to reach.
+    func test_thePermissionTableIsSpelledInThePermitLayerOnly() throws {
+        let offenders = try grepSwift(
+            in: admissionRoots,
+            patterns: Self.permitTablePatterns,
+            allowedSpellings: Self.permitTableAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file outside the permit layer names the permission "
+            + "table's own vocabulary. `Permit.allows` — with `Permit.group` in "
+            + "front of it and `Permit.parse` behind it — is the one answer to "
+            + "*may this person have signed this*. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    // MARK: - The partition's call sites are a named list (P3a Task 10)
+
+    /// **Every production call of `PermitPartition.partition`, by file and by
+    /// count** — the array, never a number in prose (memory: *prose counts are
+    /// unmaintainable*).
+    ///
+    /// - `OpLogStore.swift` × 2. One is `partitioningByPermit`, the ops door,
+    ///   itself reached from three sites (the live tail, a settled segment, the
+    ///   fallback walk); one is `verificationForPositions`, the SWEEP that
+    ///   computes a mark, which has to judge a file exactly as the load judges
+    ///   it or the two would cut it in different places.
+    /// - `TranslationStore.swift` × 1 — `loadMerged`, every translation
+    ///   reader's one door.
+    /// - `JSONLAppendStore.swift` × 1 — `loadVerifiedStrict`, which is how the
+    ///   inbox manifest and the annotation log reach it.
+    ///
+    /// A MISSING site is a read path that applies another person's lines
+    /// without asking what they were allowed to write. A NEW one is a second
+    /// opinion about where the permit is judged, and the two would disagree the
+    /// first time one of them was changed.
+    static let partitionCallSites: [String: Int] = [
+        "OpLogStore.swift": 2,
+        "TranslationStore.swift": 1,
+        "JSONLAppendStore.swift": 1,
+    ]
+
+    /// `PermitPartition.partition(` per file under `roots`, comments excluded.
+    private func partitionCallCounts(in roots: [URL]) throws -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for root in roots {
+            let hits = try grepSwift(
+                in: root,
+                patterns: ["PermitPartition.partition("],
+                allowed: [],
+                excludeLine: Self.admissionExcludeLine)
+            for hit in hits {
+                counts[String(hit.prefix(while: { $0 != ":" })), default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    func test_thePartitionsCallSitesAreExactlyTheNamedList() throws {
+        let found = try partitionCallCounts(in: admissionRoots)
+        XCTAssertEqual(found, Self.partitionCallSites,
+            "The places a line is judged by permit moved. Every read path that "
+            + "applies somebody else's lines runs the partition before the "
+            + "parse; a site that disappeared is a path applying unjudged text, "
+            + "and a site that appeared is a second opinion about where the "
+            + "judging happens. Update `partitionCallSites` with the reason in "
+            + "the same commit, or put the call back. Found: \(found.sorted(by: { $0.key < $1.key }))")
+    }
+
+    // MARK: - The write-side question has one function (P3a Task 8)
+
+    /// The one "may this device's actor write here" answer, and the type it
+    /// comes in. Fabricating a `LocalWritePermit` anywhere else is answering
+    /// that question by hand — and the shape it takes is
+    /// `LocalWritePermit(permit: .bookAuthor, …)`, which never refuses.
+    static let localWritePermitPatterns = ["LocalWritePermit(", "func localWritePermit("]
+
+    /// `OpLogStore.swift` mints it (the one function); `LocalWritePermit.swift`
+    /// is its own file and holds the `.unrestricted` value every keyless reader
+    /// and every P1/P2-era test path gets.
+    static let localWritePermitAllowed: [String: Set<String>] = [
+        "OpLogStore.swift": ["LocalWritePermit(", "func localWritePermit("],
+        "LocalWritePermit.swift": ["LocalWritePermit("],
+    ]
+
+    func test_theWriteSidePermitQuestionHasOneFunction() throws {
+        let offenders = try grepSwift(
+            in: admissionRoots,
+            patterns: Self.localWritePermitPatterns,
+            allowedSpellings: Self.localWritePermitAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file builds a write permit of its own. "
+            + "`OpLogStore.localWritePermit(as:documentClass:)` is the one "
+            + "answer to whether this device's actor may write here — it never "
+            + "throws and never suspends, and it falls back to this Mac's "
+            + "remembered register rather than forgetting it is a reviewer. A "
+            + "hand-built one is `.unrestricted` by another name. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// A permit compared to a literal rung. Unlike `.reviewer` — which is also
+    /// `CollaborationRole.reviewer`, the sharing role, in half a dozen views —
+    /// these three spellings can only be this milestone's `Permit`.
+    static let permitLiteralPatterns = [
+        "Permit.bookAuthor", ".author(.book)", "Permit.reviewer",
+    ]
+
+    /// The permit layer, by file and spelling. `Permit.swift` DEFINES the
+    /// rungs and may name any of them; `PermitPartition.swift` asks the book
+    /// author's own row for the fast path that skips a per-line decode;
+    /// `OpLogPermitContext.swift` orders permits for a memo key;
+    /// `TrustEventSentence.swift` puts the rung into an English sentence for
+    /// History.
+    static let permitLiteralAllowed: [String: Set<String>] = [
+        "Permit.swift": ["Permit.bookAuthor", ".author(.book)", "Permit.reviewer"],
+        "PermitPartition.swift": ["Permit.bookAuthor", ".author(.book)"],
+        "OpLogPermitContext.swift": [".author(.book)"],
+        "TrustEventSentence.swift": [".author(.book)"],
+    ]
+
+    /// **A rung is compared only where the permit layer compares it.**
+    ///
+    /// The failure this guards is the one P3c's Posture is for and P3a
+    /// deliberately does not have: a surface that decides *this is a reviewer,
+    /// so grey the editor out* by testing the permit against a literal, instead
+    /// of asking the table what may be written. The two answers drift the first
+    /// time a rung is added, and the surface is the copy that does not compile
+    /// -error when it does.
+    func test_aPermitRungIsComparedOnlyInThePermitLayer() throws {
+        let offenders = try grepSwift(
+            in: admissionRoots,
+            patterns: Self.permitLiteralPatterns,
+            allowedSpellings: Self.permitLiteralAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file outside the permit layer tests a permit against "
+            + "a literal rung. Ask `Permit.allows` what may be written; the "
+            + "rungs are not a vocabulary for anything else. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    // MARK: - CONTROL for the five P3a censuses
+
+    /// The same patterns and the same exclusions, over planted files: every
+    /// offender is caught, the comment naming one is not, and each allow-list
+    /// is honoured by FILE AND SPELLING — a file allowed one spelling is still
+    /// caught reaching for another.
+    func test_thePermitCensusesFireOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-permit-selfcheck-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        // -- 1. The role check reads the timeline.
+        let fields = tmp.appendingPathComponent("fields")
+        try fm.createDirectory(at: fields, withIntermediateDirectories: true)
+        try """
+        // A comment may say record.role and person?.scope all it likes.
+        let rung = record.role == Permit.reviewerRole ? "held" : "applied"
+        if person?.pieces?.contains(docId) == true { apply(line) }
+        let asked = standing.scope
+        let carried = existingItem.role
+        """.write(to: fields.appendingPathComponent("SecondRoleCheck.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let fieldHits = try grepSwift(
+            in: [fields],
+            patterns: Self.permitFieldPatterns,
+            allowedSpellings: Self.permitFieldAllowedFiles,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(fieldHits.count, 3,
+            "Self-check: the three field reads should be caught and neither the "
+            + "comment nor the unrelated `existingItem.role`. Caught:\n"
+            + fieldHits.joined(separator: "\n"))
+        XCTAssertFalse(fieldHits.contains(where: { $0.contains("let carried") }),
+            "a receiver this census cannot tell from a ResearchItem is left "
+            + "alone on purpose — the limit is stated, not papered over")
+
+        try fm.moveItem(at: fields.appendingPathComponent("SecondRoleCheck.swift"),
+                        to: fields.appendingPathComponent("RegistryReader.swift"))
+        let partlyAllowed = try grepSwift(
+            in: [fields],
+            patterns: Self.permitFieldPatterns,
+            allowedSpellings: Self.permitFieldAllowedFiles,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(partlyAllowed.count, 2,
+            "Self-check: the allow-list is FILE PLUS SPELLING — "
+            + "RegistryReader.swift may read `record.role` and is still caught "
+            + "reading `person?.pieces` and `standing.scope`. Caught:\n"
+            + partlyAllowed.joined(separator: "\n"))
+
+        // -- 2. One table.
+        let table = tmp.appendingPathComponent("table")
+        try fm.createDirectory(at: table, withIntermediateDirectories: true)
+        try """
+        // A comment may name WrittenGroup and Permit.parse( freely.
+        func group(of kind: OpKind) -> WrittenGroup { .manuscriptText }
+        private func row(_ g: Int) -> Allowed { .yes }
+        let mine = Permit.parse(role: role, scope: scope, pieces: pieces)
+        let installed = Permit(event: event)
+        if Deriver.appliesToManuscript(op.kind) { fold(op) }
+        """.write(to: table.appendingPathComponent("SecondTable.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let tableHits = try grepSwift(
+            in: [table],
+            patterns: Self.permitTablePatterns,
+            allowedSpellings: Self.permitTableAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(tableHits.count, 4,
+            "Self-check: all four restatement spellings should be caught and "
+            + "not the comment. Caught:\n" + tableHits.joined(separator: "\n"))
+
+        try fm.moveItem(at: table.appendingPathComponent("SecondTable.swift"),
+                        to: table.appendingPathComponent("PermitTimeline.swift"))
+        let timelineAllowed = try grepSwift(
+            in: [table],
+            patterns: Self.permitTablePatterns,
+            allowedSpellings: Self.permitTableAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(timelineAllowed.count, 3,
+            "Self-check: PermitTimeline.swift may say `Permit(event:` and is "
+            + "still caught declaring a group, an answer or a parse. Caught:\n"
+            + timelineAllowed.joined(separator: "\n"))
+
+        // The manuscript classifier's caller census, over the same planted file
+        // now named something that is not in the list.
+        try fm.moveItem(at: table.appendingPathComponent("PermitTimeline.swift"),
+                        to: table.appendingPathComponent("SomeNewFolder.swift"))
+        var plantedCallers: Set<String> = []
+        for hit in try grepSwift(
+            in: table, patterns: [Self.manuscriptClassifierPattern],
+            allowed: [], excludeLine: Self.admissionExcludeLine
+        ) {
+            plantedCallers.insert(String(hit.prefix(while: { $0 != ":" })))
+        }
+        XCTAssertEqual(plantedCallers, ["SomeNewFolder.swift"],
+            "Self-check: a new asker of the manuscript classifier is seen by "
+            + "name. Caught: \(plantedCallers.sorted())")
+        XCTAssertNotEqual(plantedCallers, Self.manuscriptClassifierCallers,
+            "and so would fail the census it feeds")
+
+        // -- 3. The partition's call sites.
+        let sites = tmp.appendingPathComponent("sites")
+        try fm.createDirectory(at: sites, withIntermediateDirectories: true)
+        try """
+        // A comment may name PermitPartition.partition( without being one.
+        let a = PermitPartition.partition(of: v, file: url, judging: judge)
+        let b = PermitPartition.partition(of: w, file: url, judging: judge)
+        let c = PermitPartition.couldJudge(aFileNamedBy: slug, trust: table)
+        """.write(to: sites.appendingPathComponent("AFifthPartitionSite.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let plantedSites = try partitionCallCounts(in: [sites])
+        XCTAssertEqual(plantedSites, ["AFifthPartitionSite.swift": 2],
+            "Self-check: both partition calls are counted, the comment is not, "
+            + "and `couldJudge` — which judges nothing — is not. Counted: "
+            + "\(plantedSites.sorted(by: { $0.key < $1.key }))")
+        XCTAssertNotEqual(plantedSites, Self.partitionCallSites,
+            "and a file that is not on the list fails the census it feeds")
+
+        // -- 4. The write-side question, and the rung comparison.
+        let write = tmp.appendingPathComponent("write")
+        try fm.createDirectory(at: write, withIntermediateDirectories: true)
+        try """
+        // A comment may name LocalWritePermit( and Permit.bookAuthor.
+        let permit = LocalWritePermit(permit: .bookAuthor, actor: .author, documentClass: nil)
+        if resolved == Permit.bookAuthor { enableEditing() }
+        if case .author(.book) = resolved { enableEditing() }
+        if resolved == Permit.reviewer { greyTheEditorOut() }
+        let fine = store.localWritePermit { manifestClass(of: docId) }
+        """.write(to: write.appendingPathComponent("AHandBuiltPermit.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let writeHits = try grepSwift(
+            in: [write],
+            patterns: Self.localWritePermitPatterns,
+            allowedSpellings: Self.localWritePermitAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(writeHits.count, 1,
+            "Self-check: the fabricated permit is caught and the ASK of the one "
+            + "function is not. Caught:\n" + writeHits.joined(separator: "\n"))
+        XCTAssertTrue(writeHits.contains(where: { $0.contains("let permit") }))
+
+        let rungHits = try grepSwift(
+            in: [write],
+            patterns: Self.permitLiteralPatterns,
+            allowedSpellings: Self.permitLiteralAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(rungHits.count, 3,
+            "Self-check: all three hand comparisons against a rung are caught "
+            + "and not the comment. Caught:\n" + rungHits.joined(separator: "\n"))
+
+        try fm.moveItem(at: write.appendingPathComponent("AHandBuiltPermit.swift"),
+                        to: write.appendingPathComponent("PermitPartition.swift"))
+        let partitionAllowed = try grepSwift(
+            in: [write],
+            patterns: Self.permitLiteralPatterns,
+            allowedSpellings: Self.permitLiteralAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(partitionAllowed.count, 1,
+            "Self-check: PermitPartition.swift may name the book author's rung "
+            + "and is still caught naming the reviewer's. Caught:\n"
+            + partitionAllowed.joined(separator: "\n"))
+        XCTAssertTrue(partitionAllowed.contains(where: { $0.contains("greyTheEditorOut") }))
+    }
+
     // MARK: - One macOS floor, spelled four times
 
     /// Every macOS floor `project.yml` declares, in file order, as
