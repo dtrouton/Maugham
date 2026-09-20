@@ -23,7 +23,8 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 - `RegistryPresence.swift` (MaughamCore) — what a device says about itself at open, and the first Mac's root. `Maugham/Stores/DocumentStore.swift` calls it; the phone's `PhoneDeviceRecord` is its other caller.
 - `ISO8601Fast.swift` (MaughamCore) — the byte-level parser for the two ISO-8601 spellings the app writes (no fraction, or exactly three digits), tried before `ISO8601DateFormatter` on the op log's decode path. Equivalence by construction rather than by replicating Foundation's undocumented truncation: every other shape falls through to the formatter chain untouched. See "Where the time goes" item 4.
 - `OpLogProvenance.swift` (MaughamCore) — `FileProvenance` per file and `OpLogProvenance` over a document, the load's own account of what its history is made of. What `HistoryPane`'s unsigned-history sentence reads.
-- `Bootstrap.swift` — mints `¶id` anchors on first-open of a document. **Must be called from any production load path.** Wired into `Document.load` since `milestone-document-first-class` (2026-05-19); `BootstrapWiringTests` enforces the contract. Any new manuscript-load path must route through `Document.load`.
+- `Bootstrap.swift` — mints `¶id` anchors on first-open of a document. **Must be called from any production load path *that may write the piece*.** Wired into `Document.load` since `milestone-document-first-class` (2026-05-19); `BootstrapWiringTests` enforces the contract. Any new manuscript-load path must route through `Document.load`. The qualifier is P3a Task 8's — see *The load seam* below.
+- `Document+Waiting.swift` — P3a Task 8's half of the load: `DocumentLoadError.waitingForPiece`, the document-class resolution the permit check asks for (a manifest that will not read answers `.piece(docId)`, the WIDENING direction, and never a refusal), and the root's label for the sentence. See *The load seam* below.
 - `EchoState.swift` — typed snapshot of "bytes we just wrote to disk." The `init` is `private`; the only construction paths are the three named factories (`initialLoad`, `afterWrite`, `afterIngest`), which is a compile-checked invariant. The echo guard in `Document.handleExternalDiskChange` reads `lastDiskEcho.bytes` to suppress presenter callbacks that arrive in response to our own writes. See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md).
 - `SweepReason.swift` — typed pending orphan-annotation sweep carrying the *observed* removed-paragraph-id set. Replaces an earlier bool flag. Sweep archives only annotations on `reason.removed` — never "anything missing from sequence." See [ADR 0010](../../docs/adr/0010-typed-cross-area-seams.md). **The sweep also REPORTS (RULING-32):** each successful archive bumps `Document._sweptSinceLastReport`, and `flushBurstNow` spends that running total on one quiet sentence at the burst boundary — the writing pause. Batched across every sweep the burst contained, silent during it, never a prompt.
 - `ParagraphID.swift` — paragraph IDs are 4 chars from a restricted alphabet (`0123456789abcdefghjkmnpqrstvwxyz`, no `iloux` to dodge ambiguity). `mint()` produces them; `parseComment()` only accepts strings matching `[alphabet]{4}`. The 4-char rule is enforced **at the .md round-trip boundary** — `recordChange(paragraphId:)` and other in-memory APIs accept any string, so OpLog unit tests legitimately use short IDs like `"a"`/`"b"`. If your test crosses the .md ↔ op log boundary (Bootstrap, RenderFilter against parsed comments), use 4-char alphabet-restricted IDs or `ParagraphID.mint()`.
@@ -848,6 +849,67 @@ in `RegistryCacheTests.test_aProjectWithNoRegistryNeverReachesForTheEnclave`.
 The public `init(fileURL:identity:)` is unchanged for a caller that already
 holds the fingerprint.
 
+## The load seam (P3a Task 8, spec §4.6)
+
+P2 asked of a key *is this somebody this book admits?* P3 asks *admitted to
+write WHAT* — and the load has to ask it of ITSELF, before its first line
+exists, because `Document.load` writes before it reads.
+
+**What the load emits is the writer's own hand, whoever opened the file.**
+Five emissions are the load path's or a derivation's rather than the caller's:
+`Bootstrap`'s opening op, the two pending-recovery folds, the task anchors
+`rebuildTasksCache` splices back into the paragraphs, and the `taskCreate`
+beside each. None is the act of whoever opened the document, and every one is a
+kind the table refuses to `assistant` and `translator` — so under MCP they were
+lines the permit partition would set aside on the next read, with `bootstrap`
+the worst of them (a document whose opening op leaves the book derives EMPTY,
+and the first autosave writes that empty render over the manuscript). They are
+now the AUTHOR's: `Document.authorEmissionDevice(loadedAs:)` redirects where
+the load named one of this device's OTHER actors and leaves a `device:` string
+naming no local key exactly as it was. `OpLogStore.append` derives the file and
+the signer from `op.device`, so such a line is chained into the author's file
+and sealed under the author's key with nothing else to change — and
+`sealChain(docId:)` seals it at the close of the very Document that wrote it,
+because its counters are keyed on the file APPENDED to and not on the
+Document's own actor. Rotation is unchanged and stays the Document's own actor
+(`sealTailIfNeeded`): a transient MCP Document must never rotate the tail the
+writer's open Document is appending to.
+
+**And not at all where this device may not write the piece.**
+`OpLogStore.localWritePermit` is the ONE question — this device's own
+`TrustTable.myTimeline.current`, narrowed by actor, against the stream's
+`DocumentClass` — and `LocalWritePermit` is the answer, resolved once per load
+and stamped on the `Document` so a derivation can ask it without a registry
+read of its own. Three properties are load-bearing:
+
+- **It never throws.** A present-but-unreadable registry record refuses a READ
+  (RULING-54) and must not newly refuse a LOAD: the fallback is the keyless
+  table, which is P1 exactly.
+- **It never suspends.** `trustOnThisActor` resolves here rather than off this
+  actor, because `Document.load`'s suspension points are part of its contract
+  — `ProjectStore.withStatementDocument`'s own comment is about a pane binding
+  mid-load, and a bare `await Task.yield()` before the bootstrap fails
+  `PromotionPerformerTests.test_promotingWhileTheIntentPaneIsOpen…` with no
+  other change. It stores the table under the signature `trust()` compares, so
+  the read that follows finds it warm.
+- **A book with no register pays nothing** — no folder read, no verify, no
+  manifest decode. `TrustResolution.hasAnythingToResolve` is
+  `verifiedRegistry`'s own first question in its own spelling, and it asks
+  about the MEMORY as well as the folder, because a register deleted wholesale
+  is restored from that memory.
+
+What the refusal does, in each of its three places:
+
+| | |
+|---|---|
+| **bootstrap** | `DocumentLoadError.waitingForPiece(docId:from:)` — mint nothing, read not a word of the `.md` as truth (tripwire 20). `EditorHost` draws it as its own calm state rather than an error (no notice, no recovery ladder) on the ONE widened load-outcome `@State` (tripwire 6), and re-attempts when the piece's ops change — the presenter already routes a closed document's op-log change through `MaughamSidecarPath`. |
+| **the pending file** | Not folded, and **not read**: a buffer with something in it is one the next `close()` turns into a `typingBurst`, so reading it and merely declining to append would move the loss one hop. `PendingBuffer.fileNameIfOnDisk` names it without opening it; `close()` no longer clears it and `performAutosave` no longer writes over it (`Document.mayWriteThePendingFile`, derived from the same stamped permit so the condition that declined the read and the one that declines the write cannot drift). The writer is told through `PendingRecoveryFailure`, whose `cause` now distinguishes RULING-54's *we could not read it* from *we touched nothing*. |
+| **task anchors** | No mint and no `taskCreate` — a READ must not write where this device may not write — and the rebalance is guarded on its own key's row (`.maugham` signs `taskPriorityChange` only where the person may sign a task there at all). Tasks still derive and still show; the anchors are re-minted by whichever read happens after the permit widens. |
+
+A keyless book, a P2-era book, the root and a book author reach `.unrestricted`
+and behave exactly as they did. `DocumentWaitingTests` holds both halves;
+`BootstrapWiringTests`' four tests are untouched.
+
 ## Sealed segments (ADR 0016, M2)
 
 When a device's own live tail `<docId>.<slug>.jsonl` exceeds
@@ -1056,7 +1118,7 @@ Failure modes:
 
 8. **A seal line is recognised in `OpLogChain` only.** `isSealLine` is the one door onto the `{"seal":` prefix, and `JSONLAppendStore.parse` — the one parser every reader shares (tails, decompressed segments, the inbox) — is its one caller. A second recogniser is a second opinion about what a seal is, and the failure is silent: a reader that hands a seal to an element decoder reports a healthy file as damaged.
 
-9. **A production `Document.load` names an actor, never a device string.** `Document.load(url:actor:session:presenter:)` is the production door; the `device: String` overloads are `internal` and test-only. A literal names no key, so `OpLogStore.append` takes the plain unchained path and the op is signed by nobody — which is exactly what happened to everything Claude wrote through MCP (`"mcp"`), both automations of the writer's hand (`"wiki-rename"`, `"find-replace"`) and the task rebalance (`"rebalance"`) under P1. `TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad` is the census; `test_theDocumentLoadActorCensusFiresOnAPlantedOffender` is its control. CLAUDE.md tripwire 38.
+9. **A production `Document.load` names an actor, never a device string — and the actor it names is the CALLER's, never the load's.** `Document.load(url:actor:session:presenter:)` is the production door; the `device: String` overloads are `internal` and test-only. A literal names no key, so `OpLogStore.append` takes the plain unchained path and the op is signed by nobody — which is exactly what happened to everything Claude wrote through MCP (`"mcp"`), both automations of the writer's hand (`"wiki-rename"`, `"find-replace"`) and the task rebalance (`"rebalance"`) under P1. **What the LOAD itself emits is the `.author` actor's whatever actor opened the file** (P3a Task 8, `Document.authorEmissionDevice(loadedAs:)`) — see *The load seam* below. `TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad` is the census; `test_theDocumentLoadActorCensusFiresOnAPlantedOffender` is its control. CLAUDE.md tripwire 38.
 
 10. **Every trust closure is built from a `TrustTable`.** The walk takes a `TrustVerdict`; the Bool `trusted:` overload is P1's shape and can only say *mine* or *nobody*, and the middle of that range is the whole of P2a — an admitted device's sealed span applied as this device's own, or a stranger's applied as unsigned history instead of HELD. Both failures are silent: the words land in the manuscript and nothing goes red. Three keyless sites survive, each allow-listed by file AND spelling in `TripwireGrepTests.trustClosureAllowedSpellings` — two `trusted: { _ in false }` in `OpLogStore.swift`, both of them the *no table was given* arm (the keyless reader `ProjectIntegrity.check` passes none; and the same arm of an unsettled segment's fallback walk, which since P2b Task 10 goes through the table whenever there IS one) and `trusted: { chain.trust($0) == .mine }` in `JSONLAppendStore.swift` (the chained write, which must not widen past this device's own hand). `ChainPolicy.trustedFingerprints` is gone. Census: `TripwireGrepTests.test_everyTrustClosureIsBuiltFromTheTrustTable` + `test_theAdmissionCensusesFireOnPlantedOffenders`; phone twin `TripwirePhoneGrepTest.test_noTrustDecisionOrRegistryWriteOnThePhone`. CLAUDE.md tripwire 39.
 
