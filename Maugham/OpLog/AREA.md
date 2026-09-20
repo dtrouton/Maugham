@@ -883,8 +883,17 @@ and stamped on the `Document` so a derivation can ask it without a registry
 read of its own. Three properties are load-bearing:
 
 - **It never throws.** A present-but-unreadable registry record refuses a READ
-  (RULING-54) and must not newly refuse a LOAD: the fallback is the keyless
-  table, which is P1 exactly.
+  (RULING-54) and must not newly refuse a LOAD. **The fallback is two-deep, and
+  the order is the point.** First the registry this device REMEMBERS
+  (`TrustResolution.remembered` — `RegistryCache`'s byte-faithful copy, the
+  same pure `TrustTable.resolve` a reconciled folder gets, recording no join
+  and no claimant because a memory read taken over a hiccup must decide
+  nothing); `keyless` only when there is nothing remembered either. Falling
+  straight to `keyless` was the shape fix round 1 caught: it answers *author of
+  the whole book* about everybody, so a REVIEWER's Mac meeting one
+  half-downloaded record would bootstrap and mint anchors that every other
+  device then sets aside. Keyless is right for a device that has verified
+  nothing here — that is P1 exactly — and wrong for one that has.
 - **It never suspends.** `trustOnThisActor` resolves here rather than off this
   actor, because `Document.load`'s suspension points are part of its contract
   — `ProjectStore.withStatementDocument`'s own comment is about a pane binding
@@ -903,7 +912,7 @@ What the refusal does, in each of its three places:
 | | |
 |---|---|
 | **bootstrap** | `DocumentLoadError.waitingForPiece(docId:from:)` — mint nothing, read not a word of the `.md` as truth (tripwire 20). `EditorHost` draws it as its own calm state rather than an error (no notice, no recovery ladder) on the ONE widened load-outcome `@State` (tripwire 6), and re-attempts when the piece's ops change — the presenter already routes a closed document's op-log change through `MaughamSidecarPath`. |
-| **the pending file** | Not folded, and **not read**: a buffer with something in it is one the next `close()` turns into a `typingBurst`, so reading it and merely declining to append would move the loss one hop. `PendingBuffer.fileNameIfOnDisk` names it without opening it; `close()` no longer clears it and `performAutosave` no longer writes over it (`Document.mayWriteThePendingFile`, derived from the same stamped permit so the condition that declined the read and the one that declines the write cannot drift). The writer is told through `PendingRecoveryFailure`, whose `cause` now distinguishes RULING-54's *we could not read it* from *we touched nothing*. |
+| **the pending file** | Not folded, and **not read**: a buffer with something in it is one the next `close()` turns into a `typingBurst`, so reading it and merely declining to append would move the loss one hop. `PendingBuffer.fileNameIfOnDisk` names it without opening it. **`Document.mayWriteThePendingFile` is ONE expression at FOUR sites** — `performAutosave`'s mirror, `flushBurstNow`'s clear, `close()`'s failed-flush re-persist and `close()`'s clean clear — because the file has exactly one writer's worth of rules and four copies of them would drift. The burst's clear is the sharp one (fix round 1's C1): a burst's EMISSION is deliberately not permit-guarded, but its `clear()` UNLINKS the file, so one keystroke would have undone the promise the load had just made in a notice; `PendingBuffer.clearInMemoryOnly` is the same reset minus the unlink, and the writer's new words go where they always go, into the op log. `close()`'s failed-flush arm is the one place the rule costs something — this Document's un-bursted keystrokes stay in memory — and that is the right way round: they are words this device may not write at all, and the file holds words a load under a wider permit CAN fold. The writer is told through `PendingRecoveryFailure`, whose `cause` distinguishes RULING-54's *we could not read it* from *we touched nothing*. |
 | **task anchors** | No mint and no `taskCreate` — a READ must not write where this device may not write — and the rebalance is guarded on its own key's row (`.maugham` signs `taskPriorityChange` only where the person may sign a task there at all). Tasks still derive and still show; the anchors are re-minted by whichever read happens after the permit widens. |
 
 A keyless book, a P2-era book, the root and a book author reach `.unrestricted`

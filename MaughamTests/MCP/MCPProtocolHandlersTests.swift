@@ -209,4 +209,45 @@ final class MCPProtocolHandlersTests: XCTestCase {
         XCTAssertEqual(payload["hint"] as? String, "re-read the document")
         XCTAssertEqual(payload["paragraph_id"] as? String, "X")
     }
+
+    /// **The waiting state is not an internal error** (signed op log P3a
+    /// Task 8, fix round 1's I1).
+    ///
+    /// Every annotation and task tool transient-loads a CLOSED document, so a
+    /// piece whose history has not reached this Mac is a state Claude meets
+    /// through this handler. Down the `default` arm it arrived as
+    /// `internal_error` carrying raw enum syntax — `waitingForPiece(docId:
+    /// "ch-1", from: Optional("Sam"))` — which is both untrue (nothing is
+    /// broken) and unactionable. Tools fail loudly AND truthfully.
+    func test_toolsCall_waitingForPiece_isItsOwnErrorAndNotAnInternalOne() async throws {
+        let router = MCPRouter()
+        router.register(method: "anno") { _ in
+            throw DocumentLoadError.waitingForPiece(docId: "ch-1", from: "Sam")
+        }
+        let req = #"{"name":"anno","arguments":{}}"#
+        let resp = try await MCPToolsCallHandler.handle(
+            paramsJSON: Data(req.utf8), router: router)
+        let any = try JSONDecoder().decode(AnyJSON.self, from: resp)
+        guard case .object(let obj) = any,
+              case .bool(true) = obj["isError"] ?? .null,
+              case .array(let content) = obj["content"],
+              case .object(let block) = content.first ?? .null,
+              case .string(let text) = block["text"] else {
+            return XCTFail("expected isError=true with text payload, got \(any)")
+        }
+        let payload = try JSONSerialization.jsonObject(
+            with: Data(text.utf8)) as? [String: Any] ?? [:]
+        XCTAssertEqual(payload["error"] as? String, "waiting_for_piece")
+        XCTAssertEqual(
+            payload["message"] as? String,
+            "Waiting for this piece to arrive from Sam.",
+            "the error's own sentence, the same one the pane draws")
+        XCTAssertTrue(
+            (payload["hint"] as? String ?? "").contains("sync"),
+            "and a hint that says what changes it: got "
+            + "\(payload["hint"] as? String ?? "nothing")")
+        XCTAssertFalse(
+            (payload["message"] as? String ?? "").contains("Optional("),
+            "never raw enum syntax")
+    }
 }

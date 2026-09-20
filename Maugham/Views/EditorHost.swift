@@ -386,6 +386,16 @@ struct EditorHost: View {
         // waiting state AND on the doc id, so an ordinary refusal is never
         // re-attempted (its notice would post again) and another chapter's
         // sync never disturbs this one.
+        //
+        // **An event arriving while an attempt is in flight is dropped**, and
+        // that self-heals rather than stranding the writer: the guard reads
+        // `loadOutcome`, which this arm has already cleared, so a second post
+        // during the load does nothing — and the attempt it lands in is reading
+        // the very files that post was about, since the load globs the whole
+        // op-log file set at the moment it runs rather than a snapshot taken
+        // when the event fired. If that attempt is somehow too early, it puts
+        // the waiting state back and the NEXT arrival tries again; a piece
+        // syncing in arrives as a burst of files, not as one.
         .onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: window) { note in
             guard case .waitingForPiece(let waitingFor, _) = loadOutcome,
                   note.userInfo?[MaughamEvent.annotationDocIdKey] as? String

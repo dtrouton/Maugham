@@ -123,6 +123,22 @@ public enum MCPToolsCallHandler {
                 error: "mcp_disabled",
                 message: MCPError.mcpDisabled.message,
                 hint: "Enable MCP in Maugham → Settings.")
+        case let waiting as DocumentLoadError:
+            // **The waiting state is not an internal error** (P3a Task 8, fix
+            // round 1's I1). Every annotation and task tool transient-loads a
+            // closed document, so a piece whose history has not reached this
+            // Mac reaches the caller through here — and through the `default`
+            // arm it arrived as raw enum syntax under `internal_error`, which
+            // is both untrue and unactionable. Nothing is broken: this device
+            // may not write that piece and its ops have not arrived, so the
+            // honest answer names the state and says what changes it.
+            return .init(
+                error: "waiting_for_piece",
+                message: waiting.errorDescription
+                    ?? "Waiting for this piece to arrive.",
+                hint: "This piece has not arrived on this device yet. Open the "
+                    + "project on the device it was written on, or wait for "
+                    + "sync to bring its history across, and try again.")
         default:
             return .init(
                 error: "internal_error",
