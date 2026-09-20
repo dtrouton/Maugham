@@ -10,7 +10,15 @@ public final class BackupCoordinator {
     private let integrityCheck: (URL) async throws -> IntegrityReport
 
     public init() {
-        self.integrityCheck = { try await ProjectIntegrity.check(projectURL: $0) }
+        // The device state is handed over so the report can carry a foreign
+        // stream this Mac found shortened (P3a Task 9). It does not BLOCK the
+        // backup — the surviving words are exactly what a backup is for — but
+        // the gate is where a writer is already being told about the health of
+        // their history, so it is where the finding belongs.
+        self.integrityCheck = {
+            try await ProjectIntegrity.check(
+                projectURL: $0, state: Document.loadDeviceState)
+        }
     }
 
     /// Test seam: inject a custom integrity gate (e.g. one that throws).

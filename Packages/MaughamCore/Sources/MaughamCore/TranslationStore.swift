@@ -221,6 +221,16 @@ public enum TranslationStore {
         // resolution is a verified read of the registry folder.
         let table = try trust ?? TrustResolution.resolve(
             projectURL: projectURL, identities: identities)
+        // **Where the other devices' translation streams stood** (P3a Task 9).
+        // A translation sidecar never rotates — `sealTailIfNeeded` is the op
+        // log's alone — so each file IS its whole stream, and one watch over
+        // this language's files settles them together in one write.
+        // It settles AFTER the loop rather than in a `defer`: this read refuses
+        // whole over a file that is present and unreadable, and a memory taken
+        // from a reading that refused would be a memory of a short one.
+        let foreign = ForeignStreamWatch(
+            projectURL: projectURL, state: state,
+            mine: ForeignStreamWatch.slugs(of: identities))
         for url in fileURLs(forDocId: docId, language: language, in: projectURL) {
             // The URL came from the directory listing, so it exists; a read
             // failure here means the device file is present but unreadable
@@ -261,6 +271,7 @@ public enum TranslationStore {
             let verification = PermitPartition.partition(
                 of: resolved, file: url,
                 judging: .translation(ofPiece: docId, trust: table))
+            foreign.observe(url: url, verification: verification)
             do {
                 try JSONLAppendStore<TranslationRecord>.setAside(
                     verification, from: url, docId: docId, in: projectURL)
@@ -277,6 +288,7 @@ public enum TranslationStore {
                 bytes: JSONLAppendStore<TranslationRecord>.applied(verification, whole: bytes),
                 dedupKey: nil, sortedBy: nil).elements)
         }
+        foreign.settle()
         let enc = JSONEncoder()
         enc.outputFormatting = [.sortedKeys]
         enc.dateEncodingStrategy = JSONLAppendStore<TranslationRecord>.dateEncoding

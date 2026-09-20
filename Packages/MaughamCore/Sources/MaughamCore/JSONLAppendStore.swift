@@ -136,6 +136,15 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         // must never reach the element decoder.
         let verification = PermitPartition.partition(
             of: resolved, file: fileURL, judging: judge)
+        // **Where another device's stream stood** (P3a Task 9). The one-file
+        // door, because every stream that reaches this reader is one file — an
+        // inbox manifest, an annotation log — and only the op log rotates.
+        // *Mine* is this policy's own signer: a chained store has one writer
+        // by ADR 0012, so a file named for any other slug is somebody else's.
+        ForeignStreamWatch.note(
+            url: fileURL, verification: verification,
+            projectURL: chain.projectURL, state: chain.state,
+            mine: [DeviceSlug.make(from: chain.identity.deviceId).raw])
         let parsed = Self.parse(
             bytes: Self.applied(verification, whole: bytes),
             dedupKey: dedupKey, sortedBy: sortedBy)

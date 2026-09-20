@@ -940,4 +940,130 @@ final class DocumentStoreAdmissionTests: XCTestCase {
             },
             "no event, no record — nothing was changed")
     }
+
+    // MARK: - P3a Task 9: a stream this Mac applied, missing at sweep time
+
+    /// **A mark that does not NAME a stream judges every line of it new**, so a
+    /// stream that is simply absent — iCloud has moved it, a sync is halfway
+    /// through — would make a demotion reach back through the whole of it. This
+    /// Mac remembers which streams it has applied, so the verb refuses by name
+    /// and writes nothing (P3a Task 9, spec §4.7's second job).
+    func test_apermitChangeRefusesOverAStreamThisMacHadApplied() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+        try await writeStrangerFile(docId: docId, opIds: ["02", "03"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        // The read that REMEMBERS where her stream stood.
+        let read = try await openDocument()
+        let appliedIds = try await read.opStore.loadDiagnosed(docId: docId).ops.map(\.opId)
+        XCTAssertTrue(
+            appliedIds.contains("02"),
+            "this Mac applied her lines, which is what makes the memory a fact")
+        await read.close()
+
+        let streamKey = try XCTUnwrap(PermitMark.streamKey(of: OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: stranger.slug, in: projectURL)))
+        try FileManager.default.removeItem(at: OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: stranger.slug, in: projectURL))
+
+        do {
+            _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
+            XCTFail("a stream this Mac had applied and cannot find is a refusal")
+        } catch let error as RegistryAdmissionError {
+            guard case .historyUnreadable(let name) = error else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(name, streamKey, "the refusal names the stream")
+        }
+        XCTAssertEqual(
+            try registry().person(stranger.fingerprint)?.role, Permit.authorRole)
+        XCTAssertFalse(
+            try registry().events.contains {
+                $0.subject == stranger.fingerprint && $0.kind == .roleChanged
+            },
+            "no event, no record — nothing was changed")
+    }
+
+    /// The same, for the act a short mark damages most: *revoke, keeping what
+    /// this Mac had applied* would set aside words already in front of the
+    /// writer.
+    func test_arevocationRefusesOverAStreamThisMacHadApplied() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+        try await writeStrangerFile(docId: docId, opIds: ["02"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        let read = try await openDocument()
+        _ = try await read.opStore.loadDiagnosed(docId: docId)
+        await read.close()
+        try FileManager.default.removeItem(at: OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: stranger.slug, in: projectURL))
+
+        do {
+            _ = try await store.revoke(person: stranger.fingerprint)
+            XCTFail("nothing is taken back on a reading this Mac knows is short")
+        } catch let error as RegistryAdmissionError {
+            guard case .historyUnreadable = error else { return XCTFail("\(error)") }
+        }
+        XCTAssertNil(
+            try registry().person(stranger.fingerprint)?.revokedAt,
+            "no record — nothing was changed")
+    }
+
+    /// **The other direction, and it is the point of the memory being of
+    /// streams this Mac has READ.** A device whose file this Mac has never
+    /// loaded is honest late sync: it is not expected, the sweep answers, and
+    /// the verb goes through.
+    func test_astreamThisMacNeverReadIsNotExpectedAndTheVerbGoesThrough() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+        try await writeStrangerFile(docId: docId, opIds: ["02"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        // No load of the document since her file arrived, so nothing of hers
+        // is remembered — and then it goes away again.
+        try FileManager.default.removeItem(at: OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: stranger.slug, in: projectURL))
+
+        _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
+        XCTAssertEqual(
+            try registry().person(stranger.fingerprint)?.role, Permit.reviewerRole)
+    }
+
+    /// **`retire` is unchanged, and that is a ruling rather than an
+    /// oversight.** Its subject is THIS device, whose streams live in
+    /// `OpLogDeviceState.heads` and never in the foreign memory — so it expects
+    /// nothing, and a machine can still be stood down over a file that is not
+    /// there. Its mark installs no permit entry (`PermitTimeline` skips
+    /// `retired`) and no revocation cut reads it, so a short one costs nothing;
+    /// a retirement that could be refused would leave a writer unable to retire
+    /// a Mac at all.
+    func test_retiringStillWorksWithOneOfThisDevicesOwnFilesMissing() async throws {
+        let mine = beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        try await doc.setFullText("Hello, and a second line.\n")
+        await doc.close()
+        let ownFile = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: mine.author.slug, in: projectURL)
+        try? FileManager.default.removeItem(at: ownFile)
+
+        let record = try await store.retire(device: mine.author.fingerprint)
+        XCTAssertNotNil(record.retiredAt)
+    }
 }

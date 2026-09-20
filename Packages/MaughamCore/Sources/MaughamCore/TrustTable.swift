@@ -662,6 +662,28 @@ public struct TrustTable: Equatable, Sendable {
         return DeviceKey(key: key, actor: actorByKey[key], isOwned: owned)
     }
 
+    /// **The writer's word for the device whose files carry this slug** (P3a
+    /// Task 9), or nil where nothing in this register names one.
+    ///
+    /// A file is named for a SLUG and everything else here is keyed on a
+    /// fingerprint, so something has to join the two — and the join is
+    /// `DeviceSlug.make` over the device ids this register already holds,
+    /// never a parse of the slug back into an id. A slug is lossy by
+    /// construction (`make` caps its length and folds every character outside
+    /// `[a-z0-9]`), so the only honest direction is forwards.
+    ///
+    /// The answer is `TrustEventSentence.name`'s: the label the root wrote
+    /// into the person record, else that person's four-character code.
+    nonisolated public func label(forDeviceSlug slug: String) -> String? {
+        for deviceId in keyByDeviceId.keys.sorted()
+        where DeviceSlug.make(from: deviceId).raw == slug {
+            guard let key = keyByDeviceId[deviceId] else { continue }
+            let owner = person(forSealKey: key)
+            return personByFingerprint[owner]?.label ?? DeviceCode.short(owner)
+        }
+        return nil
+    }
+
     /// **Are these two keys the same WRITER?** (P3a Task 6.)
     ///
     /// `person(forSealKey:)` answers a FINGERPRINT, and under labels-only a

@@ -16,7 +16,8 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 - `LocalIdentities.swift` (MaughamCore) — this device's four writers in one value: `subscript(actor:)` (exhaustive, so a fifth case is a compile error), `all` in `DeviceActor.allCases` order, `fingerprints` (the keys this device holds, which `TrustTable.resolve` reads to answer `.mine` — it ENUMERATES and mints nothing), and `identity(forDeviceId:)`, which matches on the WHOLE id and never a prefix — another Mac's author carries `author-` too. `current` is computed over `DeviceIdentity.identity(for:)`'s per-actor memoization, so nothing is minted until it is asked for; the phone, which is the author alone, must reach `DeviceIdentity.author` directly rather than through here.
 - `DeviceIdentity.swift` / `DeviceState.swift` (MaughamCore) — one enclave key **per actor**, each persisted by the app as a plain blob under Application Support (`device-key.blob`/`device-token` for the author, `device-key.<actor>.blob`/`device-token.<actor>` for the other three), and the id/fingerprint/slug derived from it. `DeviceIdentity.author` is the writer's; `DeviceIdentity.identity(for:)` is any of the four. `DeviceIdentity+Testing.swift` holds the test-only software signer, and is the one allow-list entry of `TripwireGrepTests.test_noSoftwarePrivateKeyInProduction`.
 - `OpLogChain.swift` (MaughamCore) — the wire format (`prev` as the first key; the seal line) and the pure verifier that classifies every line. No I/O, no clock, no policy about who is trusted: the `trusted` closure and the remembered head are parameters. `Hex` lives here too, shared with the segment container and the fingerprint.
-- `OpLogDeviceState.swift` (MaughamCore) — what this device remembers: the chain head it last wrote into each file, and the digests of segments it has already verified. Also `ChainPolicy`, the value a chained `JSONLAppendStore` carries.
+- `OpLogDeviceState.swift` (MaughamCore) — what this device remembers: the chain head it last wrote into each file, the digests of segments it has already verified, and (P3a Task 9) where OTHER devices' streams stood. Also `ChainPolicy`, the value a chained `JSONLAppendStore` carries.
+- `ForeignStreamWatch.swift` (MaughamCore) — P3a Task 9's half of that memory: the collector a load carries so a truncated foreign stream is noticed. See *A foreign stream that got shorter* below.
 - `RegistryRecord.swift` / `RegistryCanonical.swift` / `RegistryWriter.swift` / `RegistryWriter+Restore.swift` / `RegistryReader.swift` (MaughamCore) — the book's register of who may write in it: the three record shapes, the bytes a signature is made over, the one writer (and the restore door beside it), and the reader that verifies a record's filename, signature, signer and own author actor before it counts as one, and lists what fails.
 - `RegistryCache.swift` (MaughamCore) — this device's memory of the last verified registry, and the root it joined. Restores a record something deleted or tampered with, byte-faithfully, and reports it.
 - `TrustTable.swift` / `TrustResolution.swift` (MaughamCore) — `TrustVerdict`'s six answers to *who is this seal's key to me*, as a pure function of the registry (`TrustTable`) and the impure half that reads the folder, reconciles the cache and records the join (`TrustResolution`). `keyless(mine:)` is P1's behaviour exactly.
@@ -918,6 +919,80 @@ What the refusal does, in each of its three places:
 A keyless book, a P2-era book, the root and a book author reach `.unrestricted`
 and behave exactly as they did. `DocumentWaitingTests` holds both halves;
 `BootstrapWiringTests`' four tests are untouched.
+
+## A foreign stream that got shorter (P3a Task 9, spec §4.7)
+
+P1's remembered head is about this device's OWN files, and it catches an agent
+appending a correctly chained line to one of them. It says nothing about
+anybody else's: another Mac's history can be cut back to a seal and every rule
+the chain has still holds, because the bytes that remain follow from each other
+perfectly. So `OpLogDeviceState` gained a second memory —
+`foreignStreams`, one `ForeignStreamMemory` per FOREIGN stream under the same
+project-root hash the heads use — and `ForeignStreamWatch` is what fills it.
+
+**It is keyed by STREAM and never by filename**, because a rotation copies the
+live tail into a `.mzseg` and deletes the tail: the remembered line moves from
+one filename to another while staying in the same stream, and a filename-keyed
+memory reads that maintenance as a truncation. The key is
+`PermitMark.stream(of:)`'s, the one parse. The key alone is not enough — a
+segment its own signature settled is never walked (`classifySegment`'s fast
+path counts its lines rather than splitting them), so after a rotation the
+remembered line sits in a file the load has no lines for — which is why the
+memory also carries the stream's **segment count**: a tail that no longer holds
+the remembered line while the stream has GROWN a segment has rotated. Both
+halves are per stream, and `ForeignHeadTests`' *remember, rotate, read ⇒ no
+finding* pin goes red under a filename key.
+
+**Nothing is refused and nothing is set aside.** The surviving lines stay
+applied — that is the spec's own clause — so this is a REPORT: an
+`OpLogDeviceState.StreamTruncation` recorded once (the memory then moves on to
+what is there now, so a second load finds what it remembers), read back through
+`OpLogStore.truncatedStreams(in:state:trust:)`, which names the device the way
+every other finding does (`TrustTable.label(forDeviceSlug:)` → the root's label,
+else the four-character code). `IntegrityReport.truncatedStreams` carries it;
+it makes a report **unhealthy** and deliberately does **not** block a backup,
+because the surviving words are exactly what a backup is for. P3b's dated
+History entry reads the same values.
+
+**Where it is filled, and where it deliberately is not.** The STRICT load fills
+it — `loadDiagnosed` carries one watch for the whole document and settles once,
+so a chapter spread over four foreign files costs one rewrite of the state file
+and an unchanged stream costs none. `TranslationStore.loadMerged` carries its
+own (a sidecar never rotates, so each file is its whole stream) and
+`JSONLAppendStore.loadVerifiedStrict` uses the one-file door
+(`ForeignStreamWatch.note`, which refuses an `ops` stream on purpose). Three
+paths do not: `loadSyncMerged` writes nothing at all, by design and still;
+`loadDiagnosedPartial` is the read-only recovery rung, whose whole purpose is to
+answer over the files that DID read, so a stream whose tail it could not open
+looks exactly like a short one; and `ProjectIntegrity.check` classifies
+keylessly and only REPORTS what a load recorded.
+
+**Its second job is a REGISTRY verb's, not a load's** (Task 7's
+`expectedStreams` hook, supplied here). A mark that does not NAME a stream
+judges that stream wholly new, so a stream that is merely ABSENT at sweep
+time — iCloud has moved it, a sync is halfway through — would make a demotion
+reach back through every line of it and a *keep what was applied* revocation set
+aside words this Mac had already put in front of the writer. Nothing inside the
+sweep can tell absent from never-existed; this memory can.
+`DocumentStore.expectedStreams(ofDeviceIds:in:state:)` is the one builder, and
+its two call sites are `DocumentStore.permitMark(forPerson:seen:)` (which serves
+`changePermit`, `admit` and `revoke`) and `DocumentStore.rememberedAdmissionMark`
+(the silent admission). The verb then refuses with its existing
+`historyUnreadable` sentence, naming the stream, and writes nothing — no event,
+no record. **A stream this Mac has never read is not expected**, which is honest
+late sync and ruling 1's answer. **And `retire` is unchanged, by ruling**: its
+subject is this device, whose streams live in `heads` and never here, so it
+expects nothing; its mark installs no `PermitTimeline` entry and no revocation
+cut reads it, and a retirement that could be refused would leave a writer unable
+to stand a machine down at all.
+
+**Known limits, stated rather than hidden.** Detection is on the live TAIL: a
+stream whose tail is empty (just rotated) is unwatched until it has a line
+again, and a whole segment deleted from a rotated stream is not noticed here —
+its digest is what a mark names, and `PermitMark.judge` already refuses to call
+an unlisted segment old. The memory is bounded by (documents × devices ×
+actors) per live project and prunes on `rootIsGone`, the same clause and the
+same pass as the heads.
 
 ## Sealed segments (ADR 0016, M2)
 

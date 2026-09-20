@@ -352,6 +352,7 @@ extension DocumentStore {
         let identities = Document.loadIdentities
         let cache = Document.loadRegistryCache
         let memory = Document.loadAdmissionMemory
+        let state = Document.loadDeviceState
         let admitted: [PersonRecord]
         do {
             admitted = try await Task.detached(priority: .userInitiated) {
@@ -365,7 +366,7 @@ extension DocumentStore {
                     mark: {
                         try DocumentStore.rememberedAdmissionMark(
                             forPerson: $0, in: projectURL,
-                            identities: identities, cache: cache)
+                            identities: identities, cache: cache, state: state)
                     })
             }.value
         } catch {
@@ -567,19 +568,48 @@ extension DocumentStore {
     /// beginning* for that person's whole history.
     nonisolated static func rememberedAdmissionMark(
         forPerson person: String, in projectURL: URL,
-        identities: LocalIdentities, cache: RegistryCache
+        identities: LocalIdentities, cache: RegistryCache,
+        state: OpLogDeviceState
     ) throws -> PermitMark {
         let resolved = try TrustResolution.resolveVerified(
             projectURL: projectURL, identities: identities, cache: cache)
         let ids = opLogDeviceIds(ofPerson: person, in: resolved.registry)
         return try OpLogStore.seenPositions(
-            ofDeviceIds: ids, in: projectURL, trust: resolved.table)
+            ofDeviceIds: ids, in: projectURL, trust: resolved.table,
+            expectedStreams: expectedStreams(
+                ofDeviceIds: ids, in: projectURL, state: state))
+    }
+
+    /// **The streams this Mac has applied from these devices, by name** (P3a
+    /// Task 9) — what a position sweep must not come back without.
+    ///
+    /// A mark that does not NAME a stream judges that stream wholly NEW, and a
+    /// file that is simply ABSENT at sweep time — evicted by iCloud, halfway
+    /// through a sync — is indistinguishable from a stream that never existed.
+    /// Nothing inside the sweep can tell them apart; this device's own memory
+    /// can, and this is it. A stream it remembers and cannot find refuses the
+    /// verb (`ReadError.streamMissingFromSweep`, Task 7's hook) instead of
+    /// producing a short mark that would reach back through every line of it.
+    ///
+    /// **The other direction is the point of the memory being of FOREIGN
+    /// streams only.** A stream this Mac has never seen is honest late sync,
+    /// is not expected, and judges new exactly as ruling 1 says it should. And
+    /// a subject who IS this device — `retire`, the one verb whose subject is
+    /// its own machine — names no foreign stream at all, so this answers empty
+    /// and that verb's sweep is byte-for-byte what it was.
+    nonisolated static func expectedStreams(
+        ofDeviceIds ids: Set<String>, in projectURL: URL, state: OpLogDeviceState
+    ) -> Set<String> {
+        state.foreignStreamKeys(
+            inRoot: projectURL,
+            writtenBy: Set(ids.map { DeviceSlug.make(from: $0).raw }))
     }
 
     private func permitMark(forPerson person: String, seen: Bool) async -> SweptPositions {
         let projectURL = self.projectURL
         let identities = Document.loadIdentities
         let cache = Document.loadRegistryCache
+        let state = Document.loadDeviceState
         let swept: Result<PermitMark, Error> = await Task.detached(
             priority: .userInitiated
         ) { () -> Result<PermitMark, Error> in
@@ -588,11 +618,18 @@ extension DocumentStore {
                     projectURL: projectURL, identities: identities, cache: cache)
                 let ids = DocumentStore.opLogDeviceIds(
                     ofPerson: person, in: resolved.registry)
+                // What this Mac remembers having applied from them, so a stream
+                // that has gone missing refuses the verb rather than silently
+                // drawing the line at the beginning of it (P3a Task 9).
+                let expected = DocumentStore.expectedStreams(
+                    ofDeviceIds: ids, in: projectURL, state: state)
                 return .success(seen
                     ? try OpLogStore.seenPositions(
-                        ofDeviceIds: ids, in: projectURL, trust: resolved.table)
+                        ofDeviceIds: ids, in: projectURL, trust: resolved.table,
+                        expectedStreams: expected)
                     : try OpLogStore.appliedPositions(
-                        ofDeviceIds: ids, in: projectURL, trust: resolved.table))
+                        ofDeviceIds: ids, in: projectURL, trust: resolved.table,
+                        expectedStreams: expected))
             } catch {
                 return .failure(error)
             }

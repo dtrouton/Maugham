@@ -374,15 +374,22 @@ public final class OpLogStore {
         var merged: [Op] = []
         var skipped: [ParseDiagnostics.SkippedLine] = []
         var files: [FileProvenance] = []
+        // One watch for the whole document: a stream is a run of segments plus
+        // a tail, and whether its remembered line is still anywhere in it can
+        // only be asked once every file has been seen (P3a Task 9).
+        let foreign = ForeignStreamWatch(
+            projectURL: projectURL, state: deviceState,
+            mine: ForeignStreamWatch.slugs(of: identities))
         for url in urls {
             let result = try await Self.loadFileDiagnosed(
                 url: url, presenter: presenter,
                 identities: identities, state: deviceState, trust: table,
-                permit: permit)
+                permit: permit, foreign: foreign)
             merged.append(contentsOf: result.ops)
             skipped.append(contentsOf: result.diagnostics.skipped)
             files.append(result.provenance)
         }
+        foreign.settle()
         return (Self.mergeSortedDedup(merged),
                 ParseDiagnostics(skipped: skipped),
                 OpLogProvenance(files: files))
@@ -407,6 +414,13 @@ public final class OpLogStore {
     /// lenient read — `loadDiagnosed` stays the strict default, and the one
     /// production caller is `Document.load(recovery: .readOnlyPartial)`,
     /// whose Document can write nothing.
+    ///
+    /// **It carries no `ForeignStreamWatch`, and that is deliberate** (P3a
+    /// Task 9). This rung's whole purpose is to answer over the files that DID
+    /// read, so a stream whose tail it could not open looks exactly like a
+    /// stream whose tail is short — and the memory taken from it would record a
+    /// truncation that is really a permissions error. A memory of where another
+    /// device stood is taken from the STRICT load or not at all.
     public func loadDiagnosedPartial(docId: String) async -> PartialOpLogLoad {
         var all: [Op] = []
         var skipped: [ParseDiagnostics.SkippedLine] = []
@@ -637,10 +651,19 @@ public final class OpLogStore {
     /// KEYLESS reader — `ProjectIntegrity.check`, and anything else that
     /// inspects a project without opening it — which holds no key and judges
     /// nobody, so every seal it meets is somebody's unsigned history.
+    ///
+    /// `foreign` is P3a Task 9's memory of where OTHER devices' streams stood,
+    /// and it is the LOAD path's alone for `state`'s own reason: a check that
+    /// classifies keylessly forms a weaker picture than a load, and a memory
+    /// taken from it would be a memory of a reading nobody acted on. It is
+    /// carried as a collector rather than returned, because the decision is
+    /// about a STREAM and this function sees one FILE of one — the caller
+    /// settles it once every file of the document has been observed.
     public static func loadFileDiagnosed(
         url: URL, presenter: NSFilePresenter?,
         identities: LocalIdentities? = nil, state: OpLogDeviceState? = nil,
-        trust: TrustTable? = nil, permit: PermitContext? = nil
+        trust: TrustTable? = nil, permit: PermitContext? = nil,
+        foreign: ForeignStreamWatch? = nil
     ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: FileProvenance) {
         guard let bytes = try readCoordinated(url: url, presenter: presenter) else {
             return ([], ParseDiagnostics(),
@@ -649,6 +672,12 @@ public final class OpLogStore {
         }
         let classified = classify(
             url: url, bytes: bytes, state: state, trust: trust, permit: permit)
+
+        // **Where another device's stream stood** (P3a Task 9). An observation
+        // and not a write: the watch settles the whole document's worth at
+        // once, so a chapter spread over four foreign files costs one rewrite
+        // of the state file rather than four.
+        foreign?.observe(url: url, verification: classified.verification)
 
         // The three writes a load is allowed to make, all of them derived
         // bookkeeping and every one best-effort: nothing here may cost the
@@ -1059,6 +1088,50 @@ public final class OpLogStore {
         guard let walk = classified.verification, !walk.lines.isEmpty,
               walk.lines.allSatisfy(wasSeen) else { return nil }
         return digest
+    }
+
+    /// **A foreign stream this device has found shorter than it remembered
+    /// it**, with the device named the way every other finding names one
+    /// (P3a Task 9, spec §4.7).
+    public struct TruncatedStream: Equatable, Sendable {
+        public let truncation: OpLogDeviceState.StreamTruncation
+        /// The writer's word for whose stream it was: the label the root gave
+        /// them, else their four-character code, else — with no table to ask —
+        /// the slug their files are named for.
+        public let label: String
+
+        public var streamKey: String { truncation.streamKey }
+        public var deviceSlug: String { truncation.deviceSlug }
+        public var noticedAt: Date { truncation.noticedAt }
+
+        public init(truncation: OpLogDeviceState.StreamTruncation, label: String) {
+            self.truncation = truncation
+            self.label = label
+        }
+    }
+
+    /// **What this device has noticed going missing from other devices'
+    /// streams**, oldest first — P3b's History entry and the integrity
+    /// report's own finding, read from one place.
+    ///
+    /// It reads a memory and touches no file of the project: the finding was
+    /// recorded at the load that met it, because a load is the only reader
+    /// that ever held both the remembered line and the bytes that no longer
+    /// carry it.
+    ///
+    /// `trust` is optional for the reason the keyless readers exist: a caller
+    /// that already holds a verified table names the device, and one that
+    /// holds none — `ProjectIntegrity.check` — still names the stream, which is
+    /// the fact the writer acts on.
+    nonisolated public static func truncatedStreams(
+        in projectURL: URL, state: OpLogDeviceState, trust: TrustTable? = nil
+    ) -> [TruncatedStream] {
+        state.truncations(inRoot: projectURL).map { truncation in
+            TruncatedStream(
+                truncation: truncation,
+                label: trust?.label(forDeviceSlug: truncation.deviceSlug)
+                    ?? truncation.deviceSlug)
+        }
     }
 
     /// The file a `ReadError` names, for a caller that reports unreadable
