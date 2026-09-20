@@ -104,6 +104,20 @@ final class InboxStore {
     /// file to answer it.
     private(set) var pendingByDevice: [String: Int] = [:]
 
+    /// **Which capture streams each held holder was held in**, by device slug
+    /// (P3b Task 4) — the inbox's half of `DocumentStore.heldLines`.
+    ///
+    /// A capture stream is one manifest per device (`inbox.<slug>.jsonl`), so
+    /// the slug is read off the file the held lines were counted in, exactly as
+    /// the op log's `FileProvenance` records it. It exists for the one surface
+    /// that offers to admit a holder: a key that is not a person's must not be
+    /// offered as one, and what kind of key it is can only be read off the
+    /// stream that carried it.
+    ///
+    /// Keyed the way `pendingByDevice` is and narrowed by the same rule, so a
+    /// holder in one is a holder in the other.
+    private(set) var pendingStreamsByDevice: [String: Set<String>] = [:]
+
     /// What to call each device in `pendingByDevice` — its own record's name,
     /// else its code. Resolved on the same refresh, off the same verified
     /// registry, for `bylines`' reason: a per-row read would be one read per
@@ -263,6 +277,7 @@ final class InboxStore {
             appliedManifestIDs = []
             bylines = [:]
             pendingByDevice = [:]
+            pendingStreamsByDevice = [:]
             pendingDeviceNames = [:]
             setAsideRecords = setAsideLineRecords()
             inboxStoreLog.error(
@@ -270,6 +285,11 @@ final class InboxStore {
             return
         }
         var held: [String: Int] = [:]
+        // Which stream each held holder was held in (P3b Task 4), read off the
+        // file it was counted in — `PermitMark.stream(of:)` is the one parse,
+        // and a manifest this build does not recognise as a stream contributes
+        // nothing rather than a guess.
+        var heldStreams: [String: Set<String>] = [:]
         for url in urls {
             // The verified read (spec §4.2): seal lines never reach the entry
             // decoder, and a run of lines this device cannot vouch for is set
@@ -288,8 +308,10 @@ final class InboxStore {
                 let read = try await store.loadVerifiedStrict(
                     permit: .inbox(trust: table))
                 rows.append(contentsOf: read.elements)
+                let slug = PermitMark.stream(of: url)?.deviceSlug
                 for (device, count) in read.pendingByDevice {
                     held[device, default: 0] += count
+                    if let slug { heldStreams[device, default: []].insert(slug) }
                 }
             }
             catch {
@@ -344,6 +366,9 @@ final class InboxStore {
         // verified registry is in hand; the rule is `Registry`'s, asked once.
         let strangers = registry.strangersAwaitingAdmission(among: held)
         pendingByDevice = strangers
+        // Narrowed by the SAME set, so a holder in one map is a holder in the
+        // other and nothing carries a stream for a device nobody is waiting on.
+        pendingStreamsByDevice = heldStreams.filter { strangers[$0.key] != nil }
         pendingDeviceNames = strangers.keys.reduce(into: [:]) { names, device in
             names[device] = InboxByline.name(forDevice: device, registry: registry)
         }

@@ -42,13 +42,14 @@ final class AdmissionSheetTests: XCTestCase {
 
     private func mount(
         _ request: AdmissionRequest, refusal: String? = nil,
-        onAdmit: @escaping (String) -> Void = { _ in },
+        pieces: [PermitControl.Piece] = [],
+        onAdmit: @escaping (String, Permit) -> Void = { _, _ in },
         onNotNow: @escaping () -> Void = {}
     ) -> NSWindow {
         let window = TestWindow.mount(
             AnyView(AdmissionSheet(
                 request: request, projectTitle: "Playlist", refusal: refusal,
-                onAdmit: onAdmit, onNotNow: onNotNow)
+                pieces: pieces, onAdmit: onAdmit, onNotNow: onNotNow)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)),
             size: CGSize(width: 520, height: 400))
         windows.append(window)
@@ -151,13 +152,17 @@ final class AdmissionSheetTests: XCTestCase {
     /// the call and the answer only adds a way for the test to flake.
     func test_admitHandsBackWhatWasTyped() {
         var handed: [String] = []
+        var permits: [Permit] = []
         let sheet = AdmissionSheet(
             request: request(), projectTitle: "Playlist",
-            onAdmit: { handed.append($0) }, onNotNow: {})
+            onAdmit: { handed.append($0); permits.append($1) }, onNotNow: {})
 
-        sheet.onAdmit("Amelia")
+        sheet.onAdmit("Amelia", PermitControl.permit(for: .reviewer, pieces: []))
 
         XCTAssertEqual(handed, ["Amelia"])
+        // **And what they may write** (P3b Task 4): the label alone was the
+        // whole answer until the sheet gained a rung.
+        XCTAssertEqual(permits, [.reviewer])
     }
 
     func test_notNowRunsItsOwnVerbAndNoOther() {
@@ -165,12 +170,63 @@ final class AdmissionSheetTests: XCTestCase {
         var dismissed = 0
         let sheet = AdmissionSheet(
             request: request(), projectTitle: "Playlist",
-            onAdmit: { _ in admitted += 1 }, onNotNow: { dismissed += 1 })
+            onAdmit: { _, _ in admitted += 1 }, onNotNow: { dismissed += 1 })
 
         sheet.onNotNow()
 
         XCTAssertEqual(dismissed, 1)
         XCTAssertEqual(admitted, 0, "Not now writes nothing")
+    }
+
+    // MARK: - What they may write (P3b Task 4)
+
+    /// The control is DRAWN; what each rung means is pinned windowlessly in
+    /// `PermitControlTests` (tripwire 33 — nothing here presses it).
+    func test_theSheetDrawsTheControlForWhatTheyMayWrite() throws {
+        let window = mount(request())
+
+        let found = try axMenuControl(PermitPicker.choiceIdentifier, in: window)
+        let published = try axIdentifiers(in: window)
+        XCTAssertNotNil(
+            found,
+            "the sheet asks for a label and nothing about what may be written. "
+            + "Identifiers on the sheet: \(published)")
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(
+            texts.contains { $0.contains(PermitControl.Choice.wholeBook.explanation) },
+            "and says what the chosen rung means: \(texts)")
+    }
+
+    /// **Admit waits for the book, and only where the rung narrows it** — the
+    /// first-narrowing sentence is something the writer is owed BEFORE they
+    /// press, not after. Both directions, and the dead end: a book this Mac
+    /// cannot read answers nothing, and the press must still be possible,
+    /// because the act itself refuses in its own words.
+    func test_admitWaitsForTheBookOnlyWhereTheRungNarrowsIt() {
+        XCTAssertTrue(
+            AdmissionSheet.admitWaits(whileNarrowing: true, asked: false),
+            "a narrowing rung, and nothing asked yet")
+        XCTAssertFalse(
+            AdmissionSheet.admitWaits(whileNarrowing: true, asked: true),
+            "asked — whatever the answer was, including none at all")
+        XCTAssertFalse(
+            AdmissionSheet.admitWaits(whileNarrowing: false, asked: false),
+            "the ordinary admission waits for nothing")
+    }
+
+    /// **The default is the whole book** — what every admission meant before
+    /// this milestone. A writer who reads none of this and presses Admit makes
+    /// exactly the admission P2b made.
+    func test_theSheetOpensOnTheAdmissionItAlwaysMade() throws {
+        let window = mount(request())
+        let texts = try axTexts(in: window)
+
+        XCTAssertTrue(
+            texts.contains { $0.contains(PermitControl.Choice.wholeBook.explanation) },
+            "\(texts)")
+        XCTAssertFalse(
+            texts.contains { $0.contains("no longer open this book") },
+            "and nothing that narrows nobody warns about narrowing: \(texts)")
     }
 
     // MARK: - The copy itself

@@ -131,6 +131,60 @@ public enum Permit: Equatable, Hashable, Sendable {
     /// `PermitTimeline.narrows` has had since the final fix wave's W1.
     public var narrows: Bool { self != .bookAuthor }
 
+    // MARK: - The rungs a surface may offer (P3b Task 4)
+
+    /// **What a control can ask the writer for**, and the one place a chosen
+    /// one becomes a `Permit`.
+    ///
+    /// A surface must not build a permit out of the wire words itself: the
+    /// spellings are this file's (`authorRole`, `piecesScope`), the parse is
+    /// this file's, and a view assembling them is a second opinion about what
+    /// *reviewer* is made of — which is the same failure tripwire 47 names, one
+    /// step earlier. So the choice travels as a rung and comes back as a
+    /// permit, and `Maugham/Views/PermitControl.swift` supplies nothing but the
+    /// words the writer reads.
+    ///
+    /// Three cases and not four: `.unjudgeable` is a permit a LATER build
+    /// wrote, and there is nothing for a control to offer about it. That is why
+    /// `rung(of:)` answers an Optional.
+    public enum Rung: String, CaseIterable, Identifiable, Sendable {
+        /// Notes and captures; never the manuscript.
+        case reviewer
+        /// Everything, inside the pieces the writer picks — legitimately none.
+        case somePieces
+        /// Everything, everywhere: what every admission meant before P3.
+        case wholeBook
+
+        /// `Identifiable` here rather than retroactively at the control: a
+        /// conformance a view module adds to another module's type is one a
+        /// later build of THIS module can collide with.
+        public var id: String { rawValue }
+    }
+
+    /// The permit a chosen rung installs. `pieces` is carried for every rung
+    /// and used by one, so a writer changing their mind and changing it back
+    /// does not lose the list on the way past.
+    public static func permit(offering rung: Rung, pieces: Set<String> = []) -> Permit {
+        switch rung {
+        case .reviewer: return .reviewer
+        case .somePieces: return .author(.pieces(pieces))
+        case .wholeBook: return .author(.book)
+        }
+    }
+
+    /// **The rung a permit IS**, or nil where no control can draw it — a role
+    /// or scope word this build does not recognise. A surface meeting nil says
+    /// so; drawing an unknown rung as a known one would offer to overwrite a
+    /// permit the writer was never shown.
+    public static func rung(of permit: Permit) -> Rung? {
+        switch permit {
+        case .reviewer: return .reviewer
+        case .author(.pieces): return .somePieces
+        case .author(.book): return .wholeBook
+        case .unjudgeable: return nil
+        }
+    }
+
     // MARK: - The root
 
     /// **A root is an author of the whole book, unconditionally** (spec §2).

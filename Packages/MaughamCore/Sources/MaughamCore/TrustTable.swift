@@ -452,9 +452,11 @@ public struct TrustTable: Equatable, Sendable {
                 events: eventsByPerson.values.flatMap { $0 }),
             personByFingerprint: personByFingerprint,
             knownPeople: registry.knownPeople,
-            keysNamedByADeviceRecord: registry.devices.reduce(into: Set()) {
-                $0.formUnion($1.actorFingerprints)
-            },
+            // The registry's own derivation, asked rather than repeated (P3b
+            // Task 4): `Registry.isContestedActorKey` reads the same set, and
+            // two spellings of *which keys this book has heard of* is how a
+            // sheet comes to offer a key a pane calls contested.
+            keysNamedByADeviceRecord: registry.keysNamedByADeviceRecord,
             retiredAtByDevice: retiredAtByDevice, myChain: myChain,
             otherRootByMember: otherRootByMember)
     }

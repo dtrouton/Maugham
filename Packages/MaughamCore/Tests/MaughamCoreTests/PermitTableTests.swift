@@ -1215,4 +1215,42 @@ final class DocumentClassTests: XCTestCase {
             XCTAssertTrue(permit.covers(permit), "\(permit) covers itself")
         }
     }
+
+    // MARK: - The rungs a surface may offer (P3b Task 4)
+
+    /// **A chosen rung becomes a permit here and nowhere else.** A surface
+    /// assembling one out of the wire words would be a second opinion about
+    /// what *reviewer* is made of, one step before tripwire 47's own failure.
+    func test_everyRungBuildsThePermitItNames() {
+        XCTAssertEqual(Permit.permit(offering: .reviewer), .reviewer)
+        XCTAssertEqual(Permit.permit(offering: .wholeBook), .bookAuthor)
+        XCTAssertEqual(
+            Permit.permit(offering: .somePieces, pieces: ["d-one"]),
+            .author(.pieces(["d-one"])))
+    }
+
+    /// *She may write what she starts* is a real state: an empty piece list is
+    /// an author of nothing yet, never an author of the book.
+    func test_somePiecesWithNoPiecesIsNotTheWholeBook() {
+        let permit = Permit.permit(offering: .somePieces)
+
+        XCTAssertEqual(permit, .author(.pieces([])))
+        XCTAssertNotEqual(permit, .bookAuthor)
+        XCTAssertTrue(permit.narrows)
+    }
+
+    func test_everyRungComesBackAsItself() {
+        for rung in Permit.Rung.allCases {
+            XCTAssertEqual(
+                Permit.rung(of: Permit.permit(offering: rung, pieces: ["d-one"])),
+                rung)
+        }
+    }
+
+    /// **A permit a later build wrote has no rung**, and a control meeting nil
+    /// must say so — drawing an unknown rung as a known one would offer to
+    /// overwrite a permit the writer was never shown.
+    func test_aPermitThisBuildCannotReadHasNoRungToDrawItWith() {
+        XCTAssertNil(Permit.rung(of: .unjudgeable(raw: "curator")))
+    }
 }

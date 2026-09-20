@@ -382,6 +382,33 @@ public struct Registry: Equatable, Sendable {
     /// Every fingerprint this book holds a person record for.
     public var knownPeople: Set<String> { Set(people.map(\.person)) }
 
+    /// **Every key some verified device record NAMES**, whoever ends up owning
+    /// it — the set `TrustTable.aDeviceRecordNames` answers from, spelled here
+    /// because it is a fact about the registry and two derivations of it would
+    /// be two opinions about which keys this book has heard of.
+    public var keysNamedByADeviceRecord: Set<String> {
+        devices.reduce(into: Set()) { $0.formUnion($1.actorFingerprints) }
+    }
+
+    /// **Is this key one two device records both claim?** (P3b Task 4.)
+    ///
+    /// `actorKeyOwners` awards a contested key to NOBODY, for good (rule 3
+    /// above), and *nobody's* is not the same answer as *nothing here has
+    /// heard of it*: a key no record mentions may perfectly well be an
+    /// unadmitted person's own author key, which is exactly who the admission
+    /// sheet is for. A contested one is the opposite — the register has an
+    /// opinion and the opinion is that nobody may act on it — so it must never
+    /// be offered as somebody to let in, and a writer who admitted it would be
+    /// naming a key two machines claim.
+    ///
+    /// Both clauses are necessary in both directions: named-and-owned is an
+    /// ordinary key (its device's, offered under its device), and unnamed is
+    /// the stranger case P2b shipped.
+    public func isContestedActorKey(_ fingerprint: String) -> Bool {
+        keysNamedByADeviceRecord.contains(fingerprint)
+            && actorKeyOwners[fingerprint] == nil
+    }
+
     /// **Is a device holding lines back a STRANGER — somebody this book has no
     /// record of?** THE predicate behind every sentence that says *waiting for
     /// admission* (P3a Task 5's D5).

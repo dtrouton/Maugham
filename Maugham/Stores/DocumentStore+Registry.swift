@@ -279,6 +279,39 @@ extension DocumentStore {
         }
     }
 
+    /// **The permit an admission of this fingerprint would INSTALL** — nil
+    /// where it would install none (Task 1's review, Minor 7).
+    ///
+    /// `RegistryAdmission.standingRecord` is the rule and it is Core's; this
+    /// only reads the folder to ask it. The answer decides whether the two
+    /// prices of writing a narrowing event — the book's photograph and the
+    /// schema gate — are owed at all, so it is asked before either is paid.
+    ///
+    /// A registry that will not read is NOT swallowed: it throws here, and the
+    /// admission would have thrown a moment later for the same reason. The one
+    /// thing this must not do is answer *nothing is being installed* over a
+    /// folder it could not see, which would take the photograph away from an
+    /// act that does narrow the book.
+    ///
+    /// Detached for `TrustResolution`'s own rule: a folder read and a signature
+    /// check per record. Internal rather than private for
+    /// `sweptUnsignedSnapshot`'s reason: the admission door lives one file
+    /// over and is the caller that needs the answer.
+    func permitThisAdmissionInstalls(
+        asked: Permit, for fingerprint: String
+    ) async throws -> Permit? {
+        let projectURL = self.projectURL
+        let cache = Document.loadRegistryCache
+        let standing = try await Task.detached(priority: .userInitiated) {
+            () -> Bool in
+            let registry = try TrustResolution.verifiedRegistry(
+                projectURL: projectURL, presenter: nil, cache: cache)
+            return RegistryAdmission
+                .standingRecord(registry.person(fingerprint)) != nil
+        }.value
+        return standing ? nil : asked
+    }
+
     /// `changePermit`'s sweep, alone — so the plural verb below can take every
     /// record's mark BEFORE it writes any of them (fix round 1, minor 2).
     private func sweptPermitMark(forPerson fingerprint: String) async throws -> PermitMark {
@@ -901,18 +934,64 @@ extension DocumentStore {
     /// asks the inbox for what that refresh last counted and does not refresh
     /// it: a caller that wants the stream re-read says so itself, which is what
     /// Project Settings does before it asks.
-    public func heldLinesByDevice() -> [String: Int] {
-        var held: [String: Int] = [:]
+    public func heldLinesByDevice() -> [String: Int] { heldLines().counts }
+
+    /// **The same union, carrying the STREAMS each holder was held in** (P3b
+    /// Task 4).
+    ///
+    /// The counts answer *how much is waiting*; the streams answer the question
+    /// the admission sheet has to ask before it offers anybody — *is this key a
+    /// person's at all*. A non-author actor key whose device record has not
+    /// arrived stands for itself in `pendingByDevice`, and the slug of the file
+    /// it wrote in is the only thing on disk that names it (`AdmissionDecision
+    /// .standing`, which CHECKS that claim against the key rather than
+    /// believing a word in a filename).
+    ///
+    /// One walk for both, so the two halves cannot disagree about who is
+    /// waiting — and a holder with no streams is a real, ordinary answer
+    /// (a legacy file, a hand-built provenance, an inbox read from before this
+    /// milestone), which asks nothing of the holder and leaves it offered
+    /// exactly as P2b offered it.
+    func heldLines() -> HeldLineUnion {
+        var counts: [String: Int] = [:]
+        var streams: [String: Set<String>] = [:]
         for document in allOpenDocuments() {
             guard let provenance = document.provenance else { continue }
             for (device, count) in provenance.pendingByDevice {
-                held[device, default: 0] += count
+                counts[device, default: 0] += count
+            }
+            for (device, slugs) in provenance.pendingStreamsByDevice {
+                streams[device, default: []].formUnion(slugs)
             }
         }
         for (device, count) in inboxStore.pendingByDevice {
-            held[device, default: 0] += count
+            counts[device, default: 0] += count
         }
-        return held
+        for (device, slugs) in inboxStore.pendingStreamsByDevice {
+            streams[device, default: []].formUnion(slugs)
+        }
+        return HeldLineUnion(counts: counts, streams: streams)
+    }
+}
+
+/// **What this window can see being held, and where** (P3b Task 4).
+///
+/// Two maps rather than one keyed value, because they are read by different
+/// questions and one of them is P2b's: `counts` is every *N notes waiting*
+/// sentence in the app, and `streams` exists so that the one surface which
+/// offers to ADMIT a holder can first ask whether that holder is a person's
+/// key at all.
+struct HeldLineUnion: Equatable {
+    /// Held OP lines by holder — a device fingerprint, a seal key that no
+    /// record names, or one of `HeldLines`' non-key holders.
+    var counts: [String: Int]
+    /// The device slugs of the streams each holder was held in. Legitimately
+    /// empty for a holder whose files carry no slug.
+    var streams: [String: Set<String>]
+
+    init(counts: [String: Int] = [:], streams: [String: Set<String>] = [:]) {
+        self.counts = counts
+        self.streams = streams
     }
 }
 

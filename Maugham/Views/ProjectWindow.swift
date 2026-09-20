@@ -461,6 +461,7 @@ struct ProjectWindow: View {
             projectURL: url,
             projectTitle: store?.manifest.title ?? url.lastPathComponent,
             documentStore: documentStore,
+            projectStore: store,
             window: $window))
         // And the other question a registry can raise at an open: a book this
         // Mac is holding and has no key in. Its own modifier because it is a

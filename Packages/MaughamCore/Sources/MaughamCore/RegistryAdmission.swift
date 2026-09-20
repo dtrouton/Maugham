@@ -439,7 +439,7 @@ public enum RegistryAdmission {
         // would let a correction to a machine's name silently rewrite what its
         // owner may write, with no event behind it and no timeline to say so.
         // `changePermit` is the verb for that, and it writes the history.
-        let standing = existing.flatMap { $0.isRevoked ? nil : $0 }
+        let standing = standingRecord(existing)
         let writtenRole: String
         let writtenScope: String?
         let writtenPieces: [String]?
@@ -503,6 +503,30 @@ public enum RegistryAdmission {
             record, signedBy: root, in: projectURL, presenter: presenter)
         memory.remember(fingerprint, label: label, ownName: ownName, at: now())
         return record
+    }
+
+    /// **The record whose permit `admit` may not move** — one already standing.
+    ///
+    /// A person record that is here and not revoked is a person this book has
+    /// already decided about: `admit` over them is a rename at most, it writes
+    /// NO event, and it carries their own stored role and scope back into the
+    /// record rather than whatever it was asked for. A revoked record is the
+    /// opposite case — a re-admission is the revocation's inverse and installs
+    /// the permit it is given — and a fingerprint with no record at all is an
+    /// ordinary admission.
+    ///
+    /// Public and spelled here rather than at the caller (Task 1's review,
+    /// Minor 7) because a CALLER has to know it too: `DocumentStore.admit`
+    /// takes the book's unsigned photograph and gates older builds out before
+    /// it calls in, and both of those are the price of writing an EVENT. Asked
+    /// of the permit it was handed rather than of the one that will be written,
+    /// a rename of a standing person's machine would sweep every op-log file in
+    /// the project and raise the book's schema for an act that writes neither.
+    /// One spelling, so the two cannot disagree about which act is happening.
+    nonisolated public static func standingRecord(
+        _ existing: PersonRecord?
+    ) -> PersonRecord? {
+        existing.flatMap { $0.isRevoked ? nil : $0 }
     }
 
     // MARK: - Changing a permit (spec §6)

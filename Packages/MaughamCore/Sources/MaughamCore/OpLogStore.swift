@@ -1695,7 +1695,7 @@ public final class OpLogStore {
             ops: parsed.elements,
             diagnostics: parsed.diagnostics,
             provenance: provenance(
-                name: url.lastPathComponent, lines: settled.lines,
+                url: url, lines: settled.lines,
                 isSealedSegment: false, segmentVerified: nil, trust: trust),
             verification: settled,
             adoptedHead: adopted,
@@ -1881,7 +1881,7 @@ public final class OpLogStore {
                         ops: read.elements,
                         diagnostics: ParseDiagnostics(skipped: skipped),
                         provenance: provenance(
-                            name: url.lastPathComponent, lines: partitioned.lines,
+                            url: url, lines: partitioned.lines,
                             isSealedSegment: true, segmentVerified: true,
                             trust: trust),
                         verification: partitioned,
@@ -1950,7 +1950,7 @@ public final class OpLogStore {
             ops: read.elements,
             diagnostics: ParseDiagnostics(skipped: skipped),
             provenance: provenance(
-                name: url.lastPathComponent, lines: verification.lines,
+                url: url, lines: verification.lines,
                 isSealedSegment: true, segmentVerified: false, trust: trust),
             verification: verification,
             adoptedHead: nil, verifiedSegmentDigest: nil,
@@ -1987,11 +1987,18 @@ public final class OpLogStore {
     /// The counts, taken off the LINES themselves rather than off the walk's
     /// own tallies — one place decides what each class means, and a new state
     /// on `OpLogChain.Line` is a compile error here rather than a silent zero.
+    ///
+    /// **It takes the URL rather than the name** (P3b Task 4): the file's own
+    /// stream slug is recorded beside its counts, and `PermitMark.stream(of:)`
+    /// — the one filename parse — needs the directory as well as the name. A
+    /// second parse of a name here would be a second opinion about which
+    /// stream a file belongs to.
     private nonisolated static func provenance(
-        name: String, lines: [OpLogChain.Line],
+        url: URL, lines: [OpLogChain.Line],
         isSealedSegment: Bool, segmentVerified: Bool?,
         trust: TrustTable? = nil
     ) -> FileProvenance {
+        let name = url.lastPathComponent
         var legacy = 0, verified = 0, unsealed = 0, unsignedHistory = 0, quarantined = 0
         var pending = 0
         // The split by device is `OpLogChain`'s own derivation, asked for here
@@ -2027,6 +2034,11 @@ public final class OpLogStore {
             pendingStrangerDevices: trust.map { table in
                 Set(pendingByDevice.keys.filter(table.isStrangerDevice))
             },
+            // **Which stream these lines were held in** (P3b Task 4). Nil for a
+            // legacy unsuffixed file and for anything this build does not
+            // recognise as a stream, which is the answer that asks nothing of
+            // the holder.
+            deviceSlug: PermitMark.stream(of: url)?.deviceSlug,
             isSealedSegment: isSealedSegment, segmentVerified: segmentVerified)
     }
 

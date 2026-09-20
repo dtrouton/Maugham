@@ -1097,19 +1097,34 @@ public final class DocumentStore {
         // person ever wrote under the permit they are being let back in with —
         // a demotion at the door, reaching back through the book.
         let mark = try await seenMarkOrRefuse(forPerson: fingerprint)
+        // **What this act will actually install** (Task 1's review, Minor 7).
+        // `RegistryAdmission.admit` over a person already standing here writes
+        // no event and moves no permit — it is a rename at most, and their own
+        // stored role goes back into their record. Asked of the permit this
+        // caller HANDED rather than of the one that will be written, the two
+        // prices below would be paid for an act that writes neither: a walk of
+        // every op-log file in the book, and a schema raise that shuts older
+        // builds out of a book nobody has narrowed. So the question is asked
+        // once, in Core, and the answer decides both.
+        let installing = try await permitThisAdmissionInstalls(
+            asked: permit, for: fingerprint)
         // **A narrowing admission takes the book's photograph too** (P3b
         // Task 1). Letting somebody in as a reviewer narrows the book exactly
         // as demoting somebody does, so it carries the same
         // `UnsignedSnapshot`; a book-author admission — which is every
-        // admission this build's sheet can make — sweeps nothing and writes
-        // no such field.
-        let unsigned = try await sweptUnsignedSnapshot(for: permit, act: .admission)
-        // **And it gates older builds out of the book, before the event**
-        // (P3b Task 3). Letting somebody in as a reviewer narrows the book
-        // exactly as demoting somebody does, so it owes the same gate — and a
-        // book-author admission, which is every admission this build's sheet
-        // can make, never reaches it and leaves the manifest untouched.
-        try await gateOldBuildsOut(before: permit, act: .admission)
+        // admission before this milestone — sweeps nothing and writes no such
+        // field.
+        var unsigned: PermitMark?
+        if let installing {
+            unsigned = try await sweptUnsignedSnapshot(
+                for: installing, act: .admission)
+            // **And it gates older builds out of the book, before the event**
+            // (P3b Task 3). Letting somebody in as a reviewer narrows the book
+            // exactly as demoting somebody does, so it owes the same gate — and
+            // an admission that narrows nobody never reaches it and leaves the
+            // manifest untouched.
+            try await gateOldBuildsOut(before: installing, act: .admission)
+        }
         let record = try await Task.detached(priority: .userInitiated) {
             try RegistryAdmission.admit(
                 device: fingerprint, label: label, ownName: ownName,
