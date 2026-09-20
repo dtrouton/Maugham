@@ -608,6 +608,14 @@ struct HistoryPane: View {
     nonisolated static func symbol(for kind: TrustEvent.Kind) -> String {
         switch kind {
         case .admitted, .silentlyAdmitted: return "person.badge.plus"
+        // The same face as an admission: somebody let back in came IN, and the
+        // sentence beside it is where the writer reads that there was something
+        // before.
+        case .readmitted: return "person.badge.plus"
+        // A permit change is neither an arrival nor a departure — it is a
+        // change to what one person may write — so it takes the face the app
+        // uses for a person's own settings rather than either of the two.
+        case .roleChanged, .scopeChanged: return "person.crop.circle.badge.checkmark"
         case .revoked: return "person.badge.minus"
         // The same face: it is the same act, and the sentence beside it is
         // where the writer reads which of the two they chose.

@@ -229,12 +229,28 @@ public enum RegistryPresence {
     /// refreshes the cache once at the end, so an open that admits three
     /// devices costs one verified read, three writes and one more read — not
     /// two reads per device.
+    ///
+    /// **Each admission writes a `silentlyAdmitted` event** (P3a Task 7) —
+    /// the `TrustEvent.Kind` that has existed since P2b with nothing to write
+    /// it (C11), and the one word that tells History *this Mac let it in
+    /// because you had already named it* apart from *you were asked*. The event
+    /// is minted inside `RegistryAdmission`, which stays the registry's one
+    /// event writer (tripwire 41).
+    ///
+    /// `mark` is asked **per device actually admitted**, never per device
+    /// present: where the root had read to in somebody's streams is a sweep of
+    /// every op-log file in the project, and an open with nobody to admit —
+    /// which is every open of every book — must not pay for one. A caller that
+    /// cannot answer says `.nothingApplied`, which is honest for an admission:
+    /// its permit governs everything the person ever wrote whichever side of
+    /// the mark a line falls on (`PermitTimeline.opening(before:)`).
     @discardableResult
     nonisolated public static func admitRemembered(
         in projectURL: URL,
         identities: LocalIdentities,
         cache: RegistryCache,
         memory: AdmissionMemory,
+        mark: (String) -> PermitMark = { _ in .nothingApplied },
         now: () -> Date = { Date() },
         presenter: NSFilePresenter? = nil
     ) throws -> [PersonRecord] {
@@ -263,6 +279,7 @@ public enum RegistryPresence {
                   !unreadable.contains(device.device) else { continue }
             admitted.append(try RegistryAdmission.admit(
                 device: device.device, label: remembered.label, ownName: device.name,
+                mark: mark, silently: true,
                 in: projectURL, by: author, within: registry,
                 memory: memory, now: now, presenter: presenter))
         }

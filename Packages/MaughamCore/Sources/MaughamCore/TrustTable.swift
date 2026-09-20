@@ -147,6 +147,10 @@ public struct TrustTable: Equatable, Sendable {
     /// everybody in every book written before P3 — and absent answers the
     /// author-of-the-whole-book default, which is what those admissions meant.
     private let timelineByPerson: [String: PermitTimeline]
+    /// Person fingerprint → the chain positions their newest revocation EVENT
+    /// recorded (P3a Task 7). Absent for every P2-era revocation, where the
+    /// record's `highestOpIdSeen` is still the only line there is.
+    private let revocationMarkByPerson: [String: PermitMark]
     /// Person fingerprint → the record, for the revoked/admitted split.
     private let personByFingerprint: [String: PersonRecord]
     /// Every fingerprint this book holds a person record for — `Registry
@@ -311,6 +315,25 @@ public struct TrustTable: Equatable, Sendable {
         }
         let timelineByPerson = eventsByPerson.mapValues { PermitTimeline(events: $0) }
 
+        // **Where a revocation drew its line, as chain POSITIONS** (P3a Task 7,
+        // spec §3.3's last paragraph). The person record's `highestOpIdSeen`
+        // stays exactly as it is, for every P2-era reader; where a revocation
+        // EVENT exists it carries a map the writer of the ops cannot forge, and
+        // that map is what `RevocationSplit` cuts on.
+        //
+        // The NEWEST revocation event wins, by event id — a revocation is
+        // idempotent so there is normally one, and a person revoked, re-admitted
+        // and revoked again has two, of which only the latest drew the line that
+        // still holds.
+        var revocationMarkByPerson: [String: PermitMark] = [:]
+        for (person, events) in eventsByPerson {
+            guard let latest = events
+                .filter({ $0.kind == .revoked || $0.kind == .revokedEntirely })
+                .max(by: { $0.event < $1.event })
+            else { continue }
+            revocationMarkByPerson[person] = PermitMark(latest.mark)
+        }
+
         var retiredAtByDevice: [String: Date] = [:]
         for device in registry.devices {
             guard let retiredAt = device.retiredAt else { continue }
@@ -364,6 +387,7 @@ public struct TrustTable: Equatable, Sendable {
             deviceByActorKey: deviceByActorKey,
             actorByKey: actorByKey, keyByDeviceId: keyByDeviceId,
             timelineByPerson: timelineByPerson,
+            revocationMarkByPerson: revocationMarkByPerson,
             personByFingerprint: personByFingerprint,
             knownPeople: registry.knownPeople,
             keysNamedByADeviceRecord: registry.devices.reduce(into: Set()) {
@@ -385,6 +409,24 @@ public struct TrustTable: Equatable, Sendable {
     /// sentences, and the same refusal.
     nonisolated public func highestOpIdSeen(forPerson person: String) -> String? {
         personByFingerprint[person]?.highestOpIdSeen
+    }
+
+    /// **The same line, drawn where the writer of the ops cannot move it** —
+    /// the chain positions this person's newest revocation EVENT recorded
+    /// (spec §3.3), or nil where their revocation predates events.
+    ///
+    /// Asked by the same one reader as `highestOpIdSeen`, and asked FIRST: an
+    /// opId carries a timestamp its own writer chose, so a demoted device could
+    /// stamp new text with an old id and slip under the mark. A position is a
+    /// hash of bytes everybody holds. Where there is no event — every book
+    /// revoked before P3 — the opId is still the only answer there is, and the
+    /// P2 path is unchanged.
+    ///
+    /// **An EMPTY mark is a real answer and not nil.** It is what *Set aside
+    /// everything it wrote* records, and it judges every line NEW, which is the
+    /// same thing `nothingAppliedMark` means one wire format over.
+    nonisolated public func revocationMark(forPerson person: String) -> PermitMark? {
+        revocationMarkByPerson[person]
     }
 
     /// What the key that made this seal is to this device.

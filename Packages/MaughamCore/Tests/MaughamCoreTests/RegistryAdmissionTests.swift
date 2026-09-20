@@ -1346,4 +1346,578 @@ final class RegistryAdmissionTests: XCTestCase {
     private func jsonObjectOfPersonFile(_ fingerprint: String) throws -> [String: Any] {
         try jsonObject(at: personFile(fingerprint))
     }
+
+    // MARK: - The permit verbs (P3a Task 7, spec §6)
+
+    /// Every event this folder holds about one subject, oldest first.
+    private func events(about subject: String) throws -> [PermitEvent] {
+        try registry().events
+            .filter { $0.subject == subject }
+            .sorted { $0.event < $1.event }
+    }
+
+    private func kinds(about subject: String) throws -> [PermitEvent.Kind] {
+        try events(about: subject).map(\.kind)
+    }
+
+    private func mark(_ key: String, line: String) -> PermitMark {
+        PermitMark([key: .init(line: line)])
+    }
+
+    // MARK: Admission writes its own kind
+
+    /// A stranger nobody has heard of is `admitted`, and the event carries the
+    /// rung the writer chose — which is the whole of what makes the
+    /// admission's permit govern everything she wrote while she was held
+    /// (`PermitTimeline.opening(before:)`).
+    func test_admittingAStrangerWritesAnAdmittedEventCarryingTheRung() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+
+        try RegistryAdmission.admit(
+            device: phone.author.fingerprint, label: "Sam",
+            ownName: "Denver's iPhone",
+            role: Permit.reviewerRole, scope: Permit.bookScope,
+            mark: mark("d-one.slug", line: "hash-1"),
+            in: projectURL, by: mine.author,
+            cache: makeCache(), memory: makeMemory(),
+            now: { Date(timeIntervalSince1970: 10) })
+
+        let written = try events(about: phone.author.fingerprint)
+        XCTAssertEqual(written.map(\.kind), [.admitted])
+        XCTAssertEqual(Permit(event: try XCTUnwrap(written.first)), .reviewer)
+        XCTAssertEqual(written.first?.by, mine.author.fingerprint)
+        XCTAssertEqual(written.first?.mark["d-one.slug"]?.line, "hash-1")
+        XCTAssertEqual(
+            try registry().person(phone.author.fingerprint)?.role,
+            Permit.reviewerRole)
+    }
+
+    /// **A re-admission is `readmitted`, never `admitted`** (Task 7's first
+    /// ruling). The difference is not cosmetic: an `admitted` event's permit
+    /// governs everything the person ever wrote, so a P2 author let back in as
+    /// a reviewer would have her old chapters refused retroactively.
+    func test_readmittingSomebodyRevokedWritesReadmittedAndNotAdmitted() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: "01AAAAAAAAAAAAAAAAAAAAAAAA", cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 20) })
+
+        try RegistryAdmission.admit(
+            device: phone.author.fingerprint, label: "Denver",
+            ownName: "Denver's iPhone",
+            role: Permit.reviewerRole,
+            mark: mark("d-one.slug", line: "hash-2"),
+            in: projectURL, by: mine.author,
+            cache: makeCache(), memory: makeMemory(),
+            now: { Date(timeIntervalSince1970: 30) })
+
+        XCTAssertEqual(
+            try kinds(about: phone.author.fingerprint),
+            [.admitted, .revoked, .readmitted],
+            "the revocation survives the clearing of its own record fields")
+        let last = try XCTUnwrap(try events(about: phone.author.fingerprint).last)
+        XCTAssertEqual(Permit(event: last), .reviewer)
+        XCTAssertEqual(last.mark["d-one.slug"]?.line, "hash-2")
+    }
+
+    /// The memory path's word (C11). `silentlyAdmitted` has existed on
+    /// `TrustEvent.Kind` since P2b with nothing to write it; this is its
+    /// writer, and it is what History reads to say *let in because you had
+    /// already named this machine* rather than *you were asked*.
+    func test_theRememberedAdmissionWritesSilentlyAdmitted() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        let memory = makeMemory()
+        memory.remember(
+            phone.author.fingerprint, label: "Denver",
+            ownName: "Denver's iPhone", at: Date(timeIntervalSince1970: 1))
+
+        let admitted = try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: makeCache(), memory: memory,
+            mark: { _ in self.mark("d-one.slug", line: "hash-3") },
+            now: { Date(timeIntervalSince1970: 10) })
+
+        XCTAssertEqual(admitted.count, 1)
+        XCTAssertEqual(try kinds(about: phone.author.fingerprint), [.silentlyAdmitted])
+        XCTAssertEqual(
+            try events(about: phone.author.fingerprint).first?.mark["d-one.slug"]?.line,
+            "hash-3",
+            "the mark is asked per device actually admitted, and used")
+    }
+
+    /// The converse of both: admitting the same device twice under the same
+    /// label writes no SECOND event, for the reason it writes no second record.
+    func test_anIdempotentAdmissionWritesNoSecondEvent() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        try admitThePhone()
+
+        XCTAssertEqual(try kinds(about: phone.author.fingerprint), [.admitted])
+    }
+
+    /// And a LABEL correction through `admit` moves no permit and writes no
+    /// event: renaming somebody is not admitting them again, and it is
+    /// certainly not demoting them. Without this, a sheet that pre-filled
+    /// *author* over a reviewer's corrected name would have rewritten what she
+    /// may write with nothing in the history to say so.
+    func test_correctingALabelThroughAdmitMovesNoPermitAndWritesNoEvent() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try RegistryAdmission.admit(
+            device: phone.author.fingerprint, label: "Sam",
+            ownName: "Denver's iPhone", role: Permit.reviewerRole,
+            in: projectURL, by: mine.author,
+            cache: makeCache(), memory: makeMemory(),
+            now: { Date(timeIntervalSince1970: 10) })
+
+        try RegistryAdmission.admit(
+            device: phone.author.fingerprint, label: "Samantha",
+            ownName: "Denver's iPhone",
+            in: projectURL, by: mine.author,
+            cache: makeCache(), memory: makeMemory(),
+            now: { Date(timeIntervalSince1970: 20) })
+
+        XCTAssertEqual(try kinds(about: phone.author.fingerprint), [.admitted])
+        let record = try XCTUnwrap(try registry().person(phone.author.fingerprint))
+        XCTAssertEqual(record.label, "Samantha")
+        XCTAssertEqual(record.role, Permit.reviewerRole, "the rename moved no permit")
+    }
+
+    /// A plain author-of-the-whole-book admission writes neither `scope` nor
+    /// `pieces` onto the record — the format's own rule is that a missing
+    /// scope MEANS the whole book, and a P3 build stating it would move the
+    /// bytes of every record for a fact they already state.
+    func test_anOrdinaryAdmissionsRecordCarriesNeitherScopeNorPieces() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+
+        let object = try jsonObjectOfPersonFile(phone.author.fingerprint)
+        XCTAssertNil(object["scope"])
+        XCTAssertNil(object["pieces"])
+        XCTAssertEqual(
+            try registry().person(phone.author.fingerprint).map {
+                Permit.parse(role: $0.role, scope: $0.scope, pieces: $0.pieces)
+            },
+            .bookAuthor)
+    }
+
+    // MARK: changePermit
+
+    private func changeThePhone(
+        to permit: Permit, mark: PermitMark = .nothingApplied,
+        at when: Date = Date(timeIntervalSince1970: 50),
+        by root: DeviceIdentity? = nil
+    ) throws -> PersonRecord {
+        try RegistryAdmission.changePermit(
+            person: phone.author.fingerprint,
+            role: permit.wireRole, scope: permit.wireScope,
+            pieces: permit.wirePieces, mark: mark,
+            in: projectURL, by: root ?? mine.author, cache: makeCache(),
+            now: { when })
+    }
+
+    /// The verb, whole: an event carrying the new permit and the mark, then a
+    /// re-signed record that says the same thing.
+    func test_changingAPermitWritesTheEventAndThenTheRecord() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+
+        let record = try changeThePhone(
+            to: .reviewer, mark: mark("d-one.slug", line: "hash-9"))
+
+        XCTAssertEqual(try kinds(about: phone.author.fingerprint), [.admitted, .roleChanged])
+        let event = try XCTUnwrap(try events(about: phone.author.fingerprint).last)
+        XCTAssertEqual(Permit(event: event), .reviewer)
+        XCTAssertEqual(event.mark["d-one.slug"]?.line, "hash-9")
+        XCTAssertEqual(event.by, mine.author.fingerprint)
+        XCTAssertEqual(record.role, Permit.reviewerRole)
+        XCTAssertEqual(record.scope, Permit.bookScope)
+        XCTAssertEqual(record.pieces, [])
+        XCTAssertFalse(
+            RegistryAdmission.recordBehindEvents(
+                person: phone.author.fingerprint, in: try registry()),
+            "both writes landed, so nothing is behind anything")
+    }
+
+    /// A change of SCOPE is `scopeChanged`, not `roleChanged`, so History says
+    /// *became an author of two pieces* rather than *became an author*.
+    func test_narrowingToPiecesIsScopeChangedAndWritesTheList() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+
+        let record = try changeThePhone(to: .author(.pieces(["d-two", "d-one"])))
+
+        XCTAssertEqual(try kinds(about: phone.author.fingerprint), [.admitted, .scopeChanged])
+        XCTAssertEqual(record.scope, Permit.piecesScope)
+        XCTAssertEqual(record.pieces, ["d-one", "d-two"], "sorted, so two Macs agree")
+        XCTAssertEqual(
+            Permit.parse(role: record.role, scope: record.scope, pieces: record.pieces),
+            .author(.pieces(["d-one", "d-two"])))
+    }
+
+    /// **An author of NO pieces yet is legal** (spec §3.1) — *she may write
+    /// what she starts* — so an empty list is not a refusal and not a nil.
+    func test_anAuthorOfNoPiecesYetIsAPermitAndNotARefusal() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+
+        let record = try changeThePhone(to: .author(.pieces([])))
+
+        XCTAssertEqual(record.scope, Permit.piecesScope)
+        XCTAssertEqual(record.pieces, [])
+        XCTAssertEqual(
+            Permit.parse(role: record.role, scope: record.scope, pieces: record.pieces),
+            .author(.pieces([])))
+    }
+
+    /// **Idempotent against the TIMELINE** (Task 7's fifth ruling): the permit
+    /// somebody already holds writes no event and no record.
+    func test_changingToThePermitAlreadyHeldWritesNothing() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        try changeThePhone(to: .reviewer, at: Date(timeIntervalSince1970: 50))
+        let bytes = try bytesOfPersonFile(phone.author.fingerprint)
+
+        try changeThePhone(to: .reviewer, at: Date(timeIntervalSince1970: 60))
+
+        XCTAssertEqual(try kinds(about: phone.author.fingerprint), [.admitted, .roleChanged])
+        XCTAssertEqual(try bytesOfPersonFile(phone.author.fingerprint), bytes)
+    }
+
+    /// And the P2-era half of the same rule: somebody with NO events is an
+    /// author of the whole book, so asking for that writes nothing at all.
+    func test_changingAP2PersonToWhatTheyAlreadyAreWritesNothing() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        let bytes = try bytesOfPersonFile(phone.author.fingerprint)
+
+        try changeThePhone(to: .bookAuthor)
+
+        XCTAssertEqual(try kinds(about: phone.author.fingerprint), [.admitted])
+        XCTAssertEqual(try bytesOfPersonFile(phone.author.fingerprint), bytes)
+    }
+
+    /// **A root may not be narrowed** — a book must not end up with no author.
+    func test_aRootsPermitCannotBeChanged() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+
+        XCTAssertThrowsError(try RegistryAdmission.changePermit(
+            person: mine.author.fingerprint,
+            role: Permit.reviewerRole, scope: Permit.bookScope, pieces: [],
+            mark: .nothingApplied, in: projectURL, by: mine.author,
+            cache: makeCache())
+        ) { error in
+            XCTAssertEqual(
+                error as? RegistryAdmissionError,
+                .cannotChangeARoot(fingerprint: mine.author.fingerprint))
+        }
+        XCTAssertTrue(try events(about: mine.author.fingerprint).isEmpty)
+    }
+
+    /// A Mac that is no root here changes nothing, whoever it is about.
+    func test_aNonRootCannotChangeAPermit() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+
+        XCTAssertThrowsError(try changeThePhone(to: .reviewer, by: otherRoot.author)) {
+            XCTAssertEqual($0 as? RegistryAdmissionError, .notARoot)
+        }
+        XCTAssertEqual(try kinds(about: phone.author.fingerprint), [.admitted])
+    }
+
+    /// Somebody this book has never heard of.
+    func test_changingThePermitOfSomebodyUnknownRefuses() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+
+        XCTAssertThrowsError(try changeThePhone(to: .reviewer)) {
+            XCTAssertEqual(
+                $0 as? RegistryAdmissionError,
+                .notAdmitted(fingerprint: phone.author.fingerprint))
+        }
+    }
+
+    /// Somebody another root let in. Their record is not mine to re-sign, and
+    /// their permit is not mine to move.
+    func test_changingAPermitUnderAnotherRootRefuses() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try becomeRootBeside(otherRoot, name: "The other MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try RegistryAdmission.admit(
+            device: phone.author.fingerprint, label: "Sam", ownName: "Denver's iPhone",
+            in: projectURL, by: otherRoot.author,
+            cache: RegistryCache(
+                fileURL: otherCacheURL, identity: otherRoot.author.fingerprint),
+            memory: makeMemory(), now: { Date(timeIntervalSince1970: 10) })
+
+        XCTAssertThrowsError(try changeThePhone(to: .reviewer)) {
+            XCTAssertEqual(
+                $0 as? RegistryAdmissionError,
+                .alreadyAdmittedElsewhere(root: otherRoot.author.fingerprint))
+        }
+        XCTAssertEqual(try kinds(about: phone.author.fingerprint), [.admitted])
+    }
+
+    /// A record present on disk and unreadable is not a record that is absent
+    /// (RULING-54): the change refuses rather than writing over somebody
+    /// else's half-synced admission.
+    func test_changingAPermitOverAnUnreadableRecordRefuses() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try plantUnreadablePersonRecord(for: phone)
+
+        XCTAssertThrowsError(try changeThePhone(to: .reviewer)) {
+            XCTAssertEqual(
+                $0 as? RegistryAdmissionError,
+                .recordUnreadable(fingerprint: phone.author.fingerprint))
+        }
+        XCTAssertTrue(try events(about: phone.author.fingerprint).isEmpty)
+    }
+
+    // MARK: The mark's monotonicity (Task 7's third ruling)
+
+    /// **A stream the new mark does not name keeps the position an older event
+    /// gave it.** The two marks are both *everything this root has read*, so
+    /// the new one is a superset by construction — unless this Mac's copy of
+    /// the folder has LOST a file, and then dropping the stream would judge
+    /// the whole of it NEW under the new permit, which for a demotion is a
+    /// reach-back through every line of it.
+    func test_aStreamMissingFromANewMarkKeepsItsOlderPosition() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        try changeThePhone(
+            to: .author(.pieces(["d-one"])),
+            mark: PermitMark([
+                "d-one.slug": .init(line: "one-1"),
+                "d-two.slug": .init(line: "two-1"),
+            ]),
+            at: Date(timeIntervalSince1970: 50))
+
+        try changeThePhone(
+            to: .reviewer,
+            mark: PermitMark(["d-one.slug": .init(line: "one-2")]),
+            at: Date(timeIntervalSince1970: 60))
+
+        let latest = try XCTUnwrap(try events(about: phone.author.fingerprint).last)
+        XCTAssertEqual(latest.mark["d-one.slug"]?.line, "one-2", "its own answer stands")
+        XCTAssertEqual(
+            latest.mark["d-two.slug"]?.line, "two-1",
+            "a stream the sweep could not reach keeps where the root had got to")
+    }
+
+    /// The newest older position is the one carried, not the first one found.
+    func test_theCarriedPositionIsTheNewestTheRootEverRecorded() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        try changeThePhone(
+            to: .author(.pieces(["d-one"])),
+            mark: PermitMark(["d-two.slug": .init(line: "two-1")]),
+            at: Date(timeIntervalSince1970: 50))
+        try changeThePhone(
+            to: .author(.pieces(["d-one", "d-two"])),
+            mark: PermitMark(["d-two.slug": .init(line: "two-2")]),
+            at: Date(timeIntervalSince1970: 60))
+
+        try changeThePhone(
+            to: .reviewer, mark: .nothingApplied,
+            at: Date(timeIntervalSince1970: 70))
+
+        XCTAssertEqual(
+            try XCTUnwrap(try events(about: phone.author.fingerprint).last)
+                .mark["d-two.slug"]?.line,
+            "two-2")
+    }
+
+    // MARK: recordBehindEvents (spec §3.2's crash window)
+
+    /// Nobody in a book written before P3 is behind anything.
+    func test_aPersonWithNoEventsIsNotBehindTheirHistory() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+
+        XCTAssertFalse(RegistryAdmission.recordBehindEvents(
+            person: phone.author.fingerprint, in: try registry()))
+    }
+
+    /// The window itself: the event landed and the record did not. Enforcement
+    /// is already correct — the role check reads the timeline — and this is
+    /// the fact P3b's pane states and offers to re-sign.
+    func test_anEventWithNoRecordBehindItIsDetected() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        try changeThePhone(to: .reviewer)
+        // The record that landed second, removed: the crash, after the fact.
+        try FileManager.default.removeItem(
+            at: personFile(phone.author.fingerprint))
+
+        XCTAssertTrue(RegistryAdmission.recordBehindEvents(
+            person: phone.author.fingerprint, in: try registry()))
+    }
+
+    /// And the other direction, which is the same disagreement: a record
+    /// naming a permit no event installed.
+    func test_aRecordSayingSomethingNoEventInstalledIsDetected() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        try changeThePhone(to: .reviewer)
+        try RegistryWriter.resign(
+            try XCTUnwrap(try registry().person(phone.author.fingerprint)),
+            signedBy: mine.author, in: projectURL
+        ) { object in
+            object["role"] = Permit.authorRole
+        }
+
+        XCTAssertTrue(RegistryAdmission.recordBehindEvents(
+            person: phone.author.fingerprint, in: try registry()))
+    }
+
+    /// A revocation installs no permit, so there is nothing for a record to be
+    /// behind — and a person revoked in a P2-era book must not light up a
+    /// *your record is out of date* notice for the rest of time.
+    func test_aRevocationAloneLeavesNothingBehind() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: "01AAAAAAAAAAAAAAAAAAAAAAAA", cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 20) })
+
+        XCTAssertFalse(RegistryAdmission.recordBehindEvents(
+            person: phone.author.fingerprint, in: try registry()))
+    }
+
+    // MARK: Revocation and retirement write their own events
+
+    /// The default revocation: an event carrying the positions this Mac had
+    /// APPLIED, beside the opId the record has always carried.
+    func test_revokingWritesARevokedEventCarryingItsPositions() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+
+        try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: "01AAAAAAAAAAAAAAAAAAAAAAAA",
+            mark: mark("d-one.slug", line: "hash-r"), cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 20) })
+
+        XCTAssertEqual(try kinds(about: phone.author.fingerprint), [.admitted, .revoked])
+        let event = try XCTUnwrap(try events(about: phone.author.fingerprint).last)
+        XCTAssertEqual(event.mark["d-one.slug"]?.line, "hash-r")
+        XCTAssertEqual(
+            try registry().person(phone.author.fingerprint)?.highestOpIdSeen,
+            "01AAAAAAAAAAAAAAAAAAAAAAAA",
+            "the P2 wire form is written exactly as it was")
+    }
+
+    /// *Set aside everything it wrote* is `revokedEntirely` with an EMPTY
+    /// mark, which judges every line new — `nothingAppliedMark`'s meaning said
+    /// in positions.
+    func test_revokingEntirelyWritesAnEmptyMark() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+
+        try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: nil, mark: .nothingApplied, cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 20) })
+
+        XCTAssertEqual(
+            try kinds(about: phone.author.fingerprint), [.admitted, .revokedEntirely])
+        XCTAssertTrue(
+            try XCTUnwrap(try events(about: phone.author.fingerprint).last).mark.isEmpty)
+    }
+
+    /// A retirement is the one event a DEVICE signs for itself, which is why
+    /// `RegistryReader` lets it through on `subject == by` alone.
+    func test_retiringWritesAnEventSignedByTheDeviceItself() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+
+        try RegistryAdmission.retire(
+            device: mine.author.fingerprint, in: projectURL, by: mine.author,
+            mark: mark("d-one.mine", line: "hash-t"), cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 30) })
+
+        let written = try events(about: mine.author.fingerprint)
+        XCTAssertEqual(written.map(\.kind), [.retired])
+        XCTAssertEqual(written.first?.by, mine.author.fingerprint)
+        XCTAssertEqual(written.first?.mark["d-one.mine"]?.line, "hash-t")
+        XCTAssertEqual(
+            written.first.map(Permit.init), .bookAuthor,
+            "a root's own retirement must carry the root's own permit, or the "
+                + "reader lists it malformed")
+    }
+
+    /// A second press on either writes no second event, for the reason it
+    /// writes no second record: the date, and now the position, is the line.
+    func test_asecondRevocationOrRetirementWritesNoSecondEvent() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        for when in [20.0, 25.0] {
+            try RegistryAdmission.revoke(
+                person: phone.author.fingerprint, in: projectURL, by: mine.author,
+                highestOpIdSeen: "01AAAAAAAAAAAAAAAAAAAAAAAA", cache: makeCache(),
+                now: { Date(timeIntervalSince1970: when) })
+        }
+        for when in [30.0, 35.0] {
+            try RegistryAdmission.retire(
+                device: mine.author.fingerprint, in: projectURL, by: mine.author,
+                cache: makeCache(), now: { Date(timeIntervalSince1970: when) })
+        }
+
+        XCTAssertEqual(try kinds(about: phone.author.fingerprint), [.admitted, .revoked])
+        XCTAssertEqual(try kinds(about: mine.author.fingerprint), [.retired])
+    }
+
+    /// **Every event this milestone writes is read back by the reader that
+    /// judges it.** Nothing above is worth anything if the folder holds files
+    /// `RegistryReader` lists as malformed, and the authority check it applies
+    /// is not one these verbs can see.
+    func test_everyEventTheseVerbsWriteVerifies() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        try changeThePhone(to: .author(.pieces(["d-one"])))
+        try changeThePhone(to: .reviewer, at: Date(timeIntervalSince1970: 60))
+        try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: "01AAAAAAAAAAAAAAAAAAAAAAAA", cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 70) })
+        try RegistryAdmission.admit(
+            device: phone.author.fingerprint, label: "Denver",
+            ownName: "Denver's iPhone", in: projectURL, by: mine.author,
+            cache: makeCache(), memory: makeMemory(),
+            now: { Date(timeIntervalSince1970: 80) })
+        try RegistryAdmission.retire(
+            device: mine.author.fingerprint, in: projectURL, by: mine.author,
+            cache: makeCache(), now: { Date(timeIntervalSince1970: 90) })
+
+        let read = try registry()
+        XCTAssertEqual(read.events.count, 6)
+        XCTAssertTrue(
+            read.malformed.isEmpty,
+            "listed malformed: \(read.malformed.map { $0.url.lastPathComponent })")
+        XCTAssertEqual(
+            try kinds(about: phone.author.fingerprint),
+            [.admitted, .scopeChanged, .roleChanged, .revoked, .readmitted])
+    }
 }

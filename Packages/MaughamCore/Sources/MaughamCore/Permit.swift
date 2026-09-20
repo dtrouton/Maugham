@@ -135,6 +135,85 @@ public enum Permit: Equatable, Hashable, Sendable {
     public static func contradictsARoot(_ event: PermitEvent) -> Bool {
         Permit(event: event) != .author(.book)
     }
+
+    // MARK: - Writing one down
+
+    /// **The three strings this permit is WRITTEN as** — `parse`'s inverse, and
+    /// the reason it lives beside it (P3a Task 7).
+    ///
+    /// `RegistryAdmission.changePermit` takes the words rather than the value,
+    /// because what a signed file carries is words; these exist so a SURFACE
+    /// holding a `Permit` (P3b's pane, `DocumentStore.changePermit`) does not
+    /// have to spell them a second time. `parse(role:scope:pieces:)` of these
+    /// three answers `self` again for every case, which is what
+    /// `PermitTableTests.test_everyPermitRoundTripsThroughItsOwnWords` pins.
+    ///
+    /// **`.unjudgeable` round-trips as an unrecognised ROLE**, whichever word
+    /// was not recognised. That is lossy in one direction — an unknown *scope*
+    /// comes back as an unknown role — and it is deliberate: nothing in this app
+    /// constructs an unjudgeable permit to write, the value exists so a READER
+    /// can hold a word it does not know, and the round trip that matters is that
+    /// it stays unjudgeable rather than becoming a rung.
+    public var wireRole: String {
+        switch self {
+        case .reviewer: return Permit.reviewerRole
+        case .author: return Permit.authorRole
+        case .unjudgeable(let raw): return raw
+        }
+    }
+
+    public var wireScope: String {
+        switch self {
+        case .author(.pieces): return Permit.piecesScope
+        case .reviewer, .author(.book), .unjudgeable: return Permit.bookScope
+        }
+    }
+
+    /// Sorted, because two devices compare a signed record byte for byte and a
+    /// `Set`'s iteration order is not a fact about the permit.
+    public var wirePieces: [String] {
+        if case .author(.pieces(let mine)) = self { return mine.sorted() }
+        return []
+    }
+
+    // MARK: - Comparing two
+
+    /// **Does this permit allow everything `other` allows?**
+    ///
+    /// Asked by History alone, to say which way a change went: a NARROWING
+    /// (*What they wrote before then stays in the book*) and a WIDENING
+    /// (*Anything set aside before then stays set aside*) are the two halves of
+    /// spec §5 and a surface that stated one of them over both would be telling
+    /// the writer the opposite of what happened half the time.
+    ///
+    /// It is a partial order and says so: `.unjudgeable` covers nothing and is
+    /// covered by nothing but itself, and two disjoint piece lists cover each
+    /// other in neither direction. A caller that gets `false` both ways has a
+    /// change that is neither wider nor narrower, and the honest sentence for
+    /// one is the conservative half.
+    ///
+    /// It is NOT the permission check. `allows` is that, and it asks about one
+    /// line in one class; this asks about two permits and nothing else.
+    public func covers(_ other: Permit) -> Bool {
+        switch (self, other) {
+        case (.unjudgeable(let mine), .unjudgeable(let theirs)):
+            return mine == theirs
+        case (.unjudgeable, _), (_, .unjudgeable):
+            return false
+        case (.author(.book), _):
+            return true
+        case (.author(.pieces(let mine)), .author(.pieces(let theirs))):
+            return theirs.isSubset(of: mine)
+        case (.author(.pieces), .reviewer):
+            return true
+        case (.author(.pieces), .author(.book)):
+            return false
+        case (.reviewer, .reviewer):
+            return true
+        case (.reviewer, .author):
+            return false
+        }
+    }
 }
 
 // MARK: - What was written

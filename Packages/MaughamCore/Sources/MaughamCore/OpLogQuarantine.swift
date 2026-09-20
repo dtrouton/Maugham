@@ -165,6 +165,33 @@ public enum RevocationSplit {
         }
     }
 
+    /// **Where one person's revocation drew its line**, in the two forms the
+    /// register can state it (P3a Task 7, spec §3.3).
+    ///
+    /// The two are the same ruling — *keep what this Mac had already applied* —
+    /// answered against two different things the root wrote down:
+    ///
+    /// - **`byOpId`** is P2's mark, `PersonRecord.highestOpIdSeen`. It is what
+    ///   every revocation on disk today carries and the only thing a P2-era
+    ///   reader understands. Its weakness is the reason P3 has the other: an
+    ///   opId carries a timestamp **its own writer chose**, so a device shut out
+    ///   can stamp fresh text with an old id and slip under the line.
+    /// - **`byPosition`** is the revocation EVENT's mark, judged by
+    ///   `PermitMark.judge` — the digest of every segment the root had taken in
+    ///   whole and the hash of the last line it had applied. Nothing the writer
+    ///   of the ops controls moves it: backdating an id, renumbering a segment
+    ///   or rewriting one all leave the position where it was.
+    ///
+    /// The judgement runs parallel to `Verification.lines`, so a SEAL is
+    /// answered directly by its own position and the travel rule below is not
+    /// consulted at all. That is not a special case being skipped — a seal has
+    /// no opId, which is the entire reason the travel rule exists, and a
+    /// position every line has needs no stand-in.
+    public enum Cut: Equatable, Sendable {
+        case byOpId(String)
+        case byPosition(PermitMark.Judgement)
+    }
+
     /// How this revocation's refused lines divide, or **nil where nothing
     /// divides them** — which is every case but a revocation carrying a mark.
     ///
@@ -188,6 +215,17 @@ public enum RevocationSplit {
         of verification: OpLogChain.Verification,
         highestOpIdSeen mark: (String) -> String?
     ) -> Partition? {
+        partition(of: verification) { person in mark(person).map(Cut.byOpId) }
+    }
+
+    /// The same split, told where each person's line falls in whichever of the
+    /// two forms the register holds (P3a Task 7). `partition(of:highestOpIdSeen:)`
+    /// is this with every answer an opId — P2's door, and its behaviour to the
+    /// byte.
+    nonisolated public static func partition(
+        of verification: OpLogChain.Verification,
+        cut: (String) -> Cut?
+    ) -> Partition? {
         guard !verification.quarantined.isEmpty else { return nil }
 
         var readmitted: [Data] = []
@@ -196,7 +234,8 @@ public enum RevocationSplit {
         // line that is not a candidate, so a seal never travels across one.
         var travellingWith: Bool?
         var sawCandidate = false
-        for line in verification.lines where line.state == .quarantined {
+        for (index, line) in verification.lines.enumerated()
+        where line.state == .quarantined {
             // **The refusal is the line's own** (find-5 review, the Critical).
             // A line refused for a chain fault, a truncation, another
             // claimant's root or a retirement is not a candidate whatever its
@@ -212,21 +251,31 @@ public enum RevocationSplit {
             // than resolved once: a file holds one device's writing (ADR 0012),
             // and a rule that assumed so would be assuming it silently.
             guard case let .afterRevocation(person, _) = line.refusal,
-                  let theirMark = mark(person) else {
+                  let theirCut = cut(person) else {
                 refused.append(line.bytes)
                 travellingWith = nil
                 continue
             }
             sawCandidate = true
             let keeps: Bool
-            if let opId = opId(ofLine: line.bytes) {
-                keeps = opId <= theirMark
+            switch theirCut {
+            case .byPosition(let judgement):
+                // Every line has a position of its own, seals included, so
+                // there is nothing for a seal to travel WITH. `travellingWith`
+                // is carried anyway, for a file that somehow held two persons'
+                // refusals and answered one of them by opId.
+                keeps = judgement.side(ofLineAt: index) == .old
                 travellingWith = keeps
-            } else {
-                // A seal travels with the op immediately before it — and only
-                // if that op was itself refused for the revocation, which is
-                // what `travellingWith` being nil records.
-                keeps = travellingWith ?? false
+            case .byOpId(let theirMark):
+                if let opId = opId(ofLine: line.bytes) {
+                    keeps = opId <= theirMark
+                    travellingWith = keeps
+                } else {
+                    // A seal travels with the op immediately before it — and
+                    // only if that op was itself refused for the revocation,
+                    // which is what `travellingWith` being nil records.
+                    keeps = travellingWith ?? false
+                }
             }
             if keeps { readmitted.append(line.bytes) } else { refused.append(line.bytes) }
         }

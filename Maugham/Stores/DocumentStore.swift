@@ -1032,17 +1032,40 @@ public final class DocumentStore {
     ///
     /// The write runs off the main actor: it is a folder read, a P256
     /// signature and a verified re-read, and this class is `@MainActor`.
+    ///
+    /// **`permit` is which rung the sheet let them in at** (P3 spec §7.1). It
+    /// defaults to the whole book, which is what every P2 admission meant and
+    /// what the sheet still asks for until P3b gives it a control — so this
+    /// signature widening moves nothing about an existing book.
+    ///
+    /// The mark is `seenPositions`: where this Mac had read to in their streams
+    /// when it let them in. **For an admission it is informational**, because
+    /// an `admitted` event's permit governs everything the person ever wrote on
+    /// both sides of its mark (`PermitTimeline.opening(before:)`, and the
+    /// reason is that a stranger's held lines are SEEN, so they would otherwise
+    /// fall to the book-author default the moment she was admitted as a
+    /// reviewer). It is load-bearing for a RE-admission of somebody revoked,
+    /// which `RegistryAdmission` mints as `readmitted` for exactly that reason.
     @discardableResult
     public func admit(
-        device fingerprint: String, label: String, ownName: String
+        device fingerprint: String, label: String, ownName: String,
+        permit: Permit = .bookAuthor
     ) async throws -> PersonRecord {
         let projectURL = self.projectURL
         let author = Document.loadIdentities.author
         let cache = Document.loadRegistryCache
         let memory = Document.loadAdmissionMemory
+        // Refused rather than recorded short, for the revocation's reason: a
+        // re-admission's mark is where the new permit STARTS, so a mark that
+        // came back empty over an unreadable chapter would put everything that
+        // person ever wrote under the permit they are being let back in with —
+        // a demotion at the door, reaching back through the book.
+        let mark = try await seenMarkOrRefuse(forPerson: fingerprint)
         let record = try await Task.detached(priority: .userInitiated) {
             try RegistryAdmission.admit(
                 device: fingerprint, label: label, ownName: ownName,
+                role: permit.wireRole, scope: permit.wireScope,
+                pieces: permit.wirePieces, mark: mark,
                 in: projectURL, by: author, cache: cache, memory: memory)
         }.value
 

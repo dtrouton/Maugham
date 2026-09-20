@@ -715,4 +715,93 @@ final class DocumentStoreAdmissionTests: XCTestCase {
     private var opsDirectory: URL {
         projectURL.appendingPathComponent(".maugham/ops")
     }
+
+    // MARK: - The permit verb, through the window (P3a Task 7, spec §6)
+
+    private func events(about subject: String) throws -> [PermitEvent] {
+        try registry().events
+            .filter { $0.subject == subject }
+            .sorted { $0.event < $1.event }
+    }
+
+    /// **A demotion takes what she writes afterwards and leaves what she wrote
+    /// before it**, on the store's own next read — both halves of spec §5
+    /// through the one production door P3b's pane will press.
+    ///
+    /// The mark is computed here, off the project, which is what makes the
+    /// *before* half true: it names the position her file had reached when the
+    /// writer pressed the control.
+    func test_ademotionTakesWhatComesAfterItAndLeavesWhatCameBefore() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+        try await writeStrangerFile(docId: docId, opIds: ["02", "03"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        let open = try await openDocument()
+        store.register(document: open, for: "manuscript/c1.md")
+        let before = try await open.opStore.loadDiagnosed(docId: docId)
+        XCTAssertTrue(before.ops.map(\.opId).contains("03"))
+
+        _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
+        try await writeStrangerFile(docId: docId, opIds: ["04"])
+
+        let after = try await reader().loadDiagnosed(docId: docId)
+        XCTAssertTrue(
+            after.ops.map(\.opId).contains("03"),
+            "what she wrote as an author stays in the book")
+        XCTAssertFalse(
+            after.ops.map(\.opId).contains("04"),
+            "and her manuscript text after the mark does not")
+        XCTAssertEqual(
+            try events(about: stranger.fingerprint).map(\.kind),
+            [.admitted, .roleChanged])
+        await open.close()
+    }
+
+    /// The record follows the event, and the two agree afterwards — which is
+    /// what `recordBehindEvents` is the detector for.
+    func test_thepermitChangeWritesBothAndLeavesNothingBehind() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+
+        let record = try await store.changePermit(
+            person: stranger.fingerprint, to: .author(.pieces(["d-one"])))
+
+        XCTAssertEqual(record.role, Permit.authorRole)
+        XCTAssertEqual(record.scope, Permit.piecesScope)
+        XCTAssertEqual(record.pieces, ["d-one"])
+        XCTAssertFalse(RegistryAdmission.recordBehindEvents(
+            person: stranger.fingerprint, in: try registry()))
+    }
+
+    /// **No surface, and no permit change, from a Mac that is not the root** —
+    /// the refusal is thrown rather than swallowed (RULING-7).
+    func test_anonRootCannotChangeAPermitThroughTheWindowEither() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        // This Mac's own root record, removed: it is now on nobody's chain.
+        try FileManager.default.removeItem(
+            at: RegistryWriter.url(
+                .people,
+                fingerprint: try XCTUnwrap(Document.localIdentitiesForTesting)
+                    .author.fingerprint,
+                in: projectURL))
+        cache.forget(projectURL)
+
+        do {
+            _ = try await store.changePermit(
+                person: stranger.fingerprint, to: .reviewer)
+            XCTFail("a Mac on no chain here changes nobody's permit")
+        } catch let error as RegistryAdmissionError {
+            XCTAssertEqual(error, .notARoot)
+        }
+    }
 }

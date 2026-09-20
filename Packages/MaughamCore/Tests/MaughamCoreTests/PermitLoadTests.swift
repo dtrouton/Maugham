@@ -1138,4 +1138,336 @@ final class PermitLoadTests: XCTestCase {
             ["written after this device's access was withdrawn"],
             "the revocation's own sentence, not the permit's")
     }
+
+    // MARK: - The verbs, through a real load (P3a Task 7)
+
+    /// Sam's device record and nothing else: a stranger, whose lines are held.
+    private func declareSam() throws {
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: samPerson, name: "Sam’s Mac", kind: .mac,
+                actors: [
+                    DeviceActor.author.rawValue: samPerson,
+                    DeviceActor.assistant.rawValue: sam.assistant.fingerprint,
+                ],
+                madeAt: Date(timeIntervalSince1970: 5)),
+            signedBy: sam.author, in: projectURL)
+    }
+
+    /// **Appends to Sam's file, keeping every byte already in it.**
+    ///
+    /// `samsFile` rewrites the whole file from genesis, which mints a fresh
+    /// seal — and a mark computed before that names a line hash the rewritten
+    /// file no longer holds, so every line judges NEW and the test measures the
+    /// fixture rather than the rule. A device that goes on writing APPENDS, and
+    /// so does this: it chains from the last line's hash, seal included
+    /// (`OpLogChain.verify` advances the head over every line), and adds a seal
+    /// of its own at the end.
+    @discardableResult
+    private func appendToSamsFile(_ ops: [Op]) throws -> URL {
+        let url = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: sam.author.slug, in: projectURL)
+        var bytes = try Data(contentsOf: url)
+        let existing = bytes
+            .split(separator: 0x0A, omittingEmptySubsequences: true).map(Data.init)
+        var head = OpLogChain.lineHash(try XCTUnwrap(existing.last))
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+        for op in ops {
+            let line = OpLogChain.chainedLine(
+                elementJSON: try encoder.encode(op), prev: head)
+            bytes.append(line)
+            bytes.append(0x0A)
+            head = OpLogChain.lineHash(line)
+        }
+        let seal = try OpLogChain.Seal.line(
+            head: head, identity: sam.author, at: Date(timeIntervalSince1970: 80))
+        bytes.append(seal)
+        bytes.append(0x0A)
+        try bytes.write(to: url, options: .atomic)
+        return url
+    }
+
+    private func memory() -> AdmissionMemory {
+        AdmissionMemory(
+            fileURL: projectURL.appendingPathComponent("admission-memory.json"),
+            identity: rootPerson)
+    }
+
+    /// The root lets Sam in at `permit`, computing the mark through exactly the
+    /// production door `DocumentStore.admit` uses.
+    @discardableResult
+    private func admit(_ permit: Permit) async throws -> PersonRecord {
+        let mark = PermitMark(try await seenMark())
+        return try RegistryAdmission.admit(
+            device: samPerson, label: "Sam", ownName: "Sam’s Mac",
+            role: permit.wireRole, scope: permit.wireScope,
+            pieces: permit.wirePieces, mark: mark,
+            in: projectURL, by: root.author, cache: cache, memory: memory(),
+            now: { Date(timeIntervalSince1970: 60) })
+    }
+
+    /// **A stranger admitted as a REVIEWER is a reviewer for everything she
+    /// wrote while she was held** (Task 7's first ruling, the *admitted* half).
+    ///
+    /// Her held lines were SEEN, so the admission's mark names them and they
+    /// judge OLD — and *old* means the entry that opens the timeline. If that
+    /// entry were the book-author default, admitting her as a reviewer would
+    /// apply every manuscript line she had written while waiting at the door.
+    /// `PermitTimeline.opening(before:)` is why it is not; this is that rule
+    /// through the verb and a real load.
+    func test_aStrangerAdmittedAsAReviewerIsAReviewerForWhatSheWroteWhileHeld() async throws {
+        try writeRootRecord()
+        try declareSam()
+        try samsFile([
+            op("01text", by: sam.author),
+            op("02note", by: sam.author, kind: .claudeComment),
+        ])
+        var applied = try await appliedOpIds()
+        XCTAssertEqual(applied, [], "a stranger's lines are held")
+
+        try await admit(.reviewer)
+
+        applied = try await appliedOpIds()
+        XCTAssertEqual(
+            applied, ["02note"],
+            "a reviewer's note applies; her manuscript text does not")
+        XCTAssertEqual(
+            linesRecords().map(\.reason),
+            ["written into the manuscript by a device that may not write it here"])
+    }
+
+    /// The converse, and it is what makes the test above bite: admitted as an
+    /// author of the whole book, the very same bytes apply.
+    func test_theSameStrangerAdmittedAsAnAuthorHasEveryLineApplied() async throws {
+        try writeRootRecord()
+        try declareSam()
+        try samsFile([
+            op("01text", by: sam.author),
+            op("02note", by: sam.author, kind: .claudeComment),
+        ])
+
+        try await admit(.bookAuthor)
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["01text", "02note"])
+        XCTAssertTrue(linesRecords().isEmpty)
+    }
+
+    /// **A re-admission does not judge what came before it under the new
+    /// permit** (Task 7's first ruling, the *readmitted* half).
+    ///
+    /// Sam is an author, writes two chapters, is revoked, and is let back in as
+    /// a reviewer. `RegistryAdmission.admit` mints `readmitted` — and because
+    /// `readmitted` is a change like any other rather than an arrival, the
+    /// lines before its mark stay under the permit that held when they were
+    /// written. Had it minted `admitted`, its permit would have governed
+    /// everything she ever wrote and both chapters would leave the book.
+    func test_aReadmissionAsAReviewerDoesNotReachBackThroughHerChapters() async throws {
+        try writeRootRecord()
+        try declareSam()
+        try samsFile([op("01text", by: sam.author), op("02text", by: sam.author)])
+        try await admit(.bookAuthor)
+        let first = try await appliedOpIds()
+        XCTAssertEqual(first, ["01text", "02text"])
+
+        try RegistryAdmission.revoke(
+            person: samPerson, in: projectURL, by: root.author,
+            highestOpIdSeen: "02text", mark: PermitMark(try await appliedMark()),
+            cache: cache, now: { Date(timeIntervalSince1970: 70) })
+        try await admit(.reviewer)
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(
+            applied, ["01text", "02text"],
+            "what she wrote as an author stays in the book")
+        XCTAssertTrue(linesRecords().isEmpty)
+        XCTAssertEqual(
+            try RegistryReader.load(projectURL: projectURL).events
+                .filter { $0.subject == samPerson }
+                .sorted { $0.event < $1.event }
+                .map(\.kind),
+            [.admitted, .revoked, .readmitted])
+    }
+
+    /// **The case the ruling is actually about: a P2 author, let back in as a
+    /// reviewer.** She has no `admitted` event — P2 admitted her with a record
+    /// and nothing else — so the first event in her history is whatever the
+    /// re-admission writes. Written as `admitted`, `PermitTimeline.opening`
+    /// would read her whole history as a reviewer's and both chapters would
+    /// leave the book. Written as `readmitted`, the opening is the
+    /// book-author default P2 meant and they stay.
+    func test_aP2AuthorLetBackInAsAReviewerKeepsTheChaptersSheWrote() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try samsFile([op("01text", by: sam.author), op("02text", by: sam.author)])
+        // The P2-era revocation: a record, no event.
+        try RegistryWriter.write(
+            PersonRecord(
+                person: samPerson, label: "Sam", ownName: "Sam’s Mac",
+                admittedAt: Date(timeIntervalSince1970: 20), admittedBy: rootPerson,
+                revokedAt: Date(timeIntervalSince1970: 50), revokedBy: rootPerson,
+                highestOpIdSeen: "02text"),
+            signedBy: root.author, in: projectURL)
+
+        try await admit(.reviewer)
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(
+            applied, ["01text", "02text"],
+            "what she wrote while P2 called her an author stays in the book")
+        XCTAssertTrue(linesRecords().isEmpty)
+    }
+
+    /// And the other half of the same act: what she writes AFTER being let back
+    /// in as a reviewer is refused, so the re-admission is a real demotion and
+    /// not a way of keeping everything.
+    func test_whatSheWritesAfterTheReadmissionIsJudgedByTheNewPermit() async throws {
+        try writeRootRecord()
+        try declareSam()
+        try samsFile([op("01text", by: sam.author)])
+        try await admit(.bookAuthor)
+        try RegistryAdmission.revoke(
+            person: samPerson, in: projectURL, by: root.author,
+            highestOpIdSeen: "01text", mark: PermitMark(try await appliedMark()),
+            cache: cache, now: { Date(timeIntervalSince1970: 70) })
+        try await admit(.reviewer)
+
+        try appendToSamsFile([op("03after", by: sam.author)])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["01text"])
+        XCTAssertEqual(
+            linesRecords().map(\.reason),
+            ["written into the manuscript by a device after its permission here changed"],
+            "after a re-admission is after something changed, which is its own clause")
+    }
+
+    /// **A marked revocation resists a BACKDATED opId** (Task 7's sixth
+    /// ruling). The revocation event carries chain positions; an opId carries a
+    /// timestamp its own writer chose, and a device shut out can stamp fresh
+    /// text with an old id. Here `00backdated` sorts below the recorded mark
+    /// and is written after it, and the position refuses it anyway.
+    func test_aMarkedRevocationResistsABackdatedOpId() async throws {
+        try writeRootRecord()
+        try declareSam()
+        try samsFile([op("05kept", by: sam.author)])
+        try await admit(.bookAuthor)
+        try RegistryAdmission.revoke(
+            person: samPerson, in: projectURL, by: root.author,
+            highestOpIdSeen: "05kept", mark: PermitMark(try await appliedMark()),
+            cache: cache, now: { Date(timeIntervalSince1970: 70) })
+
+        try appendToSamsFile([op("00backdated", by: sam.author)])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(
+            applied, ["05kept"],
+            "position decides, and the backdated line is after the cut")
+    }
+
+    /// The control for it, and the reason the ruling exists: with the event
+    /// removed, the same bytes fall to the opId path and the backdated line is
+    /// KEPT — which is exactly the hole P2's mark had.
+    func test_withoutTheEventTheSameBackdatedLineIsKept() async throws {
+        try writeRootRecord()
+        try declareSam()
+        try samsFile([op("05kept", by: sam.author)])
+        try await admit(.bookAuthor)
+        try RegistryAdmission.revoke(
+            person: samPerson, in: projectURL, by: root.author,
+            highestOpIdSeen: "05kept", mark: PermitMark(try await appliedMark()),
+            cache: cache, now: { Date(timeIntervalSince1970: 70) })
+        try appendToSamsFile([op("00backdated", by: sam.author)])
+        // Every event this book holds, removed — a P2-era revocation exactly.
+        // This device's MEMORY of them has to go too, or `RegistryCache
+        // .reconcile` puts them straight back, which is what it is for: an
+        // event deleted out from under a device is restored and reported
+        // (P2's spec §2.4). That it does so is worth knowing here — deleting
+        // the folder is not a way to escape a permit.
+        try FileManager.default.removeItem(
+            at: RegistryWriter.directoryURL(.events, in: projectURL))
+        cache.forget(projectURL)
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(
+            applied, ["00backdated", "05kept"],
+            "the opId path is unchanged, and it is what the positions replace")
+    }
+
+    /// *Set aside everything it wrote* keeps nothing under the event either —
+    /// an empty mark judges every line NEW, which is what a nil
+    /// `highestOpIdSeen` has always meant.
+    func test_aRevocationSettingAsideEverythingKeepsNothingUnderTheEvent() async throws {
+        try writeRootRecord()
+        try declareSam()
+        try samsFile([op("01text", by: sam.author), op("02text", by: sam.author)])
+        try await admit(.bookAuthor)
+
+        try RegistryAdmission.revoke(
+            person: samPerson, in: projectURL, by: root.author,
+            highestOpIdSeen: nil, mark: .nothingApplied,
+            cache: cache, now: { Date(timeIntervalSince1970: 70) })
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, [])
+    }
+
+    /// **The root's view only grows, so two successive marks are monotonic**
+    /// (Task 7's third ruling). It is a write-side invariant because the
+    /// timeline cannot check it — a mark that cut EARLIER than an older one
+    /// would simply govern, and the older permit would never apply to anything.
+    ///
+    /// Pinned where it is actually established: at the production door two
+    /// successive `changePermit`s compute their marks through.
+    func test_twoSuccessiveMarksNeverMoveBackwards() async throws {
+        try writeRootRecord()
+        try declareSam()
+        let url = try samsFile([op("01", by: sam.author), op("02", by: sam.author)])
+        try await admit(.bookAuthor)
+        let first = PermitMark(try await seenMark())
+
+        try appendToSamsFile([op("03", by: sam.author)])
+        let second = PermitMark(try await seenMark())
+
+        let key = try XCTUnwrap(PermitMark.streamKey(of: url))
+        let lines = try Data(contentsOf: url)
+            .split(separator: 0x0A, omittingEmptySubsequences: true).map(Data.init)
+        let before = first.judge(
+            streamKey: key, fileIsSegmentWithDigest: nil, lines: lines)
+        let after = second.judge(
+            streamKey: key, fileIsSegmentWithDigest: nil, lines: lines)
+        XCTAssertNotNil(before.lastOldIndex)
+        XCTAssertGreaterThanOrEqual(
+            try XCTUnwrap(after.lastOldIndex), try XCTUnwrap(before.lastOldIndex),
+            "everything the root had read before, it has still read")
+    }
+
+    /// And the FOLD the opId mark needs has no counterpart here, because there
+    /// is nothing to fold: a position is the hash of a LINE, and an op reaches
+    /// an open document's mirror only after `opStore.append` has put it in the
+    /// file. This pins the premise rather than the prose — a freshly appended
+    /// op is inside a mark swept straight afterwards.
+    func test_anOpAppendedAMomentAgoIsAlreadyInsideTheMark() async throws {
+        try writeRootRecord()
+        try declareSam()
+        let samsStore = OpLogStore(
+            projectURL: projectURL, identities: sam, state: samState)
+        try await samsStore.append(op("01", by: sam.author))
+        try await samsStore.append(op("02", by: sam.author))
+
+        let mark = PermitMark(try await seenMark())
+        let url = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: sam.author.slug, in: projectURL)
+        let lines = try Data(contentsOf: url)
+            .split(separator: 0x0A, omittingEmptySubsequences: true).map(Data.init)
+        let judged = mark.judge(
+            streamKey: try XCTUnwrap(PermitMark.streamKey(of: url)),
+            fileIsSegmentWithDigest: nil, lines: lines)
+        XCTAssertTrue(
+            judged.isAllOld,
+            "every line this device has written is already in the file the sweep reads")
+    }
 }

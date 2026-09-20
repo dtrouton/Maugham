@@ -244,4 +244,115 @@ final class TrustEventSentenceTests: XCTestCase {
             XCTAssertTrue(sentence.hasSuffix("."), "\(kind): \(sentence)")
         }
     }
+
+    // MARK: - The permit, in words (P3a Task 7)
+
+    private func change(
+        _ kind: TrustEvent.Kind, to permit: Permit, from previous: Permit?
+    ) -> TrustEvent {
+        TrustEvent(
+            date: Date(timeIntervalSince1970: 30), kind: kind, subject: phone,
+            label: "Sam", by: root, permit: permit, previousPermit: previous,
+            event: "\(phone).a")
+    }
+
+    /// **A demotion states both directions**: what she became, and what did not
+    /// move because of it.
+    func test_aDemotionSaysWhatStaysInTheBook() {
+        XCTAssertEqual(
+            TrustEventSentence.sentence(
+                for: change(.roleChanged, to: .reviewer, from: .bookAuthor),
+                labels: [root: "Denver"]),
+            "Sam became a reviewer. What they wrote before then stays in the book.")
+    }
+
+    /// And a promotion states the OTHER direction, because a promotion is not a
+    /// pardon — the half that would be wrong if one sentence served both.
+    func test_aPromotionSaysWhatStaysSetAside() {
+        XCTAssertEqual(
+            TrustEventSentence.sentence(
+                for: change(.roleChanged, to: .bookAuthor, from: .reviewer),
+                labels: [root: "Denver"]),
+            "Sam became an author of the whole book. Anything set aside before "
+                + "then stays set aside.")
+    }
+
+    /// A scope change counts, because *an author of some pieces* means nothing
+    /// without a number.
+    func test_aScopeChangeCountsThePieces() {
+        XCTAssertEqual(
+            TrustEventSentence.sentence(
+                for: change(
+                    .scopeChanged, to: .author(.pieces(["d-one", "d-two"])),
+                    from: .bookAuthor),
+                labels: [root: "Denver"]),
+            "Sam became an author of 2 pieces. What they wrote before then "
+                + "stays in the book.")
+        XCTAssertTrue(
+            TrustEventSentence.sentence(
+                for: change(.scopeChanged, to: .author(.pieces([])), from: .bookAuthor),
+                labels: [root: "Denver"])
+                .contains("an author of no pieces yet"),
+            "*she may write what she starts* is a real state")
+        XCTAssertTrue(
+            TrustEventSentence.sentence(
+                for: change(.scopeChanged, to: .author(.pieces(["d-one"])), from: .bookAuthor),
+                labels: [root: "Denver"])
+                .contains("an author of one piece"))
+    }
+
+    /// A change that is neither wider nor narrower — two disjoint lists — gets
+    /// the conservative half, because the one thing true of every such change
+    /// is that the mark does not reach backwards.
+    func test_aSidewaysChangeTakesTheConservativeHalf() {
+        XCTAssertEqual(
+            TrustEventSentence.sentence(
+                for: change(
+                    .scopeChanged, to: .author(.pieces(["d-two"])),
+                    from: .author(.pieces(["d-one"]))),
+                labels: [root: "Denver"]),
+            "Sam became an author of one piece. What they wrote before then "
+                + "stays in the book.")
+    }
+
+    /// A rung is said only where it is not the one every P2 admission meant, so
+    /// every sentence an existing book draws is unchanged to the character.
+    func test_anOrdinaryAdmissionSaysNoRungAndAReviewersSaysOne() {
+        XCTAssertEqual(
+            TrustEventSentence.sentence(
+                for: TrustEvent(
+                    date: nil, kind: .admitted, subject: phone, label: "Sam",
+                    by: root, permit: .bookAuthor, event: "\(phone).a"),
+                labels: [root: "Denver"]),
+            "Sam admitted by Denver.")
+        XCTAssertEqual(
+            TrustEventSentence.sentence(
+                for: TrustEvent(
+                    date: nil, kind: .admitted, subject: phone, label: "Sam",
+                    by: root, permit: .reviewer, event: "\(phone).a"),
+                labels: [root: "Denver"]),
+            "Sam admitted by Denver, as a reviewer.")
+    }
+
+    func test_aReadmissionSaysSoAndSaysAtWhat() {
+        XCTAssertEqual(
+            TrustEventSentence.sentence(
+                for: TrustEvent(
+                    date: nil, kind: .readmitted, subject: phone, label: "Sam",
+                    by: root, permit: .reviewer, event: "\(phone).c"),
+                labels: [root: "Denver"]),
+            "Sam let back in by Denver, as a reviewer.")
+    }
+
+    /// A word a LATER build wrote is said as one this version cannot read —
+    /// never guessed at a rung, because the guess would be read as a fact about
+    /// somebody's access.
+    func test_anUnreadablePermitIsNotGuessedAtARung() {
+        let sentence = TrustEventSentence.sentence(
+            for: change(.roleChanged, to: .unjudgeable(raw: "curator"), from: .bookAuthor),
+            labels: [root: "Denver"])
+        XCTAssertTrue(sentence.contains("doesn’t recognise"), sentence)
+        XCTAssertFalse(sentence.contains("reviewer"), sentence)
+        XCTAssertFalse(sentence.contains("author"), sentence)
+    }
 }

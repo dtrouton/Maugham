@@ -940,4 +940,63 @@ final class DocumentClassTests: XCTestCase {
         // nothing to the scope test even though it carries a string.
         XCTAssertNil(DocumentClass.unplaceable("st_x").piece)
     }
+
+    // MARK: - The words a permit is written as (P3a Task 7)
+
+    /// **`parse` is `wireRole`/`wireScope`/`wirePieces`' inverse** for every
+    /// case, which is what lets a surface hold a `Permit` and a signed file
+    /// hold words without the two becoming two vocabularies.
+    func test_everyPermitRoundTripsThroughItsOwnWords() {
+        let permits: [Permit] = [
+            .reviewer, .bookAuthor, .author(.pieces([])),
+            .author(.pieces(["d-one"])), .author(.pieces(["d-two", "d-one"])),
+            .unjudgeable(raw: "curator"),
+        ]
+        for permit in permits {
+            XCTAssertEqual(
+                Permit.parse(
+                    role: permit.wireRole, scope: permit.wireScope,
+                    pieces: permit.wirePieces),
+                permit, "\(permit)")
+        }
+    }
+
+    /// And the pieces are SORTED, because two devices compare a signed record
+    /// byte for byte and a `Set`'s iteration order is not a fact about anybody's
+    /// permission.
+    func test_theWirePiecesAreSorted() {
+        XCTAssertEqual(
+            Permit.author(.pieces(["d-two", "d-one", "d-three"])).wirePieces,
+            ["d-one", "d-three", "d-two"])
+    }
+
+    /// **`covers` is a partial order**, and both of its refusals matter: an
+    /// unjudgeable permit is comparable to nothing, and two disjoint piece
+    /// lists cover each other in neither direction. History reads it to say
+    /// which WAY a change went, and a total order would make it say something
+    /// about a change that went neither way.
+    func test_coversRanksTheLadderAndRefusesWhatItCannotRank() {
+        XCTAssertTrue(Permit.bookAuthor.covers(.reviewer))
+        XCTAssertTrue(Permit.bookAuthor.covers(.author(.pieces(["d-one"]))))
+        XCTAssertFalse(Permit.reviewer.covers(.bookAuthor))
+        XCTAssertTrue(Permit.author(.pieces(["d-one"])).covers(.reviewer))
+        XCTAssertFalse(Permit.author(.pieces(["d-one"])).covers(.bookAuthor))
+        XCTAssertTrue(
+            Permit.author(.pieces(["d-one", "d-two"]))
+                .covers(.author(.pieces(["d-one"]))))
+        XCTAssertFalse(
+            Permit.author(.pieces(["d-one"]))
+                .covers(.author(.pieces(["d-two"]))),
+            "sideways is neither wider nor narrower")
+        XCTAssertFalse(
+            Permit.author(.pieces(["d-two"]))
+                .covers(.author(.pieces(["d-one"]))))
+        XCTAssertFalse(Permit.bookAuthor.covers(.unjudgeable(raw: "curator")))
+        XCTAssertFalse(Permit.unjudgeable(raw: "curator").covers(.bookAuthor))
+        XCTAssertTrue(
+            Permit.unjudgeable(raw: "curator").covers(.unjudgeable(raw: "curator")))
+        for permit in [Permit.reviewer, .bookAuthor, .author(.pieces(["d-one"]))] {
+            XCTAssertTrue(permit.covers(permit), "\(permit) covers itself")
+        }
+    }
 }

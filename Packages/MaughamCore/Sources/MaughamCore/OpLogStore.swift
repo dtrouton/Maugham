@@ -1137,7 +1137,8 @@ public final class OpLogStore {
         // both are in hand, and it has to happen before `applied` builds the
         // bytes the parser sees, or a line the revocation keeps never reaches
         // the document.
-        let readmitted = readmittingWhatWasAlreadyApplied(verification, trust: trust)
+        let readmitted = readmittingWhatWasAlreadyApplied(
+            verification, url: url, trust: trust)
         // **Then the permit, line by line** (P3a Task 5). It judges what the
         // revocation left applied; see `partitioningByPermit`.
         let settled = partitioningByPermit(
@@ -1170,13 +1171,37 @@ public final class OpLogStore {
     /// With no table there is no mark and nothing to ask, so a keyless reader
     /// is unchanged: it holds no key, judges nobody, and never meets
     /// `.afterRevocation` at all.
+    ///
+    /// **Two forms of the same line** (P3a Task 7). Where the register holds a
+    /// revocation EVENT for that person, the cut is by chain POSITION —
+    /// tamper-proof, because an opId carries a timestamp its own writer chose
+    /// and a device shut out could stamp new text with an old one. Where it
+    /// does not — every revocation on disk before P3 — the opId path is
+    /// untouched, which is what keeps the P2 suite passing without an edit.
+    ///
+    /// The judgement is computed **once per person** and only for a person
+    /// whose revocation carries a map, so a book with no events hashes nothing
+    /// here and a book with one hashes a file's lines once, not once per line.
     private nonisolated static func readmittingWhatWasAlreadyApplied(
-        _ verification: OpLogChain.Verification, trust: TrustTable?
+        _ verification: OpLogChain.Verification,
+        url: URL, trust: TrustTable?, fileSegmentDigest: String? = nil
     ) -> OpLogChain.Verification {
-        guard let trust, let split = RevocationSplit.partition(
-            of: verification,
-            highestOpIdSeen: { trust.highestOpIdSeen(forPerson: $0) })
-        else { return verification }
+        guard let trust else { return verification }
+        let streamKey = PermitMark.stream(of: url)?.key
+        var judged: [String: PermitMark.Judgement] = [:]
+        let split = RevocationSplit.partition(of: verification) { person in
+            if let streamKey, let mark = trust.revocationMark(forPerson: person) {
+                if let already = judged[person] { return .byPosition(already) }
+                let judgement = mark.judge(
+                    streamKey: streamKey,
+                    fileIsSegmentWithDigest: fileSegmentDigest,
+                    lines: verification.lines.map(\.bytes))
+                judged[person] = judgement
+                return .byPosition(judgement)
+            }
+            return trust.highestOpIdSeen(forPerson: person).map(RevocationSplit.Cut.byOpId)
+        }
+        guard let split else { return verification }
         return OpLogChain.readmitting(verification, lines: split.readmitted)
     }
 
@@ -1346,7 +1371,8 @@ public final class OpLogStore {
                 rememberedHead: nil)
         } ?? OpLogChain.verify(
             bytes: jsonl, trusted: { _ in false }, rememberedHead: nil)
-        let readmitted = readmittingWhatWasAlreadyApplied(walked, trust: trust)
+        let readmitted = readmittingWhatWasAlreadyApplied(
+            walked, url: url, trust: trust, fileSegmentDigest: digest)
         let verification = partitioningByPermit(
             readmitted, url: url, trust: trust, permit: permit,
             fileSegmentDigest: digest)

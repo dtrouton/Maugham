@@ -31,10 +31,25 @@ public enum TrustEventSentence {
 
         switch event.kind {
         case .admitted:
-            return actor.map { "\(subject) admitted by \($0)." } ?? "\(subject) admitted."
+            let rung = rung(of: event)
+            return actor.map { "\(subject) admitted by \($0)\(rung)." }
+                ?? "\(subject) admitted\(rung)."
         case .silentlyAdmitted:
-            return actor.map { "\(subject) admitted automatically by \($0)." }
-                ?? "\(subject) admitted automatically."
+            let rung = rung(of: event)
+            return actor.map { "\(subject) admitted automatically by \($0)\(rung)." }
+                ?? "\(subject) admitted automatically\(rung)."
+        case .readmitted:
+            let rung = rung(of: event)
+            return actor.map { "\(subject) let back in by \($0)\(rung)." }
+                ?? "\(subject) let back in\(rung)."
+        case .roleChanged, .scopeChanged:
+            // **Both directions, in one sentence** (spec §5). What the permit
+            // became, and then what did NOT move because of it — which is the
+            // half a writer comes to History to check, and the half that is
+            // opposite for a demotion and a promotion.
+            let became = event.permit.map { "became \(phrase(for: $0))" }
+                ?? "had their permission changed"
+            return "\(subject) \(became).\(consequence(of: event))"
         case .revoked:
             return actor.map { "\(subject) revoked by \($0)." } ?? "\(subject) revoked."
         case .revokedEntirely:
@@ -72,6 +87,65 @@ public enum TrustEventSentence {
         case .recordRestored:
             return "\(possessive(subject)) record was missing and has been put back."
         }
+    }
+
+    // MARK: - The permit, in words
+
+    /// What to call a permit in a sentence.
+    ///
+    /// **Never the wire word.** `"author"` and `"pieces"` are what a signed file
+    /// carries; what a writer reads is what it means, and the middle rung is
+    /// meaningless without a count. An `.unjudgeable` permit is a word a LATER
+    /// build wrote, and the honest thing to say about it is that this one
+    /// cannot read it — never a guess at a rung, because the guess would be
+    /// read as a fact about somebody's access.
+    nonisolated static func phrase(for permit: Permit) -> String {
+        switch permit {
+        case .reviewer:
+            return "a reviewer"
+        case .author(.book):
+            return "an author of the whole book"
+        case .author(.pieces(let pieces)):
+            if pieces.isEmpty { return "an author of no pieces yet" }
+            return pieces.count == 1
+                ? "an author of one piece"
+                : "an author of \(pieces.count) pieces"
+        case .unjudgeable:
+            return "something this version of Maugham doesn’t recognise"
+        }
+    }
+
+    /// `, as a reviewer` — the rung an arrival was let in at, or nothing at all
+    /// where it is the one every P2 admission meant.
+    ///
+    /// Empty for an author of the whole book so that every sentence a book
+    /// written before P3 draws is unchanged to the character: adding *as an
+    /// author of the whole book* to every admission in every existing project
+    /// would be a milestone announcing itself in rows about the past.
+    nonisolated static func rung(of event: TrustEvent) -> String {
+        guard let permit = event.permit, permit != .bookAuthor else { return "" }
+        return ", as \(phrase(for: permit))"
+    }
+
+    /// **What did not move**, which is the other half of every permit change.
+    ///
+    /// A NARROWING leaves what was already applied in the book — *a demotion
+    /// does not reach back*. A WIDENING leaves what was already refused out of
+    /// it — *a promotion is not a pardon*. They are opposite sentences about
+    /// the same mark, and a surface that carried one of them would be telling
+    /// the writer the wrong thing half the time.
+    ///
+    /// A change that is neither wider nor narrower — two disjoint piece lists,
+    /// a word this build cannot read — gets the conservative half, because the
+    /// one thing true of every such change is that the mark does not reach
+    /// backwards.
+    nonisolated static func consequence(of event: TrustEvent) -> String {
+        guard let permit = event.permit, let previous = event.previousPermit
+        else { return "" }
+        let widened = permit.covers(previous) && !previous.covers(permit)
+        return widened
+            ? " Anything set aside before then stays set aside."
+            : " What they wrote before then stays in the book."
     }
 
     // MARK: - Naming

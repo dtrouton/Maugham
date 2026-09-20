@@ -73,13 +73,90 @@ extension DocumentStore {
         case .nothing:
             mark = nil
         }
+        // **The same line in the other format** (P3a Task 7, spec §3.3). The
+        // opId stays, for every P2-era reader; the event beside it carries the
+        // chain POSITIONS this Mac had APPLIED, which is the one act whose mark
+        // means applied rather than seen, and which nothing the revoked device
+        // writes afterwards can move. `.nothing` records an empty mark, which
+        // judges every line new — `nothingAppliedMark`'s meaning, said in
+        // positions.
+        let positions: PermitMark
+        switch scope {
+        case .whatWasApplied:
+            switch await permitMark(forPerson: fingerprint, seen: false) {
+            case .mark(let found):
+                positions = found
+            case .unreadable(let name):
+                throw RegistryAdmissionError.historyUnreadable(name: name)
+            }
+        case .nothing:
+            positions = .nothingApplied
+        }
         let record = try await Task.detached(priority: .userInitiated) {
             try RegistryAdmission.revoke(
                 person: fingerprint, in: projectURL, by: author,
-                highestOpIdSeen: mark, cache: cache)
+                highestOpIdSeen: mark, mark: positions, cache: cache)
         }.value
 
         await settle(after: "revoking", DeviceCode.short(fingerprint))
+        return record
+    }
+
+    /// **Change what one person may write** — the root's verb, and P3b's pane's
+    /// one door to it (P3 spec §6).
+    ///
+    /// Three acts in `admit`'s own order: compute the mark, write the event and
+    /// then the record off the main actor, and tell every reader in this
+    /// project to forget the table it resolved. The third is not optional here
+    /// — this verb moves what an open document APPLIES, so a change that
+    /// reached the registry and not the readers is a demotion the writer has
+    /// made and cannot see.
+    ///
+    /// **The mark is `seenPositions`, not `appliedPositions`** (spec §3.3, as
+    /// corrected). A mark does not bless lines, it selects which permit judges
+    /// them — so *the last line applied* would make a promotion pardon the text
+    /// sitting refused at the end of what this Mac had read, and would make a
+    /// demotion reach back through a segment holding one refused line among a
+    /// thousand honest ones. The position is the last line this Mac SAW and
+    /// judged, whatever it then did with it.
+    ///
+    /// **The open documents need no folding in, and that is a fact about the
+    /// two marks rather than an omission.** `highestOpIdApplied` folds
+    /// `opLogSnapshot` because an opId is a value carried in memory; a position
+    /// is the hash of a LINE, and a line exists only once it is in a file.
+    /// `Document.appendToMirror` runs after `opStore.append` returns, so every
+    /// op in an open document's mirror is already on disk and the sweep below
+    /// reads it. What is NOT on disk is the pending keystroke buffer, which has
+    /// no line and therefore no hash — and which is not in the op log at all,
+    /// so no mark of any shape could name it.
+    @discardableResult
+    public func changePermit(
+        person fingerprint: String, to permit: Permit
+    ) async throws -> PersonRecord {
+        let projectURL = self.projectURL
+        let author = Document.loadIdentities.author
+        let cache = Document.loadRegistryCache
+        let mark: PermitMark
+        switch await permitMark(forPerson: fingerprint, seen: true) {
+        case .mark(let found):
+            mark = found
+        case .unreadable(let name):
+            // Refuse rather than record a mark that came back short, for the
+            // revocation's reason: a short mark moves a permission boundary
+            // silently, and the direction it moves it in is *more set aside
+            // than the writer asked for*.
+            throw RegistryAdmissionError.historyUnreadable(name: name)
+        }
+        let record = try await Task.detached(priority: .userInitiated) {
+            try RegistryAdmission.changePermit(
+                person: fingerprint,
+                role: permit.wireRole, scope: permit.wireScope,
+                pieces: permit.wirePieces, mark: mark,
+                in: projectURL, by: author, cache: cache)
+        }.value
+
+        await settle(after: "changing what may be written by",
+                     DeviceCode.short(fingerprint))
         return record
     }
 
@@ -137,9 +214,23 @@ extension DocumentStore {
         let projectURL = self.projectURL
         let author = Document.loadIdentities.author
         let cache = Document.loadRegistryCache
+        // **Its own files, and everything it wrote it both saw and applied**
+        // (P3a Task 7, ruling 2C). The mark is what *written while retired* is
+        // derived from on every OTHER device: a line of this Mac's after it is
+        // one written after this Mac said it had stopped. A sweep that will not
+        // read costs the retirement its mark and not the retirement — the date
+        // is still the line P2 drew, and a retirement refused over an
+        // unreadable chapter would leave the writer unable to stand a machine
+        // down at all.
+        let positions: PermitMark
+        switch await permitMark(forPerson: fingerprint, seen: true) {
+        case .mark(let found): positions = found
+        case .unreadable: positions = .nothingApplied
+        }
         let record = try await Task.detached(priority: .userInitiated) {
             try RegistryAdmission.retire(
-                device: fingerprint, in: projectURL, by: author, cache: cache)
+                device: fingerprint, in: projectURL, by: author,
+                mark: positions, cache: cache)
         }.value
 
         await settle(after: "retiring", DeviceCode.short(fingerprint))
@@ -203,7 +294,17 @@ extension DocumentStore {
         do {
             admitted = try await Task.detached(priority: .userInitiated) {
                 try RegistryPresence.admitRemembered(
-                    in: projectURL, identities: identities, cache: cache, memory: memory)
+                    in: projectURL, identities: identities, cache: cache,
+                    memory: memory,
+                    // Asked per device actually admitted, which on the ordinary
+                    // open is nobody at all: the sweep behind it walks every
+                    // op-log file in the project, and paying for one at every
+                    // open of every book would be paying to admit no one.
+                    mark: {
+                        DocumentStore.rememberedAdmissionMark(
+                            forPerson: $0, in: projectURL,
+                            identities: identities, cache: cache)
+                    })
             }.value
         } catch {
             registryVerbLog.error(
@@ -299,19 +400,8 @@ extension DocumentStore {
             do {
                 let resolved = try TrustResolution.resolveVerified(
                     projectURL: projectURL, identities: identities, cache: cache)
-                let ids: Set<String>
-                if let record = resolved.registry.devices.first(
-                    where: { $0.device == person }) {
-                    ids = Set(record.actors.map { actor, key in
-                        DeviceIdentity.deviceId(actor: actor, fingerprint: key)
-                    })
-                } else {
-                    // No device record for them: under labels-only a person IS
-                    // a device's author key, so the one id they can have
-                    // written under is that key's own.
-                    ids = [DeviceIdentity.deviceId(
-                        actor: DeviceActor.author.rawValue, fingerprint: person)]
-                }
+                let ids = DocumentStore.opLogDeviceIds(
+                    ofPerson: person, in: resolved.registry)
                 return .success(Swept(
                     mark: try OpLogStore.highestAppliedOpId(
                         ofDeviceIds: ids, in: projectURL, trust: resolved.table),
@@ -339,6 +429,120 @@ extension DocumentStore {
             }
         }
         return highest.map(AppliedMark.upTo) ?? .nothingApplied
+    }
+
+    /// **The op-log device ids one person writes under** — the join, spelled
+    /// once because four verbs need it now (P3a Task 7).
+    ///
+    /// An op carries the id its writer wrote under and the registry carries the
+    /// keys; joining them anywhere but `DeviceIdentity.deviceId(actor:
+    /// fingerprint:)` would be a second opinion about what a device id is. With
+    /// no device record for them — a real state, because a person record and a
+    /// device record are two files that sync separately — a person IS a
+    /// device's author key under labels-only, so the one id they can have
+    /// written under is that key's own.
+    nonisolated static func opLogDeviceIds(
+        ofPerson person: String, in registry: Registry
+    ) -> Set<String> {
+        guard let record = registry.devices.first(where: { $0.device == person })
+        else {
+            return [DeviceIdentity.deviceId(
+                actor: DeviceActor.author.rawValue, fingerprint: person)]
+        }
+        return Set(record.actors.map { actor, key in
+            DeviceIdentity.deviceId(actor: actor, fingerprint: key)
+        })
+    }
+
+    /// **Where this Mac had got to in one person's streams, as chain
+    /// positions** — `highestOpIdApplied`'s P3 sibling (spec §3.3).
+    ///
+    /// `seen` picks which of the two questions the store answers, and the two
+    /// are not interchangeable: a PERMIT event records what this root had read
+    /// and judged, so that a promotion pardons nothing and a demotion reaches
+    /// back through nothing; a REVOCATION records what it had APPLIED, because
+    /// *keep what this Mac already had* is about the draft the writer has been
+    /// reading. `OpLogStore` holds both and this chooses.
+    ///
+    /// Off the main actor whole, the listing included, for its sibling's
+    /// reason: it is a walk of every op-log file, every translation sidecar and
+    /// every inbox manifest in the project, and a window frozen behind a
+    /// confirmation is the thing that measurement bought back.
+    ///
+    /// Two answers, not three. A sweep either produced a mark or could not read
+    /// something — there is no *nothing applied* case to tell apart, because an
+    /// empty `PermitMark` is a first-class value meaning exactly that and
+    /// judging every line new.
+    /// `permitMark(forPerson:seen: true)`, with an unreadable sweep turned into
+    /// the refusal three of the four verbs make of it.
+    ///
+    /// Shared with `DocumentStore.admit`, which lives one file over and cannot
+    /// see `SweptPositions` — and which must not swallow the unreadable case,
+    /// because an admission of somebody REVOKED is a re-admission whose mark is
+    /// where their new permit starts.
+    func seenMarkOrRefuse(forPerson person: String) async throws -> PermitMark {
+        switch await permitMark(forPerson: person, seen: true) {
+        case .mark(let found): return found
+        case .unreadable(let name):
+            throw RegistryAdmissionError.historyUnreadable(name: name)
+        }
+    }
+
+    /// The same sweep for the SILENT path, which has no writer to refuse to.
+    ///
+    /// `admitRemembered` runs at a project open with nobody waiting on a
+    /// button, and the sheet behind it is the recourse if it wrote nothing. An
+    /// admission's mark is informational — its permit governs both sides of it
+    /// — and `admitRemembered` admits only devices this book holds no person
+    /// record for, so the re-admission case that makes a mark load-bearing is
+    /// not reachable from here.
+    nonisolated static func rememberedAdmissionMark(
+        forPerson person: String, in projectURL: URL,
+        identities: LocalIdentities, cache: RegistryCache
+    ) -> PermitMark {
+        guard let resolved = try? TrustResolution.resolveVerified(
+            projectURL: projectURL, identities: identities, cache: cache)
+        else { return .nothingApplied }
+        let ids = opLogDeviceIds(ofPerson: person, in: resolved.registry)
+        return (try? OpLogStore.seenPositions(
+            ofDeviceIds: ids, in: projectURL, trust: resolved.table)) ?? .nothingApplied
+    }
+
+    private func permitMark(forPerson person: String, seen: Bool) async -> SweptPositions {
+        let projectURL = self.projectURL
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        let swept: Result<PermitMark, Error> = await Task.detached(
+            priority: .userInitiated
+        ) { () -> Result<PermitMark, Error> in
+            do {
+                let resolved = try TrustResolution.resolveVerified(
+                    projectURL: projectURL, identities: identities, cache: cache)
+                let ids = DocumentStore.opLogDeviceIds(
+                    ofPerson: person, in: resolved.registry)
+                return .success(seen
+                    ? try OpLogStore.seenPositions(
+                        ofDeviceIds: ids, in: projectURL, trust: resolved.table)
+                    : try OpLogStore.appliedPositions(
+                        ofDeviceIds: ids, in: projectURL, trust: resolved.table))
+            } catch {
+                return .failure(error)
+            }
+        }.value
+        switch swept {
+        case .success(let mark):
+            return .mark(mark)
+        case .failure(let error):
+            return .unreadable(name: OpLogStore.unreadableName(error))
+        }
+    }
+
+    /// A position sweep's two answers, named for `AppliedMark`'s reason: a
+    /// single optional could not tell *this book holds none of their lines*
+    /// from *a file would not read*, and the two want opposite acts.
+    private enum SweptPositions {
+        case mark(PermitMark)
+        case unreadable(name: String)
     }
 
     // MARK: - Who is waiting, across this window

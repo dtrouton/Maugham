@@ -515,4 +515,166 @@ final class TrustEventsTests: XCTestCase {
             cache: store, mine: mine, for: project)
         XCTAssertTrue(events.filter { $0.kind == .recordRestored }.isEmpty)
     }
+
+    // MARK: - Events as the source (P3a Task 7, spec §3.2)
+
+    private func event(
+        _ id: String, kind: PermitEvent.Kind, subject: String, by: String,
+        role: String = Permit.authorRole, scope: String = Permit.bookScope,
+        pieces: [String] = [], at seconds: TimeInterval
+    ) -> PermitEvent {
+        PermitEvent(
+            event: "\(subject).\(id)", kind: kind, subject: subject,
+            role: role, scope: scope, pieces: pieces,
+            at: at(seconds), by: by)
+    }
+
+    /// **No double entry.** A person with both a record-derived admission and
+    /// an `admitted` event is ONE row — the event's — because the two describe
+    /// the same act and a `ForEach` drawing both would tell the writer that
+    /// somebody was let in twice.
+    func test_anAdmittedEventReplacesTheRecordDerivedRowRatherThanJoiningIt() {
+        let root = foreignKey()
+        let phone = foreignKey()
+        let registry = Registry(
+            people: [rootRecord(root), admittedRecord(phone, under: root)],
+            events: [event("a", kind: .admitted, subject: phone, by: root, at: 20)])
+
+        let events = TrustEvents.derive(
+            registry: registry, cache: cache(), mine: mine, for: project)
+            .filter { $0.kind == .admitted }
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events[0].date, at(20))
+        XCTAssertEqual(events[0].by, root)
+    }
+
+    /// The silent admission finally has a writer (C11), and History can tell
+    /// it from the one the writer answered a sheet for.
+    func test_aSilentAdmissionDrawsAsItsOwnKind() {
+        let root = foreignKey()
+        let phone = foreignKey()
+        let registry = Registry(
+            people: [rootRecord(root), admittedRecord(phone, under: root)],
+            events: [event("a", kind: .silentlyAdmitted, subject: phone, by: root, at: 20)])
+
+        let events = TrustEvents.derive(
+            registry: registry, cache: cache(), mine: mine, for: project)
+
+        XCTAssertEqual(events.filter { $0.kind == .admitted }.count, 0)
+        XCTAssertEqual(events.filter { $0.kind == .silentlyAdmitted }.count, 1)
+    }
+
+    /// **The revocation survives the re-admission that clears its record.**
+    /// Before events, `admit` cleared `revokedAt` and History lost the
+    /// revocation with it — the carry P2b's fix report named. Three rows now,
+    /// in order, off three signed files.
+    func test_aRevocationAndTheReadmissionAfterItAreBothDrawn() {
+        let root = foreignKey()
+        let phone = foreignKey()
+        let registry = Registry(
+            people: [rootRecord(root), admittedRecord(phone, under: root)],
+            events: [
+                event("a", kind: .admitted, subject: phone, by: root, at: 20),
+                event("b", kind: .revoked, subject: phone, by: root, at: 30),
+                event("c", kind: .readmitted, subject: phone, by: root,
+                      role: Permit.reviewerRole, at: 40),
+            ])
+
+        let events = TrustEvents.derive(
+            registry: registry, cache: cache(), mine: mine, for: project)
+            .filter { $0.subject == phone }
+
+        XCTAssertEqual(events.map(\.kind), [.readmitted, .revoked, .admitted],
+                       "newest first")
+        XCTAssertEqual(Set(events.map(\.id)).count, 3,
+                       "three rows, three ids — a ForEach draws all three")
+    }
+
+    /// A book whose revocation predates events keeps its record-derived row,
+    /// even where the SAME person has a later permit event. The choice is per
+    /// FACT, never per person.
+    func test_aP2RevocationSurvivesBesideAP3RoleChange() {
+        let root = foreignKey()
+        let phone = foreignKey()
+        let registry = Registry(
+            people: [
+                rootRecord(root),
+                admittedRecord(
+                    phone, under: root, revokedAt: at(50), revokedBy: root),
+            ],
+            events: [
+                event("a", kind: .roleChanged, subject: phone, by: root,
+                      role: Permit.reviewerRole, at: 40),
+            ])
+
+        let events = TrustEvents.derive(
+            registry: registry, cache: cache(), mine: mine, for: project)
+            .filter { $0.subject == phone }
+
+        XCTAssertEqual(events.map(\.kind), [.revoked, .roleChanged, .admitted])
+    }
+
+    /// A retirement EVENT supersedes the record's date, and produces one row
+    /// rather than two — the subject of a retirement is the DEVICE, which under
+    /// labels-only carries the same fingerprint as its person.
+    func test_aRetirementEventIsOneRowAndNotTwo() {
+        let root = foreignKey()
+        let phone = foreignKey()
+        let registry = Registry(
+            devices: [deviceRecord(phone, retiredAt: at(60))],
+            people: [rootRecord(root), admittedRecord(phone, under: root)],
+            events: [
+                event("a", kind: .admitted, subject: phone, by: root, at: 20),
+                event("b", kind: .retired, subject: phone, by: phone, at: 65),
+            ])
+
+        let events = TrustEvents.derive(
+            registry: registry, cache: cache(), mine: mine, for: project)
+            .filter { $0.kind == .retired }
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events[0].date, at(65), "the event's own moment")
+    }
+
+    /// An event kind a LATER build wrote is drawn as nothing at all: this build
+    /// cannot say what happened, and a sentence for it would put words in
+    /// another version's mouth. The person's other rows are untouched.
+    func test_anEventThisBuildCannotReadDrawsNoRow() {
+        let root = foreignKey()
+        let phone = foreignKey()
+        let registry = Registry(
+            people: [rootRecord(root), admittedRecord(phone, under: root)],
+            events: [
+                event("a", kind: .admitted, subject: phone, by: root, at: 20),
+                event("b", kind: .unknown("seconded"), subject: phone, by: root, at: 30),
+            ])
+
+        let events = TrustEvents.derive(
+            registry: registry, cache: cache(), mine: mine, for: project)
+            .filter { $0.subject == phone }
+
+        XCTAssertEqual(events.map(\.kind), [.admitted])
+    }
+
+    /// **The previous permit rides along**, because which WAY a change went is
+    /// the half of spec §5 a surface would otherwise have to guess.
+    func test_aChangeCarriesThePermitBeforeItAndThePermitAfter() {
+        let root = foreignKey()
+        let phone = foreignKey()
+        let registry = Registry(
+            people: [rootRecord(root), admittedRecord(phone, under: root)],
+            events: [
+                event("a", kind: .admitted, subject: phone, by: root, at: 20),
+                event("b", kind: .roleChanged, subject: phone, by: root,
+                      role: Permit.reviewerRole, at: 30),
+            ])
+
+        let changed = TrustEvents.derive(
+            registry: registry, cache: cache(), mine: mine, for: project)
+            .first { $0.kind == .roleChanged }
+
+        XCTAssertEqual(changed?.permit, .reviewer)
+        XCTAssertEqual(changed?.previousPermit, .bookAuthor)
+    }
 }

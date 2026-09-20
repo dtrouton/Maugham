@@ -287,8 +287,14 @@ enum AdmissionDecision {
     static func sentence(for refusal: RegistryAdmissionError) -> String {
         switch refusal {
         case .notARoot:
+            // Shared by four verbs since P3a — admit, revoke, rename and
+            // changePermit all refuse a Mac that is no root here — so it names
+            // the two acts rather than only the first. A sentence reading *it
+            // can't let a device in* over a refused role change tells the
+            // writer about a door they were not standing at.
             return "This book wasn’t started on this Mac, so it can’t let a device "
-                + "in. Admit from the Mac it was started on."
+                + "in or change what one may write. Do that from the Mac it was "
+                + "started on."
         case .alreadyAdmittedElsewhere(let root):
             return "Another Mac (code \(DeviceCode.short(root))) has already let this "
                 + "device in. Two Macs that both started this book are brought "
@@ -336,6 +342,16 @@ enum AdmissionDecision {
             return "Only the device with code \(DeviceCode.short(device)) can retire "
                 + "itself — a retirement from anything else is one no other Mac would "
                 + "accept. Retire it from that machine."
+        case .cannotChangeARoot(let fingerprint):
+            // The subject is the Mac this book was started on, and a book must
+            // not end up with no author (spec §2). It names the CODE rather
+            // than the file, for `recordUnreadable`'s reason: a path under
+            // `.maugham/people/` may not be spelled outside `RegistryWriter`,
+            // and a code is what the writer can check against a screen.
+            return "The device with code \(DeviceCode.short(fingerprint)) is the Mac "
+                + "this book was started on, and it writes the whole book — changing "
+                + "that would leave the book with no author. To move the book, claim "
+                + "it on the Mac you want to keep."
         }
     }
 }

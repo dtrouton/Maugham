@@ -686,6 +686,77 @@ final class OpLogQuarantineTests: XCTestCase {
             pendingCount: 0, foreignSealCount: 0, quarantined: lines.map(\.0),
             breakReason: nil, quarantineCause: fileCause)
     }
+
+    // MARK: - The cut by POSITION (P3a Task 7, spec §3.3)
+
+    /// **A position cut keeps what the judgement calls old and refuses the
+    /// rest** — the same keep/refuse semantics as the opId rule, asked of a
+    /// number the writer of the ops cannot choose.
+    func test_apositionCutKeepsTheOldSideAndRefusesTheNew() {
+        let one = opLine("01K5Q8ZJ3M0000000000000001")
+        let two = opLine("01K5Q8ZJ3M0000000000000002")
+        let three = opLine("01K5Q8ZJ3M0000000000000003")
+
+        let split = RevocationSplit.partition(
+            of: quarantinedVerification(
+                [one, two, three],
+                cause: .afterRevocation(person: "aaaa", keptNothing: false))
+        ) { _ in .byPosition(.init(sides: [.old, .old, .new])) }
+
+        XCTAssertEqual(split?.readmitted, [one, two])
+        XCTAssertEqual(split?.refused, [three])
+    }
+
+    /// **A seal needs no travel rule on the position path**, because a seal has
+    /// a position of its own — which is the entire reason the travel rule
+    /// exists on the other one.
+    func test_apositionCutAnswersASealDirectlyRatherThanByTravel() {
+        let op1 = opLine("01K5Q8ZJ3M0000000000000001")
+        let seal1 = Data(#"{"seal":{"key":"aaaa"}}"#.utf8)
+        let op2 = opLine("01K5Q8ZJ3M0000000000000009")
+        let seal2 = Data(#"{"seal":{"key":"bbbb"}}"#.utf8)
+
+        let split = RevocationSplit.partition(
+            of: quarantinedVerification(
+                [op1, seal1, op2, seal2],
+                cause: .afterRevocation(person: "aaaa", keptNothing: false))
+        ) { _ in .byPosition(.init(sides: [.old, .old, .new, .new])) }
+
+        XCTAssertEqual(split?.readmitted, [op1, seal1])
+        XCTAssertEqual(split?.refused, [op2, seal2])
+    }
+
+    /// An ALL-NEW judgement — what an empty mark produces, which is what *set
+    /// aside everything it wrote* records — keeps nothing, exactly as a nil
+    /// opId mark does one wire format over.
+    func test_anAllNewJudgementKeepsNothing() {
+        let one = opLine("01K5Q8ZJ3M0000000000000001")
+        let two = opLine("01K5Q8ZJ3M0000000000000002")
+
+        let split = RevocationSplit.partition(
+            of: quarantinedVerification(
+                [one, two],
+                cause: .afterRevocation(person: "aaaa", keptNothing: true))
+        ) { _ in .byPosition(.allNew(count: 2)) }
+
+        XCTAssertEqual(split?.readmitted, [])
+        XCTAssertEqual(split?.refused, [one, two])
+    }
+
+    /// And the door P2 goes through is this one with every answer an opId, so
+    /// the two spellings cannot disagree about a file.
+    func test_theOpIdDoorIsThePositionDoorWithAnOpIdAnswer() {
+        let before = opLine("01K5Q8ZJ3M0000000000000001")
+        let after = opLine("01K5Q8ZJ3M0000000000000009")
+        let verification = quarantinedVerification(
+            [before, after],
+            cause: .afterRevocation(person: "aaaa", keptNothing: false))
+
+        XCTAssertEqual(
+            RevocationSplit.partition(
+                of: verification, highestOpIdSeen: { _ in self.mark }),
+            RevocationSplit.partition(of: verification) { _ in .byOpId(self.mark) })
+    }
 }
 
 /// **What the set-aside sentence counts** (signed op log P2 smoke, finds 6 and

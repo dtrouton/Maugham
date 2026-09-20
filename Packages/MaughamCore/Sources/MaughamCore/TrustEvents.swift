@@ -26,8 +26,19 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
         /// A person record somebody else signed: they were let in.
         case admitted
         /// Let in with no sheet shown, under a label this Mac had already
-        /// granted. **Not derived yet** — see `TrustEvents.derive`.
+        /// granted (`AdmissionMemory`, decision B2). Derived from a
+        /// `silentlyAdmitted` PERMIT EVENT — the records alone cannot tell it
+        /// from `.admitted`, which is why it had no writer until P3a (C11).
         case silentlyAdmitted
+        /// A `roleChanged` event: author ⇄ reviewer.
+        case roleChanged
+        /// A `scopeChanged` event: which pieces of the book are theirs.
+        case scopeChanged
+        /// A `readmitted` event: somebody revoked was let back in. A kind of
+        /// its own rather than a second `.admitted`, because what a reader
+        /// needs from this row is that there was something BEFORE — the
+        /// distinction `PermitTimeline.opening(before:)` turns on.
+        case readmitted
         /// A person record carrying `revokedAt` **and a mark**: the writer
         /// revoked them and kept what this Mac had already applied.
         case revoked
@@ -78,10 +89,26 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
     /// The subject is one of THIS device's own actor keys, so a surface says
     /// *This Mac* rather than reading the writer their own machine's label.
     public let isMine: Bool
+    /// The permit this event INSTALLED, where it installed one. Nil for every
+    /// record-derived row and for the kinds that install nothing — a
+    /// revocation, a retirement, a claim.
+    public let permit: Permit?
+    /// What the permit was immediately before it, which is the one thing that
+    /// says which WAY a change went. Nil where there is nothing before (an
+    /// admission) and on every record-derived row.
+    ///
+    /// It is carried rather than computed in the sentence because the sentence
+    /// is handed one event at a time, and *what came before this* is a fact
+    /// about the timeline the derivation has in hand and a surface does not.
+    public let previousPermit: Permit?
+    /// The permit event's own id, where the row came from one. It is what
+    /// keeps two `roleChanged` rows about one person apart — see `id`.
+    public let event: String?
 
     public init(
         date: Date?, kind: Kind, subject: String, label: String? = nil,
-        ownName: String? = nil, by: String? = nil, isMine: Bool = false
+        ownName: String? = nil, by: String? = nil, isMine: Bool = false,
+        permit: Permit? = nil, previousPermit: Permit? = nil, event: String? = nil
     ) {
         self.date = date
         self.kind = kind
@@ -90,13 +117,24 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
         self.ownName = ownName
         self.by = by
         self.isMine = isMine
+        self.permit = permit
+        self.previousPermit = previousPermit
+        self.event = event
     }
 
     /// Stable across a re-derivation of the same facts, and distinct between
     /// the two events one record can carry — a person admitted and later
     /// revoked is two rows, and a `ForEach` that saw one id would draw one.
+    ///
+    /// **An event-derived row is keyed on the EVENT** (P3a Task 7), because a
+    /// person can be demoted and promoted and demoted again and the records
+    /// remember only the last of it — three rows that the kind, the subject and
+    /// the hand would give one id. A record-derived row's id is unchanged to
+    /// the character, so nothing a P2-era book draws moves.
     public var id: String {
-        "\(kind.rawValue):\(subject):\(by ?? "")"
+        let base = "\(kind.rawValue):\(subject):\(by ?? "")"
+        guard let event else { return base }
+        return "\(base):\(event)"
     }
 }
 
@@ -140,31 +178,98 @@ public enum TrustEvents {
         let myKeys = mine.fingerprints
         var events: [TrustEvent] = []
 
+        // **Per FACT, not per person** (P3a Task 7). Three things can be said
+        // about somebody — how they got in, what changed about their permit,
+        // and how they left — and the register can hold each of them in either
+        // of two places. Choosing per person would lose a fact rather than
+        // double it: a book with a P2-era revocation and a P3 role change would
+        // take the event source for the whole person and drop the revocation,
+        // which is the one row a writer comes here to find.
+        let eventsBySubject = Dictionary(grouping: registry.events, by: \.subject)
         for person in registry.people {
-            // A root vouched for itself. Drawing that as an admission would put
-            // *Denver admitted by Denver* at the foot of every project that has
-            // ever had a registry — an event in which nothing happened.
-            if !person.isRoot {
-                events.append(TrustEvent(
-                    date: person.admittedAt, kind: .admitted, subject: person.person,
-                    label: person.label, ownName: person.ownName,
-                    by: person.admittedBy, isMine: myKeys.contains(person.person)))
+            let own = (eventsBySubject[person.person] ?? [])
+                .sorted { $0.event < $1.event }
+            let timeline = PermitTimeline(events: own)
+            let isMine = myKeys.contains(person.person)
+
+            // How they got in. An `admitted` / `silentlyAdmitted` /
+            // `readmitted` event where there is one — and every one of them,
+            // because a person let in, revoked and let back in came in twice.
+            let admissions = own.filter(Self.isAnArrival)
+            if admissions.isEmpty {
+                // A root vouched for itself. Drawing that as an admission would
+                // put *Denver admitted by Denver* at the foot of every project
+                // that has ever had a registry — an event in which nothing
+                // happened.
+                if !person.isRoot {
+                    events.append(TrustEvent(
+                        date: person.admittedAt, kind: .admitted, subject: person.person,
+                        label: person.label, ownName: person.ownName,
+                        by: person.admittedBy, isMine: isMine))
+                }
+            } else {
+                for arrival in admissions {
+                    events.append(row(
+                        arrival, person: person, timeline: timeline, isMine: isMine))
+                }
             }
-            if let revokedAt = person.revokedAt {
-                // Which of the two revocations this was, off the record itself:
-                // a mark is what the default leaves behind, and its absence is
-                // what *set aside everything it wrote* means to every reader
-                // (`RevocationSplit`). Nothing is stored to say so twice.
-                events.append(TrustEvent(
-                    date: revokedAt,
-                    kind: person.highestOpIdSeen == nil ? .revokedEntirely : .revoked,
-                    subject: person.person,
-                    label: person.label, ownName: person.ownName,
-                    by: person.revokedBy, isMine: myKeys.contains(person.person)))
+
+            // What changed while they were here. Only events say this; there is
+            // no record derivation to fall back to, which is the whole reason
+            // §3.2 gives the history a file of its own.
+            for change in own
+            where change.kind == .roleChanged || change.kind == .scopeChanged {
+                events.append(row(
+                    change, person: person, timeline: timeline, isMine: isMine))
+            }
+
+            // How they left. The record's `revokedAt` is CLEARED by a
+            // re-admission, so before events a revocation followed by a
+            // re-admission left no trace of the revocation at all; the event
+            // survives it.
+            let revocations = own.filter {
+                $0.kind == .revoked || $0.kind == .revokedEntirely
+            }
+            if revocations.isEmpty {
+                if let revokedAt = person.revokedAt {
+                    // Which of the two revocations this was, off the record
+                    // itself: a mark is what the default leaves behind, and its
+                    // absence is what *set aside everything it wrote* means to
+                    // every reader (`RevocationSplit`). Nothing is stored to
+                    // say so twice.
+                    events.append(TrustEvent(
+                        date: revokedAt,
+                        kind: person.highestOpIdSeen == nil ? .revokedEntirely : .revoked,
+                        subject: person.person,
+                        label: person.label, ownName: person.ownName,
+                        by: person.revokedBy, isMine: isMine))
+                }
+            } else {
+                for revocation in revocations {
+                    events.append(row(
+                        revocation, person: person, timeline: timeline, isMine: isMine))
+                }
             }
         }
 
         for device in registry.devices {
+            // A retirement's subject is the DEVICE, which under labels-only is
+            // the same fingerprint as its person — so this asks for the one
+            // kind a device signs about itself and the loop above asks for the
+            // rest. Split that way, one fingerprint's events never produce two
+            // rows for one fact.
+            let retirements = (eventsBySubject[device.device] ?? [])
+                .filter { $0.kind == .retired }
+                .sorted { $0.event < $1.event }
+            guard retirements.isEmpty else {
+                for retirement in retirements {
+                    events.append(TrustEvent(
+                        date: retirement.at, kind: .retired, subject: device.device,
+                        label: device.name, isMine: myKeys.contains(device.device),
+                        event: retirement.event))
+                }
+                continue
+            }
             guard let retiredAt = device.retiredAt else { continue }
             events.append(TrustEvent(
                 date: retiredAt, kind: .retired, subject: device.device,
@@ -242,6 +347,65 @@ public enum TrustEvents {
         return sorted(events)
     }
 
+    /// Is this event somebody ARRIVING? The three kinds that put a person in
+    /// the book, spelled once because the admission row and its record-derived
+    /// fallback both turn on the answer.
+    nonisolated private static func isAnArrival(_ event: PermitEvent) -> Bool {
+        switch event.kind {
+        case .admitted, .silentlyAdmitted, .readmitted: return true
+        case .roleChanged, .scopeChanged, .revoked, .revokedEntirely, .retired:
+            return false
+        case .unknown:
+            // A later build's verb. It is not drawn at all — this build cannot
+            // say what happened, and inventing a sentence for it would put
+            // words in another version's mouth. The lines it governs are held
+            // pending, which is where the writer meets it instead.
+            return false
+        }
+    }
+
+    /// One row from one event, with the permit it installed and the permit
+    /// immediately before it — which is what lets the sentence say which WAY a
+    /// change went (spec §5, both directions).
+    ///
+    /// `nil` previous on an arrival, deliberately: there is nothing before an
+    /// admission, and `PermitTimeline.opening(before:)` says so.
+    nonisolated private static func row(
+        _ event: PermitEvent, person: PersonRecord,
+        timeline: PermitTimeline, isMine: Bool
+    ) -> TrustEvent {
+        let installed = timeline.entries.firstIndex { $0.event == event.event }
+        let previous = installed.flatMap { at in
+            at > 0 && at < timeline.entries.count ? timeline.entries[at - 1].permit : nil
+        }
+        return TrustEvent(
+            date: event.at, kind: kind(of: event.kind), subject: event.subject,
+            label: person.label, ownName: person.ownName,
+            by: event.by, isMine: isMine,
+            permit: installed == nil ? nil : Permit(event: event),
+            previousPermit: previous, event: event.event)
+    }
+
+    /// A permit event's kind as History's own. Exhaustive, so a ninth
+    /// `PermitEvent.Kind` cannot compile until somebody has decided whether the
+    /// writer should be told about it.
+    nonisolated private static func kind(of kind: PermitEvent.Kind) -> TrustEvent.Kind {
+        switch kind {
+        case .admitted: return .admitted
+        case .silentlyAdmitted: return .silentlyAdmitted
+        case .roleChanged: return .roleChanged
+        case .scopeChanged: return .scopeChanged
+        case .readmitted: return .readmitted
+        case .revoked: return .revoked
+        case .revokedEntirely: return .revokedEntirely
+        case .retired: return .retired
+        case .unknown:
+            // Unreachable: every caller filters by kind first, and `.unknown`
+            // is in none of the three lists.
+            return .admitted
+        }
+    }
+
     /// Newest first, the undated last, and every tie broken by name so that a
     /// registry arriving in another order reads the same way.
     ///
@@ -257,7 +421,13 @@ public enum TrustEvents {
             case (.some, nil): return true
             default:
                 if a.kind != b.kind { return a.kind.rawValue < b.kind.rawValue }
-                return a.subject < b.subject
+                if a.subject != b.subject { return a.subject < b.subject }
+                // Two changes to one person on one day are two rows, and an
+                // order decided by nothing would redraw in a different one
+                // every time the pane refreshed. The event id is monotonic
+                // within a subject, so the later one sorts later — and, since
+                // the list is newest-first, is reversed into place by `>`.
+                return (a.event ?? "") > (b.event ?? "")
             }
         }
     }
