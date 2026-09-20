@@ -331,9 +331,36 @@ public enum TrustResolution {
         TrustTable.resolve(registry: Registry(), mine: mine, joinedRoot: nil)
     }
 
-    /// Does this project have a registry at all? Any of the three directories
-    /// being present is enough — a folder holding only devices, or only a
-    /// claim, is still a folder this device must read before it judges anyone.
+    /// **What this device already knows, when the folder will not answer**
+    /// (P3a Task 8, fix round 1's I2).
+    ///
+    /// `resolve` throws on a record that is present and unreadable (RULING-54)
+    /// — a permissions error, a half-downloaded iCloud file, a folder caught
+    /// mid-sync. A caller that must not throw then has a choice about what to
+    /// forget, and `keyless` forgets EVERYTHING: on a device whose permit is
+    /// narrow that reads as *author of the whole book*, which is the wrong way
+    /// round. The bytes this device last verified are still here, so the first
+    /// fallback is the table built from THEM — byte-faithful, signed, and this
+    /// device's own memory rather than anybody's claim.
+    ///
+    /// **It records nothing.** `resolve` also joins a root and files claimants;
+    /// a read of a memory taken because the folder hiccuped must do neither, so
+    /// this is the pure half alone — `TrustTable.resolve` over the remembered
+    /// registry and the root already joined, which is exactly what `resolve`
+    /// builds from a reconciled one.
+    ///
+    /// `nil` when this device has verified nothing here, which is the genuine
+    /// keyless case and the caller's second fallback.
+    nonisolated public static func remembered(
+        projectURL: URL, identities: LocalIdentities, cache: RegistryCache? = nil
+    ) -> TrustTable? {
+        let cache = cache ?? .shared
+        guard let registry = cache.cached(for: projectURL) else { return nil }
+        return TrustTable.resolve(
+            registry: registry, mine: identities,
+            joinedRoot: cache.joinedRoot(for: projectURL))
+    }
+
     /// **Whether this project has a register to resolve at all** — a folder, or
     /// this device's memory of one that something has since deleted.
     ///
@@ -359,6 +386,9 @@ public enum TrustResolution {
         folderPresent || remembered != nil
     }
 
+    /// Does this project have a registry at all? Any of the three directories
+    /// being present is enough — a folder holding only devices, or only a
+    /// claim, is still a folder this device must read before it judges anyone.
     nonisolated public static func hasRegistry(in projectURL: URL) -> Bool {
         RegistryDirectory.allCases.contains {
             FileManager.default.fileExists(

@@ -1277,7 +1277,22 @@ public final class Document {
             // (already empty) but also resets the durable `seq` + removes the
             // on-disk pending file, so the freshly-emitted order isn't left
             // behind as a phantom `{sequence, changes: []}` recovery candidate.
-            try await pending.clear()
+            //
+            // **Unless the file is not this Document's to spend** (P3a Task 8,
+            // C1). This Document's EMISSION is deliberately not permit-guarded
+            // — refusing a keystroke silently is P3c's membrane's job and not
+            // this seam's — but the removal is a different act on a different
+            // object: the op above carries the writer's NEW words into the op
+            // log, while the file holds a crashed session's that this device
+            // declined to read. Deleting them here would undo the load's
+            // promise one keystroke later, and the load has already told the
+            // writer they are safe. So the buffer is forgotten and the file is
+            // left: `clearInMemoryOnly` is the same reset minus the unlink.
+            if mayWriteThePendingFile {
+                try await pending.clear()
+            } else {
+                pending.clearInMemoryOnly()
+            }
             // Inline tasks are derived from paragraph text — any pending
             // typing change may have added/removed/toggled a `- [ ]` line, and
             // a deleted paragraph can carry inline tasks too. Invalidate
@@ -1413,11 +1428,23 @@ public final class Document {
             // recovered burst restores ordering without the .md (ADR 0019). Stamp
             // the basis so load can distinguish this recovery order from one
             // superseded by peer ops (Issue 2b).
+            //
+            // **The same exception as everywhere else** (P3a Task 8, C1): a
+            // Document that declined to READ this file must not write over it.
+            // Here that costs something real — this Document's un-bursted
+            // keystrokes stay in memory and go no further — and it is still the
+            // right way round: they are words this device may not write into
+            // the book at all, while what is already in that file is a crashed
+            // session's that a load under a wider permit CAN fold. Between
+            // failing to persist words that would be set aside anyway and
+            // destroying words that would be applied, the file wins. Logged
+            // either way, and the sentence says which happened.
             pending.setSequence(self.sequence, basis: currentFoldBasis)
-            try? await pending.flushToDisk()
+            let rePersisted = mayWriteThePendingFile
+            if rePersisted { try? await pending.flushToDisk() }
             closeBurstFlushFailures += 1
             documentLog.error(
-                "close() burst flush failed for doc \(self.docId, privacy: .public); pending buffer re-flushed to disk for crash recovery: \(error.localizedDescription, privacy: .public)")
+                "close() burst flush failed for doc \(self.docId, privacy: .public); \(rePersisted ? "pending buffer re-flushed to disk for crash recovery" : "pending buffer NOT re-flushed: this device may not write this piece, and the file holds an earlier session's keystrokes", privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
         // Flush any pending autosave so the .md reflects the final state.
         await autosaveScheduler.flush()

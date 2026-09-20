@@ -372,6 +372,85 @@ final class DocumentWaitingTests: XCTestCase {
             "the words stay safe on disk, byte for byte")
     }
 
+    /// **And one keystroke does not undo it** (fix round 1's C1).
+    ///
+    /// The load's promise is not *untouched until the Document closes*, it is
+    /// *untouched until a load that may fold it*. A burst's EMISSION is
+    /// deliberately not permit-guarded — refusing a keystroke silently is
+    /// P3c's membrane's job — but `flushBurstNow` ends in `pending.clear()`,
+    /// which UNLINKS the file. So on a device that may not write this piece the
+    /// writer could be told in a notice that an earlier session's keystrokes
+    /// were safe, type one character, and have them deleted by the burst that
+    /// followed. Reachable today precisely because the membrane does not exist
+    /// yet: the piece HAS history, so there is no waiting state and the editor
+    /// is writable.
+    ///
+    /// The bytes are compared at every step — after the load, after a burst,
+    /// after the close, and after a second load — because each of those is a
+    /// different writer of that file.
+    func test_oneKeystrokeDoesNotDeleteThePendingFileTheLoadLeft() async throws {
+        let docURL = try makeProject()
+        let seeded = try await Document.load(
+            url: docURL, actor: .author, session: "s0", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        let seededLog = try await seeded.opLog()
+        let pid = try XCTUnwrap(
+            seededLog.first { $0.kind == .bootstrap }?.changes.first?.paragraphId)
+        await seeded.close()
+
+        let crashed = PendingBuffer(
+            projectURL: projectURL, docId: Self.docId,
+            device: identities.author.deviceId)
+        crashed.recordChange(
+            paragraphId: pid, prior: "First paragraph.",
+            next: "First paragraph, crashed mid-sentence")
+        try await crashed.flushToDisk()
+        let pendingURL = projectURL
+            .appendingPathComponent(".maugham/pending")
+            .appendingPathComponent(
+                "\(Self.docId).\(identities.author.slug.raw).pending.jsonl")
+        let before = try Data(contentsOf: pendingURL)
+
+        let root = try makeRoot()
+        try narrow(by: root, role: Permit.reviewerRole, scope: Permit.bookScope)
+
+        let doc = try await Document.load(
+            url: docURL, actor: .author, session: "s1", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        XCTAssertEqual(try Data(contentsOf: pendingURL), before, "after the load")
+
+        // The writer types, and the burst fires.
+        doc.setFullText(doc.displayText + "\n\nTyped anyway.")
+        try await doc.flushBurstNow()
+        XCTAssertEqual(
+            try Data(contentsOf: pendingURL), before,
+            "after a burst — the burst's own words go to the op log, and the "
+            + "crashed session's stay in the file it was told they were safe in")
+        // The burst's own text IS in the log: the emission is not refused here.
+        XCTAssertTrue(
+            try ops(of: identities.author).contains {
+                $0.kind == .typingBurst
+                    && $0.changes.contains { $0.next.contains("Typed anyway.") }
+            },
+            "the keystroke is not swallowed — refusing one is P3c's membrane")
+        // And the buffer was forgotten, so the next burst does not re-emit it.
+        XCTAssertTrue(doc.pending.isEmpty(), "in memory, cleared")
+
+        await doc.close()
+        XCTAssertEqual(try Data(contentsOf: pendingURL), before, "after the close")
+
+        let reopened = try await Document.load(
+            url: docURL, actor: .author, session: "s2", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        XCTAssertFalse(
+            reopened.displayText.contains("crashed mid-sentence"),
+            "still not folded")
+        await reopened.close()
+        XCTAssertEqual(
+            try Data(contentsOf: pendingURL), before,
+            "after a second load — untouched until a load that may fold it")
+    }
+
     /// A read must not write where this device may not write: no anchor is
     /// minted into the paragraph and no `taskCreate` is filed, while the tasks
     /// themselves still derive and show.
@@ -507,5 +586,74 @@ final class DocumentWaitingTests: XCTestCase {
         XCTAssertTrue(doc.displayText.contains("First paragraph."),
                       "the writer's manuscript opens whatever the registry says")
         await doc.close()
+    }
+
+    /// **…but it does not forget who this device is** (fix round 1's I2).
+    ///
+    /// Never-refusing and never-forgetting are different promises, and falling
+    /// straight to the keyless table keeps only the first: keyless answers
+    /// *author of the whole book* about everybody, so a REVIEWER's Mac meeting
+    /// one momentarily unreadable record would bootstrap a piece and mint
+    /// anchors into it that every other device then sets aside. The bytes this
+    /// device last verified are still in `RegistryCache`, so they answer first.
+    ///
+    /// The record is made unreadable AFTER a good resolve has remembered it,
+    /// which is the real shape: a permissions error, a half-downloaded iCloud
+    /// file, a folder caught mid-sync.
+    func test_theFallbackPrefersTheRegisterThisDeviceRemembers() async throws {
+        _ = try makeProject()
+        // A piece with history, written while this device is still an author,
+        // so the reviewer's load of it succeeds and this device's cache has a
+        // verified register in it.
+        let seeded = try await Document.load(
+            url: projectURL.appendingPathComponent(Self.docPath),
+            actor: .author, session: "s0", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        await seeded.close()
+
+        let root = try makeRoot()
+        try narrow(by: root, role: Permit.reviewerRole, scope: Permit.bookScope)
+        // One good resolve, which remembers the register byte for byte.
+        let warm = try await Document.load(
+            url: projectURL.appendingPathComponent(Self.docPath),
+            actor: .author, session: "s1", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        await warm.close()
+
+        // Now the folder hiccups: one record present and unreadable, which is
+        // what `TrustResolution.resolve` throws over (RULING-54).
+        let devices = RegistryWriter.directoryURL(.devices, in: projectURL)
+        let record = try XCTUnwrap(
+            try FileManager.default.contentsOfDirectory(
+                at: devices, includingPropertiesForKeys: nil).first)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0], ofItemAtPath: record.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o644], ofItemAtPath: record.path)
+        }
+
+        // The OTHER piece has no history, so it is the bootstrap question — and
+        // the answer must still be *no*, from what this device remembers.
+        // Any error is caught rather than a typed one, because what is being
+        // pinned is what was WRITTEN. Keyless would answer *author of the whole
+        // book*, mint the bootstrap, and only then meet the unreadable folder
+        // through `loadDiagnosed`'s own RULING-54 refusal — a load that refuses
+        // AND leaves a line behind, which is the worst of both.
+        var thrown: Error?
+        do {
+            _ = try await Document.load(
+                url: projectURL.appendingPathComponent(Self.otherPath),
+                actor: .author, session: "s2", presenter: nil,
+                burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        } catch { thrown = error }
+        XCTAssertTrue(
+            OpLogStore.opLogFileURLs(forDocId: Self.otherDocId, in: projectURL).isEmpty,
+            "a hiccup in the folder must not promote a reviewer: nothing is minted")
+        XCTAssertTrue(
+            thrown is DocumentLoadError,
+            "and the refusal is the waiting state, from the register this "
+            + "device remembers — not a read failure: "
+            + "\(String(describing: thrown))")
     }
 }

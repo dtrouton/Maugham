@@ -184,13 +184,33 @@ public final class PendingBuffer {
     }
 
     public func clear() async throws {
-        buffer.removeAll()
-        seq = []
-        basisOpId = nil
+        clearInMemoryOnly()
         let url = file()
         if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
+    }
+
+    /// **Drop what is held in memory and leave the file exactly where it is**
+    /// (P3a Task 8, fix round 1's C1).
+    ///
+    /// `clear()` does two things that are usually one act: it forgets the
+    /// buffer, and it removes the file because the buffer has just become real
+    /// ops. On a device that may not write this piece those two come apart. The
+    /// load declined to READ the file, so the buffer holds only what the writer
+    /// has typed since — that much must still be forgotten when a burst carries
+    /// it into the op log, or the next burst emits it a second time — while the
+    /// file holds a crashed session's keystrokes that only a load under a wider
+    /// permit may fold, and deleting them is the one thing this whole rule
+    /// exists to prevent.
+    ///
+    /// The file is untouched on every path: `recordChange` is memory-only, and
+    /// `flushToDisk` is the only writer, guarded by the same expression at every
+    /// call site (`Document.mayWriteThePendingFile`).
+    public func clearInMemoryOnly() {
+        buffer.removeAll()
+        seq = []
+        basisOpId = nil
     }
 
     /// This device's pending-buffer file. `flushToDisk`/`loadFromDisk`/`clear`

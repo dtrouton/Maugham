@@ -189,11 +189,14 @@ public final class OpLogStore {
     /// nothing else changed. `ProjectStore+Annotations` resolves on the main
     /// actor for the same kind of reason, and states it.
     ///
-    /// The cost is a folder read plus a P256 verify per record, ONCE per store
-    /// — it is stored under the same signature `trust()` compares, so the read
-    /// that follows finds it warm and does not resolve again. The caller that
-    /// wants only a permit (`localWritePermit`) asks nothing at all of a
-    /// project with no register.
+    /// The cost is a folder read plus a P256 verify per record, once per store
+    /// — **which in production is once per document OPEN**, because
+    /// `Document.makeLoadOpStore` builds a store per load. It is stored under
+    /// the same signature `trust()` compares, so the read that follows finds it
+    /// warm and does not resolve again; the caller that wants only a permit
+    /// (`localWritePermit`) asks nothing at all of a project with no register.
+    /// Pre-warming it somewhere longer-lived is deliberately NOT done here —
+    /// the cost is Task 10's to measure before anybody moves it.
     func trustOnThisActor() throws -> TrustTable {
         let signature = TrustResolution.signature(of: projectURL)
         if let resolvedTrust, resolvedTrust.signature == signature {
@@ -250,7 +253,23 @@ public final class OpLogStore {
             in: projectURL, cache: registryCache) {
             let table: TrustTable
             do { table = try trustOnThisActor() }
-            catch { table = TrustResolution.keyless(mine: identities) }
+            catch {
+                // **Forget the folder, not this device** (fix round 1's I2).
+                // `keyless` answers *author of the whole book* about everybody,
+                // so falling straight to it over one momentarily unreadable
+                // record would let a REVIEWER's Mac bootstrap and mint anchors
+                // that every other device then sets aside. The bytes this
+                // device last verified are still here and are its own memory
+                // rather than anybody's claim, so they answer first; `keyless`
+                // is what is left when there is nothing remembered either,
+                // which is the genuine P1 case. Neither throws, neither
+                // suspends, and neither refuses a load that did not refuse
+                // before.
+                table = TrustResolution.remembered(
+                    projectURL: projectURL, identities: identities,
+                    cache: registryCache)
+                    ?? TrustResolution.keyless(mine: identities)
+            }
             permit = table.myTimeline.current
         } else {
             permit = .bookAuthor
