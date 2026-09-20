@@ -1080,11 +1080,18 @@ public final class DocumentStore {
         // person ever wrote under the permit they are being let back in with —
         // a demotion at the door, reaching back through the book.
         let mark = try await seenMarkOrRefuse(forPerson: fingerprint)
+        // **A narrowing admission takes the book's photograph too** (P3b
+        // Task 1). Letting somebody in as a reviewer narrows the book exactly
+        // as demoting somebody does, so it carries the same
+        // `UnsignedSnapshot`; a book-author admission — which is every
+        // admission this build's sheet can make — sweeps nothing and writes
+        // no such field.
+        let unsigned = try await sweptUnsignedSnapshot(for: permit, act: .admission)
         let record = try await Task.detached(priority: .userInitiated) {
             try RegistryAdmission.admit(
                 device: fingerprint, label: label, ownName: ownName,
                 role: permit.wireRole, scope: permit.wireScope,
-                pieces: permit.wirePieces, mark: mark,
+                pieces: permit.wirePieces, mark: mark, unsigned: unsigned,
                 in: projectURL, by: author, cache: cache, memory: memory)
         }.value
 

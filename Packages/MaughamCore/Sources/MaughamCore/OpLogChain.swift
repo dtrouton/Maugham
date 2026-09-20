@@ -683,6 +683,36 @@ public enum OpLogChain {
         public let breakReason: BreakReason?
         /// Why the quarantined lines were held back, when any were.
         public let quarantineCause: QuarantineCause?
+        /// **Nothing in this file can be attributed to a key this register can
+        /// name** — the unsigned door, as a fact about the whole FILE (P3b
+        /// Task 1).
+        ///
+        /// True when BOTH halves of arm 3's own condition hold: every seal the
+        /// walk accepted (parsed, fitted the chain and verified) carries a
+        /// verdict this register has nothing to say about
+        /// (`TrustVerdict.isUnattributable`) — vacuously true for a file with
+        /// no accepted seal at all — **and** `keyOfAnUnsealedFile` names no key
+        /// for the file itself.
+        ///
+        /// It is asked of the whole file rather than of its unsealed
+        /// remainder, which is the one difference from
+        /// `judgingWhatNoSealHasClosed`: a legacy unsuffixed `<docId>.jsonl`
+        /// holds no unsealed line at all (every line is `.legacy`), and it is
+        /// precisely the file no slug can name.
+        ///
+        /// **Two readers, one spelling.** The first narrowing's sweep
+        /// (`OpLogStore.unattributablePositions`) records a position for every
+        /// file this answers true for, and the reader that later decides
+        /// whether such a line is inside the photograph asks the same
+        /// question. A second definition would put a stream in one and not the
+        /// other, and a stream the snapshot does not name judges wholly NEW —
+        /// which holds a whole unsigned history. This is the reach-back the
+        /// ruling exists to prevent, so the two cannot be allowed to drift.
+        ///
+        /// **False is the safe default**, and it is what a hand-built
+        /// `Verification` says: a file nothing declares unattributable is
+        /// never snapshotted and never held.
+        public let unattributable: Bool
 
         public init(
             lines: [Line],
@@ -694,7 +724,8 @@ public enum OpLogChain {
             foreignSealCount: Int,
             quarantined: [Data],
             breakReason: BreakReason?,
-            quarantineCause: QuarantineCause? = nil
+            quarantineCause: QuarantineCause? = nil,
+            unattributable: Bool = false
         ) {
             self.lines = lines
             self.head = head
@@ -706,6 +737,7 @@ public enum OpLogChain {
             self.quarantined = quarantined
             self.breakReason = breakReason
             self.quarantineCause = quarantineCause
+            self.unattributable = unattributable
         }
     }
 
@@ -779,6 +811,24 @@ public enum OpLogChain {
         // chain-verified, whatever this device makes of its key. Set past all
         // three of the seal guards, so a forged or misplaced seal names nothing.
         var lastSealKey: String?
+        // **Has any seal this walk ACCEPTED a key the register can attribute?**
+        // (P3b Task 1.) Set false past the same three guards, for the same
+        // reason: a forged or misplaced seal is nobody's word, so it must not
+        // be able to talk a file out of the unsigned door. Vacuously true for a
+        // file with no accepted seal — which is the unsigned device's own
+        // shape, and the legacy unsuffixed file's.
+        var everySealUnattributable = true
+        // `keyOfAnUnsealedFile`'s answer, asked at most ONCE however many
+        // readers want it. The closure is a filename parse plus a walk of the
+        // register's device ids, and it now has two callers — arm 2 below and
+        // the unattributable flag — where before it had one.
+        var namedFileKey: String??
+        func fileKey() -> String? {
+            if let namedFileKey { return namedFileKey }
+            let answer = keyOfAnUnsealedFile()
+            namedFileKey = .some(answer)
+            return answer
+        }
 
         // One cause per verification, and it is the first one met.
         func broke(_ reason: BreakReason) {
@@ -871,6 +921,7 @@ public enum OpLogChain {
                 }
                 lastSealKey = seal.key
                 let verdict = trust(seal.key)
+                if !verdict.isUnattributable { everySealUnattributable = false }
                 if verdict != .mine { foreignSealCount += 1 }
                 // The seal's own moment, because one verdict — `.retired` —
                 // answers differently before and after a date, and this is the
@@ -903,10 +954,17 @@ public enum OpLogChain {
         // seen.** What no seal closed is judged by the file's own key.
         if let judged = judgingWhatNoSealHasClosed(
             &lines, trust: trust,
-            lastSealKey: lastSealKey, keyNamingTheFile: keyOfAnUnsealedFile),
+            lastSealKey: lastSealKey, keyNamingTheFile: fileKey),
            cause == nil {
             cause = judged
         }
+
+        // **The unsigned door, as a fact about the file** (P3b Task 1). Both
+        // halves of arm 3's condition, asked of the whole file rather than of
+        // its unsealed remainder — see `Verification.unattributable`. `&&`
+        // short-circuits, so a file carrying one seal this register can name
+        // never pays for the lookup at all.
+        let unattributable = everySealUnattributable && fileKey() == nil
 
         // One pass, not five. The tallies used to be four `filter`s and a `map`
         // over the same array, which on a long novel's tail is five extra walks
@@ -934,7 +992,8 @@ public enum OpLogChain {
             foreignSealCount: foreignSealCount,
             quarantined: quarantined,
             breakReason: breakReason,
-            quarantineCause: quarantined.isEmpty ? nil : cause)
+            quarantineCause: quarantined.isEmpty ? nil : cause,
+            unattributable: unattributable)
     }
 
     /// **A span no seal has closed answers to the verdict of its FILE** (Task
@@ -1346,7 +1405,11 @@ extension OpLogChain {
             // it: `quarantineReason` would otherwise put a sentence on a file
             // that kept every line.
             quarantineCause: counted.quarantined.isEmpty
-                ? nil : verification.quarantineCause)
+                ? nil : verification.quarantineCause,
+            // Carried, never recomputed — `foreignSealCount`'s reason exactly.
+            // Who signed a file does not change because this reader put some
+            // of its lines back.
+            unattributable: verification.unattributable)
     }
 
     /// **Take applied lines OUT of the book, one by one** — `readmitting`'s
@@ -1406,7 +1469,10 @@ extension OpLogChain {
             quarantineCause: counted.quarantined.isEmpty
                 ? nil
                 : (verification.quarantineCause
-                    ?? refusing.min(by: { $0.key < $1.key })?.value))
+                    ?? refusing.min(by: { $0.key < $1.key })?.value),
+            // Carried, never recomputed: holding or refusing lines says
+            // nothing about whose key signed the file they are in.
+            unattributable: verification.unattributable)
     }
 
     /// The four counts and the refused bytes, taken off the line states — one
@@ -1467,6 +1533,8 @@ extension OpLogChain {
             breakReason: cutShort,
             // A cause the walk already found stands: it happened first, and it
             // is the one that explains lines this truncation did not touch.
-            quarantineCause: verification.quarantineCause ?? .chainBroke(cutShort))
+            quarantineCause: verification.quarantineCause ?? .chainBroke(cutShort),
+            // Carried: a truncation refuses lines and names nobody's key.
+            unattributable: verification.unattributable)
     }
 }

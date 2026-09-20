@@ -113,6 +113,24 @@ public enum Permit: Equatable, Hashable, Sendable {
         return false
     }
 
+    /// **Is this anything but an author of the whole book?** (P3b Task 1.)
+    ///
+    /// *Narrowing* is the one question a book's whole posture turns on — it is
+    /// what `PermitTimeline.narrows` asks of every entry, what
+    /// `TrustTable.hasNarrowingPermits` asks of every person, and what decides
+    /// whether a verb about to write an event must carry an
+    /// `UnsignedSnapshot`. It lives HERE, on the rung itself, so that a store
+    /// or a surface deciding *is this a narrowing act* asks the permit layer
+    /// rather than testing a permit against a literal rung (tripwire 47): the
+    /// two answers drift the first time a rung is added, and the copy outside
+    /// this file is the one that does not compile-error when it does.
+    ///
+    /// **`.unjudgeable` narrows.** A role word this build does not know is a
+    /// permit a later build may have narrowed, and the whole point of that
+    /// case is that we do not get to assume — the same reading
+    /// `PermitTimeline.narrows` has had since the final fix wave's W1.
+    public var narrows: Bool { self != .bookAuthor }
+
     // MARK: - The root
 
     /// **A root is an author of the whole book, unconditionally** (spec §2).

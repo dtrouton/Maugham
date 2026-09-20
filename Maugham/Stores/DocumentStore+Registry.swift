@@ -138,7 +138,58 @@ extension DocumentStore {
         // silently, and the direction it moves it in is *more set aside than
         // the writer asked for*.
         let mark = try await sweptPermitMark(forPerson: fingerprint)
-        return try await changePermit(person: fingerprint, to: permit, mark: mark)
+        return try await changePermit(
+            person: fingerprint, to: permit, mark: mark,
+            unsigned: try await sweptUnsignedSnapshot(for: permit))
+    }
+
+    /// **The photograph, where this act is the kind that needs one** (P3b
+    /// Task 1) — nil for every permit that leaves the person an author of the
+    /// whole book.
+    ///
+    /// The question is asked of the permit layer (`Permit.narrows`) rather
+    /// than by comparing a rung here: a store that decided for itself what
+    /// narrowing meant would be a second answer to the one thing
+    /// `TrustTable.unsignedSnapshot` and `RegistryAdmission`'s door already
+    /// agree on (tripwire 47).
+    ///
+    /// **And nothing pays for it that does not need it.** The sweep is a walk
+    /// of every op-log file, every translation sidecar and every inbox
+    /// manifest in the project; an ordinary admission narrows nobody, so it
+    /// performs zero extra directory listings and its event's bytes are
+    /// unchanged.
+    ///
+    /// Refuses in `historyUnreadable`'s own words, like every other sweep
+    /// here: *a short snapshot is the reach-back this ruling exists to
+    /// prevent*, so a folder this Mac could only half read must stop the act
+    /// rather than narrow the book over a reading it knows is short.
+    /// Internal rather than private, for `seenMarkOrRefuse`'s reason: the
+    /// admission door lives one file over and must ask the same question.
+    func sweptUnsignedSnapshot(
+        for permit: Permit, act: RegistryAdmissionError.Act = .permitChange
+    ) async throws -> PermitMark? {
+        guard permit.narrows else { return nil }
+        let projectURL = self.projectURL
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        let swept: Result<PermitMark, Error> = await Task.detached(
+            priority: .userInitiated
+        ) { () -> Result<PermitMark, Error> in
+            do {
+                let resolved = try TrustResolution.resolveVerified(
+                    projectURL: projectURL, identities: identities, cache: cache)
+                return .success(try OpLogStore.unattributablePositions(
+                    in: projectURL, trust: resolved.table))
+            } catch {
+                return .failure(error)
+            }
+        }.value
+        switch swept {
+        case .success(let mark): return mark
+        case .failure(let error):
+            throw RegistryAdmissionError.historyUnreadable(
+                name: OpLogStore.unreadableName(error), act: act)
+        }
     }
 
     /// `changePermit`'s sweep, alone — so the plural verb below can take every
@@ -155,7 +206,8 @@ extension DocumentStore {
     /// `changePermit`'s write, over a mark already swept.
     @discardableResult
     private func changePermit(
-        person fingerprint: String, to permit: Permit, mark: PermitMark
+        person fingerprint: String, to permit: Permit, mark: PermitMark,
+        unsigned: PermitMark?
     ) async throws -> PersonRecord {
         let projectURL = self.projectURL
         let author = Document.loadIdentities.author
@@ -164,7 +216,7 @@ extension DocumentStore {
             try RegistryAdmission.changePermit(
                 person: fingerprint,
                 role: permit.wireRole, scope: permit.wireScope,
-                pieces: permit.wirePieces, mark: mark,
+                pieces: permit.wirePieces, mark: mark, unsigned: unsigned,
                 in: projectURL, by: author, cache: cache)
         }.value
 
@@ -256,13 +308,22 @@ extension DocumentStore {
         for record in records {
             marks[record.person] = try await sweptPermitMark(forPerson: record.person)
         }
+        // **One photograph for the whole act** (P3b Task 1). The snapshot is
+        // of the BOOK's unsigned streams, not of this person's, so sweeping it
+        // per record would be the same walk three times over — and the three
+        // answers would differ by whatever iCloud did in between, leaving one
+        // writer's machines carrying three different accounts of when the book
+        // was first narrowed. Taken here, with the marks, so an unreadable
+        // folder refuses before a byte is written.
+        let unsigned = try await sweptUnsignedSnapshot(for: permit)
 
         var moved: [PersonRecord] = []
         for record in records {
             do {
                 moved.append(try await changePermit(
                     person: record.person, to: permit,
-                    mark: marks[record.person] ?? .nothingApplied))
+                    mark: marks[record.person] ?? .nothingApplied,
+                    unsigned: unsigned))
             } catch {
                 throw PermitChangePartlyApplied(
                     moved: moved.map(\.person), failed: record.person,

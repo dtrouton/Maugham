@@ -256,6 +256,16 @@ final class PermitLoadTests: XCTestCase {
             trust: try await reader().trust()).streams
     }
 
+    /// **The photograph a NARROWING event carries** (P3b Task 1) — through the
+    /// same production door `DocumentStore` uses, so these fixtures state
+    /// where their own unsigned streams stood rather than asserting there are
+    /// none. Every stream here is named by a device record, so it answers
+    /// empty; the point is that it is swept and not assumed.
+    private func unsignedSnapshotMark() async throws -> PermitMark {
+        try OpLogStore.unattributablePositions(
+            in: projectURL, trust: try await reader().trust())
+    }
+
     /// Its revocation-side sibling, for the tests that are about the
     /// difference between the two.
     private func appliedMark() async throws -> [String: PermitMark.StreamMark] {
@@ -1371,6 +1381,7 @@ final class PermitLoadTests: XCTestCase {
             device: samPerson, label: "Sam", ownName: "Sam’s Mac",
             role: permit.wireRole, scope: permit.wireScope,
             pieces: permit.wirePieces, mark: mark,
+            unsigned: try await unsignedSnapshotMark(),
             in: projectURL, by: root.author, cache: cache, memory: memory(),
             now: { Date(timeIntervalSince1970: 60) })
     }
@@ -1610,6 +1621,7 @@ final class PermitLoadTests: XCTestCase {
         try RegistryAdmission.changePermit(
             person: samPerson, role: Permit.reviewerRole, scope: Permit.bookScope,
             pieces: [], mark: PermitMark(second),
+            unsigned: try await unsignedSnapshotMark(),
             in: projectURL, by: root.author, cache: cache,
             now: { Date(timeIntervalSince1970: 90) })
 

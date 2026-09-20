@@ -1074,6 +1074,120 @@ public final class OpLogStore {
         return PermitMark(marks)
     }
 
+    // MARK: - The unsigned door's photograph (P3b Task 1)
+
+    /// **Where every UNATTRIBUTABLE stream in this book stands right now** —
+    /// the mark the first narrowing event carries (`UnsignedSnapshot`).
+    ///
+    /// `seenPositions`' sibling, and deliberately its sibling rather than a
+    /// parameter of it: the two ask opposite questions of the listing. A
+    /// position sweep starts from a PERSON and knows which files are theirs
+    /// before it opens one (`DeviceSlug.make` is deterministic); this one
+    /// cannot know whose a file is until it has read it, because the whole
+    /// subject is files nobody's record names. So it walks every op stream,
+    /// every translation sidecar and every inbox manifest in the project, and
+    /// asks each one whether this register can name a key for it
+    /// (`OpLogChain.Verification.unattributable` — one spelling, shared with
+    /// the reader that later decides which side of the photograph a line falls
+    /// on).
+    ///
+    /// **The legacy unsuffixed `<docId>.jsonl` is in it**, under its own P3a
+    /// stream key (a bare docId): it belongs to no device in particular and is
+    /// exactly the file no slug can name.
+    ///
+    /// **It refuses exactly as the other sweeps do**, and the verb that asked
+    /// then writes nothing: a directory that exists and will not list, a file
+    /// that is present and will not read, an iCloud placeholder standing in
+    /// for one. *A short snapshot is the reach-back this ruling exists to
+    /// prevent* — a stream this sweep failed to see is a stream the snapshot
+    /// does not name, which judges wholly NEW, which holds the whole of an
+    /// unsigned Mac's history the moment anybody is narrowed.
+    ///
+    /// **`state: nil` throughout, exactly as `seenPositions` is** (ledger
+    /// L176): a mark must be computable from the shared bytes alone, or a
+    /// fresh Mac and the root cut the same file in two places. It follows that
+    /// nothing here remembers anything or writes anything.
+    ///
+    /// **And `permit: nil`.** The position a file is at does not depend on
+    /// what the permit partition would do with its lines: `wasSeen` excludes a
+    /// torn tail and what a BROKEN CHAIN quarantined, and neither is something
+    /// a partition can produce. Passing no context also keeps the sweep off
+    /// the manifest and out of `unownedPiece`'s second pass, which is the
+    /// cheaper and the more obviously terminating arrangement.
+    ///
+    /// `nonisolated` and presenter-free, so the whole sweep runs off the main
+    /// actor.
+    nonisolated public static func unattributablePositions(
+        in projectURL: URL, trust: TrustTable
+    ) throws -> PermitMark {
+        let opsDir = projectURL.appendingPathComponent(".maugham/ops")
+        let filenames = try listing(of: opsDir, naming: ".maugham/ops")
+        try refuseAnyPlaceholder(
+            among: filenames, in: opsDir, forSlugs: nil, kind: .history)
+        var docIds = docIds(inOpsDirectoryFilenames: filenames)
+        // Named, because the manuscript reader excludes it by contract — the
+        // project's own task stream is as unattributable as any other.
+        docIds.insert("__project__")
+
+        var segments: [String: Set<String>] = [:]
+        var lastKnownLine: [String: String] = [:]
+
+        for docId in docIds.sorted() {
+            for url in opLogFileURLs(forDocId: docId, in: projectURL) {
+                guard let stream = PermitMark.stream(of: url),
+                      let bytes = try readCoordinated(url: url, presenter: nil)
+                else { continue }
+                let classified = classify(
+                    url: url, bytes: bytes, state: nil, trust: trust, permit: nil)
+                if url.pathExtension == OpLogSegment.fileExtension {
+                    // A settled segment answers no verification at all, and it
+                    // needs none: settling requires a signature whose key this
+                    // device stands behind (`TrustVerdict.isOurWord`), which is
+                    // the definition of attributable. So a segment reaches the
+                    // snapshot only by the fallback WALK saying so — and only
+                    // where that walk reached the end of it, which is
+                    // `wholeSegmentDigest`'s own rule and the same strictness
+                    // `seenPositions` has.
+                    guard classified.verification?.unattributable == true,
+                          let digest = classified.wholeSegmentDigest
+                    else { continue }
+                    segments[stream.key, default: []].insert(digest)
+                    continue
+                }
+                guard let verification = classified.verification,
+                      verification.unattributable,
+                      let last = verification.lines.last(where: wasSeen)
+                else { continue }
+                lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
+            }
+        }
+
+        // The other two families. Neither rotates, so there is no segment rule
+        // here and no digest to record — only the last line the reader got to.
+        for url in try otherStreamFileURLs(in: projectURL, forSlugs: nil) {
+            guard let stream = PermitMark.stream(of: url),
+                  let bytes = try readCoordinated(url: url, presenter: nil)
+            else { continue }
+            let verification = verificationForPositions(
+                at: url, bytes: bytes, stream: stream, trust: trust)
+            guard verification.unattributable,
+                  let last = verification.lines.last(where: wasSeen)
+            else { continue }
+            lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
+        }
+
+        var marks: [String: PermitMark.StreamMark] = [:]
+        for key in Set(segments.keys).union(lastKnownLine.keys) {
+            // Sorted, because `opLogFileURLs` is UNSORTED and a snapshot two
+            // devices read from the same bytes must not depend on what
+            // `contentsOfDirectory` felt like saying.
+            marks[key] = .init(
+                segments: segments[key].map { $0.sorted() } ?? [],
+                line: lastKnownLine[key])
+        }
+        return PermitMark(marks)
+    }
+
     /// Every translation sidecar and inbox manifest in this project, in a
     /// stable order (P3a Task 6). Whose they are is decided by the caller off
     /// `PermitMark.stream(of:)`'s slug, exactly as it is for the op streams.
@@ -1084,8 +1198,13 @@ public final class OpLogStore {
     /// the two used to be one `try?`, and the second of them produced a mark
     /// that silently omitted every stream in the folder, which is a mark that
     /// judges every line of them NEW.
+    ///
+    /// **`slugs` nil is *every stream in the folder***, which is what the
+    /// unattributable sweep needs: it does not know whose a file is until it
+    /// has read it, and the placeholder refusal below must therefore fire for
+    /// any op-log-shaped name rather than for a named few.
     private nonisolated static func otherStreamFileURLs(
-        in projectURL: URL, forSlugs slugs: Set<String>
+        in projectURL: URL, forSlugs slugs: Set<String>?
     ) throws -> [URL] {
         var out: [URL] = []
         for (directory, name, kind) in [
@@ -1142,13 +1261,16 @@ public final class OpLogStore {
     /// running and the writer is not chasing a different file each press.
     private nonisolated static func refuseAnyPlaceholder(
         among names: [String], in directory: URL,
-        forSlugs slugs: Set<String>, kind: ReadError.FileKind
+        forSlugs slugs: Set<String>?, kind: ReadError.FileKind
     ) throws {
         for name in names.sorted() {
             guard let real = nameBehindICloudPlaceholder(name),
-                  let stream = PermitMark.stream(of: directory.appendingPathComponent(real)),
-                  let slug = stream.deviceSlug, slugs.contains(slug)
+                  let stream = PermitMark.stream(of: directory.appendingPathComponent(real))
             else { continue }
+            // Nil slugs is *any stream of this project's*, legacy included.
+            if let slugs {
+                guard let slug = stream.deviceSlug, slugs.contains(slug) else { continue }
+            }
             throw ReadError.unreadableFile(
                 name: real,
                 underlying: "it hasn’t been downloaded from iCloud yet",

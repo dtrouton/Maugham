@@ -151,6 +151,17 @@ public struct TrustTable: Equatable, Sendable {
     /// recorded (P3a Task 7). Absent for every P2-era revocation, where the
     /// record's `highestOpIdSeen` is still the only line there is.
     private let revocationMarkByPerson: [String: PermitMark]
+    /// **The photograph this book took of its unsigned streams the first time
+    /// anybody was narrowed** (P3b Task 1), or nil where nothing narrows it.
+    ///
+    /// **Nil exactly when `hasNarrowingPermits` is false**, and that is a
+    /// property rather than a coincidence: both are derived here, from the one
+    /// root-filtered collection of events, so a book cannot be narrowed
+    /// according to one and un-narrowed according to the other. The failure
+    /// that equivalence prevents is silent and total — a book whose table says
+    /// *narrowed* while no event names a governing snapshot holds every
+    /// unsigned line ever written in it.
+    public let unsignedSnapshot: UnsignedSnapshot?
     /// Person fingerprint → the record, for the revoked/admitted split.
     private let personByFingerprint: [String: PersonRecord]
     /// Every fingerprint this book holds a person record for — `Registry
@@ -388,6 +399,11 @@ public struct TrustTable: Equatable, Sendable {
             actorByKey: actorByKey, keyByDeviceId: keyByDeviceId,
             timelineByPerson: timelineByPerson,
             revocationMarkByPerson: revocationMarkByPerson,
+            // From the SAME root-filtered events the timelines are built from,
+            // so `unsignedSnapshot != nil` and `hasNarrowingPermits` cannot
+            // disagree — see the property.
+            unsignedSnapshot: UnsignedSnapshot.governing(
+                events: eventsByPerson.values.flatMap { $0 }),
             personByFingerprint: personByFingerprint,
             knownPeople: registry.knownPeople,
             keysNamedByADeviceRecord: registry.devices.reduce(into: Set()) {

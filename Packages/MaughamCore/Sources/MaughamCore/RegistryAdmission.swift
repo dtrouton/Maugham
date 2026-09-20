@@ -136,6 +136,27 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// landed works.
     case cannotAdoptANonRoot(fingerprint: String)
 
+    /// **A narrowing event was asked for with no photograph of the book's
+    /// unsigned streams** (P3b Task 1).
+    ///
+    /// The first event that makes somebody anything other than an author of
+    /// the whole book has to carry an `UnsignedSnapshot` — where every stream
+    /// no seal and no device record can name stood at that moment — because
+    /// that mark is what keeps narrowing from reaching back through an
+    /// enclave-less Mac's whole history. An event written without one reads as
+    /// an EMPTY snapshot, which is *everything unattributable is after*: the
+    /// exact, total, silent withdrawal the ruling exists to prevent.
+    ///
+    /// It is a door rather than call-site discipline for the reason every
+    /// other refusal here is: the mark is the CALLER's to compute — it needs a
+    /// sweep of every op-log file in the project — and a verb that merely
+    /// hoped its callers had done so would fail in the one direction nothing
+    /// goes red for.
+    ///
+    /// A NON-narrowing event needs none and never refuses, so no existing
+    /// admission, revocation, retirement or rename can meet this.
+    case narrowingWithoutASnapshot(fingerprint: String)
+
     /// **Which act a refusal is about** (fix round 2, minor C).
     ///
     /// The four verbs that compute a mark all refuse over a short reading, and
@@ -238,6 +259,7 @@ public enum RegistryAdmission {
         scope: String = Permit.bookScope,
         pieces: [String] = [],
         mark: PermitMark = .nothingApplied,
+        unsigned: PermitMark? = nil,
         in projectURL: URL,
         by root: DeviceIdentity,
         cache: RegistryCache,
@@ -250,6 +272,7 @@ public enum RegistryAdmission {
         let decided = try admit(
             device: fingerprint, label: label, ownName: ownName,
             role: role, scope: scope, pieces: pieces, mark: { _ in mark },
+            unsigned: unsigned,
             in: projectURL, by: root, within: registry,
             memory: memory, now: now, presenter: presenter)
         // The re-read the cache needs is also the read that turns the record
@@ -301,6 +324,15 @@ public enum RegistryAdmission {
         scope: String = Permit.bookScope,
         pieces: [String] = [],
         mark: (String) throws -> PermitMark = { _ in .nothingApplied },
+        /// Where every unattributable stream in the book stands
+        /// (`OpLogStore.unattributablePositions`). Required for a NARROWING
+        /// admission and refused without one; meaningless and dropped for any
+        /// other, so `admitRemembered`'s loop — which admits book authors —
+        /// never computes it. **A value rather than a closure**, unlike
+        /// `mark`: the photograph is of the BOOK and not of one person's
+        /// streams, so a caller admitting several devices in one open sweeps
+        /// for it once or not at all.
+        unsigned: PermitMark? = nil,
         silently: Bool = false,
         in projectURL: URL,
         by root: DeviceIdentity,
@@ -425,11 +457,16 @@ public enum RegistryAdmission {
         if standing == nil,
            !eventAlreadyWritten(kind, permit: eventPermit,
                                 about: fingerprint, in: registry) {
+            // Before the sweep and before the write: a refusal here has left
+            // nothing on disk and nothing in the label memory.
+            try refuseANarrowingWithNoSnapshot(
+                eventPermit, unsigned: unsigned, subject: fingerprint)
             try writeEvent(
                 kind, about: fingerprint,
                 role: writtenRole, scope: writtenScope ?? Permit.bookScope,
                 pieces: writtenPieces ?? [],
-                mark: try mark(fingerprint), in: projectURL, by: root,
+                mark: try mark(fingerprint), unsigned: unsigned,
+                in: projectURL, by: root,
                 within: registry, now: now, presenter: presenter)
         }
 
@@ -506,6 +543,7 @@ public enum RegistryAdmission {
         scope: String,
         pieces: [String],
         mark: PermitMark,
+        unsigned: PermitMark? = nil,
         in projectURL: URL,
         by root: DeviceIdentity,
         cache: RegistryCache,
@@ -545,9 +583,15 @@ public enum RegistryAdmission {
             // happened was the first.
             let kind: PermitEvent.Kind =
                 timeline.current.wireRole == asked.wireRole ? .scopeChanged : .roleChanged
+            // Before the write, so a refusal leaves the record un-re-signed
+            // too: this verb's own contract is event-then-record, and neither
+            // half may land without the other's premise.
+            try refuseANarrowingWithNoSnapshot(
+                asked, unsigned: unsigned, subject: fingerprint)
             try writeEvent(
                 kind, about: fingerprint, role: role, scope: scope, pieces: pieces,
-                mark: mark, in: projectURL, by: root, within: registry,
+                mark: mark, unsigned: unsigned,
+                in: projectURL, by: root, within: registry,
                 now: now, presenter: presenter)
         }
 
@@ -745,6 +789,7 @@ public enum RegistryAdmission {
         scope: String,
         pieces: [String],
         mark: PermitMark,
+        unsigned: PermitMark? = nil,
         in projectURL: URL,
         by signer: DeviceIdentity,
         within registry: Registry,
@@ -801,13 +846,50 @@ public enum RegistryAdmission {
             id = PermitEvent.mintID(subject: subject, after: latest)
         }
 
-        let event = PermitEvent(
-            event: id, kind: kind, subject: subject,
-            role: role, scope: scope, pieces: pieces, mark: streams,
-            at: now(), by: signer.fingerprint)
+        // **Only a NARROWING event carries the photograph** (P3b Task 1). A
+        // book-author admission, a revocation and a retirement change nothing
+        // about who may write what, so writing the field onto one would move
+        // the bytes of an ordinary record to state something it does not mean
+        // — and `UnsignedSnapshot.governing` would then have a second
+        // candidate to choose between where the ruling names exactly one.
+        //
+        // It is NOT carried forward like `mark`. The snapshot is the FIRST
+        // narrowing's and the earliest governs, so a later event copying an
+        // older one's would add a second identical answer for a reader to pick
+        // between, with nothing to gain.
+        let at = now()
+        func made(
+            unsigned unsignedStreams: [String: PermitEvent.StreamMark]?
+        ) -> PermitEvent {
+            PermitEvent(
+                event: id, kind: kind, subject: subject,
+                role: role, scope: scope, pieces: pieces, mark: streams,
+                unsigned: unsignedStreams, at: at, by: signer.fingerprint)
+        }
+        let draft = made(unsigned: nil)
+        let event = PermitTimeline.narrows(draft)
+            ? made(unsigned: (unsigned ?? .nothingApplied).streams)
+            : draft
         try RegistryWriter.write(
             event, signedBy: signer, in: projectURL, presenter: presenter)
         return event
+    }
+
+    /// **The door on a narrowing written without its photograph** (P3b Task 1).
+    ///
+    /// Asked of the permit the EVENT will install rather than of the one the
+    /// caller asked for, because `admit` deliberately does not move a standing
+    /// person's permit: a re-admission that carries the parameters in and one
+    /// that carries the record's own forward must be judged on what actually
+    /// gets written.
+    ///
+    /// Called at the write, so a refusal leaves NOTHING behind — no event, no
+    /// record, no remembered label.
+    nonisolated private static func refuseANarrowingWithNoSnapshot(
+        _ permit: Permit, unsigned: PermitMark?, subject: String
+    ) throws {
+        guard permit.narrows, unsigned == nil else { return }
+        throw RegistryAdmissionError.narrowingWithoutASnapshot(fingerprint: subject)
     }
 
     /// Does this kind's mark say *everything the root has read*, and therefore

@@ -369,6 +369,16 @@ enum AdmissionDecision {
                 + "a book of its own here, so there is no history of its own to take "
                 + "in. If it has written in this book, it was let in by somebody — "
                 + "nothing needs merging."
+        case .narrowingWithoutASnapshot(let fingerprint):
+            // Not reachable from any control this build ships — every store
+            // verb that can narrow takes the photograph first — so this is the
+            // sentence for the day a fourth caller forgets, and it says what
+            // did not happen rather than naming a value it was not given.
+            return "Nothing was changed. Before this book can limit what the device "
+                + "with code \(DeviceCode.short(fingerprint)) may write, Maugham has "
+                + "to note where every unsigned Mac’s writing had got to — otherwise "
+                + "the limit would reach back through work already in the book. Try "
+                + "again in a moment."
         }
     }
 }
