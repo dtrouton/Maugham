@@ -187,15 +187,20 @@ final class InboxBylineTests: XCTestCase {
         }
         let cache = RegistryCache(fileURL: cacheURL, identity: mac.fingerprint)
 
-        // The folder: this Mac's root record, both devices, and the phone
-        // admitted under it. The stranger declares itself and waits.
+        // The folder: this Mac's root record, its own phone, and the phone
+        // admitted under it. **The stranger writes NO record of its own**
+        // (P3a Task 11): a device this register can name has its unsealed span
+        // held like its sealed one, so a row that is still APPLIED under a
+        // *not yet admitted* byline is one from a device nothing here has ever
+        // heard of — the unsigned door, arm 3 of *the file's key*. A recorded
+        // stranger's row is held instead, and the Inbox meets it through the
+        // pending banner; `PermitStreamLoadTests
+        // .test_aStrangersUnsealedInboxManifestIsHeld` is where that is pinned.
         try RegistryWriter.write(
             deviceRecord(mac, name: "Denver's MacBook", kind: .mac),
             signedBy: mac, in: projectURL)
         try RegistryWriter.write(
             deviceRecord(phone, name: "Denver's iPhone"), signedBy: phone, in: projectURL)
-        try RegistryWriter.write(
-            deviceRecord(stranger, name: "The old iPhone"), signedBy: stranger, in: projectURL)
         try RegistryWriter.write(
             person(mac, label: "Denver", ownName: "Denver's MacBook", admittedBy: mac),
             signedBy: mac, in: projectURL)
@@ -230,8 +235,12 @@ final class InboxBylineTests: XCTestCase {
 
         XCTAssertNil(inbox.unreadableRegistry)
         XCTAssertEqual(inbox.bylines[phone.deviceId], "from Denver")
-        XCTAssertEqual(inbox.bylines[stranger.deviceId],
-                       "from The old iPhone (not yet admitted)")
+        // The code its own Settings screen shows, because no record here names
+        // it — which is exactly what the writer needs in order to admit it.
+        XCTAssertEqual(
+            inbox.bylines[stranger.deviceId],
+            "from \(DeviceCode.short(String(stranger.fingerprint.prefix(16)))) "
+                + "(not yet admitted)")
         XCTAssertEqual(inbox.bylines.count, 2,
                        "one answer per device that captured, not one per row")
     }
