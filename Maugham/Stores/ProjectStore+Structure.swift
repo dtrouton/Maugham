@@ -294,9 +294,13 @@ extension ProjectStore {
                 data, toAtLeast: ProjectManifest.schemaVersion(ofFileAt: manifestURL))
             try bytes.write(to: tmpURL, options: [.atomic])
             _ = try FileManager.default.replaceItemAt(manifestURL, withItemAt: tmpURL)
-            if let floor = ProjectManifest.schemaVersion(of: bytes),
-               manifest.schemaVersion < floor {
-                manifest.schemaVersion = floor
+            // Capped at this build's own number, the coordinated door's rule
+            // and for its reason (fix round 2).
+            if let floor = ProjectManifest.schemaVersion(of: bytes) {
+                let capped = min(floor, ProjectManifest.currentSchemaVersion)
+                if manifest.schemaVersion < capped {
+                    manifest.schemaVersion = capped
+                }
             }
         } catch {
             throw ProjectStoreError.manifestUnwritable(error.localizedDescription)

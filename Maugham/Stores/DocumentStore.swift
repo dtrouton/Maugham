@@ -525,13 +525,16 @@ public final class DocumentStore {
         // What was actually written — the echo, the shadow and the live store
         // all have to agree with the FILE, not with what the caller handed in.
         var written = data
+        // The number that was on disk when this write took its turn, so a
+        // manifest from a LATER build can be said out loud rather than
+        // silently clamped (fix round 2).
+        var foundOnDisk: Int?
         coordinator.coordinate(
             writingItemAt: manifestURL, options: .forReplacing, error: &coordError
         ) { writeURL in
             do {
-                let bytes = ProjectManifest.raising(
-                    data,
-                    toAtLeast: ProjectManifest.schemaVersion(ofFileAt: writeURL))
+                foundOnDisk = ProjectManifest.schemaVersion(ofFileAt: writeURL)
+                let bytes = ProjectManifest.raising(data, toAtLeast: foundOnDisk)
                 written = bytes
                 let tmpURL = writeURL.appendingPathExtension("tmp")
                 try bytes.write(to: tmpURL, options: [.atomic])
@@ -549,16 +552,32 @@ public final class DocumentStore {
         if let coordError { throw coordError }
         if let writeError { throw writeError }
 
+        // **A manifest from a later build was here** (fix round 2). This build
+        // has just written its own number over it, which is the only thing it
+        // may honestly do — but it has also overwritten a file it could not
+        // fully understand, and that is worth a line. The mid-session too-new
+        // manifest is a pre-existing gap: `decodeGuardingSchema` guards the
+        // OPEN and nothing guards a session already under way.
+        if let foundOnDisk, foundOnDisk > ProjectManifest.currentSchemaVersion {
+            documentStoreLog.error(
+                "manifest at \(self.projectURL.lastPathComponent, privacy: .public) declared schema \(foundOnDisk, privacy: .public), which this build (\(ProjectManifest.currentSchemaVersion, privacy: .public)) cannot read; wrote this build's own number rather than one it could not reopen")
+        }
+
         // A raise that happened at the door has to reach the copy that will be
         // encoded next, or the very next save asks the door to do it again —
         // correct, but it would mean the writer's own store spends the rest of
-        // the session disagreeing with the file it is looking at. Raise-only
-        // here too: a live store above this build's number is a newer build's
-        // manifest, and lowering that is the forward-data-loss
-        // `decodeGuardingSchema` exists to refuse.
+        // the session disagreeing with the file it is looking at. Raise-only,
+        // and capped at this build's own number for `raising`'s reason (fix
+        // round 2): a live copy carrying a schema this build cannot reopen
+        // would be stamped onto the next save from memory, with the door never
+        // consulted. `written` is already clamped; the `min` says the invariant
+        // out loud rather than inheriting it.
         if let floor = ProjectManifest.schemaVersion(of: written),
-           let live = projectStore, live.manifest.schemaVersion < floor {
-            live.manifest.schemaVersion = floor
+           let live = projectStore {
+            let capped = min(floor, ProjectManifest.currentSchemaVersion)
+            if live.manifest.schemaVersion < capped {
+                live.manifest.schemaVersion = capped
+            }
         }
 
         // Mirror the just-saved manifest into a verified shadow so a later corrupt

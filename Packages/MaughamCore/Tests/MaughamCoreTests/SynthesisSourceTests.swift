@@ -217,3 +217,64 @@ final class ManifestRaisingTests: XCTestCase {
                 .appendingPathComponent("no-such-\(UUID().uuidString).json")))
     }
 }
+
+// MARK: - Fix round 2: the raise stops at this build's own number
+
+extension ManifestRaisingTests {
+
+    /// **A build never stamps a number it cannot itself reopen** (P3b fix
+    /// round 2).
+    ///
+    /// Round 1 took the file's number as the floor whatever it was. A manifest
+    /// from a LATER build can land on disk mid-session — `DocumentStore
+    /// .handleManifestChanged` decodes an incoming manifest without
+    /// `decodeGuardingSchema` — and the next save then wrote this build's own
+    /// schema-9-shaped content under that foreign number. Two things wrong at
+    /// once: content labelled with a schema nobody here knows, and a file this
+    /// build refuses on its next launch (`SchemaTooNewError`) — a self-lockout
+    /// the pre-round-1 code did not have.
+    ///
+    /// **Both directions.** At or below `currentSchemaVersion` the floor is
+    /// honoured exactly as round 1 built it; above it, this build writes what
+    /// it would have written with no rule at all — its own number.
+    func test_theFloorIsCappedAtThisBuildsOwnSchema() throws {
+        let current = ProjectManifest.currentSchemaVersion
+        let outgoing = try ProjectManifest.makeEncoder().encode(
+            ProjectManifest(
+                schemaVersion: current, type: .novel, title: "T", author: "A",
+                created: Date(timeIntervalSince1970: 0),
+                modified: Date(timeIntervalSince1970: 0),
+                structure: [], research: []))
+
+        // A later build's number on disk raises nothing, and the bytes are
+        // handed back untouched: this build writes what it always wrote.
+        XCTAssertEqual(ProjectManifest.raising(outgoing, toAtLeast: 20), outgoing)
+        XCTAssertEqual(
+            ProjectManifest.schemaVersion(
+                of: ProjectManifest.raising(outgoing, toAtLeast: 20)),
+            current)
+
+        // And the result is one this build can still open.
+        XCTAssertNoThrow(try ProjectManifest.decodeGuardingSchema(
+            ProjectManifest.raising(outgoing, toAtLeast: 20)))
+    }
+
+    /// The clamp does not swallow the raise it exists beside: an older
+    /// outgoing manifest against a too-new floor still comes up to THIS
+    /// build's number, which is the most it may claim.
+    func test_anOlderManifestAgainstATooNewFloorComesUpToThisBuildsNumber() throws {
+        let current = ProjectManifest.currentSchemaVersion
+        let old = try ProjectManifest.makeEncoder().encode(
+            ProjectManifest(
+                schemaVersion: current - 1, type: .novel, title: "T", author: "A",
+                created: Date(timeIntervalSince1970: 0),
+                modified: Date(timeIntervalSince1970: 0),
+                structure: [], research: []))
+
+        XCTAssertEqual(
+            ProjectManifest.schemaVersion(
+                of: ProjectManifest.raising(old, toAtLeast: 20)),
+            current,
+            "raised as far as this build may claim, and no further")
+    }
+}

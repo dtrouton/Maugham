@@ -404,13 +404,39 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// **It carries the rest of the outgoing manifest verbatim** — only the
     /// number moves. It is not a merge: the other Mac's structural edit is the
     /// writer's own act and lands exactly as they made it.
+    ///
+    /// ## And it stops at THIS build's own number (fix round 2)
+    ///
+    /// The floor is clamped to `currentSchemaVersion`, here rather than at the
+    /// two call sites, so every future one inherits it.
+    ///
+    /// Without the clamp the rule reached a state worse than the one it was
+    /// written to fix. A manifest from a LATER build can land on disk
+    /// mid-session — `DocumentStore.handleManifestChanged` decodes an incoming
+    /// manifest without `decodeGuardingSchema`, so nothing on that path refuses
+    /// one — and the next ordinary save would then take that foreign number as
+    /// its floor and stamp **this build's own content with it**. Two failures in
+    /// one write: content labelled with a schema nobody here knows, and a file
+    /// this build refuses on its next launch (`SchemaTooNewError`) — a
+    /// self-lockout that neither v0.40 nor round 1's predecessor had.
+    ///
+    /// A build may raise a book as far as it can itself read and no further.
+    /// Above that it writes exactly what it wrote before any of this existed:
+    /// its own number.
+    ///
+    /// **The mid-session too-new manifest is a PRE-EXISTING gap** (the
+    /// degrade-and-resave `decodeGuardingSchema` guards at OPEN and nothing
+    /// guards during a session). This clamp neither widens nor closes it — it
+    /// keeps this rule from making it worse. Closing it means a store that
+    /// stops writing when a too-new manifest arrives, which is a roadmap item.
     public static func raising(_ outgoing: Data, toAtLeast floor: Int?) -> Data {
         guard let floor,
               let mine = schemaVersion(of: outgoing),
-              mine < floor,
+              case let ceiling = min(floor, currentSchemaVersion),
+              mine < ceiling,
               var manifest = try? makeDecoder().decode(ProjectManifest.self, from: outgoing)
         else { return outgoing }
-        manifest.schemaVersion = floor
+        manifest.schemaVersion = ceiling
         return (try? makeEncoder().encode(manifest)) ?? outgoing
     }
 

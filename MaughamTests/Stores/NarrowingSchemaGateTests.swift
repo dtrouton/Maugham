@@ -413,6 +413,71 @@ final class NarrowingSchemaGateTests: XCTestCase {
         XCTAssertEqual(try onDiskTitle(), "Chapter One")
     }
 
+    /// **The door never stamps a number this build cannot reopen** (fix
+    /// round 2).
+    ///
+    /// Round 1's floor was uncapped, and that is reachable without a second
+    /// Mac doing anything odd: `handleManifestChanged` decodes an incoming
+    /// manifest WITHOUT `decodeGuardingSchema`, so a later build's file can
+    /// land mid-session. The next ordinary save then took that foreign number
+    /// as its floor and stamped this build's schema-9-shaped content with it —
+    /// content mislabelled as a schema nobody here knows, and on relaunch this
+    /// build refusing its OWN file with `SchemaTooNewError`. A self-lockout the
+    /// pre-fix code did not have.
+    ///
+    /// So the raise stops at `currentSchemaVersion`: above that this build
+    /// writes exactly what it wrote before round 1 — its own number.
+    func test_theDoorNeverStampsANumberThisBuildCannotReopen() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let projectStore = try await ProjectStore.load(from: projectURL)
+        projectStore.documentStore = store
+        store.projectStore = projectStore
+        try await admitStranger(store)
+        _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
+        XCTAssertEqual(
+            projectStore.manifest.schemaVersion,
+            ProjectManifest.currentSchemaVersion,
+            "in memory: gated this session")
+
+        // A LATER build's manifest arrives mid-session — iCloud, or a Mac
+        // running something newer. Nothing on this path refuses it.
+        try writeManifestSchema(20)
+
+        // The writer renames a chapter, like any other afternoon.
+        try await projectStore.renameStructureItem(id: "doc-test", newTitle: "C1c")
+
+        XCTAssertEqual(
+            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion,
+            "this build writes its own number, never one it cannot read")
+        XCTAssertLessThanOrEqual(
+            projectStore.manifest.schemaVersion,
+            ProjectManifest.currentSchemaVersion,
+            "and the live copy never goes above it either")
+        XCTAssertNoThrow(
+            try ProjectManifest.decodeGuardingSchema(try manifestBytes()),
+            "the project this build just saved is one this build can reopen")
+        XCTAssertEqual(try onDiskTitle(), "C1c", "and the rename landed")
+    }
+
+    /// The same clamp on the legacy direct path, which has no `DocumentStore`
+    /// and so cannot inherit it from the coordinated door.
+    func test_theLegacyPathNeverStampsANumberThisBuildCannotReopenEither() async throws {
+        beThisMac()
+        let unwired = try await ProjectStore.load(from: projectURL)
+        XCTAssertNil(unwired.documentStore)
+        try writeManifestSchema(20)
+
+        try await unwired.renameStructureItem(id: "doc-test", newTitle: "C1d")
+
+        XCTAssertEqual(
+            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion)
+        XCTAssertLessThanOrEqual(
+            unwired.manifest.schemaVersion, ProjectManifest.currentSchemaVersion)
+        XCTAssertNoThrow(
+            try ProjectManifest.decodeGuardingSchema(try manifestBytes()))
+    }
+
     // MARK: - The heal (fix round 1, ruling 2)
 
     /// **A P3 build that finds a NARROWED book below the gate raises it.**
