@@ -564,6 +564,31 @@ public enum OpLogChain {
         /// writing (spec §5). Its earlier spans are untouched — this is the one
         /// cause whose subject is a date rather than a key.
         case afterRetirement(device: String)
+        /// **A line its signer's permit does not allow** (P3 spec §4.4).
+        ///
+        /// The one cause that is about a LINE rather than about a key: the
+        /// chain held, the seal verified, the device is admitted and in good
+        /// standing — and what the line says is not something that person, or
+        /// that one of their four keys, may write here. Its neighbours under
+        /// the same seal are applied.
+        ///
+        /// - `person` is who the key resolves to (`TrustTable.person`). A
+        ///   surface turns it into a label; nothing here does, for the reason
+        ///   `afterRevocation` carries a person and no name either — the words
+        ///   in `JSONLAppendStore.quarantineReason` are one clause about the
+        ///   event, and the writer's own name for a machine belongs to the
+        ///   pane that draws it.
+        /// - `what` is the noun: manuscript text, a disposition, a pass state,
+        ///   a statement, a task, a translation.
+        /// - `afterMark` is whether the governing permit was installed by an
+        ///   EVENT rather than being the one this person has always had —
+        ///   spec §4.4's *…after it stopped being hers*.
+        /// - `actor` is the raw actor word when the refusal is one of the four
+        ///   keys narrowing within the person's permit (the assistant never
+        ///   changes the manuscript, whoever holds it), and nil when the
+        ///   person's own permit is what refused.
+        case notPermitted(
+            person: String, what: RefusedWhat, afterMark: Bool, actor: String?)
 
         // **There is no `revocationLate` any more** (find 5, ruled 2026-09-18).
         // A line from a revoked key whose opId is at or below the mark the root
@@ -1052,6 +1077,66 @@ extension OpLogChain {
             // that kept every line.
             quarantineCause: counted.quarantined.isEmpty
                 ? nil : verification.quarantineCause)
+    }
+
+    /// **Take applied lines OUT of the book, one by one** — `readmitting`'s
+    /// mirror, and the one door the permit partition re-settles through
+    /// (P3 spec §4.3). `Line.settle` is `fileprivate`, so a partition living
+    /// anywhere else has to come here, which is what keeps the states this
+    /// file defines decided in this file.
+    ///
+    /// Keyed by INDEX rather than by bytes, unlike `readmitting`: two
+    /// identical lines in one file are not a shape the chain can produce, but
+    /// a rule that refuses one line and not the other is a rule that has to be
+    /// able to say which, and an index can while a byte set cannot.
+    ///
+    /// - `refusing` quarantines a line with its OWN cause, because a permit
+    ///   partition can refuse two lines of one file for two different reasons
+    ///   (a manuscript line and a task, or the same line before and after a
+    ///   mark) and `setAside` files one record per cause.
+    /// - `holding` holds a line PENDING under a device — an unjudgeable kind,
+    ///   an unreadable role, a piece nobody has claimed yet. Held, never
+    ///   recorded: nothing is wrong with it.
+    ///
+    /// **The head does not move**, for `readmitting`'s reason exactly:
+    /// `Verification.head` is what the next chained append builds on and is
+    /// shared with the write through `resolveAbsentHead`. Refusing a line
+    /// decides what the DOCUMENT is made of, not what the file's next line
+    /// chains onto — and the bytes on disk are untouched by any of this.
+    nonisolated static func repartitioned(
+        _ verification: Verification,
+        refusing: [Int: QuarantineCause],
+        holding: [Int: String]
+    ) -> Verification {
+        guard !refusing.isEmpty || !holding.isEmpty else { return verification }
+        var lines = verification.lines
+        for (index, cause) in refusing where lines.indices.contains(index) {
+            lines[index].settle(.quarantined, because: cause)
+        }
+        for (index, device) in holding
+        where lines.indices.contains(index) && refusing[index] == nil {
+            lines[index].settle(.pending(device: device))
+        }
+        let counted = tallies(of: lines)
+        return Verification(
+            lines: lines,
+            // Unmoved, on purpose — see above.
+            head: verification.head,
+            legacyCount: counted.legacy,
+            verifiedCount: counted.verified,
+            unsealedCount: counted.unsealed,
+            pendingCount: counted.pending,
+            foreignSealCount: verification.foreignSealCount,
+            quarantined: counted.quarantined,
+            breakReason: verification.breakReason,
+            // One cause per verification and it is the FIRST one met — the
+            // walk's own, where it had one, else the earliest line this
+            // partition refused. It is only ever a fallback for a line with no
+            // refusal of its own; `setAside` reads the LINE's cause first.
+            quarantineCause: counted.quarantined.isEmpty
+                ? nil
+                : (verification.quarantineCause
+                    ?? refusing.min(by: { $0.key < $1.key })?.value))
     }
 
     /// The four counts and the refused bytes, taken off the line states — one

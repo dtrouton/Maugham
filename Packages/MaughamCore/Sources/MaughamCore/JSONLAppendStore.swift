@@ -506,9 +506,63 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
             return "written after this device was retired"
         case .anotherClaimants:
             return "written under another claimant's copy of this book"
+        case let .notPermitted(_, what, afterMark, actor):
+            return notPermittedReason(what: what, afterMark: afterMark, actor: actor)
         default:
             return "the history's chain is broken"
         }
+    }
+
+    /// **The permit's own clause** (P3 spec §4.4), in the same register as the
+    /// five above: one lower-case phrase naming the EVENT, with no label, no
+    /// count and no name in it.
+    ///
+    /// That register is the existing contract rather than a choice made here —
+    /// `afterRevocation` carries a person and its sentence names nobody, and
+    /// the surfaces that draw these (`HistoryPane.setAsideChangesNotice`,
+    /// `InboxPane.setAsideNotice`) put the number and the label in front of
+    /// the clause themselves. The spec's *Sam's Mac wrote 2 changes to the
+    /// manuscript, which a reviewer can't* is that whole sentence; this is its
+    /// last clause.
+    ///
+    /// **The AI actor is never given a product name**: *the assistant*.
+    ///
+    /// Two dimensions, in this order. A line refused because one of the four
+    /// KEYS is narrower than the person's own permit says so in the key's
+    /// terms — the assistant never changes the manuscript on any device, the
+    /// root's included — because telling the writer their own permission was
+    /// the problem would be false. Everything else is the person's permit, and
+    /// `afterMark` is spec §4.4's *…after it stopped being hers*: the line was
+    /// written after something about that permit changed, which is a different
+    /// fact from never having had it.
+    nonisolated static func notPermittedReason(
+        what: RefusedWhat, afterMark: Bool, actor: String?
+    ) -> String {
+        if let actor, let narrowed = DeviceActor(rawValue: actor), narrowed != .author {
+            switch narrowed {
+            case .assistant:
+                return "written by the assistant, which never changes the manuscript"
+            case .translator:
+                return "written by the translation pipeline, which writes only translations"
+            case .maugham:
+                return "written by this app's own housekeeping, which writes only task order"
+            case .author:
+                break
+            }
+        }
+        let clause: String
+        switch what {
+        case .manuscriptText: clause = "written into the manuscript"
+        case .disposition: clause = "a decision on a note"
+        case .passState: clause = "a review pass set"
+        case .statement: clause = "written into this book's own statements"
+        case .task: clause = "a task written"
+        case .translation: clause = "a translation written"
+        case .other: clause = "written"
+        }
+        return afterMark
+            ? "\(clause) by a device after its permission here changed"
+            : "\(clause) by a device that may not write it here"
     }
 
     private func plainAppend(_ line: Data) throws {

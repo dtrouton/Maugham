@@ -180,13 +180,40 @@ public struct PermitTimeline: Equatable, Hashable, Sendable {
     public func permit(
         ofLineAt index: Int, judgements: [PermitMark.Judgement?]
     ) -> Permit {
+        governingEntry(ofLineAt: index, judgements: judgements).permit
+    }
+
+    /// **The whole entry that governs a line**, not just its permit — which is
+    /// what a REFUSAL needs: the sentence a writer reads differs depending on
+    /// whether the line was written after something changed (*…after it
+    /// stopped being hers*) or under the permit the person has always had, and
+    /// the entry's own `mark` is the one thing that tells the two apart. The
+    /// opening entry is the only one with no mark.
+    ///
+    /// The walk is the one `permit(ofLineAt:)` has always been — newest to
+    /// oldest, the first entry whose mark judges the line *new* — spelled once
+    /// so the permit and the entry it came from cannot drift apart.
+    public func governingEntry(
+        ofLineAt index: Int, judgements: [PermitMark.Judgement?]
+    ) -> Entry {
         for position in entries.indices.reversed() {
             guard position < judgements.count,
                   let judgement = judgements[position],
                   judgement.side(ofLineAt: index) == .new
             else { continue }
-            return entries[position].permit
+            return entries[position]
         }
-        return entries.first?.permit ?? .bookAuthor
+        return entries.first ?? .opening
+    }
+
+    /// `permits(lineCount:judging:)`'s entry-bearing twin, with the same
+    /// once-per-entry judging contract.
+    public func governingEntries(
+        lineCount: Int, judging: (PermitMark) -> PermitMark.Judgement
+    ) -> [Entry] {
+        let judgements = entries.map { entry in entry.mark.map(judging) }
+        return (0..<max(0, lineCount)).map {
+            governingEntry(ofLineAt: $0, judgements: judgements)
+        }
     }
 }
