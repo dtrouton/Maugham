@@ -139,6 +139,10 @@ public struct TrustTable: Equatable, Sendable {
     private let timelineByPerson: [String: PermitTimeline]
     /// Person fingerprint → the record, for the revoked/admitted split.
     private let personByFingerprint: [String: PersonRecord]
+    /// Every fingerprint this book holds a person record for — `Registry
+    /// .knownPeople`, carried so `isStrangerDevice` can answer without the
+    /// registry the table deliberately does not keep.
+    private let knownPeople: Set<String>
     /// Device fingerprint → the moment that device said it had stopped. Keyed
     /// on the DEVICE, because retirement is a machine's own act and every actor
     /// key it holds retires with it.
@@ -219,6 +223,28 @@ public struct TrustTable: Equatable, Sendable {
                       actorByKey[key] == nil else { continue }
                 actorByKey[key] = actor
             }
+        }
+        // **A person IS a device's author key** (labels-only, P2a's own
+        // premise, spelled in `RegistryRecord`'s doc comment and enforced by
+        // the reader's `actors["author"] == device` check). So a fingerprint
+        // this book admits as a PERSON is an author key by the register's own
+        // vocabulary, whether or not its device record has arrived — and a
+        // device record is a separate file that syncs separately.
+        //
+        // Without this, an admitted person with no device record here resolves
+        // to NO actor, the permit cannot be narrowed, and every line that
+        // person ever wrote is held PENDING — an admission that admits nothing
+        // (`PendingLoadTests.test_admittingTheStrangerAppliesEverythingItHeld`
+        // is the shape, and it is a real state: `RegistryAdmission.admit`
+        // writes a person record and nothing else).
+        //
+        // Last of the three passes and only where nothing is mapped yet, so a
+        // device record that owns the key still says what it is for, and a
+        // contested key (`actorKeyOwners` dropped it) stays unowned — a person
+        // record is signed by the ROOT rather than by the key it names, so it
+        // is the register's vocabulary talking and not a proof of possession.
+        for person in registry.people where actorByKey[person.person] == nil {
+            actorByKey[person.person] = .author
         }
         // **This device's own keys win.** A device record vouches for its own
         // actors, and the reader checks only that its `author` entry is
@@ -306,6 +332,7 @@ public struct TrustTable: Equatable, Sendable {
             deviceByActorKey: deviceByActorKey,
             actorByKey: actorByKey, timelineByPerson: timelineByPerson,
             personByFingerprint: personByFingerprint,
+            knownPeople: registry.knownPeople,
             retiredAtByDevice: retiredAtByDevice, myChain: myChain,
             otherRootByMember: otherRootByMember)
     }
@@ -459,5 +486,15 @@ public struct TrustTable: Equatable, Sendable {
     nonisolated public var myTimeline: PermitTimeline {
         guard let myPerson else { return .bookAuthor }
         return timeline(forPerson: myPerson)
+    }
+
+    /// **Is a device holding lines back a STRANGER?** — `Registry
+    /// .isStrangerDevice`'s rule, asked of the set `resolve` already took off
+    /// the registry, so the load can answer it without keeping a registry.
+    ///
+    /// Read the registry's own doc comment for why a held line and a line
+    /// *waiting for admission* stopped being the same fact in P3a.
+    nonisolated public func isStrangerDevice(_ fingerprint: String) -> Bool {
+        !knownPeople.contains(fingerprint)
     }
 }

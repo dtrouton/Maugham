@@ -157,16 +157,33 @@ final class DocumentWaitingTests: XCTestCase {
 
     /// Narrow this device's permit with a signed event from the root.
     private func narrow(
-        by root: DeviceIdentity, role: String, scope: String, pieces: [String] = []
+        by root: DeviceIdentity, role: String, scope: String, pieces: [String] = [],
+        mark: [String: PermitMark.StreamMark] = [:]
     ) throws {
         try RegistryWriter.write(
             PermitEvent(
                 event: PermitEvent.mintID(subject: identities.author.fingerprint),
                 kind: role == Permit.reviewerRole ? .roleChanged : .scopeChanged,
                 subject: identities.author.fingerprint,
-                role: role, scope: scope, pieces: pieces,
+                role: role, scope: scope, pieces: pieces, mark: mark,
                 at: Date(timeIntervalSince1970: 3_000), by: root.fingerprint),
             signedBy: root, in: projectURL)
+    }
+
+    /// **Where this Mac's own streams had got to** — what
+    /// `RegistryAdmission.changePermit` will compute when it writes a real
+    /// event (P3a Task 7), through the production door.
+    ///
+    /// A narrowing event with no mark says *nothing had been applied when this
+    /// changed*, and P3a Task 5's partition then refuses everything this device
+    /// wrote before it. That is the correct reading of an empty mark and the
+    /// wrong fixture for a test about what happens AFTERWARDS.
+    private func appliedSoFar() throws -> [String: PermitMark.StreamMark] {
+        try OpLogStore.appliedPositions(
+            ofDeviceIds: Set(identities.all.map(\.deviceId)),
+            in: projectURL,
+            trust: try TrustResolution.resolve(
+                projectURL: projectURL, identities: identities)).streams
     }
 
     // MARK: - (1) Attribution
@@ -471,7 +488,11 @@ final class DocumentWaitingTests: XCTestCase {
             .filter { $0.kind == .taskCreate }.count
 
         let root = try makeRoot()
-        try narrow(by: root, role: Permit.reviewerRole, scope: Permit.bookScope)
+        // With the mark this Mac's own streams had reached, so the permit
+        // partition (Task 5) leaves what the writer wrote BEFORE the demotion
+        // in the book — which is what this test is about what happens after.
+        try narrow(by: root, role: Permit.reviewerRole, scope: Permit.bookScope,
+                   mark: try appliedSoFar())
 
         let doc = try await Document.load(
             url: docURL, actor: .author, session: "s1", presenter: nil,

@@ -478,7 +478,12 @@ struct HistoryPane: View {
     nonisolated static func pendingNotice(
         provenance: OpLogProvenance?, names: [String: String]
     ) -> String? {
-        guard let provenance, provenance.hasPendingHistory else { return nil }
+        // **Strangers only** (P3a Task 5's D5). `hasPendingHistory` is every
+        // held line; this sentence ends in *waiting for admission*, and a line
+        // held because its signer's permit is one this build cannot judge
+        // belongs to a device the writer has already admitted. Under P3a such
+        // a line is held silently; P3b gives it a surface of its own.
+        guard let provenance, provenance.hasPendingAdmission else { return nil }
         // **The OP lines, not the line tally** (whole-branch review, I1). This
         // sentence puts the word "notes" after its number and the admission
         // sheet puts "notes waiting" after its own, and the two were counting
@@ -487,7 +492,7 @@ struct HistoryPane: View {
         // sheet about the same device. `pendingOpLines` is the sum of the very
         // map `AdmissionDecision.requests` is built from, so the agreement is
         // by construction rather than by two files staying in step.
-        let total = provenance.pendingOpLines
+        let total = provenance.pendingStrangerOpLines
         // A pending span that is nothing but a seal (two adjacent seal lines)
         // is held history with no note in it. There is no number to say and no
         // device to name, and Admit… would find nothing — so this goes quiet
@@ -495,7 +500,7 @@ struct HistoryPane: View {
         guard total > 0 else { return nil }
         let noun = total == 1 ? "note" : "notes"
         let verb = total == 1 ? "is" : "are"
-        let devices = provenance.pendingByDevice.keys.sorted()
+        let devices = provenance.pendingStrangersByDevice.keys.sorted()
         let who: String
         if devices.count > 1 {
             who = "\(devices.count) devices"

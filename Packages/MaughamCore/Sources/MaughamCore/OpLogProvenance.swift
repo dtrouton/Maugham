@@ -38,6 +38,23 @@ public struct FileProvenance: Equatable, Sendable {
     /// as both its author and its assistant is one device waiting for
     /// admission. A key no device record names stands for itself.
     public let pendingByDevice: [String: Int]
+    /// **Of those, the ones this book has no person record for** — the devices
+    /// the writer can actually be asked to ADMIT (P3a Task 5's D5).
+    ///
+    /// P2 held a line for exactly one reason — a stranger's seal — so *held*
+    /// and *waiting for admission* were the same fact and a surface could read
+    /// `pendingByDevice` raw. P3a holds a line for a second reason: a permit
+    /// this build cannot judge, from a device that is already admitted. Those
+    /// two share `Line.State.pending` on purpose (same storage state, same
+    /// tallies, one walk) and are told apart HERE, by the one predicate
+    /// (`TrustTable.isStrangerDevice`), so every admission-worded sentence
+    /// narrows in the same place.
+    ///
+    /// Stamped by the load, which is the only place the table is in hand.
+    /// **Unstamped means every held device is a stranger** — P2's meaning
+    /// exactly, since a stranger's seal was the only reason to hold a line —
+    /// so a `FileProvenance` built by hand answers what it always answered.
+    public let pendingStrangerDevices: Set<String>
     /// Whether this file is a sealed `.mzseg` segment rather than a live tail.
     public let isSealedSegment: Bool
     /// For a sealed segment: whether its signature settled it (either read from
@@ -54,6 +71,7 @@ public struct FileProvenance: Equatable, Sendable {
         quarantined: Int = 0,
         pending: Int = 0,
         pendingByDevice: [String: Int] = [:],
+        pendingStrangerDevices: Set<String>? = nil,
         isSealedSegment: Bool = false,
         segmentVerified: Bool? = nil
     ) {
@@ -65,6 +83,8 @@ public struct FileProvenance: Equatable, Sendable {
         self.quarantined = quarantined
         self.pending = pending
         self.pendingByDevice = pendingByDevice
+        self.pendingStrangerDevices =
+            pendingStrangerDevices ?? Set(pendingByDevice.keys)
         self.isSealedSegment = isSealedSegment
         self.segmentVerified = segmentVerified
     }
@@ -98,6 +118,30 @@ public struct OpLogProvenance: Equatable, Sendable {
             for (key, count) in file.pendingByDevice { total[key, default: 0] += count }
         }
     }
+
+    /// **Held lines by device, narrowed to the devices the writer can be asked
+    /// to ADMIT** — every *waiting for admission* sentence counts this map and
+    /// never `pendingByDevice` (P3a Task 5's D5).
+    ///
+    /// A line held because its signer's permit is one this build cannot judge
+    /// belongs to a device that is already in the book: offering the writer an
+    /// admission sheet about it would offer a control that changes nothing.
+    /// Under P3a such a line is held SILENTLY; P3b gives it a surface.
+    public var pendingStrangersByDevice: [String: Int] {
+        let strangers = files.reduce(into: Set<String>()) {
+            $0.formUnion($1.pendingStrangerDevices)
+        }
+        return pendingByDevice.filter { strangers.contains($0.key) }
+    }
+
+    /// The admission-worded total: `pendingOpLines` over strangers alone.
+    public var pendingStrangerOpLines: Int {
+        pendingStrangersByDevice.values.reduce(0, +)
+    }
+
+    /// Is anything waiting on the writer to ADMIT a device? The narrowed twin
+    /// of `hasPendingHistory`, and the one every Admit… control gates on.
+    public var hasPendingAdmission: Bool { pendingStrangerOpLines > 0 }
 
     /// **The held OP lines** — what every surface that puts a NOUN after the
     /// number must count (signed op log P2b Task 6's ruling (a)).

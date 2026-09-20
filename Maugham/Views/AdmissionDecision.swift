@@ -102,7 +102,13 @@ enum AdmissionDecision {
         let labels = knownLabels(registry: registry, memory: memory)
         return pending.keys.sorted().compactMap { fingerprint -> AdmissionRequest? in
             guard let waiting = pending[fingerprint], waiting > 0 else { return nil }
-            guard registry.person(fingerprint) == nil else { return nil }
+            // **THE stranger predicate** (P3a Task 5's D5), in Core, so every
+            // admission-worded count and notice narrows by the same rule this
+            // sheet does. A permit-pending line is held under the same
+            // `.pending(device:)` state and belongs to a device that is
+            // already in the book — offering a sheet about it would offer a
+            // control that changes nothing.
+            guard registry.isStrangerDevice(fingerprint) else { return nil }
             let record = registry.devices.first { $0.device == fingerprint }
             let ownName = record?.name
             return AdmissionRequest(

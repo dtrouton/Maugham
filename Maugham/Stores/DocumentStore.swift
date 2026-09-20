@@ -979,7 +979,14 @@ public final class DocumentStore {
     /// the post to *something not seen before is held*, and the window decides
     /// whether there is anything to ask about.
     private func announcePendingHistory(of document: Document) {
-        let waiting = Set((document.provenance?.pendingByDevice ?? [:])
+        // **Strangers only** (P3a Task 5's D5). The load stamps which of the
+        // held devices this book has no person record for, using the table it
+        // already resolved — so the narrowing costs this path nothing, and the
+        // rule is `Registry.isStrangerDevice`'s, asked once, in Core. A line
+        // held because its signer's permit is one this build cannot judge
+        // belongs to an ADMITTED device: announcing it would put an Admit…
+        // sheet in front of the writer about somebody already in the book.
+        let waiting = Set((document.provenance?.pendingStrangersByDevice ?? [:])
             .filter { $0.value > 0 }.keys)
         let newcomers = waiting.subtracting(announcedPendingDevices)
         guard !newcomers.isEmpty else { return }

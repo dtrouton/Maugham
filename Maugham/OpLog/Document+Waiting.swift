@@ -57,15 +57,15 @@ extension Document {
     /// actually hold, where `.projectStatement` would refuse her. The load is
     /// not the right place to discover a broken manifest; `ProjectStore.load`
     /// is, and it says so in its own words.
+    ///
+    /// **One spelling** (P3a Task 5): the rule above is
+    /// `OpLogStore.documentClass(forDocId:in:)`'s, because the permit PARTITION
+    /// asks the same question of the same file on the read side and two answers
+    /// about where a stream sits is two answers about who may write it.
     internal static func documentClass(
         forDocId docId: String, in projectURL: URL
     ) -> DocumentClass {
-        guard let data = try? Data(  // adr-0018-ok: project manifest JSON read, not manuscript
-            contentsOf: projectURL.appendingPathComponent(ProjectManifest.fileName)),
-              let manifest = try? ProjectManifest.makeDecoder()
-                .decode(ProjectManifest.self, from: data)
-        else { return .piece(docId) }
-        return DocumentClass.resolve(docId: docId, statements: manifest.statements)
+        OpLogStore.documentClass(forDocId: docId, in: projectURL)
     }
 
     /// The label of the root this device is on, for the waiting sentence — or

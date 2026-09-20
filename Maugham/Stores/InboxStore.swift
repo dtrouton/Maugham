@@ -329,8 +329,14 @@ final class InboxStore {
             .sorted { writeTime($0) > writeTime($1) }
         bylines = Self.bylines(
             for: entries + trashedEntries, registry: registry, table: table)
-        pendingByDevice = held
-        pendingDeviceNames = held.keys.reduce(into: [:]) { names, device in
+        // **Strangers only** (P3a Task 5's D5): this map's one reader puts
+        // *waiting for admission* after its number, and a line held because
+        // its signer's permit is one this build cannot judge belongs to a
+        // device already in the book. Narrowed here because this is where the
+        // verified registry is in hand; the rule is `Registry`'s, asked once.
+        let strangers = registry.strangersAwaitingAdmission(among: held)
+        pendingByDevice = strangers
+        pendingDeviceNames = strangers.keys.reduce(into: [:]) { names, device in
             names[device] = InboxByline.name(forDevice: device, registry: registry)
         }
     }

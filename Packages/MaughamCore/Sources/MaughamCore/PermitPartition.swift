@@ -126,12 +126,15 @@ public enum PermitPartition {
         streamKey: String,
         fileSegmentDigest: String?,
         trust: TrustTable,
+        settledByKey: String? = nil,
         decoding: WrittenDecoder = writtenOp,
         unowned: () -> UnownedPiece
     ) -> OpLogChain.Verification {
+        guard judgesAnything(trust) else { return verification }
         let lines = verification.lines
         guard !lines.isEmpty else { return verification }
-        let keys = attributableKeys(of: lines, trust: trust)
+        let keys = attributableKeys(
+            of: lines, trust: trust, settledByKey: settledByKey)
         guard !keys.isEmpty else { return verification }
         let governing = governingEntries(
             forKeys: Set(keys.values), lines: lines,
@@ -207,11 +210,14 @@ public enum PermitPartition {
         streamKey: String,
         fileSegmentDigest: String?,
         trust: TrustTable,
+        settledByKey: String? = nil,
         decoding: WrittenDecoder = writtenOp
     ) -> Bool {
+        guard judgesAnything(trust) else { return false }
         let lines = verification.lines
         guard !lines.isEmpty else { return false }
-        let keys = attributableKeys(of: lines, trust: trust)
+        let keys = attributableKeys(
+            of: lines, trust: trust, settledByKey: settledByKey)
         guard !keys.isEmpty else { return false }
         let governing = governingEntries(
             forKeys: Set(keys.values), lines: lines,
@@ -232,6 +238,38 @@ public enum PermitPartition {
     }
 
     // MARK: - The parts
+
+    /// Test-only counting seam: called once per (file, timeline entry with a
+    /// mark) judged — `OpLogChain.verifyObserverForTesting`'s twin.
+    ///
+    /// It exists to pin the cost claim rather than argue it: **a book with no
+    /// permit events hashes nothing**, because every timeline is one entry and
+    /// that entry has no mark. A regression that started judging the opening
+    /// entry would put a SHA-256 over every line of every file back on every
+    /// load and nothing else would go red.
+    ///
+    /// `nonisolated(unsafe)` because it is a test's own variable, set and
+    /// cleared on one thread; production never assigns it.
+    nonisolated(unsafe) public static var judgeObserverForTesting: (@Sendable () -> Void)?
+
+    /// **A book with no register has no ladder** — decision B3, spec §8's
+    /// *a book with no registry has posture author*, and the read-side twin of
+    /// `OpLogStore.localWritePermit`'s own first question.
+    ///
+    /// A permit is a fact the REGISTER states. Where this device is on no
+    /// chain, there is nothing to state it: every foreign key already answers
+    /// `.noChain` and applies as unsigned history (P1's whole world), so the
+    /// only keys a partition could reach are this device's own — and judging
+    /// the writer's own hand against a ladder their book does not have would
+    /// refuse lines on the strength of nothing.
+    ///
+    /// **Not `hasEvents`**, which would be a narrower and wrong test: the actor
+    /// rows bind in a book with a register and no events at all, which is every
+    /// book opened since P2a (`RegistryPresence.ensureRootIfEmpty` writes this
+    /// Mac a root at the first open of every project).
+    private static func judgesAnything(_ trust: TrustTable) -> Bool {
+        trust.myRoot != nil
+    }
 
     /// Applied by the walk: neither held back nor a torn last line.
     private static func isApplied(_ line: OpLogChain.Line) -> Bool {
@@ -254,8 +292,24 @@ public enum PermitPartition {
     /// which P1 applies and P3 does not start refusing, and a `.retired`
     /// device's own earlier word is left exactly where P2b put it.
     private static func attributableKeys(
-        of lines: [OpLogChain.Line], trust: TrustTable
+        of lines: [OpLogChain.Line], trust: TrustTable, settledByKey: String?
     ) -> [Int: String] {
+        // **A settled segment names its own key.** Its lines were never walked
+        // — the container's signature settled the whole file at once — so
+        // there are no inner seals to read a verdict off, and the key that
+        // settled it is the key every line in it is under. Without this a
+        // rotated segment would escape the partition that its live tail cannot,
+        // which is P2b Task 10's asymmetry one rule along: demote somebody,
+        // let them rotate, and everything applies.
+        if let settledByKey {
+            switch trust.verdict(forSealKey: settledByKey) {
+            case .mine, .admitted:
+                return Dictionary(
+                    uniqueKeysWithValues: lines.indices.map { ($0, settledByKey) })
+            case .stranger, .revoked, .retired, .otherRoot, .noChain:
+                return [:]
+            }
+        }
         var sealKeyAt: [Int: String] = [:]
         for (index, line) in lines.enumerated()
         where line.kind == .seal && line.state != .quarantined {
@@ -301,7 +355,8 @@ public enum PermitPartition {
         for key in keys {
             out[key] = trust.timeline(forSealKey: key)
                 .governingEntries(lineCount: lines.count) { mark in
-                    mark.judge(
+                    judgeObserverForTesting?()
+                    return mark.judge(
                         streamKey: streamKey,
                         fileIsSegmentWithDigest: fileSegmentDigest,
                         lines: bytes)

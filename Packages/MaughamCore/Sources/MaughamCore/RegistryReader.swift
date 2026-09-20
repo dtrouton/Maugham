@@ -379,6 +379,40 @@ public struct Registry: Equatable, Sendable {
         people.first { $0.person == fingerprint }
     }
 
+    /// Every fingerprint this book holds a person record for.
+    public var knownPeople: Set<String> { Set(people.map(\.person)) }
+
+    /// **Is a device holding lines back a STRANGER — somebody this book has no
+    /// record of?** THE predicate behind every sentence that says *waiting for
+    /// admission* (P3a Task 5's D5).
+    ///
+    /// P2 had one reason to hold a line and it was this one, so *held* and
+    /// *waiting to be admitted* were the same fact and every surface could read
+    /// `pendingByDevice` raw. P3a adds a second reason — a permit this build
+    /// cannot judge (`Permit.Allowed.cannotJudge`) — and it reuses the same
+    /// `Line.State.pending(device:)`, deliberately: it is the same STORAGE
+    /// state, held and not refused, and a second arm would fork the walk, the
+    /// tallies and every reader of them for a difference only the words turn
+    /// on. So the words are what narrows, here, once.
+    ///
+    /// An admitted person whose line this build cannot judge is **not** waiting
+    /// for admission — she is already in the book — and telling the writer to
+    /// admit her would offer a sheet that would change nothing. Under P3a her
+    /// line is held SILENTLY; P3b gives it a surface of its own.
+    ///
+    /// `AdmissionDecision.requests` asks this, and so does everything that
+    /// counts or announces: `TrustTable.isStrangerDevice` is the same rule
+    /// asked of the set this registry already handed the table.
+    public func isStrangerDevice(_ fingerprint: String) -> Bool {
+        person(fingerprint) == nil
+    }
+
+    /// The admission-worded subset of a held-lines map: the devices with no
+    /// person record, and their counts.
+    public func strangersAwaitingAdmission(among held: [String: Int]) -> [String: Int] {
+        held.filter { isStrangerDevice($0.key) }
+    }
+
     /// The roots this root has ADOPTED — the fingerprints named in the claims
     /// it signed (spec §5, plan decision P2).
     ///
