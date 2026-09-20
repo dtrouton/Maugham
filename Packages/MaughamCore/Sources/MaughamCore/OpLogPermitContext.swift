@@ -71,6 +71,71 @@ public struct PermitContext: Sendable {
     }
 }
 
+/// **Everything a reader needs to run the permit partition over one file**
+/// (P3a Task 6): the table, the document-level answers, and how to read what a
+/// line was.
+///
+/// Three streams answer to one permit and each of them reaches it from a
+/// different reader — the op log's two classify paths, `TranslationStore
+/// .loadMerged`, `JSONLAppendStore.loadVerifiedStrict` for the inbox — so the
+/// apparatus travels as ONE value for `PermitContext`'s own reason: a reader
+/// that could pass a table and forget the decoder would silently judge every
+/// line of a translation file as an op with no `kind`, which is *nothing to
+/// decide*.
+public struct PermitJudge: Sendable {
+
+    /// The one table (tripwire 39: no parallel trust table).
+    public let trust: TrustTable
+    /// Where this stream sits, and §4.5's document-level fact.
+    public let context: PermitContext
+    /// What a line of THIS stream was — see `PermitPartition.WrittenDecoder`.
+    public let decoding: @Sendable (Data) -> Written?
+
+    public init(
+        trust: TrustTable, context: PermitContext,
+        decoding: @escaping @Sendable (Data) -> Written? = PermitPartition.writtenOp
+    ) {
+        self.trust = trust
+        self.context = context
+        self.decoding = decoding
+    }
+
+    /// One language's translation sidecar for one piece.
+    ///
+    /// The class is CONSTRUCTED rather than resolved from the manifest, because
+    /// the reader already knows what it is reading: a translation stream's
+    /// document id is the piece's own, which is exactly what
+    /// `DocumentClass.translation(piece:)` carries and what an
+    /// author-of-some-pieces' scope list names. So this pays no manifest read
+    /// at all, on any book.
+    ///
+    /// `unowned` is never asked: §4.5 is about MANUSCRIPT text in a piece
+    /// nobody has claimed, and `PermitPartition.startsAPieceNobodyHasClaimed`
+    /// requires both a `.piece` class and the manuscript-text group, so a
+    /// translation line can never reach it.
+    public static func translation(
+        ofPiece piece: String, trust: TrustTable
+    ) -> PermitJudge {
+        PermitJudge(
+            trust: trust,
+            context: PermitContext(
+                documentClass: { .translation(piece: piece) },
+                unowned: { .nobodyHasWrittenItsText }),
+            decoding: PermitPartition.writtenTranslationRecord)
+    }
+
+    /// The capture inbox — one class for the whole stream, and the one class
+    /// whose entire content is the reviewer row.
+    public static func inbox(trust: TrustTable) -> PermitJudge {
+        PermitJudge(
+            trust: trust,
+            context: PermitContext(
+                documentClass: { .inbox },
+                unowned: { .nobodyHasWrittenItsText }),
+            decoding: PermitPartition.writtenInboxRow)
+    }
+}
+
 extension OpLogStore {
 
     /// **Where a document's stream sits, from the manifest on disk** (spec

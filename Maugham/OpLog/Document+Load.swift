@@ -631,6 +631,17 @@ extension Document {
         // registry read of their own on a path a plain `tasks(filter:)` READ
         // reaches.
         doc.localWritePermit = writePermit
+        // P3a Task 6: and the same for the OTHER direction — not what this
+        // device may write, but which of the amendments already in the log this
+        // derivation honours. Resolved here because the table `localWritePermit`
+        // warmed is still warm; the projection it feeds is rebuilt at every
+        // burst boundary and must not reach for a register of its own.
+        doc.annotationAmendments = opStore.annotationAmendments {
+            // `OpLogStore`'s own door rather than `Document.documentClass`,
+            // which is the same function behind a `@MainActor` extension this
+            // `@Sendable` closure cannot reach.
+            OpLogStore.documentClass(forDocId: docId, in: projectURL)
+        }
         // Signed op log P1: what this document's history turned out to be made
         // of. STAMPED, never posted — a notice from this windowless context is
         // dropped by the receive helpers' liveness guard, exactly the pending

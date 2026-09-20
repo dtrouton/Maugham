@@ -132,6 +132,16 @@ public struct TrustTable: Equatable, Sendable {
     /// only whose key this is cannot judge the line. Nil for a key no record
     /// names an actor for, and for an actor word a later build invented.
     private let actorByKey: [String: DeviceActor]
+    /// **A `device` string → the actor key it names** (P3a Task 6). An op and
+    /// an inbox capture name their writer as `<actor>-<16 hex of the key>` and
+    /// nothing else, while the permit, the person and the actor are all lookups
+    /// on the KEY — so something has to turn one into the other, and it is this
+    /// rather than a scan a caller writes for itself.
+    ///
+    /// Built from every key a verified device record MENTIONS, contested ones
+    /// included, because *named but nobody's* and *not here at all* are two
+    /// different answers (see `deviceKey(forDeviceId:)`).
+    private let keyByDeviceId: [String: String]
     /// Person fingerprint → their permit history, built from this registry's
     /// events (spec §3.4). Absent for everybody with no events, which is
     /// everybody in every book written before P3 — and absent answers the
@@ -241,6 +251,23 @@ public struct TrustTable: Equatable, Sendable {
             actorByKey[identity.fingerprint] = actor
         }
 
+        // **The same walk, one hop the other way** (P3a Task 6): every key a
+        // record NAMES, under the device id that key would be written as.
+        // Contested keys are in here on purpose — the register has an opinion
+        // about one (*nobody's*), and a reader that could not find it at all
+        // would read its lines as unsigned history instead of refusing them.
+        // This device's own ids win for `actorByKey`'s reason, first-hand.
+        var keyByDeviceId: [String: String] = [:]
+        for device in registry.devices.sorted(by: { $0.device < $1.device }) {
+            for (word, key) in device.actors.sorted(by: { $0.key < $1.key }) {
+                let id = DeviceIdentity.deviceId(actor: word, fingerprint: key)
+                if keyByDeviceId[id] == nil { keyByDeviceId[id] = key }
+            }
+        }
+        for identity in myIdentityByActor.values {
+            keyByDeviceId[identity.deviceId] = identity.fingerprint
+        }
+
         var personByFingerprint: [String: PersonRecord] = [:]
         for person in registry.people where personByFingerprint[person.person] == nil {
             personByFingerprint[person.person] = person
@@ -316,7 +343,8 @@ public struct TrustTable: Equatable, Sendable {
             admittingRoots: admittingRoots, adoptedRoots: adoptedRoots,
             mine: myKeys, myPerson: myIdentityByActor[.author]?.fingerprint,
             deviceByActorKey: deviceByActorKey,
-            actorByKey: actorByKey, timelineByPerson: timelineByPerson,
+            actorByKey: actorByKey, keyByDeviceId: keyByDeviceId,
+            timelineByPerson: timelineByPerson,
             personByFingerprint: personByFingerprint,
             knownPeople: registry.knownPeople,
             keysNamedByADeviceRecord: registry.devices.reduce(into: Set()) {
@@ -515,6 +543,74 @@ public struct TrustTable: Equatable, Sendable {
     /// which is why this is a rule and not an observation.)
     nonisolated public func aDeviceRecordNames(_ fingerprint: String) -> Bool {
         keysNamedByADeviceRecord.contains(fingerprint)
+    }
+
+    /// **What a `device` string turns out to be** — the key it names, which of
+    /// the four writers it is, and whether anybody owns that key (P3a Task 6).
+    ///
+    /// A `device` string is `<actor>-<16 hex of the key>` and is written by the
+    /// device that chose it, so it is a CLAIM. It is believed only where a
+    /// verified device record names that very key under that very actor word,
+    /// or where the key is one of this device's own — so the claim can only
+    /// ever be matched, never taken at face value.
+    public struct DeviceKey: Equatable, Sendable {
+        /// The fingerprint every other question on this table is asked about.
+        public let key: String
+        /// The writer it is, or nil for an actor word this build cannot read.
+        public let actor: DeviceActor?
+        /// **False where two verified records claim this key**, which
+        /// `Registry.actorKeyOwners` awards to nobody for good. The register
+        /// has an opinion about such a key and the opinion is *nobody's*, so a
+        /// reader must not act on it — it is not the same as a key nothing
+        /// here has ever heard of.
+        public let isOwned: Bool
+    }
+
+    /// **The seal key a `device` string names**, or nil where nothing in this
+    /// register mentions one.
+    ///
+    /// Nil is the answer for every line P3 must not start judging: an op
+    /// carrying a pre-P1 hostname sentinel, a device that has never written a
+    /// record here, a book with no register at all. Those are decision B3's
+    /// world — the permit partition does not judge their lines either, because
+    /// no seal it can attribute covers them — so a caller meeting nil should
+    /// do what P1 did and not what a refusal would do.
+    nonisolated public func deviceKey(forDeviceId deviceId: String) -> DeviceKey? {
+        guard let key = keyByDeviceId[deviceId] else { return nil }
+        return DeviceKey(
+            key: key, actor: actorByKey[key],
+            isOwned: mine.contains(key) || deviceByActorKey[key] != nil)
+    }
+
+    /// **Are these two keys the same WRITER?** (P3a Task 6.)
+    ///
+    /// `person(forSealKey:)` answers a FINGERPRINT, and under labels-only a
+    /// person is a device's author key — so Sam's Mac and Sam's phone are two
+    /// person records and two fingerprints. That is the right answer for a
+    /// verdict (each machine's word is its own) and the wrong one for *may she
+    /// withdraw her own note*, which is about the writer and not the machine.
+    ///
+    /// So the join is the fingerprint, **or** the LABEL both person records
+    /// carry. A label is the one person-level identity this format has, and it
+    /// is not a coincidence: the admission sheet merges a typed label matching
+    /// a known one under that label's own spelling, which is the writer saying
+    /// *this is the same person* in the only place they are ever asked
+    /// (`AdmissionMemory`'s own premise). Two people the writer labelled
+    /// identically are therefore one writer here, which is what they said.
+    ///
+    /// **Not a general-purpose answer.** It is asked by the ownership rule and
+    /// nothing else: a verdict, a permit and a mark are all about the machine,
+    /// and widening any of those to a label would let a name decide what a
+    /// signature means.
+    nonisolated public func sameWriter(
+        _ fingerprint: String, _ other: String
+    ) -> Bool {
+        let (a, b) = (person(forSealKey: fingerprint), person(forSealKey: other))
+        if a == b { return true }
+        guard let left = personByFingerprint[a]?.label,
+              let right = personByFingerprint[b]?.label,
+              !left.isEmpty else { return false }
+        return left == right
     }
 
     /// **Has anything ever happened to anybody's permit in this book?** False

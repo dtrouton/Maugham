@@ -79,9 +79,24 @@ public enum PermitPartition {
     ///
     /// An unrecognised kind is `.unknown`, which the table holds PENDING; a
     /// line with no `kind` at all is nobody's to refuse and answers nil.
-    public static func writtenOp(_ line: Data) -> Written? {
+    @Sendable public static func writtenOp(_ line: Data) -> Written? {
         Op.kind(ofLine: line).map(Written.op)
     }
+
+    /// The translation sidecars' decoder (P3a Task 6).
+    ///
+    /// A non-seal line in `.maugham/translations/` is a `TranslationRecord` and
+    /// there is nothing else it could be — the directory holds one element
+    /// type, the filename carries the language, and the table's only question
+    /// about the line is *was this a translation*. So nothing is parsed: a line
+    /// that does not decode is `JSONLAppendStore.parse`'s to report, exactly as
+    /// it is for an op whose `kind` this never reads either.
+    @Sendable public static func writtenTranslationRecord(_ line: Data) -> Written? {
+        .translationRecord
+    }
+
+    /// The inbox manifests' decoder, for `writtenTranslationRecord`'s reason.
+    @Sendable public static func writtenInboxRow(_ line: Data) -> Written? { .inboxRow }
 
     // MARK: - The partition
 
@@ -207,6 +222,36 @@ public enum PermitPartition {
         guard !refusing.isEmpty || !holding.isEmpty else { return verification }
         return OpLogChain.repartitioned(
             verification, refusing: refusing, holding: holding)
+    }
+
+    /// **The partition, for a reader holding a FILE** — the one door every
+    /// stream reaches it by (P3a Task 6).
+    ///
+    /// `partition` above takes a stream key and a decoder because it is pure;
+    /// every real caller has a URL instead, and turning one into the other is
+    /// `PermitMark.stream(of:)`'s job and nobody else's. Spelling that hop once
+    /// is what keeps the op log's three call sites, the translation sidecars'
+    /// and the inbox manifest's from growing five opinions about which stream a
+    /// file belongs to — and a mark filed under a name no reader looks up fails
+    /// silently, by judging everything new.
+    ///
+    /// **Nil `judging` is the explicit *do not judge*** — the keyless readers,
+    /// which pass no table either.
+    public static func partition(
+        of verification: OpLogChain.Verification,
+        file url: URL,
+        judging judge: PermitJudge?,
+        fileSegmentDigest: String? = nil,
+        settledByKey: String? = nil
+    ) -> OpLogChain.Verification {
+        guard let judge, let stream = PermitMark.stream(of: url)
+        else { return verification }
+        return partition(
+            of: verification, class: judge.context.documentClass,
+            streamKey: stream.key, deviceSlug: stream.deviceSlug,
+            fileSegmentDigest: fileSegmentDigest,
+            trust: judge.trust, settledByKey: settledByKey,
+            decoding: judge.decoding, unowned: judge.context.unowned)
     }
 
     /// §4.5's pass 1: **did a book author apply a manuscript-text line here?**

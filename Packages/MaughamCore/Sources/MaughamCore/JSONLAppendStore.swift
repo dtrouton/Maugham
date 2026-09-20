@@ -102,7 +102,15 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     /// this is where a stream with no provenance of its own — the inbox's
     /// manifest — gets it. Empty for a store with no chain policy, which holds
     /// nothing back.
-    public func loadVerifiedStrict() async throws -> (
+    ///
+    /// `permit` is P3a Task 6's ladder, and **nil is the explicit *do not
+    /// judge*** — a caller with no verified table (the phone, a test) reads
+    /// exactly what it read before. The inbox's reader passes
+    /// `PermitJudge.inbox`, so a row another person's device captured answers
+    /// to the same permit its ops do.
+    public func loadVerifiedStrict(
+        permit judge: PermitJudge? = nil
+    ) async throws -> (
         elements: [Element], diagnostics: ParseDiagnostics,
         pendingByDevice: [String: Int]
     ) {
@@ -120,10 +128,14 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         // store's chained WRITE make — one rule for every chained stream, so
         // the inbox and the annotation log cannot grow an opinion of their own
         // about what a missing remembered head means.
-        let (verification, _) = OpLogChain.resolveAbsentHead(
+        let (resolved, _) = OpLogChain.resolveAbsentHead(
             walked,
             rememberedHead: chain.state.head(for: fileKey),
             previousHead: chain.state.previousHead(for: fileKey))
+        // Then the permit, line by line, before the parse — a line it refuses
+        // must never reach the element decoder.
+        let verification = PermitPartition.partition(
+            of: resolved, file: fileURL, judging: judge)
         let parsed = Self.parse(
             bytes: Self.applied(verification, whole: bytes),
             dedupKey: dedupKey, sortedBy: sortedBy)

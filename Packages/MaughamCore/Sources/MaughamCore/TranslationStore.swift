@@ -245,10 +245,22 @@ public enum TranslationStore {
             // The same absent-head decision the chained WRITE makes. If the two
             // disagreed, a load that held a tail back would be followed by an
             // append that chained onto it.
-            let (verification, _) = OpLogChain.resolveAbsentHead(
+            let (resolved, _) = OpLogChain.resolveAbsentHead(
                 walked,
                 rememberedHead: state.head(for: fileKey),
                 previousHead: state.previousHead(for: fileKey))
+            // **And then the permit, line by line** (P3a Task 6, spec §4.3's
+            // first bullet). A translation record is a signed line another
+            // person's device wrote and this one applies, so it answers to the
+            // same ladder as an op: a reviewer may not translate at all, and an
+            // author of some pieces may translate hers and no others. The class
+            // is CONSTRUCTED — this reader knows which piece it is reading —
+            // so no manifest is decoded on any book, and a book with no permit
+            // events short-circuits inside the partition before anything is
+            // hashed or judged.
+            let verification = PermitPartition.partition(
+                of: resolved, file: url,
+                judging: .translation(ofPiece: docId, trust: table))
             do {
                 try JSONLAppendStore<TranslationRecord>.setAside(
                     verification, from: url, docId: docId, in: projectURL)

@@ -278,7 +278,15 @@ final class InboxStore {
             // same implementation.
             let store = manifestStore(at: url, trust: table)
             do {
-                let read = try await store.loadVerifiedStrict()
+                // **And the permit, line by line** (P3a Task 6). A capture is a
+                // signed line another person's device wrote and this one
+                // applies, so it answers to the same ladder an op does — and
+                // the inbox is the one class whose whole content is the
+                // reviewer row, so every rung's rows are applied and only a
+                // narrowed actor's could ever be refused. The table is the one
+                // this refresh already resolved; nothing extra is read.
+                let read = try await store.loadVerifiedStrict(
+                    permit: .inbox(trust: table))
                 rows.append(contentsOf: read.elements)
                 for (device, count) in read.pendingByDevice {
                     held[device, default: 0] += count

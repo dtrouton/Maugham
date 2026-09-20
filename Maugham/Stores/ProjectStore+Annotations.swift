@@ -214,6 +214,9 @@ extension ProjectStore {
             unreadable.append(OpLogStore.unreadableName(error))
         }
 
+        // Bound out of the manifest once, for the amendment rule's class
+        // closure: it is `@Sendable`, so it may not reach back through `self`.
+        let statements = manifest.statements
         for item in Self.collectDocuments(in: manifest.structure) {
             if let doc = openDocs[item.id] {
                 sequences[item.id] = doc.sequence
@@ -245,8 +248,16 @@ extension ProjectStore {
             // legacy sequence-less logs).
             let derived = Deriver.deriveWithSequenceFallback(ops: ops)
             sequences[item.id] = derived.sequence
+            // P3a Task 6: the same *whose annotation is it* rule the open
+            // document applies, off the table this walk already resolved and
+            // the manifest it already holds. The queue counts notes in pieces
+            // nobody has opened, so a rule only the editor applied would have
+            // two surfaces disagreeing about whether a note is still there.
             annotations.append(contentsOf: AnnotationAggregation.allAnnotations(
-                ops: ops, paragraphs: derived.paragraphs)
+                ops: ops, paragraphs: derived.paragraphs,
+                amendments: .judged(by: trust, class: {
+                    DocumentClass.resolve(docId: item.id, statements: statements)
+                }))
                 .map { ProjectAnnotation(docId: item.id, annotation: $0) })
         }
 

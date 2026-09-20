@@ -63,7 +63,8 @@ extension Document {
 
     private func rebuildAnnotationsCache() {
         _annotationsCache = AnnotationDeriver.derive(
-            ops: _opLogMirror, paragraphs: paragraphs)
+            ops: _opLogMirror, paragraphs: paragraphs,
+            amendments: annotationAmendments)
         _annotationsCacheValid = true
     }
 
@@ -1192,7 +1193,8 @@ extension Document {
     /// withdrew, recoverable later via `reopenAnnotation`. Derived from the
     /// live mirror on each call — the list is small and the view is cold.
     public func withdrawnAnnotations() -> [AnnotationDeriver.WithdrawnAnnotation] {
-        AnnotationDeriver.deriveWithdrawn(ops: _opLogMirror)
+        AnnotationDeriver.deriveWithdrawn(
+            ops: _opLogMirror, amendments: annotationAmendments)
     }
 
     /// The pane's Reopen (RULING-29): `reopenAnnotation` wrapped in a ⌘Z pair.
@@ -1379,7 +1381,9 @@ extension Document {
     /// `withdrawState` pass uses; kept here rather than derived from
     /// `annotations()` because a withdrawn annotation has no row to read.
     internal func isWithdrawn(annotationId id: String) -> Bool {
-        AnnotationDeriver.isWithdrawn(annotationId: id, in: _opLogMirror)
+        AnnotationDeriver.isWithdrawn(
+            annotationId: id, in: _opLogMirror,
+            amendments: annotationAmendments)
     }
 
     /// Undo the splice of an accept that a reject beat across a merge, so the

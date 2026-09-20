@@ -20,8 +20,12 @@ public enum AnnotationAggregation {
     /// Derives the paragraph text itself. A caller that already has the
     /// derived paragraphs in hand should use the overload below rather than
     /// pay for a second walk of the stream.
-    public static func allAnnotations(ops: [Op]) -> [Annotation] {
-        allAnnotations(ops: ops, paragraphs: Deriver.derive(ops: ops).paragraphs)
+    public static func allAnnotations(
+        ops: [Op], amendments: AnnotationAmendments = .honourEverything
+    ) -> [Annotation] {
+        allAnnotations(
+            ops: ops, paragraphs: Deriver.derive(ops: ops).paragraphs,
+            amendments: amendments)
     }
 
     /// Same projection, over paragraphs the caller already derived.
@@ -32,15 +36,20 @@ public enum AnnotationAggregation {
     /// The two derives differ only in how they recover a missing `sequence`;
     /// `paragraphs` is identical, so both spellings of `allAnnotations` agree.
     public static func allAnnotations(
-        ops: [Op], paragraphs: [String: String]
+        ops: [Op], paragraphs: [String: String],
+        amendments: AnnotationAmendments = .honourEverything
     ) -> [Annotation] {
-        AnnotationDeriver.derive(ops: ops, paragraphs: paragraphs)
+        AnnotationDeriver.derive(
+            ops: ops, paragraphs: paragraphs, amendments: amendments)
     }
 
     /// Open annotations only — the triage subset. Kept as the thin filter over
     /// `allAnnotations` so the two never drift; `.stetted` resolves like an
     /// accept or a reject and is not open.
-    public static func openAnnotations(ops: [Op]) -> [Annotation] {
-        allAnnotations(ops: ops).filter { $0.status == .open }
+    public static func openAnnotations(
+        ops: [Op], amendments: AnnotationAmendments = .honourEverything
+    ) -> [Annotation] {
+        allAnnotations(ops: ops, amendments: amendments)
+            .filter { $0.status == .open }
     }
 }

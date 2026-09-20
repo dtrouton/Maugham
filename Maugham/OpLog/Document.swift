@@ -124,6 +124,16 @@ public final class Document {
     /// is exactly what every project on disk before P3 means.
     internal var localWritePermit: LocalWritePermit = .unrestricted
 
+    /// **Whose annotation it is** (P3a Task 6, spec §4.2) — resolved once by
+    /// `Document.load`, beside `localWritePermit` and for its reason.
+    ///
+    /// The annotation projection is rebuilt on every invalidation, which
+    /// includes the burst boundary, so the rule cannot be resolved there: the
+    /// answer costs a registry read and a P256 verify per record. Every
+    /// `Document` built any other way carries `honourEverything`, which is what
+    /// the deriver did before P3a.
+    internal var annotationAmendments: AnnotationAmendments = .honourEverything
+
     /// **Whether this Document's pending file is this Document's to spend**
     /// (P3a Task 8).
     ///

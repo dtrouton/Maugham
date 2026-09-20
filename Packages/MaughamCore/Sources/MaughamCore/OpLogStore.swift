@@ -250,37 +250,68 @@ public final class OpLogStore {
         // the FOLDER or this device's MEMORY of one, because a register deleted
         // wholesale is restored from that memory and treating its absence as
         // *no register* would make deleting one an escape from a demotion.
-        let permit: Permit
-        if TrustResolution.hasAnythingToResolve(
-            in: projectURL, cache: registryCache) {
-            let table: TrustTable
-            do { table = try trustOnThisActor() }
-            catch {
-                // **Forget the folder, not this device** (fix round 1's I2).
-                // `keyless` answers *author of the whole book* about everybody,
-                // so falling straight to it over one momentarily unreadable
-                // record would let a REVIEWER's Mac bootstrap and mint anchors
-                // that every other device then sets aside. The bytes this
-                // device last verified are still here and are its own memory
-                // rather than anybody's claim, so they answer first; `keyless`
-                // is what is left when there is nothing remembered either,
-                // which is the genuine P1 case. Neither throws, neither
-                // suspends, and neither refuses a load that did not refuse
-                // before.
-                table = TrustResolution.remembered(
-                    projectURL: projectURL, identities: identities,
-                    cache: registryCache)
-                    ?? TrustResolution.keyless(mine: identities)
-            }
-            permit = table.myTimeline.current
-        } else {
-            permit = .bookAuthor
-        }
+        let permit = registerTable().map(\.myTimeline.current) ?? .bookAuthor
         if LocalWritePermit.answersWithoutTheClass(permit, as: actor) {
             return LocalWritePermit(permit: permit, actor: actor, documentClass: nil)
         }
         return LocalWritePermit(
             permit: permit, actor: actor, documentClass: documentClass())
+    }
+
+    /// **The verified table, or nil where this project has never had a
+    /// register at all** — the one question `localWritePermit` and
+    /// `annotationAmendments` both open with, spelled once (P3a Task 6).
+    ///
+    /// A project with no register pays nothing — not a folder read, not a
+    /// verify, not a question. The test is `verifiedRegistry`'s own first one,
+    /// asked through its own spelling: the FOLDER or this device's MEMORY of
+    /// one, because a register deleted wholesale is restored from that memory
+    /// and treating its absence as *no register* would make deleting one an
+    /// escape from a demotion.
+    ///
+    /// **It never throws, and that is the point.** `trust()` refuses on a
+    /// registry record that is present and unreadable (RULING-54), and a load
+    /// that asks these questions must not start refusing over one where it did
+    /// not before (constitution must #1). The caller that goes on to READ will
+    /// meet the same refusal through its own door with its own sentence.
+    private func registerTable() -> TrustTable? {
+        guard TrustResolution.hasAnythingToResolve(
+            in: projectURL, cache: registryCache) else { return nil }
+        do { return try trustOnThisActor() }
+        catch {
+            // **Forget the folder, not this device** (fix round 1's I2).
+            // `keyless` answers *author of the whole book* about everybody, so
+            // falling straight to it over one momentarily unreadable record
+            // would let a REVIEWER's Mac bootstrap and mint anchors that every
+            // other device then sets aside. The bytes this device last verified
+            // are still here and are its own memory rather than anybody's
+            // claim, so they answer first; `keyless` is what is left when there
+            // is nothing remembered either, which is the genuine P1 case.
+            // Neither throws, neither suspends, and neither refuses a load that
+            // did not refuse before.
+            return TrustResolution.remembered(
+                projectURL: projectURL, identities: identities,
+                cache: registryCache)
+                ?? TrustResolution.keyless(mine: identities)
+        }
+    }
+
+    /// **Whose annotation it is, for this document** (P3a Task 6, spec §4.2's
+    /// last paragraph) — `localWritePermit`'s sibling, and neutral in the same
+    /// way.
+    ///
+    /// The deriver is pure and holds no register, so the rule is resolved here,
+    /// once, where the verified table already is — resolving a second one per
+    /// annotation-cache rebuild would be a folder read and a P256 verify per
+    /// record on a keystroke-adjacent path.
+    ///
+    /// A project with no register answers `honourEverything`, which is the
+    /// pre-P3a behaviour exactly.
+    public func annotationAmendments(
+        documentClass: @escaping @Sendable () -> DocumentClass
+    ) -> AnnotationAmendments {
+        guard let table = registerTable() else { return .honourEverything }
+        return .judged(by: table, class: documentClass)
     }
 
     /// Lines this device has appended to each file since that file's last seal.
@@ -790,6 +821,16 @@ public final class OpLogStore {
     /// Everything else — the listing, the classification, the segment rule,
     /// the read-only guarantee, the throw — is one implementation, because two
     /// copies of it would be two answers to *which files are this device's*.
+    ///
+    /// **Three families of stream, not one** (P3a Task 6). A mark names a
+    /// person's `<docId>.<slug>` op streams, their `translation:…` sidecars and
+    /// their `inbox:<slug>` manifests, because those last two answer to the
+    /// same permit and `PermitMark.judge` asks the mark by stream key: a stream
+    /// the mark does not name is judged wholly NEW, so leaving the translation
+    /// and inbox families out would make every demotion reach back through
+    /// every translation and every capture the subject had ever written. The
+    /// families share the predicate and the read-only guarantee; they differ in
+    /// how a file is walked, which is what `verificationForPositions` holds.
     private nonisolated static func positions(
         ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
         lastLine: (OpLogChain.Line) -> Bool
@@ -838,6 +879,20 @@ public final class OpLogStore {
             }
         }
 
+        // The other two families. Neither rotates — `sealTailIfNeeded` is the
+        // op log's alone — so there is no segment rule here and no digest to
+        // record, only the last line the reader got to in each file.
+        for url in otherStreamFileURLs(in: projectURL) {
+            guard let stream = PermitMark.stream(of: url),
+                  let slug = stream.deviceSlug, slugs.contains(slug),
+                  let bytes = try readCoordinated(url: url, presenter: nil)
+            else { continue }
+            let verification = verificationForPositions(
+                at: url, bytes: bytes, stream: stream, trust: trust)
+            guard let last = verification.lines.last(where: lastLine) else { continue }
+            lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
+        }
+
         var marks: [String: PermitMark.StreamMark] = [:]
         for key in Set(segments.keys).union(lastKnownLine.keys) {
             // Sorted, because `opLogFileURLs` is UNSORTED and a mark two
@@ -848,6 +903,57 @@ public final class OpLogStore {
                 line: lastKnownLine[key])
         }
         return PermitMark(marks)
+    }
+
+    /// Every translation sidecar and inbox manifest in this project, in a
+    /// stable order (P3a Task 6). Whose they are is decided by the caller off
+    /// `PermitMark.stream(of:)`'s slug, exactly as it is for the op streams.
+    ///
+    /// A directory that will not list answers empty rather than throwing, which
+    /// is `positions`' own rule for `.maugham/ops`: a mark that came back short
+    /// over a missing folder is a mark, and one that refused would be a
+    /// permission change the root could not make.
+    private nonisolated static func otherStreamFileURLs(in projectURL: URL) -> [URL] {
+        var out: [URL] = []
+        for directory in [
+            TranslationStore.directoryURL(in: projectURL),
+            projectURL.appendingPathComponent(".maugham/inbox"),
+        ] {
+            let names = (try? FileManager.default
+                .contentsOfDirectory(atPath: directory.path)) ?? []
+            out.append(contentsOf: names.sorted()
+                .filter { $0.hasSuffix(".jsonl") }
+                .map { directory.appendingPathComponent($0) })
+        }
+        return out
+    }
+
+    /// One translation sidecar or inbox manifest, walked exactly as its own
+    /// READER walks it — verify, resolve the absent head, then the permit.
+    ///
+    /// The same three steps `TranslationStore.loadMerged` and
+    /// `JSONLAppendStore.loadVerifiedStrict` take, because a mark has to name
+    /// the line those readers got to and not a line some other walk would have.
+    /// `state: nil` throughout, so this remembers nothing and writes nothing.
+    private nonisolated static func verificationForPositions(
+        at url: URL, bytes: Data, stream: PermitMark.Stream, trust: TrustTable?
+    ) -> OpLogChain.Verification {
+        let walked = trust.map { table in
+            OpLogChain.verify(
+                bytes: bytes, trust: { table.verdict(forSealKey: $0) },
+                rememberedHead: nil)
+        } ?? OpLogChain.verify(
+            bytes: bytes, trusted: { _ in false }, rememberedHead: nil)
+        let (resolved, _) = OpLogChain.resolveAbsentHead(
+            walked, rememberedHead: nil, previousHead: nil)
+        guard let trust else { return resolved }
+        let judge: PermitJudge
+        switch stream.kind {
+        case .translation: judge = .translation(ofPiece: stream.docId, trust: trust)
+        case .inbox: judge = .inbox(trust: trust)
+        case .ops: return resolved
+        }
+        return PermitPartition.partition(of: resolved, file: url, judging: judge)
     }
 
     /// **The digest of a segment the reader took in WHOLE**, or nil.
@@ -957,20 +1063,16 @@ public final class OpLogStore {
         url: URL, trust: TrustTable?, permit: PermitContext?,
         fileSegmentDigest: String? = nil, settledByKey: String? = nil
     ) -> OpLogChain.Verification {
-        guard let trust, let permit,
-              let stream = PermitMark.stream(of: url)
-        else { return verification }
-        // **The class is handed over as the CLOSURE it is** (fix round 1, I1).
-        // Calling it here would make it an argument, evaluated before the
-        // partition's own first guard — a manifest read and decode for every
-        // op-log file of every book, including a registerless one that then
-        // judges nothing.
+        guard let trust, let permit else { return verification }
+        // **The class travels as the CLOSURE it is** (fix round 1, I1), inside
+        // the `PermitJudge`. Calling it here would make it an argument,
+        // evaluated before the partition's own first guard — a manifest read
+        // and decode for every op-log file of every book, including a
+        // registerless one that then judges nothing.
         return PermitPartition.partition(
-            of: verification, class: permit.documentClass,
-            streamKey: stream.key, deviceSlug: stream.deviceSlug,
-            fileSegmentDigest: fileSegmentDigest,
-            trust: trust, settledByKey: settledByKey,
-            unowned: permit.unowned)
+            of: verification, file: url,
+            judging: PermitJudge(trust: trust, context: permit),
+            fileSegmentDigest: fileSegmentDigest, settledByKey: settledByKey)
     }
 
     /// A live `.jsonl` tail: verified against this device's remembered head,
