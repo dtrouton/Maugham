@@ -701,13 +701,16 @@ public final class OpLogStore {
     ///
     /// **What it records, per stream** (`PermitMark.stream(of:)` names them):
     ///
-    /// - the digest of every SEGMENT that settled whole, which under
-    ///   `state: nil` is exactly the segments whose signature this device
-    ///   trusts (`classify`'s `verifiedSegmentDigest` — with no remembered
-    ///   digests to hit, the signature branch is the only way to settle);
+    /// - the digest of every SEGMENT the reader took in whole;
     /// - the `OpLogChain.lineHash` of the last APPLIED line of the live
-    ///   `.jsonl` tail — never a held-back line, never a quarantined one, never
-    ///   a torn one.
+    ///   `.jsonl` tail — never a held-back line, never a quarantined one,
+    ///   never a torn one.
+    ///
+    /// **`applied` here is the word it says**, and that is what makes this the
+    /// REVOCATION's question and not the permit's: *Revoke, keeping what this
+    /// Mac already had* means the lines that are in the draft the writer has
+    /// been reading. `seenPositions` is the other question — see it for why
+    /// one answer cannot serve both acts.
     ///
     /// **The last line is taken from the TAIL and no other file, which is what
     /// keeps this free of any ordering.** A stream is a run of sealed segments
@@ -716,18 +719,80 @@ public final class OpLogStore {
     /// decide which file came after which — and nothing may, because a segment
     /// index is part of a filename and a filename is the writer's to choose.
     ///
-    /// **The known gap, stated rather than hidden:** a segment that did NOT
-    /// settle whole (no signature beside it, or one this device cannot vouch
-    /// for) contributes no digest, so lines inside it judge as *new* later.
-    /// That is the strict side of the format the spec fixes — a mark can say
-    /// *this whole segment* or *up to this line*, and an unsettled segment is
-    /// neither.
+    /// **The known gap, stated rather than hidden:** a segment that neither
+    /// settled nor could be walked through to its last line contributes no
+    /// digest, so lines inside it judge as *new* later. That is the strict
+    /// side of the format the spec fixes — a mark can say *this whole segment*
+    /// or *up to this line*, and such a segment is neither.
     ///
     /// `nonisolated` and presenter-free, so the whole sweep runs off the main
     /// actor; it only reads, so there is no write of this process's own for a
     /// presenter to keep from bouncing back.
     nonisolated public static func appliedPositions(
         ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?
+    ) throws -> PermitMark {
+        try positions(ofDeviceIds: ids, in: projectURL, trust: trust) { line in
+            !line.state.isHeldBack && line.state != .tornTail
+        }
+    }
+
+    /// **Where in each of this device's streams the reader had READ TO** — the
+    /// position a PERMIT event records (spec §3.3, corrected in P3a Task 5's
+    /// fix round 2).
+    ///
+    /// **A mark does not bless lines; it selects which PERMIT judges them.**
+    /// At or before the position the OLD permit decides, after it the NEW one.
+    /// Once that is the rule, *the last line the root APPLIED* is the wrong
+    /// position, and it is wrong in both directions whenever refused or held
+    /// lines sit at the END of what the root had read:
+    ///
+    /// - **A promotion becomes a pardon.** Sam is a reviewer and the tail of
+    ///   her file ends in manuscript text this Mac refused. The root promotes
+    ///   her. The last APPLIED line is before that text, so the text judges
+    ///   NEW — under her new author permit — and is applied. Spec §5 forbids
+    ///   exactly that.
+    /// - **A demotion reaches back.** A segment holding a thousand honestly
+    ///   applied lines and one refused line is not *wholly applied*, so it
+    ///   would go unlisted, so all thousand judge NEW — under the demoted
+    ///   permit — and are refused retroactively.
+    ///
+    /// So the position is the last line the root **saw and judged**: the last
+    /// line the chain verified, whatever the partition then did with it —
+    /// applied, refused by the permit, or held. Lines the root refused under
+    /// the old permit stay under the old permit and stay refused; lines it
+    /// applied stay applied. Nothing is blessed either way, because the
+    /// refusal is re-derived from the permit rather than read off the mark.
+    ///
+    /// **Two things are not *seen*.** A torn tail line is a write that stopped
+    /// mid-line — bytes nobody finished, let alone judged. And everything a
+    /// broken chain quarantined: the root never trusted those bytes, so it
+    /// never formed an opinion about what they said.
+    ///
+    /// A SEGMENT the reader took in whole is listed by digest **whether or not
+    /// any of its lines were refused**, for the same reason: the digest says
+    /// *the root read this whole file*, not *the root applied all of it*.
+    nonisolated public static func seenPositions(
+        ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?
+    ) throws -> PermitMark {
+        try positions(ofDeviceIds: ids, in: projectURL, trust: trust, lastLine: wasSeen)
+    }
+
+    /// Did the reader see and JUDGE this line? — `seenPositions`' predicate,
+    /// and the one place the two exclusions are spelled.
+    nonisolated static func wasSeen(_ line: OpLogChain.Line) -> Bool {
+        if line.state == .tornTail { return false }
+        if case .chainBroke = line.refusal { return false }
+        return true
+    }
+
+    /// **The walk both position sweeps share.** They differ in one thing and
+    /// it is the `lastLine` predicate: what counts as the last line of a tail.
+    /// Everything else — the listing, the classification, the segment rule,
+    /// the read-only guarantee, the throw — is one implementation, because two
+    /// copies of it would be two answers to *which files are this device's*.
+    private nonisolated static func positions(
+        ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
+        lastLine: (OpLogChain.Line) -> Bool
     ) throws -> PermitMark {
         guard !ids.isEmpty else { return .nothingApplied }
         // A device's files are named for its SLUG, and `DeviceSlug.make` is
@@ -740,15 +805,12 @@ public final class OpLogStore {
             .contentsOfDirectory(atPath: opsDir.path)) ?? []
         var docIds = docIds(inOpsDirectoryFilenames: filenames)
         // Named, because the manuscript reader excludes it by contract — the
-        // same reason its sibling and the project-open sweep name it.
+        // same reason the project-open sweep names it when it rotates tails.
         docIds.insert("__project__")
 
-        // Same rule as its sibling above: a line the permit refuses is not one
-        // this Mac had got to, so the position it would record is not a
-        // position (P3a Task 5).
         let statements = manifestStatements(in: projectURL)
         var segments: [String: Set<String>] = [:]
-        var lastAppliedLine: [String: String] = [:]
+        var lastKnownLine: [String: String] = [:]
         for docId in docIds.sorted() {
             let permit = permitContext(
                 forDocId: docId, in: projectURL, trust: trust,
@@ -762,42 +824,56 @@ public final class OpLogStore {
                 let classified = classify(
                     url: url, bytes: bytes, state: nil, trust: trust,
                     permit: permit)
-                if let digest = classified.verifiedSegmentDigest {
-                    // **A segment is listed WHOLE or not at all** (fix round
-                    // 1, minor (b)). Since the permit partition reaches a
-                    // settled segment, one can come back with lines refused or
-                    // held inside it — and `segments` says *this whole segment
-                    // was applied*, which a later reader believes without
-                    // looking. Listing it would let a mark bless the very
-                    // lines this Mac refused. A segment that did not settle
-                    // whole contributes nothing, exactly as one with no
-                    // signature does; its lines judge NEW later, which is the
-                    // strict side and the side ruling 1 picks.
-                    let heldBack = classified.verification.map { walk in
-                        walk.lines.contains { $0.state.isHeldBack }
-                    } ?? false
-                    if !heldBack { segments[stream.key, default: []].insert(digest) }
+                if url.pathExtension == OpLogSegment.fileExtension {
+                    if let digest = segmentDigestReadWhole(
+                        container: bytes, classified: classified) {
+                        segments[stream.key, default: []].insert(digest)
+                    }
                     continue
                 }
-                guard url.pathExtension != OpLogSegment.fileExtension,
-                      let verification = classified.verification else { continue }
-                guard let last = verification.lines.last(where: {
-                    !$0.state.isHeldBack && $0.state != .tornTail
-                }) else { continue }
-                lastAppliedLine[stream.key] = OpLogChain.lineHash(last.bytes)
+                guard let verification = classified.verification,
+                      let last = verification.lines.last(where: lastLine)
+                else { continue }
+                lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
             }
         }
 
         var marks: [String: PermitMark.StreamMark] = [:]
-        for key in Set(segments.keys).union(lastAppliedLine.keys) {
+        for key in Set(segments.keys).union(lastKnownLine.keys) {
             // Sorted, because `opLogFileURLs` is UNSORTED and a mark two
             // devices compare byte for byte must not depend on what
             // `contentsOfDirectory` felt like saying.
             marks[key] = .init(
                 segments: segments[key].map { $0.sorted() } ?? [],
-                line: lastAppliedLine[key])
+                line: lastKnownLine[key])
         }
         return PermitMark(marks)
+    }
+
+    /// **The digest of a segment the reader took in WHOLE**, or nil.
+    ///
+    /// Whole means every line of it reached a verdict — not that every line
+    /// was applied. A mark's `segments` list says *the root read this whole
+    /// file*, and a later reader uses it to decide which PERMIT judges the
+    /// lines inside, never to decide that they were allowed (fix round 2).
+    ///
+    /// Two ways in. A container whose signature settled it was taken in whole
+    /// by definition — that is the claim a segment signature makes. One that
+    /// did not settle is walked instead, and it counts only if the walk
+    /// reached the end of it: a chain that broke inside means the root never
+    /// trusted the bytes after the break, so it did not read the file whole
+    /// and must not say it did. A container that did not even verify is nil,
+    /// because the digest a file CARRIES is the digest a tamperer leaves
+    /// alone, and only a container that held together may be keyed on.
+    private nonisolated static func segmentDigestReadWhole(
+        container: Data, classified: FileClassification
+    ) -> String? {
+        let decoded = OpLogSegment.decodeVerifying(container)
+        guard decoded.isVerified, let digest = decoded.digest else { return nil }
+        if classified.verifiedSegmentDigest != nil { return digest }
+        guard let walk = classified.verification, !walk.lines.isEmpty,
+              walk.lines.allSatisfy(wasSeen) else { return nil }
+        return digest
     }
 
     /// The file a `ReadError` names, for a caller that reports unreadable

@@ -221,6 +221,22 @@ final class PermitLoadTests: XCTestCase {
         }.joined()
     }
 
+    /// **The mark a PERMIT event records** — through the production door, as
+    /// `RegistryAdmission.changePermit` will (fix round 2).
+    private func seenMark() async throws -> [String: PermitMark.StreamMark] {
+        try OpLogStore.seenPositions(
+            ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+            trust: try await reader().trust()).streams
+    }
+
+    /// Its revocation-side sibling, for the tests that are about the
+    /// difference between the two.
+    private func appliedMark() async throws -> [String: PermitMark.StreamMark] {
+        try OpLogStore.appliedPositions(
+            ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+            trust: try await reader().trust()).streams
+    }
+
     /// The chain hash of the line at `index` of a file — what a mark records.
     private func mark(of url: URL, cuttingAfterLineAt index: Int) throws
         -> [String: PermitMark.StreamMark]
@@ -745,79 +761,201 @@ final class PermitLoadTests: XCTestCase {
         XCTAssertEqual(provenance.quarantinedLines, 0)
     }
 
-    // MARK: - A mark never blesses what this Mac refused (minor (b))
+    // MARK: - A mark selects a PERMIT; it blesses nothing (fix round 2)
 
-    /// A segment with ANY line held back is not listed in an applied position.
-    /// `segments` says *this whole segment was applied*, and a later reader
-    /// believes it without looking — so listing a partitioned one would let a
-    /// mark bless the very lines this Mac refused.
-    func test_aPartitionedSegmentIsNotRecordedAsAWholeAppliedSegment() async throws {
+    /// **A promotion is not a pardon, even when the refused text is the LAST
+    /// thing in the file.**
+    ///
+    /// This is the case that shows why a permit event's position cannot be
+    /// *the last line the root APPLIED*. Sam is a reviewer and her file ends
+    /// in manuscript text this Mac refused; the last applied line is the note
+    /// BEFORE it, so under that rule her text would judge NEW, land under the
+    /// author permit she was just given, and be applied. Spec §5 forbids
+    /// exactly that. The position is the last line the root SAW and judged —
+    /// the seal that closes her refused text — so the text stays old, stays
+    /// hers-as-a-reviewer, and stays refused.
+    func test_aPromotionIsNotAPardonWhenTheRefusedTextIsLastInTheFile() async throws {
         try writeRootRecord()
         try admitSam()
-        let tail = try samsFile([
-            op("before", by: sam.author), op("after", by: sam.author),
+        try writeEvent("a", kind: .admitted, role: Permit.reviewerRole)
+        try samsFile([
+            op("herNote", by: sam.author, kind: .claudeComment),
+            op("herText", by: sam.author),
         ])
-        let cut = try mark(of: tail, cuttingAfterLineAt: 0)
+
+        let before = try await appliedOpIds("while she is a reviewer")
+        XCTAssertEqual(before, ["herNote"], "the fixture really refuses her text")
+
+        // The two positions differ here, and that is the whole point: the
+        // applied one stops before her refused text, the seen one takes it in.
+        let seen = try await seenMark()
+        let applied = try await appliedMark()
+        XCTAssertNotEqual(
+            seen.values.first?.line, applied.values.first?.line,
+            "a refused trailing line is seen and is not applied")
+
+        try writeEvent("b", kind: .roleChanged, role: Permit.authorRole, mark: seen)
+
+        let after = try await appliedOpIds("and after the promotion")
+        XCTAssertEqual(after, ["herNote"], "a promotion is not a pardon")
+        XCTAssertEqual(
+            linesRecords().map(\.reason),
+            ["written into the manuscript by a device that may not write it here"])
+    }
+
+    /// **A demotion does not reach back into a segment that had one refused
+    /// line in it.**
+    ///
+    /// A segment holding honestly applied lines AND something held back is not
+    /// *wholly applied* — and if that were the test for listing its digest, it
+    /// would go unlisted, every line in it would judge NEW, and the demotion
+    /// would refuse work the writer has been reading for months. The digest
+    /// says *the root read this whole file*, which is true, and the lines
+    /// inside keep the permits they were written under.
+    func test_aDemotionDoesNotReachBackIntoASegmentWithSomethingHeldInIt() async throws {
+        try writeRootRecord()
+        try admitSam()
+        // Narrowed from the start, so an unknown KIND inside her file is
+        // genuinely held rather than skipped as a book author's own hand.
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: [docId])
+        try samsFile(
+            [op("t0", by: sam.author), op("t1", by: sam.author)],
+            extraLines: [try futureKindLine("fromTomorrow", by: sam.author)])
         let samsStore = OpLogStore(
             projectURL: projectURL, identities: sam, state: samState)
         let rotated = try await samsStore.sealTailIfNeeded(
             docId: docId, deviceSlug: sam.author.slug, threshold: 1)
         XCTAssertNotNil(rotated, "the fixture really rotated")
 
-        let table = try await reader().trust()
-        let whole = try OpLogStore.appliedPositions(
-            ofDeviceIds: [sam.author.deviceId], in: projectURL, trust: table)
-        XCTAssertEqual(
-            whole.streams.values.first?.segments.count, 1,
-            "before the demotion the segment IS wholly applied")
+        let before = try await appliedOpIds("inside her own piece")
+        XCTAssertEqual(before, ["t0", "t1"])
+        let held = try await loadedProvenance().pendingOpLines
+        XCTAssertEqual(held, 1, "and one line of it is held")
 
-        try writeEvent("a", kind: .admitted, role: Permit.authorRole)
-        try writeEvent("b", kind: .roleChanged, role: Permit.reviewerRole, mark: cut)
-
-        let after = try OpLogStore.appliedPositions(
-            ofDeviceIds: [sam.author.deviceId], in: projectURL,
-            trust: try await reader().trust())
+        let seen = try await seenMark()
         XCTAssertEqual(
-            after.streams.values.first?.segments ?? [], [],
-            "a segment this Mac refused lines inside is listed nowhere")
+            seen.values.first?.segments.count, 1,
+            "the root read the whole segment, refusals and all")
+        try writeEvent("b", kind: .roleChanged, role: Permit.reviewerRole, mark: seen)
+
+        let after = try await appliedOpIds("and after the demotion")
+        XCTAssertEqual(after, ["t0", "t1"], "what she wrote before then stays")
+        XCTAssertTrue(linesRecords().isEmpty)
     }
 
-    /// **And deleting the signature beside it does not un-demote her** (fix
-    /// round 1, I4).
-    ///
-    /// The escape this closes: this Mac loads once, remembers the digest, and
-    /// from then on the container settles from MEMORY — at which point the
-    /// `.sig` that named the signing key could be deleted in the shared folder
-    /// and the whole segment applied unjudged. A remembered digest with no
-    /// attributable signature no longer takes the fast path at all; the
-    /// segment is walked, and the walk's own inner seals attribute every span.
-    func test_deletingASegmentsSignatureDoesNotUndoTheDemotion() async throws {
+    /// **A line held because this build cannot judge it was still SEEN.** The
+    /// trailing unsealed span is where the two positions can differ over a
+    /// held line, so that is where this is asked.
+    func test_aPermitPendingTrailingLineWasSeen() async throws {
         try writeRootRecord()
         try admitSam()
-        let tail = try samsFile([
-            op("before", by: sam.author), op("after", by: sam.author),
-        ])
-        let cut = try mark(of: tail, cuttingAfterLineAt: 0)
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: [docId])
+        // [text, seal, unknown-kind] — the held line is AFTER the seal, so the
+        // seal cannot stand in for it as the file's last line.
+        let url = try samsFile([op("t0", by: sam.author)])
+        var bytes = try Data(contentsOf: url)
+        let lines = bytes.split(separator: 0x0A, omittingEmptySubsequences: true)
+            .map(Data.init)
+        let held = OpLogChain.chainedLine(
+            elementJSON: try futureKindLine("fromTomorrow", by: sam.author),
+            prev: OpLogChain.lineHash(lines[lines.count - 1]))
+        bytes.append(held)
+        bytes.append(0x0A)
+        try bytes.write(to: url, options: .atomic)
+
+        let pending = try await loadedProvenance().pendingOpLines
+        XCTAssertEqual(pending, 1)
+        let seen = try await seenMark()
+        let applied = try await appliedMark()
+        XCTAssertEqual(
+            seen.values.first?.line, OpLogChain.lineHash(held),
+            "the held line is the last one the root saw")
+        XCTAssertEqual(
+            applied.values.first?.line, OpLogChain.lineHash(lines[lines.count - 1]),
+            "and it is not the last one it applied")
+    }
+
+    /// **A torn tail line was not seen.** Bytes that do not close as an object,
+    /// with nothing after them, are a write that stopped mid-line — nobody
+    /// finished them, so nobody judged them.
+    func test_aTornTailLineWasNotSeen() async throws {
+        try writeRootRecord()
+        try admitSam()
+        let url = try samsFile([op("t0", by: sam.author)])
+        var bytes = try Data(contentsOf: url)
+        let whole = bytes.split(separator: 0x0A, omittingEmptySubsequences: true)
+            .map(Data.init)
+        bytes.append(Data(#"{"op_id":"torn","doc_i"#.utf8))
+        try bytes.write(to: url, options: .atomic)
+
+        let seen = try await seenMark()
+        XCTAssertEqual(
+            seen.values.first?.line, OpLogChain.lineHash(whole[whole.count - 1]),
+            "the position stops at the last line that closed")
+    }
+
+    /// **And the revocation's own question is unchanged**: a segment the root
+    /// read whole is still listed for it, so `Revoke, keeping what this Mac
+    /// already had` gives back the lines it had applied rather than refusing
+    /// them for sitting beside one it did not (fix round 2's analysis).
+    func test_appliedPositionsStillListsASegmentItReadWhole() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: [docId])
+        try samsFile(
+            [op("t0", by: sam.author)],
+            extraLines: [try futureKindLine("fromTomorrow", by: sam.author)])
+        let samsStore = OpLogStore(
+            projectURL: projectURL, identities: sam, state: samState)
+        let rotated = try await samsStore.sealTailIfNeeded(
+            docId: docId, deviceSlug: sam.author.slug, threshold: 1)
+        XCTAssertNotNil(rotated)
+
+        let applied = try await appliedMark()
+        XCTAssertEqual(
+            applied.values.first?.segments.count, 1,
+            "a partially applied segment is still a segment this Mac read")
+    }
+
+    /// **A segment the reader could not get to the end of is listed nowhere.**
+    ///
+    /// The digest says *the root read this whole file*. Where the chain broke
+    /// inside it the root never trusted the bytes after the break, so it did
+    /// not read the file whole and must not say it did — and the lines inside
+    /// judge NEW later, which is the strict side.
+    func test_aSegmentWhoseChainBrokeIsListedNowhere() async throws {
+        try writeRootRecord()
+        try admitSam()
+        let url = try samsFile([op("t0", by: sam.author)])
+        // A correctly-shaped line naming a `prev` that is nobody's head.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+        var bytes = try Data(contentsOf: url)
+        bytes.append(OpLogChain.chainedLine(
+            elementJSON: try encoder.encode(op("spliced", by: sam.author)),
+            prev: String(repeating: "b", count: 64)))
+        bytes.append(0x0A)
+        try bytes.write(to: url, options: .atomic)
+
         let samsStore = OpLogStore(
             projectURL: projectURL, identities: sam, state: samState)
         let segment = try await samsStore.sealTailIfNeeded(
             docId: docId, deviceSlug: sam.author.slug, threshold: 1)
-        let segmentURL = try XCTUnwrap(segment)
-        try writeEvent("a", kind: .admitted, role: Permit.authorRole)
-        try writeEvent("b", kind: .roleChanged, role: Permit.reviewerRole, mark: cut)
+        // Without its signature the container is WALKED, which is the only way
+        // an inner break is ever seen at all.
+        try FileManager.default.removeItem(
+            at: OpLogStore.segmentSignatureURL(for: try XCTUnwrap(segment)))
 
-        // One load, so this device remembers the digest as verified.
-        let first = try await appliedOpIds("the first load")
-        XCTAssertEqual(first, ["before"])
-
-        // Sam deletes the signature in the shared folder.
-        let signature = OpLogStore.segmentSignatureURL(for: segmentURL)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: signature.path))
-        try FileManager.default.removeItem(at: signature)
-
-        let second = try await appliedOpIds("and after the signature is gone")
-        XCTAssertEqual(second, ["before"],
-                       "the segment is walked rather than applied whole")
+        let seen = try await seenMark()
+        XCTAssertEqual(
+            seen.values.first?.segments ?? [], [],
+            "the root did not reach the end of it")
+        let applied = try await appliedMark()
+        XCTAssertEqual(applied.values.first?.segments ?? [], [])
     }
 
     // MARK: - The revocation runs first, and its answer survives
