@@ -545,6 +545,26 @@ public final class OpLogStore {
         /// having to say so.
         case unreadableFile(name: String, underlying: String, kind: FileKind = .history)
         case unlistableOpsDirectory(underlying: String)
+        /// **A directory the MARK sweep must see exists and will not list**
+        /// (P3a Task 7, fix round 1). `.maugham/translations` and
+        /// `.maugham/inbox` — the ops folder has its own case above, with its
+        /// own sentence about a second parallel history.
+        ///
+        /// It is an error rather than an empty listing because of what an
+        /// omission MEANS to a mark: a stream a mark does not name is judged
+        /// wholly NEW, so a sweep that quietly saw nothing draws the line at
+        /// the very beginning of everything it missed. For a revocation that
+        /// sets aside words this Mac HAD applied — strictly more destructive
+        /// than the opId path it replaced, in the one direction find-5's
+        /// ruling forbids. For a demotion it reaches back through the whole
+        /// stream.
+        case unlistableStreamDirectory(name: String, underlying: String)
+        /// **A stream the caller said must be found was not** (P3a Task 7's
+        /// hook for Task 9). A file simply ABSENT at sweep time — evicted by
+        /// iCloud, halfway through a sync — is indistinguishable from a stream
+        /// that never existed unless somebody remembers it; the caller that
+        /// remembers says so through `expectedStreams`, and this is the answer.
+        case streamMissingFromSweep(streamKey: String)
         public var errorDescription: String? {
             switch self {
             case .unreadableFile(let name, let underlying, let kind):
@@ -555,6 +575,15 @@ public final class OpLogStore {
                 return "The manuscript's history folder (.maugham/ops) exists but can't be listed "
                      + "(\(underlying)). Check its permissions, then reopen — opening without it "
                      + "would start a second, parallel history."
+            case .unlistableStreamDirectory(let name, let underlying):
+                return "The folder “\(name)” exists but can't be listed (\(underlying)). "
+                     + "Your words are intact inside it — check its permissions or wait for "
+                     + "iCloud to finish syncing. Maugham won't decide what a device may "
+                     + "write from a reading it knows is short."
+            case .streamMissingFromSweep(let streamKey):
+                return "Part of this device's history (“\(streamKey)”) is one Maugham has "
+                     + "read before and can't find now — most often iCloud has moved it "
+                     + "out of the way. Nothing was changed; try again once it is back."
             }
         }
     }
@@ -766,9 +795,13 @@ public final class OpLogStore {
     /// actor; it only reads, so there is no write of this process's own for a
     /// presenter to keep from bouncing back.
     nonisolated public static func appliedPositions(
-        ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?
+        ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
+        expectedStreams: Set<String> = []
     ) throws -> PermitMark {
-        try positions(ofDeviceIds: ids, in: projectURL, trust: trust) { line in
+        try positions(
+            ofDeviceIds: ids, in: projectURL, trust: trust,
+            expectedStreams: expectedStreams
+        ) { line in
             !line.state.isHeldBack && line.state != .tornTail
         }
     }
@@ -809,9 +842,12 @@ public final class OpLogStore {
     /// any of its lines were refused**, for the same reason: the digest says
     /// *the root read this whole file*, not *the root applied all of it*.
     nonisolated public static func seenPositions(
-        ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?
+        ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
+        expectedStreams: Set<String> = []
     ) throws -> PermitMark {
-        try positions(ofDeviceIds: ids, in: projectURL, trust: trust, lastLine: wasSeen)
+        try positions(
+            ofDeviceIds: ids, in: projectURL, trust: trust,
+            expectedStreams: expectedStreams, lastLine: wasSeen)
     }
 
     /// Did the reader see and JUDGE this line? — `seenPositions`' predicate,
@@ -837,8 +873,28 @@ public final class OpLogStore {
     /// every translation and every capture the subject had ever written. The
     /// families share the predicate and the read-only guarantee; they differ in
     /// how a file is walked, which is what `verificationForPositions` holds.
+    ///
+    /// **A short answer is a refusal, never a shorter mark** (fix round 1, I2).
+    /// A stream the mark does not name is judged wholly NEW, so every way of
+    /// failing to SEE a stream is a way of drawing the line at the beginning
+    /// of it — which for a revocation sets aside words this Mac had applied
+    /// and for a demotion reaches back through the whole file. So: a directory
+    /// that exists and will not list throws (`listing(of:naming:)` tells that
+    /// from a directory that is simply not there), a file that is present and
+    /// will not read throws (`readCoordinated`, RULING-54), and every verb
+    /// that marks turns either into its own *nothing was changed* refusal.
+    ///
+    /// **`expectedStreams` is the third way, and it is a caller's to supply.**
+    /// A file that is simply ABSENT — evicted by iCloud, halfway through a
+    /// sync — looks exactly like a stream that never existed, and nothing in
+    /// this function can tell them apart. A caller that REMEMBERS which
+    /// streams it has applied says so here and gets
+    /// `ReadError.streamMissingFromSweep` naming the first one missing. P3a
+    /// supplies nothing (the memory is Task 9's), and the default is empty, so
+    /// this costs today's callers a set comparison over an empty set.
     private nonisolated static func positions(
         ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
+        expectedStreams: Set<String> = [],
         lastLine: (OpLogChain.Line) -> Bool
     ) throws -> PermitMark {
         guard !ids.isEmpty else { return .nothingApplied }
@@ -848,8 +904,11 @@ public final class OpLogStore {
         // held back still has a position, and a legacy shared file has none.
         let slugs = Set(ids.map { DeviceSlug.make(from: $0).raw })
         let opsDir = projectURL.appendingPathComponent(".maugham/ops")
-        let filenames = (try? FileManager.default
-            .contentsOfDirectory(atPath: opsDir.path)) ?? []
+        // The ops folder gets `verifyOpsDirectoryListable`'s own sentence,
+        // which is about a second parallel history rather than about a mark —
+        // but the condition and the refusal are the same one.
+        try verifyOpsDirectoryListable(in: projectURL)
+        let filenames = try listing(of: opsDir, naming: ".maugham/ops")
         var docIds = docIds(inOpsDirectoryFilenames: filenames)
         // Named, because the manuscript reader excludes it by contract — the
         // same reason the project-open sweep names it when it rotates tails.
@@ -888,7 +947,7 @@ public final class OpLogStore {
         // The other two families. Neither rotates — `sealTailIfNeeded` is the
         // op log's alone — so there is no segment rule here and no digest to
         // record, only the last line the reader got to in each file.
-        for url in otherStreamFileURLs(in: projectURL) {
+        for url in try otherStreamFileURLs(in: projectURL) {
             guard let stream = PermitMark.stream(of: url),
                   let slug = stream.deviceSlug, slugs.contains(slug),
                   let bytes = try readCoordinated(url: url, presenter: nil)
@@ -908,6 +967,12 @@ public final class OpLogStore {
                 segments: segments[key].map { $0.sorted() } ?? [],
                 line: lastKnownLine[key])
         }
+        // Sorted, so a sweep missing two streams refuses over the same one
+        // twice running and the writer is not chasing a different name each
+        // time they press.
+        if let missing = expectedStreams.subtracting(marks.keys).sorted().first {
+            throw ReadError.streamMissingFromSweep(streamKey: missing)
+        }
         return PermitMark(marks)
     }
 
@@ -915,18 +980,21 @@ public final class OpLogStore {
     /// stable order (P3a Task 6). Whose they are is decided by the caller off
     /// `PermitMark.stream(of:)`'s slug, exactly as it is for the op streams.
     ///
-    /// A directory that will not list answers empty rather than throwing, which
-    /// is `positions`' own rule for `.maugham/ops`: a mark that came back short
-    /// over a missing folder is a mark, and one that refused would be a
-    /// permission change the root could not make.
-    private nonisolated static func otherStreamFileURLs(in projectURL: URL) -> [URL] {
+    /// A directory that is NOT THERE answers empty — a book with no
+    /// translations has no such folder and there is nothing to mark. A
+    /// directory that exists and **will not list** throws (fix round 1, I2):
+    /// the two used to be one `try?`, and the second of them produced a mark
+    /// that silently omitted every stream in the folder, which is a mark that
+    /// judges every line of them NEW.
+    private nonisolated static func otherStreamFileURLs(
+        in projectURL: URL
+    ) throws -> [URL] {
         var out: [URL] = []
-        for directory in [
-            TranslationStore.directoryURL(in: projectURL),
-            projectURL.appendingPathComponent(".maugham/inbox"),
+        for (directory, name) in [
+            (TranslationStore.directoryURL(in: projectURL), ".maugham/translations"),
+            (projectURL.appendingPathComponent(".maugham/inbox"), ".maugham/inbox"),
         ] {
-            let names = (try? FileManager.default
-                .contentsOfDirectory(atPath: directory.path)) ?? []
+            let names = try listing(of: directory, naming: name)
             out.append(contentsOf: names.sorted()
                 .filter { $0.hasSuffix(".jsonl") }
                 .map { directory.appendingPathComponent($0) })
@@ -997,7 +1065,39 @@ public final class OpLogStore {
     /// files by name and has caught something that might not be one.
     nonisolated public static func unreadableName(_ error: Error) -> String {
         if case let ReadError.unreadableFile(name, _, _) = error { return name }
+        // A DIRECTORY that would not list, and a stream that was there before
+        // and is not now, are both things a verb refuses over (P3a Task 7's
+        // fix round 1) — and the writer's next move turns on which file it
+        // was, so each names itself rather than falling through to the
+        // registry.
+        if case let ReadError.unlistableStreamDirectory(name, _) = error { return name }
+        if case ReadError.unlistableOpsDirectory = error { return ".maugham/ops" }
+        if case let ReadError.streamMissingFromSweep(streamKey) = error { return streamKey }
         return "the project's registry"
+    }
+
+    /// **Every name in a directory — or nothing, where the directory is not
+    /// there** (P3a Task 7, fix round 1).
+    ///
+    /// The distinction is the whole of it. A book with no translations has no
+    /// `.maugham/translations`, and that is not a failure: there is nothing to
+    /// mark. A directory that EXISTS and will not list is a short answer
+    /// wearing the same clothes, and `(try? …) ?? []` cannot tell them apart —
+    /// which is how a mark came to omit a stream and, by omitting it, judge
+    /// every line of it NEW.
+    ///
+    /// The existence check runs AFTER the failure rather than before it, so an
+    /// ordinary listing costs one syscall and the discriminator is paid only
+    /// where something has already gone wrong.
+    private nonisolated static func listing(
+        of directory: URL, naming name: String
+    ) throws -> [String] {
+        do { return try FileManager.default.contentsOfDirectory(atPath: directory.path) }
+        catch {
+            guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
+            throw ReadError.unlistableStreamDirectory(
+                name: name, underlying: error.localizedDescription)
+        }
     }
 
     /// The project root a `.maugham/ops/<file>` URL sits under.
@@ -1186,7 +1286,12 @@ public final class OpLogStore {
         _ verification: OpLogChain.Verification,
         url: URL, trust: TrustTable?, fileSegmentDigest: String? = nil
     ) -> OpLogChain.Verification {
-        guard let trust else { return verification }
+        // **The quarantine short-circuit, restated here as a COST guard** (fix
+        // round 1, minor 4). `RevocationSplit.partition` makes the same check
+        // first, but it makes it after this function has already parsed the
+        // file's name into a stream key — on every file of every load, for a
+        // question that only arises where something was refused.
+        guard let trust, !verification.quarantined.isEmpty else { return verification }
         let streamKey = PermitMark.stream(of: url)?.key
         var judged: [String: PermitMark.Judgement] = [:]
         let split = RevocationSplit.partition(of: verification) { person in

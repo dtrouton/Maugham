@@ -151,17 +151,25 @@ public enum TrustEvents {
     /// Every event this project's records and this device's memory of it can
     /// account for, newest first, the undated last.
     ///
-    /// **Two of `TrustEvent.Kind`'s nine are not derived here**, and both are
-    /// deliberate rather than forgotten:
+    /// **Where each kind comes from** (rewritten in P3a Task 7's fix round 1;
+    /// the paragraph here said *two of nine are not derived*, named a count,
+    /// and was wrong about `.silentlyAdmitted` the moment that kind gained a
+    /// writer). Count nothing — `TrustEvent.Kind`'s own cases are the list:
     ///
-    /// - `.silentlyAdmitted` cannot be told from `.admitted` by records alone.
-    ///   A person record says a root admitted somebody; it does not say whether
-    ///   a sheet was shown. Denver's ruling for this task is that both emit
-    ///   `.admitted`. The heuristic that would separate them is a label
-    ///   remembered BEFORE this project's admission — `AdmissionMemory`'s
-    ///   `labelledAt` against the record's `admittedAt` — and the hook is here:
-    ///   when that type lands, this is the one place that has to change, and
-    ///   the sentence it needs is already written.
+    /// - `.admitted`, `.silentlyAdmitted`, `.readmitted`, `.roleChanged`,
+    ///   `.scopeChanged`, `.revoked`, `.revokedEntirely` and `.retired` come
+    ///   from **permit EVENTS** where the book has any, and the first two and
+    ///   the last three fall back to the RECORDS where it has none. Per FACT
+    ///   rather than per person — see the derivation below.
+    /// - `.silentlyAdmitted` in particular is the one the records could never
+    ///   tell from `.admitted`: a person record says a root admitted somebody,
+    ///   not whether a sheet was shown. `RegistryPresence.admitRemembered`
+    ///   writes the event that says so (closing C11), and a book written
+    ///   before P3 still reads `.admitted` for both, which is the honest
+    ///   answer where nothing recorded the difference.
+    /// - `.claimed`, `.adopted`, `.joined` and `.anotherClaimant` are the
+    ///   claim records and this device's own memory of the project; no event
+    ///   kind corresponds to them.
     /// - `.recordRestored` is dated from `RegistryCache.restores(for:)`, the
     ///   bounded list `reconcile` writes as it puts records back (P2b Task 10).
     ///   Reading it here rather than re-deriving it is the whole point: a

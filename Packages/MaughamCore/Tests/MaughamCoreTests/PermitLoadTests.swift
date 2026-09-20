@@ -1415,34 +1415,122 @@ final class PermitLoadTests: XCTestCase {
         XCTAssertEqual(applied, [])
     }
 
-    /// **The root's view only grows, so two successive marks are monotonic**
-    /// (Task 7's third ruling). It is a write-side invariant because the
-    /// timeline cannot check it — a mark that cut EARLIER than an older one
-    /// would simply govern, and the older permit would never apply to anything.
+    /// **The carry-forward, at the production door** (fix round 1, minor 7;
+    /// this test used to assert that two sweeps of an unchanged-then-appended
+    /// file gave non-decreasing positions, which is true of any sweep and bit
+    /// nothing).
     ///
-    /// Pinned where it is actually established: at the production door two
-    /// successive `changePermit`s compute their marks through.
-    func test_twoSuccessiveMarksNeverMoveBackwards() async throws {
+    /// The invariant with teeth is the one a lost file exercises: mark Sam's
+    /// stream, then let the sweep run with her file no longer there — it
+    /// cannot name a position for a stream it cannot see, and a stream a mark
+    /// does not name is judged wholly NEW. `writeEvent` carries the earlier
+    /// position forward, so the later event still cuts where the root had
+    /// actually got to instead of at the beginning of everything.
+    func test_aLaterEventKeepsThePositionOfAStreamTheSweepCanNoLongerSee() async throws {
         try writeRootRecord()
         try declareSam()
         let url = try samsFile([op("01", by: sam.author), op("02", by: sam.author)])
-        try await admit(.bookAuthor)
-        let first = PermitMark(try await seenMark())
-
-        try appendToSamsFile([op("03", by: sam.author)])
-        let second = PermitMark(try await seenMark())
-
         let key = try XCTUnwrap(PermitMark.streamKey(of: url))
-        let lines = try Data(contentsOf: url)
-            .split(separator: 0x0A, omittingEmptySubsequences: true).map(Data.init)
-        let before = first.judge(
-            streamKey: key, fileIsSegmentWithDigest: nil, lines: lines)
-        let after = second.judge(
-            streamKey: key, fileIsSegmentWithDigest: nil, lines: lines)
-        XCTAssertNotNil(before.lastOldIndex)
-        XCTAssertGreaterThanOrEqual(
-            try XCTUnwrap(after.lastOldIndex), try XCTUnwrap(before.lastOldIndex),
-            "everything the root had read before, it has still read")
+        try await admit(.bookAuthor)
+        let first = try await seenMark()
+        XCTAssertNotNil(first[key]?.line, "the sweep saw her stream")
+
+        // Gone — evicted, moved, mid-sync. Absent is not unreadable, so the
+        // sweep answers without it rather than refusing.
+        try FileManager.default.removeItem(at: url)
+        let second = try await seenMark()
+        XCTAssertNil(second[key], "and a sweep cannot name what it cannot see")
+
+        try RegistryAdmission.changePermit(
+            person: samPerson, role: Permit.reviewerRole, scope: Permit.bookScope,
+            pieces: [], mark: PermitMark(second),
+            in: projectURL, by: root.author, cache: cache,
+            now: { Date(timeIntervalSince1970: 90) })
+
+        let latest = try XCTUnwrap(
+            RegistryReader.load(projectURL: projectURL).events
+                .filter { $0.subject == samPerson }
+                .max(by: { $0.event < $1.event }))
+        XCTAssertEqual(
+            latest.mark[key]?.line, first[key]?.line,
+            "the demotion cuts where the root had got to, not at the beginning")
+    }
+
+    // MARK: - A short sweep is a refusal, never a shorter mark (fix round 1, I2)
+
+    /// **A directory that exists and will not list THROWS.** It used to answer
+    /// empty, and an empty answer omits every stream in the folder — which a
+    /// mark judges wholly NEW. For a revocation *keeping what was applied*
+    /// that sets aside words this Mac had already applied, which is strictly
+    /// more destructive than the opId path the positions replaced.
+    func test_aStreamDirectoryThatWillNotListRefusesTheSweep() async throws {
+        try writeRootRecord()
+        try declareSam()
+        try samsFile([op("01", by: sam.author)])
+        let translations = TranslationStore.directoryURL(in: projectURL)
+        try FileManager.default.createDirectory(
+            at: translations, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000], ofItemAtPath: translations.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: translations.path)
+        }
+
+        do {
+            _ = try await seenMark()
+            XCTFail("a folder that exists and will not list is a short reading")
+        } catch let error as OpLogStore.ReadError {
+            guard case .unlistableStreamDirectory(let name, _) = error else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(name, ".maugham/translations")
+            XCTAssertEqual(OpLogStore.unreadableName(error), ".maugham/translations")
+        }
+    }
+
+    /// The converse, and the distinction the fix turns on: a directory that is
+    /// simply NOT THERE is a book with no translations, and there is nothing
+    /// to mark.
+    func test_aStreamDirectoryThatIsNotThereIsNotAFailure() async throws {
+        try writeRootRecord()
+        try declareSam()
+        let url = try samsFile([op("01", by: sam.author)])
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: TranslationStore.directoryURL(in: projectURL).path))
+
+        let mark = try await seenMark()
+
+        XCTAssertNotNil(mark[try XCTUnwrap(PermitMark.streamKey(of: url))]?.line)
+    }
+
+    /// **Task 9's hook.** A file that is simply absent looks exactly like a
+    /// stream that never existed; a caller that REMEMBERS which streams it has
+    /// applied says so, and gets a refusal naming the first one missing.
+    func test_expectedStreamsNamesTheOneTheSweepCouldNotFind() async throws {
+        try writeRootRecord()
+        try declareSam()
+        let url = try samsFile([op("01", by: sam.author)])
+        let key = try XCTUnwrap(PermitMark.streamKey(of: url))
+        let table = try await reader().trust()
+        let ids = Set(sam.all.map(\.deviceId))
+
+        // Present: no refusal.
+        _ = try OpLogStore.seenPositions(
+            ofDeviceIds: ids, in: projectURL, trust: table, expectedStreams: [key])
+
+        try FileManager.default.removeItem(at: url)
+        do {
+            _ = try OpLogStore.seenPositions(
+                ofDeviceIds: ids, in: projectURL, trust: table, expectedStreams: [key])
+            XCTFail("a stream this device had read before is gone")
+        } catch let error as OpLogStore.ReadError {
+            guard case .streamMissingFromSweep(let missing) = error else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(missing, key)
+            XCTAssertEqual(OpLogStore.unreadableName(error), key)
+        }
     }
 
     /// And the FOLD the opId mark needs has no counterpart here, because there

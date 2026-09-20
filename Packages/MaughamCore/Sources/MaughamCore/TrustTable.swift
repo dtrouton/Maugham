@@ -701,9 +701,28 @@ public struct TrustTable: Equatable, Sendable {
     ) -> Bool {
         let (a, b) = (person(forSealKey: fingerprint), person(forSealKey: other))
         if a == b { return true }
-        guard let left = personByFingerprint[a]?.label,
-              let right = personByFingerprint[b]?.label,
-              !left.isEmpty, !right.isEmpty else { return false }
+        return TrustTable.sharesLabel(
+            personByFingerprint[a]?.label, personByFingerprint[b]?.label)
+    }
+
+    /// **Do two person records name the same writer?** — the label rule above,
+    /// as a function, because a second caller arrived (P3a Task 7, fix round 1).
+    ///
+    /// `RegistryAdmission.records(sharingLabelWith:in:)` asks it to find every
+    /// record a permit change must reach: a person whose Mac and phone were
+    /// both admitted is two records under one label, and moving one of them
+    /// leaves her writing manuscript text from the other. That is the same
+    /// question `sameWriter` asks and it must not become a second answer to
+    /// it — so the rule is spelled here, once.
+    ///
+    /// Exact strings, for `sameWriter`'s reason: the comparison must be the
+    /// one the ROOT made when it signed the records, not a looser one invented
+    /// afterwards. **An empty or absent label shares with nobody** — two
+    /// machines nobody has named are two machines, and folding them together
+    /// would make *unnamed* an identity, which for a permit means a demotion
+    /// reaching a device the writer never named.
+    nonisolated public static func sharesLabel(_ left: String?, _ right: String?) -> Bool {
+        guard let left, let right, !left.isEmpty, !right.isEmpty else { return false }
         return left == right
     }
 

@@ -160,6 +160,68 @@ extension DocumentStore {
         return record
     }
 
+    /// **Change what one WRITER may write — every machine of theirs at once**
+    /// (fix round 1, I3). **This is the verb P3b's pane calls**, and
+    /// `changePermit(person:to:)` is the single-record primitive underneath it.
+    ///
+    /// A permit lives on a person RECORD and a record is one device. P2b's
+    /// admission merges a typed label matching a known one under that label's
+    /// own spelling, so a writer whose Mac and phone were both let in is two
+    /// records the root has said are one person. Demote the Mac alone and she
+    /// goes on writing manuscript text from the phone — applied by every
+    /// reader, with nothing anywhere saying why. A pane that offered *make Sam
+    /// a reviewer* and did half of it would be worse than one that offered
+    /// nothing.
+    ///
+    /// **It refuses the whole act up front.** Every record is put to
+    /// `RegistryAdmission.changePermitOutcome` before any of them is touched,
+    /// so a set containing a root (or somebody another root admitted) is
+    /// refused entire rather than half-applied — the first refusal is thrown,
+    /// which is the one the writer can act on.
+    ///
+    /// **Each record gets its OWN mark and its own event**, swept for that
+    /// machine's own streams: the two devices have read to different places
+    /// and a shared mark would draw one of the two lines in the wrong file.
+    ///
+    /// **A write that fails midway names what moved.** The records are ordered
+    /// (the subject first, then by fingerprint), so the error says exactly
+    /// which permits changed and which did not, and pressing again finishes
+    /// the job — each record's own verb is idempotent in both halves.
+    @discardableResult
+    public func changePermit(
+        everyRecordOf person: String, to permit: Permit
+    ) async throws -> [PersonRecord] {
+        let projectURL = self.projectURL
+        let author = Document.loadIdentities.author
+        let cache = Document.loadRegistryCache
+        let registry = try await Task.detached(priority: .userInitiated) {
+            try TrustResolution.verifiedRegistry(
+                projectURL: projectURL, presenter: nil, cache: cache)
+        }.value
+
+        let records = RegistryAdmission.records(sharingLabelWith: person, in: registry)
+        guard !records.isEmpty else {
+            throw RegistryAdmissionError.notAdmitted(fingerprint: person)
+        }
+        // Up front, before anything is written: the whole act or none of it.
+        for record in records {
+            _ = try RegistryAdmission.changePermitOutcome(
+                person: record.person, by: author.fingerprint, in: registry).get()
+        }
+
+        var moved: [PersonRecord] = []
+        for record in records {
+            do {
+                moved.append(try await changePermit(person: record.person, to: permit))
+            } catch {
+                throw PermitChangePartlyApplied(
+                    moved: moved.map(\.person), failed: record.person,
+                    underlying: error)
+            }
+        }
+        return moved
+    }
+
     /// **Rename a person.** Answers the record that now carries the new word.
     ///
     /// The one verb here that moves no verdict at all: a label is what this
@@ -301,7 +363,7 @@ extension DocumentStore {
                     // op-log file in the project, and paying for one at every
                     // open of every book would be paying to admit no one.
                     mark: {
-                        DocumentStore.rememberedAdmissionMark(
+                        try DocumentStore.rememberedAdmissionMark(
                             forPerson: $0, in: projectURL,
                             identities: identities, cache: cache)
                     })
@@ -490,22 +552,28 @@ extension DocumentStore {
 
     /// The same sweep for the SILENT path, which has no writer to refuse to.
     ///
-    /// `admitRemembered` runs at a project open with nobody waiting on a
-    /// button, and the sheet behind it is the recourse if it wrote nothing. An
-    /// admission's mark is informational — its permit governs both sides of it
-    /// — and `admitRemembered` admits only devices this book holds no person
-    /// record for, so the re-admission case that makes a mark load-bearing is
-    /// not reachable from here.
+    /// **It throws, and the open is not blocked** (fix round 1, I2). A sweep
+    /// that could not list a folder or could not read a file must not answer
+    /// with the positions it happened to find — a stream a mark does not name
+    /// is judged wholly NEW — so this propagates, `RegistryPresence
+    /// .admitRemembered` stops where it stood, and `DocumentStore
+    /// .admitRemembered` logs it and returns. Nothing is half-written: the
+    /// devices already admitted have both their files, this one has neither,
+    /// and the next project open runs the whole thing again.
+    ///
+    /// `try?` here is what it must NOT be. That was the shape until this fix,
+    /// and it turned a folder this Mac could not read into an empty mark on a
+    /// signed event — a permanent, silent, unrecoverable *everything after the
+    /// beginning* for that person's whole history.
     nonisolated static func rememberedAdmissionMark(
         forPerson person: String, in projectURL: URL,
         identities: LocalIdentities, cache: RegistryCache
-    ) -> PermitMark {
-        guard let resolved = try? TrustResolution.resolveVerified(
+    ) throws -> PermitMark {
+        let resolved = try TrustResolution.resolveVerified(
             projectURL: projectURL, identities: identities, cache: cache)
-        else { return .nothingApplied }
         let ids = opLogDeviceIds(ofPerson: person, in: resolved.registry)
-        return (try? OpLogStore.seenPositions(
-            ofDeviceIds: ids, in: projectURL, trust: resolved.table)) ?? .nothingApplied
+        return try OpLogStore.seenPositions(
+            ofDeviceIds: ids, in: projectURL, trust: resolved.table)
     }
 
     private func permitMark(forPerson person: String, seen: Bool) async -> SweptPositions {
@@ -574,5 +642,43 @@ extension DocumentStore {
             held[device, default: 0] += count
         }
         return held
+    }
+}
+
+
+
+/// **A permit change that moved some of a writer's machines and not the rest**
+/// (fix round 1, I3).
+///
+/// Every refusal `changePermit(everyRecordOf:to:)` can see is raised before it
+/// writes anything, so this is the other kind: a write that failed — a folder
+/// that stopped being writable, a sweep that came back short — after earlier
+/// records had already moved. It names them rather than reporting a plain
+/// failure, because *nothing happened* and *half of it happened* want
+/// different next moves from the writer, and only one of them is true here.
+///
+/// `LocalizedError`, so `AdmissionDecision.refusal`'s fallback arm reads as a
+/// sentence rather than as a type name.
+public struct PermitChangePartlyApplied: Error, LocalizedError {
+    /// The people whose permit DID change, in the order they changed.
+    public let moved: [String]
+    /// The one it stopped at.
+    public let failed: String
+    public let underlying: Error
+
+    public init(moved: [String], failed: String, underlying: Error) {
+        self.moved = moved
+        self.failed = failed
+        self.underlying = underlying
+    }
+
+    public var errorDescription: String? {
+        let names = moved.map { DeviceCode.short($0) }.joined(separator: ", ")
+        let what = moved.isEmpty
+            ? "Nothing was changed."
+            : "What \(names) may write HAS changed; "
+                + "\(DeviceCode.short(failed)) has not."
+        return "\(what) \(underlying.localizedDescription) "
+            + "Pressing again finishes the rest and changes nothing twice."
     }
 }

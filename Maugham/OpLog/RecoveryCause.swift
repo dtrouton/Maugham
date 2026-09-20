@@ -38,6 +38,16 @@ enum RecoveryCause: Equatable {
             return nil
         case .unlistableOpsDirectory(let underlying):
             return .unlistableOpsDirectory(reason: underlying)
+        // **Neither is a door this ladder owns** (P3a Task 7, fix round 1).
+        // Both are raised by the MARK sweep — a translation or inbox folder
+        // that will not list, and a stream a caller remembered and the sweep
+        // could not find — and the sweep is never on `Document.load`'s path:
+        // it runs behind a registry verb, which refuses with its own
+        // `historyUnreadable` sentence and changes nothing. Offering
+        // read-only manuscript recovery over one would offer a remedy for a
+        // document that opened perfectly well.
+        case .unlistableStreamDirectory, .streamMissingFromSweep:
+            return nil
         }
     }
 

@@ -193,6 +193,33 @@ public struct PermitEvent: RegistryRecordProtocol {
         "\(subject).\(ULID.generate())"
     }
 
+    /// **An id for this subject that sorts strictly AFTER one they already
+    /// have** (P3a Task 7, fix round 1).
+    ///
+    /// `mintID(subject:)` reads the clock, and a ULID is monotonic within a
+    /// PROCESS only. A Mac relaunched after its clock stepped back — a manual
+    /// correction, an NTP jump, a VM resumed from a snapshot — mints an id
+    /// that sorts BEFORE yesterday's, and everything that reads this history
+    /// in order then reads it wrong: `PermitTimeline` would put an older
+    /// permit last, and the revocation mark would be taken from the wrong
+    /// event. Neither fails loudly; both decide what a reader APPLIES.
+    ///
+    /// So the writer checks, and where the fresh id does not sort after, it
+    /// mints one a millisecond past the latest. The timestamp is the first ten
+    /// characters of a 26-character ULID, so a strictly greater millisecond is
+    /// a strictly greater id whatever the random half says.
+    ///
+    /// An `existing` id this build cannot parse — a later build's shape — is
+    /// answered with an ordinary fresh id: there is nothing to step past that
+    /// can be computed, and inventing one would be worse than the clock.
+    nonisolated public static func mintID(subject: String, after existing: String) -> String {
+        guard let dot = existing.lastIndex(of: "."),
+              let millis = ULID.timestampMillis(
+                  of: String(existing[existing.index(after: dot)...]))
+        else { return mintID(subject: subject) }
+        return "\(subject).\(ULID.generate(atMillis: millis + 1))"
+    }
+
     /// The subject an event id names, or nil if it is not of that shape. A
     /// convenience for a surface listing a folder; the record's own `subject`
     /// is the truth, and the reader checks the two agree about nothing — the id

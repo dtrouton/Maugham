@@ -116,6 +116,15 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// stranger used to be written, verified and adopt nobody, leaving the
     /// writer looking at a book that had accepted their merge and gone on
     /// quarantining everything in it. A refusal says so at the press.
+    ///
+    /// **It therefore also refuses a root whose own record has not synced
+    /// yet**, and that is by design rather than an edge it missed (fix round
+    /// 1, minor 5). Such a Mac is indistinguishable here from one that never
+    /// rooted this book at all, and the two want the same answer: adopt it now
+    /// and the claim records a merge with a chain nothing can verify. Like
+    /// `recordUnreadable`, it is a refusal that resolves itself — the sentence
+    /// says *nothing needs merging*, and pressing again once the record has
+    /// landed works.
     case cannotAdoptANonRoot(fingerprint: String)
 }
 
@@ -261,7 +270,7 @@ public enum RegistryAdmission {
         role: String = Permit.authorRole,
         scope: String = Permit.bookScope,
         pieces: [String] = [],
-        mark: (String) -> PermitMark = { _ in .nothingApplied },
+        mark: (String) throws -> PermitMark = { _ in .nothingApplied },
         silently: Bool = false,
         in projectURL: URL,
         by root: DeviceIdentity,
@@ -374,12 +383,23 @@ public enum RegistryAdmission {
         // to re-sign — where the other order would leave a person admitted with
         // no history saying what they may write, and the timeline reads the
         // history and nothing else.
-        if standing == nil {
+        //
+        // **And only where it is not already there** (fix round 1, minor 2).
+        // The record is the half that fails, so the arrival event can be on
+        // disk while `registry.person(fingerprint)` still answers nil — and
+        // for `admitRemembered` that state is re-entered at every PROJECT
+        // OPEN, which would have written one `silentlyAdmitted` event per open
+        // for as long as the record failed to land.
+        let eventPermit = Permit.parse(
+            role: writtenRole, scope: writtenScope, pieces: writtenPieces)
+        if standing == nil,
+           !eventAlreadyWritten(kind, permit: eventPermit,
+                                about: fingerprint, in: registry) {
             try writeEvent(
                 kind, about: fingerprint,
                 role: writtenRole, scope: writtenScope ?? Permit.bookScope,
                 pieces: writtenPieces ?? [],
-                mark: mark(fingerprint), in: projectURL, by: root,
+                mark: try mark(fingerprint), in: projectURL, by: root,
                 within: registry, now: now, presenter: presenter)
         }
 
@@ -464,44 +484,51 @@ public enum RegistryAdmission {
     ) throws -> PersonRecord {
         let registry = try TrustResolution.verifiedRegistry(
             projectURL: projectURL, presenter: presenter, cache: cache)
-        guard registry.roots.contains(where: { $0.person == root.fingerprint }) else {
-            throw RegistryAdmissionError.notARoot
-        }
-        guard let existing = registry.person(fingerprint) else {
-            if unreadablePeople(in: registry).contains(fingerprint) {
-                throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
-            }
-            throw RegistryAdmissionError.notAdmitted(fingerprint: fingerprint)
-        }
-        guard !existing.isRoot else {
-            throw RegistryAdmissionError.cannotChangeARoot(fingerprint: fingerprint)
-        }
-        guard existing.admittedBy == root.fingerprint else {
-            throw RegistryAdmissionError.alreadyAdmittedElsewhere(root: existing.admittedBy)
-        }
+        let existing = try changePermitOutcome(
+            person: fingerprint, by: root.fingerprint, in: registry).get()
 
         let asked = Permit.parse(role: role, scope: scope, pieces: pieces)
         let timeline = PermitTimeline(events: events(about: fingerprint, in: registry))
-        guard timeline.current != asked else { return existing }
+        let recordSays = Permit.parse(
+            role: existing.role, scope: existing.scope, pieces: existing.pieces)
 
-        // Which of the two words for it: the ROLE moved, or only how much of
-        // the book it covers. Both install a permit and both carry a mark —
-        // the distinction is History's, so the writer reads *became a reviewer*
-        // rather than *their pieces changed* when what happened was the first.
-        let kind: PermitEvent.Kind =
-            timeline.current.wireRole == asked.wireRole ? .scopeChanged : .roleChanged
+        // **Two questions, not one** (fix round 1, I1). *Nothing to do* is the
+        // history AND the record both saying this already. Asking only the
+        // history — which is what R5's idempotence rule said, and what this
+        // read until now — made the crash window permanent and silent: the
+        // event lands, `resign` throws, and every later press finds the
+        // timeline already saying *reviewer*, returns the STALE author record
+        // with no error and no write, and P3b's pane draws *author* over a
+        // person every reader is enforcing as a reviewer, forever.
+        //
+        // Asking only the record would be the mirror mistake — it would write
+        // a second event every time the record was the half that failed.
+        let eventDone = timeline.current == asked
+        let recordDone = recordSays == asked
+        guard !(eventDone && recordDone) else { return existing }
 
-        try writeEvent(
-            kind, about: fingerprint, role: role, scope: scope, pieces: pieces,
-            mark: mark, in: projectURL, by: root, within: registry,
-            now: now, presenter: presenter)
+        if !eventDone {
+            // Which of the two words for it: the ROLE moved, or only how much
+            // of the book it covers. Both install a permit and both carry a
+            // mark — the distinction is History's, so the writer reads *became
+            // a reviewer* rather than *their pieces changed* when what
+            // happened was the first.
+            let kind: PermitEvent.Kind =
+                timeline.current.wireRole == asked.wireRole ? .scopeChanged : .roleChanged
+            try writeEvent(
+                kind, about: fingerprint, role: role, scope: scope, pieces: pieces,
+                mark: mark, in: projectURL, by: root, within: registry,
+                now: now, presenter: presenter)
+        }
 
-        try RegistryWriter.resign(
-            existing, signedBy: root, in: projectURL, presenter: presenter
-        ) { object in
-            object["role"] = role
-            object["scope"] = scope
-            object["pieces"] = pieces
+        if !recordDone {
+            try RegistryWriter.resign(
+                existing, signedBy: root, in: projectURL, presenter: presenter
+            ) { object in
+                object["role"] = role
+                object["scope"] = scope
+                object["pieces"] = pieces
+            }
         }
 
         let verified = try TrustResolution.verifiedRegistry(
@@ -513,6 +540,67 @@ public enum RegistryAdmission {
             throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
         }
         return record
+    }
+
+    /// **Who may change whose permit, decided over a registry and nothing
+    /// else** — `renameOutcome`'s twin, and the one definition (fix round 1).
+    ///
+    /// Four refusals, each of AUTHORITY rather than of form: this Mac is not a
+    /// root here; the subject is a root, and a book must not end up with no
+    /// author; the subject was admitted by somebody else's root, whose record
+    /// is not mine to re-sign; and the record is present on disk and will not
+    /// read, which is not absent (RULING-54).
+    ///
+    /// It is a value rather than a throw because `DocumentStore.changePermit(
+    /// everyRecordOf:to:)` asks it of EVERY record under one label before it
+    /// moves any of them: a demotion that refused halfway would leave Sam a
+    /// reviewer on her Mac and an author on her phone, which is the state this
+    /// whole verb exists to prevent.
+    nonisolated public static func changePermitOutcome(
+        person fingerprint: String, by root: String, in registry: Registry
+    ) -> Result<PersonRecord, RegistryAdmissionError> {
+        guard registry.roots.contains(where: { $0.person == root }) else {
+            return .failure(.notARoot)
+        }
+        guard let existing = registry.person(fingerprint) else {
+            return .failure(unreadablePeople(in: registry).contains(fingerprint)
+                ? .recordUnreadable(fingerprint: fingerprint)
+                : .notAdmitted(fingerprint: fingerprint))
+        }
+        guard !existing.isRoot else {
+            return .failure(.cannotChangeARoot(fingerprint: fingerprint))
+        }
+        guard existing.admittedBy == root else {
+            return .failure(.alreadyAdmittedElsewhere(root: existing.admittedBy))
+        }
+        return .success(existing)
+    }
+
+    /// **Every record a permit change must reach** (fix round 1, I3).
+    ///
+    /// A permit lives on a person RECORD and a record is one device, but P2b's
+    /// admission merges a typed label matching a known one under that label's
+    /// own spelling — so a writer with a Mac and a phone is two records the
+    /// root has said are one person. Demote the Mac alone and she goes on
+    /// writing manuscript text from the phone, with every reader applying it,
+    /// and nothing anywhere saying why.
+    ///
+    /// The label rule is `TrustTable.sharesLabel` and is not restated here:
+    /// exact strings, because the comparison must be the one the ROOT made
+    /// when it signed the records, and an empty label shares with nobody.
+    ///
+    /// The subject's own record is always first and is always present (where
+    /// this registry holds one); the rest are sorted by fingerprint, so two
+    /// runs over one folder move them in the same order and a half-applied
+    /// change reports the same list twice.
+    nonisolated public static func records(
+        sharingLabelWith person: String, in registry: Registry
+    ) -> [PersonRecord] {
+        guard let mine = registry.person(person) else { return [] }
+        let others = registry.people
+            .filter { $0.person != person && TrustTable.sharesLabel($0.label, mine.label) }
+            .sorted { $0.person < $1.person }
+        return [mine] + others
     }
 
     /// **Is this person's record a step behind their history?** — the crash
@@ -550,6 +638,37 @@ public enum RegistryAdmission {
         return Permit.parse(
             role: record.role, scope: record.scope, pieces: record.pieces
         ) != timeline.current
+    }
+
+    /// **Is the event this act would write already on disk?** (fix round 1, I1
+    /// and minor 2.)
+    ///
+    /// Every verb here used to ask one question — *does the RECORD already say
+    /// this?* — and write both files when the answer was no. The write order is
+    /// event, then record (spec §3.2), so a process that dies between them
+    /// leaves a state where the record still says no and the event is already
+    /// there: the next press, or for the silent admission the next PROJECT
+    /// OPEN, wrote a SECOND event. Two `admitted` rows in History for one
+    /// admission, two revocations for one revocation, and — because
+    /// `PermitTimeline` reads the newest — a second mark drawn at a later
+    /// position than the writer ever chose.
+    ///
+    /// So the question is two-part now: is the event there, is the record
+    /// behind, write only what is missing. This is the first half.
+    ///
+    /// **The subject's NEWEST event, by kind and by the permit it carries.**
+    /// Not *any* event of that kind: a person admitted, revoked and admitted
+    /// again has two arrivals, and only the last of them is the one a repeat
+    /// of today's act would duplicate. The permit is compared too, so a second
+    /// `roleChanged` to a DIFFERENT rung is not mistaken for a retry.
+    nonisolated private static func eventAlreadyWritten(
+        _ kind: PermitEvent.Kind, permit: Permit,
+        about subject: String, in registry: Registry
+    ) -> Bool {
+        guard let latest = events(about: subject, in: registry)
+            .max(by: { $0.event < $1.event })
+        else { return false }
+        return latest.kind == kind && Permit(event: latest) == permit
     }
 
     /// One subject's events, which is every event whose `subject` names them.
@@ -602,9 +721,10 @@ public enum RegistryAdmission {
         now: () -> Date,
         presenter: NSFilePresenter?
     ) throws -> PermitEvent {
+        let own = events(about: subject, in: registry)
         var streams = mark.streams
         if carriesForward(kind) {
-            for older in events(about: subject, in: registry)
+            for older in own
                 .filter({ carriesForward($0.kind) })
                 .sorted(by: { $0.event > $1.event }) {
                 for (key, position) in older.mark where streams[key] == nil {
@@ -612,8 +732,26 @@ public enum RegistryAdmission {
                 }
             }
         }
+
+        // **The new id must sort strictly after this subject's latest one**
+        // (fix round 1, minor 6). A ULID is monotonic within a PROCESS and
+        // nowhere else, so a Mac relaunched after its clock stepped back mints
+        // an id that sorts BEFORE the one it wrote yesterday — and everything
+        // that reads this history in order then reads it backwards:
+        // `PermitTimeline` puts the older permit last, and
+        // `TrustTable.revocationMark`'s `max` takes the wrong revocation's
+        // mark. Both decide what a reader APPLIES and neither goes red.
+        //
+        // The check is here because this is the one place an id is minted for
+        // a subject, and it is a CHECK rather than a rule about clocks: where
+        // the clock is honest — every ordinary write — nothing changes.
+        var id = PermitEvent.mintID(subject: subject)
+        if let latest = own.map(\.event).max(), id <= latest {
+            id = PermitEvent.mintID(subject: subject, after: latest)
+        }
+
         let event = PermitEvent(
-            event: PermitEvent.mintID(subject: subject), kind: kind, subject: subject,
+            event: id, kind: kind, subject: subject,
             role: role, scope: scope, pieces: pieces, mark: streams,
             at: now(), by: signer.fingerprint)
         try RegistryWriter.write(
@@ -721,14 +859,27 @@ public enum RegistryAdmission {
         // makes: a revocation installs no permit (`PermitTimeline` skips it),
         // and the fields are there so a surface reading the history knows what
         // the person was when they were shut out.
-        try writeEvent(
-            highestOpIdSeen == nil ? .revokedEntirely : .revoked,
-            about: fingerprint,
-            role: existing.role,
-            scope: existing.scope ?? Permit.bookScope,
-            pieces: existing.pieces ?? [],
-            mark: mark, in: projectURL, by: root, within: registry,
-            now: now, presenter: presenter)
+        //
+        // **And only where it is not already there** (fix round 1, minor 2):
+        // the guard above is about the RECORD, which is the half that fails,
+        // so a retry after the event landed would draw a second line — at a
+        // later position than the writer ever chose, because the mark is swept
+        // again.
+        let revocation: PermitEvent.Kind =
+            highestOpIdSeen == nil ? .revokedEntirely : .revoked
+        if !eventAlreadyWritten(
+            revocation,
+            permit: Permit.parse(
+                role: existing.role, scope: existing.scope, pieces: existing.pieces),
+            about: fingerprint, in: registry) {
+            try writeEvent(
+                revocation, about: fingerprint,
+                role: existing.role,
+                scope: existing.scope ?? Permit.bookScope,
+                pieces: existing.pieces ?? [],
+                mark: mark, in: projectURL, by: root, within: registry,
+                now: now, presenter: presenter)
+        }
 
         let at = try RegistryCanonical.dateString(now())
         try RegistryWriter.resign(
@@ -927,14 +1078,25 @@ public enum RegistryAdmission {
         // changes no permit, and a root's own retirement must carry the root's
         // own permit or `RegistryReader` lists it malformed
         // (`eventDemotesARoot`).
+        //
+        // Written once, for the revocation's reason (fix round 1, minor 2):
+        // the guard above reads the device RECORD, which is the half that
+        // fails, so a retry after the event landed would file a second
+        // retirement.
         let person = registry.person(fingerprint)
-        try writeEvent(
-            .retired, about: fingerprint,
+        let standing = Permit.parse(
             role: person?.role ?? Permit.authorRole,
-            scope: person?.scope ?? Permit.bookScope,
-            pieces: person?.pieces ?? [],
-            mark: mark, in: projectURL, by: identity, within: registry,
-            now: now, presenter: presenter)
+            scope: person?.scope, pieces: person?.pieces)
+        if !eventAlreadyWritten(
+            .retired, permit: standing, about: fingerprint, in: registry) {
+            try writeEvent(
+                .retired, about: fingerprint,
+                role: person?.role ?? Permit.authorRole,
+                scope: person?.scope ?? Permit.bookScope,
+                pieces: person?.pieces ?? [],
+                mark: mark, in: projectURL, by: identity, within: registry,
+                now: now, presenter: presenter)
+        }
 
         let at = try RegistryCanonical.dateString(now())
         try RegistryWriter.resign(

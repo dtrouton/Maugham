@@ -86,6 +86,29 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         XCTAssertTrue(sealed, "the stranger's file is sealed")
     }
 
+    /// `writeStrangerFile` for any device — the I3 pair needs a SECOND
+    /// machine of the same writer, with a file and a chain of its own.
+    ///
+    /// It APPENDS: the store chains from the head its own state remembers, so
+    /// a second call adds lines after the first's seal rather than rewriting
+    /// the file. That matters for a mark, which names a line by its hash.
+    private func writeFile(
+        docId: String, opIds: [String],
+        by identity: DeviceIdentity, state: OpLogDeviceState
+    ) async throws {
+        let store = OpLogStore(
+            projectURL: projectURL, identity: identity, state: state)
+        for id in opIds {
+            try await store.append(Op(
+                opId: id, docId: docId, at: Date(timeIntervalSince1970: 0),
+                device: identity.deviceId, session: "s", kind: .typingBurst,
+                changes: [.init(paragraphId: "aaaa", prior: nil, next: id)],
+                sequence: ["aaaa"]))
+        }
+        let sealed = try await store.sealChain(docId: docId)
+        XCTAssertTrue(sealed, "the file is sealed")
+    }
+
     private func registry() throws -> Registry {
         try RegistryReader.load(projectURL: projectURL)
     }
@@ -803,5 +826,118 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         } catch let error as RegistryAdmissionError {
             XCTAssertEqual(error, .notARoot)
         }
+    }
+
+    // MARK: - Every machine of one writer (fix round 1, I3)
+
+    /// **A demotion reaches every record under one label.** A permit lives on
+    /// a person RECORD and a record is one device; P2b's admission merges a
+    /// typed label matching a known one under that label's own spelling, so
+    /// Sam's Mac and Sam's phone are two records the root has said are one
+    /// person. Moving one of them leaves her writing manuscript text from the
+    /// other, applied by every reader, with nothing saying why.
+    func test_ademotionReachesEveryMachineUnderOneLabel() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+
+        let secondDevice = LocalIdentities.softwareForTesting()
+        let second = secondDevice.author
+        let secondState = OpLogDeviceState(
+            fileURL: projectURL.appendingPathComponent("second-state.json"))
+        try await writeStrangerFile(docId: docId, opIds: ["02"])
+        try await writeFile(
+            docId: docId, opIds: ["03"], by: second, state: secondState)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        _ = try await store.admit(
+            device: second.fingerprint, label: "Sam", ownName: "Sam’s iPhone")
+        // This Mac's own bootstrap op is in the document too; what these
+        // assertions are about is the two machines' lines.
+        let before = Set(try await reader().loadDiagnosed(docId: docId).ops.map(\.opId))
+        XCTAssertTrue(before.isSuperset(of: ["02", "03"]))
+
+        let moved = try await store.changePermit(
+            everyRecordOf: stranger.fingerprint, to: .reviewer)
+
+        XCTAssertEqual(
+            Set(moved.map(\.person)), [stranger.fingerprint, second.fingerprint],
+            "both machines moved, each with its own event")
+        try await writeStrangerFile(docId: docId, opIds: ["04"])
+        try await writeFile(
+            docId: docId, opIds: ["05"], by: second, state: secondState)
+
+        let after = Set(try await reader().loadDiagnosed(docId: docId).ops.map(\.opId))
+        XCTAssertTrue(
+            after.isSuperset(of: ["02", "03"]),
+            "what each machine wrote as an author stays in the book")
+        XCTAssertTrue(
+            after.isDisjoint(with: ["04", "05"]),
+            "and manuscript text from EITHER machine is refused after its own mark")
+    }
+
+    /// The up-front refusal: a label shared with the ROOT refuses the whole
+    /// act rather than demoting the collaborator and stopping at the root.
+    func test_thewholeActIsRefusedWhenOneRecordIsTheRoot() async throws {
+        let mine = beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        // The root's own label, given to the stranger too — the state P2b's
+        // *this is also…* produces when the writer merges a device under their
+        // own name.
+        let rootLabel = try XCTUnwrap(registry().person(mine.author.fingerprint)?.label)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: rootLabel, ownName: "Sam’s Mac")
+
+        do {
+            _ = try await store.changePermit(
+                everyRecordOf: stranger.fingerprint, to: .reviewer)
+            XCTFail("a set holding the root is refused entire")
+        } catch let error as RegistryAdmissionError {
+            XCTAssertEqual(
+                error, .cannotChangeARoot(fingerprint: mine.author.fingerprint))
+        }
+        XCTAssertEqual(
+            try registry().person(stranger.fingerprint)?.role, Permit.authorRole,
+            "and nothing was half-applied")
+    }
+
+    /// **A sweep that came back short refuses, and writes nothing** (I2). The
+    /// translations folder exists and will not list, so the positions this
+    /// mark would record are a reading Maugham knows is incomplete — and a
+    /// stream a mark does not name is judged wholly NEW.
+    func test_apermitChangeRefusesOverAFolderItCannotList() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        let translations = projectURL.appendingPathComponent(".maugham/translations")
+        try FileManager.default.createDirectory(
+            at: translations, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000], ofItemAtPath: translations.path)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: translations.path)
+        }
+
+        do {
+            _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
+            XCTFail("a short reading is a refusal, never a shorter mark")
+        } catch let error as RegistryAdmissionError {
+            guard case .historyUnreadable(let name) = error else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(name, ".maugham/translations")
+        }
+        XCTAssertEqual(
+            try registry().person(stranger.fingerprint)?.role, Permit.authorRole)
+        XCTAssertTrue(
+            try registry().events.isEmpty || !registry().events.contains {
+                $0.subject == stranger.fingerprint && $0.kind == .roleChanged
+            },
+            "no event, no record — nothing was changed")
     }
 }

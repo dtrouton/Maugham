@@ -240,17 +240,21 @@ public enum RegistryPresence {
     /// `mark` is asked **per device actually admitted**, never per device
     /// present: where the root had read to in somebody's streams is a sweep of
     /// every op-log file in the project, and an open with nobody to admit —
-    /// which is every open of every book — must not pay for one. A caller that
-    /// cannot answer says `.nothingApplied`, which is honest for an admission:
-    /// its permit governs everything the person ever wrote whichever side of
-    /// the mark a line falls on (`PermitTimeline.opening(before:)`).
+    /// which is every open of every book — must not pay for one.
+    ///
+    /// **It THROWS rather than shortening** (fix round 1, I2). A sweep that
+    /// could not list a folder or could not read a file must not answer with
+    /// the positions it happened to find: a stream a mark does not name is
+    /// judged wholly NEW. A throw here admits nobody else this time and leaves
+    /// the devices already admitted standing — the open is not blocked, the
+    /// caller logs it, and the next open runs the whole thing again.
     @discardableResult
     nonisolated public static func admitRemembered(
         in projectURL: URL,
         identities: LocalIdentities,
         cache: RegistryCache,
         memory: AdmissionMemory,
-        mark: (String) -> PermitMark = { _ in .nothingApplied },
+        mark: (String) throws -> PermitMark = { _ in .nothingApplied },
         now: () -> Date = { Date() },
         presenter: NSFilePresenter? = nil
     ) throws -> [PersonRecord] {

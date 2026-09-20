@@ -261,11 +261,19 @@ public enum RevocationSplit {
             switch theirCut {
             case .byPosition(let judgement):
                 // Every line has a position of its own, seals included, so
-                // there is nothing for a seal to travel WITH. `travellingWith`
-                // is carried anyway, for a file that somehow held two persons'
-                // refusals and answered one of them by opId.
+                // there is nothing for a seal to travel WITH — and the travel
+                // rule is RESET rather than carried, because a line answered
+                // by position establishes nothing about an opId cut and a
+                // stale `true` from an earlier line would re-admit a seal on
+                // the strength of a different person's mark.
+                //
+                // **Unreachable in a file anybody's Mac writes.** ADR 0012
+                // gives each file one writer, so every `.afterRevocation` line
+                // in it names one person and one `cut`; the two arms cannot
+                // meet. It is written for the case rather than argued away,
+                // because what is at stake is one seal on the strict side.
                 keeps = judgement.side(ofLineAt: index) == .old
-                travellingWith = keeps
+                travellingWith = nil
             case .byOpId(let theirMark):
                 if let opId = opId(ofLine: line.bytes) {
                     keeps = opId <= theirMark
