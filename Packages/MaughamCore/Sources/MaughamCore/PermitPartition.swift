@@ -83,21 +83,6 @@ public enum PermitPartition {
         Op.kind(ofLine: line).map(Written.op)
     }
 
-    /// The translation sidecars' decoder (P3a Task 6).
-    ///
-    /// A non-seal line in `.maugham/translations/` is a `TranslationRecord` and
-    /// there is nothing else it could be — the directory holds one element
-    /// type, the filename carries the language, and the table's only question
-    /// about the line is *was this a translation*. So nothing is parsed: a line
-    /// that does not decode is `JSONLAppendStore.parse`'s to report, exactly as
-    /// it is for an op whose `kind` this never reads either.
-    @Sendable public static func writtenTranslationRecord(_ line: Data) -> Written? {
-        .translationRecord
-    }
-
-    /// The inbox manifests' decoder, for `writtenTranslationRecord`'s reason.
-    @Sendable public static func writtenInboxRow(_ line: Data) -> Written? { .inboxRow }
-
     // MARK: - The partition
 
     /// Judge every applied line of one file and answer the walk again, with
@@ -268,23 +253,13 @@ public enum PermitPartition {
     ) -> OpLogChain.Verification {
         guard let judge, let stream = PermitMark.stream(of: url)
         else { return verification }
-        // **A stream whose every line is ONE thing can be answered whole**
-        // (fix round 2, R3). The op log cannot — its lines are a dozen kinds
-        // and the actor rows narrow several of them, which is why Task 5's
-        // exit is per line — but a translation sidecar holds nothing but
-        // translation records and an inbox manifest nothing but captures. In a
-        // book with no permit events every admitted person is an author of the
-        // whole book, and every line a production writer puts in these two
-        // streams is `.yes` on that rung (the census is in Task 6's report),
-        // so there is nothing here for a walk to find.
-        //
-        // It matters because `TranslationStore.loadMerged` is read from around
-        // thirty synchronous call sites — the publish AST, the coverage gate,
-        // the editor's translated surface — and the inbox re-reads on every
-        // refresh. Paying `attributableKeys` (a `Seal.parse` per seal line) on
-        // each of those, in a book that can refuse nothing, is the cost R3
-        // flagged.
-        if judge.streamOfOneKind, !judge.trust.hasPermitEvents {
+        // **A stream whose every line is ONE thing can be answered whole —
+        // when its own writer is one the table allows that thing** (fix round
+        // 2's R3, narrowed in fix round 3). See `answersWholeFile`.
+        if let what = judge.everyLineIs,
+           answersWholeFile(
+            verification.lines, is: what, class: judge.context.documentClass,
+            trust: judge.trust, deviceSlug: stream.deviceSlug) {
             return verification
         }
         return partition(
@@ -416,6 +391,84 @@ public enum PermitPartition {
               let claimed = DeviceIdentity.claimedActor(ofDeviceId: deviceSlug)
         else { return true }
         return claimed != .author
+    }
+
+    /// **Can this whole file be answered `.yes` without walking it?** (fix
+    /// round 2's R3, narrowed by fix round 3.)
+    ///
+    /// `TranslationStore.loadMerged` is read from around thirty synchronous
+    /// call sites — the publish AST, the coverage gate, the editor's translated
+    /// surface — and the inbox re-reads on every refresh. Paying
+    /// `attributableKeys`, which is a `Seal.parse` per SEAL LINE and an inbox
+    /// manifest is half seal lines, on every one of those in a book that can
+    /// refuse nothing is what R3 flagged.
+    ///
+    /// **Three conditions, and the third is fix round 3's.**
+    ///
+    /// 1. **No permit events.** Then every timeline is one entry and every
+    ///    person is an author of the whole book, so there is no *as of the
+    ///    line* left to work out.
+    /// 2. **The file's own writer can be named.** One key per file is ADR
+    ///    0012's premise and the FILENAME encodes it — a translation sidecar is
+    ///    `<doc>.<lang>.<slug>` and an inbox manifest `inbox.<slug>`, one
+    ///    identity's slug either way — so the first seal this device can
+    ///    attribute names the file. Where nothing can be attributed (a legacy
+    ///    file, a stranger's, an unsigned device's) this answers false and the
+    ///    walk runs, which is what it did before any exit existed.
+    /// 3. **The table allows that `Written` to that ACTOR**, asked of
+    ///    `Permit.bookAuthor.allows` rather than restated. This is the
+    ///    condition round 2 was missing, and it mattered: without it an
+    ///    `assistant`-signed translation record was applied in an eventless
+    ///    book — which is every book that exists today — and *MCP never mutates
+    ///    the manuscript* is a sentence of the constitution rather than a thing
+    ///    that waits for a book to have events. No production writer emits one
+    ///    (the census is in Task 6's report), but the actor rows should not
+    ///    depend on that.
+    ///
+    /// **It is equivalent to the walk, not weaker than it.** With no events
+    /// every line of the file has the same governing permit (the opening
+    /// entry), the same class, the same key and therefore the same actor — so
+    /// the walk would ask `Permit.allows` the same question of every line and
+    /// get this same answer. The actor is resolved through the walk's OWN
+    /// function (`actor(ofSealKey:trust:deviceSlug:)`), so the two cannot
+    /// disagree about whose hand a file is.
+    ///
+    /// **What it assumes, stated:** that a file's seals are all one key. The
+    /// filename says so and every production writer obeys it; a device that
+    /// mixed its own two keys in one file could be applied under the first
+    /// one's row — and gains nothing by it, because a device holding two of its
+    /// own keys can sign with the wider one instead, which is the same
+    /// threat-model argument the slug narrowing rests on (Task 5's I5).
+    private static func answersWholeFile(
+        _ lines: [OpLogChain.Line], is what: Written,
+        class documentClass: () -> DocumentClass,
+        trust: TrustTable, deviceSlug: String?
+    ) -> Bool {
+        guard judgesAnything(trust), !trust.hasPermitEvents else { return false }
+        guard let key = firstAttributableSealKey(lines, trust: trust),
+              let actor = actor(ofSealKey: key, trust: trust, deviceSlug: deviceSlug)
+        else { return false }
+        return Permit.bookAuthor.allows(
+            what, in: documentClass(), actor: actor) == .yes
+    }
+
+    /// The key of the first seal this device can attribute — **one parse, not
+    /// one per seal line**, which is the whole saving.
+    ///
+    /// A seal that did not parse, was itself quarantined, or belongs to a key
+    /// this device cannot vouch for is skipped: those are the seals
+    /// `attributableKeys` ignores too, for the reasons spelled there.
+    private static func firstAttributableSealKey(
+        _ lines: [OpLogChain.Line], trust: TrustTable
+    ) -> String? {
+        for line in lines where line.kind == .seal && line.state != .quarantined {
+            guard let seal = OpLogChain.Seal.parse(line.bytes) else { continue }
+            switch trust.verdict(forSealKey: seal.key) {
+            case .mine, .admitted: return seal.key
+            case .stranger, .revoked, .retired, .otherRoot, .noChain: continue
+            }
+        }
+        return nil
     }
 
     /// Applied by the walk: neither held back nor a torn last line.

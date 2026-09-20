@@ -191,25 +191,41 @@ public struct PermitJudge: Sendable {
     /// What a line of THIS stream was — see `PermitPartition.WrittenDecoder`.
     public let decoding: @Sendable (Data) -> Written?
 
-    /// **Is every line of this stream the same `Written`?** True for the
-    /// translation sidecars and the inbox manifests, whose decoders are
-    /// constants; false for the op log, whose lines are a dozen kinds.
+    /// **What every line of this stream is**, where a stream has one answer —
+    /// the translation sidecars and the inbox manifests do, the op log does
+    /// not (its lines are a dozen kinds and the actor rows narrow several).
     ///
-    /// It is what lets the file-level door answer *this book can refuse
-    /// nothing here* without walking the file (fix round 2, R3). Set by the
-    /// two factories below and by nothing else, because the claim is about the
-    /// DECODER and the two travel together.
-    public let streamOfOneKind: Bool
+    /// It is what lets the file-level door answer a whole file at once without
+    /// walking it (fix round 2's R3, narrowed in fix round 3). Set only by
+    /// `oneKind` below, which builds the DECODER from the same value, so the
+    /// two cannot come to disagree about what this stream holds.
+    public let everyLineIs: Written?
 
     public init(
         trust: TrustTable, context: PermitContext,
         decoding: @escaping @Sendable (Data) -> Written? = PermitPartition.writtenOp,
-        streamOfOneKind: Bool = false
+        everyLineIs: Written? = nil
     ) {
         self.trust = trust
         self.context = context
         self.decoding = decoding
-        self.streamOfOneKind = streamOfOneKind
+        self.everyLineIs = everyLineIs
+    }
+
+    /// A stream whose every line is one thing: the decoder and the claim from
+    /// one value.
+    ///
+    /// Nothing is parsed by such a decoder, and nothing needs to be — the
+    /// directory holds one element type and the table's only question about a
+    /// line is *what was it*. A line that does not decode is
+    /// `JSONLAppendStore.parse`'s to report, exactly as it is for an op whose
+    /// `kind` the op decoder never reads either.
+    public static func oneKind(
+        _ what: Written, trust: TrustTable, context: PermitContext
+    ) -> PermitJudge {
+        PermitJudge(
+            trust: trust, context: context,
+            decoding: { _ in what }, everyLineIs: what)
     }
 
     /// One language's translation sidecar for one piece.
@@ -228,25 +244,21 @@ public struct PermitJudge: Sendable {
     public static func translation(
         ofPiece piece: String, trust: TrustTable
     ) -> PermitJudge {
-        PermitJudge(
-            trust: trust,
+        oneKind(
+            .translationRecord, trust: trust,
             context: PermitContext(
                 documentClass: { .translation(piece: piece) },
-                unowned: { .nobodyHasWrittenItsText }),
-            decoding: PermitPartition.writtenTranslationRecord,
-            streamOfOneKind: true)
+                unowned: { .nobodyHasWrittenItsText }))
     }
 
     /// The capture inbox — one class for the whole stream, and the one class
     /// whose entire content is the reviewer row.
     public static func inbox(trust: TrustTable) -> PermitJudge {
-        PermitJudge(
-            trust: trust,
+        oneKind(
+            .inboxRow, trust: trust,
             context: PermitContext(
                 documentClass: { .inbox },
-                unowned: { .nobodyHasWrittenItsText }),
-            decoding: PermitPartition.writtenInboxRow,
-            streamOfOneKind: true)
+                unowned: { .nobodyHasWrittenItsText }))
     }
 }
 

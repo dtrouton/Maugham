@@ -223,12 +223,14 @@ final class PermitStreamLoadTests: XCTestCase {
             .map(\.opId).sorted()
     }
 
-    private func inboxRows(by identity: DeviceIdentity? = nil) async throws -> [String] {
+    private func inboxRows(
+        by identity: DeviceIdentity? = nil, slug: DeviceSlug? = nil
+    ) async throws -> [String] {
         let identity = identity ?? sam.author
         let table = try table()
         let store = JSONLAppendStore<InboxEntry>(
             fileURL: InboxManifest.inboxManifestURL(
-                forDeviceSlug: identity.slug, in: projectURL),
+                forDeviceSlug: slug ?? identity.slug, in: projectURL),
             chain: ChainPolicy(
                 identity: root.author, state: rootState,
                 docId: InboxManifest.chainDocId, projectURL: projectURL,
@@ -283,6 +285,70 @@ final class PermitStreamLoadTests: XCTestCase {
         let rows = try await inboxRows()
         XCTAssertEqual(rows, ["i1"])
         XCTAssertEqual(walks.count, 0, "nothing here can be refused, so nothing is walked")
+    }
+
+    /// **The pipeline's own key takes the exit too**, which is the other
+    /// direction of §2's census: a translation record is what the `translator`
+    /// row is FOR, so an eventless book answers its file whole.
+    func test_theTranslationPipelinesOwnFileTakesTheExit() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try samsTranslation([record("t1")], by: sam.translator)
+
+        let walks = Counter()
+        PermitPartition.walkObserverForTesting = { walks.tick() }
+        defer { PermitPartition.walkObserverForTesting = nil }
+
+        XCTAssertEqual(try translations(), ["t1"])
+        XCTAssertEqual(walks.count, 0)
+    }
+
+    /// **But the ASSISTANT's key does not, and its record is refused — in a
+    /// book with no events at all** (fix round 3).
+    ///
+    /// *MCP never mutates the manuscript* is a sentence of the constitution,
+    /// not a thing that waits for a book to have permit events. Round 2's exit
+    /// was unconditional on the actor and applied this line; the narrowed one
+    /// falls through to the walk, which refuses it exactly as it always did.
+    func test_anAssistantSignedTranslationIsRefusedEvenWithNoEvents() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try samsTranslation([record("t1")], by: sam.assistant)
+
+        let walks = Counter()
+        PermitPartition.walkObserverForTesting = { walks.tick() }
+        defer { PermitPartition.walkObserverForTesting = nil }
+
+        XCTAssertEqual(try translations(), [],
+                       "the assistant never writes a translation, on any book")
+        XCTAssertEqual(walks.count, 1, "so this file IS walked")
+        XCTAssertTrue(try archivedLines().contains("traducción t1"))
+    }
+
+    /// And an actor the register cannot name is walked and HELD, not waved
+    /// through — the same answer the evented case already gives.
+    func test_anUnnameableActorsInboxFileIsWalkedAndHeldWithNoEvents() async throws {
+        try writeRootRecord()
+        // Admitted as a person, with no device record to say what her key is
+        // for, writing under a slug that names no actor either.
+        try RegistryWriter.write(
+            PersonRecord(
+                person: samPerson, label: "Sam", ownName: "Sam’s Mac",
+                admittedAt: Date(timeIntervalSince1970: 20), admittedBy: rootPerson),
+            signedBy: root.author, in: projectURL)
+        try writeChained(
+            at: InboxManifest.inboxManifestURL(
+                forDeviceSlug: DeviceSlug.make(from: "a-phone"), in: projectURL),
+            by: sam.author, elements: [try encoded(entry("i1", by: sam.author))])
+
+        let walks = Counter()
+        PermitPartition.walkObserverForTesting = { walks.tick() }
+        defer { PermitPartition.walkObserverForTesting = nil }
+
+        let rows = try await inboxRows(slug: DeviceSlug.make(from: "a-phone"))
+        XCTAssertEqual(rows, [], "nothing can say which of the four wrote it")
+        XCTAssertEqual(walks.count, 1)
+        XCTAssertEqual(try archivedLines(), "", "held, never set aside")
     }
 
     /// Its converse, so the exit is not simply *never judge these streams*: one
