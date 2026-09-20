@@ -573,4 +573,155 @@ final class UnsignedSnapshotTests: XCTestCase {
                 "for \(events.map(\.event))")
         }
     }
+
+    // MARK: - Only a root of MY chain narrows MY book (Task 2, ruling A)
+
+    /// A second self-signed root this device has nothing to do with — a
+    /// CLAIMANT, in P2b's vocabulary, whose every seal this table answers
+    /// `.otherRoot` about.
+    private func writeClaimantRoot(_ who: LocalIdentities) throws {
+        try RegistryWriter.write(
+            PersonRecord(
+                person: who.author.fingerprint, label: "Somebody",
+                ownName: "Somebody's Mac",
+                admittedAt: Date(timeIntervalSince1970: 3),
+                admittedBy: who.author.fingerprint),
+            signedBy: who.author, in: projectURL)
+    }
+
+    /// The one event `RegistryReader.entitled` lets any root in the folder
+    /// write: a narrowing about a subject this registry holds NO person record
+    /// for, which is the spec's own write-order crash window.
+    @discardableResult
+    private func claimantNarrowing(
+        by who: LocalIdentities, subject: String,
+        at when: Date = Date(timeIntervalSince1970: 0)
+    ) throws -> PermitEvent {
+        let event = PermitEvent(
+            event: "\(subject).01JAAAAAAAAAAAAAAAAAAAAAAA", kind: .roleChanged,
+            subject: subject, role: Permit.reviewerRole,
+            scope: Permit.bookScope, pieces: [], mark: [:], unsigned: [:],
+            at: when, by: who.author.fingerprint)
+        try RegistryWriter.write(event, signedBy: who.author, in: projectURL)
+        return event
+    }
+
+    /// **A claimant's narrowing narrows nothing here** (Task 1's review,
+    /// Important 1).
+    ///
+    /// Left unfiltered, one event signed by a root this device refuses as
+    /// `.otherRoot`, about a fingerprint nobody here has a record for, would
+    /// build a timeline, count in `hasNarrowingPermits` and — dated 1970 and
+    /// carrying an EMPTY snapshot — become the GOVERNING photograph, which
+    /// holds every unsigned Mac's whole history in a book that never trusted
+    /// the device that said so.
+    func test_aClaimantRootsNarrowingIsNotHeardInThisBook() throws {
+        try becomeRoot()
+        let claimant = LocalIdentities.softwareForTesting()
+        try writeClaimantRoot(claimant)
+        let stranger = LocalIdentities.softwareForTesting().author.fingerprint
+        try claimantNarrowing(by: claimant, subject: stranger)
+
+        let judged = try table()
+        XCTAssertNotNil(
+            try registry().events.first { $0.subject == stranger },
+            "the reader admits the record — it is the TABLE that must not hear it")
+        XCTAssertFalse(
+            judged.hasNarrowingPermits,
+            "a root this device is not on cannot narrow this book")
+        XCTAssertNil(judged.unsignedSnapshot, "and photographs nothing")
+        XCTAssertEqual(
+            judged.timeline(forPerson: stranger).current, .bookAuthor,
+            "the timeline is the default it would have been with no event at all")
+    }
+
+    /// Its other direction: the moment MY root ADOPTS that root, its events are
+    /// heard — which is what makes the two-roots exit work at all.
+    func test_adoptingThatRootMakesItsNarrowingCountFromTheSameBytes() throws {
+        try becomeRoot()
+        let claimant = LocalIdentities.softwareForTesting()
+        try writeClaimantRoot(claimant)
+        let stranger = LocalIdentities.softwareForTesting().author.fingerprint
+        let event = try claimantNarrowing(by: claimant, subject: stranger)
+
+        XCTAssertFalse(try table().hasNarrowingPermits)
+
+        try RegistryWriter.write(
+            ClaimRecord(
+                newRoot: mine.author.fingerprint,
+                adopted: [claimant.author.fingerprint],
+                claimedAt: Date(timeIntervalSince1970: 60)),
+            signedBy: mine.author, in: projectURL)
+
+        let judged = try table()
+        XCTAssertTrue(
+            judged.adoptedRoots.contains(claimant.author.fingerprint))
+        XCTAssertTrue(judged.hasNarrowingPermits, "now it is my chain's word")
+        XCTAssertEqual(judged.unsignedSnapshot?.event, event.event)
+        XCTAssertEqual(judged.timeline(forPerson: stranger).current, .reviewer)
+    }
+
+    /// **The equivalence survives the filter**, which is the half that fails
+    /// silently and in the worst direction: a book that counts as narrowed
+    /// while no event names a governing photograph holds every unsigned line
+    /// ever written in it.
+    func test_theFilteredPopulationKeepsTheNilIffNotNarrowedEquivalence() throws {
+        try becomeRoot()
+        let claimant = LocalIdentities.softwareForTesting()
+        try writeClaimantRoot(claimant)
+        let stranger = LocalIdentities.softwareForTesting().author.fingerprint
+        try claimantNarrowing(by: claimant, subject: stranger)
+
+        let before = try table()
+        XCTAssertEqual(before.unsignedSnapshot == nil, !before.hasNarrowingPermits)
+
+        try admitSam(permit: .reviewer, unsigned: .nothingApplied)
+        let after = try table()
+        XCTAssertEqual(after.unsignedSnapshot == nil, !after.hasNarrowingPermits)
+        XCTAssertTrue(after.hasNarrowingPermits, "my own root's narrowing IS heard")
+        XCTAssertEqual(
+            after.unsignedSnapshot?.event,
+            try events(about: sam.author.fingerprint).last?.event,
+            "and it governs, because the claimant's is not in the population")
+    }
+
+    /// A retirement keeps `RegistryReader.entitled`'s own rule — the device's
+    /// word about itself, signed by the subject rather than by a root — and it
+    /// installs no permit, so it narrows nothing whoever this device is on a
+    /// chain with.
+    ///
+    /// **What this can and cannot see.** `PermitTimeline.init` installs no
+    /// entry for a retirement (`installedPermit` answers nil: it is the
+    /// VERDICT's business, and `retiredAtByDevice` is read off the DEVICE
+    /// record), so the signer carve-out has no observable effect on the table
+    /// today. It is written as a contract rather than as behaviour: the filter
+    /// must not turn a self-signed retirement into something only a root can
+    /// say, because the day a reader gives retirement a timeline entry the
+    /// difference would be a device that could never be retired at all.
+    func test_aSelfSignedRetirementIsStillHeardAndNarrowsNothing() throws {
+        try becomeRoot()
+        let elsewhere = LocalIdentities.softwareForTesting()
+        try RegistryWriter.write(
+            PermitEvent(
+                event: "\(elsewhere.author.fingerprint).01JBBBBBBBBBBBBBBBBBBBBBBB",
+                kind: .retired, subject: elsewhere.author.fingerprint,
+                role: Permit.reviewerRole, scope: Permit.bookScope,
+                pieces: [], mark: [:],
+                at: Date(timeIntervalSince1970: 70),
+                by: elsewhere.author.fingerprint),
+            signedBy: elsewhere.author, in: projectURL)
+
+        XCTAssertNotNil(
+            try registry().events.first {
+                $0.subject == elsewhere.author.fingerprint
+            },
+            "the reader accepts a self-signed retirement from anybody")
+        let judged = try table()
+        XCTAssertFalse(judged.hasNarrowingPermits, "a retirement installs no permit")
+        XCTAssertNil(judged.unsignedSnapshot)
+        XCTAssertEqual(
+            judged.timeline(forPerson: elsewhere.author.fingerprint)
+                .entries.compactMap(\.kind), [],
+            "and installs no timeline entry — see the note above")
+    }
 }
