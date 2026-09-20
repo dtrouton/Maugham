@@ -1671,8 +1671,12 @@ final class PermitLoadTests: XCTestCase {
     }
 
     /// **Task 9's hook.** A file that is simply absent looks exactly like a
-    /// stream that never existed; a caller that REMEMBERS which streams it has
-    /// applied says so, and gets a refusal naming the first one missing.
+    /// stream that never existed; a caller that REMEMBERS what it has applied
+    /// from a stream says so, and gets a refusal naming the first one short.
+    ///
+    /// The memory travels rather than the name since the final fix wave's W2;
+    /// this fixture remembers a head the present file holds, so the *present*
+    /// half is unchanged.
     func test_expectedStreamsNamesTheOneTheSweepCouldNotFind() async throws {
         try writeRootRecord()
         try declareSam()
@@ -1680,15 +1684,17 @@ final class PermitLoadTests: XCTestCase {
         let key = try XCTUnwrap(PermitMark.streamKey(of: url))
         let table = try await reader().trust()
         let ids = Set(sam.all.map(\.deviceId))
+        let remembered = [key: OpLogDeviceState.ForeignStreamMemory(
+            deviceSlug: sam.author.slug.raw, head: nil, segmentDigests: [])]
 
         // Present: no refusal.
         _ = try OpLogStore.seenPositions(
-            ofDeviceIds: ids, in: projectURL, trust: table, expectedStreams: [key])
+            ofDeviceIds: ids, in: projectURL, trust: table, expecting: remembered)
 
         try FileManager.default.removeItem(at: url)
         do {
             _ = try OpLogStore.seenPositions(
-                ofDeviceIds: ids, in: projectURL, trust: table, expectedStreams: [key])
+                ofDeviceIds: ids, in: projectURL, trust: table, expecting: remembered)
             XCTFail("a stream this device had read before is gone")
         } catch let error as OpLogStore.ReadError {
             guard case .streamMissingFromSweep(let missing) = error else {

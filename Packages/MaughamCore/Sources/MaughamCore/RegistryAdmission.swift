@@ -757,8 +757,29 @@ public enum RegistryAdmission {
             for older in own
                 .filter({ carriesForward($0.kind) })
                 .sorted(by: { $0.event > $1.event }) {
-                for (key, position) in older.mark where streams[key] == nil {
-                    streams[key] = position
+                for (key, position) in older.mark {
+                    // **Per KEY was not enough** (final fix wave, W2). A
+                    // carry-forward that only filled in whole streams left the
+                    // case where a stream came back NAMED and SHORT: a rotation
+                    // whose tail deletion syncs ahead of its segment answers
+                    // with the new tail's line and none of the digests, and
+                    // this event would then have recorded a position that
+                    // forgets segments an earlier event had already listed —
+                    // so every line in them judges NEW under the permit this
+                    // event installs. These marks only ever GROW (see
+                    // `carriesForward`), so the union is the honest merge.
+                    //
+                    // The LINE is a position in the live tail and there is only
+                    // ever one of it, so an older one is kept only where this
+                    // sweep found none at all.
+                    guard let existing = streams[key] else {
+                        streams[key] = position
+                        continue
+                    }
+                    streams[key] = .init(
+                        segments: Set(existing.segments)
+                            .union(position.segments).sorted(),
+                        line: existing.line ?? position.line)
                 }
             }
         }

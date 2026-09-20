@@ -1741,6 +1741,89 @@ final class RegistryAdmissionTests: XCTestCase {
             "two-2")
     }
 
+    /// **A stream that came back NAMED and SHORT keeps the segments an older
+    /// event listed** (final fix wave, W2).
+    ///
+    /// The carry-forward used to be per KEY — it filled in whole streams and
+    /// stopped there — so a sweep that answered a stream with its new tail's
+    /// line and none of its digests recorded a position that had FORGOTTEN
+    /// segments an earlier event already listed. Every line inside them then
+    /// judged NEW under the permit this event installs, which for a demotion is
+    /// the reach-back the per-key rule was written to prevent, arriving one
+    /// field lower down. These marks only ever grow, so the union is the
+    /// honest merge; the LINE is a single position in the live tail, so an
+    /// older one is kept only where the new sweep found none.
+    func test_aStreamAnsweringShortKeepsTheSegmentsAnOlderEventListed() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        try changeThePhone(
+            to: .author(.pieces(["d-one"])),
+            mark: PermitMark([
+                "d-one.slug": .init(segments: ["seg-a", "seg-b"], line: "one-1"),
+            ]),
+            at: Date(timeIntervalSince1970: 50))
+
+        // The sweep answers the same stream, with the new tail and without the
+        // segments — the rotation-mid-sync shape.
+        try changeThePhone(
+            to: .reviewer,
+            mark: PermitMark(["d-one.slug": .init(segments: [], line: "one-2")]),
+            at: Date(timeIntervalSince1970: 60))
+
+        let latest = try XCTUnwrap(try events(about: phone.author.fingerprint).last)
+        XCTAssertEqual(latest.mark["d-one.slug"]?.line, "one-2",
+                       "its own line stands")
+        XCTAssertEqual(latest.mark["d-one.slug"]?.segments, ["seg-a", "seg-b"],
+                       "and the segments the root had already read are kept")
+    }
+
+    /// **The union is a UNION**: segments this sweep found and segments an
+    /// older event listed, sorted, with no duplicate.
+    func test_theSegmentsOfTwoEventsAreUnionedAndSorted() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        try changeThePhone(
+            to: .author(.pieces(["d-one"])),
+            mark: PermitMark(["d-one.slug": .init(segments: ["seg-b", "seg-a"])]),
+            at: Date(timeIntervalSince1970: 50))
+        try changeThePhone(
+            to: .reviewer,
+            mark: PermitMark(["d-one.slug": .init(segments: ["seg-c", "seg-a"])]),
+            at: Date(timeIntervalSince1970: 60))
+
+        XCTAssertEqual(
+            try XCTUnwrap(try events(about: phone.author.fingerprint).last)
+                .mark["d-one.slug"]?.segments,
+            ["seg-a", "seg-b", "seg-c"])
+    }
+
+    /// **And a REVOCATION carries nothing forward, in this field either.**
+    /// *Set aside everything it wrote* is an empty mark on purpose, and a
+    /// union that filled it in would keep the whole of the history the writer
+    /// had just asked to have taken out — the same reason `carriesForward`
+    /// excludes it per key.
+    func test_aRevocationsEmptyMarkIsNotFilledInByTheUnionEither() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try declare(phone, name: "Denver's iPhone")
+        try admitThePhone()
+        try changeThePhone(
+            to: .author(.pieces(["d-one"])),
+            mark: PermitMark(["d-one.slug": .init(segments: ["seg-a"], line: "one-1")]),
+            at: Date(timeIntervalSince1970: 50))
+
+        try RegistryAdmission.revoke(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            highestOpIdSeen: nil, mark: .nothingApplied, cache: makeCache(),
+            now: { Date(timeIntervalSince1970: 60) })
+
+        let latest = try XCTUnwrap(try events(about: phone.author.fingerprint).last)
+        XCTAssertEqual(latest.kind, .revokedEntirely)
+        XCTAssertTrue(latest.mark.isEmpty,
+                      "nothing kept: that is what the writer asked for")
+    }
+
     // MARK: recordBehindEvents (spec §3.2's crash window)
 
     /// Nobody in a book written before P3 is behind anything.

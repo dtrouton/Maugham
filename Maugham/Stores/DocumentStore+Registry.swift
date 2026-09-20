@@ -640,12 +640,13 @@ extension DocumentStore {
         let ids = opLogDeviceIds(ofPerson: person, in: resolved.registry)
         return try OpLogStore.seenPositions(
             ofDeviceIds: ids, in: projectURL, trust: resolved.table,
-            expectedStreams: expectedStreams(
+            expecting: expectedStreams(
                 ofDeviceIds: ids, in: projectURL, state: state))
     }
 
-    /// **The streams this Mac has applied from these devices, by name** (P3a
-    /// Task 9) — what a position sweep must not come back without.
+    /// **What this Mac has applied from these devices, per stream** (P3a
+    /// Task 9; the memory rather than the names since the final fix wave's W2)
+    /// — what a position sweep must not come back short of.
     ///
     /// A mark that does not NAME a stream judges that stream wholly NEW, and a
     /// file that is simply ABSENT at sweep time — evicted by iCloud, halfway
@@ -663,8 +664,8 @@ extension DocumentStore {
     /// and that verb's sweep is byte-for-byte what it was.
     nonisolated static func expectedStreams(
         ofDeviceIds ids: Set<String>, in projectURL: URL, state: OpLogDeviceState
-    ) -> Set<String> {
-        state.foreignStreamKeys(
+    ) -> [String: OpLogDeviceState.ForeignStreamMemory] {
+        state.foreignStreams(
             inRoot: projectURL,
             writtenBy: Set(ids.map { DeviceSlug.make(from: $0).raw }))
     }
@@ -690,10 +691,10 @@ extension DocumentStore {
                 return .success(seen
                     ? try OpLogStore.seenPositions(
                         ofDeviceIds: ids, in: projectURL, trust: resolved.table,
-                        expectedStreams: expected)
+                        expecting: expected)
                     : try OpLogStore.appliedPositions(
                         ofDeviceIds: ids, in: projectURL, trust: resolved.table,
-                        expectedStreams: expected))
+                        expecting: expected))
             } catch {
                 return .failure(error)
             }

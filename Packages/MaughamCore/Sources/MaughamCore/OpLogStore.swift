@@ -827,11 +827,11 @@ public final class OpLogStore {
     /// presenter to keep from bouncing back.
     nonisolated public static func appliedPositions(
         ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
-        expectedStreams: Set<String> = []
+        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:]
     ) throws -> PermitMark {
         try positions(
             ofDeviceIds: ids, in: projectURL, trust: trust,
-            expectedStreams: expectedStreams
+            expecting: expecting
         ) { line in
             !line.state.isHeldBack && line.state != .tornTail
         }
@@ -874,11 +874,11 @@ public final class OpLogStore {
     /// *the root read this whole file*, not *the root applied all of it*.
     nonisolated public static func seenPositions(
         ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
-        expectedStreams: Set<String> = []
+        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:]
     ) throws -> PermitMark {
         try positions(
             ofDeviceIds: ids, in: projectURL, trust: trust,
-            expectedStreams: expectedStreams, lastLine: wasSeen)
+            expecting: expecting, lastLine: wasSeen)
     }
 
     /// Did the reader see and JUDGE this line? — `seenPositions`' predicate,
@@ -915,17 +915,32 @@ public final class OpLogStore {
     /// will not read throws (`readCoordinated`, RULING-54), and every verb
     /// that marks turns either into its own *nothing was changed* refusal.
     ///
-    /// **`expectedStreams` is the third way, and it is a caller's to supply.**
+    /// **`expecting` is the third way, and it is a caller's to supply.**
     /// A file that is simply ABSENT — evicted by iCloud, halfway through a
     /// sync — looks exactly like a stream that never existed, and nothing in
-    /// this function can tell them apart. A caller that REMEMBERS which
-    /// streams it has applied says so here and gets
-    /// `ReadError.streamMissingFromSweep` naming the first one missing. P3a
-    /// supplies nothing (the memory is Task 9's), and the default is empty, so
-    /// this costs today's callers a set comparison over an empty set.
+    /// this function can tell them apart. A caller that REMEMBERS what it has
+    /// applied from each stream says so here and gets
+    /// `ReadError.streamMissingFromSweep` naming the first one short.
+    ///
+    /// **It is the MEMORY and not a set of names** (final fix wave, W2).
+    /// Checking that the name came back caught a stream that had vanished and
+    /// nothing else, which left the case the shipped UI can walk into: Sam's
+    /// Mac rotates, and the tail DELETION reaches the root's disk before the
+    /// new segment does. The key is there, the mark names the stream, nothing
+    /// refuses — and the mark's position is short. The root presses Revoke
+    /// (*keep what was applied*); the late segment arrives; every line in it is
+    /// unlisted and unmarked, so every line judges NEW, so the revocation sets
+    /// aside words this Mac had already applied. The mark is a signed shared
+    /// event, so every device inherits the cut.
+    ///
+    /// So the guard asks `ForeignStreamWatch.loss` — the load's own predicate,
+    /// rotation tolerance and all, called rather than restated — of what this
+    /// sweep actually read. A stream that legitimately GREW (a new segment and
+    /// a new tail) is not refused; a stream this device never remembered is not
+    /// expected at all.
     private nonisolated static func positions(
         ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
-        expectedStreams: Set<String> = [],
+        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:],
         lastLine: (OpLogChain.Line) -> Bool
     ) throws -> PermitMark {
         guard !ids.isEmpty else { return .nothingApplied }
@@ -953,6 +968,18 @@ public final class OpLogStore {
         let statements = manifestStatements(in: projectURL)
         var segments: [String: Set<String>] = [:]
         var lastKnownLine: [String: String] = [:]
+        // What this sweep FOUND, per stream, in the shape the load's own
+        // predicate takes (final fix wave, W2). Gathered only for the streams
+        // a caller remembers, because that is the only question it answers.
+        var found: [String: ForeignStreamWatch.Found] = [:]
+        func note(
+            _ key: String, _ change: (inout ForeignStreamWatch.Found) -> Void
+        ) {
+            guard expecting[key] != nil else { return }
+            var entry = found[key] ?? .init()
+            change(&entry)
+            found[key] = entry
+        }
         for docId in docIds.sorted() {
             let permit = permitContext(
                 forDocId: docId, in: projectURL, trust: trust,
@@ -977,11 +1004,24 @@ public final class OpLogStore {
                     // name, which is a root's verb refusing for ever.
                     if let digest = classified.wholeSegmentDigest {
                         segments[stream.key, default: []].insert(digest)
+                        note(stream.key) {
+                            $0.digests.insert(digest)
+                            $0.answered = true
+                        }
+                    } else {
+                        note(stream.key) { $0.sawUnsettledSegment = true }
                     }
                     continue
                 }
-                guard let verification = classified.verification,
-                      let last = verification.lines.last(where: lastLine)
+                guard let verification = classified.verification else { continue }
+                note(stream.key) { entry in
+                    if verification.head != nil { entry.answered = true }
+                    if let head = expecting[stream.key]?.head,
+                       ForeignStreamWatch.holds(head, verification) {
+                        entry.holdsRemembered = true
+                    }
+                }
+                guard let last = verification.lines.last(where: lastLine)
                 else { continue }
                 lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
             }
@@ -997,6 +1037,13 @@ public final class OpLogStore {
             else { continue }
             let verification = verificationForPositions(
                 at: url, bytes: bytes, stream: stream, trust: trust)
+            note(stream.key) { entry in
+                if verification.head != nil { entry.answered = true }
+                if let head = expecting[stream.key]?.head,
+                   ForeignStreamWatch.holds(head, verification) {
+                    entry.holdsRemembered = true
+                }
+            }
             guard let last = verification.lines.last(where: lastLine) else { continue }
             lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
         }
@@ -1010,11 +1057,19 @@ public final class OpLogStore {
                 segments: segments[key].map { $0.sorted() } ?? [],
                 line: lastKnownLine[key])
         }
-        // Sorted, so a sweep missing two streams refuses over the same one
+        // Sorted, so a sweep short of two streams refuses over the same one
         // twice running and the writer is not chasing a different name each
         // time they press.
-        if let missing = expectedStreams.subtracting(marks.keys).sorted().first {
-            throw ReadError.streamMissingFromSweep(streamKey: missing)
+        //
+        // A stream whose NAME never came back answers `Found()` — nothing
+        // found, nothing answered — which `loss` reads as the remembered head
+        // being gone, so the two conditions the ruling names are one call.
+        for key in expecting.keys.sorted() {
+            let seen = found[key] ?? .init()
+            guard seen.answered,
+                  ForeignStreamWatch.loss(
+                    remembered: expecting[key], found: seen) == nil
+            else { throw ReadError.streamMissingFromSweep(streamKey: key) }
         }
         return PermitMark(marks)
     }

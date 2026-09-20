@@ -276,7 +276,8 @@ final class ForeignHeadTests: XCTestCase {
         let applied = try await load()
         XCTAssertTrue(applied.isEmpty)
         XCTAssertTrue(
-            rootState.foreignStreamKeys(inRoot: projectURL, writtenBy: [samSlug]).isEmpty,
+            rootState.foreignStreams(
+            inRoot: projectURL, writtenBy: [samSlug]).isEmpty,
             "nothing answered, so there is nothing to expect")
 
         // And the sweep the root's verbs run agrees: it names no such stream,
@@ -289,8 +290,8 @@ final class ForeignHeadTests: XCTestCase {
             try OpLogStore.seenPositions(
                 ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
                 trust: table,
-                expectedStreams: rootState.foreignStreamKeys(
-                    inRoot: projectURL, writtenBy: [samSlug])))
+                expecting: rootState.foreignStreams(
+            inRoot: projectURL, writtenBy: [samSlug])))
     }
 
     /// The same, for the other way a present file answers nothing: a first line
@@ -312,7 +313,8 @@ final class ForeignHeadTests: XCTestCase {
 
         _ = try await load()
         XCTAssertTrue(
-            rootState.foreignStreamKeys(inRoot: projectURL, writtenBy: [samSlug]).isEmpty,
+            rootState.foreignStreams(
+            inRoot: projectURL, writtenBy: [samSlug]).isEmpty,
             "a file whose every line is refused has told this Mac nothing")
     }
 
@@ -334,16 +336,16 @@ final class ForeignHeadTests: XCTestCase {
         let applied = try await load()
         XCTAssertEqual(applied, ["01", "02"])
 
-        let expected = rootState.foreignStreamKeys(
+        let expected = rootState.foreignStreams(
             inRoot: projectURL, writtenBy: [samSlug])
-        XCTAssertEqual(expected, [samStreamKey], "the segment is an answer")
+        XCTAssertEqual(Set(expected.keys), [samStreamKey], "the segment is an answer")
         XCTAssertFalse(
             rootState.foreignStream(samStreamKey, inRoot: projectURL)?
                 .segmentDigests.isEmpty ?? true)
 
         let mark = try OpLogStore.seenPositions(
             ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
-            trust: try await reader().trust(), expectedStreams: expected)
+            trust: try await reader().trust(), expecting: expected)
         XCTAssertEqual(
             Set(mark[samStreamKey]?.segments ?? []),
             rootState.foreignStream(samStreamKey, inRoot: projectURL)?.segmentDigests,
@@ -440,8 +442,8 @@ final class ForeignHeadTests: XCTestCase {
         XCTAssertEqual(seen, ["01"])
         XCTAssertTrue(truncations().isEmpty)
         XCTAssertEqual(
-            rootState.foreignStreamKeys(
-                inRoot: projectURL, writtenBy: [samSlug]),
+            Set(rootState.foreignStreams(
+                inRoot: projectURL, writtenBy: [samSlug]).keys),
             [samStreamKey])
     }
 
@@ -456,7 +458,7 @@ final class ForeignHeadTests: XCTestCase {
         let mine = try await load()
         XCTAssertEqual(mine, ["01"])
         XCTAssertTrue(
-            rootState.foreignStreamKeys(
+            rootState.foreignStreams(
                 inRoot: projectURL, writtenBy: [root.author.slug.raw]).isEmpty)
     }
 
@@ -477,8 +479,8 @@ final class ForeignHeadTests: XCTestCase {
         let legacy = try await load()
         XCTAssertEqual(legacy, ["01"])
         XCTAssertTrue(
-            rootState.foreignStreamKeys(
-                inRoot: projectURL, writtenBy: [samSlug]).isEmpty)
+            rootState.foreignStreams(
+            inRoot: projectURL, writtenBy: [samSlug]).isEmpty)
         XCTAssertTrue(truncations().isEmpty)
     }
 
@@ -497,8 +499,8 @@ final class ForeignHeadTests: XCTestCase {
 
         XCTAssertEqual(rootState.persistCountForTesting, before)
         XCTAssertTrue(
-            rootState.foreignStreamKeys(
-                inRoot: projectURL, writtenBy: [samSlug]).isEmpty)
+            rootState.foreignStreams(
+            inRoot: projectURL, writtenBy: [samSlug]).isEmpty)
     }
 
     /// A load that changed nothing rewrites nothing. The memory is read on
@@ -606,9 +608,9 @@ final class ForeignHeadTests: XCTestCase {
         let url = try writeFile(by: sam.author, ops: [op("01", by: sam.author)])
         _ = try await load()
 
-        let expected = rootState.foreignStreamKeys(
+        let expected = rootState.foreignStreams(
             inRoot: projectURL, writtenBy: [samSlug])
-        XCTAssertEqual(expected, [samStreamKey])
+        XCTAssertEqual(Set(expected.keys), [samStreamKey])
 
         // iCloud takes the file away mid-sync.
         try FileManager.default.removeItem(at: url)
@@ -617,7 +619,7 @@ final class ForeignHeadTests: XCTestCase {
         XCTAssertThrowsError(
             try OpLogStore.seenPositions(
                 ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
-                trust: table, expectedStreams: expected)
+                trust: table, expecting: expected)
         ) { error in
             guard case let OpLogStore.ReadError.streamMissingFromSweep(key) = error
             else { return XCTFail("a stream this Mac had applied is missing") }
@@ -630,7 +632,125 @@ final class ForeignHeadTests: XCTestCase {
         XCTAssertNoThrow(
             try OpLogStore.seenPositions(
                 ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
-                trust: table, expectedStreams: []))
+                trust: table, expecting: [:]))
+    }
+
+    // MARK: - A stream that came back NAMED and SHORT (final fix wave, W2)
+
+    /// **The rotation mid-sync**, which is the case checking NAMES could not
+    /// see and the shipped Revoke button walks straight into.
+    ///
+    /// Sam's Mac rotates: the live tail is sealed into a `.mzseg` and the tail
+    /// is deleted. The two changes are two files and they sync independently,
+    /// so the root's disk can hold the DELETION without yet holding the
+    /// segment. The stream key is still there — a fresh tail exists — so the
+    /// old guard saw the name come back and let the sweep through with a mark
+    /// that had forgotten a whole segment. The root presses Revoke (*keep what
+    /// was applied*); the segment arrives; every line in it is unlisted and
+    /// unmarked, judges NEW, and is set aside. The mark is a signed shared
+    /// event, so every device inherits that cut.
+    func test_aRotationWhoseSegmentHasNotArrivedYetRefusesTheSweep() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeFile(
+            by: sam.author, ops: ["01", "02"].map { op($0, by: sam.author) })
+        let rotated = try await samsStore().sealTailIfNeeded(
+            docId: docId, deviceSlug: sam.author.slug, threshold: 1)
+        let segment = try XCTUnwrap(rotated)
+        try writeFile(by: sam.author, ops: [op("03", by: sam.author)])
+        _ = try await load()
+
+        let expected = rootState.foreignStreams(
+            inRoot: projectURL, writtenBy: [samSlug])
+        XCTAssertFalse(
+            expected[samStreamKey]?.segmentDigests.isEmpty ?? true,
+            "this Mac remembers taking the segment in whole")
+
+        // The segment has not reached this disk yet, while the new tail has.
+        try FileManager.default.removeItem(at: segment)
+        try? FileManager.default.removeItem(
+            at: OpLogStore.segmentSignatureURL(for: segment))
+        let table = try await reader().trust()
+
+        // The NAME is still there — which is exactly why a name was not enough.
+        let short = try OpLogStore.seenPositions(
+            ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL, trust: table)
+        XCTAssertNotNil(short[samStreamKey], "the stream is named")
+        XCTAssertTrue(short[samStreamKey]?.segments.isEmpty ?? false,
+                      "and its position has forgotten the segment")
+
+        for seen in [true, false] {
+            XCTAssertThrowsError(
+                seen
+                    ? try OpLogStore.seenPositions(
+                        ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+                        trust: table, expecting: expected)
+                    : try OpLogStore.appliedPositions(
+                        ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+                        trust: table, expecting: expected)
+            ) { error in
+                guard case let OpLogStore.ReadError
+                    .streamMissingFromSweep(key) = error
+                else { return XCTFail("\(error)") }
+                XCTAssertEqual(key, self.samStreamKey)
+            }
+        }
+    }
+
+    /// **The converse: a stream that legitimately GREW is not refused.** A new
+    /// segment AND a new tail is what an honest rotation looks like once both
+    /// halves have arrived, and a guard that refused it would refuse every verb
+    /// after every maintenance pass.
+    func test_aStreamThatGrewIsNotRefused() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeFile(by: sam.author, ops: [op("01", by: sam.author)])
+        _ = try await load()
+        let before = rootState.foreignStreams(
+            inRoot: projectURL, writtenBy: [samSlug])
+        XCTAssertNotNil(before[samStreamKey])
+
+        // Sam rotates and writes on. Both halves are here.
+        _ = try await samsStore().sealTailIfNeeded(
+            docId: docId, deviceSlug: sam.author.slug, threshold: 1)
+        try writeFile(by: sam.author, ops: [op("02", by: sam.author)])
+
+        let table = try await reader().trust()
+        XCTAssertNoThrow(
+            try OpLogStore.seenPositions(
+                ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+                trust: table, expecting: before))
+        XCTAssertNoThrow(
+            try OpLogStore.appliedPositions(
+                ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+                trust: table, expecting: before))
+    }
+
+    /// **A tail somebody cut back is refused too** — the same predicate's other
+    /// arm, and the one a load merely REPORTS. A verb that marks may not
+    /// proceed over it, because the line it would record is behind lines this
+    /// Mac had applied.
+    func test_aTailCutBackBehindWhatThisMacAppliedRefusesTheSweep() async throws {
+        try writeRootRecord()
+        try admitSam()
+        let url = try writeFile(
+            by: sam.author,
+            ops: ["01", "02", "03"].map { op($0, by: sam.author) })
+        _ = try await load()
+        let expected = rootState.foreignStreams(
+            inRoot: projectURL, writtenBy: [samSlug])
+
+        try truncate(url, toFirst: 1)
+        let table = try await reader().trust()
+
+        let short = try OpLogStore.seenPositions(
+            ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL, trust: table)
+        XCTAssertNotNil(short[samStreamKey], "the stream is still named")
+
+        XCTAssertThrowsError(
+            try OpLogStore.seenPositions(
+                ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+                trust: table, expecting: expected))
     }
 
     /// The same, for the revocation's question — *keep what this Mac had
@@ -640,7 +760,7 @@ final class ForeignHeadTests: XCTestCase {
         try admitSam()
         let url = try writeFile(by: sam.author, ops: [op("01", by: sam.author)])
         _ = try await load()
-        let expected = rootState.foreignStreamKeys(
+        let expected = rootState.foreignStreams(
             inRoot: projectURL, writtenBy: [samSlug])
         try FileManager.default.removeItem(at: url)
         let table = try await reader().trust()
@@ -648,7 +768,7 @@ final class ForeignHeadTests: XCTestCase {
         XCTAssertThrowsError(
             try OpLogStore.appliedPositions(
                 ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
-                trust: table, expectedStreams: expected))
+                trust: table, expecting: expected))
     }
 
     // MARK: - The memory itself
@@ -675,7 +795,8 @@ final class ForeignHeadTests: XCTestCase {
         XCTAssertTrue(loaded.isVerified(segmentDigest: "digest"))
         XCTAssertTrue(loaded.truncations(inRoot: projectURL).isEmpty)
         XCTAssertTrue(
-            loaded.foreignStreamKeys(inRoot: projectURL, writtenBy: ["any"]).isEmpty)
+            loaded.foreignStreams(
+            inRoot: projectURL, writtenBy: ["any"]).isEmpty)
     }
 
     /// **Pruned from day one**, by the rule that already prunes heads: a
@@ -706,7 +827,8 @@ final class ForeignHeadTests: XCTestCase {
         let reopened = OpLogDeviceState(fileURL: url, identity: identity.fingerprint)
         XCTAssertTrue(reopened.truncations(inRoot: gone).isEmpty)
         XCTAssertTrue(
-            reopened.foreignStreamKeys(inRoot: gone, writtenBy: ["sam"]).isEmpty)
+            reopened.foreignStreams(
+            inRoot: gone, writtenBy: ["sam"]).isEmpty)
     }
 
     // MARK: - The finding, as P3b will read it

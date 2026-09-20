@@ -146,11 +146,82 @@ public final class ForeignStreamWatch: @unchecked Sendable {
         sightings[stream.key] = sighting
     }
 
+    // MARK: - The one predicate
+
+    /// **What one stream lost, given what this device remembers of it and what
+    /// a reader just found** — the one answer, shared by the load's watch and
+    /// by a registry verb's position sweep (final fix wave, W2).
+    ///
+    /// It used to live inline in `settle`, which made the sweep's own
+    /// short-mark guard a second opinion waiting to be written: the sweep
+    /// checked that a stream's NAME came back and nothing else, so a rotation
+    /// whose tail deletion reached the root's disk before its new segment did
+    /// produced a mark naming the stream with the line gone — and the root's
+    /// Revoke (*keep what was applied*) then set aside words this Mac had
+    /// already applied. Every device inherits that cut, because the mark is a
+    /// signed shared event.
+    ///
+    /// **The rotation tolerance is the whole subtlety.** A tail that no longer
+    /// holds the remembered line while the stream has taken in a segment digest
+    /// this device had not seen has ROTATED: the line moved into the segment,
+    /// nothing was lost, and a reader that called that a truncation would
+    /// refuse every verb after every maintenance pass. A digest this device
+    /// remembers that no segment carries now is a segment that went missing,
+    /// which is a loss the count this replaced could not see; it is never
+    /// computed while a `.mzseg` is present and unsettled, because that file's
+    /// digest is unknown rather than gone.
+    public enum Loss: Equatable, Sendable {
+        /// The remembered last line of the tail is nowhere in the stream.
+        case line(String)
+        /// A segment this device had taken in whole is no longer there.
+        case segment(String)
+    }
+
+    /// What a reader found for one stream — the sweep's side of the predicate,
+    /// and what `Sighting` reduces to.
+    public struct Found: Equatable, Sendable {
+        /// Digests of the segments this reader took in whole.
+        public var digests: Set<String>
+        /// A `.mzseg` that is present and yielded no digest.
+        public var sawUnsettledSegment: Bool
+        /// Did the tail this reader walked hold the remembered line?
+        public var holdsRemembered: Bool
+        /// Did this stream say anything at all that a mark can name?
+        public var answered: Bool
+
+        public init(
+            digests: Set<String> = [], sawUnsettledSegment: Bool = false,
+            holdsRemembered: Bool = false, answered: Bool = false
+        ) {
+            self.digests = digests
+            self.sawUnsettledSegment = sawUnsettledSegment
+            self.holdsRemembered = holdsRemembered
+            self.answered = answered
+        }
+    }
+
+    /// Nil where nothing was lost. See `Loss` for the two arms and the
+    /// tolerance between them.
+    public static func loss(
+        remembered: OpLogDeviceState.ForeignStreamMemory?, found: Found
+    ) -> Loss? {
+        guard let remembered else { return nil }
+        let rotated = !found.digests.subtracting(remembered.segmentDigests).isEmpty
+        let missing = found.sawUnsettledSegment
+            ? []
+            : remembered.segmentDigests.subtracting(found.digests)
+        if let lost = remembered.head, !found.holdsRemembered, !rotated {
+            return .line(lost)
+        }
+        if let gone = missing.sorted().first { return .segment(gone) }
+        return nil
+    }
+
     /// Is this hash one of these lines? The head first, because a file nobody
     /// has touched since the last load answers there for free; then backwards,
     /// because a file that GREW holds the remembered line just behind whatever
     /// was appended to it.
-    private static func holds(_ hash: String, _ verification: OpLogChain.Verification) -> Bool {
+    public static func holds(_ hash: String, _ verification: OpLogChain.Verification) -> Bool {
         if verification.head == hash { return true }
         for line in verification.lines.reversed()
         where OpLogChain.lineHash(line.bytes) == hash {
@@ -184,28 +255,34 @@ public final class ForeignStreamWatch: @unchecked Sendable {
             let answered = sighting.tailHead != nil || !sighting.digests.isEmpty
             guard remembered != nil || answered else { continue }
 
-            // A segment digest this load had never seen means the stream took
-            // one in since — which is what a rotation is, and it is where the
-            // remembered line went.
+            // **The predicate, asked rather than spelled** (final fix wave,
+            // W2). `loss` is the one answer to *what did this stream lose*,
+            // and a registry verb's position sweep asks the same function of
+            // the same memory — a second spelling of the rotation tolerance
+            // would have the load call a rotation maintenance while the sweep
+            // called it a truncation, or the reverse.
+            let found = Found(
+                digests: sighting.digests,
+                sawUnsettledSegment: sighting.sawUnsettledSegment,
+                holdsRemembered: sighting.holdsRemembered,
+                answered: answered)
             let rotated = !sighting.digests
                 .subtracting(remembered?.segmentDigests ?? []).isEmpty
-            // A digest this device remembers and no segment of this stream
-            // carries now. Never computed while a segment is present and
-            // unsettled: that file's digest is unknown rather than gone.
             let missing = sighting.sawUnsettledSegment
                 ? []
                 : (remembered?.segmentDigests ?? []).subtracting(sighting.digests)
 
-            var truncation: OpLogDeviceState.StreamTruncation?
-            if let lost = remembered?.head, !sighting.holdsRemembered, !rotated {
-                truncation = .init(
-                    streamKey: key, deviceSlug: sighting.slug, loss: .line,
-                    lost: lost, noticedAt: now())
-            } else if let goneDigest = missing.sorted().first {
-                truncation = .init(
-                    streamKey: key, deviceSlug: sighting.slug, loss: .segment,
-                    lost: goneDigest, noticedAt: now())
-            }
+            let truncation: OpLogDeviceState.StreamTruncation? =
+                switch Self.loss(remembered: remembered, found: found) {
+                case let .line(lost):
+                    .init(streamKey: key, deviceSlug: sighting.slug, loss: .line,
+                          lost: lost, noticedAt: now())
+                case let .segment(gone):
+                    .init(streamKey: key, deviceSlug: sighting.slug, loss: .segment,
+                          lost: gone, noticedAt: now())
+                case nil:
+                    nil
+                }
 
             // **A stream moves its memory on only when it lost nothing.**
             // Two clauses, and each is load-bearing. It must have ANSWERED, or

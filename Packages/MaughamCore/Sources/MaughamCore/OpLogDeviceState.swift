@@ -389,15 +389,24 @@ public final class OpLogDeviceState: @unchecked Sendable {
     /// applied must refuse rather than draw the line at the beginning of it.
     /// A stream this device has never seen is legitimately absent — honest late
     /// sync — and is deliberately not here.
-    public func foreignStreamKeys(inRoot root: URL, writtenBy slugs: Set<String>) -> Set<String> {
-        guard !slugs.isEmpty else { return [] }
+    ///
+    /// **It answers the MEMORIES, not the names** (final fix wave, W2). A name
+    /// is enough to catch a stream that has vanished and nothing else, and the
+    /// case that costs words is the one where the name is there and the
+    /// CONTENTS are short: a rotation whose tail deletion syncs ahead of its
+    /// segment. The sweep asks `ForeignStreamWatch.loss` of these, which is the
+    /// same predicate the load settles by.
+    public func foreignStreams(
+        inRoot root: URL, writtenBy slugs: Set<String>
+    ) -> [String: ForeignStreamMemory] {
+        guard !slugs.isEmpty else { return [:] }
         lock.lock()
         defer { lock.unlock() }
         let prefix = "\(Self.scopeHash(ofRoot: root))/"
-        var out: Set<String> = []
+        var out: [String: ForeignStreamMemory] = [:]
         for (key, memory) in stored.foreignStreams
         where key.hasPrefix(prefix) && slugs.contains(memory.deviceSlug) {
-            out.insert(String(key.dropFirst(prefix.count)))
+            out[String(key.dropFirst(prefix.count))] = memory
         }
         return out
     }
