@@ -197,16 +197,24 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     /// right only where there is no table to ask. A caller that HAS one owes
     /// every seal the same six-way answer the live tail gets: a stranger's span
     /// held, a revoked key's refused, this device's own settled `verified`.
+    ///
+    /// It owes the unsealed remainder the same answer (Task 11), so
+    /// `keyOfAnUnsealedFile` is threaded rather than defaulted away: this
+    /// overload has no caller today, and the next table-holding reader to pick
+    /// it up would otherwise get arm-2-less behaviour silently — a file with no
+    /// seal in it applied unjudged, which is the defect one door along.
     nonisolated static func verifiedParse(
         bytes: Data,
         trust: (String) -> TrustVerdict,
         rememberedHead: String?,
+        keyOfAnUnsealedFile: () -> String? = { nil },
         dedupKey: ((Element) -> String)? = nil,
         sortedBy: ((Element, Element) -> Bool)? = nil
     ) -> (elements: [Element], diagnostics: ParseDiagnostics,
           verification: OpLogChain.Verification) {
         let verification = OpLogChain.verify(
-            bytes: bytes, trust: trust, rememberedHead: rememberedHead)
+            bytes: bytes, trust: trust, rememberedHead: rememberedHead,
+            keyOfAnUnsealedFile: keyOfAnUnsealedFile)
         let parsed = parse(
             bytes: applied(verification, whole: bytes),
             dedupKey: dedupKey, sortedBy: sortedBy)

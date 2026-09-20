@@ -620,12 +620,27 @@ ignorant of device records, because **the file's key** comes to it in three
 arms, the second of which is a closure the caller supplies: the key of the LAST
 seal in the file that parsed and chain-verified **whatever its verdict** (a file
 is one device's writing, ADR 0012, so a stranger's seal names the file exactly
-as this device's own does); else whatever the caller can name for the filename's
-slug (`PermitMark.keyNaming(_:in:)` → `TrustTable.key(forDeviceSlug:)`, the ONE
-slug → key join, which `label(forDeviceSlug:)` is now written over); else
-**unchanged** — and that third arm IS the unsigned door, decision B3 left open
-on purpose for the unsigned device and pre-signing legacy history, Denver's to
-rule when P3b is planned. What the span then becomes is
+as this device's own does); else — **or where that seal's key is one the
+register cannot attribute to anybody** — whatever the caller can name for the
+filename's slug (`PermitMark.keyNaming(_:in:)` → `TrustTable.key(forDeviceSlug:)`,
+the ONE slug → key join, which `label(forDeviceSlug:)` is now written over);
+else **unchanged** — and that third arm IS the unsigned door, decision B3 left
+open on purpose for the unsigned device and pre-signing legacy history, Denver's
+to rule when P3b is planned. **Arm 1 falls through rather than winning
+outright** (fix round 1) because one seal under a throwaway key would otherwise
+buy the whole unsealed remainder a gentler answer — a revoked device's tail
+merely HELD, and offered to the writer for admission under a code that is not
+that device's, while the file's own name still carries its slug.
+*Unattributable* is `TrustVerdict.isUnattributable`: `.noChain`, which only a
+reader with no root of its own ever sees, or `.stranger` **with no device**,
+which is what a rooted book — every book since P2a — actually answers for a key
+no record mentions. The fall-through cannot WIDEN, and structurally rather than
+by a guard: an unattributable verdict settles to nil or `.pending` and arm 2 is
+taken only when it answers a state at all, so a filename naming an admitted
+device answers nil and arm 1's hold stands (`OpLogChainTests
+.test_anUnattributableVerdictCanOnlyHoldOrLeaveASpanAlone` is what goes red if
+an arm changes). The span an unattributable seal COVERS is untouched — `case
+.seal` settles it and this rule never looks at it. What the span then becomes is
 `TrustVerdict.settlingAnUnsealedSpan`, `settling`'s sibling; read its arms, not
 this sentence. Two of them cannot be `settling`'s: `.mine`/`.admitted` leave the
 span `.unsealed` rather than calling it `.verified` (nothing signed these bytes,
@@ -637,7 +652,13 @@ is no seal: refusing would set aside the last tail of every device that ever
 retired, under a sentence that is false about it. `PermitPartition`'s
 `attributableKeys` gained the same filename fallback for a file holding no seal
 at all, which is *never seal once* — the bypass its trailing-span rule already
-closes one word along.
+closes one word along. And `OpLogChain.readmitting` now puts a re-admitted line
+back into **the state it would have had if nothing had refused it** —
+`.verified` where a seal covers it, `.unsealed` where none ever did
+(`Line.coveredByASeal`, a fact the walk has in hand and nothing downstream can
+re-derive, since *covered by a seal* is not *has a seal after it*) — because
+calling unsigned bytes verified on the way back in is the same misstatement the
+`.mine` arm exists to avoid on the way out.
 
 **The third line state.** `Line.State.pending(device: String)` joined `legacy`,
 `verified`, `unsealed`, `unsignedHistory`, `quarantined` and `tornTail` — read

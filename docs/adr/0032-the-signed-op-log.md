@@ -342,9 +342,14 @@ F2). Every P2 fixture sealed before it asserted, which is why nothing was red.
 **The file's key**, asked once at end-of-walk, in three arms: the key of the
 LAST seal in the file that parsed and chain-verified, *whatever its verdict* —
 ADR 0012 gives a file one writer, so a stranger's seal names the file as surely
-as this device's own; else the key the caller can name for the filename's slug,
-matched against a verified record (a claim checked, never believed); else
-**neither, and the span stays exactly as it was**. That third arm is decision
+as this device's own; else — **or where that seal's key is one the register
+cannot attribute to anybody** — the key the caller can name for the filename's
+slug, matched against a verified record (a claim checked, never believed); else
+**neither, and the span stays exactly as it was**. Arm 1 falls through rather
+than winning outright because one seal under a throwaway key would otherwise buy
+the unsealed remainder a gentler answer than the file's own name deserves; the
+fall-through cannot widen, because an unattributable verdict only ever holds or
+leaves alone, and arm 2 is consulted only when it answers a state at all. That third arm is decision
 B3's door, held open deliberately: an unsigned device — a VM, CI's runner —
 writes chained lines nothing seals and reports nothing wrong, and pre-signing
 legacy history is in the same arm. Closing it is a P3b question.

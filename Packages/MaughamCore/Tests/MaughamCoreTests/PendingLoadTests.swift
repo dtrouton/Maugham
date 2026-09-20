@@ -154,6 +154,49 @@ final class PendingLoadTests: XCTestCase {
         return opIds.count
     }
 
+    /// The stranger's own file on disk, wherever the fixtures above put it.
+    private var strangersFileURL: URL {
+        OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: stranger.slug, in: projectURL)
+    }
+
+    /// Chain more ops onto the stranger's file by hand and DO NOT seal them —
+    /// the shape `OpLogStore.append` cannot make once a foreign line is in the
+    /// file, because the chained write judges by `.mine` and would set that
+    /// line aside.
+    private func appendUnsealedOps(_ opIds: [String]) throws {
+        var bytes = try Data(contentsOf: strangersFileURL)
+        var head = OpLogChain.lineHash(try XCTUnwrap(
+            bytes.split(separator: 0x0A, omittingEmptySubsequences: true).last
+                .map(Data.init)))
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+        for id in opIds {
+            let line = OpLogChain.chainedLine(
+                elementJSON: try encoder.encode(op(id, device: stranger)), prev: head)
+            bytes.append(line)
+            bytes.append(0x0A)
+            head = OpLogChain.lineHash(line)
+        }
+        try bytes.write(to: strangersFileURL)
+    }
+
+    /// Seal the stranger's file with a key nothing in this book names — a seal
+    /// that holds together perfectly (`Seal.verifies()` is about the seal's own
+    /// consistency, never about trust) and resolves `.noChain`.
+    private func appendSealByAnUnregisteredKey() throws {
+        var bytes = try Data(contentsOf: strangersFileURL)
+        let head = OpLogChain.lineHash(try XCTUnwrap(
+            bytes.split(separator: 0x0A, omittingEmptySubsequences: true).last
+                .map(Data.init)))
+        let throwaway = DeviceIdentity.softwareForTesting()
+        bytes.append(try OpLogChain.Seal.line(
+            head: head, identity: throwaway, at: Date(timeIntervalSince1970: 60)))
+        bytes.append(0x0A)
+        try bytes.write(to: strangersFileURL)
+    }
+
     /// This device's own file, chained and sealed under its author key.
     private func writeMyOwnFile(_ opIds: [String]) async throws {
         let store = reader()
@@ -1274,6 +1317,127 @@ final class PendingLoadTests: XCTestCase {
         XCTAssertEqual(load.ops.map(\.opId), ["01K5Q8ZJ3M0000000000000001"])
         XCTAssertEqual(load.provenance.quarantinedLines, 0)
         XCTAssertTrue(linesRecords().isEmpty)
+    }
+
+    // MARK: - Arm 1 falls through when it cannot be attributed (fix round 1)
+
+    /// **A throwaway seal does not buy the tail a gentler answer** (fix round
+    /// 1's ruling).
+    ///
+    /// Arm 1 used to win outright, so ONE seal under a key nothing here names
+    /// disabled arm 2 for the whole file: a revoked device's tail came back
+    /// **held** rather than refused, offered to the writer for admission under
+    /// a code that is not the revoked device's — while the file's own NAME
+    /// still carried that device's slug, which arm 2 resolves to `.revoked`.
+    ///
+    /// (In a rooted book the throwaway key answers `.stranger` with no device,
+    /// never `.noChain` — `TrustTable.verdict` guards on `myRoot` before it
+    /// looks anything up — so *unattributable* is what the fall-through turns
+    /// on. See `TrustVerdict.isUnattributable`.)
+    func test_aRevokedDevicesTailIsNotBoughtBackByASealUnderAnUnregisteredKey()
+    async throws {
+        let mine = "01K5Q8ZJ3M0000000000000000"
+        let atTheMark = "01K5Q8ZJ3M0000000000000001"
+        let underTheThrowaway = "01K5Q8ZJ3M0000000000000002"
+        let theTail = "01K5Q8ZJ3M0000000000000003"
+        try writeRootRecord()
+        try writeStrangerDeviceRecord()
+        try await writeMyOwnFile([mine])
+        // Its own honest span, sealed by its own key…
+        try await writeStrangerFile([atTheMark])
+        // …then a line sealed by a key nothing here has heard of…
+        try appendUnsealedOps([underTheThrowaway])
+        try appendSealByAnUnregisteredKey()
+        // …and then the tail the throwaway seal was bought to protect.
+        try appendUnsealedOps([theTail])
+        try writeStrangerRecord(
+            revokedAt: Date(timeIntervalSince1970: 30), highestOpIdSeen: atTheMark)
+
+        let load = try await reader().loadDiagnosed(docId: docId)
+
+        XCTAssertFalse(load.ops.map(\.opId).contains(theTail),
+                       "the unsealed tail answers to the key the FILENAME names, "
+                           + "not to a key somebody minted to escape it")
+        XCTAssertEqual(
+            linesRecords().map(\.reason),
+            ["written after this device's access was withdrawn"],
+            "and it is refused in the revocation's own words")
+        XCTAssertEqual(
+            load.ops.map(\.opId), [mine, atTheMark],
+            """
+            The control, and the scope of the ruling. The op at the mark is kept \
+            because this Mac had already applied it while they were admitted. \
+            The op the THROWAWAY SEAL COVERS is left exactly where the walk put \
+            it — held under that seal's own key, which is `case .seal`'s answer \
+            and not this rule's; only the unsealed remainder is judged here.
+            """)
+        XCTAssertEqual(load.provenance.pendingByDevice.values.reduce(0, +), 1,
+                       "and the span the throwaway seal covers is the one held "
+                           + "thing, under the throwaway's own code")
+    }
+
+    /// The other half of the pair: **the fall-through costs an unsigned reader
+    /// nothing.** A device with no root of its own answers `.noChain` about
+    /// every key, finds nothing for arm 2 either, and applies the whole file
+    /// exactly as P1 applied it — throwaway seal and unsealed tail alike.
+    func test_aKeylessReaderAppliesTheSameFileWholeAsP1Did() async throws {
+        try writeRootRecord()
+        try writeStrangerDeviceRecord()
+        try await writeStrangerFile(["02"])
+        try appendUnsealedOps(["03"])
+        try appendSealByAnUnregisteredKey()
+        try appendUnsealedOps(["04"])
+
+        // A third device, on nobody's chain, with a memory of its own.
+        let outsiderCache = RegistryCache(
+            fileURL: projectURL.appendingPathComponent("outsider-cache.json"),
+            identity: outsider.author.fingerprint)
+        let ops = try OpLogStore.loadSyncMerged(
+            forDocId: docId, in: projectURL,
+            identities: outsider, state: outsiderState,
+            trust: try TrustResolution.resolve(
+                projectURL: projectURL, identities: outsider,
+                cache: outsiderCache))
+
+        XCTAssertEqual(ops.map(\.opId), ["02", "03", "04"],
+                       "every key is `.noChain` to a device on no chain, and "
+                           + "nothing is held — decision B3, untouched")
+    }
+
+    // MARK: - Rotation (fix round 1, item 5)
+
+    /// **Held while unsealed, sealed, then ROTATED — and still held** (R4's
+    /// rotation leg). The segment settles by its container signature, which is
+    /// the stranger's, so the settled-segment path judges it by that key and
+    /// reaches the same answer the tail did. Admission then applies it.
+    func test_aHeldUnsealedSpanStaysHeldThroughSealingAndRotation() async throws {
+        try writeRootRecord()
+        try writeStrangerDeviceRecord()
+        let store = OpLogStore(
+            projectURL: projectURL, identity: stranger, state: strangerState)
+        try await store.append(op("02", device: stranger))
+
+        var load = try await reader().loadDiagnosed(docId: docId)
+        XCTAssertEqual(load.ops, [], "held while unsealed")
+
+        let sealed = try await store.sealChain(docId: docId)
+        XCTAssertTrue(sealed)
+        let segment = try await store.sealTailIfNeeded(
+            docId: docId, deviceSlug: stranger.slug, threshold: 0)
+        XCTAssertEqual(segment?.pathExtension, "mzseg",
+                       "the span it wrote is now a rotated segment")
+
+        load = try await reader().loadDiagnosed(docId: docId)
+        XCTAssertEqual(load.ops, [],
+                       "rotation is maintenance a device performs on itself and "
+                           + "admits nobody — the same answer as the tail gave")
+        XCTAssertEqual(load.provenance.pendingByDevice, [stranger.fingerprint: 1])
+        XCTAssertTrue(linesRecords().isEmpty, "held, so nothing is recorded")
+
+        try writeStrangerRecord()
+        load = try await reader().loadDiagnosed(docId: docId)
+        XCTAssertEqual(load.ops.map(\.opId), ["02"],
+                       "and admission applies it, out of the segment")
     }
 
     /// **Sealing later converges**: what was held while unsealed is held once

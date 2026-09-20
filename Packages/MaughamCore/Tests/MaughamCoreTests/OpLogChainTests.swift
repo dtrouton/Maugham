@@ -334,6 +334,86 @@ final class OpLogChainTests: XCTestCase {
         XCTAssertEqual(v.quarantined.count, 3)
     }
 
+    /// **The arm-2 fall-through cannot widen, and this is why** (fix round 1).
+    ///
+    /// A filename must never buy a span a gentler answer than its seal got.
+    /// The fall-through is reached only where arm 1 is *unattributable*, and
+    /// the property that makes it safe is this one: an unattributable verdict
+    /// can only leave a span alone or HOLD it — never refuse it — so arm 2,
+    /// which is taken only when it answers a state at all, is never gentler
+    /// than what it replaces.
+    ///
+    /// Exhaustive over `TrustVerdict`, so a seventh verdict, or an arm of
+    /// `settlingAnUnsealedSpan` that changes what one of these two answers,
+    /// goes red here rather than quietly reopening the widening.
+    func test_anUnattributableVerdictCanOnlyHoldOrLeaveASpanAlone() {
+        let key = "deadbeef"
+        let unattributable: [TrustVerdict] = [.noChain, .stranger(device: nil)]
+        for verdict in unattributable {
+            XCTAssertTrue(verdict.isUnattributable, "\(verdict)")
+            switch verdict.settlingAnUnsealedSpan(sealKey: key) {
+            case .none, .pending: break
+            case let other:
+                XCTFail("\(verdict) settles an unsealed span to \(String(describing: other)) "
+                        + "— an unattributable verdict must never refuse, or the "
+                        + "arm-2 fall-through could be gentler than what it replaces")
+            }
+        }
+
+        // And the converse: everything the register CAN attribute is not
+        // unattributable, so the fall-through is never reached for it.
+        let attributable: [TrustVerdict] = [
+            .mine, .admitted(person: "p"), .stranger(device: "their-mac"),
+            .revoked(person: "p", highestOpIdSeen: nil),
+            .retired(device: "d", retiredAt: Date(timeIntervalSince1970: 0)),
+            .otherRoot(root: "r"),
+        ]
+        for verdict in attributable {
+            XCTAssertFalse(verdict.isUnattributable, "\(verdict)")
+        }
+    }
+
+    /// **A re-admitted line comes back as what it would have been, not as
+    /// `.verified`** (fix round 1, item 3).
+    ///
+    /// `readmitting` is the revocation's *keep what this Mac had already
+    /// applied*, and it used to settle every line it kept to `.verified`. For a
+    /// line a seal covers that is right. For one in the unsealed remainder it
+    /// is the same misstatement `settlingAnUnsealedSpan`'s `.mine` arm exists
+    /// to avoid: bytes no signature covers, reported to the writer's History
+    /// pane as verified.
+    func test_readmittingPutsAnUnsealedLineBackAsUnsealedAndASealedOneAsVerified()
+    throws {
+        let identity = DeviceIdentity.softwareForTesting()
+        var b = Builder()
+        b.chained(element(0))            // covered by the seal below
+        try b.seal(identity, at: at)
+        b.chained(element(1))            // the unsealed remainder
+
+        let refused = OpLogChain.verify(
+            bytes: joined(b.lines),
+            trust: { _ in .revoked(person: "sam", highestOpIdSeen: "op-1") },
+            rememberedHead: nil)
+        XCTAssertEqual(states(refused), [.quarantined, .quarantined, .quarantined])
+
+        // The revocation keeps all three: everything is at or below its mark.
+        let back = OpLogChain.readmitting(
+            refused, lines: refused.lines.map(\.bytes))
+
+        XCTAssertEqual(states(back), [.verified, .verified, .unsealed],
+                       "the sealed op and its seal are verified again; the line "
+                           + "below the seal goes back to being unsealed")
+        XCTAssertEqual(back.verifiedCount, 2)
+        XCTAssertEqual(back.unsealedCount, 1)
+        XCTAssertTrue(back.quarantined.isEmpty)
+        XCTAssertNil(back.quarantineCause,
+                     "a verification holding nothing back names no reason")
+        XCTAssertEqual(
+            JSONLAppendStore<Op>.applied(back, whole: joined(b.lines)),
+            joined(b.lines),
+            "and all three lines are applied — `.unsealed` is not held back")
+    }
+
     /// A retired device's unsealed tail is **kept**: its answer turns on when a
     /// seal was made and there is no seal, and refusing would set aside the
     /// last tail of every device that ever retired.
