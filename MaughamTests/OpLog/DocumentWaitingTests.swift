@@ -540,6 +540,147 @@ final class DocumentWaitingTests: XCTestCase {
             OpLogStore.opLogFileURLs(forDocId: Self.otherDocId, in: projectURL).isEmpty)
     }
 
+    // MARK: - (3) The two automations (final fix wave, W4)
+
+    /// **The orphan sweep is the app's own act and signs as the author.**
+    ///
+    /// `sweepOrphanedAnnotations` archives a note whose paragraph a merge took
+    /// away. Nobody disposed of it — the app did — so the `claudeArchive` it
+    /// writes is the writer's hand, not whichever actor happened to have the
+    /// document open. Under MCP it used to sign `assistant-…`, which is a
+    /// disposition the actor rows refuse: every device would file a set-aside
+    /// record blaming the assistant for the app's own tidying.
+    func test_theOrphanSweepSignsAsTheAuthorEvenUnderMCP() async throws {
+        let docURL = try makeProject()
+        let doc = try await Document.load(
+            url: docURL, actor: .assistant, session: "mcp-sweep", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        let log = try await doc.opLog()
+        let pid = try XCTUnwrap(
+            log.first { $0.kind == .bootstrap }?.changes.first?.paragraphId)
+        try await doc.addAnnotation(
+            kind: .comment, paragraphId: pid, body: "a note on this paragraph",
+            author: AnnotationAuthor(sourceKind: .human, displayName: "Denver"))
+        await doc.sweepOrphanedAnnotations(reason: SweepReason(removed: [pid]))
+        await doc.close()
+
+        let archives = try ops(of: identities.author).filter { $0.kind == .claudeArchive }
+        XCTAssertEqual(archives.count, 1, "the sweep archived the orphan")
+        XCTAssertEqual(archives[0].device, identities.author.deviceId)
+        for op in opsIfAny(of: identities.assistant) {
+            XCTAssertNotEqual(
+                Permit.group(of: op.kind), .disposition,
+                "the assistant's file holds no disposition")
+        }
+    }
+
+    /// **And on a Mac that may not write here, it is not made at all.**
+    ///
+    /// A reviewer with somebody else's piece open would otherwise have her Mac
+    /// sign a disposition the table refuses — a set-aside record in her name
+    /// for the app's own act — and her live document would diverge from every
+    /// other copy until she reloaded. The piece's own author makes the same
+    /// repair the next time she opens it.
+    func test_aReviewersMacMakesNoOrphanSweepAtAll() async throws {
+        let docURL = try makeProject()
+        let seeded = try await Document.load(
+            url: docURL, actor: .author, session: "s0", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        let log = try await seeded.opLog()
+        let pid = try XCTUnwrap(
+            log.first { $0.kind == .bootstrap }?.changes.first?.paragraphId)
+        try await seeded.addAnnotation(
+            kind: .comment, paragraphId: pid, body: "a note",
+            author: AnnotationAuthor(sourceKind: .human, displayName: "Denver"))
+        await seeded.close()
+
+        let root = try makeRoot()
+        try narrow(
+            by: root, role: Permit.reviewerRole, scope: Permit.bookScope,
+            mark: try appliedSoFar())
+
+        let doc = try await Document.load(
+            url: docURL, actor: .author, session: "s1", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        let before = try ops(of: identities.author).count
+        await doc.sweepOrphanedAnnotations(reason: SweepReason(removed: [pid]))
+        await doc.close()
+
+        XCTAssertEqual(
+            try ops(of: identities.author).filter { $0.kind == .claudeArchive }.count, 0,
+            "a reviewer's Mac archives nobody's note")
+        XCTAssertEqual(try ops(of: identities.author).count, before,
+                       "and writes no line at all")
+    }
+
+    /// **The reject/splice repair, the same two ways.** It is the sharper of
+    /// the pair: it carries manuscript CHANGES, so a reviewer's Mac signing it
+    /// would be her machine putting words back into somebody else's piece.
+    func test_theRejectRepairSignsAsTheAuthorAndStopsWhereItMayNotWrite()
+        async throws
+    {
+        let docURL = try makeProject()
+        // Under MCP: the repair is the author's.
+        let doc = try await Document.load(
+            url: docURL, actor: .assistant, session: "mcp-repair", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        let log = try await doc.opLog()
+        let pid = try XCTUnwrap(
+            log.first { $0.kind == .bootstrap }?.changes.first?.paragraphId)
+        let suggestion = try await doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: pid, body: "try this",
+            suggestedText: "A replaced paragraph.",
+            author: AnnotationAuthor(sourceKind: .human, displayName: "Denver"))
+        try await doc.acceptAnnotation(id: suggestion, userResponse: nil)
+        try await doc.rejectAnnotation(id: suggestion, userResponse: "no")
+        let repaired = await doc.repairRejectedButSplicedAnnotations()
+        await doc.close()
+
+        XCTAssertEqual(repaired, 1, "the disagreement was repaired")
+        let repairs = try ops(of: identities.author).filter {
+            $0.provenance?.synthesisSource == .rejectConvergence
+        }
+        XCTAssertEqual(repairs.count, 1)
+        XCTAssertEqual(repairs[0].device, identities.author.deviceId,
+                       "a merge wrote it, not the assistant")
+    }
+
+    /// Its other half, through a real narrowing: the repair is refused, the
+    /// disagreement stands visibly, and nothing is signed.
+    func test_aScopedAuthorOutsideHerPiecesMakesNoRejectRepair() async throws {
+        let docURL = try makeProject()
+        let seeded = try await Document.load(
+            url: docURL, actor: .author, session: "s0", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        let log = try await seeded.opLog()
+        let pid = try XCTUnwrap(
+            log.first { $0.kind == .bootstrap }?.changes.first?.paragraphId)
+        let suggestion = try await seeded.addAnnotation(
+            kind: .suggestedChange, paragraphId: pid, body: "try this",
+            suggestedText: "A replaced paragraph.",
+            author: AnnotationAuthor(sourceKind: .human, displayName: "Denver"))
+        try await seeded.acceptAnnotation(id: suggestion, userResponse: nil)
+        try await seeded.rejectAnnotation(id: suggestion, userResponse: "no")
+        await seeded.close()
+
+        let root = try makeRoot()
+        // An author of SOME pieces, and this is not one of them.
+        try narrow(
+            by: root, role: Permit.authorRole, scope: Permit.piecesScope,
+            pieces: [Self.otherDocId], mark: try appliedSoFar())
+
+        let doc = try await Document.load(
+            url: docURL, actor: .author, session: "s1", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        let before = try ops(of: identities.author).count
+        let repaired = await doc.repairRejectedButSplicedAnnotations()
+        await doc.close()
+
+        XCTAssertEqual(repaired, 0, "the disagreement stands, visibly")
+        XCTAssertEqual(try ops(of: identities.author).count, before,
+                       "and this Mac signed nothing for it")
+    }
+
     // MARK: - Neutrality
 
     /// **A keyless / P2-era / registry-less book is exactly what it was.** No

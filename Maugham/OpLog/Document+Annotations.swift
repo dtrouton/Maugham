@@ -1272,22 +1272,59 @@ extension Document {
     /// after the loop — never to skip announcing altogether.
     /// `AnnotationChangeEventTests` polices both halves: the funnel still
     /// announces by default, and the sweep is the only site that suppresses it.
+    /// **An automation of the writer's hand asked to write where it may
+    /// not** (final fix wave, W4). Both callers log it and move on, which is
+    /// the whole intent: the repair is not urgent and the author's own Mac
+    /// makes it anyway.
+    internal struct AutomationNotPermitted: LocalizedError {
+        let kind: OpKind
+        var errorDescription: String? {
+            "this Mac may not write \(kind.rawValue) in this piece, "
+                + "so the app made no repair of its own"
+        }
+    }
+
     internal func appendLifecycleOp(
         kind: OpKind,
         sourceAnnotationId: String,
         userResponse: String?,
         synthesisSource: SynthesisSource? = nil,
         changes: [Op.ParagraphChange] = [],
+        // **Before `announcing:`, deliberately.** `AnnotationChangeEventTests
+        // .test_theOnlySitesThatSuppressTheAnnounceBatchItInstead` pins the
+        // sweep's call as ending `announcing: false)` — pinned to the closing
+        // paren, because its own comment records that a looser match stayed
+        // green when the argument was flipped to `true`. A new parameter added
+        // after it would break that premise without breaking anything it is
+        // about, so this one goes in front.
+        automation: Bool = false,
         announcing: Bool = true
     ) async throws {
         // The other annotation funnel (reject / archive / the deletion sweep).
         // Recovery arm only: M5-AN-048 pins archive and reject as appending to
         // a CLOSED doc.
         if rejectMutationIfReadOnlyRecovery("appendLifecycleOp") { return }
+        // **The app's own repairs are the writer's hand, and are not made at
+        // all where this device may not make them** (final fix wave, W4 —
+        // Task 8's rule, extended to the two automations that reached this
+        // funnel without asking).
+        //
+        // ONE flag rather than a device argument plus a guard at each site,
+        // because two things to remember at two call sites is one thing to
+        // forget. The throw is what both callers already handle: they log and
+        // carry on, which is right — a reviewer's Mac declining to repair
+        // somebody else's piece has lost nothing, and the piece's own author
+        // makes the same repair the next time she opens it.
+        let signing = automation
+            ? Document.authorEmissionDevice(loadedAs: device)
+            : device
+        if automation, localWritePermit.allows(.op(kind)) != .yes {
+            throw AutomationNotPermitted(kind: kind)
+        }
         let op = Op(
             opId: ULID.generate(),
             docId: docId, at: Date(),
-            device: device, session: session,
+            device: signing, session: session,
             kind: kind, changes: changes, sequence: nil,
             provenance: Op.Provenance(
                 sessionId: session,
@@ -1347,11 +1384,16 @@ extension Document {
                 // every surface counting this project's notes, and each of
                 // them walks the whole project to answer it. The announce is
                 // batched below rather than skipped.
+                // `automation: true` — this is the app tidying up after a
+                // deletion, not the writer disposing of a note, so it signs
+                // with the AUTHOR key and is not made at all on a device that
+                // may not write a disposition here (final fix wave, W4).
                 try await appendLifecycleOp(
                     kind: .claudeArchive,
                     sourceAnnotationId: orphan.id,
                     userResponse: nil,
                     synthesisSource: reason.cause,
+                    automation: true,
                     announcing: false)
                 // RULING-32: count what was actually archived, so the summary
                 // at the next burst boundary reports a number the log agrees
@@ -1455,6 +1497,11 @@ extension Document {
             }
             let restored = applied.prior ?? ""
             do {
+                // `automation: true` — nothing the writer did produced this
+                // op; a merge did. It signs with the AUTHOR key, and on a Mac
+                // that may not write this piece's manuscript text it is not
+                // written at all: the disagreement stands visibly, exactly as
+                // it does when the paragraph has drifted (final fix wave, W4).
                 try await appendLifecycleOp(
                     kind: .claudeReject,
                     sourceAnnotationId: id,
@@ -1463,7 +1510,8 @@ extension Document {
                     // would make the repair look like a second, silent refusal.
                     userResponse: latestLifecycle.provenance?.userResponse,
                     synthesisSource: .rejectConvergence,
-                    changes: [.init(paragraphId: pid, prior: live, next: restored)])
+                    changes: [.init(paragraphId: pid, prior: live, next: restored)],
+                    automation: true)
             } catch {
                 documentLog.error("repairRejectedButSpliced: append failed for \(id, privacy: .public): \(error.localizedDescription, privacy: .public) — the disagreement stands")
                 continue
