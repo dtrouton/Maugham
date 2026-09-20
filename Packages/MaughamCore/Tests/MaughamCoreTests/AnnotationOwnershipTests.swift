@@ -416,6 +416,93 @@ final class AnnotationOwnershipTests: XCTestCase {
             "but a CREATOR it cannot place fails the same-person half")
     }
 
+    // MARK: - The device record in flight (fix round 2's Important)
+
+    /// A person admitted with **no device record** — the real window, since
+    /// `RegistryAdmission.admit` writes the person record and nothing else, and
+    /// the device's own self-signed record is a separate file on a separate
+    /// schedule.
+    private func admitPersonOnly(
+        _ who: LocalIdentities, label: String, role: String = Permit.reviewerRole
+    ) throws {
+        try RegistryWriter.write(
+            PersonRecord(
+                person: who.author.fingerprint, label: label, ownName: label,
+                role: role,
+                admittedAt: Date(timeIntervalSince1970: 20), admittedBy: rootPerson),
+            signedBy: root.author, in: projectURL)
+        try event("01", subject: who.author.fingerprint, role: role)
+    }
+
+    /// **An admitted reviewer whose device record has not arrived is still
+    /// judged.**
+    ///
+    /// The partition judges her op lines correctly in this window — it reaches
+    /// her timeline through `person(forSealKey:)`, which falls back to the key
+    /// itself — and before fix round 2 this rule did not: her `author-<hex>` id
+    /// was in no device record, so she read as a device the register had never
+    /// heard of and her withdrawal of the root's note was HONOURED. Under
+    /// labels-only her author id is derivable from the person record alone.
+    func test_anAdmittedReviewerWithNoDeviceRecordYetMayNotWithdrawAnothersNote() throws {
+        try writeRoot()
+        try admitPersonOnly(sam, label: "Sam")
+
+        let judged = try table()
+        XCTAssertNil(judged.actor(forSealKey: sam.author.fingerprint),
+                     "no device record says what her key is for")
+        XCTAssertNotNil(judged.deviceKey(forDeviceId: sam.author.deviceId),
+                        "but her person record places her author id")
+
+        let ops = [creation("01", by: root.author),
+                   withdraw("02", of: "01", by: sam.author)]
+        XCTAssertEqual(derived(ops, try amendments()).map(\.id), ["01"],
+                       "the root's note is not hers to withdraw")
+    }
+
+    /// Its pair: in the same window, her OWN note is still hers.
+    func test_inTheSameWindowHerOwnNoteIsStillHers() throws {
+        try writeRoot()
+        try admitPersonOnly(sam, label: "Sam")
+
+        let ops = [creation("01", by: sam.author),
+                   withdraw("02", of: "01", by: sam.author)]
+        XCTAssertEqual(derived(ops, try amendments()).count, 0)
+    }
+
+    /// **Named-shaped but unknown is not unattributable history.** One of her
+    /// three NON-author actor keys has a fingerprint of its own that only a
+    /// device record can name, so in this window it resolves to nobody — and an
+    /// id shaped like one this app writes, resolving to nobody, in a book that
+    /// has a ladder at all, is refused rather than waved through.
+    func test_aProductionShapedIdThatResolvesToNobodyIsRefusedWhereThereIsALadder() throws {
+        try writeRoot()
+        try admitPersonOnly(sam, label: "Sam")
+
+        XCTAssertNil(try table().deviceKey(forDeviceId: sam.assistant.deviceId))
+        XCTAssertTrue(DeviceIdentity.looksLikeADeviceId(sam.assistant.deviceId))
+
+        let ops = [creation("01", by: root.author),
+                   withdraw("02", of: "01", by: sam.assistant)]
+        XCTAssertEqual(derived(ops, try amendments()).map(\.id), ["01"])
+    }
+
+    /// And its neutrality half: with no permit events the same id is honoured
+    /// exactly as it always was, because there is no narrower permit for a
+    /// refusal to protect.
+    func test_theSameIdIsHonouredInABookWithNoEvents() throws {
+        try writeRoot()
+        try RegistryWriter.write(
+            PersonRecord(
+                person: sam.author.fingerprint, label: "Sam", ownName: "Sam",
+                admittedAt: Date(timeIntervalSince1970: 20), admittedBy: rootPerson),
+            signedBy: root.author, in: projectURL)
+
+        XCTAssertFalse(try table().hasPermitEvents)
+        let ops = [creation("01", by: root.author),
+                   withdraw("02", of: "01", by: sam.assistant)]
+        XCTAssertEqual(derived(ops, try amendments()).count, 0)
+    }
+
     /// **A device this register has never heard of is left alone** (decision
     /// B3). Its lines are unsigned history, which the permit partition does not
     /// judge either — and ignoring them would resurrect every note the writer

@@ -279,20 +279,13 @@ public final class OpLogStore {
             in: projectURL, cache: registryCache) else { return nil }
         do { return try trustOnThisActor() }
         catch {
-            // **Forget the folder, not this device** (fix round 1's I2).
-            // `keyless` answers *author of the whole book* about everybody, so
-            // falling straight to it over one momentarily unreadable record
-            // would let a REVIEWER's Mac bootstrap and mint anchors that every
-            // other device then sets aside. The bytes this device last verified
-            // are still here and are its own memory rather than anybody's
-            // claim, so they answer first; `keyless` is what is left when there
-            // is nothing remembered either, which is the genuine P1 case.
-            // Neither throws, neither suspends, and neither refuses a load that
-            // did not refuse before.
-            return TrustResolution.remembered(
+            // **Forget the folder, not this device** (fix round 1's I2), and
+            // through the one spelling every reader shares since fix round 2's
+            // minor 2 — `TrustResolution.rememberedOrKeyless`, which carries
+            // the reasoning.
+            return TrustResolution.rememberedOrKeyless(
                 projectURL: projectURL, identities: identities,
                 cache: registryCache)
-                ?? TrustResolution.keyless(mine: identities)
         }
     }
 
@@ -945,9 +938,14 @@ public final class OpLogStore {
     /// READER walks it — verify, resolve the absent head, then the permit.
     ///
     /// The same three steps `TranslationStore.loadMerged` and
-    /// `JSONLAppendStore.loadVerifiedStrict` take, because a mark has to name
-    /// the line those readers got to and not a line some other walk would have.
-    /// `state: nil` throughout, so this remembers nothing and writes nothing.
+    /// `JSONLAppendStore.loadVerifiedStrict` take, with ONE difference and it
+    /// is deliberate: the remembered head is not consulted (`rememberedHead:
+    /// nil`). A mark has to be computable from the shared bytes alone — that is
+    /// the whole of spec §3.3, and the reason a mark is not an opId — so a
+    /// position that moved with what THIS device happened to remember would
+    /// make two Macs cut the same file in two places. `state: nil` throughout
+    /// for the same reason and one more: this remembers nothing and writes
+    /// nothing.
     private nonisolated static func verificationForPositions(
         at url: URL, bytes: Data, stream: PermitMark.Stream, trust: TrustTable?
     ) -> OpLogChain.Verification {

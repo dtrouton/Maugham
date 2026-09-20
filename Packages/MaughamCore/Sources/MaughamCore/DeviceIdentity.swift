@@ -140,6 +140,28 @@ public struct DeviceIdentity: Sendable {
         return DeviceActor(rawValue: String(id[id.startIndex..<hyphen]))
     }
 
+    /// **Is this string SHAPED like an id this app writes** — one of the four
+    /// actor words, a hyphen, and a run of at least eight hex characters?
+    ///
+    /// It says nothing about whose key it is, and cannot: there is no key here
+    /// to check it against. What it distinguishes is a `device` string this
+    /// build's own writers could have produced from one they could not — a
+    /// pre-P1 hostname (`denvers-macbook-pro`), a P1-era sentinel (`mcp`,
+    /// `wiki-rename`), a phone's `phone:<uuid>`. That distinction is the
+    /// difference between *history nobody can attribute*, which P1 applied and
+    /// P3 does not start refusing (decision B3), and *a name shaped like ours
+    /// that resolves to nobody*, which is not the same thing.
+    ///
+    /// Here rather than at its caller for `claimedActor`'s reason: the shape of
+    /// a name is taken apart in one place (tripwire 35).
+    nonisolated public static func looksLikeADeviceId(_ id: String) -> Bool {
+        guard claimedActor(ofDeviceId: id) != nil else { return false }
+        let parts = id.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count >= 2 else { return false }
+        let hex = parts[1]
+        return hex.count >= 8 && hex.allSatisfy(\.isHexDigit)
+    }
+
     /// Sign a 32-byte digest, answering the 64-byte **raw** representation of
     /// the P256 signature (`r || s`) — the form the op log stores and
     /// `P256.Signing.ECDSASignature(rawRepresentation:)` reads back.

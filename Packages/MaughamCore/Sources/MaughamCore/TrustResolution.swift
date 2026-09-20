@@ -361,6 +361,31 @@ public enum TrustResolution {
             joinedRoot: cache.joinedRoot(for: projectURL))
     }
 
+    /// **The ONE fallback for a resolve that threw** — this device's memory of
+    /// the register, and only failing that the keyless table (P3a Task 6, fix
+    /// round 2's minor 2).
+    ///
+    /// A registry record that is present and unreadable makes `resolve` throw
+    /// (RULING-54), and every reader that must not refuse over one needs an
+    /// answer. **Falling straight to `keyless` is the wrong answer**, because
+    /// `keyless` says *author of the whole book* about everybody: one
+    /// momentarily unreadable record would un-narrow every reviewer in the
+    /// book, in the surface that is counting their notes. The bytes this device
+    /// last verified are its own memory rather than anybody's claim, so they
+    /// answer first.
+    ///
+    /// It is here rather than at the three callers because they had drifted
+    /// into two answers — `OpLogStore.registerTable` remembered,
+    /// `ProjectStore+Annotations` and `+Tasks` did not — and two surfaces of
+    /// one project disagreeing about who may write in it is the shape tripwire
+    /// 39 is about.
+    nonisolated public static func rememberedOrKeyless(
+        projectURL: URL, identities: LocalIdentities, cache: RegistryCache? = nil
+    ) -> TrustTable {
+        remembered(projectURL: projectURL, identities: identities, cache: cache)
+            ?? keyless(mine: identities)
+    }
+
     /// **Whether this project has a register to resolve at all** — a folder, or
     /// this device's memory of one that something has since deleted.
     ///

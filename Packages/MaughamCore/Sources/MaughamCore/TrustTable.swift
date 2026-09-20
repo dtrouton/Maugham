@@ -264,6 +264,25 @@ public struct TrustTable: Equatable, Sendable {
                 if keyByDeviceId[id] == nil { keyByDeviceId[id] = key }
             }
         }
+        // **And a PERSON record names one id all by itself** (fix round 2). A
+        // person record and a device record are two files that sync separately
+        // and `RegistryAdmission.admit` writes only the first, so a book
+        // routinely knows who somebody is before it knows what her keys are
+        // for. Under labels-only a person IS a device's author key, so her
+        // `author-<hex>` id is derivable from the person record alone — and
+        // without this the window in which only that record has arrived made
+        // her look like a device this register had never heard of, which is a
+        // quite different thing and is treated differently (`mayAmend`).
+        //
+        // Her other three actor keys are NOT derivable here, and must not be
+        // guessed: only a device record says what they are. An amendment from
+        // one of them is *named-shaped but unknown*, which `mayAmend` refuses
+        // in a book with events rather than waving through.
+        for person in registry.people.sorted(by: { $0.person < $1.person }) {
+            let id = DeviceIdentity.deviceId(
+                actor: DeviceActor.author.rawValue, fingerprint: person.person)
+            if keyByDeviceId[id] == nil { keyByDeviceId[id] = person.person }
+        }
         for identity in myIdentityByActor.values {
             keyByDeviceId[identity.deviceId] = identity.fingerprint
         }
@@ -558,11 +577,19 @@ public struct TrustTable: Equatable, Sendable {
         public let key: String
         /// The writer it is, or nil for an actor word this build cannot read.
         public let actor: DeviceActor?
-        /// **False where two verified records claim this key**, which
+        /// **Does the register attribute this key to somebody?**
+        ///
+        /// False in exactly one situation, and it is the one that matters:
+        /// **two verified device records claim the key**, which
         /// `Registry.actorKeyOwners` awards to nobody for good. The register
         /// has an opinion about such a key and the opinion is *nobody's*, so a
-        /// reader must not act on it — it is not the same as a key nothing
-        /// here has ever heard of.
+        /// reader must not act on it — and that is not the same as a key
+        /// nothing here has ever heard of, which answers nil above.
+        ///
+        /// A device record decides wherever one NAMES the key (present ⇒ its
+        /// owner, absent ⇒ contested). Where none does, a person record is
+        /// enough: under labels-only a person is a device's author key, so a
+        /// record admitting that fingerprint attributes it by saying so.
         public let isOwned: Bool
     }
 
@@ -577,9 +604,20 @@ public struct TrustTable: Equatable, Sendable {
     /// do what P1 did and not what a refusal would do.
     nonisolated public func deviceKey(forDeviceId deviceId: String) -> DeviceKey? {
         guard let key = keyByDeviceId[deviceId] else { return nil }
-        return DeviceKey(
-            key: key, actor: actorByKey[key],
-            isOwned: mine.contains(key) || deviceByActorKey[key] != nil)
+        let owned: Bool
+        if mine.contains(key) {
+            owned = true
+        } else if keysNamedByADeviceRecord.contains(key) {
+            // A device record has an opinion: present means its owner, absent
+            // means two records claimed it and it is nobody's.
+            owned = deviceByActorKey[key] != nil
+        } else {
+            // No device record mentions it, so a person record is what
+            // attributes it — and where neither does, this line is unreachable
+            // (the id would not be in the map at all).
+            owned = knownPeople.contains(key)
+        }
+        return DeviceKey(key: key, actor: actorByKey[key], isOwned: owned)
     }
 
     /// **Are these two keys the same WRITER?** (P3a Task 6.)

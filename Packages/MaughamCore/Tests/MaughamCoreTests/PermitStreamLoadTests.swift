@@ -48,6 +48,7 @@ final class PermitStreamLoadTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        PermitPartition.walkObserverForTesting = nil
         try? FileManager.default.removeItem(at: projectURL)
     }
 
@@ -253,6 +254,62 @@ final class PermitStreamLoadTests: XCTestCase {
     }
 
     // MARK: - Neutrality
+
+    /// **A registered book with no events walks neither stream** (fix round 2,
+    /// R3's cost).
+    ///
+    /// `TranslationStore.loadMerged` is read from around thirty synchronous
+    /// call sites — the publish AST, the coverage gate, the editor's translated
+    /// surface — and the inbox re-reads on every refresh. Paying
+    /// `attributableKeys` (a `Seal.parse` per seal line) on each of those, in a
+    /// book where every admitted person is an author of the whole book and
+    /// every line these two streams can carry is `.yes` on that rung, is work
+    /// whose only possible product is *yes*.
+    ///
+    /// The op log is deliberately NOT given this exit and is not asserted here:
+    /// its lines are a dozen kinds and the actor rows narrow several of them,
+    /// so its exit is per line (`Permit.allowsEverything`).
+    func test_aRegisteredBookWithNoEventsWalksNeitherStream() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try samsTranslation([record("t1")])
+        try samsInbox([entry("i1", by: sam.author)])
+
+        let walks = Counter()
+        PermitPartition.walkObserverForTesting = { walks.tick() }
+        defer { PermitPartition.walkObserverForTesting = nil }
+
+        XCTAssertEqual(try translations(), ["t1"])
+        let rows = try await inboxRows()
+        XCTAssertEqual(rows, ["i1"])
+        XCTAssertEqual(walks.count, 0, "nothing here can be refused, so nothing is walked")
+    }
+
+    /// Its converse, so the exit is not simply *never judge these streams*: one
+    /// permit event in the book and both are walked again.
+    func test_oneEventInTheBookAndBothStreamsAreWalkedAgain() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("01", kind: .admitted, role: Permit.authorRole)
+        try samsTranslation([record("t1")])
+        try samsInbox([entry("i1", by: sam.author)])
+
+        let walks = Counter()
+        PermitPartition.walkObserverForTesting = { walks.tick() }
+        defer { PermitPartition.walkObserverForTesting = nil }
+
+        _ = try translations()
+        _ = try await inboxRows()
+        XCTAssertEqual(walks.count, 2, "one translation sidecar, one inbox manifest")
+    }
+
+    /// A counter a `@Sendable` observer can safely increment.
+    private final class Counter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var n = 0
+        func tick() { lock.lock(); n += 1; lock.unlock() }
+        var count: Int { lock.lock(); defer { lock.unlock() }; return n }
+    }
 
     /// A book with no permit events reads both streams exactly as it did
     /// before P3a — the whole milestone's first promise.

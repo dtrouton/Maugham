@@ -210,7 +210,13 @@ extension ProjectStore {
         do {
             trust = try TrustResolution.resolve(projectURL: url, identities: .current)
         } catch {
-            trust = TrustResolution.keyless(mine: .current)
+            // One fallback for every reader (fix round 2, minor 2): this
+            // device's own memory of the register first, and `keyless` only
+            // where there is none — `keyless` says *author of the whole book*
+            // about everybody, so reaching for it over one unreadable record
+            // would un-narrow every reviewer in the book.
+            trust = TrustResolution.rememberedOrKeyless(
+                projectURL: url, identities: .current)
             unreadable.append(OpLogStore.unreadableName(error))
         }
 

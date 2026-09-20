@@ -117,14 +117,50 @@ public final class AmendmentPermits: @unchecked Sendable {
 
     /// Record one amendment line's governing permit.
     ///
-    /// **First writer wins**, which matters only where a document's files
-    /// somehow carry the same op id twice: the merge itself is first-wins by
-    /// opId (`mergeSortedDedup`), so the permit and the op that survives are
-    /// chosen by the same rule.
+    /// **A collision keeps the MORE RESTRICTIVE permit, by a total order.**
+    /// One op id can reach this twice: the same line can sit in the legacy
+    /// unsuffixed file and in a per-device one (ADR 0012's own case), and those
+    /// are two STREAMS, so a mark can cut them differently and the two copies
+    /// can be governed by different permits.
+    ///
+    /// First-wins would be wrong here, and the reason is worth stating because
+    /// the first cut of this comment got it backwards: `opLogFileURLs` is
+    /// UNSORTED, so *first* is whatever `contentsOfDirectory` felt like saying
+    /// — and `mergeSortedDedup` is not a precedent for it either, since that
+    /// function picks by `(opId, canonicalJSON)` precisely so enumeration order
+    /// cannot decide. So the rule here is its own: the permit that withholds
+    /// more wins, and equal ranks break on a canonical string, which makes the
+    /// answer a function of the two permits alone.
     func record(_ opId: String, _ permit: Permit) {
         lock.lock()
         defer { lock.unlock() }
-        if byOpId[opId] == nil { byOpId[opId] = permit }
+        guard let standing = byOpId[opId] else {
+            byOpId[opId] = permit
+            return
+        }
+        if Self.restriction(permit) > Self.restriction(standing) {
+            byOpId[opId] = permit
+        }
+    }
+
+    /// **How much a permit withholds**, as a total order.
+    ///
+    /// Total on purpose: a collision must have one answer whatever order the
+    /// files were enumerated in, so equal ranks are broken on a canonical
+    /// string rather than left to arrive-first. The string is not a claim about
+    /// which of two piece-lists is narrower — there is no such fact — it is
+    /// only what makes the tie deterministic.
+    ///
+    /// `.unjudgeable` ranks highest because it decides nothing, and an
+    /// amendment whose permit decides nothing is not honoured on the strength
+    /// of author rights.
+    private static func restriction(_ permit: Permit) -> (Int, String) {
+        switch permit {
+        case .author(.book): return (0, "")
+        case .author(.pieces(let ids)): return (1, ids.sorted().joined(separator: ","))
+        case .reviewer: return (2, "")
+        case .unjudgeable(let raw): return (3, raw)
+        }
     }
 
     /// What was gathered, across every file of the document.
@@ -155,13 +191,25 @@ public struct PermitJudge: Sendable {
     /// What a line of THIS stream was — see `PermitPartition.WrittenDecoder`.
     public let decoding: @Sendable (Data) -> Written?
 
+    /// **Is every line of this stream the same `Written`?** True for the
+    /// translation sidecars and the inbox manifests, whose decoders are
+    /// constants; false for the op log, whose lines are a dozen kinds.
+    ///
+    /// It is what lets the file-level door answer *this book can refuse
+    /// nothing here* without walking the file (fix round 2, R3). Set by the
+    /// two factories below and by nothing else, because the claim is about the
+    /// DECODER and the two travel together.
+    public let streamOfOneKind: Bool
+
     public init(
         trust: TrustTable, context: PermitContext,
-        decoding: @escaping @Sendable (Data) -> Written? = PermitPartition.writtenOp
+        decoding: @escaping @Sendable (Data) -> Written? = PermitPartition.writtenOp,
+        streamOfOneKind: Bool = false
     ) {
         self.trust = trust
         self.context = context
         self.decoding = decoding
+        self.streamOfOneKind = streamOfOneKind
     }
 
     /// One language's translation sidecar for one piece.
@@ -185,7 +233,8 @@ public struct PermitJudge: Sendable {
             context: PermitContext(
                 documentClass: { .translation(piece: piece) },
                 unowned: { .nobodyHasWrittenItsText }),
-            decoding: PermitPartition.writtenTranslationRecord)
+            decoding: PermitPartition.writtenTranslationRecord,
+            streamOfOneKind: true)
     }
 
     /// The capture inbox — one class for the whole stream, and the one class
@@ -196,7 +245,8 @@ public struct PermitJudge: Sendable {
             context: PermitContext(
                 documentClass: { .inbox },
                 unowned: { .nobodyHasWrittenItsText }),
-            decoding: PermitPartition.writtenInboxRow)
+            decoding: PermitPartition.writtenInboxRow,
+            streamOfOneKind: true)
     }
 }
 

@@ -42,15 +42,25 @@ public enum AnnotationOwnership {
     /// cheap here in a way it never is for manuscript text — which is why the
     /// two unresolvable cases below are refusals rather than holds.
     ///
-    /// **Three answers, and the middle one is the one worth reading slowly:**
+    /// **Four answers, and the two middle ones are what fix round 2 separated:**
     ///
-    /// - The register **cannot place the signer's device at all** — a pre-P1
-    ///   hostname sentinel, a device with no record here, a book with no
-    ///   register: **honoured**. The permit partition does not judge those
-    ///   lines either (no seal it can attribute covers them), and P3 does not
-    ///   start refusing what P1 applied (decision B3). A load that ignored
-    ///   them would resurrect every note the writer has ever deleted the day
-    ///   the book's first permit event is written.
+    /// - The register **cannot place the signer's device, and the id is not
+    ///   even shaped like one this app writes** — a pre-P1 hostname
+    ///   (`denvers-macbook-pro`), a P1-era sentinel (`mcp`, `wiki-rename`), a
+    ///   phone's `phone:<uuid>`: **honoured**. The permit partition does not
+    ///   judge those lines either (no seal it can attribute covers them), and
+    ///   P3 does not start refusing what P1 applied (decision B3). A load that
+    ///   ignored them would resurrect every note the writer has ever deleted
+    ///   the day the book's first permit event is written.
+    /// - The register cannot place it and the id **is** production-shaped —
+    ///   `<actor>-<hex…>`, a name only this app's writers produce, resolving to
+    ///   no key this register knows: **not honoured in a book with permit
+    ///   events, honoured in one without**. Such an id is *named-shaped but
+    ///   unknown*, which is not P2's unattributable history: in practice it is
+    ///   one of an admitted person's three NON-author actor keys, which only a
+    ///   device record can name, arriving before that record does. In a book
+    ///   with no events the answer is the one it has always been, because there
+    ///   is no narrower permit for a refusal to be protecting (neutrality).
     /// - The register **names the key and awards it to nobody** — two verified
     ///   records claim it (`Registry.actorKeyOwners`' third clause): **not
     ///   honoured**. Here the register does have an opinion, and it is that
@@ -61,17 +71,27 @@ public enum AnnotationOwnership {
     ///   amendment by somebody without author rights, of a note nobody can be
     ///   shown to have written, is not honoured.
     ///
+    /// **Her `author` id is placeable from a person record alone** (fix round
+    /// 2, `TrustTable.deviceKey(forDeviceId:)`), so the ordinary case — an
+    /// admitted reviewer whose device record has not synced yet — is JUDGED
+    /// rather than waved through. That window was the Important of this round:
+    /// the partition judged her op lines correctly in it (it reaches her
+    /// timeline through `person(forSealKey:)`'s self-fallback) while this
+    /// function honoured her amendment of somebody else's note.
+    ///
     /// **`signerPermit` is the caller's to resolve**, because only the caller
     /// knows which permit it means — and the production caller
     /// (`AnnotationAmendments.judged`) passes the permit **as of the amending
     /// line**, carried out of the partition that judged it. See that function
     /// for why today's permit is the wrong one and what it costs.
     ///
-    /// **The unplaced arm is spelled here AND in `AnnotationAmendments.judged`**,
-    /// which asks the same question first because it needs the signer's key to
-    /// resolve a permit at all. Two spellings of one rule, so they are pinned
-    /// twice: `AnnotationOwnershipTests` asks this function directly for its
-    /// own arm, and asks the deriver for the policy's.
+    /// **The unplaced arm is reached from here AND from
+    /// `AnnotationAmendments.judged`**, which meets the same fork one step
+    /// earlier because it needs the signer's key to resolve a permit at all.
+    /// Two call sites, ONE rule (`unplaced(_:trust:)`) since fix round 2 — it
+    /// used to be two spellings — and it is pinned from both:
+    /// `AnnotationOwnershipTests` asks this function directly, and asks the
+    /// deriver for the policy's.
     public static func mayAmend(
         signerDevice: String,
         creatorDevice: String,
@@ -80,7 +100,8 @@ public enum AnnotationOwnership {
         in documentClass: DocumentClass,
         trust: TrustTable
     ) -> Bool {
-        guard let signer = trust.deviceKey(forDeviceId: signerDevice) else { return true }
+        guard let signer = trust.deviceKey(forDeviceId: signerDevice)
+        else { return unplaced(signerDevice, trust: trust) }
         guard signer.isOwned else { return false }
         // Settling a note and amending one are the same authority, so the
         // question is put to the table in the vocabulary the table already has.
@@ -91,6 +112,21 @@ public enum AnnotationOwnership {
         guard let creator = trust.deviceKey(forDeviceId: creatorDevice),
               creator.isOwned else { return false }
         return trust.sameWriter(signer.key, creator.key)
+    }
+
+    /// **What an id this register cannot place at all means** — the one
+    /// spelling, asked by `mayAmend` and by `AnnotationAmendments.judged`,
+    /// which reaches the same fork one step earlier because it needs the
+    /// signer's key to resolve a permit.
+    ///
+    /// See `mayAmend`'s second and third bullets for the reasoning. The short
+    /// form: a name this app's own writers could not have produced is history
+    /// nobody can attribute, and P1 applied it; a name they could have
+    /// produced, resolving to nobody, in a book that has a ladder at all, is
+    /// not the same thing and is not waved through.
+    static func unplaced(_ deviceId: String, trust: TrustTable) -> Bool {
+        guard DeviceIdentity.looksLikeADeviceId(deviceId) else { return true }
+        return !trust.hasPermitEvents
     }
 }
 
@@ -154,7 +190,10 @@ public struct AnnotationAmendments: Sendable {
         let memo = PermitMemo<DocumentClass>()
         return AnnotationAmendments { amendment, creation in
             guard let signer = trust.deviceKey(forDeviceId: amendment.device)
-            else { return true }
+            else {
+                return AnnotationOwnership.unplaced(
+                    amendment.device, trust: trust)
+            }
             let permit = permits[amendment.opId]
                 ?? trust.timeline(forSealKey: signer.key).current
             // The same skip the partition makes, and for the same reason: a

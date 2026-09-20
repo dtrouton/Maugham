@@ -150,6 +150,8 @@ public enum PermitPartition {
         guard judgesAnything(trust) else { return verification }
         let lines = verification.lines
         guard !lines.isEmpty else { return verification }
+        // Past every early exit: this file's lines are about to be examined.
+        walkObserverForTesting?()
         let keys = attributableKeys(
             of: lines, trust: trust, settledByKey: settledByKey)
         guard !keys.isEmpty else { return verification }
@@ -266,6 +268,25 @@ public enum PermitPartition {
     ) -> OpLogChain.Verification {
         guard let judge, let stream = PermitMark.stream(of: url)
         else { return verification }
+        // **A stream whose every line is ONE thing can be answered whole**
+        // (fix round 2, R3). The op log cannot — its lines are a dozen kinds
+        // and the actor rows narrow several of them, which is why Task 5's
+        // exit is per line — but a translation sidecar holds nothing but
+        // translation records and an inbox manifest nothing but captures. In a
+        // book with no permit events every admitted person is an author of the
+        // whole book, and every line a production writer puts in these two
+        // streams is `.yes` on that rung (the census is in Task 6's report),
+        // so there is nothing here for a walk to find.
+        //
+        // It matters because `TranslationStore.loadMerged` is read from around
+        // thirty synchronous call sites — the publish AST, the coverage gate,
+        // the editor's translated surface — and the inbox re-reads on every
+        // refresh. Paying `attributableKeys` (a `Seal.parse` per seal line) on
+        // each of those, in a book that can refuse nothing, is the cost R3
+        // flagged.
+        if judge.streamOfOneKind, !judge.trust.hasPermitEvents {
+            return verification
+        }
         return partition(
             of: verification, class: judge.context.documentClass,
             streamKey: stream.key, deviceSlug: stream.deviceSlug,
@@ -334,6 +355,21 @@ public enum PermitPartition {
     /// `nonisolated(unsafe)` because it is a test's own variable, set and
     /// cleared on one thread; production never assigns it.
     nonisolated(unsafe) public static var judgeObserverForTesting: (@Sendable () -> Void)?
+
+    /// Test-only counting seam: called once per FILE whose lines this
+    /// partition goes on to examine — `judgeObserverForTesting`'s coarser
+    /// sibling, and the one that can see an early exit.
+    ///
+    /// It pins fix round 2's cost claim rather than arguing it: a registered
+    /// book with no permit events walks NO translation sidecar and NO inbox
+    /// manifest, however many of the thirty-odd synchronous readers ask for
+    /// one. A regression that dropped the one-kind exit would put a
+    /// `Seal.parse` per seal line back on every publish compile and every
+    /// inbox refresh, and nothing else would go red.
+    ///
+    /// `nonisolated(unsafe)` because it is a test's own variable, set and
+    /// cleared on one thread; production never assigns it.
+    nonisolated(unsafe) public static var walkObserverForTesting: (@Sendable () -> Void)?
 
     /// **A book with no register has no ladder** — decision B3, spec §8's
     /// *a book with no registry has posture author*, and the read-side twin of
