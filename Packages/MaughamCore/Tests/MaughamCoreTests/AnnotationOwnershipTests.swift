@@ -486,6 +486,58 @@ final class AnnotationOwnershipTests: XCTestCase {
         XCTAssertEqual(derived(ops, try amendments()).map(\.id), ["01"])
     }
 
+    /// **The unsigned Mac survives the writer admitting their phone** (final
+    /// fix wave, W1 — the whole-branch review's Critical, in the shape that
+    /// costs words).
+    ///
+    /// An UNSIGNED device is first-class in this format (CLAUDE.md, tripwire
+    /// 36): a VM or an Intel Mac has no enclave, so it writes chained lines,
+    /// seals nothing, and files no registry record. Its device ids are shaped
+    /// exactly like this app's and resolve to nobody, permanently. The writer
+    /// dispatches notes on it; months later they admit their phone on the
+    /// signed Mac, which writes an `admitted` event carrying the book-author
+    /// permit. Under the old *has events* gate, that admission — which changes
+    /// nobody's permit — silently un-did every withdrawal and every edit the
+    /// unsigned Mac had ever made, on every signed Mac in the book.
+    func test_anUnsignedMacsWithdrawSurvivesTheWritersPhoneBeingAdmitted() throws {
+        try writeRoot()
+        try admit(samPhone, label: "Denver")
+        // What `RegistryAdmission.admit` writes for every device let in under
+        // P3a: an admission, author of the whole book.
+        try event("01", subject: samPhone.author.fingerprint, role: Permit.authorRole)
+        try event("02", subject: samPhone.author.fingerprint,
+                  kind: .silentlyAdmitted, role: Permit.authorRole)
+
+        let unsignedMac = LocalIdentities.softwareForTesting()
+        let judged = try table()
+        XCTAssertTrue(DeviceIdentity.looksLikeADeviceId(unsignedMac.author.deviceId))
+        XCTAssertNil(judged.deviceKey(forDeviceId: unsignedMac.author.deviceId))
+        XCTAssertFalse(judged.hasNarrowingPermits,
+                       "two admissions, both author of the whole book")
+
+        let ops = [creation("01", by: root.author),
+                   withdraw("02", of: "01", by: unsignedMac.author)]
+        XCTAssertEqual(derived(ops, try amendments()).count, 0,
+                       "the note the writer deleted stays deleted")
+    }
+
+    /// Its other half: the moment somebody in the book really IS narrowed, the
+    /// same unattributable id is not waved through — it could be that reviewer.
+    func test_theSameUnsignedMacIsNotWavedThroughOnceSomebodyIsAReviewer() throws {
+        try writeRoot()
+        try admit(samPhone, label: "Denver")
+        try event("01", subject: samPhone.author.fingerprint, role: Permit.authorRole)
+        try admitPersonOnly(kim, label: "Kim")   // a reviewer
+
+        let unsignedMac = LocalIdentities.softwareForTesting()
+        XCTAssertTrue(try table().hasNarrowingPermits)
+
+        let ops = [creation("01", by: root.author),
+                   withdraw("02", of: "01", by: unsignedMac.author)]
+        XCTAssertEqual(derived(ops, try amendments()).map(\.id), ["01"],
+                       "an id nobody can place is not honoured where there is a ladder")
+    }
+
     /// And its neutrality half: with no permit events the same id is honoured
     /// exactly as it always was, because there is no narrower permit for a
     /// refusal to protect.
@@ -497,7 +549,7 @@ final class AnnotationOwnershipTests: XCTestCase {
                 admittedAt: Date(timeIntervalSince1970: 20), admittedBy: rootPerson),
             signedBy: root.author, in: projectURL)
 
-        XCTAssertFalse(try table().hasPermitEvents)
+        XCTAssertFalse(try table().hasNarrowingPermits)
         let ops = [creation("01", by: root.author),
                    withdraw("02", of: "01", by: sam.assistant)]
         XCTAssertEqual(derived(ops, try amendments()).count, 0)

@@ -769,8 +769,34 @@ public struct TrustTable: Equatable, Sendable {
         return left == right
     }
 
-    /// **Has anything ever happened to anybody's permit in this book?** False
-    /// is every book written before P3, and it is what lets a reader skip work
-    /// whose only possible product is *yes* (fix round 3, minor 1).
-    nonisolated public var hasPermitEvents: Bool { !timelineByPerson.isEmpty }
+    /// **Has anybody in this book ever been anything but an author of the whole
+    /// book?** (Final fix wave, W1 — the whole-branch review's Critical.)
+    ///
+    /// This is the question every neutrality gate means, and it is NOT *are
+    /// there permit events*. P3a ships three verbs that write events —
+    /// `admit`, `revoke`, `retire` — and the admission ones fire on the first
+    /// phone or second Mac the writer lets in. Every event P3a can write
+    /// carries the book-author permit, because no surface exists yet that
+    /// produces another; gating on their EXISTENCE therefore flipped a book
+    /// into *judge everything* for a reason that has nothing to do with
+    /// permits, and took three things with it: the annotation ownership rule
+    /// stopped honouring an unsigned Mac's edits and withdrawals (reversing
+    /// P1's decision B3 for a state the constitution calls first-class), the
+    /// per-file and whole-file fast paths went off on around thirty
+    /// synchronous translation reads and every inbox refresh, and every
+    /// applied op line paid a second JSON decode.
+    ///
+    /// Asked of the permits, the answer comes back to exactly what P2 did —
+    /// and turns to *yes* the moment anybody is a reviewer, an author of some
+    /// pieces, or carries a role word this build cannot read. See
+    /// `PermitTimeline.narrows`.
+    ///
+    /// **What this is not.** It is not a licence for the ACTOR rows: the
+    /// assistant, the translator and the task rebalance are narrowed in every
+    /// book, evented or not, and every gate below keeps a condition of its own
+    /// for them. *MCP never mutates manuscript text* is a sentence of the
+    /// constitution rather than a thing that waits for a permit event.
+    nonisolated public var hasNarrowingPermits: Bool {
+        timelineByPerson.values.contains { $0.narrows }
+    }
 }

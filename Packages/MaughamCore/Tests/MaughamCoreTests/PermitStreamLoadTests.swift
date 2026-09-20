@@ -387,11 +387,16 @@ final class PermitStreamLoadTests: XCTestCase {
     }
 
     /// Its converse, so the exit is not simply *never judge these streams*: one
-    /// permit event in the book and both are walked again.
-    func test_oneEventInTheBookAndBothStreamsAreWalkedAgain() async throws {
+    /// NARROWING event in the book and both are walked again.
+    ///
+    /// The fixture says `reviewer` rather than `author` since the final fix
+    /// wave's W1. It used to admit Sam as an author of the whole book and
+    /// expect two walks, which pinned the Critical that wave fixed: an event
+    /// that changes nobody's permit is not a reason to start judging a book.
+    func test_oneNarrowingEventInTheBookAndBothStreamsAreWalkedAgain() async throws {
         try writeRootRecord()
         try admitSam()
-        try writeEvent("01", kind: .admitted, role: Permit.authorRole)
+        try writeEvent("01", kind: .admitted, role: Permit.reviewerRole)
         try samsTranslation([record("t1")])
         try samsInbox([entry("i1", by: sam.author)])
 
@@ -402,6 +407,72 @@ final class PermitStreamLoadTests: XCTestCase {
         _ = try translations()
         _ = try await inboxRows()
         XCTAssertEqual(walks.count, 2, "one translation sidecar, one inbox manifest")
+    }
+
+    /// **And an ADMISSIONS-ONLY book walks neither** (final fix wave, W1).
+    ///
+    /// This is the case P3a itself creates the day the writer admits a second
+    /// machine: `RegistryAdmission.admit` files an `admitted` event carrying
+    /// the book-author permit, and the P2 sheet plus `DocumentStore.open`'s
+    /// silent admission both go through it. Under the old *has events* gate
+    /// that one admission turned the fast path off on around thirty
+    /// synchronous translation reads and every inbox refresh, for the life of
+    /// the book, over a permit identical to the one P2 gave everybody.
+    func test_anAdmissionsOnlyBookStillWalksNeitherStream() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("01", kind: .admitted, role: Permit.authorRole)
+        try writeEvent("02", kind: .silentlyAdmitted, role: Permit.authorRole)
+        try samsTranslation([record("t1")])
+        try samsInbox([entry("i1", by: sam.author)])
+
+        XCTAssertTrue(try table().hasNarrowingPermits == false,
+                      "both events say author of the whole book")
+
+        let walks = Counter()
+        PermitPartition.walkObserverForTesting = { walks.tick() }
+        defer { PermitPartition.walkObserverForTesting = nil }
+
+        XCTAssertEqual(try translations(), ["t1"])
+        let rows = try await inboxRows()
+        XCTAssertEqual(rows, ["i1"])
+        XCTAssertEqual(walks.count, 0, "nothing here can be refused, so nothing is walked")
+    }
+
+    /// **An unjudgeable permit counts as narrowing** — the third arm of W1's
+    /// ruling, and the one a build cannot see the inside of: a later build's
+    /// role word may narrow, so the walk happens.
+    func test_anUnreadableRoleWordIsNarrowingEnoughToWalk() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("01", kind: .admitted, role: "copyeditor")
+        try samsTranslation([record("t1")])
+
+        XCTAssertTrue(try table().hasNarrowingPermits)
+
+        let walks = Counter()
+        PermitPartition.walkObserverForTesting = { walks.tick() }
+        defer { PermitPartition.walkObserverForTesting = nil }
+
+        XCTAssertEqual(try translations(), [], "held pending, never set aside")
+        XCTAssertEqual(walks.count, 1)
+        XCTAssertEqual(try archivedLines(), "", "held, not archived")
+    }
+
+    /// **A permit that was narrowed and put back still counts**, because the
+    /// lines written in the middle of that history are judged by the entry
+    /// that governed them — `narrows` asks every entry, not `current`.
+    func test_aDemotionSinceUndoneStillMakesTheBookJudged() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("01", kind: .admitted, role: Permit.authorRole)
+        try writeEvent("02", kind: .roleChanged, role: Permit.reviewerRole)
+        try writeEvent("03", kind: .roleChanged, role: Permit.authorRole)
+
+        let judged = try table()
+        XCTAssertEqual(judged.timeline(forPerson: samPerson).current, .bookAuthor)
+        XCTAssertTrue(judged.hasNarrowingPermits,
+                      "the span between the two role changes is still narrowed")
     }
 
     /// A counter a `@Sendable` observer can safely increment.

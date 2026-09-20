@@ -188,6 +188,31 @@ public struct PermitTimeline: Equatable, Hashable, Sendable {
     /// Has anything ever happened to this permit? False is the P2-era book.
     public var hasEvents: Bool { entries.count > 1 }
 
+    /// **Has this person ever been anything but an author of the whole book?**
+    /// (Final fix wave, W1.)
+    ///
+    /// `hasEvents` was the wrong question for every gate that means *could a
+    /// line here be judged differently from the way P2 judged it*, because
+    /// **P3a's own shipped verbs write events**: `RegistryAdmission.admit`
+    /// files an `admitted` event for every device the writer lets in, and the
+    /// silent admission at project open files a `silentlyAdmitted` one. Both
+    /// carry the book-author permit — there is no surface in P3a that can
+    /// produce any other — so asking *are there events* turned the first
+    /// admitted phone into a book-wide behaviour change: the fast paths went
+    /// off, every segment became worth walking, and an unsigned Mac's
+    /// annotation withdrawals stopped being honoured. None of that is about
+    /// permits at all.
+    ///
+    /// So the question is asked of the PERMITS rather than of the events. Every
+    /// entry, not just `current`: a person demoted and promoted back has a
+    /// narrowed span in the middle of her history, and the lines in it are
+    /// judged by the entry that governed them.
+    ///
+    /// **`.unjudgeable` counts as narrowing.** A role word this build does not
+    /// know is a permit a later build may have narrowed, and the whole point of
+    /// that case is that we do not get to assume.
+    public var narrows: Bool { entries.contains { $0.permit != .bookAuthor } }
+
     /// **Which permit each line of one file was written under.**
     ///
     /// `judgements` runs parallel to `entries`: index *i* is this file judged

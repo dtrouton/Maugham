@@ -156,12 +156,14 @@ public enum PermitPartition {
         var resolvedClass: DocumentClass?
         var unownedAnswer: UnownedPiece?
         // **Is the governing permit of an amendment line worth writing down?**
-        // (fix round 1.) Only where the book HAS permit events: with none,
-        // every timeline is one entry — author of the whole book — so the
-        // answer a deriver would look up is the answer it already gets by
-        // asking the table today, and recording it would put a decode on every
-        // line of every load for nothing. See `AmendmentPermits`.
-        let recordAmendments = amendments != nil && trust.hasPermitEvents
+        // (fix round 1; narrowed by the final fix wave's W1.) Only where
+        // somebody in this book is NARROWED: where every permit is *author of
+        // the whole book* — which includes every book whose only events are
+        // P3a's own admissions — the answer a deriver would look up is the
+        // answer it already gets by asking the table today, and recording it
+        // would put a decode on every line of every load for nothing. See
+        // `AmendmentPermits` and `TrustTable.hasNarrowingPermits`.
+        let recordAmendments = amendments != nil && trust.hasNarrowingPermits
 
         for (index, line) in lines.enumerated() {
             guard isApplied(line), line.kind == .op,
@@ -377,18 +379,23 @@ public enum PermitPartition {
     /// answers the fast path never would (a break inside the container), so it
     /// must not happen where the partition would refuse nothing anyway.
     ///
-    /// Three questions, narrowing: this device must be on a chain at all; any
-    /// permit history in the book means some key here might be narrowed; and
-    /// with NO history the only thing that can refuse is one of the three
-    /// narrowed actor rows, so a file the AUTHOR's own name is on has nothing
-    /// to judge. The name is a CLAIM with nothing checking it — which is safe
-    /// in this direction only, because a lie about it costs a walk and buys
-    /// nothing: the walk is the careful path.
+    /// Three questions, narrowing: this device must be on a chain at all; a
+    /// NARROWED permit anywhere in the book means some key here might be
+    /// judged differently; and with every permit at *author of the whole book*
+    /// the only thing that can refuse is one of the three narrowed actor rows,
+    /// so a file the AUTHOR's own name is on has nothing to judge. The name is
+    /// a CLAIM with nothing checking it — which is safe in this direction only,
+    /// because a lie about it costs a walk and buys nothing: the walk is the
+    /// careful path.
+    ///
+    /// **Narrowing, not existence** (final fix wave, W1): admitting a phone
+    /// writes an event, and under the old test that admission made every
+    /// segment in the book worth walking for as long as the book lasted.
     public static func couldJudge(
         aFileNamedBy deviceSlug: String?, trust: TrustTable
     ) -> Bool {
         guard judgesAnything(trust) else { return false }
-        if trust.hasPermitEvents { return true }
+        if trust.hasNarrowingPermits { return true }
         guard let deviceSlug,
               let claimed = DeviceIdentity.claimedActor(ofDeviceId: deviceSlug)
         else { return true }
@@ -407,9 +414,14 @@ public enum PermitPartition {
     ///
     /// **Three conditions, and the third is fix round 3's.**
     ///
-    /// 1. **No permit events.** Then every timeline is one entry and every
-    ///    person is an author of the whole book, so there is no *as of the
-    ///    line* left to work out.
+    /// 1. **Nobody in this book is narrowed.** Then every person is an author
+    ///    of the whole book for the whole of their history, so there is no *as
+    ///    of the line* left to work out. **Narrowing, not events** (final fix
+    ///    wave, W1): P3a's own admissions write book-author events, and gating
+    ///    on their existence took this exit away from every book the moment its
+    ///    writer admitted a second machine — which is the reading the thirty
+    ///    synchronous `TranslationStore.loadMerged` sites and every inbox
+    ///    refresh pay for.
     /// 2. **The file's own writer can be named.** One key per file is ADR
     ///    0012's premise and the FILENAME encodes it — a translation sidecar is
     ///    `<doc>.<lang>.<slug>` and an inbox manifest `inbox.<slug>`, one
@@ -446,7 +458,7 @@ public enum PermitPartition {
         class documentClass: () -> DocumentClass,
         trust: TrustTable, deviceSlug: String?
     ) -> Bool {
-        guard judgesAnything(trust), !trust.hasPermitEvents else { return false }
+        guard judgesAnything(trust), !trust.hasNarrowingPermits else { return false }
         guard let key = firstAttributableSealKey(lines, trust: trust),
               let actor = actor(ofSealKey: key, trust: trust, deviceSlug: deviceSlug)
         else { return false }

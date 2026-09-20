@@ -122,11 +122,30 @@ public enum AnnotationOwnership {
     /// See `mayAmend`'s second and third bullets for the reasoning. The short
     /// form: a name this app's own writers could not have produced is history
     /// nobody can attribute, and P1 applied it; a name they could have
-    /// produced, resolving to nobody, in a book that has a ladder at all, is
+    /// produced, resolving to nobody, in a book where somebody is NARROWED, is
     /// not the same thing and is not waved through.
+    ///
+    /// **Narrowing, not events** (final fix wave, W1 — the whole-branch
+    /// review's Critical, and the sharpest of its three consequences).
+    /// An UNSIGNED device — a VM, an Intel Mac with no Secure Enclave — is a
+    /// first-class state in this format: it writes chained lines, seals
+    /// nothing, and files no registry record, so the ids it signs are shaped
+    /// exactly like this app's (`author-<16 hex>`) and resolve to nobody,
+    /// forever. Under the old test, the day the writer admitted their phone on
+    /// the signed Mac — a book-author admission that says nothing about
+    /// anybody's permit — every `annotationEdit` and `annotationWithdraw` that
+    /// unsigned Mac had ever written stopped being honoured: withdrawn notes
+    /// came back and edits reverted, on every signed Mac, with nothing red
+    /// anywhere. That is P3 refusing what P1 applied, which is the one thing
+    /// this milestone promised not to do.
+    ///
+    /// Asked of the permits instead, the rule fires where it was meant to: in
+    /// a book that has a reviewer, a scoped author, or a role word this build
+    /// cannot read, an unattributable production-shaped id could be any of
+    /// them and is not waved through.
     static func unplaced(_ deviceId: String, trust: TrustTable) -> Bool {
         guard DeviceIdentity.looksLikeADeviceId(deviceId) else { return true }
-        return !trust.hasPermitEvents
+        return !trust.hasNarrowingPermits
     }
 }
 
