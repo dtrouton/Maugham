@@ -115,10 +115,25 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// it by REFUSING the project — which is why the gate raises this number
     /// on disk before the narrowing event is written, and never after.
     ///
-    /// **Only a narrowing raises it.** A manifest's `schemaVersion` is DECODED
-    /// and carried through every ordinary save (`init(from:)` above), so a book
-    /// nobody has narrowed keeps the number it has and opens on every build
-    /// that ever opened it. Nothing about a one-writer book moves.
+    /// **Only a narrowing raises an EXISTING book's number.** A manifest's
+    /// `schemaVersion` is DECODED and carried through every ordinary save
+    /// (`init(from:)` above), so a book nobody has narrowed keeps the number it
+    /// has and goes on opening on every build that ever opened it. Nothing
+    /// about a one-writer book moves.
+    ///
+    /// **A book MADE on this build starts at 9**, because the init default
+    /// above stamps this constant on a manifest that is being constructed
+    /// rather than read (`ProjectFactory`, a Collection piece promoted to its
+    /// own project). That is not the gate — it is what every schema bump has
+    /// always done — but it is worth saying plainly: a project created here
+    /// will not open on v0.40, narrowed or not, and the release notes should
+    /// say so.
+    ///
+    /// **And once raised it is never lowered.** `ProjectManifest.raising` is
+    /// the rule and both manifest write doors obey it, because the file is one
+    /// object rewritten whole from a copy each store read at open: without it,
+    /// the first chapter rename on any OTHER Mac that had the book open would
+    /// write the gate away. See that function for the whole of it.
     ///
     /// As with M1A, M3 and the publish department, this makes the milestone a
     /// **paired Mac + phone release**.
@@ -328,6 +343,76 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// Per-project toggle for the element-type gutter (3b). Nil = use default
     /// (show for screenplay projects). Set explicitly to false to hide.
     public var showElementGutter: Bool?
+
+    // MARK: - The write rule: raise-only on `schemaVersion`
+
+    /// Just the one field, decoded out of a manifest's bytes — nil if they are
+    /// not a JSON object with a numeric `schemaVersion`.
+    ///
+    /// Deliberately a MINIMAL decode rather than the whole manifest (signed op
+    /// log P3b fix round 1). What it is for is the question *has somebody
+    /// raised this book's gate* asked of a file this build may not be able to
+    /// decode in full — a newer build's manifest, or one a half-finished write
+    /// left with a field missing. The number is the only thing that question
+    /// turns on, and refusing to read it because the rest of the file is odd
+    /// would be answering *nobody has* when the honest answer is *I could not
+    /// tell*.
+    public static func schemaVersion(of data: Data) -> Int? {
+        struct Probe: Decodable { let schemaVersion: Int }
+        return (try? JSONDecoder().decode(Probe.self, from: data))?.schemaVersion
+    }
+
+    /// The same question asked of a file. Nil for a file that is not there, or
+    /// will not read, or holds no number.
+    public static func schemaVersion(ofFileAt url: URL) -> Int? {
+        guard let data = try? Data(contentsOf: url) else { return nil }  // adr-0018-ok: project manifest JSON read, not manuscript
+        return schemaVersion(of: data)
+    }
+
+    /// **The manifest's write rule: a save RAISES `schemaVersion` to what is
+    /// already on disk, and never lowers it** (signed op log P3b fix round 1,
+    /// Critical 1).
+    ///
+    /// ## What it is defending
+    ///
+    /// The manifest is one JSON object, rewritten whole on every structural
+    /// edit from a copy a store read once at open. So the moment one Mac
+    /// narrows a book — which raises the number to shut permit-less builds out
+    /// — every OTHER Mac with the book open is holding the old number, and the
+    /// next chapter rename any of them makes writes it back. The gate is gone,
+    /// from a machine that narrowed nobody and noticed nothing. iCloud's
+    /// conflict pick can land the same 8 with no Mac involved at all.
+    ///
+    /// The fix is not in the callers — a caller that knew would not be the
+    /// problem. It is here, at the door, so a store that does not know is not
+    /// ABLE to lower it.
+    ///
+    /// ## What it does, and what it deliberately does not
+    ///
+    /// It raises and it never stamps. Where `floor` is nil (no file yet, or one
+    /// whose number cannot be read) or not greater than the outgoing manifest's
+    /// own, **the bytes are returned UNCHANGED — the same `Data`, not an
+    /// equal one** — so every un-narrowed book's save is byte-for-byte what it
+    /// has always been. Only when the file on disk genuinely carries a HIGHER
+    /// number is the outgoing manifest re-encoded with it.
+    ///
+    /// **It never refuses a save.** Outgoing bytes this build cannot decode
+    /// are returned as they are: the words are safe outranks the gate, and a
+    /// save that threw because a version number would not parse would cost the
+    /// writer an edit to protect a number.
+    ///
+    /// **It carries the rest of the outgoing manifest verbatim** — only the
+    /// number moves. It is not a merge: the other Mac's structural edit is the
+    /// writer's own act and lands exactly as they made it.
+    public static func raising(_ outgoing: Data, toAtLeast floor: Int?) -> Data {
+        guard let floor,
+              let mine = schemaVersion(of: outgoing),
+              mine < floor,
+              var manifest = try? makeDecoder().decode(ProjectManifest.self, from: outgoing)
+        else { return outgoing }
+        manifest.schemaVersion = floor
+        return (try? makeEncoder().encode(manifest)) ?? outgoing
+    }
 
     /// Thrown by `decodeGuardingSchema` when a manifest's on-disk
     /// `schemaVersion` is GREATER than this build understands.

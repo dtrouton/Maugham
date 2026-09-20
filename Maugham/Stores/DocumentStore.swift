@@ -376,6 +376,14 @@ public final class DocumentStore {
         // eligible `.none`/`.onDeviceDraft` audio.
         store.transcriptionWorker.onInboxChanged()
 
+        // **Put the gate back on a narrowed book that has lost it** (P3b fix
+        // round 1, ruling 2). Detached and unawaited on purpose: it resolves
+        // the register to ask one question, it changes nothing about this open,
+        // and a project must not wait on it. It cannot throw — see
+        // `healTheSchemaGateIfNarrowed`, which is also what the tests drive, so
+        // nothing here is a decision a test has to wait for.
+        Task { [weak store] in await store?.healTheSchemaGateIfNarrowed() }
+
         return store
     }
 
@@ -497,24 +505,43 @@ public final class DocumentStore {
 
     /// Coordinated atomic manifest write. Uses the same coordinator as
     /// document writes so external watchers see the change cleanly.
+    ///
+    /// **It is RAISE-ONLY for `schemaVersion`** (P3b fix round 1, Critical 1).
+    /// The manifest is one object rewritten whole from a copy each store read
+    /// at open, so a Mac that has this book open when another one narrows it is
+    /// holding the old number and its next chapter rename would write the gate
+    /// away — from a machine that narrowed nobody and noticed nothing. The
+    /// comparison is against what is on disk and it happens INSIDE the
+    /// coordinated block, which is what closes the in-process
+    /// encode-then-`await` window as well as the two-Mac one. The rule itself
+    /// is `ProjectManifest.raising`, spelled once and shared with
+    /// `ProjectStore.saveManifest`'s legacy direct path; for every un-narrowed
+    /// book it hands back the caller's own bytes untouched.
     public func writeManifest(_ data: Data) async throws {
         let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
         let coordinator = NSFileCoordinator(filePresenter: presenter)
         var coordError: NSError?
         var writeError: Error?
+        // What was actually written — the echo, the shadow and the live store
+        // all have to agree with the FILE, not with what the caller handed in.
+        var written = data
         coordinator.coordinate(
             writingItemAt: manifestURL, options: .forReplacing, error: &coordError
         ) { writeURL in
             do {
+                let bytes = ProjectManifest.raising(
+                    data,
+                    toAtLeast: ProjectManifest.schemaVersion(ofFileAt: writeURL))
+                written = bytes
                 let tmpURL = writeURL.appendingPathExtension("tmp")
-                try data.write(to: tmpURL, options: [.atomic])
+                try bytes.write(to: tmpURL, options: [.atomic])
                 _ = try FileManager.default.replaceItemAt(writeURL, withItemAt: tmpURL)
                 // Stamp the echo synchronously inside the coordinated block —
                 // mirrors `Document.performAutosave` setting `lastDiskEcho`
                 // inside its write block, so a presenter callback racing this
                 // write can't see a half-updated state. The bytes are exactly
                 // what we wrote.
-                self.lastWrittenManifest = .afterWrite(bytes: data)
+                self.lastWrittenManifest = .afterWrite(bytes: bytes)
             } catch {
                 writeError = error
             }
@@ -522,10 +549,99 @@ public final class DocumentStore {
         if let coordError { throw coordError }
         if let writeError { throw writeError }
 
+        // A raise that happened at the door has to reach the copy that will be
+        // encoded next, or the very next save asks the door to do it again —
+        // correct, but it would mean the writer's own store spends the rest of
+        // the session disagreeing with the file it is looking at. Raise-only
+        // here too: a live store above this build's number is a newer build's
+        // manifest, and lowering that is the forward-data-loss
+        // `decodeGuardingSchema` exists to refuse.
+        if let floor = ProjectManifest.schemaVersion(of: written),
+           let live = projectStore, live.manifest.schemaVersion < floor {
+            live.manifest.schemaVersion = floor
+        }
+
         // Mirror the just-saved manifest into a verified shadow so a later corrupt
         // or truncated `project.maugham.json` can be recovered without a full restore
         // (`ProjectStore.load` falls back to it). Best-effort — never fail the save.
-        try? ManifestShadow.write(data, in: projectURL)
+        try? ManifestShadow.write(written, in: projectURL)
+    }
+
+    /// **Put the gate back on a NARROWED book that has lost it** (P3b fix
+    /// round 1, ruling 2).
+    ///
+    /// ## Why a door is not enough
+    ///
+    /// `writeManifest` stops a store from lowering the number. It cannot undo
+    /// an old number that is already there: iCloud's conflict pick takes one of
+    /// two manifests whole and no Mac is consulted, and every Mac still running
+    /// the build before that fix writes the old number without asking. So the
+    /// gate needs a second half that does not depend on any particular machine
+    /// noticing — and it has one for free, because **narrowing is sticky and
+    /// derivable from the signed events by every P3 Mac in the book**. Any of
+    /// them can re-assert it, and they will all agree, because they are reading
+    /// the same signed records.
+    ///
+    /// ## The rule, both directions
+    ///
+    /// A book whose register carries a narrowing permit and whose manifest is
+    /// below this build's schema is raised. **A book with no narrowing permit
+    /// is never touched** — no register at all, or a register in which everyone
+    /// is still an author of the whole book, means nothing about who may write
+    /// what has changed and shutting older Macs out of it would be a gate
+    /// nobody asked for. Both halves are pinned byte-for-byte.
+    ///
+    /// The question is asked of `TrustTable.hasNarrowingPermits`, which reads
+    /// every entry of every timeline — never by comparing a rung here
+    /// (tripwire 47).
+    ///
+    /// ## What it will not do
+    ///
+    /// **It never fails an open and it never throws.** A registry folder that
+    /// will not read, a manifest that is not there, a disk that will not take
+    /// the write: each is logged and the project opens. A gate is worth less
+    /// than the writer's afternoon.
+    ///
+    /// **It is off the load path.** The resolve happens on a detached task, and
+    /// nothing in `Document.load` reaches it — P3a measured that a suspension
+    /// point added there reds three tests, and this is project-open work: once
+    /// per window, not once per chapter.
+    ///
+    /// **It is not a root's privilege.** Any P3 Mac in the book may raise the
+    /// number, including a reviewer's. The manifest is unsigned and cooperative
+    /// — it is not part of what the register vouches for — and the alternative
+    /// is a book that stays ungated until its root next opens it.
+    func healTheSchemaGateIfNarrowed() async {
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        guard let onDisk = ProjectManifest.schemaVersion(ofFileAt: manifestURL),
+              onDisk < ProjectManifest.currentSchemaVersion else { return }
+
+        let projectURL = self.projectURL
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        let narrowed = await Task.detached(priority: .utility) { () -> Bool in
+            guard let resolved = try? TrustResolution.resolveVerified(
+                projectURL: projectURL, identities: identities, cache: cache)
+            else { return false }
+            return resolved.table.hasNarrowingPermits
+        }.value
+        guard narrowed else { return }
+
+        do {
+            // Through the same door as any other save, so the write is
+            // coordinated, the echo is stamped and the shadow follows. The
+            // door's own raise-only rule is a no-op here: these bytes already
+            // carry the higher number.
+            let data = try await readManifest()
+            try await writeManifest(
+                ProjectManifest.raising(
+                    data, toAtLeast: ProjectManifest.currentSchemaVersion))
+            documentStoreLog.info(
+                "Raised the manifest schema of a narrowed book from \(onDisk, privacy: .public) to \(ProjectManifest.currentSchemaVersion, privacy: .public) at \(projectURL.lastPathComponent, privacy: .public)")
+        } catch {
+            documentStoreLog.error(
+                "Could not raise the manifest schema of a narrowed book at \(projectURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Coordinated read for callers outside ProjectStore.
@@ -1286,6 +1402,14 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         }
         archiveManifestForConflict(data: data)
         lastWrittenManifest = diskEcho
+        // **A manifest that arrived from somewhere else is the other half of
+        // the gate's problem** (P3b fix round 1, ruling 2). This is the path an
+        // iCloud conflict pick and a pre-fix Mac's save both come down, and
+        // either can have landed a number below this build's on a book that has
+        // been narrowed. Raise-only, narrowed-only, never blocking: the
+        // conflict backup above has already been taken, so the bytes that
+        // arrived are kept whatever happens next.
+        Task { [weak self] in await self?.healTheSchemaGateIfNarrowed() }
     }
 
     private func archiveManifestForConflict(data: Data) {

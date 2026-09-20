@@ -83,6 +83,12 @@ final class NarrowingSchemaGateTests: XCTestCase {
 
     private func manifestBytes() throws -> Data { try Data(contentsOf: manifestURL) }
 
+    private func onDiskTitle() throws -> String? {
+        try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+            .structure.first?.title
+    }
+
     @discardableResult
     private func beThisMac() -> LocalIdentities {
         let identities = LocalIdentities.forTesting(author: .softwareForTesting())
@@ -313,5 +319,202 @@ final class NarrowingSchemaGateTests: XCTestCase {
         XCTAssertEqual(
             projectStore.manifest.schemaVersion,
             ProjectManifest.currentSchemaVersion)
+    }
+
+    /// **CRITICAL 1, route (a): ANOTHER Mac's store, holding the manifest at
+    /// the old number in memory, must not put it back** (fix round 1).
+    ///
+    /// `ProjectStore.manifest` is read once at load and re-encoded whole on
+    /// every structural save; `handleManifestChanged` archives a conflict
+    /// backup and reloads nothing. So every P3 Mac with this book already open
+    /// is holding an 8, and the first chapter rename any of them makes writes
+    /// an 8 over a book that has been narrowed — the gate gone, from a Mac
+    /// that never narrowed anybody and never noticed.
+    ///
+    /// Two stores over one folder is exactly that shape, in one process: B
+    /// loaded before the narrowing, A narrows, B saves.
+    ///
+    /// The fix is in the WRITE DOOR, not in the caller: it is raise-only for
+    /// `schemaVersion` against what is on disk, inside the coordinated block,
+    /// so a store that does not know is not able to lower it.
+    func test_aSecondStoreHoldingTheOldNumberCannotPutItBack() async throws {
+        beThisMac()
+        let gating = try await DocumentStore.open(url: projectURL)
+        // Store B: opened BEFORE the narrowing, so its manifest says 8 — the
+        // other Mac, in one process.
+        let elsewhere = try await DocumentStore.open(url: projectURL)
+        let elsewhereProject = try await ProjectStore.load(from: projectURL)
+        elsewhereProject.documentStore = elsewhere
+        XCTAssertEqual(elsewhereProject.manifest.schemaVersion, beforeTheGate)
+
+        try await admitStranger(gating)
+        _ = try await gating.changePermit(person: stranger.fingerprint, to: .reviewer)
+        XCTAssertEqual(
+            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion)
+
+        // B goes on working, knowing nothing about any of it.
+        try await elsewhereProject.renameStructureItem(
+            id: "doc-test", newTitle: "Chapter One")
+
+        XCTAssertEqual(
+            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion,
+            "a store that does not know the book was narrowed must not be able "
+            + "to un-gate it")
+        XCTAssertEqual(
+            try onDiskTitle(), "Chapter One",
+            "and its own edit lands \u{2014} the door raises a number, it refuses "
+            + "nothing")
+    }
+
+    /// The write door's other direction, pinned byte-for-byte: in a book
+    /// nobody has narrowed, disk and memory agree and the raise-only rule
+    /// writes EXACTLY the bytes it was handed.
+    func test_theWriteDoorChangesNothingInAnUnNarrowedBook() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let projectStore = try await ProjectStore.load(from: projectURL)
+        projectStore.documentStore = store
+        store.projectStore = projectStore
+
+        try await projectStore.renameStructureItem(id: "doc-test", newTitle: "C1b")
+
+        XCTAssertEqual(try manifestSchemaOnDisk(), beforeTheGate,
+                       "no narrowing, no raise")
+        // And the bytes are the encoder's own, not something the door rebuilt.
+        XCTAssertEqual(
+            try manifestBytes(),
+            try ProjectManifest.makeEncoder().encode(projectStore.manifest))
+    }
+
+    /// **The legacy direct save path obeys the same rule.**
+    ///
+    /// `ProjectStore.saveManifest` writes the file itself when no
+    /// `DocumentStore` is wired, which is the state it is in during
+    /// `ProjectStore.load` — so it is what an open-time migration
+    /// (`adoptLegacyCraftIntentIfNeeded`, the palette heal) saves through. A
+    /// manifest iCloud brought down gated while that open was in flight must
+    /// not be lowered by a migration that read the file a moment earlier.
+    func test_theLegacyDirectSavePathIsRaiseOnlyToo() async throws {
+        beThisMac()
+        let gating = try await DocumentStore.open(url: projectURL)
+        let unwired = try await ProjectStore.load(from: projectURL)
+        XCTAssertNil(unwired.documentStore, "the state `load` leaves it in")
+        XCTAssertEqual(unwired.manifest.schemaVersion, beforeTheGate)
+
+        try await admitStranger(gating)
+        _ = try await gating.changePermit(person: stranger.fingerprint, to: .reviewer)
+
+        try await unwired.renameStructureItem(id: "doc-test", newTitle: "Chapter One")
+
+        XCTAssertEqual(
+            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion,
+            "the path that runs before a DocumentStore exists cannot un-gate a "
+            + "book either")
+        XCTAssertEqual(try onDiskTitle(), "Chapter One")
+    }
+
+    // MARK: - The heal (fix round 1, ruling 2)
+
+    /// **A P3 build that finds a NARROWED book below the gate raises it.**
+    ///
+    /// The write door stops a store from lowering the number; it cannot undo
+    /// an 8 that iCloud's conflict pick, or a Mac running the build before
+    /// this fix, has already landed. Narrowing is sticky and derivable from
+    /// signed events by every P3 Mac, so any of them can re-assert the gate.
+    func test_aNarrowedBookBelowTheGateIsHealed() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        try await admitStranger(store)
+        _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
+        // iCloud's conflict pick, or a pre-fix Mac: the number goes back.
+        try writeManifestSchema(beforeTheGate)
+        XCTAssertEqual(try manifestSchemaOnDisk(), beforeTheGate)
+
+        await store.healTheSchemaGateIfNarrowed()
+
+        XCTAssertEqual(
+            try manifestSchemaOnDisk(), ProjectManifest.currentSchemaVersion)
+    }
+
+    /// **And never an un-narrowed one, byte-for-byte.** A book with a register
+    /// and no narrowing permit is every book P2 ever made; raising it would
+    /// shut every older Mac out of a book where nothing has changed about who
+    /// may write what.
+    func test_anAdmittedButUnNarrowedBookIsNotHealed() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        try await admitStranger(store)
+        let before = try manifestBytes()
+
+        await store.healTheSchemaGateIfNarrowed()
+
+        XCTAssertEqual(try manifestSchemaOnDisk(), beforeTheGate)
+        XCTAssertEqual(try manifestBytes(), before)
+    }
+
+    /// **And never a registerless one**: a book this Mac has written no record
+    /// in at all has nobody to narrow.
+    func test_aRegisterlessBookIsNotHealed() async throws {
+        // No `beThisMac()`: nothing writes a record, so there is no register.
+        let store = try await DocumentStore.open(url: projectURL)
+        let before = try manifestBytes()
+
+        await store.healTheSchemaGateIfNarrowed()
+
+        XCTAssertEqual(try manifestSchemaOnDisk(), beforeTheGate)
+        XCTAssertEqual(try manifestBytes(), before)
+    }
+
+    /// The heal never fails an open. A manifest that is not there at all is
+    /// the sharpest version of that: it logs and carries on.
+    func test_theHealNeverThrows() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        try await admitStranger(store)
+        _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
+        try FileManager.default.removeItem(at: manifestURL)
+
+        await store.healTheSchemaGateIfNarrowed()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: manifestURL.path),
+                       "nothing was invented where nothing could be read")
+    }
+
+    /// It is idempotent and silent on a book already at the gate: no write, so
+    /// no conflict backup and no presenter churn on every open.
+    func test_theHealWritesNothingWhenTheBookIsAlreadyGated() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        try await admitStranger(store)
+        _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
+        let before = try manifestBytes()
+
+        await store.healTheSchemaGateIfNarrowed()
+
+        XCTAssertEqual(try manifestBytes(), before)
+    }
+
+    // MARK: - Minor 3: the admission arm of the refusal
+
+    /// `manifestNotGated` carries WHICH act was refused, and a narrowing
+    /// admission is the arm nothing pinned.
+    func test_aNarrowingAdmissionThatCannotBeGatedRefusesAsAnAdmission() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        try FileManager.default.removeItem(at: manifestURL)
+
+        do {
+            _ = try await store.admit(
+                device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+                permit: .reviewer)
+            XCTFail("a book that cannot be gated admits nobody as a reviewer")
+        } catch let error as RegistryAdmissionError {
+            guard case .manifestNotGated(_, let act) = error else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(act, .admission)
+        }
+        XCTAssertNil(try registry().person(stranger.fingerprint),
+                     "and nobody was let in")
     }
 }
