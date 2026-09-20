@@ -107,16 +107,38 @@ public final class OpLogDeviceState: @unchecked Sendable {
         /// empty one, or one that has just rotated everything away — and it
         /// means *nothing to check*, never *nothing was ever there*.
         public let head: String?
-        /// How many sealed segments the stream had when that head was taken.
-        /// This is the rotation tolerance: a tail that no longer holds the
-        /// remembered line while the stream has GROWN a segment has rotated,
-        /// which is maintenance and not a truncation.
-        public let segments: Int
+        /// The digest of every sealed segment of this stream this device has
+        /// taken in WHOLE — the same value `PermitMark.StreamMark.segments`
+        /// is built from, so a mark and this memory cannot disagree about what
+        /// the stream is made of.
+        ///
+        /// Two jobs. It is the **rotation tolerance**: a tail that no longer
+        /// holds the remembered line while the stream has taken in a digest
+        /// this device had not seen has rotated, which is maintenance and not a
+        /// truncation. And a digest here that no segment of the stream carries
+        /// any more is a **segment that went missing**, which the count this
+        /// replaced could not see at all.
+        public let segmentDigests: Set<String>
 
-        public init(deviceSlug: String, head: String?, segments: Int) {
+        public init(deviceSlug: String, head: String?, segmentDigests: Set<String>) {
             self.deviceSlug = deviceSlug
             self.head = head
-            self.segments = segments
+            self.segmentDigests = segmentDigests
+        }
+
+        /// **An entry written before the digests decodes, and reads as *no
+        /// digests known*** (tripwire 11: no migration, just tolerate). Such an
+        /// entry carries a `segments` COUNT this build has no property for, so
+        /// the synthesized decoder would simply ignore it — this one is written
+        /// out because `segmentDigests` has to be optional, and an absent set
+        /// is the honest answer: the first load after the upgrade learns the
+        /// digests, and until it does the stream is watched by its head alone.
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            deviceSlug = try container.decode(String.self, forKey: .deviceSlug)
+            head = try container.decodeIfPresent(String.self, forKey: .head)
+            segmentDigests = try container.decodeIfPresent(
+                Set<String>.self, forKey: .segmentDigests) ?? []
         }
     }
 
@@ -127,19 +149,47 @@ public final class OpLogDeviceState: @unchecked Sendable {
     /// Project heading — dated when it is NOTICED, because dating it when a
     /// pane opens would stamp last week's loss with this morning.
     public struct StreamTruncation: Codable, Equatable, Sendable {
+        /// **What went missing**, because the two are different losses and a
+        /// writer can act on knowing which. An entry written before this field
+        /// reads `.line`, which is the only kind that build could record.
+        public enum Loss: String, Codable, Equatable, Sendable {
+            /// The last line this device settled in the live tail is nowhere in
+            /// the stream any more.
+            case line
+            /// A whole sealed segment this device had taken in is gone. Every
+            /// line it held that is still applied stays applied; what is lost
+            /// is the history's own copy of them.
+            case segment
+        }
+
         public let streamKey: String
         public let deviceSlug: String
-        /// The hash that is no longer anywhere in the stream.
-        public let lostHead: String
+        public let loss: Loss
+        /// The line hash (`.line`) or the segment digest (`.segment`) that is
+        /// no longer anywhere in the stream.
+        public let lost: String
         public let noticedAt: Date
 
         public init(
-            streamKey: String, deviceSlug: String, lostHead: String, noticedAt: Date
+            streamKey: String, deviceSlug: String,
+            loss: Loss = .line, lost: String, noticedAt: Date
         ) {
             self.streamKey = streamKey
             self.deviceSlug = deviceSlug
-            self.lostHead = lostHead
+            self.loss = loss
+            self.lost = lost
             self.noticedAt = noticedAt
+        }
+
+        /// Tolerates an entry written before `loss`/`lost` existed — its hash
+        /// lived under `lostHead` and its kind could only be `.line`.
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            streamKey = try container.decode(String.self, forKey: .streamKey)
+            deviceSlug = try container.decode(String.self, forKey: .deviceSlug)
+            loss = try container.decodeIfPresent(Loss.self, forKey: .loss) ?? .line
+            lost = try container.decodeIfPresent(String.self, forKey: .lost) ?? ""
+            noticedAt = try container.decode(Date.self, forKey: .noticedAt)
         }
     }
 
@@ -149,17 +199,25 @@ public final class OpLogDeviceState: @unchecked Sendable {
     public struct ForeignStreamUpdate: Sendable {
         public let streamKey: String
         public let root: URL
-        public let memory: ForeignStreamMemory
+        /// **Nil is *keep what is remembered***, which is how a stream that
+        /// answered nothing this load keeps the position it once answered with
+        /// — the position whose absence IS the finding (fix round 1).
+        public let memory: ForeignStreamMemory?
         public let truncation: StreamTruncation?
+        /// The stream found everything it was remembered by, so a standing
+        /// finding about it is over: the file came back, or iCloud finished.
+        public let clearsTruncation: Bool
 
         public init(
             streamKey: String, root: URL,
-            memory: ForeignStreamMemory, truncation: StreamTruncation?
+            memory: ForeignStreamMemory?, truncation: StreamTruncation?,
+            clearsTruncation: Bool = false
         ) {
             self.streamKey = streamKey
             self.root = root
             self.memory = memory
             self.truncation = truncation
+            self.clearsTruncation = clearsTruncation
         }
     }
 
@@ -297,13 +355,26 @@ public final class OpLogDeviceState: @unchecked Sendable {
                 stored.roots[hash] = path
                 changed = true
             }
-            if stored.foreignStreams[key] != update.memory {
-                stored.foreignStreams[key] = update.memory
+            if let memory = update.memory, stored.foreignStreams[key] != memory {
+                stored.foreignStreams[key] = memory
                 changed = true
             }
-            if let truncation = update.truncation,
-               stored.foreignTruncations[key] != truncation {
-                stored.foreignTruncations[key] = truncation
+            if let truncation = update.truncation {
+                // **The same loss is the same finding**, keeping the day it
+                // was noticed. A stream that stays short is re-detected on
+                // every load — it has nothing left to move its memory on to —
+                // and re-dating it would put this morning on last week's loss
+                // and make *once* mean *every open*.
+                let standing = stored.foreignTruncations[key]
+                if standing?.loss != truncation.loss || standing?.lost != truncation.lost {
+                    stored.foreignTruncations[key] = truncation
+                    changed = true
+                }
+            } else if update.clearsTruncation,
+                      stored.foreignTruncations.removeValue(forKey: key) != nil {
+                // What came back is not missing. A finding is a fact that holds
+                // now, so a project whose evicted chapter iCloud has restored
+                // stops being unhealthy rather than being unhealthy for ever.
                 changed = true
             }
         }

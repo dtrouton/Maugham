@@ -133,21 +133,33 @@ extension DocumentStore {
     public func changePermit(
         person fingerprint: String, to permit: Permit
     ) async throws -> PersonRecord {
-        let projectURL = self.projectURL
-        let author = Document.loadIdentities.author
-        let cache = Document.loadRegistryCache
-        let mark: PermitMark
+        // Refuse rather than record a mark that came back short, for the
+        // revocation's reason: a short mark moves a permission boundary
+        // silently, and the direction it moves it in is *more set aside than
+        // the writer asked for*.
+        let mark = try await sweptPermitMark(forPerson: fingerprint)
+        return try await changePermit(person: fingerprint, to: permit, mark: mark)
+    }
+
+    /// `changePermit`'s sweep, alone — so the plural verb below can take every
+    /// record's mark BEFORE it writes any of them (fix round 1, minor 2).
+    private func sweptPermitMark(forPerson fingerprint: String) async throws -> PermitMark {
         switch await permitMark(forPerson: fingerprint, seen: true) {
-        case .mark(let found):
-            mark = found
+        case .mark(let found): return found
         case .unreadable(let name):
-            // Refuse rather than record a mark that came back short, for the
-            // revocation's reason: a short mark moves a permission boundary
-            // silently, and the direction it moves it in is *more set aside
-            // than the writer asked for*.
             throw RegistryAdmissionError.historyUnreadable(
                 name: name, act: .permitChange)
         }
+    }
+
+    /// `changePermit`'s write, over a mark already swept.
+    @discardableResult
+    private func changePermit(
+        person fingerprint: String, to permit: Permit, mark: PermitMark
+    ) async throws -> PersonRecord {
+        let projectURL = self.projectURL
+        let author = Document.loadIdentities.author
+        let cache = Document.loadRegistryCache
         let record = try await Task.detached(priority: .userInitiated) {
             try RegistryAdmission.changePermit(
                 person: fingerprint,
@@ -174,20 +186,27 @@ extension DocumentStore {
     /// a reviewer* and did half of it would be worse than one that offered
     /// nothing.
     ///
-    /// **It refuses the whole act up front.** Every record is put to
-    /// `RegistryAdmission.changePermitOutcome` before any of them is touched,
-    /// so a set containing a root (or somebody another root admitted) is
-    /// refused entire rather than half-applied — the first refusal is thrown,
-    /// which is the one the writer can act on.
+    /// **It refuses the whole act up front, and *up front* now means the
+    /// sweeps as well as the outcomes** (fix round 1, minor 2). Every record is
+    /// put to `RegistryAdmission.changePermitOutcome` — so a set containing a
+    /// root, or somebody another root admitted, is refused entire — and then
+    /// every record's MARK is swept, before a byte is written. A stream that
+    /// has gone missing under the third machine is knowable before the first
+    /// one moves, and a writer who is going to be refused should be refused
+    /// with nothing changed rather than with two of three records re-signed.
     ///
     /// **Each record gets its OWN mark and its own event**, swept for that
     /// machine's own streams: the two devices have read to different places
     /// and a shared mark would draw one of the two lines in the wrong file.
+    /// The sweeps stay one per record — this holds their answers, it does not
+    /// fold them into one pass.
     ///
-    /// **A write that fails midway names what moved.** The records are ordered
-    /// (the subject first, then by fingerprint), so the error says exactly
-    /// which permits changed and which did not, and pressing again finishes
-    /// the job — each record's own verb is idempotent in both halves.
+    /// **A write that fails midway names what moved**, and that is now all
+    /// `PermitChangePartlyApplied` ever means: a genuine failure of the WRITE,
+    /// with the readable half of the world already checked. The records are
+    /// ordered (the subject first, then by fingerprint), so the error says
+    /// exactly which permits changed and which did not, and pressing again
+    /// finishes the job — each record's own verb is idempotent in both halves.
     @discardableResult
     public func changePermit(
         everyRecordOf person: String, to permit: Permit
@@ -227,15 +246,23 @@ extension DocumentStore {
             throw RegistryAdmissionError.notAdmitted(fingerprint: person)
         }
         // Up front, before anything is written: the whole act or none of it.
+        // Both halves — who may be changed, and whether this Mac can say where
+        // each of their streams stood.
         for record in records {
             _ = try RegistryAdmission.changePermitOutcome(
                 person: record.person, by: author.fingerprint, in: registry).get()
+        }
+        var marks: [String: PermitMark] = [:]
+        for record in records {
+            marks[record.person] = try await sweptPermitMark(forPerson: record.person)
         }
 
         var moved: [PersonRecord] = []
         for record in records {
             do {
-                moved.append(try await changePermit(person: record.person, to: permit))
+                moved.append(try await changePermit(
+                    person: record.person, to: permit,
+                    mark: marks[record.person] ?? .nothingApplied))
             } catch {
                 throw PermitChangePartlyApplied(
                     moved: moved.map(\.person), failed: record.person,

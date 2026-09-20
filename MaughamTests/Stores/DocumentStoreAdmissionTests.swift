@@ -1045,15 +1045,15 @@ final class DocumentStoreAdmissionTests: XCTestCase {
             try registry().person(stranger.fingerprint)?.role, Permit.reviewerRole)
     }
 
-    /// **`retire` is unchanged, and that is a ruling rather than an
+    /// **`retire` EXPECTS no stream, and that is a ruling rather than an
     /// oversight.** Its subject is THIS device, whose streams live in
-    /// `OpLogDeviceState.heads` and never in the foreign memory — so it expects
-    /// nothing, and a machine can still be stood down over a file that is not
-    /// there. Its mark installs no permit entry (`PermitTimeline` skips
-    /// `retired`) and no revocation cut reads it, so a short one costs nothing;
-    /// a retirement that could be refused would leave a writer unable to retire
-    /// a Mac at all.
-    func test_retiringStillWorksWithOneOfThisDevicesOwnFilesMissing() async throws {
+    /// `OpLogDeviceState.heads` and never in the foreign memory, so the
+    /// expected set is empty however much of its own history it has written —
+    /// and a missing own file is simply an absent one, which nothing demands
+    /// the sweep name. (A folder it cannot LIST is a different matter and
+    /// refuses; fix round 2 made that rule the same for all four verbs, and its
+    /// own test is below.)
+    func test_retiringExpectsNoneOfItsOwnStreamsAndStillStandsTheMacDown() async throws {
         let mine = beThisMac()
         let store = try await DocumentStore.open(url: projectURL)
         let doc = try await openDocument()
@@ -1061,12 +1061,111 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         store.register(document: doc, for: "manuscript/c1.md")
         try await doc.setFullText("Hello, and a second line.\n")
         await doc.close()
+        XCTAssertTrue(
+            DocumentStore.expectedStreams(
+                ofDeviceIds: [mine.author.deviceId], in: projectURL,
+                state: Document.loadDeviceState).isEmpty,
+            "this device's own streams are `heads`' business, not this memory's")
         let ownFile = OpLogStore.opLogFileURL(
             forDocId: docId, deviceSlug: mine.author.slug, in: projectURL)
         try? FileManager.default.removeItem(at: ownFile)
 
         let record = try await store.retire(device: mine.author.fingerprint)
         XCTAssertNotNil(record.retiredAt)
+    }
+
+    /// **A present, readable foreign file that answered NOTHING must not block
+    /// the root for ever** (fix round 1's Important). A zero-byte `.jsonl` that
+    /// synced ahead of its contents yields no line this Mac ever saw and no
+    /// segment it took in whole, so `positions` names no such stream — and if
+    /// the memory recorded it anyway, every verb of the root's would refuse
+    /// against a name the sweep can never produce, over a file sitting there
+    /// perfectly readable, with nothing the writer could do about it.
+    func test_apresentFileThatAnsweredNothingDoesNotBlockThePermitVerbs() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam\u{2019}s Mac")
+        // Her file arrives with nothing in it yet, and this Mac reads the
+        // chapter while it is like that.
+        try Data().write(
+            to: OpLogStore.opLogFileURL(
+                forDocId: docId, deviceSlug: stranger.slug, in: projectURL),
+            options: .atomic)
+        let read = try await openDocument()
+        _ = try await read.opStore.loadDiagnosed(docId: docId)
+        await read.close()
+
+        _ = try await store.changePermit(person: stranger.fingerprint, to: .reviewer)
+        XCTAssertEqual(
+            try registry().person(stranger.fingerprint)?.role, Permit.reviewerRole,
+            "a file that told this Mac nothing is not a reason to refuse for ever")
+    }
+
+    /// **The plural verb sweeps every record BEFORE it writes any of them**
+    /// (fix round 1, minor 2). A stream that has gone missing under the machine
+    /// the loop reaches LAST is knowable up front, and a writer who is going to
+    /// be refused should be refused with nothing changed rather than with two
+    /// of three records already re-signed.
+    func test_ademotionOfAWriterRefusesBeforeAnyRecordMovesWhenOneStreamIsGone()
+        async throws
+    {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        store.register(document: doc, for: "manuscript/c1.md")
+        await doc.close()
+
+        let secondDevice = LocalIdentities.softwareForTesting()
+        let second = secondDevice.author
+        let secondState = OpLogDeviceState(
+            fileURL: projectURL.appendingPathComponent("second-state.json"))
+        let thirdDevice = LocalIdentities.softwareForTesting()
+        let third = thirdDevice.author
+        let thirdState = OpLogDeviceState(
+            fileURL: projectURL.appendingPathComponent("third-state.json"))
+        try await writeStrangerFile(docId: docId, opIds: ["02"])
+        try await writeFile(docId: docId, opIds: ["03"], by: second, state: secondState)
+        try await writeFile(docId: docId, opIds: ["04"], by: third, state: thirdState)
+        for (device, own) in [(stranger!, "Sam\u{2019}s Mac"), (second, "Sam\u{2019}s iPhone"),
+                              (third, "Sam\u{2019}s iPad")] {
+            _ = try await store.admit(
+                device: device.fingerprint, label: "Sam", ownName: own)
+        }
+        // The read that remembers all three streams.
+        let read = try await openDocument()
+        _ = try await read.opStore.loadDiagnosed(docId: docId)
+        await read.close()
+
+        // Whichever of them the loop reaches LAST loses its file.
+        let records = RegistryAdmission.records(
+            sharingLabelWith: stranger.fingerprint, in: try registry())
+        let last = try XCTUnwrap(records.last)
+        let slug = try XCTUnwrap(
+            [stranger!, second, third].first { $0.fingerprint == last.person }?.slug)
+        try FileManager.default.removeItem(at: OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: slug, in: projectURL))
+
+        do {
+            _ = try await store.changePermit(
+                everyRecordOf: stranger.fingerprint, to: .reviewer)
+            XCTFail("a sweep that cannot answer refuses before anything is written")
+        } catch let error as RegistryAdmissionError {
+            guard case .historyUnreadable = error else { return XCTFail("\(error)") }
+        }
+
+        let after = try registry()
+        XCTAssertTrue(
+            after.people.allSatisfy { $0.role == nil || $0.role == Permit.authorRole },
+            "no record moved")
+        XCTAssertTrue(
+            after.events.allSatisfy { $0.kind != .roleChanged },
+            "and no event was written — not one, not two")
     }
 
     // MARK: - Fix round 2

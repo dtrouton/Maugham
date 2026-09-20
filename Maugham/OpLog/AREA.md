@@ -938,21 +938,56 @@ memory reads that maintenance as a truncation. The key is
 segment its own signature settled is never walked (`classifySegment`'s fast
 path counts its lines rather than splitting them), so after a rotation the
 remembered line sits in a file the load has no lines for — which is why the
-memory also carries the stream's **segment count**: a tail that no longer holds
-the remembered line while the stream has GROWN a segment has rotated. Both
-halves are per stream, and `ForeignHeadTests`' *remember, rotate, read ⇒ no
-finding* pin goes red under a filename key.
+memory also carries **the digest of every segment this device took in whole**:
+a tail that no longer holds the remembered line while the stream has taken in a
+digest it had not seen has rotated. Both halves are per stream, and
+`ForeignHeadTests`' *remember, rotate, read ⇒ no finding* pin goes red under a
+filename key.
+
+**A stream is remembered only once it has ANSWERED** (fix round 1's Important).
+A file can be present, readable and yield nothing this device can point at — a
+zero-byte `.jsonl` that synced ahead of its contents, or one whose first line
+somebody corrupted so every line after it is `chainBroke` and none was ever
+*seen*. `positions` names no such stream in a mark, so remembering it would make
+`expectedStreams` demand a name the sweep can never produce, and every verb of
+the root's would refuse for ever over a file sitting there perfectly readable,
+with nothing the writer could do short of deleting `op-log-state.json`. The
+ENTRY's existence is therefore the fact *this device has applied something of
+theirs*. Once it exists it is kept: a stream that answered and has stopped
+answering is the truncation case, and is supposed to refuse. **The two notions
+of *answered* are one value** — `FileClassification.wholeSegmentDigest`, which
+both this memory and `positions`' `segments` list are built from, because a
+disagreement between them is that same bug in another coat.
+
+**The digests do a second job.** A digest this device remembers that no segment
+of the stream carries any more is a **whole sealed span that went missing** —
+`StreamTruncation.Loss.segment`, its own finding with its own sentence, because
+the history's copy is gone even though every line already applied stays applied.
+A `.mzseg` that is PRESENT and cannot be settled (evicted, corrupt, signed by a
+key this device cannot stand behind) is not a deletion: while one is in the
+stream no digest is reported missing at all, so under-counting can never read as
+somebody removing one.
 
 **Nothing is refused and nothing is set aside.** The surviving lines stay
 applied — that is the spec's own clause — so this is a REPORT: an
-`OpLogDeviceState.StreamTruncation` recorded once (the memory then moves on to
-what is there now, so a second load finds what it remembers), read back through
+`OpLogDeviceState.StreamTruncation`, read back through
 `OpLogStore.truncatedStreams(in:state:trust:)`, which names the device the way
 every other finding does (`TrustTable.label(forDeviceSlug:)` → the root's label,
-else the four-character code). `IntegrityReport.truncatedStreams` carries it;
-it makes a report **unhealthy** and deliberately does **not** block a backup,
-because the surviving words are exactly what a backup is for. P3b's dated
-History entry reads the same values.
+else the four-character code) and carries the writer's sentence for which loss
+it was. `IntegrityReport.truncatedStreams` carries it; it makes a report
+**unhealthy** and deliberately does **not** block a backup, because the
+surviving words are exactly what a backup is for. P3b's dated History entry
+reads the same values.
+
+**A finding is a fact that holds NOW, and it is dated once.** A stream with a
+standing loss keeps the position it lost — it does not move its memory on —
+because a memory that moved would find what it now remembers on the very next
+load and clear a finding about history that is still gone. So the loss is
+re-derived every load and `settleForeign` keeps the day it was first noticed
+(same `loss`, same `lost` ⇒ no rewrite). When the bytes come BACK — iCloud
+finishes, a file is restored — the finding is cleared and the project stops
+being unhealthy, rather than being unhealthy for ever over something that is no
+longer true.
 
 **Where it is filled, and where it deliberately is not.** The STRICT load fills
 it — `loadDiagnosed` carries one watch for the whole document and settles once,
@@ -966,6 +1001,12 @@ paths do not: `loadSyncMerged` writes nothing at all, by design and still;
 answer over the files that DID read, so a stream whose tail it could not open
 looks exactly like a short one; and `ProjectIntegrity.check` classifies
 keylessly and only REPORTS what a load recorded.
+
+**Downgrading loses it, and that is fine.** An older build decodes this state
+file, ignores the keys it has no property for, and rewrites the file without
+them; coming back up finds the foreign memory empty and starts again from the
+next load. It is derived bookkeeping — the same stance `heads` takes on a moved
+project — so the cost is one load's worth of detection, never a word.
 
 **Its second job is a REGISTRY verb's, not a load's** (Task 7's
 `expectedStreams` hook, supplied here). A mark that does not NAME a stream
@@ -986,13 +1027,14 @@ expects nothing; its mark installs no `PermitTimeline` entry and no revocation
 cut reads it, and a retirement that could be refused would leave a writer unable
 to stand a machine down at all.
 
-**Known limits, stated rather than hidden.** Detection is on the live TAIL: a
-stream whose tail is empty (just rotated) is unwatched until it has a line
-again, and a whole segment deleted from a rotated stream is not noticed here —
-its digest is what a mark names, and `PermitMark.judge` already refuses to call
-an unlisted segment old. The memory is bounded by (documents × devices ×
-actors) per live project and prunes on `rootIsGone`, the same clause and the
-same pass as the heads.
+**Known limits, stated rather than hidden.** The LINE half is watched on the
+live tail, so a stream whose tail is empty is watched by its digests alone until
+it has a line again. A stream this device had remembered under the round-0 build
+carries a segment COUNT this one has no property for, so it reads as *no digests
+known* and is watched by its head alone until the next load learns them
+(tripwire 11: no migration, just tolerate). The memory is bounded by (documents
+× devices × actors) per live project and prunes on `rootIsGone`, the same clause
+and the same pass as the heads.
 
 ## Sealed segments (ADR 0016, M2)
 

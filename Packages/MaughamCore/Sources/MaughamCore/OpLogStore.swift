@@ -677,7 +677,9 @@ public final class OpLogStore {
         // and not a write: the watch settles the whole document's worth at
         // once, so a chapter spread over four foreign files costs one rewrite
         // of the state file rather than four.
-        foreign?.observe(url: url, verification: classified.verification)
+        foreign?.observe(
+            url: url, verification: classified.verification,
+            segmentDigest: classified.wholeSegmentDigest)
 
         // The three writes a load is allowed to make, all of them derived
         // bookkeeping and every one best-effort: nothing here may cost the
@@ -965,8 +967,15 @@ public final class OpLogStore {
                     url: url, bytes: bytes, state: nil, trust: trust,
                     permit: permit)
                 if url.pathExtension == OpLogSegment.fileExtension {
-                    if let digest = segmentDigestReadWhole(
-                        container: bytes, classified: classified) {
+                    // **The one answer to *did this reader take the segment in
+                    // whole*** (Task 9's fix round 1). It used to be computed
+                    // here, by a SECOND decode of a container `classify` had
+                    // already decoded; it is now the classification's own
+                    // `wholeSegmentDigest`, which is also what the foreign
+                    // stream memory records — and two spellings of it would be
+                    // a stream that memory expects and this mark can never
+                    // name, which is a root's verb refusing for ever.
+                    if let digest = classified.wholeSegmentDigest {
                         segments[stream.key, default: []].insert(digest)
                     }
                     continue
@@ -1125,32 +1134,6 @@ public final class OpLogStore {
         return PermitPartition.partition(of: resolved, file: url, judging: judge)
     }
 
-    /// **The digest of a segment the reader took in WHOLE**, or nil.
-    ///
-    /// Whole means every line of it reached a verdict — not that every line
-    /// was applied. A mark's `segments` list says *the root read this whole
-    /// file*, and a later reader uses it to decide which PERMIT judges the
-    /// lines inside, never to decide that they were allowed (fix round 2).
-    ///
-    /// Two ways in. A container whose signature settled it was taken in whole
-    /// by definition — that is the claim a segment signature makes. One that
-    /// did not settle is walked instead, and it counts only if the walk
-    /// reached the end of it: a chain that broke inside means the root never
-    /// trusted the bytes after the break, so it did not read the file whole
-    /// and must not say it did. A container that did not even verify is nil,
-    /// because the digest a file CARRIES is the digest a tamperer leaves
-    /// alone, and only a container that held together may be keyed on.
-    private nonisolated static func segmentDigestReadWhole(
-        container: Data, classified: FileClassification
-    ) -> String? {
-        let decoded = OpLogSegment.decodeVerifying(container)
-        guard decoded.isVerified, let digest = decoded.digest else { return nil }
-        if classified.verifiedSegmentDigest != nil { return digest }
-        guard let walk = classified.verification, !walk.lines.isEmpty,
-              walk.lines.allSatisfy(wasSeen) else { return nil }
-        return digest
-    }
-
     /// **A foreign stream this device has found shorter than it remembered
     /// it**, with the device named the way every other finding names one
     /// (P3a Task 9, spec §4.7).
@@ -1164,6 +1147,24 @@ public final class OpLogStore {
         public var streamKey: String { truncation.streamKey }
         public var deviceSlug: String { truncation.deviceSlug }
         public var noticedAt: Date { truncation.noticedAt }
+
+        /// **What went missing, in the writer's words** — and the two losses
+        /// are different enough to say apart (fix round 1, minor 1).
+        ///
+        /// A LINE loss is the live tail having been cut back; a SEGMENT loss
+        /// is a whole sealed span of history that is not in the folder any
+        /// more. Neither takes a word out of the draft — what was applied
+        /// stays applied — so both sentences end the same way, pointing at the
+        /// one place a writer can get the lost history back from.
+        public var sentence: String {
+            let what = truncation.loss == .segment
+                ? "part of \(label)’s sealed history is missing from this book"
+                : "\(label)’s history here is shorter than it was"
+            return "\(what.prefix(1).uppercased())\(what.dropFirst()). "
+                + "Nothing has left the draft — every word Maugham had already "
+                + "applied is still in it — but what is gone is gone from the "
+                + "folder. A backup is where it can be got back from."
+        }
 
         public init(truncation: OpLogDeviceState.StreamTruncation, label: String) {
             self.truncation = truncation
@@ -1266,6 +1267,29 @@ public final class OpLogStore {
         /// Non-nil when a segment's signature settled it for the first time and
         /// the digest is worth remembering.
         let verifiedSegmentDigest: String?
+        /// **The digest of a segment this reader took in WHOLE** — P3a Task
+        /// 9's fix round 1, and the ONE answer to that question.
+        ///
+        /// Whole means every line of it reached a verdict, not that every line
+        /// was applied: a mark's `segments` list says *the root read this whole
+        /// file*, and a later reader uses it to decide which PERMIT judges the
+        /// lines inside, never to decide that they were allowed.
+        ///
+        /// Two ways in. A container that SETTLED was taken in whole by
+        /// definition — that is the claim a segment signature makes, and it is
+        /// the same claim this device's memory of the digest makes one load
+        /// later. One that did not settle is walked instead, and counts only
+        /// if the walk reached the END of it: a chain that broke inside means
+        /// the reader never trusted the bytes after the break, so it did not
+        /// read the file whole and must not say it did. A container that did
+        /// not verify is nil, because the digest a file CARRIES is the digest
+        /// a tamperer leaves alone.
+        ///
+        /// It lives here rather than beside each caller because there are two
+        /// of them — the mark sweep and the foreign-stream memory — and a
+        /// disagreement between them is a stream the memory expects and the
+        /// mark can never name, which is a root's verb refusing for ever.
+        let wholeSegmentDigest: String?
     }
 
     /// `permit` is the P3a partition's two document-level answers (spec §4.1,
@@ -1390,7 +1414,9 @@ public final class OpLogStore {
                 isSealedSegment: false, segmentVerified: nil, trust: trust),
             verification: settled,
             adoptedHead: adopted,
-            verifiedSegmentDigest: nil)
+            verifiedSegmentDigest: nil,
+            // A live tail is not a segment and carries no digest at all.
+            wholeSegmentDigest: nil)
     }
 
     /// **What a revocation keeps** — `RevocationSplit`'s answer applied to a
@@ -1472,7 +1498,10 @@ public final class OpLogStore {
                     name: url.lastPathComponent,
                     isSealedSegment: true, segmentVerified: false),
                 verification: nil,
-                adoptedHead: nil, verifiedSegmentDigest: nil)
+                adoptedHead: nil, verifiedSegmentDigest: nil,
+                // The container did not decode, so there is no digest to
+                // believe and nothing to say this file was read whole.
+                wholeSegmentDigest: nil)
         }
 
         // Only a container that verified may be keyed on: the digest a file
@@ -1571,7 +1600,8 @@ public final class OpLogStore {
                             isSealedSegment: true, segmentVerified: true,
                             trust: trust),
                         verification: partitioned,
-                        adoptedHead: nil, verifiedSegmentDigest: toRemember)
+                        adoptedHead: nil, verifiedSegmentDigest: toRemember,
+                        wholeSegmentDigest: digest)
                 }
             }
             let lines = nonEmptyLineCount(jsonl)
@@ -1582,7 +1612,12 @@ public final class OpLogStore {
                     name: url.lastPathComponent, verified: lines,
                     isSealedSegment: true, segmentVerified: true),
                 verification: nil,
-                adoptedHead: nil, verifiedSegmentDigest: toRemember)
+                adoptedHead: nil, verifiedSegmentDigest: toRemember,
+                // A segment that settled was taken in whole by definition —
+                // whether by its own signature or by this device's memory of
+                // its digest, which is the SAME claim one load later. Under
+                // the mark sweep, which passes no state, the two coincide.
+                wholeSegmentDigest: digest)
         }
 
         // **The fallback walk judges by the TABLE too** (P2b Task 10).
@@ -1628,7 +1663,14 @@ public final class OpLogStore {
                 name: url.lastPathComponent, lines: verification.lines,
                 isSealedSegment: true, segmentVerified: false, trust: trust),
             verification: verification,
-            adoptedHead: nil, verifiedSegmentDigest: nil)
+            adoptedHead: nil, verifiedSegmentDigest: nil,
+            // Walked rather than settled, so it counts only where the walk
+            // reached the END: a chain that broke inside means this reader
+            // never trusted the bytes after the break.
+            wholeSegmentDigest: digest.flatMap {
+                !verification.lines.isEmpty && verification.lines.allSatisfy(wasSeen)
+                    ? $0 : nil
+            })
     }
 
     /// How many non-blank lines these bytes hold — counted, never SPLIT.

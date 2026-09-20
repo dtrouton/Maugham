@@ -243,6 +243,190 @@ final class ForeignHeadTests: XCTestCase {
         XCTAssertNotNil(
             rootState.foreignStream(samStreamKey, inRoot: projectURL)?.head,
             "the new tail's last line is what the stream stands at now")
+
+        // Rotate-and-append, in one window: the tail is rotated away AND a
+        // fresh line lands before this Mac next looks. The digests are what
+        // make that readable — the remembered line is inside a segment whose
+        // digest is new — where a count could be fooled by a deletion in the
+        // same window.
+        _ = try await samsStore().sealTailIfNeeded(
+            docId: docId, deviceSlug: sam.author.slug, threshold: 1)
+        try writeFile(by: sam.author, ops: [op("06", by: sam.author)])
+        let afterBoth = try await load()
+        XCTAssertEqual(afterBoth, ["01", "02", "03", "04", "05", "06"])
+        XCTAssertTrue(truncations().isEmpty, "rotate-and-append lost nothing")
+    }
+
+    // MARK: - A stream is remembered only once it has ANSWERED
+
+    /// **A present, readable file that yields NOTHING is not remembered** (fix
+    /// round 1's Important). `positions` names no such stream in a mark — there
+    /// is no line it ever saw and no segment it took in whole — so remembering
+    /// it would make `expectedStreams` demand a name the sweep can never
+    /// produce, and every verb of the root's would refuse for ever over a file
+    /// that is sitting there perfectly readable.
+    func test_aForeignFileThatAnswersNothingIsNotRemembered() async throws {
+        try writeRootRecord()
+        try admitSam()
+        // A zero-byte tail: synced ahead of its own contents.
+        let url = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: sam.author.slug, in: projectURL)
+        try Data().write(to: url, options: .atomic)
+
+        let applied = try await load()
+        XCTAssertTrue(applied.isEmpty)
+        XCTAssertTrue(
+            rootState.foreignStreamKeys(inRoot: projectURL, writtenBy: [samSlug]).isEmpty,
+            "nothing answered, so there is nothing to expect")
+
+        // And the sweep the root's verbs run agrees: it names no such stream,
+        // which is exactly why the memory must not ask for one.
+        let table = try await reader().trust()
+        let mark = try OpLogStore.seenPositions(
+            ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL, trust: table)
+        XCTAssertNil(mark[samStreamKey])
+        XCTAssertNoThrow(
+            try OpLogStore.seenPositions(
+                ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+                trust: table,
+                expectedStreams: rootState.foreignStreamKeys(
+                    inRoot: projectURL, writtenBy: [samSlug])))
+    }
+
+    /// The same, for the other way a present file answers nothing: a first line
+    /// somebody corrupted, so every line after it is `chainBroke` and none of
+    /// them was ever *seen*.
+    func test_aForeignFileWhoseChainBrokeAtItsFirstLineIsNotRemembered() async throws {
+        try writeRootRecord()
+        try admitSam()
+        let url = try writeFile(
+            by: sam.author, ops: ["01", "02"].map { op($0, by: sam.author) })
+        var bytes = try Data(contentsOf: url)
+        // Break the FIRST line's `prev`, so the walk breaks before anything.
+        guard let range = bytes.range(of: Data("{\"prev\":\"".utf8)) else {
+            return XCTFail("a chained line starts with its prev")
+        }
+        bytes.replaceSubrange(
+            range.upperBound..<(range.upperBound + 4), with: Data("ffff".utf8))
+        try bytes.write(to: url, options: .atomic)
+
+        _ = try await load()
+        XCTAssertTrue(
+            rootState.foreignStreamKeys(inRoot: projectURL, writtenBy: [samSlug]).isEmpty,
+            "a file whose every line is refused has told this Mac nothing")
+    }
+
+    /// **A stream whose only content is settled SEGMENTS is remembered**, and
+    /// the sweep names it through the same digests — the two notions of
+    /// *answered* are one, because a disagreement is the Important's bug in
+    /// another coat.
+    func test_aSegmentOnlyStreamIsRememberedAndNamedByTheSweep() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeFile(
+            by: sam.author, ops: ["01", "02"].map { op($0, by: sam.author) })
+        _ = try await samsStore().sealTailIfNeeded(
+            docId: docId, deviceSlug: sam.author.slug, threshold: 1)
+
+        // A fresh memory, so this load is the FIRST sight of the stream and
+        // there is no tail left for it to answer with.
+        rootState = state("root-segment-only")
+        let applied = try await load()
+        XCTAssertEqual(applied, ["01", "02"])
+
+        let expected = rootState.foreignStreamKeys(
+            inRoot: projectURL, writtenBy: [samSlug])
+        XCTAssertEqual(expected, [samStreamKey], "the segment is an answer")
+        XCTAssertFalse(
+            rootState.foreignStream(samStreamKey, inRoot: projectURL)?
+                .segmentDigests.isEmpty ?? true)
+
+        let mark = try OpLogStore.seenPositions(
+            ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+            trust: try await reader().trust(), expectedStreams: expected)
+        XCTAssertEqual(
+            Set(mark[samStreamKey]?.segments ?? []),
+            rootState.foreignStream(samStreamKey, inRoot: projectURL)?.segmentDigests,
+            "the memory and the mark are built from one answer")
+    }
+
+    /// **A whole sealed segment that went missing is a finding of its own
+    /// kind** — the history's copy is gone even though every line already
+    /// applied stays applied.
+    func test_adeletedSegmentIsItsOwnFinding() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeFile(
+            by: sam.author, ops: ["01", "02"].map { op($0, by: sam.author) })
+        let rotated = try await samsStore().sealTailIfNeeded(
+            docId: docId, deviceSlug: sam.author.slug, threshold: 1)
+        let segment = try XCTUnwrap(rotated)
+        try writeFile(by: sam.author, ops: [op("03", by: sam.author)])
+        _ = try await load()
+        XCTAssertTrue(truncations().isEmpty)
+
+        try FileManager.default.removeItem(at: segment)
+        try? FileManager.default.removeItem(
+            at: OpLogStore.segmentSignatureURL(for: segment))
+        let applied = try await load()
+
+        XCTAssertEqual(applied, ["03"], "what remains is still applied")
+        let found = truncations()
+        XCTAssertEqual(found.count, 1)
+        XCTAssertEqual(found.first?.loss, .segment)
+        let named = OpLogStore.truncatedStreams(
+            in: projectURL, state: rootState, trust: try await reader().trust())
+        XCTAssertTrue(
+            named.first?.sentence.contains("sealed history is missing") ?? false,
+            "the finding says which loss it is: \(named.first?.sentence ?? "—")")
+    }
+
+    /// A `.mzseg` that is present and cannot be settled — evicted, corrupt, or
+    /// signed by a key this device cannot stand behind — is **not** a deletion.
+    /// Under-counting the segments must never read as somebody removing one.
+    func test_anUnsettledSegmentIsNotADeletedOne() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeFile(
+            by: sam.author, ops: ["01", "02"].map { op($0, by: sam.author) })
+        let rotated = try await samsStore().sealTailIfNeeded(
+            docId: docId, deviceSlug: sam.author.slug, threshold: 1)
+        let segment = try XCTUnwrap(rotated)
+        try writeFile(by: sam.author, ops: [op("03", by: sam.author)])
+        _ = try await load()
+
+        // The container is still there and no longer decodes.
+        try Data("not a segment".utf8).write(to: segment, options: .atomic)
+        _ = try await load()
+
+        XCTAssertTrue(
+            truncations().isEmpty,
+            "a segment that will not open is present, not deleted")
+    }
+
+    /// **A finding is a fact that holds now.** When the bytes come back — iCloud
+    /// finishes, a file is restored — the stream stops being a finding rather
+    /// than staying unhealthy for ever.
+    func test_afindingIsClearedWhenWhatWentMissingComesBack() async throws {
+        try writeRootRecord()
+        try admitSam()
+        let url = try writeFile(
+            by: sam.author,
+            ops: ["01", "02", "03"].map { op($0, by: sam.author) })
+        _ = try await load()
+        let whole = try Data(contentsOf: url)
+
+        try truncate(url, toFirst: 1)
+        _ = try await load()
+        XCTAssertEqual(truncations().count, 1)
+
+        try whole.write(to: url, options: .atomic)
+        _ = try await load()
+        XCTAssertTrue(truncations().isEmpty, "what came back is not missing")
+
+        let report = try await ProjectIntegrity.check(
+            projectURL: projectURL, state: rootState)
+        XCTAssertTrue(report.isHealthy)
     }
 
     /// A stream this Mac has never read is not truncated — it is new, which is
@@ -510,10 +694,10 @@ final class ForeignHeadTests: XCTestCase {
         let memory = OpLogDeviceState(fileURL: url, identity: identity.fingerprint)
         memory.settleForeign([.init(
             streamKey: "doc-x.sam", root: gone,
-            memory: .init(deviceSlug: "sam", head: "abc", segments: 0),
+            memory: .init(deviceSlug: "sam", head: "abc", segmentDigests: []),
             truncation: .init(
                 streamKey: "doc-x.sam", deviceSlug: "sam",
-                lostHead: "abc", noticedAt: Date(timeIntervalSince1970: 1)))])
+                lost: "abc", noticedAt: Date(timeIntervalSince1970: 1)))])
         XCTAssertEqual(memory.truncations(inRoot: gone).count, 1)
 
         // The project goes; its enclosing folder stays, which is what tells a

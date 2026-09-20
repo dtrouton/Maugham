@@ -11,33 +11,48 @@ import Foundation
 /// from each other perfectly.
 ///
 /// So this device remembers, per FOREIGN stream, the hash of the last line it
-/// saw that stream's chain verify. A later load that cannot find that line
-/// anywhere in the stream has met a stream somebody shortened.
+/// saw that stream's chain verify and the digest of every sealed segment of it
+/// it took in whole. A later load that cannot find one of those has met a
+/// stream somebody shortened.
 ///
 /// **What it never does.** It refuses no load, sets no line aside and holds
 /// nothing back. The lines that remain are good and they stay applied — that
 /// is the whole of the spec's clause, and it is why this is a REPORT (the
 /// integrity channel, and P3b's dated History entry) rather than a verdict.
 ///
-/// **Keyed by stream, and why the segment count is here.** A rotation copies
-/// the live tail into a `.mzseg` and deletes the tail, so the remembered line
-/// moves from one filename into another while staying in the same stream. The
-/// key is therefore `PermitMark.stream(of:)`'s and never a filename. That
-/// alone is not enough: a settled segment is never walked (its container
-/// signature settles it whole, and the fast path deliberately counts its lines
-/// rather than splitting them), so after a rotation the remembered line is in a
-/// file this load has no lines for. The stream's SEGMENT COUNT closes it — a
-/// tail that no longer holds the remembered line while the stream has grown a
-/// segment has rotated. Both halves are per stream, which is what makes
-/// keying on the filename fail loudly rather than quietly (the rotation pin in
-/// `ForeignHeadTests`).
+/// **A stream is remembered only once it has ANSWERED** (fix round 1's
+/// Important). A file can be present, readable and yet yield nothing this
+/// device can point at — a zero-byte `.jsonl` that has synced ahead of its
+/// contents, or one whose first line is corrupt so every line after it is
+/// `chainBroke` and none was ever *seen*. `positions` names no such stream in
+/// a mark, so remembering it would make `expectedStreams` demand a name the
+/// sweep can never produce, and the root's verbs would refuse for ever over a
+/// file that is sitting there perfectly readable, with nothing the writer
+/// could do about it short of deleting this memory. So the ENTRY's existence
+/// is the fact *this device has applied something of theirs*: nothing answers,
+/// nothing is written. Once an entry exists it is kept — a stream that
+/// answered and has stopped answering is the truncation case, and it is
+/// supposed to refuse.
+///
+/// **Keyed by stream, and why the digests are here.** A rotation copies the
+/// live tail into a `.mzseg` and deletes the tail, so the remembered line moves
+/// from one filename into another while staying in the same stream. The key is
+/// therefore `PermitMark.stream(of:)`'s and never a filename. That alone is not
+/// enough: a segment that settled is never walked (its container signature
+/// settles it whole, and the fast path counts its lines rather than splitting
+/// them), so after a rotation the remembered line is inside a file this load
+/// has no lines for. A **new segment digest** closes it — a tail that no longer
+/// holds the remembered line while the stream has taken in a segment it had not
+/// seen before has rotated. The digests do a second job the count they replaced
+/// could not: a digest this device remembers that is in NO segment of the
+/// stream now is a SEGMENT that went missing, which is history lost even though
+/// every line still applied stays applied.
 ///
 /// **It costs one hash comparison in the steady state.** A file nobody has
 /// touched answers its remembered head as `Verification.head`, which the walk
-/// has already computed; a file that grew is searched from the END, so the
-/// scan is as long as what was appended. Only a stream that has genuinely lost
-/// its line pays a pass over the whole file, and it pays it once — the memory
-/// moves on to what is there now, so the second load finds what it remembers.
+/// has already computed; a file that grew is searched from the END, so the scan
+/// is as long as what was appended. Only a stream that has genuinely lost its
+/// line pays a pass over the whole file.
 public final class ForeignStreamWatch: @unchecked Sendable {
 
     /// One stream as this load found it, gathered across however many files it
@@ -46,7 +61,16 @@ public final class ForeignStreamWatch: @unchecked Sendable {
         let slug: String
         let root: URL
         var tailHead: String?
-        var segments = 0
+        /// The digest of every segment this load took in WHOLE — the same
+        /// answer a mark's `segments` list is built from, so the memory and the
+        /// sweep cannot disagree about what this stream is made of.
+        var digests: Set<String> = []
+        /// A `.mzseg` that is present and yielded no digest: evicted, corrupt,
+        /// or signed by a key this device cannot settle it by. **It is not a
+        /// deletion**, and while one is here no digest is reported missing —
+        /// under-counting the segments must never read as somebody removing
+        /// one.
+        var sawUnsettledSegment = false
         var holdsRemembered = false
     }
 
@@ -78,11 +102,19 @@ public final class ForeignStreamWatch: @unchecked Sendable {
     /// One file of one stream, as the load classified it.
     ///
     /// `verification` is nil exactly where the load has no lines to offer — a
-    /// segment settled by its own signature, or a container that failed before
-    /// a line could be walked. Such a file still COUNTS as a segment, which is
-    /// the rotation tolerance; it simply cannot answer whether the remembered
-    /// line is inside it.
-    public func observe(url: URL, verification: OpLogChain.Verification?) {
+    /// segment settled by its own signature or by this device's memory of its
+    /// digest, or a container that failed before a line could be walked.
+    ///
+    /// `segmentDigest` is `FileClassification.wholeSegmentDigest`: the digest
+    /// of a segment this reader took in WHOLE, and the very value a mark's
+    /// `segments` list is built from. Nil for a tail, and nil for a segment
+    /// that did not settle and could not be walked to its end — which is the
+    /// *present but not readable through* case, and must never read as a
+    /// deletion.
+    public func observe(
+        url: URL, verification: OpLogChain.Verification?,
+        segmentDigest: String? = nil
+    ) {
         guard let stream = PermitMark.stream(of: url),
               // The legacy unsuffixed `<docId>.jsonl` is nobody's stream — it
               // is the one file with more than one writer, which is why a mark
@@ -95,27 +127,23 @@ public final class ForeignStreamWatch: @unchecked Sendable {
         defer { lock.unlock() }
         var sighting = sightings[stream.key] ?? Sighting(slug: slug, root: root)
         if url.pathExtension == OpLogSegment.fileExtension {
-            sighting.segments += 1
-            if let verification, !sighting.holdsRemembered,
-               let remembered = remembered(stream.key, root)?.head {
-                sighting.holdsRemembered = Self.holds(remembered, verification)
+            if let segmentDigest {
+                sighting.digests.insert(segmentDigest)
+            } else {
+                sighting.sawUnsettledSegment = true
             }
-        } else if let verification {
+        } else if let verification, let head = verification.head {
             // The tail, and only the tail, is where the next line goes — so it
             // is the only file whose last line can be the stream's newest one.
             // Nothing here reads a segment index: a filename is the writer's to
             // choose, which is the whole reason a mark is not one either.
-            if let head = verification.head { sighting.tailHead = head }
-            if !sighting.holdsRemembered,
-               let remembered = remembered(stream.key, root)?.head {
-                sighting.holdsRemembered = Self.holds(remembered, verification)
-            }
+            sighting.tailHead = head
+        }
+        if let verification, !sighting.holdsRemembered,
+           let remembered = state.foreignStream(stream.key, inRoot: root)?.head {
+            sighting.holdsRemembered = Self.holds(remembered, verification)
         }
         sightings[stream.key] = sighting
-    }
-
-    private func remembered(_ key: String, _ root: URL) -> OpLogDeviceState.ForeignStreamMemory? {
-        state.foreignStream(key, inRoot: root)
     }
 
     /// Is this hash one of these lines? The head first, because a file nobody
@@ -150,20 +178,60 @@ public final class ForeignStreamWatch: @unchecked Sendable {
         var updates: [OpLogDeviceState.ForeignStreamUpdate] = []
         for (key, sighting) in found {
             let remembered = state.foreignStream(key, inRoot: sighting.root)
+            // **Did this stream say anything this device can point at?** A
+            // line hash, or a segment it took in whole. Nothing else counts,
+            // because nothing else is a thing `positions` can put in a mark.
+            let answered = sighting.tailHead != nil || !sighting.digests.isEmpty
+            guard remembered != nil || answered else { continue }
+
+            // A segment digest this load had never seen means the stream took
+            // one in since — which is what a rotation is, and it is where the
+            // remembered line went.
+            let rotated = !sighting.digests
+                .subtracting(remembered?.segmentDigests ?? []).isEmpty
+            // A digest this device remembers and no segment of this stream
+            // carries now. Never computed while a segment is present and
+            // unsettled: that file's digest is unknown rather than gone.
+            let missing = sighting.sawUnsettledSegment
+                ? []
+                : (remembered?.segmentDigests ?? []).subtracting(sighting.digests)
+
             var truncation: OpLogDeviceState.StreamTruncation?
-            if let lost = remembered?.head, !sighting.holdsRemembered,
-               sighting.segments <= (remembered?.segments ?? 0) {
+            if let lost = remembered?.head, !sighting.holdsRemembered, !rotated {
                 truncation = .init(
-                    streamKey: key, deviceSlug: sighting.slug,
-                    lostHead: lost, noticedAt: now())
+                    streamKey: key, deviceSlug: sighting.slug, loss: .line,
+                    lost: lost, noticedAt: now())
+            } else if let goneDigest = missing.sorted().first {
+                truncation = .init(
+                    streamKey: key, deviceSlug: sighting.slug, loss: .segment,
+                    lost: goneDigest, noticedAt: now())
             }
+
+            // **A stream moves its memory on only when it lost nothing.**
+            // Two clauses, and each is load-bearing. It must have ANSWERED, or
+            // the emptiness that IS the loss would overwrite the position whose
+            // absence is the finding. And nothing must be missing, or the very
+            // next load would find what it now remembers, call the loss made
+            // good and clear a finding about history that is still gone — a
+            // truncation that erased itself one open later. A stream with a
+            // standing loss keeps the position it lost, so the finding stands
+            // until those bytes come back, and `settleForeign` keeps the day it
+            // was first noticed.
+            let memory: OpLogDeviceState.ForeignStreamMemory? = (answered && truncation == nil)
+                ? .init(
+                    deviceSlug: sighting.slug,
+                    head: sighting.tailHead ?? (rotated ? nil : remembered?.head),
+                    segmentDigests: sighting.digests.union(
+                        sighting.sawUnsettledSegment
+                            ? (remembered?.segmentDigests ?? [])
+                            : []))
+                : nil
             updates.append(.init(
                 streamKey: key, root: sighting.root,
-                memory: .init(
-                    deviceSlug: sighting.slug,
-                    head: sighting.tailHead,
-                    segments: sighting.segments),
-                truncation: truncation))
+                memory: memory, truncation: truncation,
+                clearsTruncation: truncation == nil
+                    && (remembered?.head == nil || sighting.holdsRemembered)
+                    && missing.isEmpty))
         }
         state.settleForeign(updates)
     }
