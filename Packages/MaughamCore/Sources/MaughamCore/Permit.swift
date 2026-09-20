@@ -547,6 +547,88 @@ extension Permit {
         return false
     }
 
+    // MARK: - What the LOAD wrote, whoever an older build had sign it
+
+    /// **The actor a line is judged under**, which is the actor that signed it
+    /// except where the line is one the LOAD PATH emits on its own account
+    /// (final fix wave, W3(a); whole-branch review F3).
+    ///
+    /// **The released-build problem.** P3a Task 8 moved five emissions to this
+    /// device's AUTHOR key — `Bootstrap`'s opening op, the two pending-recovery
+    /// folds, the task-anchor burst and the `taskCreate` beside it — because
+    /// none of them is the act of whoever opened the document; they are the
+    /// writer's own words arriving through whichever door happened to be first.
+    /// That fixed what this build WRITES. It said nothing about what v0.37
+    /// through v0.40 already wrote: on those builds the emission took the
+    /// LOADING actor's key, so any book where an MCP tool or the translation
+    /// pipeline opened a never-opened document, or opened one after a quit
+    /// mid-burst, holds `assistant-…` / `translator-…` files containing these
+    /// kinds. They verify (`.mine` or `.admitted`), they are manuscript text or
+    /// a task, and the actor rows refuse both to those two keys — so without
+    /// this rule the permit partition sets them aside on the first load, in
+    /// every rooted book, events or not. A refused `bootstrap` is a document
+    /// whose OPENING op is gone: it derives empty, and the first autosave
+    /// writes that empty render over the manuscript.
+    ///
+    /// **So: judged under the person's permit, without the actor narrowing.**
+    /// The load's own emissions are the author's, whoever an older build had
+    /// sign them. A reviewer's device's assistant-signed bootstrap is still
+    /// refused — it is judged under the REVIEWER permit, which is correct, and
+    /// is why this widens the ACTOR rather than the permit.
+    ///
+    /// **It is permanent and it is NOT gated on `hasNarrowingPermits`.** A
+    /// time-boxed grandfather would mean the first reviewer P3b creates
+    /// un-applies every such bootstrap in the book, which is the same defect
+    /// arriving later. The constitution's first must — *the words are safe* —
+    /// outranks the purity of the actor row.
+    ///
+    /// **Two kinds, and the third is a STOP** (reported; see the wave's
+    /// report). `.bootstrap` has exactly one emitter in the tree
+    /// (`Bootstrap.emitBootstrap`) and `.taskCreate` under a non-author actor
+    /// has exactly one (`Document.rebuildTasksCache`'s anchor breadcrumb — the
+    /// other two `.taskCreate` emitters are the writer's own pane acts, reached
+    /// only from editor surfaces), so both are load emissions by KIND alone.
+    /// The pending-recovery folds and the anchor burst are `.typingBurst`, and
+    /// **none of the three writes a `synthesisSource`** — they are
+    /// indistinguishable on disk from real typing, so there is no discriminator
+    /// to write the rule against and it is not widened to every `typingBurst`.
+    /// An assistant-signed ordinary `typingBurst` therefore stays REFUSED,
+    /// which is the constitution's sentence about MCP and the manuscript.
+    ///
+    /// **Nil stays nil.** A key this register cannot attribute names no actor,
+    /// and handing it the widest of the four would be the one mistake that
+    /// turns the table into decoration (see `allows`). Widening nobody to the
+    /// author is not a grandfather, it is a hole.
+    public static func actorJudging(
+        _ what: Written, signedBy actor: DeviceActor?
+    ) -> DeviceActor? {
+        guard let actor, actor != .author, isALoadEmission(what) else { return actor }
+        return .author
+    }
+
+    /// **Is this a line the load path emits on its own account?** — the two
+    /// kinds `actorJudging` re-attributes, spelled once so the rule is
+    /// census-visible rather than inlined at the partition.
+    ///
+    /// Written as an exhaustive switch over `OpKind` rather than a membership
+    /// test, so a later kind that the load starts emitting is a compile error
+    /// here and has to be decided rather than defaulted.
+    public static func isALoadEmission(_ what: Written) -> Bool {
+        guard case let .op(kind) = what else { return false }
+        switch kind {
+        case .bootstrap, .taskCreate:
+            return true
+        case .typingBurst, .externalEdit, .checkpointRestore, .checkpoint,
+             .claudeComment, .claudeQuery, .claudeCraftNote, .claudeSuggestion,
+             .claudeAccept, .claudeAcceptRevert, .claudeReject, .claudeArchive,
+             .annotationEdit, .annotationWithdraw, .annotationReopen,
+             .annotationStet, .annotationTriage, .taskStatusChange,
+             .taskPriorityChange, .taskParentChange, .taskBodyEdit,
+             .taskArchive, .unknown:
+            return false
+        }
+    }
+
     /// **Whether this permit may sign a task op here.**
     ///
     /// Tasks are the one thing an author of some pieces may write outside her

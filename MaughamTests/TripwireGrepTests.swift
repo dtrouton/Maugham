@@ -8093,6 +8093,48 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - The load-emission rule is one answer (final fix wave, W3(a))
+
+    /// The two spellings of *this line is one the load path emitted on its own
+    /// account*, which is a released-build grandfather and therefore permanent.
+    static let loadEmissionPatterns = ["isALoadEmission", "actorJudging("]
+
+    /// File AND spelling. `Permit.swift` DECIDES which kinds they are and
+    /// answers which actor judges; `PermitPartition.swift` is the one reader
+    /// that can meet a load emission under a narrowed actor, so it ASKS and
+    /// never restates — `LocalWritePermit` asks as `.author`, the ownership
+    /// rule asks about a disposition, and `answersWholeFile` asks about a
+    /// translation record or an inbox row, so none of the three can reach one.
+    static let loadEmissionAllowed: [String: Set<String>] = [
+        "Permit.swift": ["isALoadEmission", "actorJudging("],
+        "PermitPartition.swift": ["actorJudging("],
+    ]
+
+    /// **What the load wrote is decided in one place** (final fix wave, W3(a);
+    /// whole-branch review F3).
+    ///
+    /// v0.37–v0.40 signed `bootstrap` and the anchor `taskCreate` with
+    /// whichever actor opened the document, so the partition waives the actor
+    /// narrowing for exactly those two kinds and judges them under the
+    /// person's own permit. A SECOND list of which kinds those are fails
+    /// silently in the direction that costs the writer a document's opening
+    /// op — and the list is a `default:`-less switch over `OpKind` precisely so
+    /// that a later kind the load starts emitting has to be decided rather
+    /// than inherited. A second copy takes that gate away.
+    func test_theLoadEmissionRuleIsSpelledInThePermitLayerOnly() throws {
+        let offenders = try grepSwift(
+            in: admissionRoots,
+            patterns: Self.loadEmissionPatterns,
+            allowedSpellings: Self.loadEmissionAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file outside the permit layer decides which lines the "
+            + "LOAD emitted, or which actor judges one. `Permit.isALoadEmission` "
+            + "is the list and `Permit.actorJudging` is the answer; the "
+            + "partition asks them. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
     // MARK: - CONTROL for the five P3a censuses
 
     /// The same patterns and the same exclusions, over planted files: every
@@ -8144,6 +8186,39 @@ final class TripwireGrepTests: XCTestCase {
             + "RegistryReader.swift may read `record.role` and is still caught "
             + "reading `person?.pieces` and `standing.scope`. Caught:\n"
             + partlyAllowed.joined(separator: "\n"))
+
+        // -- 1b. The load-emission rule (final fix wave, W3(a)).
+        let emission = tmp.appendingPathComponent("emission")
+        try fm.createDirectory(at: emission, withIntermediateDirectories: true)
+        try """
+        // A comment may say isALoadEmission and actorJudging( all it likes.
+        func isALoadEmission(_ what: Written) -> Bool { what == .op(.bootstrap) }
+        let who = Permit.actorJudging(what, signedBy: actor)
+        """.write(to: emission.appendingPathComponent("SecondEmissionList.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let emissionHits = try grepSwift(
+            in: [emission],
+            patterns: Self.loadEmissionPatterns,
+            allowedSpellings: Self.loadEmissionAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(emissionHits.count, 2,
+            "Self-check: both spellings should be caught and not the comment. "
+            + "Caught:\n" + emissionHits.joined(separator: "\n"))
+
+        try fm.moveItem(
+            at: emission.appendingPathComponent("SecondEmissionList.swift"),
+            to: emission.appendingPathComponent("PermitPartition.swift"))
+        let emissionPartlyAllowed = try grepSwift(
+            in: [emission],
+            patterns: Self.loadEmissionPatterns,
+            allowedSpellings: Self.loadEmissionAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(emissionPartlyAllowed.count, 1,
+            "Self-check: the allow-list is FILE PLUS SPELLING — the partition "
+            + "may ASK `actorJudging(` and is still caught declaring a second "
+            + "list of which kinds are load emissions. Caught:\n"
+            + emissionPartlyAllowed.joined(separator: "\n"))
 
         // -- 2. One table.
         let table = tmp.appendingPathComponent("table")

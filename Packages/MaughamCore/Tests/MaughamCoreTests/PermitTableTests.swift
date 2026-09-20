@@ -475,6 +475,120 @@ final class PermitTableTests: XCTestCase {
             .yes)
     }
 
+    // MARK: - What the LOAD wrote, whoever an older build had sign it
+
+    /// **The released-build grandfather** (final fix wave, W3(a)), written out
+    /// by hand cell by cell like the rest of this file.
+    ///
+    /// v0.37–v0.40 signed the load path's own emissions with whichever actor
+    /// opened the document, so books exist holding `assistant-…` and
+    /// `translator-…` files containing `bootstrap` and the anchor
+    /// `taskCreate`. Those are the writer's own words and the app's own
+    /// housekeeping; the actor that happened to sign them says nothing about
+    /// whose act they were. `Permit.actorJudging` waives the actor narrowing
+    /// for those two kinds — and for nothing else.
+    func test_theLoadsOwnEmissionsAreJudgedAsTheAuthorsWhoeverSignedThem() {
+        let book = Permit.author(.book)
+        // Asked the way the READER asks — `Permit.allows` is the ladder and
+        // stays it; `actorJudging` is the input the partition resolves first.
+        func judged(
+            _ permit: Permit, _ what: Written, _ cls: DocumentClass, _ actor: DeviceActor
+        ) -> Allowed {
+            permit.allows(what, in: cls, actor: Permit.actorJudging(what, signedBy: actor))
+        }
+        // The bootstrap: a document's opening op. Refused to the assistant by
+        // the actor row; applied under this rule.
+        XCTAssertEqual(
+            judged(book, .op(.bootstrap), .piece(Self.hers), .assistant), .yes)
+        XCTAssertEqual(
+            judged(book, .op(.bootstrap), .piece(Self.hers), .translator), .yes)
+        // The anchor breadcrumb, on the stream a task lands in.
+        XCTAssertEqual(
+            judged(book, .op(.taskCreate), .projectStream, .assistant), .yes)
+        XCTAssertEqual(
+            judged(book, .op(.taskCreate), .piece(Self.hers), .assistant), .yes)
+        // Unchanged where the actor was already the author's.
+        XCTAssertEqual(
+            judged(book, .op(.bootstrap), .piece(Self.hers), .author), .yes)
+    }
+
+    /// **It widens the ACTOR, never the permit.** A reviewer's Mac running an
+    /// MCP load still writes nothing of the manuscript: her bootstrap is judged
+    /// under HER permit, which refuses it, exactly as her own hand's would be.
+    func test_aReviewersDeviceGetsNoGrandfatherBecauseHerPermitRefusesItAnyway() {
+        func judged(
+            _ permit: Permit, _ what: Written, _ cls: DocumentClass, _ actor: DeviceActor
+        ) -> Allowed {
+            permit.allows(what, in: cls, actor: Permit.actorJudging(what, signedBy: actor))
+        }
+        XCTAssertEqual(
+            judged(.reviewer, .op(.bootstrap), .piece(Self.hers), .assistant),
+            .no(.manuscriptText))
+        XCTAssertEqual(
+            Permit.reviewer.allows(.op(.bootstrap), in: .piece(Self.hers), actor: .author),
+            .no(.manuscriptText),
+            "the same answer her own hand gets")
+        XCTAssertEqual(
+            judged(.reviewer, .op(.taskCreate), .projectStream, .assistant), .no(.task))
+        // And a scoped author is still scoped: outside her pieces, refused.
+        let sam = Permit.author(.pieces([Self.hers]))
+        XCTAssertEqual(
+            judged(sam, .op(.bootstrap), .piece(Self.hers), .assistant), .yes)
+        XCTAssertEqual(
+            judged(sam, .op(.bootstrap), .piece(Self.theirs), .assistant), .no(.manuscriptText))
+    }
+
+    /// **The STOP, pinned.** None of the three `typingBurst` emissions the load
+    /// makes — the two pending-recovery folds and the anchor splice — writes a
+    /// `synthesisSource`, so on disk they are indistinguishable from a person
+    /// typing. The rule is not widened to reach them, which means an
+    /// assistant-signed ordinary burst stays refused: *MCP never mutates
+    /// manuscript text* is the constitution's sentence, and a discriminator
+    /// that does not exist is not a reason to drop it.
+    func test_anAssistantSignedTypingBurstIsStillRefused() {
+        for permit in permits {
+            XCTAssertNotEqual(
+                permit.allows(.op(.typingBurst), in: .piece(Self.hers), actor: .assistant),
+                .yes,
+                "\(permit)")
+        }
+        XCTAssertEqual(
+            Permit.author(.book)
+                .allows(.op(.typingBurst), in: .piece(Self.hers), actor: .assistant),
+            .no(.manuscriptText))
+        XCTAssertEqual(
+            Permit.actorJudging(.op(.typingBurst), signedBy: .assistant), .assistant,
+            "no re-attribution: there is nothing on the line to key it on")
+    }
+
+    /// **Nil stays nil.** A key this register cannot attribute names no actor,
+    /// and a grandfather that handed it the widest of the four would be a hole
+    /// rather than a kindness — the line is HELD, as it was.
+    func test_anUnattributableKeyIsNotGrandfatheredIntoTheAuthorsRow() {
+        XCTAssertNil(Permit.actorJudging(.op(.bootstrap), signedBy: nil))
+        XCTAssertEqual(
+            Permit.author(.book).allows(
+                .op(.bootstrap), in: .piece(Self.hers),
+                actor: Permit.actorJudging(.op(.bootstrap), signedBy: nil)),
+            .cannotJudge)
+    }
+
+    /// The two kinds and no others, as a list — so a later kind the load
+    /// starts emitting has to be decided here rather than inherited.
+    func test_exactlyTwoKindsAreLoadEmissions() {
+        let emissions = OpKind.allCases.filter { Permit.isALoadEmission(.op($0)) }
+        XCTAssertEqual(Set(emissions), [.bootstrap, .taskCreate])
+        XCTAssertFalse(Permit.isALoadEmission(.translationRecord))
+        XCTAssertFalse(Permit.isALoadEmission(.inboxRow))
+        XCTAssertEqual(
+            Permit.actorJudging(.op(.bootstrap), signedBy: .translator), .author)
+        XCTAssertEqual(
+            Permit.actorJudging(.op(.bootstrap), signedBy: .author), .author,
+            "already the author's: unchanged")
+        XCTAssertEqual(
+            Permit.actorJudging(.op(.taskCreate), signedBy: .maugham), .author)
+    }
+
     /// A reviewer raises notes; they do not settle them.
     func test_aReviewerNeverSignsADisposition() {
         for kind in OpKind.allCases where Permit.group(of: kind) == .disposition {

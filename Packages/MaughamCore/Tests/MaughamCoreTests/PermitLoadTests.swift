@@ -603,6 +603,98 @@ final class PermitLoadTests: XCTestCase {
                       "the refused line is kept in backup")
     }
 
+    // MARK: - What the LOAD wrote, whoever an older build had sign it
+
+    /// **A released build's assistant-signed bootstrap is APPLIED** (final fix
+    /// wave, W3(a); whole-branch review F3).
+    ///
+    /// v0.37 through v0.40 signed the load path's own emissions with whichever
+    /// actor opened the document. An MCP tool opening a never-opened piece
+    /// therefore left an `assistant-…` file whose FIRST LINE is that document's
+    /// `bootstrap` — and a refused bootstrap is a document with no opening op:
+    /// it derives empty, and the first autosave writes that empty render over
+    /// the manuscript. So the rule is permanent rather than time-boxed, and it
+    /// waives the ACTOR narrowing, never the permit.
+    func test_aReleasedBuildsAssistantSignedBootstrapIsApplied() async throws {
+        try writeRootRecord()
+        try writeFile(
+            by: root.assistant,
+            ops: [
+                op("theOpeningOp", by: root.assistant, kind: .bootstrap),
+                op("anAnchorBreadcrumb", by: root.assistant, kind: .taskCreate),
+            ])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied.sorted(), ["anAnchorBreadcrumb", "theOpeningOp"])
+        XCTAssertTrue(linesRecords().isEmpty, "nothing set aside")
+    }
+
+    /// **It survives the first reviewer P3b creates**, which is why it is not
+    /// gated on `hasNarrowingPermits`: a grandfather that switched off the day
+    /// somebody was demoted would un-apply every such bootstrap in the book,
+    /// which is the same defect arriving later.
+    func test_theGrandfatherIsNotSwitchedOffByABookGainingAReviewer() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("01", kind: .roleChanged, role: Permit.reviewerRole)
+        try writeFile(
+            by: root.assistant,
+            ops: [op("theOpeningOp", by: root.assistant, kind: .bootstrap)])
+
+        let narrowed = try await reader().trust().hasNarrowingPermits
+        XCTAssertTrue(narrowed)
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["theOpeningOp"])
+        XCTAssertTrue(linesRecords().isEmpty)
+    }
+
+    /// **And a REVIEWER's device gets no pardon from it**, because the person's
+    /// permit still judges the line: hers refuses manuscript text whoever on
+    /// her machine signed it, which is the answer her own hand gets too.
+    func test_aReviewersAssistantSignedBootstrapIsStillRefused() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("01", kind: .admitted, role: Permit.reviewerRole)
+        try writeFile(
+            by: sam.assistant,
+            ops: [op("herOpeningOp", by: sam.assistant, kind: .bootstrap)])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, [])
+        XCTAssertEqual(
+            linesRecords().map(\.reason),
+            ["written into the manuscript by a device that may not write it here"],
+            "the sentence her own hand's line gets — because the actor row was "
+                + "waived and it is her permit that refused it")
+        XCTAssertTrue(try archivedLines().contains("herOpeningOp"),
+                      "refused, and the words are kept")
+    }
+
+    /// **The STOP, through a real load.** None of the load's three
+    /// `typingBurst` emissions writes a `synthesisSource`, so on disk they are
+    /// indistinguishable from a person typing — there is no discriminator to
+    /// write a rule against, and widening to every burst would say that MCP
+    /// may move the manuscript after all. An assistant-signed burst is
+    /// therefore still refused, and its words still kept.
+    func test_anAssistantSignedTypingBurstIsStillRefusedBesideAnAppliedBootstrap()
+        async throws
+    {
+        try writeRootRecord()
+        try writeFile(
+            by: root.assistant,
+            ops: [
+                op("theOpeningOp", by: root.assistant, kind: .bootstrap),
+                op("aParagraph", by: root.assistant),
+            ])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["theOpeningOp"])
+        XCTAssertEqual(
+            linesRecords().map(\.reason),
+            ["written by the assistant, which never changes the manuscript"])
+        XCTAssertTrue(try archivedLines().contains("aParagraph"))
+    }
+
     // MARK: - Pending, never set aside
 
     func test_anUnknownOpKindIsHeldWhereTheLineIsJudged() async throws {

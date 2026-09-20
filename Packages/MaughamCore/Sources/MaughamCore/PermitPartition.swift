@@ -193,14 +193,35 @@ public enum PermitPartition {
             if skip { continue }
             let documentClass = resolvedClass ?? documentClass()
             resolvedClass = documentClass
-            switch entry.permit.allows(what, in: documentClass, actor: actor) {
+            // **The load's own emissions are the author's, whoever an older
+            // build had sign them** (final fix wave, W3(a)). Released builds
+            // v0.37–v0.40 signed `bootstrap` and the anchor `taskCreate` with
+            // whichever actor opened the document, so a book where MCP or the
+            // pipeline opened a never-opened piece holds assistant-signed lines
+            // the actor rows refuse — and a refused `bootstrap` is a document
+            // whose opening op is gone, deriving empty under the first autosave.
+            //
+            // **Applied HERE and not inside `allows`**, which was tried and is
+            // wrong: `allows` is the ladder of spec §2, `PermitTableTests`
+            // writes it out cell by cell, and a grandfather folded into it
+            // would make eleven of those cells stop meaning what they say. This
+            // is a rule about which actor a LINE is judged under — an input to
+            // the table, decided by the reader that holds the line. The
+            // partition is the only reader that can meet a load emission under
+            // a narrowed actor at all: `LocalWritePermit` asks as `.author`,
+            // the ownership rule asks about a disposition, and
+            // `answersWholeFile` asks about a translation record or an inbox
+            // row. See `Permit.actorJudging`, which is also where the
+            // `typingBurst` arm is explained and why it is not built.
+            let judging = Permit.actorJudging(what, signedBy: actor)
+            switch entry.permit.allows(what, in: documentClass, actor: judging) {
             case .yes:
                 continue
             case .cannotJudge:
                 holding[index] = trust.person(forSealKey: key)
             case let .no(refused):
                 if startsAPieceNobodyHasClaimed(
-                    permit: entry.permit, actor: actor,
+                    permit: entry.permit, actor: judging,
                     class: documentClass, what: what) {
                     let answer = unownedAnswer ?? unowned()
                     unownedAnswer = answer
@@ -209,11 +230,19 @@ public enum PermitPartition {
                         continue
                     }
                 }
+                // **The actor the refusal NAMES is the one that judged it**,
+                // not always the one that signed. For every kind but the two
+                // load emissions those are the same word. For a load emission
+                // they are not, and naming the signer would put a sentence in
+                // the writer's `.lines` record that is simply untrue — *written
+                // by the assistant, which never changes the manuscript*, about
+                // a line the assistant row did not refuse. What refused it is
+                // the person's own permit, and that is what it should say.
                 refusing[index] = .notPermitted(
                     person: trust.person(forSealKey: key),
                     what: refused,
                     afterMark: changedAnExistingPermit(entry),
-                    actor: actor?.rawValue)
+                    actor: judging?.rawValue)
             }
         }
 

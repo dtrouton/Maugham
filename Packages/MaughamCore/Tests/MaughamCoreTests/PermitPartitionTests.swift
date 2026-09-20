@@ -689,11 +689,18 @@ final class PermitPartitionTests: XCTestCase {
     /// A file's refusals keep their own causes, and `setAside` files one
     /// record per cause: two lines refused for two different things are two
     /// records, not one.
+    ///
+    /// The task line is a `taskStatusChange` rather than a `taskCreate` since
+    /// the final fix wave's W3(a): `taskCreate` is one of the two kinds the
+    /// LOAD emits on its own account, so an assistant-signed one is the app's
+    /// own housekeeping and is judged as the author's. Every other kind in the
+    /// `.task` group is still the assistant's to be refused, and this test is
+    /// about two causes rather than about which kind carries the second.
     func test_twoLinesRefusedForDifferentThingsCarryTheirOwnCauses() throws {
         let trust = table()
         var file = Chained()
         file.append(try opJSON("text", by: mine.assistant))
-        file.append(try opJSON("task", kind: .taskCreate, by: mine.assistant))
+        file.append(try opJSON("task", kind: .taskStatusChange, by: mine.assistant))
         try file.seal(by: mine.assistant)
 
         let result = partition(walk(file, trust: trust), class: .piece(docId), trust: trust)
