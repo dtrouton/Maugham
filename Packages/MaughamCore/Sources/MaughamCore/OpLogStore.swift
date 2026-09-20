@@ -176,6 +176,35 @@ public final class OpLogStore {
         return table
     }
 
+    /// **The same table, resolved ON this actor rather than off it** (P3a
+    /// Task 8).
+    ///
+    /// `trust()`'s detached hop is the right shape for a READ, which is already
+    /// deep in file I/O and has a suspension either way. It is the wrong shape
+    /// for a question asked BEFORE the load's first write: an added suspension
+    /// point in `Document.load` is a behaviour change on every document open —
+    /// `ProjectStore.withStatementDocument`'s own comment is about a pane
+    /// binding mid-load, and a bare `await Task.yield()` inserted there fails
+    /// `PromotionPerformerTests.test_promotingWhileTheIntentPaneIsOpen…` with
+    /// nothing else changed. `ProjectStore+Annotations` resolves on the main
+    /// actor for the same kind of reason, and states it.
+    ///
+    /// The cost is a folder read plus a P256 verify per record, ONCE per store
+    /// — it is stored under the same signature `trust()` compares, so the read
+    /// that follows finds it warm and does not resolve again. The caller that
+    /// wants only a permit (`localWritePermit`) asks nothing at all of a
+    /// project with no register.
+    func trustOnThisActor() throws -> TrustTable {
+        let signature = TrustResolution.signature(of: projectURL)
+        if let resolvedTrust, resolvedTrust.signature == signature {
+            return resolvedTrust.table
+        }
+        let table = try TrustResolution.resolve(
+            projectURL: projectURL, identities: identities, cache: registryCache)
+        resolvedTrust = (signature, table)
+        return table
+    }
+
     /// Forget the resolved table, so the next read builds a fresh one.
     ///
     /// The signature check above catches a registry that changed on disk, but a
@@ -183,6 +212,55 @@ public final class OpLogStore {
     /// record — should say so rather than hope a modification time moved far
     /// enough to be seen.
     public func invalidateTrust() { resolvedTrust = nil }
+
+    /// **May this device's own hand write here, and what?** — the ONE question
+    /// asked before a line exists (P3a Task 8).
+    ///
+    /// The load seam asks it of `.bootstrap`, of the pending-recovery burst and
+    /// of a task anchor; P3c's membrane will ask it of a keystroke. One
+    /// function so the two cannot answer differently, and on this store because
+    /// this is where the verified table already is — resolving a second one per
+    /// document would be a folder read and a P256 verify per record, per open.
+    ///
+    /// **It never throws, and that is the point.** `trust()` refuses on a
+    /// registry record that is present and unreadable (RULING-54), and a load
+    /// that asks this question must not start refusing over one where it did
+    /// not before (constitution must #1). The fallback is the keyless table,
+    /// which is P1's behaviour exactly — this device's own keys, nobody else's,
+    /// no events, so the answer is *yes* — and the caller that goes on to READ
+    /// will meet the same refusal through its own door with its own sentence.
+    ///
+    /// `documentClass` is a CLOSURE because resolving one means decoding a
+    /// manifest, and the neutral case never needs it: a permit that covers the
+    /// whole book answers `.yes` in the hardest class there is, so the closure
+    /// is not called at all. `PermitPartition`'s `unowned` is the same shape
+    /// for the same reason.
+    public func localWritePermit(
+        as actor: DeviceActor = .author,
+        documentClass: () -> DocumentClass
+    ) -> LocalWritePermit {
+        // **A project that has never had a register pays nothing at all** — not
+        // a folder read, not a verify, not a question. The test is
+        // `verifiedRegistry`'s own first one, asked through its own spelling:
+        // the FOLDER or this device's MEMORY of one, because a register deleted
+        // wholesale is restored from that memory and treating its absence as
+        // *no register* would make deleting one an escape from a demotion.
+        let permit: Permit
+        if TrustResolution.hasAnythingToResolve(
+            in: projectURL, cache: registryCache) {
+            let table: TrustTable
+            do { table = try trustOnThisActor() }
+            catch { table = TrustResolution.keyless(mine: identities) }
+            permit = table.myTimeline.current
+        } else {
+            permit = .bookAuthor
+        }
+        if LocalWritePermit.answersWithoutTheClass(permit, as: actor) {
+            return LocalWritePermit(permit: permit, actor: actor, documentClass: nil)
+        }
+        return LocalWritePermit(
+            permit: permit, actor: actor, documentClass: documentClass())
+    }
 
     /// Lines this device has appended to each file since that file's last seal.
     /// In memory and per store instance on purpose: it is a cadence, not a

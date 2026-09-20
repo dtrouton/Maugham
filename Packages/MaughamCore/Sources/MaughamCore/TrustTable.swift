@@ -440,4 +440,24 @@ public struct TrustTable: Equatable, Sendable {
     nonisolated public func timeline(forSealKey fingerprint: String) -> PermitTimeline {
         timeline(forPerson: person(forSealKey: fingerprint))
     }
+
+    /// **This device's OWN permit history** — what the writer sitting at this
+    /// Mac has been allowed to write in this book, and when (P3a Task 8).
+    ///
+    /// The read paths ask `timeline(forSealKey:)` about a key they found on a
+    /// seal; the WRITE side has no seal to ask about — it is about to make one
+    /// — so it asks this. The answer is the same one `timeline(forSealKey:)`
+    /// gives for any of this device's four keys, because `owner(ofSealKey:)`
+    /// resolves every one of them to `myPerson`: under labels-only a person IS
+    /// a device's author key, and the actor narrows *within* that person's
+    /// permit rather than having one of its own.
+    ///
+    /// **It mints nothing.** `myPerson` was resolved in `resolve` from
+    /// `LocalIdentities.existingActors`, which enumerates — so a device that
+    /// has never written as `author` has no person here and takes the
+    /// author-of-the-whole-book default, exactly as it did before P3.
+    nonisolated public var myTimeline: PermitTimeline {
+        guard let myPerson else { return .bookAuthor }
+        return timeline(forPerson: myPerson)
+    }
 }

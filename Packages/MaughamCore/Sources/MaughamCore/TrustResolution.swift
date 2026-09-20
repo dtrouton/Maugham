@@ -152,7 +152,9 @@ public enum TrustResolution {
         let cache = cache ?? .shared
         let folderPresent = hasRegistry(in: projectURL)
         let remembered = cache.cached(for: projectURL)
-        guard folderPresent || remembered != nil else { return Registry() }
+        guard hasAnythingToResolve(
+            folderPresent: folderPresent, remembered: remembered)
+        else { return Registry() }
 
         let folder = folderPresent
             ? try RegistryReader.load(projectURL: projectURL, presenter: presenter)
@@ -332,6 +334,31 @@ public enum TrustResolution {
     /// Does this project have a registry at all? Any of the three directories
     /// being present is enough — a folder holding only devices, or only a
     /// claim, is still a folder this device must read before it judges anyone.
+    /// **Whether this project has a register to resolve at all** — a folder, or
+    /// this device's memory of one that something has since deleted.
+    ///
+    /// `verifiedRegistry`'s own first question, spelled here so that a caller
+    /// which only wants to know whether there is anything to ask can ask it
+    /// without paying for the answer (P3a Task 8: `OpLogStore.localWritePermit`
+    /// is on the load path of every document, and a project that has never had
+    /// a register must not pay a hop off its actor to be told so). The memory
+    /// is half of it and not a nicety: a registry deleted WHOLESALE is restored
+    /// record by record, so treating a missing folder as *no register* would
+    /// make deleting one an escape from a demotion.
+    nonisolated public static func hasAnythingToResolve(
+        in projectURL: URL, cache: RegistryCache? = nil
+    ) -> Bool {
+        hasAnythingToResolve(
+            folderPresent: hasRegistry(in: projectURL),
+            remembered: (cache ?? .shared).cached(for: projectURL))
+    }
+
+    nonisolated static func hasAnythingToResolve(
+        folderPresent: Bool, remembered: Registry?
+    ) -> Bool {
+        folderPresent || remembered != nil
+    }
+
     nonisolated public static func hasRegistry(in projectURL: URL) -> Bool {
         RegistryDirectory.allCases.contains {
             FileManager.default.fileExists(
