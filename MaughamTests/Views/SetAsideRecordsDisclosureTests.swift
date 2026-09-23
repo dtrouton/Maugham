@@ -54,7 +54,7 @@ final class SetAsideRecordsDisclosureTests: XCTestCase {
     /// Task 8 gave it a control. `test_theDoorsButtonDoesNotWidenTheList`
     /// measures the other shape.
     private static func rows(_ names: [String]) -> [SetAsideDoor.Row] {
-        names.map { SetAsideDoor.Row(name: $0, words: 0, sent: false) }
+        names.map { SetAsideDoor.Row(name: $0, unsent: 0, sentCount: 0) }
     }
 
     func test_theExpandedDisclosureDoesNotAskForTheWholeWindow() {
@@ -109,10 +109,10 @@ final class SetAsideRecordsDisclosureTests: XCTestCase {
     func test_theDoorsButtonDoesNotWidenTheList() {
         let names = (1...3).map { Self.recordName($0) }
         let offering = names.map {
-            SetAsideDoor.Row(name: $0, words: 7, sent: false)
+            SetAsideDoor.Row(name: $0, unsent: 7, sentCount: 0)
         }
         let sent = names.map {
-            SetAsideDoor.Row(name: $0, words: 7, sent: true)
+            SetAsideDoor.Row(name: $0, unsent: 0, sentCount: 7)
         }
 
         for rows in [offering, sent] {

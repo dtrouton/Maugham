@@ -464,27 +464,25 @@ public final class DocumentStore {
         updateUIState { $0.acknowledgedSetAsideRecords.formUnion(names) }
     }
 
-    /// Record that this Mac has sent a set-aside record's words to the Inbox
-    /// (P3b Task 8, spec §7.4) — the same archive filenames, and a union for
-    /// `acknowledgeSetAsideRecords`' reason.
+    /// **Record the captures this Mac has made from a door** (P3b Task 8;
+    /// reshaped in fix round 2's C1) — the door's own key, and the ids of the
+    /// captures that LANDED.
     ///
-    /// It is what makes the door a one-way door: a second press would file
-    /// every recovered paragraph a second time, and a writer who has already
-    /// triaged those captures would get them all again with nothing saying
-    /// why. Nothing under `.maugham/conflicts/` is touched — the archives are
-    /// evidence, and what this Mac has handed its writer is this Mac's memory.
-    public func recordSetAsideSentToInbox(_ names: Set<String>) {
-        guard !names.isEmpty else { return }
-        updateUIState { $0.sentSetAsideRecords.formUnion(names) }
-    }
-
-    /// The same memory for the HELD door (P3b Task 8 fix round 1) — keyed
-    /// `<docId>|<holder>` (`SetAsideDoor.heldKey`) rather than by an archive
-    /// name, because a held span has no archive: no record is written for one,
-    /// which is the whole reason it needs a door of its own.
-    public func recordHeldWordsSentToInbox(_ keys: Set<String>) {
-        guard !keys.isEmpty else { return }
-        updateUIState { $0.sentHeldSpans.formUnion(keys) }
+    /// Ids rather than a once-flag, because a held span is live: the stream
+    /// goes on being written to, and a flag would leave every paragraph that
+    /// arrived after the first press with no way in. It is also what lets a
+    /// send that lands only partly be re-pressed for the rest (M2).
+    ///
+    /// **Unions, never replaces**, for `acknowledgeSetAsideRecords`' reason
+    /// one method up: two doors write this and one must not forget what the
+    /// other recorded. An empty set is a no-op rather than a clear. Nothing
+    /// under `.maugham/conflicts/` is touched — the archives are evidence, and
+    /// what this Mac has handed its writer is this Mac's memory.
+    public func recordRecoveredCapturesSent(
+        door key: String, ids: Set<String>
+    ) {
+        guard !key.isEmpty, !ids.isEmpty else { return }
+        updateUIState { $0.sentRecoveredOpIds[key, default: []].formUnion(ids) }
     }
 
     // MARK: - Non-Document file save path (research notes, partial-restore)

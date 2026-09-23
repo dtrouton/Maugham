@@ -34,10 +34,10 @@ final class SetAsideDoorTests: XCTestCase {
                                ("p2cd", "She counted the boats twice.")])
         ], in: project)
 
-        let rows = SetAsideDoor.rows(records: [record], in: project, sent: [])
+        let rows = SetAsideDoor.rows(records: [record], in: project, sent: [:])
 
         XCTAssertEqual(rows.count, 1)
-        XCTAssertEqual(rows[0].words, 2)
+        XCTAssertEqual(rows[0].unsent, 2)
         XCTAssertTrue(rows[0].offersTheDoor)
         XCTAssertTrue(rows[0].doorHelp.contains("2 set-aside paragraphs"))
         XCTAssertTrue(
@@ -58,31 +58,61 @@ final class SetAsideDoorTests: XCTestCase {
                paragraphs: [("p2cd", "a task")]),
         ], in: project)
 
-        let rows = SetAsideDoor.rows(records: [record], in: project, sent: [])
+        let rows = SetAsideDoor.rows(records: [record], in: project, sent: [:])
 
-        XCTAssertEqual(rows[0].words, 0)
+        XCTAssertEqual(rows[0].unsent, 0)
         XCTAssertFalse(rows[0].offersTheDoor,
                        "no words were taken away, so there is no door")
     }
 
-    /// **Offered once.** A second press would file every paragraph a second
-    /// time; the row stays and says what the first press did.
-    func test_aRecordThisMacHasAlreadySentOffersNoSecondDoor() throws {
+    /// **What is left, and what was sent.** A second press must not file a
+    /// paragraph the writer already has, and the note reports what the press
+    /// DID rather than what is in the archive.
+    func test_aRecordOffersWhatIsLeftAndSaysWhatWasSent() throws {
         let project = try makeProject()
         let record = try lines([
             burst(device: "author-abcdef0123456789",
-                  paragraphs: [("p1ab", "Once only.")])
+                  paragraphs: [("p1ab", "Once only."), ("p2cd", "And again.")])
         ], in: project)
         let name = SetAsideAcknowledgement.name(for: record, in: project)
+        let first = try XCTUnwrap(OpLogQuarantine.recoverableWords(
+            ofRecord: record, in: project).first)
 
         let rows = SetAsideDoor.rows(
-            records: [record], in: project, sent: [name])
+            records: [record], in: project,
+            sent: [name: [SetAsideDoor.captureId(first)]])
 
-        XCTAssertEqual(rows[0].words, 1, "the evidence is unchanged")
-        XCTAssertTrue(rows[0].sent)
-        XCTAssertFalse(rows[0].offersTheDoor)
+        XCTAssertEqual(rows[0].unsent, 1, "one of the two is still to send")
+        XCTAssertEqual(rows[0].sentCount, 1)
+        XCTAssertTrue(rows[0].offersTheDoor)
         XCTAssertEqual(rows[0].sentNote, "1 paragraph sent to the Inbox",
                        "the row says what the press did rather than going quiet")
+
+        let all = OpLogQuarantine.recoverableWords(ofRecord: record, in: project)
+        let done = SetAsideDoor.rows(
+            records: [record], in: project,
+            sent: [name: Set(all.map(SetAsideDoor.captureId))])
+        XCTAssertEqual(done[0].unsent, 0)
+        XCTAssertFalse(done[0].offersTheDoor, "nothing is left to send")
+        XCTAssertEqual(done[0].sentNote, "2 paragraphs sent to the Inbox")
+    }
+
+    /// And the captures a press makes are the UNSENT ones alone.
+    func test_aRePressFilesOnlyTheRest() throws {
+        let project = try makeProject()
+        let record = try lines([
+            burst(device: "author-abcdef0123456789",
+                  paragraphs: [("p1ab", "First."), ("p2cd", "Second.")])
+        ], in: project)
+        let first = try XCTUnwrap(OpLogQuarantine.recoverableWords(
+            ofRecord: record, in: project).first)
+
+        let captures = SetAsideDoor.captures(
+            forRecord: record, in: project,
+            alreadySent: [SetAsideDoor.captureId(first)],
+            attribution: { _ in "x" })
+
+        XCTAssertEqual(captures.map(\.text), ["Second."])
     }
 
     /// A `.file` record is a whole op log that would not read — Retry's
@@ -96,7 +126,7 @@ final class SetAsideDoorTests: XCTestCase {
             in: project, isDatalessStub: { _ in false })
 
         XCTAssertFalse(
-            SetAsideDoor.rows(records: [record], in: project, sent: [])[0]
+            SetAsideDoor.rows(records: [record], in: project, sent: [:])[0]
                 .offersTheDoor)
     }
 
@@ -109,13 +139,19 @@ final class SetAsideDoorTests: XCTestCase {
                   paragraphs: [("p1ab", "A sentence it should not have written.")])
         ], in: project)
 
+        let words = try XCTUnwrap(OpLogQuarantine.recoverableWords(
+            ofRecord: record, in: project).first)
         let captures = SetAsideDoor.captures(
             forRecord: record, in: project,
             attribution: { "from \($0.device)" })
 
         XCTAssertEqual(captures, [SetAsideDoor.Capture(
+            id: SetAsideDoor.captureId(words),
             text: "A sentence it should not have written.",
             attribution: "from assistant-abcdef0123456789")])
+        XCTAssertEqual(captures[0].id, "\(words.opId)#p1ab",
+                       "the capture is remembered by its PARAGRAPH: an op "
+                       + "carrying three of them can land two")
     }
 
     // MARK: - C16: the sentence
@@ -350,11 +386,11 @@ final class SetAsideDoorTests: XCTestCase {
         let rows = HistoryPane.heldLineRows(
             provenance: heldProvenance([unsignedHolder: 2]),
             startedAPiece: [], names: [:],
-            words: [unsignedHolder: 3], sent: [], docId: "doc-1")
+            words: [unsignedHolder: 3], sent: [:], docId: "doc-1")
 
         XCTAssertEqual(rows.count, 1)
         XCTAssertTrue(rows[0].offersTheDoor)
-        XCTAssertEqual(rows[0].words, 3)
+        XCTAssertEqual(rows[0].unsent, 3)
         XCTAssertTrue(rows[0].doorHelp.contains("3 waiting paragraphs"))
         XCTAssertTrue(rows[0].doorHelp.contains("Nothing is applied"))
         XCTAssertTrue(rows[0].sentence.contains("Inbox"),
@@ -369,10 +405,10 @@ final class SetAsideDoorTests: XCTestCase {
         let rows = HistoryPane.heldLineRows(
             provenance: heldProvenance([personHolder: 2]),
             startedAPiece: [], names: [personHolder: "Sam"],
-            words: [personHolder: 4], sent: [], docId: "doc-1")
+            words: [personHolder: 4], sent: [:], docId: "doc-1")
 
         XCTAssertEqual(rows.count, 1)
-        XCTAssertEqual(rows[0].words, 0)
+        XCTAssertEqual(rows[0].unsent, 0)
         XCTAssertFalse(rows[0].offersTheDoor)
     }
 
@@ -382,20 +418,53 @@ final class SetAsideDoorTests: XCTestCase {
     func test_aReReadThatFoundNothingOffersNoDoor() throws {
         let rows = HistoryPane.heldLineRows(
             provenance: heldProvenance([unsignedHolder: 2]),
-            startedAPiece: [], names: [:], words: [:], sent: [], docId: "doc-1")
+            startedAPiece: [], names: [:], words: [:], sent: [:], docId: "doc-1")
 
         XCTAssertEqual(rows.count, 1, "the sentence is still said")
-        XCTAssertEqual(rows[0].words, 0)
+        XCTAssertEqual(rows[0].unsent, 0)
         XCTAssertFalse(rows[0].offersTheDoor)
         XCTAssertNil(rows[0].sentNote)
     }
 
-    /// Offered once, and the memory is per DOCUMENT as well as per holder — a
-    /// holder is a whole stream, and a stream runs through every chapter it
-    /// wrote in.
-    func test_aSpanThisMacHasSentOffersNoSecondDoorAndOnlyForThatDocument() throws {
-        let sent: Set<String> = [
-            SetAsideDoor.heldKey(docId: "doc-1", holder: unsignedHolder)
+    /// **A held span is LIVE, and this is the whole of C1** (fix round 2).
+    ///
+    /// Five paragraphs are sent; four more arrive. A door that closed after
+    /// one press would leave those four with no way in at all — the state this
+    /// door exists to remove — and a note that counted what is WAITING would
+    /// tell the writer nine were sent when five were.
+    func test_aHeldSpanGoesOnOfferingWhatArrivesAfterThePress() throws {
+        let key = SetAsideDoor.heldKey(docId: "doc-1", holder: unsignedHolder)
+        let firstFive = Set((1...5).map { "op-\($0)#p" })
+
+        // Before: five waiting, nothing sent.
+        let before = HistoryPane.heldLineRows(
+            provenance: heldProvenance([unsignedHolder: 5]),
+            startedAPiece: [], names: [:],
+            words: [unsignedHolder: 5], sent: [:], docId: "doc-1")
+        XCTAssertEqual(before[0].unsent, 5)
+        XCTAssertNil(before[0].sentNote)
+
+        // The press sent those five; four more have since arrived, so the
+        // store's re-read reports FOUR unsent.
+        let after = HistoryPane.heldLineRows(
+            provenance: heldProvenance([unsignedHolder: 9]),
+            startedAPiece: [], names: [:],
+            words: [unsignedHolder: 4], sent: [key: firstFive], docId: "doc-1")
+
+        XCTAssertTrue(after[0].offersTheDoor,
+                      "the four that arrived after the press have a way in")
+        XCTAssertEqual(after[0].unsent, 4)
+        XCTAssertTrue(after[0].doorHelp.contains("4 waiting paragraphs"))
+        XCTAssertEqual(after[0].sentNote, "5 paragraphs sent to the Inbox",
+                       "the note counts what was SENT, never what is waiting")
+    }
+
+    /// The memory is per DOCUMENT as well as per holder — a holder is a whole
+    /// stream, and a stream runs through every chapter it wrote in.
+    func test_oneChaptersSentSpanIsNotAnothersw() throws {
+        let sent = [
+            SetAsideDoor.heldKey(docId: "doc-1", holder: unsignedHolder):
+                Set(["op-1#p"])
         ]
         func rows(_ docId: String) -> [SetAsideDoor.HeldRow] {
             HistoryPane.heldLineRows(
@@ -404,10 +473,9 @@ final class SetAsideDoorTests: XCTestCase {
                 words: [unsignedHolder: 3], sent: sent, docId: docId)
         }
 
-        XCTAssertFalse(rows("doc-1")[0].offersTheDoor)
-        XCTAssertEqual(rows("doc-1")[0].sentNote, "3 paragraphs sent to the Inbox")
-        XCTAssertTrue(rows("doc-2")[0].offersTheDoor,
-                      "another chapter's waiting words are another door")
+        XCTAssertEqual(rows("doc-1")[0].sentCount, 1)
+        XCTAssertEqual(rows("doc-2")[0].sentCount, 0,
+                       "another chapter's waiting words are another door")
     }
 
     // MARK: - The rows follow their inputs (fix round 2, I1)
@@ -480,7 +548,7 @@ final class SetAsideDoorTests: XCTestCase {
         XCTAssertTrue(HistoryPane.heldLineRows(
             provenance: heldProvenance([stranger: 3], strangers: [stranger]),
             startedAPiece: [], names: [:], words: [stranger: 9],
-            sent: [], docId: "doc-1").isEmpty)
+            sent: [:], docId: "doc-1").isEmpty)
     }
 
     /// The sentences are unchanged: `heldLineNotices` is these rows' own.
@@ -525,7 +593,7 @@ final class SetAsideDoorTests: XCTestCase {
             forDocId: "doc-nothing", heldBy: unsignedHolder)
 
         XCTAssertEqual(landed, 0)
-        XCTAssertTrue(store.uiState.sentHeldSpans.isEmpty,
+        XCTAssertTrue(store.uiState.sentRecoveredOpIds.isEmpty,
                       "nothing was sent, so the door stays open for the span "
                       + "that may yet arrive")
         XCTAssertTrue(store.inboxStore.entries.isEmpty)
@@ -538,26 +606,25 @@ final class SetAsideDoorTests: XCTestCase {
     /// always was.
     func test_theSentMemoryIsAdditiveAndWritesNoKeyWhenEmpty() throws {
         let encoded = try JSONEncoder().encode(UIState.empty)
-        for key in ["sentSetAsideRecords", "sentHeldSpans"] {
-            XCTAssertFalse(
-                String(decoding: encoded, as: UTF8.self).contains(key), key)
-        }
+        XCTAssertFalse(
+            String(decoding: encoded, as: UTF8.self)
+                .contains("sentRecoveredOpIds"))
 
         let older = try JSONDecoder().decode(
             UIState.self, from: Data("{\"schemaVersion\":1}".utf8))
-        XCTAssertTrue(older.sentHeldSpans.isEmpty)
-        XCTAssertTrue(older.sentSetAsideRecords.isEmpty,
-                      "absent means the door has not been used, and it is "
-                      + "offered once")
+        XCTAssertTrue(older.sentRecoveredOpIds.isEmpty,
+                      "absent means no capture has been made yet")
 
         var state = UIState.empty
-        state.sentSetAsideRecords = ["a.lines", "b.lines"]
-        state.sentHeldSpans = ["doc-1|unsigned:ghost"]
+        state.sentRecoveredOpIds = [
+            "a.lines": ["op-1#p1ab"],
+            "doc-1|unsigned:ghost": ["op-2#p2cd", "op-3#p3ef"],
+        ]
         let back = try JSONDecoder().decode(
             UIState.self, from: try JSONEncoder().encode(state))
-        XCTAssertEqual(back.sentSetAsideRecords, ["a.lines", "b.lines"])
-        XCTAssertEqual(back.sentHeldSpans, ["doc-1|unsigned:ghost"],
-                       "the held door's memory round-trips beside it")
+        XCTAssertEqual(back.sentRecoveredOpIds["a.lines"], ["op-1#p1ab"])
+        XCTAssertEqual(back.sentRecoveredOpIds["doc-1|unsigned:ghost"]?.count, 2,
+                       "both doors keep their captures in one memory")
         XCTAssertTrue(back.acknowledgedSetAsideRecords.isEmpty,
                       "the two memories are two facts: sending is not "
                       + "acknowledging")
@@ -569,23 +636,29 @@ final class SetAsideDoorTests: XCTestCase {
             named: "SetasideDoor", in: temp.url)
         let store = try await DocumentStore.open(url: url)
 
-        XCTAssertTrue(store.uiState.sentSetAsideRecords.isEmpty)
+        XCTAssertTrue(store.uiState.sentRecoveredOpIds.isEmpty)
 
-        store.recordSetAsideSentToInbox(["a.lines"])
-        store.recordSetAsideSentToInbox(["b.lines"])
-        XCTAssertEqual(store.uiState.sentSetAsideRecords, ["a.lines", "b.lines"],
+        store.recordRecoveredCapturesSent(door: "a.lines", ids: ["op-1#p"])
+        store.recordRecoveredCapturesSent(door: "a.lines", ids: ["op-2#p"])
+        XCTAssertEqual(store.uiState.sentRecoveredOpIds["a.lines"],
+                       ["op-1#p", "op-2#p"],
                        "the second press adds; it does not replace")
 
-        store.recordSetAsideSentToInbox([])
-        XCTAssertEqual(store.uiState.sentSetAsideRecords, ["a.lines", "b.lines"],
+        store.recordRecoveredCapturesSent(door: "a.lines", ids: [])
+        store.recordRecoveredCapturesSent(door: "", ids: ["op-3#p"])
+        XCTAssertEqual(store.uiState.sentRecoveredOpIds["a.lines"],
+                       ["op-1#p", "op-2#p"],
                        "an empty press is a no-op, not a clear")
+        XCTAssertEqual(store.uiState.sentRecoveredOpIds.count, 1,
+                       "and a door with no key writes nothing at all")
 
-        store.recordHeldWordsSentToInbox(["doc-1|unsigned:ghost"])
-        store.recordHeldWordsSentToInbox([])
-        XCTAssertEqual(store.uiState.sentHeldSpans, ["doc-1|unsigned:ghost"],
-                       "the held door's memory unions and never forgets either")
-        XCTAssertEqual(store.uiState.sentSetAsideRecords, ["a.lines", "b.lines"],
-                       "…and the two memories are two facts")
+        store.recordRecoveredCapturesSent(
+            door: "doc-1|unsigned:ghost", ids: ["op-9#p"])
+        XCTAssertEqual(store.uiState.sentRecoveredOpIds["doc-1|unsigned:ghost"],
+                       ["op-9#p"],
+                       "the held door keeps its captures in the same memory")
+        XCTAssertEqual(store.uiState.sentRecoveredOpIds["a.lines"]?.count, 2,
+                       "…without disturbing the other door's")
         XCTAssertTrue(store.uiState.acknowledgedSetAsideRecords.isEmpty,
                       "and sending has not quietly acknowledged anything")
     }
@@ -608,8 +681,10 @@ final class SetAsideDoorTests: XCTestCase {
         XCTAssertTrue(
             source.contains("SetAsideRecordsDisclosure(\n                        rows: setAsideRows, onSend: sendSetAsideToInbox)"),
             "…and the press reaches the pane's one verb")
-        XCTAssertTrue(source.contains("documentStore.recordSetAsideSentToInbox([row.name])"),
-                      "…which remembers it, so the door is not offered twice")
+        XCTAssertTrue(
+            source.contains("documentStore.recordRecoveredCapturesSent("),
+            "…which remembers the captures it made, so a re-press files only "
+            + "the rest (fix round 2, C1)")
     }
 
     // MARK: - Fixtures

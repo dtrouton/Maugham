@@ -1406,7 +1406,18 @@ extension DocumentStore {
             guard let words = try? await unsignedHeldWords(
                 forDocId: docId, heldBy: holder), !words.isEmpty
             else { continue }
-            counts[holder] = words.count
+            // **What is left, not what is there** (fix round 2, C1). A held
+            // span is live: the stream goes on writing, and the door must
+            // offer the paragraphs this Mac has not already made a capture of
+            // — never all of them again, and never none of them because one
+            // press happened once.
+            let already = uiState.sentRecoveredOpIds[
+                SetAsideDoor.heldKey(docId: docId, holder: holder)] ?? []
+            let unsent = words.filter {
+                !already.contains(SetAsideDoor.captureId($0))
+            }
+            guard !unsent.isEmpty else { continue }
+            counts[holder] = unsent.count
         }
         return counts
     }
@@ -1442,15 +1453,21 @@ extension DocumentStore {
     func sendHeldWordsToInbox(
         forDocId docId: String, heldBy holder: String
     ) async throws -> Int {
+        let key = SetAsideDoor.heldKey(docId: docId, holder: holder)
+        let already = uiState.sentRecoveredOpIds[key] ?? []
         let words = try await unsignedHeldWords(forDocId: docId, heldBy: holder)
-        guard !words.isEmpty else { return 0 }
         let attribution = SetAsideDoor.unsignedAttribution
-        let captures = words.map {
-            SetAsideDoor.Capture(text: $0.text, attribution: attribution)
-        }
+        let captures = words
+            .filter { !already.contains(SetAsideDoor.captureId($0)) }
+            .map {
+                SetAsideDoor.Capture(
+                    id: SetAsideDoor.captureId($0), text: $0.text,
+                    attribution: attribution)
+            }
+        guard !captures.isEmpty else { return 0 }
         let landed = try await inboxStore.captureRecoveredWords(captures)
-        recordHeldWordsSentToInbox(
-            [SetAsideDoor.heldKey(docId: docId, holder: holder)])
+        recordRecoveredCapturesSent(
+            door: key, ids: Set(captures.map(\.id)))
         return landed
     }
 }

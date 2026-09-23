@@ -491,6 +491,7 @@ final class InboxStore {
     @discardableResult
     func captureRecoveredWords(_ captures: [SetAsideDoor.Capture]) async throws -> Int {
         guard !captures.isEmpty else { return 0 }
+        var landed = 0
         for capture in captures {
             let createdAt = Date()
             try await appendThrowing(InboxEntry(
@@ -502,9 +503,10 @@ final class InboxStore {
                 inlineText: capture.text,
                 title: capture.attribution,
                 status: .new))
+            landed += 1
         }
         await refresh()
-        return captures.count
+        return landed
     }
 
     /// Throwing core of `append`, used by callers with a throwing channel (the

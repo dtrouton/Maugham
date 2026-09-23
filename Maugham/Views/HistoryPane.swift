@@ -591,7 +591,7 @@ struct HistoryPane: View {
     nonisolated static func heldLineRows(
         provenance: OpLogProvenance?, startedAPiece: Set<String>,
         names: [String: String], words: [String: Int] = [:],
-        sent: Set<String> = [], docId: String = ""
+        sent: [String: Set<String>] = [:], docId: String = ""
     ) -> [SetAsideDoor.HeldRow] {
         guard let provenance else { return [] }
         let strangers = Set(provenance.pendingStrangersByDevice.keys)
@@ -615,9 +615,11 @@ struct HistoryPane: View {
                 return SetAsideDoor.HeldRow(
                     holder: holder,
                     sentence: sentence,
-                    words: unsigned ? (words[holder] ?? 0) : 0,
-                    sent: sent.contains(
-                        SetAsideDoor.heldKey(docId: docId, holder: holder)))
+                    unsent: unsigned ? (words[holder] ?? 0) : 0,
+                    sentCount: unsigned
+                        ? (sent[SetAsideDoor.heldKey(
+                            docId: docId, holder: holder)]?.count ?? 0)
+                        : 0)
             }
             return nil
         }
@@ -1266,7 +1268,7 @@ struct HistoryPane: View {
         let keepsNothing = await Self.keepsNothingNow(setAside, in: projectURL)
         setAsideRows = SetAsideDoor.rows(
             records: setAside, in: projectURL,
-            sent: documentStore?.uiState.sentSetAsideRecords ?? [])
+            sent: documentStore?.uiState.sentRecoveredOpIds ?? [:])
         // `applied` is the ops this document is carrying RIGHT NOW — the list
         // read a few lines above, so nothing new is read from disk for it. An
         // op that was set aside and is now in the draft (the writer admitted the
@@ -1319,7 +1321,7 @@ struct HistoryPane: View {
             startedAPiece: documentStore?
                 .document(forDocId: activeDocId)?.startedAPiece ?? [],
             names: chainDeviceNames, words: heldWordCounts,
-            sent: documentStore?.uiState.sentHeldSpans ?? [],
+            sent: documentStore?.uiState.sentRecoveredOpIds ?? [:],
             docId: activeDocId)
     }
 
@@ -1432,10 +1434,11 @@ struct HistoryPane: View {
         guard let record = records.first(where: {
             SetAsideAcknowledgement.name(for: $0, in: projectURL) == row.name
         }) else { return }
+        let already = documentStore.uiState.sentRecoveredOpIds[row.name] ?? []
         Task {
             let named = await Self.attributions(for: record, in: projectURL)
             let captures = SetAsideDoor.captures(
-                forRecord: record, in: projectURL,
+                forRecord: record, in: projectURL, alreadySent: already,
                 // A record whose chain broke names nobody (fix round 2, M6):
                 // the `device` field in those bytes is the one thing the
                 // refusal exists to disbelieve.
@@ -1446,8 +1449,10 @@ struct HistoryPane: View {
                         table: TrustResolution.keyless(mine: .current))
                 })
             do {
-                _ = try await documentStore.inboxStore.captureRecoveredWords(captures)
-                documentStore.recordSetAsideSentToInbox([row.name])
+                _ = try await documentStore.inboxStore.captureRecoveredWords(
+                    captures)
+                documentStore.recordRecoveredCapturesSent(
+                    door: row.name, ids: Set(captures.map(\.id)))
                 sendToInboxError = nil
             } catch {
                 sendToInboxError = error.localizedDescription

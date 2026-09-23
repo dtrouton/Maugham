@@ -49,9 +49,9 @@ final class InboxRecoveredWordsTests: XCTestCase {
         let store = makeInbox()
 
         let landed = try await store.captureRecoveredWords([
-            SetAsideDoor.Capture(text: "The tide went out and stayed out.",
+            SetAsideDoor.Capture(id: "op-\(#line)#p", text: "The tide went out and stayed out.",
                                  attribution: "Set aside — the assistant on Sam"),
-            SetAsideDoor.Capture(text: "She counted the boats twice.",
+            SetAsideDoor.Capture(id: "op-\(#line)#p", text: "She counted the boats twice.",
                                  attribution: "Set aside — the assistant on Sam"),
         ])
 
@@ -83,7 +83,7 @@ final class InboxRecoveredWordsTests: XCTestCase {
             .contentsOfDirectory(atPath: ops.path).sorted()
 
         _ = try await store.captureRecoveredWords([
-            SetAsideDoor.Capture(text: "A paragraph.", attribution: "Set aside — Sam")
+            SetAsideDoor.Capture(id: "op-\(#line)#p", text: "A paragraph.", attribution: "Set aside — Sam")
         ])
 
         XCTAssertEqual(
@@ -135,8 +135,8 @@ final class InboxRecoveredWordsTests: XCTestCase {
         let store = makeInbox()
 
         _ = try await store.captureRecoveredWords([
-            SetAsideDoor.Capture(text: "First.", attribution: "Set aside — Sam"),
-            SetAsideDoor.Capture(text: "Second.", attribution: "Set aside — Sam"),
+            SetAsideDoor.Capture(id: "op-\(#line)#p", text: "First.", attribution: "Set aside — Sam"),
+            SetAsideDoor.Capture(id: "op-\(#line)#p", text: "Second.", attribution: "Set aside — Sam"),
         ])
         await store.refresh()
 

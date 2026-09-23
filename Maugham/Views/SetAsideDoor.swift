@@ -42,55 +42,85 @@ enum SetAsideDoor {
         /// `SetAsideAcknowledgement` keys on, so the two cannot disagree about
         /// which record a press was about.
         let name: String
-        /// How many paragraphs **Send to Inbox** would hand back. Zero is the
-        /// ordinary answer: most refusals take no manuscript text away.
-        let words: Int
-        /// Already sent from this Mac.
-        let sent: Bool
+        /// How many paragraphs **Send to Inbox** would hand back NOW — the
+        /// ones this Mac has not already sent. Zero is the ordinary answer:
+        /// most refusals take no manuscript text away, and a record whose
+        /// words are all in the Inbox has nothing left to offer.
+        let unsent: Int
+        /// How many captures this Mac has already made from this record.
+        let sentCount: Int
 
         var id: String { name }
 
         /// The control is drawn exactly here.
-        var offersTheDoor: Bool { words > 0 && !sent }
+        var offersTheDoor: Bool { unsent > 0 }
 
         /// What the button promises, counted, so a writer knows what a press
         /// costs before they make it.
         var doorHelp: String {
-            let noun = words == 1 ? "paragraph" : "paragraphs"
-            return "Send \(words) set-aside \(noun) to the Inbox as captures. "
+            let noun = unsent == 1 ? "paragraph" : "paragraphs"
+            return "Send \(unsent) set-aside \(noun) to the Inbox as captures. "
                 + "Nothing is applied to the draft and the record stays."
         }
 
         /// What is said once the door has been used. The row stays — the
         /// archive is evidence and the disclosure lists it forever — and it
-        /// says what the press did rather than going quiet, for the reason
+        /// says what the press DID rather than going quiet, for the reason
         /// `HistoryPane.lostHistoryRows` gives about an acknowledged loss.
+        ///
+        /// **The count is of what was SENT**, never of what is there: the two
+        /// are different numbers the moment anything is added or a send lands
+        /// only partly, and reporting the second as the first is the screen
+        /// telling the writer it did something it did not do.
         var sentNote: String? {
-            guard sent else { return nil }
-            let noun = words == 1 ? "paragraph" : "paragraphs"
-            return "\(words) \(noun) sent to the Inbox"
+            guard sentCount > 0 else { return nil }
+            let noun = sentCount == 1 ? "paragraph" : "paragraphs"
+            return "\(sentCount) \(noun) sent to the Inbox"
         }
     }
 
-    /// One capture on its way to the Inbox: a paragraph and the line naming
-    /// who wrote it.
+    /// One capture on its way to the Inbox: a paragraph, the line naming who
+    /// wrote it, and the identity this Mac remembers it by.
     struct Capture: Equatable {
+        /// `captureId`'s — what makes a re-press file only the rest.
+        let id: String
         let text: String
         let attribution: String
+    }
+
+    /// **What this Mac remembers a sent capture by** (fix round 2, C1).
+    ///
+    /// The PARAGRAPH, not the op: a capture is one paragraph, the note counts
+    /// captures, and an op carrying three paragraphs of which one failed to
+    /// land is a real state (`captureRecoveredWords` records what landed). A
+    /// key per op could not tell any of those apart.
+    static func captureId(_ words: OpLogQuarantine.SetAsideWords) -> String {
+        "\(words.opId)#\(words.paragraphId)"
     }
 
     // MARK: - The rows
 
     /// Every set-aside record, in the order the disclosure lists them, with
     /// what each one can still give back.
+    ///
+    /// `sent` is this Mac's memory of the captures it has already made, by
+    /// door key (fix round 2, C1). The door offers what is left rather than
+    /// closing after one press — which matters here less than it does for a
+    /// held span (an archive does not grow), but the two doors must count the
+    /// same way or the writer learns to distrust whichever is wrong.
     static func rows(
-        records: [QuarantineRecord], in projectURL: URL, sent: Set<String>
+        records: [QuarantineRecord], in projectURL: URL,
+        sent: [String: Set<String>]
     ) -> [Row] {
         records.map { record in
             let name = SetAsideAcknowledgement.name(for: record, in: projectURL)
+            let already = sent[name] ?? []
             let words = OpLogQuarantine.recoverableWords(
                 ofRecord: record, in: projectURL)
-            return Row(name: name, words: words.count, sent: sent.contains(name))
+            return Row(
+                name: name,
+                unsent: words.filter { !already.contains(captureId($0)) }.count,
+                sentCount: already.count)
         }
     }
 
@@ -103,10 +133,15 @@ enum SetAsideDoor {
     static func captures(
         forRecord record: QuarantineRecord,
         in projectURL: URL,
+        alreadySent: Set<String> = [],
         attribution: (OpLogQuarantine.SetAsideWords) -> String
     ) -> [Capture] {
         OpLogQuarantine.recoverableWords(ofRecord: record, in: projectURL)
-            .map { Capture(text: $0.text, attribution: attribution($0)) }
+            .filter { !alreadySent.contains(captureId($0)) }
+            .map {
+                Capture(id: captureId($0), text: $0.text,
+                        attribution: attribution($0))
+            }
     }
 
     // MARK: - C16: the sentence a record is shown under
@@ -295,28 +330,39 @@ enum SetAsideDoor {
         let holder: String
         /// The sentence `HeldLines` gives this holder — never worded here.
         let sentence: String
-        /// How many paragraphs **Send to Inbox** would hand back. Zero for
-        /// every holder that is not an unsigned stream, and for one whose
-        /// re-read found nothing or would not read.
-        let words: Int
-        /// Already sent from this Mac, for this document.
-        let sent: Bool
+        /// How many waiting paragraphs **Send to Inbox** would hand back NOW —
+        /// the ones this Mac has not already sent. Zero for every holder that
+        /// is not an unsigned stream, and for one whose re-read found nothing
+        /// or would not read.
+        ///
+        /// **A held span is LIVE** (fix round 2, C1), which is the whole
+        /// difference from an archive: the stream it names goes on being
+        /// written to. A door that closed after one press would leave every
+        /// paragraph that arrived afterwards with no way in at all — the state
+        /// this door exists to remove — so what it offers is what is left.
+        let unsent: Int
+        /// How many captures this Mac has already made from this span, in this
+        /// document.
+        let sentCount: Int
 
         var id: String { holder }
 
-        var offersTheDoor: Bool { words > 0 && !sent }
+        var offersTheDoor: Bool { unsent > 0 }
 
         var doorHelp: String {
-            let noun = words == 1 ? "paragraph" : "paragraphs"
-            return "Send \(words) waiting \(noun) to the Inbox as captures. "
+            let noun = unsent == 1 ? "paragraph" : "paragraphs"
+            return "Send \(unsent) waiting \(noun) to the Inbox as captures. "
                 + "Nothing is applied to the draft and the lines stay where "
                 + "they are."
         }
 
+        /// The count is of what was SENT, never of what is waiting — see
+        /// `Row.sentNote`. Here the two diverge on the ordinary case rather
+        /// than on an edge one, because the stream keeps writing.
         var sentNote: String? {
-            guard sent else { return nil }
-            let noun = words == 1 ? "paragraph" : "paragraphs"
-            return "\(words) \(noun) sent to the Inbox"
+            guard sentCount > 0 else { return nil }
+            let noun = sentCount == 1 ? "paragraph" : "paragraphs"
+            return "\(sentCount) \(noun) sent to the Inbox"
         }
     }
 
