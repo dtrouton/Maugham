@@ -778,6 +778,32 @@ public enum OpLogQuarantine {
         return nowKeepsNothing ? harsh : gentle
     }
 
+    /// **Was this record filed because the CHAIN did not hold?** (P3b Task 8
+    /// fix round 2, M6.)
+    ///
+    /// The distinction matters to exactly one caller and it matters a great
+    /// deal there. Every other cause names a device whose lines these are — a
+    /// revoked Mac's, a retired one's, one whose permit refused the line — and
+    /// a capture made from them is honestly attributed to that machine. A chain
+    /// break says the opposite: the `device` field in those bytes is a string
+    /// whatever-wrote-them CHOSE, and the walk refused them precisely because
+    /// nothing vouches for it. Attributing a recovered paragraph to the device
+    /// it NAMES would put words in a real machine's mouth on the strength of
+    /// the one field the refusal exists to disbelieve.
+    ///
+    /// Decided from the frozen reason exactly as `reason(_:nowKeepsNothing:)`
+    /// decides the revocation pair — by comparing against
+    /// `JSONLAppendStore.quarantineReason`'s own output for the cause, never by
+    /// a sentence spelled here. Both chain-break spellings, because
+    /// `quarantineReason` gives that cause two.
+    public nonisolated static func isAChainBreakReason(_ frozen: String) -> Bool {
+        let named = JSONLAppendStore<Op>.quarantineReason(
+            .chainBroke(.afterRememberedHead(lineIndex: 0)))
+        let other = JSONLAppendStore<Op>.quarantineReason(
+            .chainBroke(.prevMismatch(lineIndex: 0)))
+        return frozen == named || frozen == other
+    }
+
     /// **The `device` strings a record's archive carries** — who this book
     /// would be re-deriving a sentence about (C16), and who a recovered capture
     /// is attributed to.

@@ -340,6 +340,35 @@ enum SetAsideDoor {
 
     // MARK: - Who wrote it
 
+    /// **What a record whose CHAIN broke can honestly say about its writer**
+    /// (fix round 2, M6; ruled 2026-09-23) — nothing.
+    ///
+    /// Every other cause names a device whose lines these are, and the capture
+    /// says so. A chain break says the opposite: those bytes were refused
+    /// because nothing in the file vouches for them, and the `device` string
+    /// inside them is a word whatever-wrote-them chose. Reading it out would
+    /// put a paragraph in a real machine's mouth on the strength of the one
+    /// field the refusal exists to disbelieve — and the writer, who is
+    /// deciding whether to keep those words, would be deciding on a byline the
+    /// book cannot stand behind.
+    static let unattributable = "Set aside — this book cannot say who wrote it"
+
+    /// The attribution for one of a RECORD's paragraphs: the writer it names,
+    /// unless the record's own reason says the chain broke, in which case
+    /// nobody. Asked of `OpLogQuarantine.isAChainBreakReason`, which derives
+    /// both spellings from `quarantineReason` exactly as
+    /// `reason(_:nowKeepsNothing:)` derives the revocation pair.
+    static func attribution(
+        forRecord record: QuarantineRecord, deviceId: String,
+        registry: Registry, table: TrustTable
+    ) -> String {
+        guard !OpLogQuarantine.isAChainBreakReason(record.reason) else {
+            return unattributable
+        }
+        return attribution(
+            forDeviceId: deviceId, registry: registry, table: table)
+    }
+
     /// **The line a recovered capture carries** — who the paragraph is from.
     ///
     /// Two halves, and neither is spelled twice. WHO is `InboxByline`'s answer

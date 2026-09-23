@@ -247,6 +247,58 @@ final class SetAsideDoorTests: XCTestCase {
 
     // MARK: - Who a recovered capture is from
 
+    /// **A chain break names nobody** (fix round 2, M6). Those bytes were
+    /// refused because nothing in the file vouches for them, so the `device`
+    /// string inside them is a word whatever-wrote-them chose — and the writer
+    /// deciding whether to keep the paragraph must not be shown a byline the
+    /// book cannot stand behind.
+    func test_aChainBreaksCapturesAreAttributedToNobody() throws {
+        let project = try makeProject()
+        let device = "author-abcdef0123456789"
+        let registry = Registry()
+        let table = TrustResolution.keyless(mine: .current)
+
+        for broken in ["written by something that is not Maugham",
+                       "the history's chain is broken"] {
+            let record = try lines([
+                burst(device: device, paragraphs: [("p1ab", "\(broken).")])
+            ], in: project, reason: broken)
+            let line = SetAsideDoor.attribution(
+                forRecord: record, deviceId: device,
+                registry: registry, table: table)
+
+            XCTAssertEqual(line, SetAsideDoor.unattributable, broken)
+            XCTAssertFalse(line.contains("abcdef"),
+                           "the device the bytes NAME is never read out")
+        }
+    }
+
+    /// **The other direction.** Every other cause names a device whose lines
+    /// these really are, and the capture says so.
+    func test_everyOtherCauseKeepsItsByline() throws {
+        let project = try makeProject()
+        let device = "assistant-abcdef0123456789"
+
+        for cause in [
+            "written after this device was retired",
+            "written after this device's access was withdrawn",
+            "set aside with everything this device wrote",
+            "written under another claimant's copy of this book",
+            "written by the assistant, which never changes the manuscript",
+        ] {
+            let record = try lines([
+                burst(device: device, paragraphs: [("p1ab", "\(cause).")])
+            ], in: project, reason: cause)
+            let line = SetAsideDoor.attribution(
+                forRecord: record, deviceId: device,
+                registry: Registry(),
+                table: TrustResolution.keyless(mine: .current))
+
+            XCTAssertNotEqual(line, SetAsideDoor.unattributable, cause)
+            XCTAssertTrue(line.contains("the assistant"), cause)
+        }
+    }
+
     func test_theAssistantIsNamedAndNeverGivenAProductName() {
         let line = SetAsideDoor.attribution(
             forDeviceId: "assistant-abcdef0123456789",

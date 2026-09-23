@@ -1405,7 +1405,15 @@ struct HistoryPane: View {
             let named = await Self.attributions(for: record, in: projectURL)
             let captures = SetAsideDoor.captures(
                 forRecord: record, in: projectURL,
-                attribution: { named[$0.device] ?? "Set aside — this Mac" })
+                // A record whose chain broke names nobody (fix round 2, M6):
+                // the `device` field in those bytes is the one thing the
+                // refusal exists to disbelieve.
+                attribution: {
+                    named[$0.device] ?? SetAsideDoor.attribution(
+                        forRecord: record, deviceId: $0.device,
+                        registry: Registry(),
+                        table: TrustResolution.keyless(mine: .current))
+                })
             do {
                 _ = try await documentStore.inboxStore.captureRecoveredWords(captures)
                 documentStore.recordSetAsideSentToInbox([row.name])
@@ -1460,7 +1468,8 @@ struct HistoryPane: View {
             var answers: [String: String] = [:]
             for deviceId in writers {
                 answers[deviceId] = SetAsideDoor.attribution(
-                    forDeviceId: deviceId, registry: registry, table: table)
+                    forRecord: record, deviceId: deviceId,
+                    registry: registry, table: table)
             }
             return answers
         }.value
