@@ -46,12 +46,18 @@ struct PieceInspector: View {
     let pieceId: String
     let kind: PieceInspectorKind
 
+    /// Who writes which piece — `InspectorView`'s own state, for its reason
+    /// (P3b Task 9). A Collection is exactly where a per-piece permit is most
+    /// natural, so the loose-piece arm draws the row the document arm draws.
+    @State private var writers: PieceWriters = .none
+
     var body: some View {
         if let piece = store.manifest.structure.first(where: { $0.id == pieceId }) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(piece.title).font(.headline)
                     Text(kind.kindLabel).font(.caption).foregroundStyle(.secondary)
+                    writerSection(piece: piece)
                     synopsisSection(piece: piece)
                     statusSection(piece: piece)
                     targetSection(piece: piece)
@@ -63,10 +69,32 @@ struct PieceInspector: View {
                 }
                 .padding(16)
             }
+            .task(id: store.url) { await loadWriters() }
         } else {
             ContentUnavailableView("Select a piece", systemImage: kind.unavailableSymbol)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    /// **Whose piece this is**, drawn only where somebody in this book is an
+    /// author of PIECES — `PieceWriters` holds the whole judgement and why.
+    @ViewBuilder private func writerSection(piece: StructureItem) -> some View {
+        if let by = writers.sentence(for: piece.id) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(PieceWriters.rowTitle)
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(by)
+            }
+            .accessibilityIdentifier(PieceWriters.rowIdentifier)
+        }
+    }
+
+    /// The one registry read this surface makes — `InspectorView.loadWriters`'s
+    /// twin, named for the same reason.
+    func loadWriters() async {
+        writers = await PieceWriters.read(
+            projectURL: store.url,
+            pieces: PermitControl.pieces(in: store.manifest.structure))
     }
 
     @ViewBuilder private func synopsisSection(piece: StructureItem) -> some View {
@@ -113,9 +141,13 @@ struct PieceInspector: View {
     /// `Picker(.menu)` publishes no menu, no children and no press action, so
     /// the menu-item route that used to drive this arm reaches nothing — the
     /// decision has to be asserted where it is made.
+    ///
+    /// **The store is held STRONGLY here too** (P3b carry C15) — the rule and
+    /// its reason are spelled at `InspectorView.setPass`, and the two copies
+    /// must not differ: a discrete choice the writer has already made is not a
+    /// thing to drop when the view that carried it goes away.
     func setPass(_ passId: String, to state: PassState?, on pieceId: String) {
-        Task { [weak store] in
-            guard let store else { return }
+        Task { [store] in
             try? await store.setPassState(id: pieceId, passId: passId, state)
         }
     }

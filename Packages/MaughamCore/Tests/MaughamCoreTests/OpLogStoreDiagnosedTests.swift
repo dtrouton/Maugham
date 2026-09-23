@@ -198,4 +198,44 @@ final class OpLogStoreDiagnosedTests: XCTestCase {
         XCTAssertTrue(partial.unreadableFiles.isEmpty)
     }
 
+    // MARK: - Which stream each held holder was held in (P3b Task 4)
+
+    /// **A held holder carries the stream it was held in**, so the one surface
+    /// that offers to ADMIT a holder can ask whether that holder is a person's
+    /// key at all — a question only the FILE can answer for a non-author actor
+    /// key whose device record has not arrived.
+    func test_theProvenanceSaysWhichStreamsAHolderWasHeldIn() {
+        let provenance = OpLogProvenance(files: [
+            FileProvenance(
+                name: "doc-1.author-abc.jsonl", pending: 2,
+                pendingByDevice: ["k1": 2], deviceSlug: "author-abc"),
+            FileProvenance(
+                name: "doc-1.author-abc.seg0001.mzseg", pending: 1,
+                pendingByDevice: ["k1": 1], deviceSlug: "author-abc",
+                isSealedSegment: true),
+            FileProvenance(
+                name: "doc-1.assistant-def.jsonl", pending: 1,
+                pendingByDevice: ["k2": 1], deviceSlug: "assistant-def"),
+        ])
+
+        XCTAssertEqual(provenance.pendingByDevice, ["k1": 3, "k2": 1])
+        XCTAssertEqual(
+            provenance.pendingStreamsByDevice,
+            ["k1": ["author-abc"], "k2": ["assistant-def"]],
+            "a segment and the tail it rotated out of are ONE stream")
+    }
+
+    /// **A file with no slug contributes nothing**, which is the answer that
+    /// asks nothing of the holder: the legacy unsuffixed `<docId>.jsonl`
+    /// belongs to no device in particular, and a hand-built provenance says
+    /// what it always said.
+    func test_aFileWithNoSlugNamesNoStream() {
+        let provenance = OpLogProvenance(files: [
+            FileProvenance(name: "doc-1.jsonl", pending: 1,
+                           pendingByDevice: ["k1": 1]),
+        ])
+
+        XCTAssertEqual(provenance.pendingByDevice, ["k1": 1])
+        XCTAssertTrue(provenance.pendingStreamsByDevice.isEmpty)
+    }
 }

@@ -133,18 +133,208 @@ extension DocumentStore {
     public func changePermit(
         person fingerprint: String, to permit: Permit
     ) async throws -> PersonRecord {
+        try await changePermit(person: fingerprint, to: permit, settling: [])
+    }
+
+    /// **The same verb, told which pieces this act SETTLES** (fix round 1's
+    /// C1, made internal in fix round 3's minor 4).
+    ///
+    /// `settling` is not a knob: it names the pieces whose §4.5 question this
+    /// act is answering, and passing it means *cut those streams before her
+    /// held span*. Exactly one caller has an answer to give — `pieceIsTheirs`
+    /// — so the parameter is internal and the public verb above is the
+    /// signature every other surface has always called.
+    func changePermit(
+        person fingerprint: String, to permit: Permit,
+        settling: Set<String>
+    ) async throws -> PersonRecord {
         // Refuse rather than record a mark that came back short, for the
         // revocation's reason: a short mark moves a permission boundary
         // silently, and the direction it moves it in is *more set aside than
         // the writer asked for*.
-        let mark = try await sweptPermitMark(forPerson: fingerprint)
-        return try await changePermit(person: fingerprint, to: permit, mark: mark)
+        let mark = try await sweptPermitMark(
+            forPerson: fingerprint, settling: settling)
+        let unsigned = try await sweptUnsignedSnapshot(for: permit)
+        // Gate, then event, then record (P3b Task 3).
+        try await gateOldBuildsOut(before: permit)
+        return try await changePermit(
+            person: fingerprint, to: permit, mark: mark, unsigned: unsigned)
+    }
+
+    /// **Shut older builds out of this book before it is narrowed** (P3b
+    /// Task 3's MUST) — and do nothing at all to a book that is not being
+    /// narrowed.
+    ///
+    /// ## Why a version number is load-bearing here
+    ///
+    /// The moment a person in this book is anything other than an author of the
+    /// whole of it, reading the book means judging every line against a permit.
+    /// A build without a permit layer — v0.40 and everything before it — cannot
+    /// do that. It applies the reviewer's refused text, folds it into the
+    /// manuscript, and its own next burst re-asserts those words in ITS file
+    /// under ITS book-author key, which every signed Mac then has to accept.
+    /// The writer's demotion is undone by the oldest machine in the house, with
+    /// nothing anywhere saying it happened. `ProjectManifest
+    /// .decodeGuardingSchema` is the only thing that can stop that, and the way
+    /// it stops it is by refusing the project.
+    ///
+    /// ## The order, and why this way round
+    ///
+    /// Gate → event → record. A crash after the gate and before the event
+    /// leaves a **gated, un-narrowed book**: one old build loses one project it
+    /// could still open yesterday, which is a nuisance the writer can see and
+    /// ask about. The reverse order leaves a **narrowed, ungated book**, which
+    /// is the defect above with nothing to say so. If the gate cannot be
+    /// written the verb refuses (`RegistryAdmissionError.manifestNotGated`) and
+    /// no event exists.
+    ///
+    /// ## What it touches
+    ///
+    /// Only the number, and only upwards, and only once: a book already at this
+    /// build's schema is left byte-identical, so the SECOND narrowing writes no
+    /// manifest at all — and a non-narrowing admission, revocation, retirement
+    /// or rename never gets here. The bytes go through `writeManifest`, the
+    /// store's own coordinated door, with `ProjectManifest`'s own encoder (never
+    /// hand-written JSON — tripwire 14's neighbourhood).
+    ///
+    /// ## The in-memory copy
+    ///
+    /// `ProjectStore` holds the manifest and re-encodes ITS copy on every
+    /// structural save, and `schemaVersion` is a DECODED field carried through
+    /// that round trip rather than re-stamped. So a gate written behind the
+    /// live store's back is undone by the writer's next chapter rename. The
+    /// open store is told what disk now says — a cache refresh after the one
+    /// write, not a second writer — and it is a weak, optional reference for
+    /// exactly `ProjectStore.documentStore`'s reason: a headless or transient
+    /// store has none, and its gate is on disk where it belongs whether or not
+    /// anybody is looking at the project.
+    /// Internal rather than private for `sweptUnsignedSnapshot`'s reason: the
+    /// admission door lives one file over and is the other narrowing verb.
+    func gateOldBuildsOut(
+        before permit: Permit, act: RegistryAdmissionError.Act = .permitChange
+    ) async throws {
+        guard permit.narrows else { return }
+        do {
+            let manifest = try ProjectManifest.decodeGuardingSchema(
+                try await readManifest())
+            if manifest.schemaVersion < ProjectManifest.currentSchemaVersion {
+                var raised = manifest
+                raised.schemaVersion = ProjectManifest.currentSchemaVersion
+                try await writeManifest(
+                    try ProjectManifest.makeEncoder().encode(raised))
+            }
+        } catch {
+            throw RegistryAdmissionError.manifestNotGated(
+                reason: error.localizedDescription, act: act)
+        }
+        // On BOTH paths, including the one that wrote nothing: a book already
+        // gated by another Mac, whose gate synced in after this window opened,
+        // leaves the same stale in-memory number behind the same next save.
+        // Never downwards — a live store at a HIGHER number than this build
+        // writes is a newer build's manifest, and lowering it is the forward-
+        // data-loss `decodeGuardingSchema` exists to refuse.
+        if let live = projectStore,
+           live.manifest.schemaVersion < ProjectManifest.currentSchemaVersion {
+            live.manifest.schemaVersion = ProjectManifest.currentSchemaVersion
+        }
+    }
+
+    /// **The photograph, where this act is the kind that needs one** (P3b
+    /// Task 1) — nil for every permit that leaves the person an author of the
+    /// whole book.
+    ///
+    /// The question is asked of the permit layer (`Permit.narrows`) rather
+    /// than by comparing a rung here: a store that decided for itself what
+    /// narrowing meant would be a second answer to the one thing
+    /// `TrustTable.unsignedSnapshot` and `RegistryAdmission`'s door already
+    /// agree on (tripwire 47).
+    ///
+    /// **And nothing pays for it that does not need it.** The sweep is a walk
+    /// of every op-log file, every translation sidecar and every inbox
+    /// manifest in the project; an ordinary admission narrows nobody, so it
+    /// performs zero extra directory listings and its event's bytes are
+    /// unchanged.
+    ///
+    /// Refuses in `historyUnreadable`'s own words, like every other sweep
+    /// here: *a short snapshot is the reach-back this ruling exists to
+    /// prevent*, so a folder this Mac could only half read must stop the act
+    /// rather than narrow the book over a reading it knows is short.
+    /// Internal rather than private, for `seenMarkOrRefuse`'s reason: the
+    /// admission door lives one file over and must ask the same question.
+    func sweptUnsignedSnapshot(
+        for permit: Permit, act: RegistryAdmissionError.Act = .permitChange
+    ) async throws -> PermitMark? {
+        guard permit.narrows else { return nil }
+        let projectURL = self.projectURL
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        let state = Document.loadDeviceState
+        let swept: Result<PermitMark, Error> = await Task.detached(
+            priority: .userInitiated
+        ) { () -> Result<PermitMark, Error> in
+            do {
+                let resolved = try TrustResolution.resolveVerified(
+                    projectURL: projectURL, identities: identities, cache: cache)
+                return .success(try OpLogStore.unattributablePositions(
+                    in: projectURL, trust: resolved.table,
+                    // What this Mac remembers having applied from ANY other
+                    // device, so a stream that has gone missing mid-sync
+                    // refuses the act rather than silently drawing the line at
+                    // the beginning of it (P3b Task 2).
+                    expecting: DocumentStore.everyExpectedStream(
+                        in: projectURL, state: state)))
+            } catch {
+                return .failure(error)
+            }
+        }.value
+        switch swept {
+        case .success(let mark): return mark
+        case .failure(let error):
+            throw RegistryAdmissionError.historyUnreadable(
+                name: OpLogStore.unreadableName(error), act: act)
+        }
+    }
+
+    /// **The permit an admission of this fingerprint would INSTALL** — nil
+    /// where it would install none (Task 1's review, Minor 7).
+    ///
+    /// `RegistryAdmission.standingRecord` is the rule and it is Core's; this
+    /// only reads the folder to ask it. The answer decides whether the two
+    /// prices of writing a narrowing event — the book's photograph and the
+    /// schema gate — are owed at all, so it is asked before either is paid.
+    ///
+    /// A registry that will not read is NOT swallowed: it throws here, and the
+    /// admission would have thrown a moment later for the same reason. The one
+    /// thing this must not do is answer *nothing is being installed* over a
+    /// folder it could not see, which would take the photograph away from an
+    /// act that does narrow the book.
+    ///
+    /// Detached for `TrustResolution`'s own rule: a folder read and a signature
+    /// check per record. Internal rather than private for
+    /// `sweptUnsignedSnapshot`'s reason: the admission door lives one file
+    /// over and is the caller that needs the answer.
+    func permitThisAdmissionInstalls(
+        asked: Permit, for fingerprint: String
+    ) async throws -> Permit? {
+        let projectURL = self.projectURL
+        let cache = Document.loadRegistryCache
+        let standing = try await Task.detached(priority: .userInitiated) {
+            () -> Bool in
+            let registry = try TrustResolution.verifiedRegistry(
+                projectURL: projectURL, presenter: nil, cache: cache)
+            return RegistryAdmission
+                .standingRecord(registry.person(fingerprint)) != nil
+        }.value
+        return standing ? nil : asked
     }
 
     /// `changePermit`'s sweep, alone — so the plural verb below can take every
     /// record's mark BEFORE it writes any of them (fix round 1, minor 2).
-    private func sweptPermitMark(forPerson fingerprint: String) async throws -> PermitMark {
-        switch await permitMark(forPerson: fingerprint, seen: true) {
+    private func sweptPermitMark(
+        forPerson fingerprint: String, settling: Set<String> = []
+    ) async throws -> PermitMark {
+        switch await permitMark(
+            forPerson: fingerprint, seen: true, settling: settling) {
         case .mark(let found): return found
         case .unreadable(let name):
             throw RegistryAdmissionError.historyUnreadable(
@@ -155,7 +345,8 @@ extension DocumentStore {
     /// `changePermit`'s write, over a mark already swept.
     @discardableResult
     private func changePermit(
-        person fingerprint: String, to permit: Permit, mark: PermitMark
+        person fingerprint: String, to permit: Permit, mark: PermitMark,
+        unsigned: PermitMark?
     ) async throws -> PersonRecord {
         let projectURL = self.projectURL
         let author = Document.loadIdentities.author
@@ -164,7 +355,7 @@ extension DocumentStore {
             try RegistryAdmission.changePermit(
                 person: fingerprint,
                 role: permit.wireRole, scope: permit.wireScope,
-                pieces: permit.wirePieces, mark: mark,
+                pieces: permit.wirePieces, mark: mark, unsigned: unsigned,
                 in: projectURL, by: author, cache: cache)
         }.value
 
@@ -211,6 +402,16 @@ extension DocumentStore {
     public func changePermit(
         everyRecordOf person: String, to permit: Permit
     ) async throws -> [PersonRecord] {
+        try await changePermit(everyRecordOf: person, to: permit, settling: [])
+    }
+
+    /// The plural verb's own settling form; internal for the singular's
+    /// reason (fix round 3, minor 4).
+    @discardableResult
+    func changePermit(
+        everyRecordOf person: String, to permit: Permit,
+        settling: Set<String>
+    ) async throws -> [PersonRecord] {
         let projectURL = self.projectURL
         let author = Document.loadIdentities.author
         let cache = Document.loadRegistryCache
@@ -254,15 +455,31 @@ extension DocumentStore {
         }
         var marks: [String: PermitMark] = [:]
         for record in records {
-            marks[record.person] = try await sweptPermitMark(forPerson: record.person)
+            marks[record.person] = try await sweptPermitMark(
+                forPerson: record.person, settling: settling)
         }
+        // **One photograph for the whole act** (P3b Task 1). The snapshot is
+        // of the BOOK's unsigned streams, not of this person's, so sweeping it
+        // per record would be the same walk three times over — and the three
+        // answers would differ by whatever iCloud did in between, leaving one
+        // writer's machines carrying three different accounts of when the book
+        // was first narrowed. Taken here, with the marks, so an unreadable
+        // folder refuses before a byte is written.
+        let unsigned = try await sweptUnsignedSnapshot(for: permit)
+        // **Gated ONCE, first, for the whole act** (P3b Task 3). The gate is
+        // about the BOOK rather than about a record, so the loop below must not
+        // reach it: the second record's gate would be a no-op anyway, and a
+        // manifest that could not be written must refuse before the first
+        // record moves rather than half way through three of them.
+        try await gateOldBuildsOut(before: permit)
 
         var moved: [PersonRecord] = []
         for record in records {
             do {
                 moved.append(try await changePermit(
                     person: record.person, to: permit,
-                    mark: marks[record.person] ?? .nothingApplied))
+                    mark: marks[record.person] ?? .nothingApplied,
+                    unsigned: unsigned))
             } catch {
                 throw PermitChangePartlyApplied(
                     moved: moved.map(\.person), failed: record.person,
@@ -335,9 +552,14 @@ extension DocumentStore {
         // round 2). This arm recorded `.nothingApplied` and let the retirement
         // through, which is the I2 defect wearing a different hat: an empty
         // mark calls EVERY paragraph this machine ever wrote *written while
-        // retired*, so P3b's *N paragraphs were written on it while retired*
-        // would offer the writer their whole history as something to bring
-        // back in. A retirement is not typing — refusing one breaks no
+        // retired*, so every other Mac would set aside this machine's whole
+        // history under a sentence that is false about nearly all of it.
+        // (P3b's *N paragraphs — bring them in?* question, which this comment
+        // used to name, was WITHDRAWN on 2026-09-23: a retirement is one-way
+        // and what follows it is set aside rather than held, so there is
+        // nothing to bring in and the Inbox is the way back. The refusal below
+        // matters more for it, not less.) A retirement is not typing —
+        // refusing one breaks no
         // constitutional must — and a folder that will not read is a fact the
         // writer can fix, while a mark signed over it is not. The root can
         // still revoke a device whose folder will not open.
@@ -662,15 +884,39 @@ extension DocumentStore {
     /// a subject who IS this device — `retire`, the one verb whose subject is
     /// its own machine — names no foreign stream at all, so this answers empty
     /// and that verb's sweep is byte-for-byte what it was.
+    ///
+    /// **And a loss the writer has been shown is not expected** (P3b Task 6).
+    /// `OpLogDeviceState.expectedStreams` is the one place that is decided —
+    /// this door and its sibling below are the only two things in production
+    /// that build an `expecting:`, and both ask it, so a person's position
+    /// sweep and the unsigned snapshot's take the same way out of a stream
+    /// that is never coming back.
     nonisolated static func expectedStreams(
         ofDeviceIds ids: Set<String>, in projectURL: URL, state: OpLogDeviceState
     ) -> [String: OpLogDeviceState.ForeignStreamMemory] {
-        state.foreignStreams(
+        state.expectedStreams(
             inRoot: projectURL,
             writtenBy: Set(ids.map { DeviceSlug.make(from: $0).raw }))
     }
 
-    private func permitMark(forPerson person: String, seen: Bool) async -> SweptPositions {
+    /// **Every foreign stream this Mac remembers in this book** — the same
+    /// memory, for the sweep that cannot name a person (P3b Task 2).
+    ///
+    /// The unsigned snapshot's whole subject is streams nobody's record names,
+    /// so it has no set of device ids to narrow by and must expect everything
+    /// this Mac has ever applied from anybody. Its sibling above and this one
+    /// read the same store through the same function, so a stream expected by
+    /// one and not the other would have to be a difference in the SLUG filter
+    /// and nothing else.
+    nonisolated static func everyExpectedStream(
+        in projectURL: URL, state: OpLogDeviceState
+    ) -> [String: OpLogDeviceState.ForeignStreamMemory] {
+        state.expectedStreams(inRoot: projectURL, writtenBy: nil)
+    }
+
+    private func permitMark(
+        forPerson person: String, seen: Bool, settling: Set<String> = []
+    ) async -> SweptPositions {
         let projectURL = self.projectURL
         let identities = Document.loadIdentities
         let cache = Document.loadRegistryCache
@@ -691,7 +937,7 @@ extension DocumentStore {
                 return .success(seen
                     ? try OpLogStore.seenPositions(
                         ofDeviceIds: ids, in: projectURL, trust: resolved.table,
-                        expecting: expected)
+                        expecting: expected, settlingPieces: settling)
                     : try OpLogStore.appliedPositions(
                         ofDeviceIds: ids, in: projectURL, trust: resolved.table,
                         expecting: expected))
@@ -715,6 +961,367 @@ extension DocumentStore {
         case unreadable(name: String)
     }
 
+    // MARK: - What a narrowing would cost this book (P3b Tasks 4 and 5)
+
+    /// **What this book's own state says about narrowing it**, and which of its
+    /// streams answer to no key.
+    ///
+    /// Two surfaces need this and must not compute it twice: the admission
+    /// sheet, before Admit is pressable over a narrowing rung, and People &
+    /// Devices, for its unsigned rows and the same first-narrowing sentence.
+    /// Two bodies would let the sheet and the pane say different things about
+    /// one folder on one afternoon.
+    ///
+    /// Both halves come off the FOLDER rather than this Mac's own enclave:
+    /// whether anybody here has already been given less than the whole book
+    /// (`TrustTable.hasNarrowingPermits`) and which streams no key can name
+    /// (`OpLogStore.unattributablePositions`, the same sweep a narrowing act
+    /// takes its photograph with). The Mac that signs nothing is usually
+    /// somebody else's.
+    ///
+    /// **It reports a refusal rather than guessing.** A folder this Mac could
+    /// not read answers with the read's own sentence and no streams; the act
+    /// itself runs the same sweep and refuses in the error's own words, so a
+    /// guess here would be a second, quieter account of a failure the writer is
+    /// about to be told about properly.
+    ///
+    /// **No `expecting:`, deliberately.** This is a READ for a sentence, not the
+    /// photograph a verb writes: a stream that has gone missing mid-sync must
+    /// refuse the ACT (`sweptUnsignedSnapshot` passes `everyExpectedStream`) and
+    /// must not cost the writer the sentence explaining what the act would do.
+    struct UnsignedReading: Sendable, Equatable {
+        /// Has anybody in this book already been given less than the whole of
+        /// it? Narrowing is sticky, so this only ever becomes true.
+        var alreadyNarrowed: Bool = false
+        /// **The day this book was first narrowed** — the governing
+        /// `UnsignedSnapshot`'s own `at`, which is what History dates its
+        /// unsigned entries with (P3b Task 10). Nil exactly when
+        /// `alreadyNarrowed` is false, and nil on a refusal.
+        var narrowedAt: Date?
+        /// The streams no key names, by device slug (or stream key where a file
+        /// carries no slug), sorted.
+        var streams: [String] = []
+        /// The read's own sentence, where it refused. Everything else is then
+        /// its default, deliberately — a guess is worse than nothing here.
+        var refusal: String?
+
+        var holdsAnUnsignedStream: Bool { !streams.isEmpty }
+    }
+
+    /// The reading, off the main actor. `nil` refusal is a reading that stands.
+    ///
+    /// `onlyIfNarrowed` is a COST rule and never a correctness one: History
+    /// draws an unsigned entry only in a book that has been narrowed, so
+    /// walking every op file of one that has not would be paying for an answer
+    /// with nowhere to go. The sheet and People & Devices pass nothing,
+    /// because their sentence is precisely the one about a book BEFORE its
+    /// first narrowing.
+    func unsignedReading(onlyIfNarrowed: Bool = false) async -> UnsignedReading {
+        let projectURL = self.projectURL
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        return await Task.detached(priority: .userInitiated) {
+            DocumentStore.readUnsigned(
+                in: projectURL, identities: identities, cache: cache,
+                onlyIfNarrowed: onlyIfNarrowed)
+        }.value
+    }
+
+    /// The same read, synchronous and folder-facing, so a caller that is
+    /// already detached does not nest a second `Task`.
+    nonisolated static func readUnsigned(
+        in projectURL: URL, identities: LocalIdentities, cache: RegistryCache,
+        onlyIfNarrowed: Bool = false
+    ) -> UnsignedReading {
+        do {
+            let resolved = try TrustResolution.resolveVerified(
+                projectURL: projectURL, identities: identities, cache: cache)
+            guard !onlyIfNarrowed || resolved.table.hasNarrowingPermits else {
+                return UnsignedReading(alreadyNarrowed: false)
+            }
+            let unsigned = try OpLogStore.unattributablePositions(
+                in: projectURL, trust: resolved.table)
+            // **Named the way the DOOR names them** — by device slug, falling
+            // back to the stream key where a file carries none. One Mac is one
+            // row whatever it wrote in, because a stream outlives its
+            // filenames and two rows for one machine would ask the writer
+            // about it twice. The spelling is `HeldLines`', so an unsigned row
+            // here and a held-line holder in History are the same word.
+            let named = unsigned.streams.keys.map { key in
+                HeldLines.unsignedHolder(
+                    forStreamKey: key,
+                    deviceSlug: PermitMark.deviceSlug(ofStreamKey: key))
+            }
+            return UnsignedReading(
+                alreadyNarrowed: resolved.table.hasNarrowingPermits,
+                narrowedAt: resolved.table.unsignedSnapshot?.at,
+                streams: Set(named.compactMap(HeldLines.streamOfUnsignedHolder))
+                    .sorted())
+        } catch {
+            return UnsignedReading(refusal: error.localizedDescription)
+        }
+    }
+
+    // MARK: - The two repairs (P3b Task 5)
+
+    /// **Bring a person's record up to this book's history** — spec §3.2's
+    /// crash window, pressed by the root.
+    ///
+    /// It writes a record and NO event, so it narrows nothing: no photograph is
+    /// owed and no schema gate, and neither is paid. The rule about what the
+    /// record should say is `RegistryAdmission.resignFromTimeline`'s, which
+    /// reads the timeline the check reads (tripwire 43).
+    @discardableResult
+    public func resignRecord(person fingerprint: String) async throws -> PersonRecord {
+        let projectURL = self.projectURL
+        let author = Document.loadIdentities.author
+        let cache = Document.loadRegistryCache
+        let record = try await Task.detached(priority: .userInitiated) {
+            try RegistryAdmission.resignFromTimeline(
+                person: fingerprint, in: projectURL, by: author, cache: cache)
+        }.value
+
+        await settle(after: "re-signing the record for",
+                     DeviceCode.short(fingerprint))
+        return record
+    }
+
+    /// **Write this Mac's own registry record again** (audit PR #65's F4).
+    ///
+    /// The last resort, over a record the reader refuses that this device holds
+    /// no earlier bytes for — Restore's case with nothing to restore. Every
+    /// refusal is `RegistryPresence.writeOwnRecordAgain`'s: it is never another
+    /// device's record, never one that verifies, and for a person record never
+    /// where some other Mac's root decides who is in this book.
+    @discardableResult
+    public func writeOwnRecordAgain(_ ref: RecordRef) async throws -> URL {
+        let projectURL = self.projectURL
+        let identities = Document.loadIdentities
+        let name = DocumentStore.thisMacsName
+        let writerName = DocumentStore.thisWritersName
+        let url = try await Task.detached(priority: .userInitiated) {
+            try RegistryPresence.writeOwnRecordAgain(
+                ref, in: projectURL, identities: identities,
+                name: name, writerName: writerName, kind: .mac)
+        }.value
+
+        await settle(after: "writing this Mac\u{2019}s own record again for",
+                     DeviceCode.short(ref.fingerprint))
+        return url
+    }
+
+    // MARK: - History this book is missing (P3b Task 6)
+
+    /// **What this Mac remembers of this book's history and cannot find** —
+    /// History's drawer, and the fact behind every `historyUnreadable`
+    /// refusal that names a stream.
+    ///
+    /// Off the main actor: it resolves a table so each row can be named the
+    /// way the book names that device, and it lists the two stream
+    /// directories. It reads no file of the op log and it verifies nothing.
+    ///
+    /// A folder this Mac cannot read answers with whatever the memory alone
+    /// says — the truncations — rather than refusing: this is a read for a
+    /// sentence, and the acts that must not proceed over a short reading
+    /// refuse on their own account.
+    func lostHistory() async -> [OpLogStore.LostHistory] {
+        let projectURL = self.projectURL
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        let state = Document.loadDeviceState
+        return await Task.detached(priority: .userInitiated) {
+            // **The ordinary book costs nothing at all.** A project this Mac
+            // has never read another device's stream in can have lost none of
+            // one, so it answers before resolving a table (a folder read and a
+            // signature check per record) or listing a directory. The answer is
+            // the same either way — `lostHistory` over an empty memory with no
+            // truncations is empty — which is what makes the short circuit a
+            // cost decision rather than a second rule.
+            guard !state.truncations(inRoot: projectURL).isEmpty
+                    || !state.foreignStreams(
+                        inRoot: projectURL, writtenBy: nil).isEmpty
+            else { return [] }
+            let table = try? TrustResolution.resolveVerified(
+                projectURL: projectURL, identities: identities, cache: cache).table
+            return OpLogStore.lostHistory(
+                in: projectURL, state: state, trust: table)
+        }.value
+    }
+
+    /// **How many acknowledged losses each act would be deciding over** (fix
+    /// round 1, Minor 1) — the book's, and one count per person.
+    ///
+    /// The two are needed because the verbs sweep differently. A revocation
+    /// and a permit change that narrows NOBODY sweep one person's streams
+    /// (`expectedStreams(ofDeviceIds:)`), so a loss under somebody else's
+    /// machine cannot affect them and must not be mentioned: a confirmation
+    /// that says *this is decided without history you said was gone* about an
+    /// act that reads none of it is an over-statement, and an over-statement
+    /// about a destructive act is the kind a writer learns to skip. A permit
+    /// change that NARROWS also takes the book's photograph
+    /// (`everyExpectedStream`), so its count is the book's.
+    ///
+    /// Read off the same rows the drawer draws, so the pane's sentence and its
+    /// rows cannot disagree about what has been put down.
+    struct AcknowledgedLosses: Sendable, Equatable {
+        /// Every loss this writer has put down in this book.
+        var book: Int = 0
+        /// Those under one person's own machines, by person fingerprint.
+        var byPerson: [String: Int] = [:]
+
+        func count(ofPerson fingerprint: String) -> Int {
+            byPerson[fingerprint] ?? 0
+        }
+    }
+
+    func acknowledgedLostHistory() async -> AcknowledgedLosses {
+        let projectURL = self.projectURL
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        let state = Document.loadDeviceState
+        return await Task.detached(priority: .userInitiated) {
+            // The drawer's own short circuit, for its own reason: the ordinary
+            // book has put nothing down and pays nothing to say so.
+            guard !state.acknowledgedLosses(inRoot: projectURL).isEmpty
+            else { return AcknowledgedLosses() }
+            guard let resolved = try? TrustResolution.resolveVerified(
+                projectURL: projectURL, identities: identities, cache: cache)
+            else { return AcknowledgedLosses() }
+            let put = OpLogStore.lostHistory(
+                in: projectURL, state: state, trust: resolved.table
+            ).filter(\.acknowledged)
+            guard !put.isEmpty else { return AcknowledgedLosses() }
+            var byPerson: [String: Int] = [:]
+            for person in resolved.registry.people {
+                let slugs = Set(DocumentStore.opLogDeviceIds(
+                    ofPerson: person.person, in: resolved.registry
+                ).map { DeviceSlug.make(from: $0).raw })
+                let mine = put.filter { slugs.contains($0.deviceSlug) }.count
+                if mine > 0 { byPerson[person.person] = mine }
+            }
+            return AcknowledgedLosses(book: put.count, byPerson: byPerson)
+        }.value
+    }
+
+    /// **The writer has been shown a loss and has put it down.**
+    ///
+    /// It writes nothing to the book: no event, no record, nothing another
+    /// device will ever read — only this Mac's own memory of having been told
+    /// (`OpLogDeviceState.acknowledgeLoss`), which is what stops the marking
+    /// verbs waiting for a stream that is never coming back. Synchronous
+    /// because it is a small local write behind a button, like
+    /// `acknowledgeSetAsideRecords`.
+    func acknowledgeLostHistory(streamKey: String) {
+        Document.loadDeviceState.acknowledgeLoss(
+            streamKey, inRoot: projectURL)
+    }
+
+    // MARK: - A piece nobody has claimed (P3b Task 7, spec §4.5)
+
+    /// **Yes, that piece is theirs** — the one write behind the load's second
+    /// question.
+    ///
+    /// It adds the piece to their scope and changes nothing else. The permit
+    /// it installs is built in the permit layer from the one in force RIGHT
+    /// NOW — `PermitTimeline.current`, never `PersonRecord.role` (tripwire 43)
+    /// and never a rung compared here (tripwire 47) — so a writer who was
+    /// already an author of three pieces becomes an author of four and a
+    /// writer whose permit changed under this window since it drew does not
+    /// have that change quietly reverted.
+    ///
+    /// **Every record of theirs, like every other permit change** (fix round
+    /// 1's I3): a person is a label and a label is as many machines as they
+    /// own. Adding the piece to their Mac alone would leave their phone's
+    /// paragraphs of the same chapter held, with the writer told the question
+    /// was settled.
+    ///
+    /// **It refuses rather than promoting.** §4.5 can only hold a line for
+    /// somebody who may already write *some* of this book, so the permit in
+    /// force is an author-of-some-pieces one; if it is not — a permit changed
+    /// under this window, a word this build cannot read — this answers nothing
+    /// rather than inventing a rung the writer never chose.
+    /// `Permit.mayStartAPieceOfTheirOwn` is that question, asked of the permit
+    /// layer.
+    @discardableResult
+    public func pieceIsTheirs(
+        person: String, docId: String
+    ) async throws -> [PersonRecord] {
+        let projectURL = self.projectURL
+        let cache = Document.loadRegistryCache
+        let registry = try await Task.detached(priority: .userInitiated) {
+            try TrustResolution.verifiedRegistry(
+                projectURL: projectURL, presenter: nil, cache: cache)
+        }.value
+        guard registry.person(person) != nil else {
+            throw RegistryAdmissionError.notAdmitted(fingerprint: person)
+        }
+        let standing = PermitTimeline(about: person, in: registry).current
+        guard standing.mayStartAPieceOfTheirOwn else {
+            throw PieceIsTheirsRefused(person: person)
+        }
+        var pieces = PermitControl.pieces(displaying: standing)
+        pieces.insert(docId)
+        let widened = PermitControl.permit(for: .somePieces, pieces: pieces)
+        // **An ASSERTION about the two lines above it, not a reachable
+        // refusal** (fix round 3, minor 4). `widened` is `standing`'s piece
+        // list plus one id, so it covers `standing` by construction and this
+        // can only fire if somebody changes how the permit above is built.
+        // It is kept because of what it is guarding: `settling` makes the mark
+        // fall BEFORE her held span, so those lines are re-judged under
+        // `widened` — and re-judging is safe in one direction only. The day
+        // this verb learns to narrow, the cut stops being safe, and this line
+        // is where that is noticed. `Permit.covers` is the permit layer's own
+        // comparison, never a rung tested here (tripwire 47).
+        guard widened.covers(standing) else {
+            throw PieceIsTheirsRefused(person: person)
+        }
+        let moved = try await changePermit(
+            everyRecordOf: person, to: widened, settling: [docId])
+        // **The question is answered, and is never put again** (fix round 1).
+        // Device-local beside the declines: what makes it true for the book is
+        // the signed event above, and this only stops THIS Mac asking about
+        // something it has already written down.
+        Document.loadDeviceState.settlePiece(
+            person: person, docId: docId, inRoot: projectURL)
+        return moved
+    }
+
+    /// **Not now.** It writes nothing to the book — see
+    /// `OpLogDeviceState.declinePiece`, which is the whole of it — and only
+    /// stops THIS Mac asking again at the next load. The question goes on
+    /// waiting in People & Devices.
+    ///
+    /// Synchronous, like `acknowledgeLostHistory` beside it: a small local
+    /// write behind a button.
+    func notNowAboutPiece(person: String, docId: String) {
+        Document.loadDeviceState.declinePiece(
+            person: person, docId: docId, inRoot: projectURL)
+    }
+
+    /// Every question about a piece this Mac has already closed in this book —
+    /// put off OR answered (fix round 1). One reader, because *should this be
+    /// ASKED again* is one question and both answers are no.
+    func closedPieceQuestions() -> Set<OpLogDeviceState.DeclinedPiece> {
+        Document.loadDeviceState.closedPieceQuestions(inRoot: projectURL)
+    }
+
+    /// **The ones put OFF, and only those** (fix round 3, minor 5).
+    ///
+    /// *Should this be asked again* and *what happened to it* are different
+    /// questions, and People & Devices needs the second: a question the writer
+    /// ANSWERED must not be drawn at all, while one they put off is drawn with
+    /// a note saying so. Reading the closed set for both made a settled
+    /// question appear under *You put this off*, which is the opposite of what
+    /// the writer did.
+    func declinedPieceQuestions() -> Set<OpLogDeviceState.DeclinedPiece> {
+        Set(Document.loadDeviceState.declinedPieces(inRoot: projectURL).keys)
+    }
+
+    /// The ones ANSWERED. The pane filters these out entirely.
+    func settledPieceQuestions() -> Set<OpLogDeviceState.DeclinedPiece> {
+        Set(Document.loadDeviceState.settledPieces(inRoot: projectURL).keys)
+    }
+
     // MARK: - Who is waiting, across this window
 
     /// **Held lines by device, over everything this window can see** — the open
@@ -732,18 +1339,193 @@ extension DocumentStore {
     /// asks the inbox for what that refresh last counted and does not refresh
     /// it: a caller that wants the stream re-read says so itself, which is what
     /// Project Settings does before it asks.
-    public func heldLinesByDevice() -> [String: Int] {
-        var held: [String: Int] = [:]
+    public func heldLinesByDevice() -> [String: Int] { heldLines().counts }
+
+    /// **The same union, carrying the STREAMS each holder was held in** (P3b
+    /// Task 4).
+    ///
+    /// The counts answer *how much is waiting*; the streams answer the question
+    /// the admission sheet has to ask before it offers anybody — *is this key a
+    /// person's at all*. A non-author actor key whose device record has not
+    /// arrived stands for itself in `pendingByDevice`, and the slug of the file
+    /// it wrote in is the only thing on disk that names it (`AdmissionDecision
+    /// .standing`, which CHECKS that claim against the key rather than
+    /// believing a word in a filename).
+    ///
+    /// One walk for both, so the two halves cannot disagree about who is
+    /// waiting — and a holder with no streams is a real, ordinary answer
+    /// (a legacy file, a hand-built provenance, an inbox read from before this
+    /// milestone), which asks nothing of the holder and leaves it offered
+    /// exactly as P2b offered it.
+    func heldLines() -> HeldLineUnion {
+        var counts: [String: Int] = [:]
+        var streams: [String: Set<String>] = [:]
+        var startedAPiece: [String: [String: Int]] = [:]
         for document in allOpenDocuments() {
             guard let provenance = document.provenance else { continue }
             for (device, count) in provenance.pendingByDevice {
-                held[device, default: 0] += count
+                counts[device, default: 0] += count
+            }
+            for (device, slugs) in provenance.pendingStreamsByDevice {
+                streams[device, default: []].formUnion(slugs)
+            }
+            // **Where the docId joins the walk's answer** (P3b Task 7). The
+            // partition decided WHO opened a piece nobody has claimed; only
+            // this fold knows WHICH piece, because a document knows its own id
+            // and a file's provenance does not.
+            //
+            // **With this document's OWN count** (fix round 1, I4). The
+            // question names a piece and promises what pressing it brings in,
+            // so the number beside it has to be the number in THAT piece — the
+            // holder's total across every open document is a different figure
+            // and it is the one the sheet was printing.
+            for holder in document.startedAPiece {
+                startedAPiece[holder, default: [:]][document.docId] =
+                    provenance.pendingByDevice[holder] ?? 0
             }
         }
         for (device, count) in inboxStore.pendingByDevice {
-            held[device, default: 0] += count
+            counts[device, default: 0] += count
         }
-        return held
+        for (device, slugs) in inboxStore.pendingStreamsByDevice {
+            streams[device, default: []].formUnion(slugs)
+        }
+        return HeldLineUnion(
+            counts: counts, streams: streams, startedAPiece: startedAPiece)
+    }
+
+    // MARK: - The words a held line is waiting with (P3b Task 8, spec §7.4)
+
+    /// **How many paragraphs each unsigned holder is waiting with**, for the
+    /// one document the pane is showing.
+    ///
+    /// A held line writes no `.lines` record — nothing is wrong with it — so
+    /// the count cannot be read off the quarantine directory the way the record
+    /// door's is. It is the walk's own answer, re-run over that document's
+    /// files (`OpLogStore.heldLines`), which is why it is resolved on a reload
+    /// and held rather than asked from `body` (tripwire 4).
+    ///
+    /// **Unsigned holders only, and nothing else is asked.** A stranger's held
+    /// lines have an admission, which applies them; a permit-pending line has a
+    /// later build or the writer's own answer about a piece. Only a stream
+    /// nothing signs has no way in but this one, so only it pays for the walk —
+    /// and a book that has narrowed nobody has no unsigned holder at all and
+    /// pays nothing.
+    ///
+    /// A read that throws answers NOTHING for that holder rather than a short
+    /// count: no door is better than a door that promises half a span.
+    func unsignedHeldWordCounts(
+        forDocId docId: String, holders: [String]
+    ) async -> [String: Int] {
+        let unsigned = holders.filter { HeldLines.isUnsignedHolder($0) }
+        guard !unsigned.isEmpty else { return [:] }
+        var counts: [String: Int] = [:]
+        for holder in unsigned {
+            guard let words = try? await unsignedHeldWords(
+                forDocId: docId, heldBy: holder), !words.isEmpty
+            else { continue }
+            // **What is left, not what is there** (fix round 2, C1). A held
+            // span is live: the stream goes on writing, and the door must
+            // offer the paragraphs this Mac has not already made a capture of
+            // — never all of them again, and never none of them because one
+            // press happened once.
+            let already = uiState.sentRecoveredOpIds[
+                SetAsideDoor.heldKey(docId: docId, holder: holder)] ?? []
+            let unsent = words.filter {
+                !already.contains(SetAsideDoor.captureId($0))
+            }
+            guard !unsent.isEmpty else { continue }
+            counts[holder] = unsent.count
+        }
+        return counts
+    }
+
+    /// The words themselves — the walk's held lines for this holder, decoded
+    /// by the same `OpLogQuarantine.recoverableWords` the record door uses, so
+    /// the two doors cannot disagree about what counts as the writer's prose.
+    func unsignedHeldWords(
+        forDocId docId: String, heldBy holder: String
+    ) async throws -> [OpLogQuarantine.SetAsideWords] {
+        // `Document.makeLoadOpStore` is the ONE construction on a load path, so
+        // the walk this re-runs is built from the same identities, the same
+        // remembered heads and the same registry memory the load was — a store
+        // put together by hand here would judge the same bytes differently.
+        let store = Document.makeLoadOpStore(
+            projectURL: projectURL, presenter: presenter)
+        let lines = try await store.heldLines(forDocId: docId, heldBy: holder)
+        return OpLogQuarantine.recoverableWords(inLines: lines)
+    }
+
+    /// **Send an unsigned holder's held words to the Inbox** (spec §7.4).
+    ///
+    /// The same act the record door performs, over a different source: nothing
+    /// is applied, nothing on disk moves, the lines stay held exactly as they
+    /// were, and the words arrive as ordinary captures signed by this Mac's own
+    /// author actor. The press is remembered per (holder, document) so the door
+    /// is not offered twice over the same span.
+    ///
+    /// Answers how many captures landed. Zero — a re-read that found nothing —
+    /// writes no memory either, because there is nothing to have sent and the
+    /// door should still be there if the span arrives later.
+    @discardableResult
+    func sendHeldWordsToInbox(
+        forDocId docId: String, heldBy holder: String
+    ) async throws -> Int {
+        let key = SetAsideDoor.heldKey(docId: docId, holder: holder)
+        let already = uiState.sentRecoveredOpIds[key] ?? []
+        let words = try await unsignedHeldWords(forDocId: docId, heldBy: holder)
+        let attribution = SetAsideDoor.unsignedAttribution
+        let captures = words
+            .filter { !already.contains(SetAsideDoor.captureId($0)) }
+            .map {
+                SetAsideDoor.Capture(
+                    id: SetAsideDoor.captureId($0), text: $0.text,
+                    attribution: attribution)
+            }
+        guard !captures.isEmpty else { return 0 }
+        // Recorded as each one LANDS (fix round 2, M2): a manifest that stops
+        // being writable halfway leaves a re-press with only the rest to do,
+        // rather than with every paragraph the writer already has.
+        return try await inboxStore.captureRecoveredWords(captures) { landed in
+            recordRecoveredCapturesSent(door: key, ids: [landed.id])
+        }
+    }
+}
+
+/// **What this window can see being held, and where** (P3b Task 4).
+///
+/// Two maps rather than one keyed value, because they are read by different
+/// questions and one of them is P2b's: `counts` is every *N notes waiting*
+/// sentence in the app, and `streams` exists so that the one surface which
+/// offers to ADMIT a holder can first ask whether that holder is a person's
+/// key at all.
+struct HeldLineUnion: Equatable {
+    /// Held OP lines by holder — a device fingerprint, a seal key that no
+    /// record names, or one of `HeldLines`' non-key holders.
+    var counts: [String: Int]
+    /// The device slugs of the streams each holder was held in. Legitimately
+    /// empty for a holder whose files carry no slug.
+    var streams: [String: Set<String>]
+    /// **The pieces each holder OPENED that nobody has claimed** (P3b Task 7,
+    /// spec §4.5) — the walk's own answer (`Document.startedAPiece`) with this
+    /// fold's docIds joined to it.
+    ///
+    /// A third map for `streams`' reason: it is read by a different question.
+    /// `counts` is every *N notes waiting* sentence, `streams` is *is this
+    /// holder a person's key at all*, and this is *did they start something
+    /// that is in nobody's scope* — the one held line the writer can answer
+    /// today. Empty for every book that has narrowed nobody.
+    /// Holder → the pieces they opened → **how much of theirs is held in that
+    /// piece** (fix round 1, I4). Per document, because the question names one.
+    var startedAPiece: [String: [String: Int]]
+
+    init(
+        counts: [String: Int] = [:], streams: [String: Set<String>] = [:],
+        startedAPiece: [String: [String: Int]] = [:]
+    ) {
+        self.counts = counts
+        self.streams = streams
+        self.startedAPiece = startedAPiece
     }
 }
 
@@ -782,5 +1564,30 @@ public struct PermitChangePartlyApplied: Error, LocalizedError {
                 + "\(DeviceCode.short(failed)) has not."
         return "\(what) \(underlying.localizedDescription) "
             + "Pressing again finishes the rest and changes nothing twice."
+    }
+}
+
+/// **A piece question whose subject may not write pieces at all** (P3b Task 7).
+///
+/// §4.5 holds a line only for somebody who may already write *some* of this
+/// book, so the permit in force when the question was raised was an
+/// author-of-some-pieces one. It can have moved since: a second window, another
+/// Mac, or this writer themselves in People & Devices while the question stood.
+///
+/// Answering it anyway would install a rung nobody chose — *Theirs* is the
+/// writer saying whose a PIECE is, never a promotion — so the act refuses and
+/// says which of the two facts moved. `LocalizedError`, so
+/// `AdmissionDecision.refusal`'s fallback arm reads as a sentence.
+public struct PieceIsTheirsRefused: Error, LocalizedError {
+    public let person: String
+
+    public init(person: String) { self.person = person }
+
+    public var errorDescription: String? {
+        "Nothing was changed. What the device with code "
+            + "\(DeviceCode.short(person)) may write has moved since this "
+            + "question was asked, so saying the piece is theirs would give "
+            + "them access you haven’t chosen. Set what they may write in "
+            + "People & Devices instead."
     }
 }

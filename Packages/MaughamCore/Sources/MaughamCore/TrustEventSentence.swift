@@ -35,9 +35,16 @@ public enum TrustEventSentence {
             return actor.map { "\(subject) admitted by \($0)\(rung)." }
                 ?? "\(subject) admitted\(rung)."
         case .silentlyAdmitted:
+            // **C11: the fact is that nobody was ASKED**, which is what a
+            // writer comes to History to find out. *Automatically* named the
+            // mechanism and left the question open — it reads equally well as
+            // *the app did the paperwork* — while the thing that actually
+            // happened is that this Mac had already granted that label
+            // somewhere else (`AdmissionMemory`, decision B2) and so showed no
+            // sheet.
             let rung = rung(of: event)
-            return actor.map { "\(subject) admitted automatically by \($0)\(rung)." }
-                ?? "\(subject) admitted automatically\(rung)."
+            return actor.map { "\(subject) admitted by \($0) without asking\(rung)." }
+                ?? "\(subject) admitted without asking\(rung)."
         case .readmitted:
             let rung = rung(of: event)
             return actor.map { "\(subject) let back in by \($0)\(rung)." }
@@ -86,6 +93,19 @@ public enum TrustEventSentence {
                 : "\(subject) also claims this book."
         case .recordRestored:
             return "\(possessive(subject)) record was missing and has been put back."
+        case .unsigned:
+            // **Named by its STREAM, not by a code** (P3b Task 10). There is no
+            // fingerprint here — that is the whole fact — so `DeviceCode.short`
+            // would print four characters of a filename prefix, and two
+            // unsigned streams would print the same four. The stream is the
+            // same word People & Devices' own unsigned row uses, in the same
+            // quotes.
+            let stream = HeldLines.streamOfUnsignedHolder(event.subject)
+                ?? event.subject
+            return "This book was narrowed while nothing in it said who signs "
+                + "for \u{201C}\(stream)\u{201D}. Anything that stream has "
+                + "written since is waiting: there is no device to admit, and "
+                + "its way back in is the Inbox."
         }
     }
 
@@ -166,6 +186,48 @@ public enum TrustEventSentence {
     /// revoking hand, the claimant that adopted.
     nonisolated static func name(_ fingerprint: String, labels: [String: String]) -> String {
         labels[fingerprint] ?? DeviceCode.short(fingerprint)
+    }
+
+    /// **Why this row names four characters and nothing else** (P3b Task 7),
+    /// or nil where it names somebody.
+    ///
+    /// A bare code is honest and useless on its own: it cannot be told from *a
+    /// Mac I have never heard of*, and the case that actually happens is the
+    /// opposite one — a root admits somebody, the EVENT syncs, and the person
+    /// record lands a minute later. Until it does, every surface that resolves
+    /// a name off the registry has nothing, and History drew a row that
+    /// explained none of it.
+    ///
+    /// **Beside the sentence, not inside it.** `sentence(for:labels:)` is
+    /// shared with the phone and pinned to the byte in both surfaces' tests;
+    /// the row composes the two, so the clause can be drawn where there is
+    /// room for it and left out where there is not.
+    ///
+    /// **Not every kind wants it**, and the switch has no `default:` so a
+    /// fourteenth kind has to decide. A claimant is another Mac's root by
+    /// definition, and a claim, an adoption and a join are all about somebody
+    /// outside this chain — telling the writer their record has not arrived
+    /// would be telling them to wait for something that is not coming.
+    nonisolated public static func unknownSubject(
+        for event: TrustEvent, labels: [String: String]
+    ) -> String? {
+        guard !event.isMine,
+              event.label == nil, labels[event.subject] == nil
+        else { return nil }
+        switch event.kind {
+        case .admitted, .silentlyAdmitted, .readmitted, .roleChanged,
+             .scopeChanged, .revoked, .revokedEntirely, .retired,
+             .recordRestored:
+            return "This Mac hasn’t received their record yet."
+        case .claimed, .adopted, .joined, .anotherClaimant:
+            return nil
+        case .unsigned:
+            // There is no record coming. A stream nothing signs has no key, so
+            // it can have no device record and no person record, ever — and
+            // telling the writer to wait for one would be telling them to wait
+            // for the one thing this row exists to say is not there.
+            return nil
+        }
     }
 
     /// `Sam` → `Sam’s`. A typographic apostrophe, because every other sentence

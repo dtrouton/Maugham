@@ -92,8 +92,15 @@ enum AdmissionDecision {
     /// admitted it: under my own root it is already in, and under another
     /// root's it is a claimant, which is merged by a claim record at a surface
     /// and never by this sheet (`RegistryAdmission.admit` refuses it outright).
+    ///
+    /// **And three more holders are never offered** (P3b Task 4, spec §7.1) —
+    /// see `standing(ofHolder:streams:registry:)`, which is where every one of
+    /// those judgements is made. `streams` is `DocumentStore.heldLines`'
+    /// second half; passing none is the P2b answer, which offers everything
+    /// this book has no record of.
     static func requests(
         pending: [String: Int],
+        streams: [String: Set<String>] = [:],
         registry: Registry,
         memory: [String: AdmissionMemory.Label],
         myRoot: String?
@@ -102,13 +109,10 @@ enum AdmissionDecision {
         let labels = knownLabels(registry: registry, memory: memory)
         return pending.keys.sorted().compactMap { fingerprint -> AdmissionRequest? in
             guard let waiting = pending[fingerprint], waiting > 0 else { return nil }
-            // **THE stranger predicate** (P3a Task 5's D5), in Core, so every
-            // admission-worded count and notice narrows by the same rule this
-            // sheet does. A permit-pending line is held under the same
-            // `.pending(device:)` state and belongs to a device that is
-            // already in the book — offering a sheet about it would offer a
-            // control that changes nothing.
-            guard registry.isStrangerDevice(fingerprint) else { return nil }
+            guard standing(ofHolder: fingerprint,
+                           streams: streams[fingerprint] ?? [],
+                           registry: registry) == .aStrangerToAskAbout
+            else { return nil }
             let record = registry.devices.first { $0.device == fingerprint }
             let ownName = record?.name
             return AdmissionRequest(
@@ -119,6 +123,97 @@ enum AdmissionDecision {
                 proposedLabel: ownName ?? "",
                 knownLabels: labels)
         }
+    }
+
+    // MARK: - What a held holder IS (P3b Task 4, spec §7.1)
+
+    /// **Why a holder is, or is not, somebody to put a sheet in front of.**
+    ///
+    /// Four answers, and only the first is a question for the writer. The other
+    /// three are lines that wait for something *else* to happen — a device
+    /// record to arrive, a dispute to be settled, a permit this build cannot
+    /// read to be understood by one that can — and a sheet about any of them
+    /// would offer a control that cannot help.
+    ///
+    /// Each carries its own reason rather than collapsing into a Bool, because
+    /// People & Devices (Task 5) draws a LINE for each of the three, and a
+    /// reason derived twice is how one surface comes to say *waiting to be let
+    /// in* about a holder the other calls contested.
+    enum HeldKeyStanding: Equatable {
+        /// A key this book has no record of, shaped like a person's: the
+        /// ordinary case, and the one the admission sheet exists for.
+        case aStrangerToAskAbout
+        /// A key that is not a person's — one of a device's other three
+        /// writers, whose device record has not arrived yet. Admitting it would
+        /// let a machine into the book under the name of its assistant.
+        case waitingForItsDeviceRecord(actor: DeviceActor)
+        /// Two verified device records claim this key, so it is nobody's for
+        /// good (`Registry.isContestedActorKey`). There is no one person to
+        /// admit and naming one would decide the thing the dispute rule
+        /// refuses to decide.
+        case contested
+        /// Not a stranger at all — already in the book, or not a key.
+        case notAStranger(HeldLines.Holder)
+    }
+
+    /// **The one classification**, over the holder string and the streams it
+    /// was held in.
+    ///
+    /// Order matters, and it is the order of how much each answer KNOWS:
+    ///
+    /// 1. `HeldLines.holder` first (P3b Task 2's one classifier, asked and
+    ///    never re-spelled) — an unsigned stream is decided by the string
+    ///    itself and a permit-pending line by a person record, and neither is a
+    ///    stranger.
+    /// 2. Then the register's own opinion: a key two device records claim is
+    ///    nobody's, and *nobody's* is not *unheard of*.
+    /// 3. Then, and only where nothing on disk names the key at all, the FILE:
+    ///    a stream slug is `<actor>-<hex of the key>`, so
+    ///    `DeviceIdentity.actor(ofDeviceId:signingWith:)` can say which of the
+    ///    four writers made it — and it CHECKS the claim against the key rather
+    ///    than believing the word, which is what keeps this narrowing honest.
+    ///
+    /// **Both directions of that third rule**, because it is the one that can
+    /// wrongly withhold a sheet. An honest stranger whose held lines happen to
+    /// sit in her own ASSISTANT file is held under her DEVICE's fingerprint
+    /// (the record names the actor key, so the walk resolves it to the device)
+    /// — and that fingerprint is not a prefix-match for the assistant slug, so
+    /// the checked parse answers nil and she is offered exactly as before. A
+    /// slug that says `assistant` about a key it does not name narrows nothing.
+    /// The only holder this withholds is one whose own file says it is not an
+    /// author key, which is precisely a key no person is.
+    ///
+    /// **An AUTHOR slug for this very key outranks every other**, and that is
+    /// the third rule's own second direction. A key that has written as an
+    /// author IS a person under labels-only, whatever else names it — so a file
+    /// planted beside her own tail, calling her key an assistant's, costs her
+    /// nothing. Without that precedence a writer with the shared folder could
+    /// deny an honest stranger her sheet by writing one filename. In every
+    /// honest case the two rules agree: a non-author key never writes an
+    /// author-shaped stream, because a slug is derived from the key it belongs
+    /// to.
+    ///
+    /// A holder with no streams (a legacy file, an inbox read before this
+    /// milestone, a hand-built map) is offered as P2b offered it.
+    static func standing(
+        ofHolder fingerprint: String,
+        streams: Set<String>,
+        registry: Registry
+    ) -> HeldKeyStanding {
+        let holder = HeldLines.holder(of: fingerprint, registry: registry)
+        guard case .stranger = holder else { return .notAStranger(holder) }
+        if registry.isContestedActorKey(fingerprint) { return .contested }
+        var otherWriter: DeviceActor?
+        for slug in streams.sorted() {
+            guard let actor = DeviceIdentity.actor(
+                ofDeviceId: slug, signingWith: fingerprint) else { continue }
+            if actor == .author { return .aStrangerToAskAbout }
+            if otherWriter == nil { otherWriter = actor }
+        }
+        if let otherWriter {
+            return .waitingForItsDeviceRecord(actor: otherWriter)
+        }
+        return .aStrangerToAskAbout
     }
 
     // MARK: - A refresh, in order (decision B2 mid-session; find 4, 2026-09-17)
@@ -150,9 +245,16 @@ enum AdmissionDecision {
     /// signature check per record, and this runs on every document open that
     /// announces held lines — so a book whose only stranger is a stranger pays
     /// nothing for a memory that has nothing to say about it.
+    ///
+    /// **`heldStreams` is read at the same moment as the counts** (P3b Task 4)
+    /// and defaults to nothing, which is the P2b answer: a holder whose stream
+    /// nothing names is offered exactly as it was. It is a second closure
+    /// rather than a widened first one so that the order above — admit, then
+    /// re-read, then resolve — is still the only thing this function decides.
     @MainActor
     static func refreshedRequests(
         heldLines: @MainActor () -> [String: Int],
+        heldStreams: @MainActor () -> [String: Set<String>] = { [:] },
         memory: [String: AdmissionMemory.Label],
         admitRemembered: @MainActor () async -> Void,
         resolve: @MainActor () async -> (registry: Registry, myRoot: String?)?
@@ -167,7 +269,8 @@ enum AdmissionDecision {
         }
         guard let resolved = await resolve() else { return nil }
         return requests(
-            pending: pending, registry: resolved.registry,
+            pending: pending, streams: heldStreams(),
+            registry: resolved.registry,
             memory: memory, myRoot: resolved.myRoot)
     }
 
@@ -346,10 +449,23 @@ enum AdmissionDecision {
             // a mark and all four refuse over a short reading; this said *a
             // revocation* to all of them, so a writer who pressed *make Sam a
             // reviewer* was told a revocation had been refused.
+            //
+            // **And it says what to DO** (P3b Task 5, closing Task 1's review
+            // Minor 4 and Task 2's review I2). A narrowing verb sweeps every
+            // op-log file in the project, so it can refuse over a file
+            // anywhere in the book — an iCloud placeholder that has not
+            // downloaded, or a stream this Mac remembers applying from that is
+            // no longer there. *Try again in a moment* is true for the first
+            // and false for the second, and on its own it is a dead end for
+            // both: the writer is told a filename and left with nothing to do
+            // about it. The error cannot tell the two apart, so the sentence
+            // names both moves and neither is a guess.
             return "Nothing was changed. Maugham couldn’t read everything this "
                 + "device wrote (\(name)), and \(act.phrase) decided on a partial "
                 + "reading would set aside more than you asked it to. Try again "
-                + "in a moment."
+                + "in a moment. If it keeps refusing, open that file so iCloud "
+                + "finishes downloading it \u{2014} and History shows what this "
+                + "book is missing."
         case .notThatDevice(let device):
             return "Only the device with code \(DeviceCode.short(device)) can retire "
                 + "itself — a retirement from anything else is one no other Mac would "
@@ -369,6 +485,26 @@ enum AdmissionDecision {
                 + "a book of its own here, so there is no history of its own to take "
                 + "in. If it has written in this book, it was let in by somebody — "
                 + "nothing needs merging."
+        case .narrowingWithoutASnapshot(let fingerprint):
+            // Not reachable from any control this build ships — every store
+            // verb that can narrow takes the photograph first — so this is the
+            // sentence for the day a fourth caller forgets, and it says what
+            // did not happen rather than naming a value it was not given.
+            return "Nothing was changed. Before this book can limit what the device "
+                + "with code \(DeviceCode.short(fingerprint)) may write, Maugham has "
+                + "to note where every unsigned Mac’s writing had got to — otherwise "
+                + "the limit would reach back through work already in the book. Try "
+                + "again in a moment."
+        case .manifestNotGated(let reason, let act):
+            // The gate runs BEFORE the event, so nothing was written — and the
+            // sentence has to say why the writer should care that a *version
+            // number* could not be saved, because on its face that is the
+            // dullest failure in the app.
+            return "Nothing was changed. Before this book can limit what a device "
+                + "may write, it has to be marked as needing this version of "
+                + "Maugham — otherwise an older copy would go on applying writing "
+                + "this book has set aside. Saving that mark failed, so "
+                + "\(act.phrase) did not happen: \(reason)"
         }
     }
 }

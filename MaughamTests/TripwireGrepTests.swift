@@ -1103,6 +1103,105 @@ final class TripwireGrepTests: XCTestCase {
             + "FirstReaderRuling must contain at least one")
     }
 
+    // MARK: - A permit change reaches every machine of one writer (P3b Task 5)
+
+    /// **The one spelling a surface may not use.** `DocumentStore.changePermit(
+    /// person:to:)` is the single-record primitive; `changePermit(everyRecordOf:
+    /// to:)` is the verb.
+    static let singleRecordPermitVerb = "changePermit(person:"
+
+    /// **A pane that demoted one machine of two would be worse than one that
+    /// offered nothing** (fix round 1, I3; P3b Task 5).
+    ///
+    /// A permit lives on a person RECORD and a record is one device, but P2b's
+    /// admission merges a typed label matching a known one under that label's
+    /// own spelling — so a writer whose Mac and phone were both let in is two
+    /// records the root has said are one person. Demote the Mac alone and she
+    /// goes on writing manuscript text from the phone, applied by every reader,
+    /// with nothing anywhere saying why.
+    ///
+    /// The plural verb pre-flights every record's outcome AND every record's
+    /// sweep before a byte is written, so it is also the only one that can
+    /// refuse the whole act. A view reaching past it gets neither.
+    func test_noViewPressesTheSingleRecordPermitVerb() throws {
+        let offenders = try grepSwift(
+            in: sourceDir.appendingPathComponent("Views", isDirectory: true),
+            patterns: [Self.singleRecordPermitVerb],
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A view calls the single-record permit verb. A permit lives on a "
+            + "record and one writer can be two records (a Mac and a phone "
+            + "merged under one label), so a surface must call "
+            + "`changePermit(everyRecordOf:to:)` — which also pre-flights every "
+            + "record's outcome and sweep before it writes. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL: the census fires on a planted press, and lets a comment naming
+    /// the verb and a call of the PLURAL one through.
+    func test_theSingleRecordPermitVerbCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-permitverb-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct HonestPane {
+            func commit(_ store: DocumentStore, _ permit: Permit) async throws {
+                // changePermit(person: fingerprint, to: permit) would be wrong here.
+                try await store.changePermit(everyRecordOf: who, to: permit)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("Honest.swift"),
+                  atomically: true, encoding: .utf8)
+        XCTAssertTrue(
+            try grepSwift(in: tmp, patterns: [Self.singleRecordPermitVerb],
+                          excludeLine: Self.admissionExcludeLine).isEmpty,
+            "the plural verb and a comment are not offenders")
+
+        try """
+        struct HalfADemotion {
+            func commit(_ store: DocumentStore, _ permit: Permit) async throws {
+                try await store.changePermit(person: who, to: permit)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("Planted.swift"),
+                  atomically: true, encoding: .utf8)
+        XCTAssertFalse(
+            try grepSwift(in: tmp, patterns: [Self.singleRecordPermitVerb],
+                          excludeLine: Self.admissionExcludeLine).isEmpty,
+            "a planted press of the single-record verb must be caught")
+    }
+
+    // MARK: - The two repair verbs have one writer each (P3b Task 5)
+
+    /// `RegistryPresence.writeOwnRecordAgain` is tripwire 41's third writer's
+    /// verb and no view may reach a registry writer around it.
+    static let ownRecordRepairPatterns = [
+        "RegistryPresence.writeOwnRecordAgain", "RegistryAdmission.resignFromTimeline",
+    ]
+
+    /// **The two P3b repairs are store verbs, never view verbs** (tripwire 41).
+    ///
+    /// Both write a signed registry record — one through `RegistryPresence`,
+    /// one through `RegistryAdmission` — and tripwire 41 puts the AUTHORITY for
+    /// that behind three files. A view calling either directly would reach the
+    /// signer without reaching the store's `settle`, so every open document in
+    /// the project would go on applying by a table the folder no longer
+    /// supports: a repair the writer made and cannot see.
+    func test_theRepairVerbsAreReachedFromTheStoreOnly() throws {
+        let offenders = try grepSwift(
+            in: sourceDir.appendingPathComponent("Views", isDirectory: true),
+            patterns: Self.ownRecordRepairPatterns,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A view calls a registry repair verb directly. Both write a signed "
+            + "record and both must go through `DocumentStore`, which forgets "
+            + "every resolved table afterwards. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
     /// CONTROL for the census above: a planted second writer is caught, and
     /// neither an `.editionBrief` call beside it nor a comment naming the verb
     /// is.
@@ -7361,11 +7460,17 @@ final class TripwireGrepTests: XCTestCase {
     /// File-and-spelling rather than file alone: the allow-listed files hold
     /// the sanctioned closures AND the sanctioned table-built ones, so allowing
     /// a whole file would let a fourth keyless site in beside them.
+    ///
+    /// `onlyFiles`, where given, narrows the walk to those file names — for a
+    /// census whose whole subject is ONE file's discipline
+    /// (`test_theSilentAdmissionNarrowsNobody`, P3b Task 10), where the
+    /// patterns are ordinary Swift that every other file uses legitimately.
     private func grepSwift(
         in roots: [URL],
         patterns: [String],
         allowedSpellings: [String: Set<String>],
-        excludeLine: @escaping (String) -> Bool
+        excludeLine: @escaping (String) -> Bool,
+        onlyFiles: Set<String>? = nil
     ) throws -> [String] {
         var offenders: [String] = []
         for root in roots {
@@ -7375,6 +7480,7 @@ final class TripwireGrepTests: XCTestCase {
                 excludeLine: excludeLine,
                 extraOffender: nil,
                 perFile: { name, line in
+                    if let onlyFiles, !onlyFiles.contains(name) { return false }
                     guard patterns.contains(where: { line.contains($0) }) else { return false }
                     let allowed = allowedSpellings[name] ?? []
                     return !allowed.contains(where: { line.contains($0) })
@@ -7846,7 +7952,14 @@ final class TripwireGrepTests: XCTestCase {
                                     "record.scope", "record.pieces",
                                     "person?.role", "person?.scope",
                                     "person?.pieces"],
-        "Permit.swift": ["event.role", "event.scope", "event.pieces"],
+        // The one PARSE reads an EVENT's three strings — and, since P3b Task
+        // 5, a person RECORD's, which is `Permit.permit(recordedIn:)`: the
+        // current-state convenience, spelled here so a surface drawing a row
+        // does not assemble `Permit.parse(role:…)` for itself (tripwire 44).
+        // It is still not the check — what judges a line is `PermitTimeline`,
+        // and this file's own doc comment says so.
+        "Permit.swift": ["event.role", "event.scope", "event.pieces",
+                         "record.role", "record.scope", "record.pieces"],
         "RegistryReader.swift": ["record.role", "record.scope"],
         "PeopleAndDevicesModel.swift": ["record.role"],
     ]
@@ -7891,9 +8004,14 @@ final class TripwireGrepTests: XCTestCase {
     /// `Permit.swift` asks it rather than restating the list (a second copy
     /// would drift, and the drift would wave a manuscript-moving kind through
     /// on the reviewer row); `ProcessSignals.swift` finds the writer's frontier
-    /// by it; `DeltaBuilder.swift` builds a run's delta by it.
+    /// by it; `DeltaBuilder.swift` builds a run's delta by it;
+    /// `OpLogQuarantine.swift` decides by it which SET-ASIDE lines took words
+    /// out of the draft, and so which of them spec §7.4's Send to Inbox can
+    /// hand back (P3b Task 8) — a second list there would refuse a writer
+    /// their own paragraph, or offer to re-file a disposition as prose.
     static let manuscriptClassifierCallers: Set<String> = [
         "Deriver.swift", "Permit.swift", "ProcessSignals.swift", "DeltaBuilder.swift",
+        "OpLogQuarantine.swift",
     ]
 
     /// **Which ops become words is asked, never restated** — and the list of
@@ -8020,6 +8138,75 @@ final class TripwireGrepTests: XCTestCase {
             + "the same commit, or put the call back. Found: \(found.sorted(by: { $0.key < $1.key }))")
     }
 
+    // MARK: - The unsigned holder is spelled once (P3b Task 2)
+
+    /// **The one file that may spell the unsigned holder, and the one that may
+    /// classify a held line's holder.**
+    ///
+    /// A held line now has three reasons and one storage state, and which of
+    /// the three it is turns entirely on the STRING the walk held it under.
+    /// The unsigned holder is `unsigned:<stream>` — a shape no fingerprint and
+    /// no device id can be — and the whole classification is total only while
+    /// that literal exists in one place: a second spelling is a holder one
+    /// surface recognises and another calls a stranger, which is an Admit…
+    /// sheet offered about a Mac that has no key to admit.
+    ///
+    /// `HeldLines.holder(of:registry:)` is the one classifier for the same
+    /// reason. `Registry.isStrangerDevice` and `TrustTable.isStrangerDevice`
+    /// ASK it (they name `isUnsignedHolder`, which is the allowed spelling
+    /// outside the file), so every admission-worded count narrows in one
+    /// place; a `hasPrefix("unsigned:")` anywhere else is a filter per surface.
+    static let unsignedHolderSpellings = ["\"unsigned:\"", "unsigned:\\("]
+
+    static let heldLinesClassifierFiles: Set<String> = ["HeldLines.swift"]
+
+    private func unsignedHolderOffenders() throws -> [String] {
+        var offenders: [String] = []
+        for root in admissionRoots {
+            offenders.append(contentsOf: try grepSwift(
+                in: root,
+                patterns: Self.unsignedHolderSpellings,
+                allowed: Self.heldLinesClassifierFiles,
+                excludeLine: Self.admissionExcludeLine))
+        }
+        return offenders
+    }
+
+    func test_theUnsignedHolderIsSpelledInHeldLinesOnly() throws {
+        let offenders = try unsignedHolderOffenders()
+        XCTAssertTrue(offenders.isEmpty,
+            "The unsigned holder’s own spelling escaped `HeldLines`. It is the "
+            + "only thing that tells an unsigned stream from a stranger's key, "
+            + "and a second literal fails silently in the direction that offers "
+            + "an Admit… sheet about a Mac with no key. Ask "
+            + "`HeldLines.isUnsignedHolder`/`unsignedHolder(for:)` instead. "
+            + "Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    func test_theUnsignedHolderCensusFiresOnAPlantedOffender() throws {
+        let planted = """
+            // A comment naming "unsigned:" must not fire.
+            func holdIt(_ stream: String) -> String { "unsigned:\\(stream)" }
+            func isIt(_ device: String) -> Bool { device.hasPrefix("unsigned:") }
+            """
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("held-lines-census-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try planted.write(
+            to: dir.appendingPathComponent("Offender.swift"),
+            atomically: true, encoding: .utf8)
+
+        let hits = try grepSwift(
+            in: dir,
+            patterns: Self.unsignedHolderSpellings,
+            allowed: Self.heldLinesClassifierFiles,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(hits.count, 2,
+            "the census must catch both spellings and let the comment through")
+    }
+
     // MARK: - The write-side question has one function (P3a Task 8)
 
     /// The one "may this device's actor write here" answer, and the type it
@@ -8133,6 +8320,93 @@ final class TripwireGrepTests: XCTestCase {
             + "is the list and `Permit.actorJudging` is the answer; the "
             + "partition asks them. Offenders:\n"
             + offenders.joined(separator: "\n"))
+    }
+
+    // MARK: - MCP emits no task op (P3b Task 3, Census A)
+
+    /// Every production emitter of a task op, and the wire kind they all carry.
+    ///
+    /// The seven names are `Document+Tasks.swift`'s five and
+    /// `ProjectStore+Tasks.swift`'s two; `kind: .task` is the prefix every task
+    /// `OpKind` shares, so a new emitter that spells its own `Op(...)` rather
+    /// than calling one of them is caught too.
+    static let taskOpEmitterPatterns = [
+        "appendTaskOpInternal",
+        "createPaneTask(",
+        "setTaskStatus(",
+        "setTaskPriority(",
+        "archiveTask(",
+        "createProjectPaneTask(",
+        "appendProjectTaskOp(",
+        "kind: .task",
+    ]
+
+    /// **Nothing under `Maugham/MCP` emits a task op** (P3b Task 3, Census A).
+    ///
+    /// `Permit.isALoadEmission` names `taskCreate` a load emission **by KIND
+    /// alone**, and judges it under the person's own permit whichever actor
+    /// signed it. That is right today because the one `taskCreate` a non-author
+    /// actor can reach is the anchor breadcrumb `Document.rebuildTasksCache`
+    /// writes — the other two emitters are the writer's own pane acts, reached
+    /// only from editor surfaces — so *signed by the assistant* and *emitted by
+    /// the load* are the same set.
+    ///
+    /// Give MCP a tool that creates a task and they stop being the same set,
+    /// silently: Claude's own `taskCreate` would then be waved through the
+    /// actor row on the strength of a rule written for the load's housekeeping,
+    /// in a book where a reviewer is meant to sign no task anywhere. Nothing
+    /// goes red; the row simply stops meaning what it says.
+    ///
+    /// The census is the gate. A tool that genuinely should write a task is a
+    /// decision about `isALoadEmission`, made here first.
+    func test_nothingUnderMCPEmitsATaskOp() throws {
+        let mcp = sourceDir.appendingPathComponent("MCP", isDirectory: true)
+        let offenders = try grepSwift(
+            in: mcp,
+            patterns: Self.taskOpEmitterPatterns,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A file under Maugham/MCP emits a task op. `Permit.isALoadEmission` "
+            + "waives the actor narrowing for `taskCreate` by KIND, which is "
+            + "safe only while the load path is the one non-author emitter of "
+            + "one. Decide that rule before adding the tool. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL for the census above: it is not passing because the patterns
+    /// match nothing. A planted emitter is caught by its verb AND by the wire
+    /// kind; a comment naming either is not.
+    func test_theTaskOpEmitterCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-mcp-taskop-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may say appendTaskOpInternal and kind: .taskCreate freely.
+        struct CreateTaskTool: MCPTool {
+            func run() async throws {
+                doc.createPaneTask(body: body, kind: .checkbox)
+                let op = Op(opId: id, docId: docId, at: Date(), device: d,
+                            session: s, kind: .taskCreate, changes: [])
+                doc.appendTaskOpInternal(op)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("CreateTaskTool.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try grepSwift(
+            in: tmp,
+            patterns: Self.taskOpEmitterPatterns,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(offenders.count, 3,
+            "Self-check: the pane verb, the hand-built kind and the internal "
+            + "append should each be caught, and not the comment. Caught:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(
+            offenders.allSatisfy { $0.hasPrefix("CreateTaskTool.swift:") },
+            offenders.joined(separator: "\n"))
     }
 
     // MARK: - CONTROL for the five P3a censuses
@@ -8437,5 +8711,360 @@ final class TripwireGrepTests: XCTestCase {
             of: #"LSMinimumSystemVersion: "14.0""#,
             with: #"LSMinimumSystemVersion: "27.0""#)
         XCTAssertEqual(Set(Self.declaredMacOSFloors(in: agreeing).map(\.value)), ["27.0"])
+    }
+
+    // MARK: - P3b Task 10: the eight censuses this branch owes
+
+    /// **The narrowing predicate and the photograph are spelled in the permit
+    /// layer only.**
+    ///
+    /// Two spellings, one rule. `PermitTimeline.narrows(_:)` is *does this
+    /// event give somebody less than the whole book* — the question the
+    /// governing snapshot is chosen by and the question the schema gate turns
+    /// on — and a second answer to it decides, in one place, that a book is
+    /// narrowed while another goes on reading it as P1. `UnsignedSnapshot` is
+    /// the photograph itself; naming the type outside the layer is how a
+    /// surface comes to hold an opinion about which side of it a line falls
+    /// on, which is `PermitMark.judge`'s and nobody else's.
+    ///
+    /// **File AND spelling, and the spellings matter here more than usual**:
+    /// four identifiers CONTAIN the type's name without being it —
+    /// `insideTheUnsignedSnapshot`, `recordInsideTheUnsignedSnapshot`,
+    /// `resolvedInsideTheUnsignedSnapshot` and `sweptUnsignedSnapshot` — and
+    /// each is allowed by name in the file that owns it. A line in one of
+    /// those files that said `UnsignedSnapshot.governing(` carries none of
+    /// them and is an offender.
+    ///
+    /// `Permit.narrows` (the plain property on a permit a caller already
+    /// holds) is NOT censused: it is a read of a value, not a decision about
+    /// an event, and it is read by every surface that has to say what a
+    /// narrowing would cost.
+    static let narrowingPatterns = ["PermitTimeline.narrows(", "UnsignedSnapshot"]
+
+    static let narrowingAllowed: [String: Set<String>] = [
+        // The photograph, and the one derivation of which one governs.
+        "UnsignedSnapshot.swift": ["UnsignedSnapshot", "PermitTimeline.narrows("],
+        // The one resolution: the table carries the governing snapshot.
+        "TrustTable.swift": ["UnsignedSnapshot"],
+        // The write side: only a NARROWING event carries a photograph.
+        "RegistryAdmission.swift": ["PermitTimeline.narrows("],
+        // The carrier and its readers name the per-LINE fact, never the type.
+        "AnnotationOwnership.swift": ["insideTheUnsignedSnapshot"],
+        "OpLogPermitContext.swift": [
+            "insideTheUnsignedSnapshot", "InsideTheUnsignedSnapshot",
+        ],
+        "OpLogStore.swift": [
+            "insideTheUnsignedSnapshot", "InsideTheUnsignedSnapshot",
+        ],
+        "PermitPartition.swift": ["InsideTheUnsignedSnapshot"],
+        "ProjectStore+Annotations.swift": [
+            "insideTheUnsignedSnapshot", "InsideTheUnsignedSnapshot",
+        ],
+        // The Mac's two doors name the SWEEP that takes one, not the type.
+        "DocumentStore+Registry.swift": ["sweptUnsignedSnapshot"],
+        "DocumentStore.swift": ["sweptUnsignedSnapshot"],
+    ]
+
+    func test_theNarrowingPredicateAndTheSnapshotAreInThePermitLayerOnly() throws {
+        let offenders = try grepSwift(
+            in: admissionRoots,
+            patterns: Self.narrowingPatterns,
+            allowedSpellings: Self.narrowingAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file outside the permit layer names the narrowing "
+            + "predicate or the unsigned photograph. Whether a book is narrowed "
+            + "is `PermitTimeline.narrows`/`TrustTable.hasNarrowingPermits`, and "
+            + "which side of the photograph a line falls on is "
+            + "`PermitMark.judge`. A second answer to either decides, silently, "
+            + "that a line is held here and applied there. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// **Whether a file is attributable at all is computed in `OpLogChain`.**
+    ///
+    /// `Verification.unattributable` is *this register can name no key for the
+    /// bytes in this file* — the whole input to the unsigned door. It is read
+    /// in three other places and that is right; what may not happen twice is
+    /// somebody DECIDING it, which the argument label is the shape of. A
+    /// second opinion fails in the worse direction: a file wrongly called
+    /// attributable never reaches the photograph, so everything an unsigned
+    /// Mac wrote after the first narrowing is applied on a Mac that should
+    /// have held it.
+    static let unattributableDecisionPattern = "unattributable:"
+
+    func test_whetherAFileIsUnattributableIsDecidedInOpLogChainOnly() throws {
+        let offenders = try grepSwift(
+            in: admissionRoots,
+            patterns: [Self.unattributableDecisionPattern],
+            allowedSpellings: ["OpLogChain.swift": [Self.unattributableDecisionPattern]],
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file outside `OpLogChain` decides whether a file is "
+            + "unattributable. The walk is the one place that has both the "
+            + "seals and the table; reading the answer is free, making one is "
+            + "a second opinion about which files the photograph is even "
+            + "about. Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// **`HeldLines.holder` is the one holder classifier**, and the census is
+    /// over the three arms' CONSTRUCTION.
+    ///
+    /// The holder string is censused already
+    /// (`test_theUnsignedHolderIsSpelledInHeldLinesOnly`); this is its other
+    /// half. Matching on the classifier's answer is the whole point of it and
+    /// is not censused — `LoadQuestions` does exactly that. What must not
+    /// happen is a surface MAKING one of the three, which is deciding for
+    /// itself whether a waiting writer is a stranger (admittable), a person
+    /// already in the book (not) or a stream with no key at all (never).
+    static let holderArmPatterns = [
+        ".stranger(fingerprint:", ".permitPending(person:", ".unsigned(stream:",
+    ]
+
+    func test_theThreeHoldersAreBuiltInHeldLinesOnly() throws {
+        let offenders = try grepSwift(
+            in: admissionRoots,
+            patterns: Self.holderArmPatterns,
+            allowedSpellings: ["HeldLines.swift": Set(Self.holderArmPatterns)],
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file builds a `HeldLines.Holder` of its own. Ask "
+            + "`HeldLines.holder(of:registry:)` — a filter per surface is how "
+            + "one of them comes to offer an Admit… sheet about a Mac that has "
+            + "no key. Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// **The holder-standing classifier is one enum in one file** (P3b Task 4's
+    /// carry). `AdmissionDecision.HeldKeyStanding` answers *why is this held
+    /// key not offered* — waiting for its device record, contested, or a
+    /// stranger who is — and People & Devices READS it
+    /// (`AdmissionDecision.standing(ofHolder:…)`) rather than re-deriving
+    /// either fact. A second derivation is how the sheet and the pane come to
+    /// disagree about one waiting key on one afternoon.
+    func test_theHolderStandingClassifierIsOneFile() throws {
+        let offenders = try grepSwift(
+            in: admissionRoots,
+            patterns: ["HeldKeyStanding"],
+            allowedSpellings: ["AdmissionDecision.swift": ["HeldKeyStanding"]],
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file outside `AdmissionDecision` names the "
+            + "held-key standing. Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// **A surface builds a permit in one place** (P3b Task 4's carry).
+    ///
+    /// `Permit.permit(offering:pieces:)` is the permit layer's own door for a
+    /// control — three rungs in, a `Permit` out — and `PermitControl` is the
+    /// one thing that walks through it. Every other surface asks
+    /// `PermitControl.permit(for:pieces:)`. The failure it guards is tripwire
+    /// 47's from the other side: a view assembling a permit out of wire words
+    /// is a second ladder, in the copy that does not compile-error when a rung
+    /// is added. (Task 4's first draft did exactly that and two censuses
+    /// caught it.)
+    func test_aSurfaceBuildsAPermitInOnePlace() throws {
+        let offenders = try grepSwift(
+            in: admissionRoots,
+            patterns: ["Permit.permit(offering:"],
+            allowedSpellings: [
+                "Permit.swift": ["Permit.permit(offering:"],
+                "PermitControl.swift": ["Permit.permit(offering:"],
+            ],
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A production file other than `PermitControl` turns a display "
+            + "choice into a `Permit`. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// **The silent admission installs no permit** (P3b Task 4's carry).
+    ///
+    /// `RegistryPresence.admitRemembered` is decision B2: a device this Mac
+    /// has already granted a label to somewhere else is let in with no sheet.
+    /// It must therefore install the permit an unasked admission can only
+    /// mean — author of the whole book — and it does that by passing no rung
+    /// at all. A `role:`/`scope:`/`pieces:` reaching that file would be this
+    /// app narrowing somebody the writer was never asked about, and it is
+    /// outside the schema gate besides (Task 3's carry), which is safe only
+    /// while it narrows nobody.
+    ///
+    /// The two `role: "author"` literals in the file are the PERSON RECORD's
+    /// convenience field on a book author, which is what an unasked admission
+    /// writes; they are allowed by spelling, so `role: "reviewer"` — or any
+    /// `scope:` or `pieces:` — fires.
+    func test_theSilentAdmissionNarrowsNobody() throws {
+        let offenders = try grepSwift(
+            in: admissionRoots,
+            patterns: ["role:", "scope:", "pieces:"],
+            allowedSpellings: Self.silentAdmissionAllowed,
+            excludeLine: Self.admissionExcludeLine,
+            onlyFiles: ["RegistryPresence.swift"])
+        XCTAssertTrue(offenders.isEmpty,
+            "`RegistryPresence` names a rung. The silent admission is the one "
+            + "that shows no sheet, so the only permit it may install is the "
+            + "whole book — anything else narrows somebody nobody asked about, "
+            + "through a door that is outside the schema gate. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    static let silentAdmissionAllowed: [String: Set<String>] = [
+        "RegistryPresence.swift": [#"role: "author""#],
+    ]
+
+    /// **The counted lists.** Each is an ARRAY with a count per file, never a
+    /// number in prose (memory: *prose counts are unmaintainable*), and each
+    /// names what a missing entry and an extra entry would mean.
+    ///
+    /// - `expectedStreams` — the ONE escape-aware answer to *which streams
+    ///   must this sweep find* (P3b Task 6). `OpLogDeviceState` defines it;
+    ///   `DocumentStore+Registry` holds both builders and the sites that pass
+    ///   them. A builder somewhere else is a sweep that does not take the
+    ///   acknowledgement, so a loss the writer has already put down refuses a
+    ///   marking verb for ever.
+    /// - `acknowledgedLosses` — the memory that escape is kept in.
+    ///   `OpLogDeviceState` owns it and clears it; `OpLogStore.lostHistory`
+    ///   and the pane's count read it. A fourth reader is a second opinion
+    ///   about what the writer has been shown.
+    /// - `absentStreams` — the *remembered but no file at all* half of the
+    ///   loss drawer, which is the commonest thing a marking verb refuses
+    ///   over. One caller, `lostHistory`, plus its own definition.
+    /// - `gateOldBuildsOut` — the schema gate (P3b Task 3). One function,
+    ///   reached from every narrowing verb: `changePermit`, the label-wide
+    ///   `changePermit(everyRecordOf:)` and the sheet's `admit`. A verb that
+    ///   stopped calling it lets a v0.40 Mac into a narrowed book, where it
+    ///   re-asserts a reviewer's refused text under its own book-author key.
+    /// - `currentSchemaVersion` ASSIGNMENT — the two doors that may raise a
+    ///   book's number (the raise-only write door, and the live store it
+    ///   syncs) plus `StatementAdoption`'s own `< 4` migration. Anything else
+    ///   is a number written without the raise-only rule.
+    /// - `sendHeldWordsToInbox` — §7.4's held-line door. One production
+    ///   caller: History's held row, where the sentence and the control sit
+    ///   together.
+    static let countedLists: [String: [String: Int]] = [
+        "expectedStreams(": [
+            "DocumentStore+Registry.swift": 5, "OpLogDeviceState.swift": 1,
+        ],
+        "acknowledgedLosses": [
+            "OpLogDeviceState.swift": 12, "OpLogStore.swift": 1,
+            "DocumentStore+Registry.swift": 1,
+        ],
+        "absentStreams": ["OpLogStore.swift": 2],
+        "gateOldBuildsOut": [
+            "DocumentStore+Registry.swift": 3, "DocumentStore.swift": 1,
+        ],
+        "schemaVersion = ProjectManifest.currentSchemaVersion": [
+            "DocumentStore+Registry.swift": 2,
+            "ProjectStore+StatementAdoption.swift": 1,
+        ],
+        "documentStore.sendHeldWordsToInbox(": ["HistoryPane.swift": 1],
+    ]
+
+    /// Occurrences of `pattern` per file under `roots`, comments excluded.
+    private func occurrences(
+        of pattern: String, in roots: [URL]
+    ) throws -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for root in roots {
+            for hit in try grepSwift(
+                in: root, patterns: [pattern], allowed: [],
+                excludeLine: Self.admissionExcludeLine) {
+                counts[String(hit.prefix(while: { $0 != ":" })), default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    func test_theP3bCountedListsAreExactlyTheNamedArrays() throws {
+        for (pattern, expected) in Self.countedLists {
+            let found = try occurrences(of: pattern, in: admissionRoots)
+            XCTAssertEqual(found, expected,
+                "The production sites naming “\(pattern)” moved. Update "
+                + "`countedLists` with the reason in the same commit, or put "
+                + "the call back — see the doc comment for what a missing and "
+                + "an extra one each mean. Found: "
+                + "\(found.sorted(by: { $0.key < $1.key }))")
+        }
+    }
+
+    // MARK: - …and the planted offenders that prove they fire
+
+    func test_theP3bCensusesFireOnPlantedOffenders() throws {
+        let planted = """
+            // A comment naming UnsignedSnapshot and PermitTimeline.narrows( is fine.
+            func governing() -> UnsignedSnapshot? { UnsignedSnapshot.governing(events: []) }
+            func isNarrowing(_ e: PermitEvent) -> Bool { PermitTimeline.narrows(e) }
+            func verify() -> Verification { Verification(unattributable: true) }
+            func whose(_ id: String) -> HeldLines.Holder { .stranger(fingerprint: id) }
+            func why() -> HeldKeyStanding { .contested }
+            func rung() -> Permit { Permit.permit(offering: .reviewer, pieces: []) }
+            """
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("p3b-census-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Named for one of the ALLOW-LISTED files, so the allow-list's
+        // file-plus-spelling shape is proved as well: an offender wearing
+        // `TrustTable.swift`'s name still fires on every spelling that file is
+        // not allowed.
+        try planted.write(
+            to: dir.appendingPathComponent("TrustTable.swift"),
+            atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            try grepSwift(
+                in: [dir], patterns: Self.narrowingPatterns,
+                allowedSpellings: Self.narrowingAllowed,
+                excludeLine: Self.admissionExcludeLine).count, 1,
+            "the narrowing predicate fires even in a file allowed the snapshot, "
+            + "and the comment is let through")
+        XCTAssertEqual(
+            try grepSwift(
+                in: [dir], patterns: [Self.unattributableDecisionPattern],
+                allowedSpellings: [:],
+                excludeLine: Self.admissionExcludeLine).count, 1)
+        XCTAssertEqual(
+            try grepSwift(
+                in: [dir], patterns: Self.holderArmPatterns,
+                allowedSpellings: [:],
+                excludeLine: Self.admissionExcludeLine).count, 1)
+        XCTAssertEqual(
+            try grepSwift(
+                in: [dir], patterns: ["HeldKeyStanding"],
+                allowedSpellings: [:],
+                excludeLine: Self.admissionExcludeLine).count, 1)
+        XCTAssertEqual(
+            try grepSwift(
+                in: [dir], patterns: ["Permit.permit(offering:"],
+                allowedSpellings: [:],
+                excludeLine: Self.admissionExcludeLine).count, 1)
+
+        // The silent-admission census, planted under its own filename, with
+        // the one allowed spelling beside a banned one.
+        let presence = """
+            let record = PersonRecord(person: p, role: "author")
+            let narrowed = PersonRecord(person: p, role: "reviewer", scope: "pieces")
+            """
+        try presence.write(
+            to: dir.appendingPathComponent("RegistryPresence.swift"),
+            atomically: true, encoding: .utf8)
+        let rungs = try grepSwift(
+            in: [dir], patterns: ["role:", "scope:", "pieces:"],
+            allowedSpellings: Self.silentAdmissionAllowed,
+            excludeLine: Self.admissionExcludeLine,
+            onlyFiles: ["RegistryPresence.swift"])
+        XCTAssertEqual(rungs.count, 1,
+            "the book author's own field is allowed by SPELLING and the "
+            + "narrowed one is not: \(rungs)")
+
+        // And the counted lists: a planted extra call really does move a count.
+        let extra = "let more = state.expectedStreams(inRoot: url, writtenBy: nil)"
+        try extra.write(
+            to: dir.appendingPathComponent("OpLogDeviceState.swift"),
+            atomically: true, encoding: .utf8)
+        XCTAssertEqual(
+            try occurrences(of: "expectedStreams(", in: [dir]),
+            ["OpLogDeviceState.swift": 1],
+            "the counter sees the planted call")
     }
 }

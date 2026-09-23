@@ -104,6 +104,20 @@ final class InboxStore {
     /// file to answer it.
     private(set) var pendingByDevice: [String: Int] = [:]
 
+    /// **Which capture streams each held holder was held in**, by device slug
+    /// (P3b Task 4) — the inbox's half of `DocumentStore.heldLines`.
+    ///
+    /// A capture stream is one manifest per device (`inbox.<slug>.jsonl`), so
+    /// the slug is read off the file the held lines were counted in, exactly as
+    /// the op log's `FileProvenance` records it. It exists for the one surface
+    /// that offers to admit a holder: a key that is not a person's must not be
+    /// offered as one, and what kind of key it is can only be read off the
+    /// stream that carried it.
+    ///
+    /// Keyed the way `pendingByDevice` is and narrowed by the same rule, so a
+    /// holder in one is a holder in the other.
+    private(set) var pendingStreamsByDevice: [String: Set<String>] = [:]
+
     /// What to call each device in `pendingByDevice` — its own record's name,
     /// else its code. Resolved on the same refresh, off the same verified
     /// registry, for `bylines`' reason: a per-row read would be one read per
@@ -111,6 +125,15 @@ final class InboxStore {
     /// this book. A pending device's captures are held, so it appears in NO
     /// row and `bylines` cannot answer for it.
     private(set) var pendingDeviceNames: [String: String] = [:]
+
+    /// **What is held here that no admission would release** (P3b Task 7) —
+    /// already as sentences, because `HeldLines` decides both who a holder is
+    /// and what to say about them, and a second wording in the pane would be a
+    /// second opinion about a fact History states in the same words.
+    ///
+    /// Sorted by holder, so two refreshes over one folder say the same things
+    /// in the same order. Empty for every book that has narrowed nobody.
+    private(set) var heldNotices: [String] = []
 
     private let projectURL: URL
     private let inboxDir: URL
@@ -263,13 +286,20 @@ final class InboxStore {
             appliedManifestIDs = []
             bylines = [:]
             pendingByDevice = [:]
+            pendingStreamsByDevice = [:]
             pendingDeviceNames = [:]
+            heldNotices = []
             setAsideRecords = setAsideLineRecords()
             inboxStoreLog.error(
                 "inbox read refused: \(OpLogStore.unreadableName(error), privacy: .public) is present and unreadable: \(error.localizedDescription, privacy: .public)")
             return
         }
         var held: [String: Int] = [:]
+        // Which stream each held holder was held in (P3b Task 4), read off the
+        // file it was counted in — `PermitMark.stream(of:)` is the one parse,
+        // and a manifest this build does not recognise as a stream contributes
+        // nothing rather than a guess.
+        var heldStreams: [String: Set<String>] = [:]
         for url in urls {
             // The verified read (spec §4.2): seal lines never reach the entry
             // decoder, and a run of lines this device cannot vouch for is set
@@ -288,8 +318,10 @@ final class InboxStore {
                 let read = try await store.loadVerifiedStrict(
                     permit: .inbox(trust: table))
                 rows.append(contentsOf: read.elements)
+                let slug = PermitMark.stream(of: url)?.deviceSlug
                 for (device, count) in read.pendingByDevice {
                     held[device, default: 0] += count
+                    if let slug { heldStreams[device, default: []].insert(slug) }
                 }
             }
             catch {
@@ -344,8 +376,55 @@ final class InboxStore {
         // verified registry is in hand; the rule is `Registry`'s, asked once.
         let strangers = registry.strangersAwaitingAdmission(among: held)
         pendingByDevice = strangers
+        // Narrowed by the SAME set, so a holder in one map is a holder in the
+        // other and nothing carries a stream for a device nobody is waiting on.
+        pendingStreamsByDevice = heldStreams.filter { strangers[$0.key] != nil }
         pendingDeviceNames = strangers.keys.reduce(into: [:]) { names, device in
             names[device] = InboxByline.name(forDevice: device, registry: registry)
+        }
+        // **And the captures nobody can be admitted for** (P3b Task 7, closing
+        // Task 2's review I1). The narrowing above is right and stays — the
+        // banner it feeds says *waiting for admission* — but until now the
+        // other held captures were simply DROPPED here, so a phone whose
+        // permit this build cannot read, or one that signs nothing it writes,
+        // sent captures into an inbox that showed none of them and said
+        // nothing at all. Classified once, with the registry in hand, by the
+        // one classifier; the pane draws the sentences and offers no control,
+        // because there is nothing to press.
+        heldNotices = Self.heldNotices(from: held, registry: registry)
+    }
+
+    /// **What is held here that no admission would release**, as sentences
+    /// (P3b Task 7; extracted in fix round 1's I5 so the copy pins with no
+    /// folder and no window).
+    ///
+    /// `HeldLines` decides both who each holder is and what to say about them,
+    /// so the Inbox and History cannot word one fact differently. A STRANGER
+    /// is left out: their captures have the banner above, with its own control,
+    /// and saying it twice would put two counts about one device on one screen.
+    ///
+    /// Sorted by holder, so two refreshes over one folder say the same things
+    /// in the same order.
+    nonisolated static func heldNotices(
+        from held: [String: Int], registry: Registry
+    ) -> [String] {
+        held.keys.sorted().compactMap { holder in
+            let who = HeldLines.holder(of: holder, registry: registry)
+            guard case .stranger = who else {
+                // **`.historysHeldRows`, because this pane IS the Inbox** (P3b
+                // Task 10). The shared sentence's way-back clause names the
+                // Inbox everywhere else, which here would send the writer to
+                // the pane they are reading — and about captures that can
+                // never carry the door in any case: an inbox row decodes to
+                // `OpKind.unknown`, so §7.4's verb offers it nothing and there
+                // is no control to draw beside this line. The door is on
+                // History's held rows, and that is what it now says.
+                return HeldLines.sentence(
+                    who, notes: held[holder] ?? 0,
+                    named: InboxByline.name(forDevice: holder, registry: registry),
+                    wayBackIn: .historysHeldRows)
+            }
+            return nil
         }
     }
 
@@ -396,6 +475,58 @@ final class InboxStore {
             inboxStoreLog.error(
                 "inbox manifest append failed for entry \(entry.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// **Set-aside words, back in the writer's hands** (P3b Task 8, spec
+    /// §7.4) — the one creation verb this store has, and the one route from a
+    /// refused line into a book that is not the op log.
+    ///
+    /// Each paragraph becomes one ordinary capture: minted here, written to
+    /// THIS Mac's own manifest, signed by this Mac's own AUTHOR actor and
+    /// sealed like any other (`appendThrowing`, whose monotonic `writtenAt` and
+    /// per-capture seal this inherits rather than restates — tripwire 17). The
+    /// refused lines are not touched, not re-admitted, not applied: the op log
+    /// never hears about this at all, and what reaches the draft reaches it
+    /// because a person moved it, one paragraph at a time.
+    ///
+    /// `attribution` is the line naming whoever wrote the paragraph — the
+    /// entry's `title`, which is the one field `InboxEntry` already has for a
+    /// label and which needs no new wire field. The WORDS stay alone in
+    /// `inlineText`, so promoting a recovered paragraph writes exactly the
+    /// paragraph and nothing the writer has to delete.
+    ///
+    /// **`onLanded` fires per capture, before anything can throw** (fix round
+    /// 2, M2). A manifest that stops being writable halfway through leaves
+    /// some captures in the Inbox and some not; if the caller could only
+    /// record a send that COMPLETED, the writer's one way to get the rest
+    /// would be a press that files the ones they already have a second time.
+    /// Both doors record through it, so both survive a partial landing.
+    ///
+    /// Answers how many captures landed, and refreshes once at the end rather
+    /// than per row.
+    @discardableResult
+    func captureRecoveredWords(
+        _ captures: [SetAsideDoor.Capture],
+        onLanded: (SetAsideDoor.Capture) -> Void = { _ in }
+    ) async throws -> Int {
+        guard !captures.isEmpty else { return 0 }
+        var landed = 0
+        for capture in captures {
+            let createdAt = Date()
+            try await appendThrowing(InboxEntry(
+                id: ULID.generate(),
+                createdAt: createdAt,
+                writtenAt: createdAt,
+                deviceId: deviceId,
+                kind: .text,
+                inlineText: capture.text,
+                title: capture.attribution,
+                status: .new))
+            landed += 1
+            onLanded(capture)
+        }
+        await refresh()
+        return landed
     }
 
     /// Throwing core of `append`, used by callers with a throwing channel (the

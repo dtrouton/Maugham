@@ -143,6 +143,27 @@ struct HistoryPane: View {
     /// `SetAsideAcknowledgement.name(for:in:)` reads the quarantine directory
     /// and a per-row read from `body` is tripwire 4.
     @State private var setAsideRecordNames: [String] = []
+    /// The same records as rows the disclosure can act on (P3b Task 8, spec
+    /// §7.4): how many paragraphs each would hand back to the Inbox, whether
+    /// this Mac has already sent them, and the sentence each is shown under.
+    /// Resolved on `reload()` for `setAsideRecordNames`' reason — the count
+    /// reads each archive.
+    @State private var setAsideRows: [SetAsideDoor.Row] = []
+    /// What the last **Send to Inbox** did, or why it could not. Shown on the
+    /// row until the next reload, because a press that appeared to do nothing
+    /// is worse than a refusal (the Retry notice's own rule).
+    @State private var sendToInboxError: String?
+    /// **How many waiting paragraphs each unsigned holder has**, and nothing
+    /// else about the rows (P3b Task 8; narrowed in fix round 2's I1).
+    ///
+    /// This half re-runs the walk over the document's files, which is disk work
+    /// and never `body`'s (tripwire 4). The SENTENCES are not here: they are
+    /// composed in `body` from the live provenance and the live names, because
+    /// a snapshot of them taken in `reload()` was taken before `reloadChain()`
+    /// had resolved a single name and before a document opening in the same
+    /// pass had a provenance at all — so Task 7's held sentences were
+    /// intermittently not drawn, and a renamed person's was a reload behind.
+    @State private var heldWordCounts: [String: Int] = [:]
     /// Device fingerprint → the name that device's registry record gives it,
     /// for the pending sentence (signed op log P2a). Empty when this project
     /// has no registry, and empty when one could not be read: a name is
@@ -164,6 +185,11 @@ struct HistoryPane: View {
     /// P2b, ruling C). Resolved in `reloadChain` beside the names they are told
     /// in, because both come out of the same off-actor registry read.
     @State private var trustEventLines: [TrustEventLine] = []
+    /// **History this Mac remembers and cannot find** (P3b Task 6): a stream
+    /// found shorter than it was, or one the folder holds no file of at all.
+    /// Resolved off the main actor with the registry read that names each
+    /// device, like everything else here that touches disk (tripwire 4).
+    @State private var lostHistoryRows: [LostHistoryRow] = []
     @State private var isRetryingQuarantine: Bool = false
     /// The report from the most recently completed Retry, kept only long
     /// enough for the writer to view or dismiss it — cleared when the sheet
@@ -346,23 +372,21 @@ struct HistoryPane: View {
     /// Pure over the counts, so the copy pins without a window and without
     /// disk. The counts come from `setAsideChangesByReason`, which is the half
     /// that has to read files.
+    ///
+    /// **The composition is `SetAsideDoor.notice`'s since P3b Task 8** (carry
+    /// C1): the Inbox's twin was still reason-blind, so the two panes described
+    /// the same event differently. What stays here is only what a DOCUMENT's
+    /// refusal costs the writer — the noun, and that the change was not
+    /// applied.
     static func setAsideChangesNotice(byReason: [String: Int]) -> String? {
-        let groups = byReason
-            .filter { $0.value > 0 }
-            .sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
-        guard !groups.isEmpty else { return nil }
-        let total = groups.reduce(0) { $0 + $1.value }
         func changes(_ count: Int) -> String {
             count == 1 ? "1 change" : "\(count) changes"
         }
-        if groups.count == 1, let only = groups.first {
-            let verb = only.value == 1 ? "was" : "were"
-            return "\(changes(only.value)) to this document \(verb) set aside "
-                 + "(\(only.key)); kept in backup, not applied."
-        }
-        let clauses = groups.map { "\(changes($0.value)) \($0.key)" }
-        return "\(changes(total)) to this document were set aside: "
-             + clauses.joined(separator: "; ") + ". Kept in backup, not applied."
+        return SetAsideDoor.notice(
+            byReason: byReason,
+            subject: { "\(changes($0)) to this document" },
+            clause: changes,
+            ending: "kept in backup, not applied")
     }
 
     /// How many CHANGES were set aside, **under each reason they were set aside
@@ -378,16 +402,18 @@ struct HistoryPane: View {
     /// record is permanent evidence and the disclosure lists it forever, but
     /// once the writer admits the device those ops are in the draft and *set
     /// aside* has stopped being true of them (P2 smoke, find 7).
+    ///
+    /// **The derivation moved to `SetAsideDoor` in P3b Task 8** so the Inbox
+    /// pane can ask the same question of the manifest stream (carry C1); this
+    /// is the ask, kept under its own name because the pane and its suite have
+    /// always called it that.
     static func setAsideChangesByReason(
-        records: [QuarantineRecord], in projectURL: URL, applied: Set<String> = []
+        records: [QuarantineRecord], in projectURL: URL, applied: Set<String> = [],
+        nowKeepsNothing: (QuarantineRecord) -> Bool? = { _ in nil }
     ) -> [String: Int] {
-        var counts: [String: Int] = [:]
-        let changes = OpLogQuarantine.setAsideChanges(
-            records: records, in: projectURL)
-        for change in changes where !applied.contains(change.id) {
-            counts[change.reason, default: 0] += 1
-        }
-        return counts
+        SetAsideDoor.changesByReason(
+            records: records, in: projectURL, applied: applied,
+            nowKeepsNothing: nowKeepsNothing)
     }
 
     /// The notice shown after a Retry completes. Zero orphans is
@@ -516,6 +542,147 @@ struct HistoryPane: View {
         return "\(total) \(noun) from \(who) \(verb) waiting for admission."
     }
 
+    /// **The held lines that are NOT waiting for admission** (P3b Task 7,
+    /// closing Task 2's review I1).
+    ///
+    /// P3a and P3b each added a reason to hold a line that has nothing to do
+    /// with letting a device in — an admitted person's line this build cannot
+    /// judge, one that opened a piece nobody has claimed, and a stream nothing
+    /// signs after the first narrowing — and all three were held SILENTLY: the
+    /// sentence above narrows to strangers on purpose, and nothing else said
+    /// anything at all. Words outside the draft with no sentence anywhere is
+    /// the one shape a refusal may not take.
+    ///
+    /// **`HeldLines` decides all of it**, both who each holder is and what to
+    /// say about them. This function chooses only the ORDER, which is the
+    /// holder's own string, so two reloads over one document say the same
+    /// things in the same sequence.
+    ///
+    /// The stranger split is the one the LOAD stamped, so no registry is read
+    /// on a draw (tripwire 4); `startedAPiece` is the walk's own answer, off
+    /// the open document.
+    nonisolated static func heldLineNotices(
+        provenance: OpLogProvenance?, startedAPiece: Set<String>,
+        names: [String: String]
+    ) -> [String] {
+        heldLineRows(
+            provenance: provenance, startedAPiece: startedAPiece, names: names
+        ).map(\.sentence)
+    }
+
+    /// **The same notices, as rows that can carry a control** (P3b Task 8 fix
+    /// round 1, spec §7.4).
+    ///
+    /// One of the three reasons a line is held has no way in but this: a
+    /// stream nothing signs cannot be admitted, because there is no key to
+    /// admit, and no `.lines` record is ever written for it because nothing is
+    /// wrong with its bytes. So the unsigned row offers **Send to Inbox** — the
+    /// same offer the set-aside disclosure makes, over words the book is
+    /// HOLDING rather than words it refused.
+    ///
+    /// `words` is the walk's own count, resolved on a reload by
+    /// `DocumentStore.unsignedHeldWordCounts` — never here, and never from
+    /// `body`: reading it re-runs the walk over that document's files. A holder
+    /// missing from the map offers nothing, which is the right answer for a
+    /// re-read that would not read as well as for one that found no prose.
+    ///
+    /// `heldLineNotices` is this function's sentences, kept under its own name
+    /// because the pane and its suite have always called it that.
+    nonisolated static func heldLineRows(
+        provenance: OpLogProvenance?, startedAPiece: Set<String>,
+        names: [String: String], words: [String: Int] = [:],
+        sent: [String: Set<String>] = [:], docId: String = ""
+    ) -> [SetAsideDoor.HeldRow] {
+        guard let provenance else { return [] }
+        let strangers = Set(provenance.pendingStrangersByDevice.keys)
+        return provenance.pendingByDevice.keys.sorted().compactMap { holder in
+            let who = HeldLines.holder(
+                of: holder, isAStranger: strangers.contains(holder),
+                startedAPiece: startedAPiece.contains(holder))
+            // A stranger's is the sentence above, with its own control.
+            guard case .stranger = who else {
+                guard let sentence = HeldLines.sentence(
+                    who, notes: provenance.pendingByDevice[holder] ?? 0,
+                    named: names[holder])
+                else { return nil }
+                // **The door is the unsigned arm's alone.** An admitted
+                // person's held line is let in by a later build or by the
+                // writer's own answer about a piece, and both of those APPLY
+                // it — offering to copy it out as a capture beside them would
+                // be a second, worse way in for words that have a real one.
+                let unsigned: Bool
+                if case .unsigned = who { unsigned = true } else { unsigned = false }
+                return SetAsideDoor.HeldRow(
+                    holder: holder,
+                    sentence: sentence,
+                    unsent: unsigned ? (words[holder] ?? 0) : 0,
+                    sentCount: unsigned
+                        ? (sent[SetAsideDoor.heldKey(
+                            docId: docId, holder: holder)]?.count ?? 0)
+                        : 0)
+            }
+            return nil
+        }
+    }
+
+    // MARK: - History this book is missing (signed op log P3b Task 6)
+
+    /// One drawn row of lost history: the sentence, and whether the writer has
+    /// put it down.
+    ///
+    /// A value built once per reload rather than in `body` (tripwire 4), and
+    /// decided in `OpLogStore.lostHistory` rather than here — the pane draws a
+    /// row and presses a verb; what is missing from this book is the op log's
+    /// own question.
+    struct LostHistoryRow: Identifiable, Equatable {
+        let streamKey: String
+        /// What is gone, in the writer's words, with what acknowledging it did
+        /// appended once it has been.
+        let sentence: String
+        let acknowledged: Bool
+        let noticedAt: Date?
+
+        var id: String { streamKey }
+    }
+
+    /// Findings → rows. Pure, so the whole drawer is pinnable with no window.
+    ///
+    /// **An acknowledged row STAYS**, in the register the rest of this pane
+    /// uses for a statement of fact: the history is still gone, so the sentence
+    /// is still true. What changes is the colour, the button and the second
+    /// sentence — because a press that made the row disappear would look like
+    /// the loss had been undone.
+    nonisolated static func lostHistoryRows(
+        _ lost: [OpLogStore.LostHistory]
+    ) -> [LostHistoryRow] {
+        lost.map { one in
+            LostHistoryRow(
+                streamKey: one.streamKey,
+                sentence: one.acknowledged
+                    ? one.sentence + " " + OpLogStore.LostHistory.acknowledgedSentence
+                    : one.sentence,
+                acknowledged: one.acknowledged,
+                noticedAt: one.noticedAt)
+        }
+    }
+
+    /// What Acknowledge says it is for. It is not *dismiss*: it is the writer
+    /// telling this Mac that the history is gone, which is the only thing that
+    /// stops the book waiting for it before it will change what somebody may
+    /// write.
+    ///
+    /// **And what it costs, before the press** (fix round 1, Important 1). The
+    /// cost was stated only in the row AFTER the act, which is the wrong half
+    /// of it: a writer pressing this on a stream that is merely mid-sync has
+    /// taken on that everything it eventually delivers is judged as written
+    /// after whatever they decide in the meantime. The clause is
+    /// `LostHistory.costOfAcknowledging`'s — one spelling, read here and
+    /// repeated in the row, never written twice.
+    static let acknowledgeLostHelp =
+        "I know this history is gone — stop waiting for it before changing "
+        + "what somebody may write in this book. "
+        + OpLogStore.LostHistory.costOfAcknowledging
+
     /// Whose chain this Mac is on — nil when it has joined nobody's.
     ///
     /// A Mac that is its own root joins nothing (B1, asked as
@@ -590,13 +757,24 @@ struct HistoryPane: View {
     }
 
     /// Events → rows. Pure, so the whole section is pinnable with no window.
+    ///
+    /// **A row about somebody this book has no record for says why it names
+    /// four characters** (P3b Task 7 fix round 1, I2). The clause is
+    /// `TrustEventSentence.unknownSubject`'s — beside the sentence rather than
+    /// inside it, because the sentence is shared with the phone and pinned to
+    /// the byte on both sides — and this is the one place the two are joined.
+    /// The commonest case is not a mystery machine but an ordinary lag: the
+    /// event synced and the person record has not.
     nonisolated static func trustEventLines(
         _ events: [TrustEvent], labels: [String: String]
     ) -> [TrustEventLine] {
         events.map { event in
-            TrustEventLine(
+            let sentence = TrustEventSentence.sentence(for: event, labels: labels)
+            let clause = TrustEventSentence.unknownSubject(
+                for: event, labels: labels)
+            return TrustEventLine(
                 id: event.id,
-                sentence: TrustEventSentence.sentence(for: event, labels: labels),
+                sentence: clause.map { "\(sentence) \($0)" } ?? sentence,
                 date: event.date,
                 symbol: symbol(for: event.kind))
         }
@@ -626,6 +804,10 @@ struct HistoryPane: View {
         case .joined: return "link"
         case .anotherClaimant: return "exclamationmark.triangle"
         case .recordRestored: return "arrow.uturn.backward.circle"
+        // Not a person at all: a stream this book can name no key for. The
+        // question-mark face rather than a warning triangle, because nothing is
+        // wrong — the words are waiting, not refused (P3b Task 10).
+        case .unsigned: return "person.fill.questionmark"
         }
     }
 
@@ -697,6 +879,37 @@ struct HistoryPane: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
+            // **History this book is missing** (P3b Task 6). A fact about the
+            // FOLDER rather than about the draft — every word Maugham had
+            // applied is still in it — and the one fact here that a registry
+            // verb refuses over, which is why it is the one that can be put
+            // down. Orange while it is waiting to be read, secondary once the
+            // writer has said they know, because an acknowledged row is a
+            // standing explanation rather than a thing to do.
+            ForEach(lostHistoryRows) { row in
+                HStack(spacing: 8) {
+                    Label(row.sentence, systemImage: "clock.badge.xmark")
+                        .font(.caption)
+                        .foregroundStyle(row.acknowledged
+                                         ? AnyShapeStyle(.secondary)
+                                         : AnyShapeStyle(Color.orange))
+                    Spacer(minLength: 4)
+                    if !row.acknowledged {
+                        Button("Acknowledge") {
+                            acknowledgeLostHistory(row.streamKey)
+                        }
+                            .controlSize(.small)
+                            .buttonStyle(.bordered)
+                            .help(Self.acknowledgeLostHelp)
+                            // .help is hover-only; the WHY must reach VoiceOver.
+                            .accessibilityHint(Text(Self.acknowledgeLostHelp))
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+            }
             // Signed op log P2a's two chain sentences, drawn together and in
             // this order because the second is the first's context: what this
             // Mac is holding, and whose chain it is holding it against.
@@ -732,6 +945,17 @@ struct HistoryPane: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
+            // **And the held lines nobody can be admitted for** (P3b Task 7).
+            // No control: there is nothing the writer could press here that
+            // would change either one. A permit this build cannot read wants a
+            // newer build; a piece nobody has claimed is settled in People &
+            // Devices, where the sentence sends them; an unsigned stream's
+            // words come back through the Inbox, which is Task 8's door and
+            // which the sentence already names.
+            ForEach(heldRows) { row in
+                HeldLineNoticeRow(row: row) { sendHeldWordsToInbox($0) }
+                Divider()
+            }
             if let notice = retirementLine {
                 // Orange, unlike the joined-chain fact beneath it: this one is
                 // a DIVERGENCE the writer can see from nowhere else. This Mac
@@ -758,13 +982,22 @@ struct HistoryPane: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
-            if !setAsideRecordNames.isEmpty {
+            if !setAsideRows.isEmpty {
                 // Listed whether acknowledged or not — the archives are the
                 // writer's to read at any time, and an acknowledgement is a
                 // statement about the sentence above, never about the evidence.
-                SetAsideRecordsDisclosure(names: setAsideRecordNames)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                VStack(alignment: .leading, spacing: 4) {
+                    SetAsideRecordsDisclosure(
+                        rows: setAsideRows, onSend: sendSetAsideToInbox)
+                    if let sendToInboxError {
+                        Text("Couldn’t send to the Inbox: \(sendToInboxError)")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                            .accessibilityIdentifier("set-aside-send-error")
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
                 Divider()
             }
             if let report = recoveredReport, !report.orphans.isEmpty {
@@ -844,6 +1077,11 @@ struct HistoryPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(WindowAccessor(window: $window))
         .task { await reload() }
+        // **The counts follow the provenance** (fix round 2, I1): a document
+        // whose load lands after this pane's first reload brings its held
+        // holders with it, and the door must appear on that pass rather than
+        // on whatever reload happens next.
+        .task(id: heldHolderKey) { await reloadHeldWordCounts() }
         .onChange(of: activeDocId) { _, _ in Task { await reload() } }
         // Project-scoped (ADR 0021): only this project's checkpoint reloads
         // this pane. Fixes the cross-window leak where every open window's
@@ -1002,6 +1240,15 @@ struct HistoryPane: View {
         setAsideRecordNames = setAside.map {
             SetAsideAcknowledgement.name(for: $0, in: projectURL)
         }
+        // **C16's input, resolved once for both readers** (P3b Task 8): the
+        // rows below and the sentence beneath them ask the same question of the
+        // same table, so a record cannot be listed under one reason and counted
+        // under another. Nil for every book that has revoked nobody, which
+        // costs nothing to establish.
+        let keepsNothing = await Self.keepsNothingNow(setAside, in: projectURL)
+        setAsideRows = SetAsideDoor.rows(
+            records: setAside, in: projectURL,
+            sent: documentStore?.uiState.sentRecoveredOpIds ?? [:])
         // `applied` is the ops this document is carrying RIGHT NOW — the list
         // read a few lines above, so nothing new is read from disk for it. An
         // op that was set aside and is now in the draft (the writer admitted the
@@ -1013,8 +1260,49 @@ struct HistoryPane: View {
                 acknowledged: documentStore?.uiState.acknowledgedSetAsideRecords ?? [],
                 in: projectURL),
             in: projectURL,
-            applied: Set(ops.map(\.opId)))
+            applied: Set(ops.map(\.opId)),
+            nowKeepsNothing: { keepsNothing[SetAsideDoor.identity(of: $0)] ?? nil })
+        // Read outside `reloadChain`'s registry guard: a book that has never
+        // joined a chain can still hold another device's stream, and what this
+        // Mac cannot find is true whether or not a register says whose it was.
+        lostHistoryRows = await Self.lostHistoryRows(
+            documentStore?.lostHistory() ?? [])
         await reloadChain()
+        await reloadHeldWordCounts()
+    }
+
+    /// **What each unsigned holder is waiting with** — the disk half of the
+    /// held-line rows (fix round 2, I1).
+    ///
+    /// Keyed off the LIVE provenance rather than a value captured earlier in
+    /// `reload()`, and re-run by `body`'s `.task(id:)` whenever that set of
+    /// holders changes — which is what a document whose provenance lands after
+    /// the first reload looks like from here. A book with no unsigned holder
+    /// asks nothing and costs nothing.
+    private func reloadHeldWordCounts() async {
+        let holders = Array(documentProvenance?.pendingByDevice.keys ?? [:].keys)
+        heldWordCounts = await documentStore?.unsignedHeldWordCounts(
+            forDocId: activeDocId, holders: holders) ?? [:]
+    }
+
+    /// The holders this document is currently holding lines under, as one
+    /// stable string — the id `body`'s `.task` watches, so the counts follow a
+    /// provenance that arrives late without polling for it.
+    private var heldHolderKey: String {
+        (documentProvenance?.pendingByDevice.keys.sorted() ?? []).joined(separator: ",")
+    }
+
+    /// The rows, composed live. Pure and cheap — a classification and a
+    /// sentence per holder, no disk — so it costs a `body` pass what a stored
+    /// array would have cost, minus the staleness.
+    private var heldRows: [SetAsideDoor.HeldRow] {
+        Self.heldLineRows(
+            provenance: documentProvenance,
+            startedAPiece: documentStore?
+                .document(forDocId: activeDocId)?.startedAPiece ?? [],
+            names: chainDeviceNames, words: heldWordCounts,
+            sent: documentStore?.uiState.sentRecoveredOpIds ?? [:],
+            docId: activeDocId)
     }
 
     /// The names the two chain sentences are told in, resolved off the main
@@ -1046,10 +1334,19 @@ struct HistoryPane: View {
             trustEventLines = []
             return
         }
+        // **The unsigned entries' two facts, read with everything else that
+        // touches disk** (P3b Task 10). `onlyIfNarrowed` because an unsigned
+        // entry exists only in a narrowed book: an un-narrowed one would pay
+        // for a walk of every op file to draw nothing.
+        let identities = Document.loadIdentities
+        let registryCache = Document.loadRegistryCache
         let resolved = await Task.detached(priority: .userInitiated) {
             () -> (names: [String: String], joined: String?, retired: String?,
                    events: [TrustEventLine]) in
             let registry = try? RegistryReader.load(projectURL: url)
+            let unsigned = DocumentStore.readUnsigned(
+                in: url, identities: identities, cache: registryCache,
+                onlyIfNarrowed: true)
             var names: [String: String] = [:]
             var labels: [String: String] = [:]
             for device in registry?.devices ?? [] { names[device.device] = device.name }
@@ -1061,7 +1358,9 @@ struct HistoryPane: View {
             // this Mac's own facts and survive a folder nobody can read.
             let events = TrustEvents.derive(
                 registry: registry ?? Registry(), cache: .shared,
-                mine: .current, for: url)
+                mine: .current, for: url,
+                unsigned: TrustEvents.UnsignedStreams(
+                    narrowedAt: unsigned.narrowedAt, streams: unsigned.streams))
             // This Mac's own standing, for the one fact on it that the machine
             // itself has to be told: `DeviceStanding` owns the sentence so the
             // pane and People & Devices cannot word it differently (tripwire
@@ -1081,12 +1380,149 @@ struct HistoryPane: View {
         trustEventLines = resolved.events
     }
 
+    /// **C16's input for every set-aside record**, resolved off the main actor
+    /// against the one trust table this project has (P3b Task 8).
+    ///
+    /// **A book that has revoked nobody pays nothing at all**: no register
+    /// means no revocation, so the frozen reasons are the only ones there are
+    /// and the folder is never opened. Keyed on `SetAsideDoor.identity`, which
+    /// is the triple the quarantine directory matches a record on — resolved
+    /// without touching disk, unlike the archive name.
+    static func keepsNothingNow(
+        _ records: [QuarantineRecord], in projectURL: URL
+    ) async -> [String: Bool?] {
+        guard !records.isEmpty, TrustResolution.hasRegistry(in: projectURL)
+        else { return [:] }
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        return await Task.detached(priority: .userInitiated) {
+            // Never fatal, for `reloadChain`'s reason: an unreadable registry
+            // costs the writer a CORRECTION to a sentence, never the sentence.
+            guard let table = try? TrustResolution.resolveVerified(
+                projectURL: projectURL, identities: identities, cache: cache).table
+            else { return [:] }
+            var answers: [String: Bool?] = [:]
+            for record in records where record.kind == .lines {
+                answers[SetAsideDoor.identity(of: record)] =
+                    SetAsideDoor.keepsNothingNow(
+                        record, in: projectURL, table: table)
+            }
+            return answers
+        }.value
+    }
+
+    /// **Send one record's set-aside words to the Inbox** (spec §7.4).
+    ///
+    /// Nothing is applied and nothing on disk moves: the words are copied out
+    /// as captures signed by this Mac's own author actor, and the record stays
+    /// held with the same sentence on it. The press is remembered device-locally
+    /// so the door is not offered a second time and the same paragraphs are not
+    /// filed twice.
+    private func sendSetAsideToInbox(_ row: SetAsideDoor.Row) {
+        guard let documentStore else { return }
+        let projectURL = self.projectURL
+        let records = OpLogQuarantine.records(forDocId: activeDocId, in: projectURL)
+        guard let record = records.first(where: {
+            SetAsideAcknowledgement.name(for: $0, in: projectURL) == row.name
+        }) else { return }
+        let already = documentStore.uiState.sentRecoveredOpIds[row.name] ?? []
+        Task {
+            let named = await Self.attributions(for: record, in: projectURL)
+            let captures = SetAsideDoor.captures(
+                forRecord: record, in: projectURL, alreadySent: already,
+                // A record whose chain broke names nobody (fix round 2, M6):
+                // the `device` field in those bytes is the one thing the
+                // refusal exists to disbelieve.
+                attribution: {
+                    named[$0.device] ?? SetAsideDoor.attribution(
+                        forRecord: record, deviceId: $0.device,
+                        registry: Registry(),
+                        table: TrustResolution.keyless(mine: .current))
+                })
+            do {
+                // Recorded as each one lands, so a send that fails halfway
+                // leaves a re-press with only the rest to do (fix round 2, M2).
+                _ = try await documentStore.inboxStore.captureRecoveredWords(
+                    captures,
+                    onLanded: { landed in
+                        documentStore.recordRecoveredCapturesSent(
+                            door: row.name, ids: [landed.id])
+                    })
+                sendToInboxError = nil
+            } catch {
+                sendToInboxError = error.localizedDescription
+            }
+            await reload()
+        }
+    }
+
+    /// **Send an unsigned holder's WAITING words to the Inbox** (spec §7.4).
+    ///
+    /// The set-aside door's twin over the other refusal: nothing is applied,
+    /// no byte of the stream moves, the lines stay held under the same holder,
+    /// and the words arrive as captures signed by this Mac's own author actor.
+    /// A re-read that will not read, or that finds no prose, says so and sends
+    /// nothing rather than filing a capture it is not sure of.
+    private func sendHeldWordsToInbox(_ row: SetAsideDoor.HeldRow) {
+        guard let documentStore else { return }
+        let docId = activeDocId
+        Task {
+            do {
+                let landed = try await documentStore.sendHeldWordsToInbox(
+                    forDocId: docId, heldBy: row.holder)
+                sendToInboxError = landed > 0
+                    ? nil
+                    : "Nothing is waiting to send any more."
+            } catch {
+                sendToInboxError = error.localizedDescription
+            }
+            await reload()
+        }
+    }
+
+    /// Who each of a record's writers is, in the Inbox's own words for the same
+    /// machine (`SetAsideDoor.attribution`), resolved once per press and off
+    /// the main actor.
+    static func attributions(
+        for record: QuarantineRecord, in projectURL: URL
+    ) async -> [String: String] {
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        return await Task.detached(priority: .userInitiated) {
+            let writers = OpLogQuarantine.writers(ofRecord: record, in: projectURL)
+            guard !writers.isEmpty else { return [:] }
+            let resolved = try? TrustResolution.resolveVerified(
+                projectURL: projectURL, identities: identities, cache: cache)
+            let registry = resolved?.registry ?? Registry()
+            let table = resolved?.table
+                ?? TrustResolution.keyless(mine: identities)
+            var answers: [String: String] = [:]
+            for deviceId in writers {
+                answers[deviceId] = SetAsideDoor.attribution(
+                    forRecord: record, deviceId: deviceId,
+                    registry: registry, table: table)
+            }
+            return answers
+        }.value
+    }
+
     /// Put the set-aside sentence down: every record it could be about is
     /// recorded as seen in this device's UI state, and the reload recomputes
     /// the count from what is left. Nothing on disk moves — the disclosure
     /// above goes on listing exactly what it listed before.
     private func acknowledgeSetAside() {
         documentStore?.acknowledgeSetAsideRecords(Set(setAsideRecordNames))
+        Task { await reload() }
+    }
+
+    /// **The writer says they know this history is gone** (P3b Task 6).
+    ///
+    /// It writes nothing to the book — this Mac's own memory of having been
+    /// told, and nothing another device will ever read — and what it changes is
+    /// that the marking verbs stop waiting for that stream. The row stays,
+    /// saying so.
+    private func acknowledgeLostHistory(_ streamKey: String) {
+        documentStore?.acknowledgeLostHistory(streamKey: streamKey)
         Task { await reload() }
     }
 
@@ -1623,9 +2059,85 @@ private struct HistoryRow: View {
 /// `isExpanded` is state with an injectable seed so the expanded case — the one
 /// that broke — is measurable windowlessly (`SetAsideRecordsDisclosureTests`);
 /// production never passes it, and the disclosure opens closed.
+///
+/// **C13 was re-run before this list grew a control** (P3b Task 8, 2026-09-23)
+/// and did not reproduce: the expanded disclosure inside a real three-column
+/// split holds `[240, 639, 320]` at 1200 pt and `[200, 480, 320]` at 900 pt,
+/// with the shipped framed detail column and with the pre-27 unframed one
+/// alike. The layout is therefore untouched; what is new is a per-row button,
+/// and its width is bounded by the same suite that bounds the names.
+///
+/// **The row carries at most one control, and only where there is something
+/// to give back** (spec §7.4): a record whose refused lines held manuscript
+/// text offers **Send to Inbox**, once. Everything else is a name and a
+/// tooltip, which is what a forensic list is.
+/// **One held-line sentence, and the one control any of them can carry** (P3b
+/// Task 8, extracted in Task 10 for the reason the disclosure beside it was).
+///
+/// A view of its own rather than an `HStack` in `body` so its width is
+/// BOUNDABLE: Task 8's review left this row outside the suite that bounds the
+/// set-aside row's button (M5), and a row drawn inline in a pane's body can
+/// only be measured by mounting the pane. Its sibling
+/// `SetAsideRecordsDisclosure` is the precedent, and `C13`'s whole lesson is
+/// that a control added to a column that was already near its width is where
+/// this pane goes wrong.
+///
+/// The sentence is bounded rather than hard-wrapped: these are long and
+/// composed live (fix round 2's I1), so the row asks for a modest width and
+/// takes whatever the column actually gives it.
+@MainActor
+struct HeldLineNoticeRow: View {
+    let row: SetAsideDoor.HeldRow
+    /// What a press does. The view decides nothing: whether a control is drawn
+    /// at all is `SetAsideDoor.HeldRow.offersTheDoor`, and what a press writes
+    /// is `HistoryPane.sendHeldWordsToInbox`.
+    var onSend: (SetAsideDoor.HeldRow) -> Void = { _ in }
+
+    /// What the SENTENCE asks for. Narrower than the disclosure's rows, not
+    /// wider, although its text is far longer: this row puts a control (or a
+    /// *sent* note) on the same LINE, and the two demands add. Measured — at
+    /// the disclosure's 220 the already-sent shape asked 415 pt against the
+    /// suite's 400 pt bound.
+    static let idealWidth: CGFloat = 180
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Label(row.sentence, systemImage: "clock.badge.questionmark")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(idealWidth: Self.idealWidth, alignment: .leading)
+                .accessibilityIdentifier("held-line-notice")
+            Spacer(minLength: 4)
+            // **The one held line with no other way in** (spec §7.4): a stream
+            // nothing signs cannot be admitted, so the words come back as
+            // captures or not at all.
+            if row.offersTheDoor {
+                Button("Send to Inbox") { onSend(row) }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                    .help(row.doorHelp)
+                    .accessibilityIdentifier("held-line-send-to-inbox")
+            } else if let sent = row.sentNote {
+                Text(sent)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("held-line-sent-note")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 @MainActor
 struct SetAsideRecordsDisclosure: View {
-    let names: [String]
+    let rows: [SetAsideDoor.Row]
+    /// What a press does. The view decides nothing: which rows carry a control
+    /// is `SetAsideDoor.Row.offersTheDoor`, and what a press writes is
+    /// `HistoryPane.sendSetAsideToInbox`.
+    var onSend: (SetAsideDoor.Row) -> Void = { _ in }
     @State private var isExpanded: Bool
 
     /// What this list asks for, whatever its rows are called. Narrow enough to
@@ -1633,23 +2145,44 @@ struct SetAsideRecordsDisclosure: View {
     /// stretch to fill whatever they are actually given.
     static let idealWidth: CGFloat = 220
 
-    init(names: [String], initiallyExpanded: Bool = false) {
-        self.names = names
+    init(
+        rows: [SetAsideDoor.Row],
+        onSend: @escaping (SetAsideDoor.Row) -> Void = { _ in },
+        initiallyExpanded: Bool = false
+    ) {
+        self.rows = rows
+        self.onSend = onSend
         _isExpanded = State(initialValue: initiallyExpanded)
     }
 
     var body: some View {
         DisclosureGroup("Set-aside records", isExpanded: $isExpanded) {
             VStack(alignment: .leading, spacing: 2) {
-                ForEach(names, id: \.self) { name in
-                    Text(name)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(name)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(rows) { row in
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(row.name)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(row.name)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if row.offersTheDoor {
+                            Button("Send to Inbox") { onSend(row) }
+                                .controlSize(.small)
+                                .buttonStyle(.link)
+                                .font(.caption2)
+                                .help(row.doorHelp)
+                                .accessibilityIdentifier("set-aside-send-to-inbox")
+                        } else if let sent = row.sentNote {
+                            Text(sent)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .accessibilityIdentifier("set-aside-sent-note")
+                        }
+                    }
                 }
             }
             .padding(.top, 2)

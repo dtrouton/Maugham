@@ -26,14 +26,15 @@ struct InboxPane: View {
 
     @State private var editing: InboxEntry?
     /// How many set-aside CAPTURES this device has not yet told the writer
-    /// about, and the names of every record whether acknowledged or not
+    /// about, **under each reason they were set aside for** (P3b Task 8's C1),
+    /// and the names of every record whether acknowledged or not
     /// (signed op log P2a, D2). Resolved on the pane's `.task` from
     /// `store.setAsideRecords` and held, because both resolutions read the
     /// quarantine directory and a read from `body` would do file I/O on every
     /// evaluation. A capture already in the pane is not counted: the record is
     /// evidence forever, and *set aside* stopped being true of that row the
     /// moment the writer admitted the device that wrote it (P2 smoke, find 7).
-    @State private var setAsideChangeCount: Int = 0
+    @State private var setAsideChangesByReason: [String: Int] = [:]
     @State private var setAsideRecordNames: [String] = []
     @State private var audio = InboxAudioPlayer()
     @State private var promoteError: String?
@@ -63,16 +64,28 @@ struct InboxPane: View {
     /// same contract, and the same words, as `HistoryPane.setAsideLinesNotice`
     /// gives a document.
     ///
-    /// Pure over the count, so the copy pins without a window and without disk.
-    /// The count is taken over `InboxStore.setAsideRecords`, which is the half
-    /// that has to read files.
-    static func setAsideNotice(changeCount: Int) -> String? {
-        guard changeCount > 0 else { return nil }
-        let subject = changeCount == 1
-            ? "1 capture was written"
-            : "\(changeCount) captures were written"
-        return "\(subject) to the inbox by something that is not Maugham; "
-             + "kept in backup, not shown."
+    /// **Reason-aware since P3b Task 8** (carry C1). It used to say *written to
+    /// the inbox by something that is not Maugham* about every refusal there
+    /// is — which was true of the only cause P1 had, and is false of every one
+    /// P2b and P3 added. A writer who revokes their own old laptop, or whose
+    /// phone's permit will not let it write here, was being told a stranger had
+    /// tampered with their capture file.
+    ///
+    /// The composition is `SetAsideDoor.notice`'s, which History's twin also
+    /// calls, so the two panes cannot describe one event differently. What is
+    /// supplied here is only what the INBOX's refusal costs the writer: a
+    /// capture, and that it is not shown.
+    ///
+    /// Pure over the counts, so the copy pins without a window and without
+    /// disk. The counts are taken over `InboxStore.setAsideRecords`, which is
+    /// the half that has to read files.
+    static func setAsideNotice(byReason: [String: Int]) -> String? {
+        func captures(_ count: Int) -> String {
+            count == 1 ? "1 capture" : "\(count) captures"
+        }
+        return SetAsideDoor.notice(
+            byReason: byReason, subject: captures, clause: captures,
+            ending: "kept in backup, not shown")
     }
 
     /// **What this book is holding, and from whom** (signed op log P2, spec
@@ -136,6 +149,21 @@ struct InboxPane: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
+            // **And the captures no admission would release** (P3b Task 7).
+            // No control beside them, unlike the banner above: a permit this
+            // build cannot read wants a newer build, and a Mac that signs
+            // nothing it writes has no device to admit at all — its words come
+            // back through this very pane, which is Task 8's door and which
+            // the sentence already names.
+            ForEach(store.heldNotices, id: \.self) { notice in
+                Label(notice, systemImage: "clock.badge.questionmark")
+                    .font(.caption)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("inbox-held-notice")
+                Divider()
+            }
             if let registryNotice = store.unreadableRegistry {
                 // A registry record, not a capture. Its own sentence, because
                 // wrapping it in "some captures can't be read" would name a
@@ -165,7 +193,7 @@ struct InboxPane: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
-            if let notice = Self.setAsideNotice(changeCount: setAsideChangeCount) {
+            if let notice = Self.setAsideNotice(byReason: setAsideChangesByReason) {
                 // The other half of the one new refusal in the tree (signed op
                 // log P1): a `.lines` record never returns, and until now the
                 // inbox's were written and shown to nobody — `HistoryPane` only
@@ -220,7 +248,7 @@ struct InboxPane: View {
         // after every one of them; counting beside the `refresh()` above
         // instead left the sentence frozen at the first reading.
         .task(id: store.refreshes) {
-            reloadSetAside()
+            await reloadSetAside()
         }
         // Six seconds, as `CanvasPromotionModifier`'s confirmation gives the
         // promotion sentence — and restarted by every send, because the value
@@ -276,23 +304,35 @@ struct InboxPane: View {
     /// writer about, the names are of all of them. `SetAsideAcknowledgement` is
     /// the one predicate — the History pane asks it the same question of a
     /// document's records, and a second spelling here would be a second answer.
-    private func reloadSetAside() {
+    ///
+    /// **C16 reaches this pane too** (P3b Task 10; Task 8's review, M4). The
+    /// correction — a revocation whose record now keeps NOTHING, so the frozen
+    /// reason on an old archive understates it — was resolved in History and
+    /// left to the parameter's default here, which meant one pane could name a
+    /// gentle revocation while the other named the harsh one about the same
+    /// record on the same afternoon. `HistoryPane.keepsNothingNow` is the one
+    /// resolution (it reads the single trust table, off the main actor, and a
+    /// book that has revoked nobody opens no folder at all), so this asks it
+    /// rather than growing a second body.
+    private func reloadSetAside() async {
         let records = store.setAsideRecords
         let projectURL = projectStore.url
         setAsideRecordNames = records.map {
             SetAsideAcknowledgement.name(for: $0, in: projectURL)
         }
+        let keepsNothing = await HistoryPane.keepsNothingNow(records, in: projectURL)
         // `applied` is every manifest row the refresh merged, whatever its
         // status — a capture that was set aside and is now in the inbox (or has
         // since been promoted or trashed) is one the writer HAS.
-        setAsideChangeCount = OpLogQuarantine.setAsideChangeCount(
+        setAsideChangesByReason = SetAsideDoor.changesByReason(
             records: SetAsideAcknowledgement.unacknowledged(
                 records: records,
                 acknowledged: projectStore.documentStore?.uiState
                     .acknowledgedSetAsideRecords ?? [],
                 in: projectURL),
             in: projectURL,
-            applied: store.appliedManifestIDs)
+            applied: store.appliedManifestIDs,
+            nowKeepsNothing: { keepsNothing[SetAsideDoor.identity(of: $0)] ?? nil })
     }
 
     /// Put the sentence down: every record it could be about is recorded as
@@ -301,7 +341,7 @@ struct InboxPane: View {
     private func acknowledgeSetAside() {
         projectStore.documentStore?
             .acknowledgeSetAsideRecords(Set(setAsideRecordNames))
-        reloadSetAside()
+        Task { await reloadSetAside() }
     }
 
     private var header: some View {

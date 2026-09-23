@@ -30,6 +30,11 @@ struct AdmissionModifier: ViewModifier {
     let projectURL: URL
     let projectTitle: String
     let documentStore: DocumentStore?
+    /// The open project, for the sheet's piece picker alone (P3b Task 4).
+    /// Optional because a window whose load has not finished has none, and the
+    /// sheet's *author of some pieces* arm then offers no pieces — which is the
+    /// same real state as a book that has none.
+    let projectStore: ProjectStore?
     @Binding var window: NSWindow?
 
     /// The strangers still to be asked about, head first.
@@ -58,7 +63,12 @@ struct AdmissionModifier: ViewModifier {
                     projectTitle: projectTitle,
                     refusal: refusal,
                     isAdmitting: isAdmitting,
-                    onAdmit: { typed in admit(request, typedLabel: typed) },
+                    pieces: PermitControl.pieces(
+                        in: projectStore?.manifest.structure ?? []),
+                    checkTheBook: { await checkTheBook() },
+                    onAdmit: { typed, permit in
+                        admit(request, typedLabel: typed, permit: permit)
+                    },
                     onNotNow: { notNow(request) })
             }
             // **What "the next open" actually means** (the review's Minor 2).
@@ -170,6 +180,11 @@ struct AdmissionModifier: ViewModifier {
         let cache = Document.loadRegistryCache
         let requests = await AdmissionDecision.refreshedRequests(
             heldLines: { documentStore.heldLinesByDevice() },
+            // The streams those held lines were in (P3b Task 4), read from the
+            // same union in the same moment: a key that is not a person's must
+            // not be offered as one, and only the file it wrote in says which
+            // of a device's four writers it is.
+            heldStreams: { documentStore.heldLines().streams },
             memory: Document.loadAdmissionMemory.remembered,
             // Decision B2 does not stop at the open (find 4). The same verb
             // `DocumentStore.open` calls, off the main actor like the resolve
@@ -237,6 +252,44 @@ struct AdmissionModifier: ViewModifier {
         presented = nil
     }
 
+    /// **What a narrowing would cost this book**, for the sheet's sentence.
+    ///
+    /// Both halves come off the folder rather than off this Mac's own enclave:
+    /// whether anybody here has been narrowed already (`TrustTable
+    /// .hasNarrowingPermits`) and whether any stream in the book answers to no
+    /// key (`OpLogStore.unattributablePositions`, the same sweep the act
+    /// itself takes its photograph with). Detached, for the resolve's own
+    /// reason — a signature check per record and a walk of every op-log file.
+    ///
+    /// Nil is *the book could not be read*, which the sheet reports as nothing
+    /// at all: the act runs the same sweep and refuses in the error's own
+    /// words, so a guess here would only be a second, quieter account of a
+    /// failure the writer is about to be told about properly.
+    ///
+    /// **One body, two callers** (P3b Task 5). People & Devices asks the same
+    /// question for its unsigned rows and for the same first-narrowing
+    /// sentence, so the read is `DocumentStore.readUnsigned` and both surfaces
+    /// go through it — two bodies would let the sheet and the pane say
+    /// different things about one folder on one afternoon.
+    @MainActor
+    private func checkTheBook() async -> PermitControl.BookNarrowing? {
+        let url = projectURL
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        let reading = await Task.detached(priority: .userInitiated) {
+            DocumentStore.readUnsigned(
+                in: url, identities: identities, cache: cache)
+        }.value
+        if let refusal = reading.refusal {
+            admissionLog.error(
+                "admission could not read \(url.lastPathComponent, privacy: .public) to say what a narrowing would cost: \(refusal, privacy: .public)")
+            return nil
+        }
+        return PermitControl.BookNarrowing(
+            alreadyNarrowed: reading.alreadyNarrowed,
+            holdsAnUnsignedStream: reading.holdsAnUnsignedStream)
+    }
+
     /// Write the admission, and let the held ops in.
     ///
     /// The typed label is put through `AdmissionDecision.outcome` rather than
@@ -244,7 +297,15 @@ struct AdmissionModifier: ViewModifier {
     /// that label's own spelling (spec §4.1) and an empty field writes nothing.
     /// A refusal keeps the sheet up carrying its own sentence — the one thing a
     /// dialog must never do is close on a write that did not happen.
-    private func admit(_ request: AdmissionRequest, typedLabel: String) {
+    ///
+    /// **`permit` is the rung the writer chose** (P3b Task 4). The store verb
+    /// takes it from here and decides everything else about it — whether this
+    /// act installs a permit at all, whether it owes the book's unsigned
+    /// photograph, whether it gates older builds out. This modifier knows about
+    /// none of those.
+    private func admit(
+        _ request: AdmissionRequest, typedLabel: String, permit: Permit
+    ) {
         guard let documentStore, !isAdmitting else { return }
         let label: String
         switch AdmissionDecision.outcome(for: request, typedLabel: typedLabel) {
@@ -259,7 +320,7 @@ struct AdmissionModifier: ViewModifier {
             do {
                 _ = try await documentStore.admit(
                     device: request.fingerprint, label: label,
-                    ownName: request.recordedOwnName)
+                    ownName: request.recordedOwnName, permit: permit)
                 queue.removeAll { $0.fingerprint == request.fingerprint }
                 presented = nil
             } catch {

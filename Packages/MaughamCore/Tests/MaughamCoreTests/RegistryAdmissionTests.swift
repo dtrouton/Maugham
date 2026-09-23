@@ -1379,6 +1379,9 @@ final class RegistryAdmissionTests: XCTestCase {
             ownName: "Denver's iPhone",
             role: Permit.reviewerRole, scope: Permit.bookScope,
             mark: mark("d-one.slug", line: "hash-1"),
+            // A narrowing admission carries the photograph; this fixture
+            // writes no op log, so a sweep of it answers empty (P3b Task 1).
+            unsigned: .nothingApplied,
             in: projectURL, by: mine.author,
             cache: makeCache(), memory: makeMemory(),
             now: { Date(timeIntervalSince1970: 10) })
@@ -1411,6 +1414,7 @@ final class RegistryAdmissionTests: XCTestCase {
             ownName: "Denver's iPhone",
             role: Permit.reviewerRole,
             mark: mark("d-one.slug", line: "hash-2"),
+            unsigned: .nothingApplied,
             in: projectURL, by: mine.author,
             cache: makeCache(), memory: makeMemory(),
             now: { Date(timeIntervalSince1970: 30) })
@@ -1471,6 +1475,7 @@ final class RegistryAdmissionTests: XCTestCase {
         try RegistryAdmission.admit(
             device: phone.author.fingerprint, label: "Sam",
             ownName: "Denver's iPhone", role: Permit.reviewerRole,
+            unsigned: .nothingApplied,
             in: projectURL, by: mine.author,
             cache: makeCache(), memory: makeMemory(),
             now: { Date(timeIntervalSince1970: 10) })
@@ -1518,6 +1523,12 @@ final class RegistryAdmissionTests: XCTestCase {
             person: phone.author.fingerprint,
             role: permit.wireRole, scope: permit.wireScope,
             pieces: permit.wirePieces, mark: mark,
+            // **The photograph a narrowing carries** (P3b Task 1). These
+            // fixtures write no op log at all, so a real sweep of them answers
+            // exactly this — pinned by
+            // `UnsignedSnapshotTests.test_aBookWithNoHistoryPhotographsNothing`
+            // rather than assumed here.
+            unsigned: .nothingApplied,
             in: projectURL, by: root ?? mine.author, cache: makeCache(),
             now: { when })
     }

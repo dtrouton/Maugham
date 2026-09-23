@@ -55,6 +55,24 @@ public struct FileProvenance: Equatable, Sendable {
     /// exactly, since a stranger's seal was the only reason to hold a line —
     /// so a `FileProvenance` built by hand answers what it always answered.
     public let pendingStrangerDevices: Set<String>
+    /// **The device slug this file's STREAM carries**, or nil where there is
+    /// none — the legacy unsuffixed `<docId>.jsonl`, and any file this build
+    /// does not recognise as one of the three stream families
+    /// (`PermitMark.stream(of:)`).
+    ///
+    /// Carried beside `name` because a holder's own key does not always say
+    /// which of a device's four writers made it: a non-author actor key with no
+    /// device record yet stands for itself in `pendingByDevice`, and the only
+    /// thing on disk that names it is the slug of the file it was written in
+    /// (P3b Task 4, spec §7.1). The admission sheet is what needs it — a key
+    /// that is not a person's must never be offered as one — and the file is
+    /// the only place the join can be made, so it is recorded here rather than
+    /// re-derived from `name` by a reader that would have to know the directory
+    /// too.
+    ///
+    /// **Nil is never a narrowing.** A reader that cannot name the slug asks
+    /// nothing of it and leaves the holder exactly as P2b left it.
+    public let deviceSlug: String?
     /// Whether this file is a sealed `.mzseg` segment rather than a live tail.
     public let isSealedSegment: Bool
     /// For a sealed segment: whether its signature settled it (either read from
@@ -72,6 +90,7 @@ public struct FileProvenance: Equatable, Sendable {
         pending: Int = 0,
         pendingByDevice: [String: Int] = [:],
         pendingStrangerDevices: Set<String>? = nil,
+        deviceSlug: String? = nil,
         isSealedSegment: Bool = false,
         segmentVerified: Bool? = nil
     ) {
@@ -85,6 +104,7 @@ public struct FileProvenance: Equatable, Sendable {
         self.pendingByDevice = pendingByDevice
         self.pendingStrangerDevices =
             pendingStrangerDevices ?? Set(pendingByDevice.keys)
+        self.deviceSlug = deviceSlug
         self.isSealedSegment = isSealedSegment
         self.segmentVerified = segmentVerified
     }
@@ -116,6 +136,29 @@ public struct OpLogProvenance: Equatable, Sendable {
     public var pendingByDevice: [String: Int] {
         files.reduce(into: [:]) { total, file in
             for (key, count) in file.pendingByDevice { total[key, default: 0] += count }
+        }
+    }
+
+    /// **Which STREAMS each held holder was held in**, by device slug (P3b
+    /// Task 4).
+    ///
+    /// The admission sheet's question is *is this key a person's*, and a key
+    /// nothing has a device record for cannot answer it alone: a non-author
+    /// actor key stands for itself here, and the slug of the file it was
+    /// written in is the only thing on disk that says which of the four writers
+    /// it is (`DeviceIdentity.actor(ofDeviceId:signingWith:)`, which CHECKS the
+    /// claim against the key rather than believing the word).
+    ///
+    /// A file with no slug contributes nothing, so a holder can legitimately
+    /// have an empty set and that reads as *nothing here says* — the same
+    /// answer P2b gave, which is what keeps the narrowing from ever refusing an
+    /// honest stranger.
+    public var pendingStreamsByDevice: [String: Set<String>] {
+        files.reduce(into: [:]) { streams, file in
+            guard let slug = file.deviceSlug else { return }
+            for device in file.pendingByDevice.keys {
+                streams[device, default: []].insert(slug)
+            }
         }
     }
 

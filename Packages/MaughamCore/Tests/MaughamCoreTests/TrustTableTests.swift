@@ -1222,4 +1222,54 @@ final class TrustTableTests: XCTestCase {
         XCTAssertEqual(table.actor(forSealKey: mine.assistant.fingerprint), .assistant)
         XCTAssertEqual(table.verdict(forSealKey: mine.assistant.fingerprint), .mine)
     }
+
+    // MARK: - Which keys this book has heard of (P3b Task 4)
+
+    /// **A key two verified device records both claim is nobody's, and the
+    /// registry says so in one place.** `Registry.actorKeyOwners` already drops
+    /// such a key; this is the question a surface asks about it — and it is
+    /// *the register has an opinion and the opinion is nobody* rather than
+    /// *nothing here has heard of this key*, which is the ordinary stranger.
+    func test_aKeyTwoRecordsClaimIsContestedAndOneRecordsIsNot() {
+        let sam = foreignKey()
+        let liar = foreignKey()
+        let shared = foreignKey()
+        let hers = foreignKey()
+        let registry = Registry(
+            devices: [
+                deviceRecord(sam, actors: [DeviceActor.assistant.rawValue: shared]),
+                deviceRecord(liar, actors: [DeviceActor.assistant.rawValue: shared]),
+                deviceRecord(hers, actors: [DeviceActor.translator.rawValue: hers + "x"]),
+            ],
+            people: [rootRecord(mine.author.fingerprint)])
+
+        XCTAssertTrue(registry.isContestedActorKey(shared))
+        XCTAssertFalse(registry.isContestedActorKey(hers + "x"),
+                       "one claimant owns it, whatever its standing")
+        XCTAssertFalse(registry.isContestedActorKey(sam),
+                       "the author slot is proven, so it can never be contested")
+        XCTAssertFalse(registry.isContestedActorKey(foreignKey()),
+                       "a key no record mentions is not contested — it is "
+                       + "unheard of, which is what a stranger is")
+    }
+
+    /// The table's own question and the registry's read the SAME set, so a
+    /// sheet and a pane cannot disagree about which keys this book has heard
+    /// of.
+    func test_theTableAndTheRegistryNameTheSameKeys() {
+        let sam = foreignKey()
+        let itsAssistant = foreignKey()
+        let registry = Registry(
+            devices: [deviceRecord(
+                sam, actors: [DeviceActor.assistant.rawValue: itsAssistant])],
+            people: [rootRecord(mine.author.fingerprint)])
+
+        let table = TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
+
+        for key in registry.keysNamedByADeviceRecord {
+            XCTAssertTrue(table.aDeviceRecordNames(key), key)
+        }
+        XCTAssertTrue(table.aDeviceRecordNames(itsAssistant))
+        XCTAssertFalse(table.aDeviceRecordNames(foreignKey()))
+    }
 }

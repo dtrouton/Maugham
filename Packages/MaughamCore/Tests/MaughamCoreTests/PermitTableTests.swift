@@ -586,7 +586,109 @@ final class PermitTableTests: XCTestCase {
             Permit.actorJudging(.op(.bootstrap), signedBy: .author), .author,
             "already the author's: unchanged")
         XCTAssertEqual(
-            Permit.actorJudging(.op(.taskCreate), signedBy: .maugham), .author)
+            Permit.actorJudging(.op(.taskCreate), signedBy: .maugham), .maugham,
+            "the waiver is the two DOORS' actors; Maugham's own key is not one "
+            + "of them (P3b Task 3)")
+    }
+
+    /// **The waiver is the two doors, and Maugham's own key is not a door**
+    /// (P3b Task 3).
+    ///
+    /// P3a wrote the rule as *any actor but the author*, because what it was
+    /// for was the two doors a document can be opened through — MCP
+    /// (`.assistant`) and the translation pipeline (`.translator`) — and those
+    /// were the only non-author actors that could have signed a load emission
+    /// on v0.37–v0.40. `.maugham` is not a door: it is the app acting on
+    /// nobody's instruction, and the one thing the table lets it sign is a task
+    /// PRIORITY change (the rebalance). Waiving the actor for a `.maugham`-
+    /// signed `taskCreate` would hand the app's own key a row it has never had,
+    /// on the strength of a shape nothing has ever written.
+    ///
+    /// **Both directions.** The two doors keep the waiver exactly as P3a built
+    /// it; `.maugham` is judged as `.maugham`, which refuses.
+    func test_theWaiverIsTheTwoDoorsAndNotMaughamsOwnKey() {
+        // Kept: the two doors.
+        for door in [DeviceActor.assistant, .translator] {
+            XCTAssertEqual(
+                Permit.actorJudging(.op(.bootstrap), signedBy: door), .author,
+                "\(door)")
+            XCTAssertEqual(
+                Permit.actorJudging(.op(.taskCreate), signedBy: door), .author,
+                "\(door)")
+            XCTAssertEqual(
+                Permit.author(.book).allows(
+                    .op(.taskCreate), in: .projectStream,
+                    actor: Permit.actorJudging(.op(.taskCreate), signedBy: door)),
+                .yes, "\(door)")
+        }
+        // Narrowed: Maugham's own key.
+        XCTAssertEqual(
+            Permit.actorJudging(.op(.bootstrap), signedBy: .maugham), .maugham)
+        XCTAssertEqual(
+            Permit.author(.book).allows(
+                .op(.taskCreate), in: .projectStream,
+                actor: Permit.actorJudging(.op(.taskCreate), signedBy: .maugham)),
+            .no(.task),
+            "a taskCreate signed by the app's own key is the app's, and refused")
+        XCTAssertEqual(
+            Permit.author(.book).allows(
+                .op(.bootstrap), in: .piece(Self.hers),
+                actor: Permit.actorJudging(.op(.bootstrap), signedBy: .maugham)),
+            .no(.manuscriptText))
+        // And the one thing that key DOES sign is untouched.
+        XCTAssertEqual(
+            Permit.author(.book).allows(
+                .op(.taskPriorityChange), in: .projectStream, actor: .maugham),
+            .yes)
+    }
+
+    /// **The load's label changes no judgment, in either direction** (P3b
+    /// Task 3, handoff ruling 3).
+    ///
+    /// The three `typingBurst`s the load emits now carry a `synthesisSource`
+    /// saying so. It is provenance and nothing else: what a line is judged as
+    /// comes off its KIND, which is all `PermitPartition.writtenOp` decodes, so
+    /// there is no way for the field to reach the table at all.
+    ///
+    /// **Accept direction:** on an author-signed line the label moves nothing.
+    /// **Refuse direction:** an assistant-signed ordinary burst stays REFUSED
+    /// whatever the field says — `isALoadEmission` is NOT widened to
+    /// `typingBurst`, because a field the assistant writes is a field the
+    /// assistant can write, and *MCP never mutates manuscript text* would then
+    /// rest on the assistant's own good manners.
+    func test_theLoadsLabelChangesNoJudgmentInEitherDirection() throws {
+        func line(_ synthesisSource: String?) -> Data {
+            let provenance = synthesisSource.map {
+                ",\"provenance\":{\"synthesis_source\":\"\($0)\"}"
+            } ?? ""
+            return Data("""
+            {"op_id":"01","doc_id":"d","at":"2026-01-01T00:00:00.000Z",\
+            "device":"assistant-1111222233334444-aaaabbbb","session":"s",\
+            "kind":"typing_burst","changes":[]\(provenance)}
+            """.utf8)
+        }
+        // The decoder the partition uses sees a KIND and nothing else.
+        XCTAssertEqual(PermitPartition.writtenOp(line(nil)), .op(.typingBurst))
+        XCTAssertEqual(
+            PermitPartition.writtenOp(line("anchor_splice")), .op(.typingBurst))
+        XCTAssertEqual(
+            PermitPartition.writtenOp(line("pending_recovery")), .op(.typingBurst))
+
+        let what = try XCTUnwrap(PermitPartition.writtenOp(line("anchor_splice")))
+        // Accept: the author's own hand, unchanged.
+        XCTAssertEqual(
+            Permit.author(.book).allows(
+                what, in: .piece(Self.hers),
+                actor: Permit.actorJudging(what, signedBy: .author)),
+            .yes)
+        // Refuse: the assistant's, still.
+        XCTAssertEqual(
+            Permit.author(.book).allows(
+                what, in: .piece(Self.hers),
+                actor: Permit.actorJudging(what, signedBy: .assistant)),
+            .no(.manuscriptText),
+            "a label the assistant writes is not a licence the assistant grants")
+        XCTAssertFalse(Permit.isALoadEmission(.op(.typingBurst)))
     }
 
     /// A reviewer raises notes; they do not settle them.
@@ -1112,5 +1214,85 @@ final class DocumentClassTests: XCTestCase {
         for permit in [Permit.reviewer, .bookAuthor, .author(.pieces(["d-one"]))] {
             XCTAssertTrue(permit.covers(permit), "\(permit) covers itself")
         }
+    }
+
+    // MARK: - The rungs a surface may offer (P3b Task 4)
+
+    /// **A chosen rung becomes a permit here and nowhere else.** A surface
+    /// assembling one out of the wire words would be a second opinion about
+    /// what *reviewer* is made of, one step before tripwire 47's own failure.
+    func test_everyRungBuildsThePermitItNames() {
+        XCTAssertEqual(Permit.permit(offering: .reviewer), .reviewer)
+        XCTAssertEqual(Permit.permit(offering: .wholeBook), .bookAuthor)
+        XCTAssertEqual(
+            Permit.permit(offering: .somePieces, pieces: ["d-one"]),
+            .author(.pieces(["d-one"])))
+    }
+
+    /// *She may write what she starts* is a real state: an empty piece list is
+    /// an author of nothing yet, never an author of the book.
+    func test_somePiecesWithNoPiecesIsNotTheWholeBook() {
+        let permit = Permit.permit(offering: .somePieces)
+
+        XCTAssertEqual(permit, .author(.pieces([])))
+        XCTAssertNotEqual(permit, .bookAuthor)
+        XCTAssertTrue(permit.narrows)
+    }
+
+    func test_everyRungComesBackAsItself() {
+        for rung in Permit.Rung.allCases {
+            XCTAssertEqual(
+                Permit.rung(of: Permit.permit(offering: rung, pieces: ["d-one"])),
+                rung)
+        }
+    }
+
+    /// **A permit a later build wrote has no rung**, and a control meeting nil
+    /// must say so — drawing an unknown rung as a known one would offer to
+    /// overwrite a permit the writer was never shown.
+    func test_aPermitThisBuildCannotReadHasNoRungToDrawItWith() {
+        XCTAssertNil(Permit.rung(of: .unjudgeable(raw: "curator")))
+    }
+
+    // MARK: - P3b Task 5: the two accessors a surface asks
+
+    /// **The permit a RECORD says they hold**, spelled in the permit layer so
+    /// no surface assembles `Permit.parse(role:…)` for itself (tripwire 44).
+    /// It round-trips every rung, including the two whose record omits the
+    /// scope and pieces keys entirely.
+    func test_everyRungRoundTripsThroughAPersonRecord() {
+        for permit in [Permit.reviewer, .author(.book),
+                       .author(.pieces(["ch1", "ch4"])), .author(.pieces([]))] {
+            let record = PersonRecord(
+                person: "abcd", label: "Sam", ownName: "Sam's Mac",
+                role: permit.wireRole, scope: permit.wireScope,
+                pieces: permit.wirePieces,
+                admittedAt: Date(timeIntervalSince1970: 1), admittedBy: "root")
+            XCTAssertEqual(Permit.permit(recordedIn: record), permit)
+        }
+    }
+
+    /// A P2-era record carries neither key, and a missing `scope` MEANS the
+    /// whole book (spec §3.1) — so the accessor answers what P2 meant.
+    func test_ap2RecordWithNoScopeOrPiecesIsAnAuthorOfTheWholeBook() {
+        let record = PersonRecord(
+            person: "abcd", label: "Sam", ownName: "Sam's Mac",
+            admittedAt: Date(timeIntervalSince1970: 1), admittedBy: "root")
+
+        XCTAssertEqual(Permit.permit(recordedIn: record), .author(.book))
+    }
+
+    /// **The rung half of `PermitPartition.startsAPieceNobodyHasClaimed`**, and
+    /// the two must agree: the partition ENFORCES the rule and the accessor is
+    /// what a surface asks so that it never tests a permit against a literal
+    /// rung (tripwire 47).
+    func test_onlyAnAuthorOfSomePiecesMayStartAPieceOfTheirOwn() {
+        XCTAssertTrue(Permit.author(.pieces([])).mayStartAPieceOfTheirOwn)
+        XCTAssertTrue(Permit.author(.pieces(["ch1"])).mayStartAPieceOfTheirOwn)
+        XCTAssertFalse(Permit.reviewer.mayStartAPieceOfTheirOwn)
+        XCTAssertFalse(Permit.author(.book).mayStartAPieceOfTheirOwn,
+                       "an author of the whole book has nothing to start — "
+                       + "every piece is already theirs")
+        XCTAssertFalse(Permit.unjudgeable(raw: "editor").mayStartAPieceOfTheirOwn)
     }
 }

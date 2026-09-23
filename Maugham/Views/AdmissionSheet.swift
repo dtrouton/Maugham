@@ -30,23 +30,57 @@ struct AdmissionSheet: View {
     /// True while the admission write is in flight, so a second Admit cannot be
     /// pressed on top of the first.
     let isAdmitting: Bool
-    let onAdmit: (String) -> Void
+    /// The book's manuscript documents, for the piece picker (P3b Task 4).
+    /// Empty is a real state — a book with no pieces yet — and the picker says
+    /// so rather than drawing an empty list.
+    let pieces: [PermitControl.Piece]
+    /// **What this book is, asked only when the writer narrows it.**
+    ///
+    /// Answering costs a walk of every op-log file in the project (*does any
+    /// stream here answer to no key*), so it is not paid by the ordinary
+    /// admission — which is every admission before this milestone, and still
+    /// the common one. It is asked the moment the writer picks a rung that
+    /// narrows, and Admit waits for it: the first-narrowing sentence is
+    /// something the writer is owed BEFORE they press, not after.
+    ///
+    /// Nil back means the book could not be read. The sheet then says nothing
+    /// it cannot stand behind and lets the act itself refuse — the same sweep
+    /// runs inside `DocumentStore.admit`, and its refusal arrives here in the
+    /// error's own words.
+    let checkTheBook: () async -> PermitControl.BookNarrowing?
+    let onAdmit: (String, Permit) -> Void
     let onNotNow: () -> Void
 
     @State private var typedLabel: String
+    @State private var choice: PermitControl.Choice = .wholeBook
+    @State private var chosenPieces: Set<String> = []
+    /// What the check answered, and nil both before one is made and where the
+    /// book could not be read.
+    @State private var book: PermitControl.BookNarrowing?
+    /// **Whether the check has been MADE**, which is a different fact from
+    /// whether it answered — and the difference is a dead end. Keyed on *was it
+    /// answered*, a book this Mac cannot read leaves Admit disabled for ever;
+    /// keyed on *is one in flight*, the tick between the writer picking a
+    /// narrowing rung and the task starting is a window in which they can press
+    /// past the sentence they are owed.
+    @State private var haveAskedTheBook = false
 
     init(
         request: AdmissionRequest,
         projectTitle: String,
         refusal: String? = nil,
         isAdmitting: Bool = false,
-        onAdmit: @escaping (String) -> Void,
+        pieces: [PermitControl.Piece] = [],
+        checkTheBook: @escaping () async -> PermitControl.BookNarrowing? = { nil },
+        onAdmit: @escaping (String, Permit) -> Void,
         onNotNow: @escaping () -> Void
     ) {
         self.request = request
         self.projectTitle = projectTitle
         self.refusal = refusal
         self.isAdmitting = isAdmitting
+        self.pieces = pieces
+        self.checkTheBook = checkTheBook
         self.onAdmit = onAdmit
         self.onNotNow = onNotNow
         _typedLabel = State(initialValue: request.proposedLabel)
@@ -105,6 +139,33 @@ struct AdmissionSheet: View {
         AdmissionDecision.outcome(for: request, typedLabel: typedLabel)
     }
 
+    /// The permit the writer has chosen — built by the permit layer, never
+    /// compared to a rung here (tripwire 47).
+    private var permit: Permit {
+        PermitControl.permit(for: choice, pieces: chosenPieces)
+    }
+
+    /// What this choice would do to the book, where it would do anything.
+    private var narrowingNotice: String? {
+        guard let book else { return nil }
+        return PermitControl.notice(forGranting: permit, in: book)
+    }
+
+    /// **Admit waits for the book to be checked, and only where the choice
+    /// narrows it.** A writer must not be able to make a book's first narrowing
+    /// in the moment before it has been told what that means.
+    ///
+    /// Static, so the rule is assertable with no window: a mounted test that
+    /// pressed a control and waited for the answer is the shape tripwire 33
+    /// forbids, and this is the whole of what the disabled state means.
+    static func admitWaits(whileNarrowing narrows: Bool, asked: Bool) -> Bool {
+        narrows && !asked
+    }
+
+    private var isWaitingForTheBook: Bool {
+        Self.admitWaits(whileNarrowing: permit.narrows, asked: haveAskedTheBook)
+    }
+
     /// Nil unless the typed label would merge this device under a label the
     /// book already has — in which case the sheet says so BEFORE the press,
     /// because a merge is not what "Admit" ordinarily means.
@@ -159,6 +220,22 @@ struct AdmissionSheet: View {
                 }
             }
 
+            Divider()
+
+            // **What they may write** (P3b Task 4, spec §7.1). Whole book by
+            // default, which is what every admission meant before this
+            // milestone — so a writer who reads nothing and presses Admit
+            // makes exactly the admission P2b made.
+            PermitPicker(
+                pieces: pieces, choice: $choice, chosenPieces: $chosenPieces)
+
+            if let narrowingNotice {
+                Label(narrowingNotice, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Label(Self.codeLine(code: request.code), systemImage: "number")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -174,12 +251,22 @@ struct AdmissionSheet: View {
                 Spacer()
                 Button(Self.notNowTitle, role: .cancel) { onNotNow() }
                     .disabled(isAdmitting)
-                Button(Self.admitTitle) { onAdmit(typedLabel) }
+                Button(Self.admitTitle) { onAdmit(typedLabel, permit) }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(isAdmitting || outcome == .notNow)
+                    .disabled(
+                        isAdmitting || outcome == .notNow || isWaitingForTheBook)
             }
         }
         .padding(20)
         .frame(minWidth: 420)
+        // Asked when the choice starts narrowing, and never before: the answer
+        // is a walk of the project's whole op log, and an ordinary admission
+        // owes it nothing.
+        .task(id: permit.narrows) {
+            guard permit.narrows, !haveAskedTheBook else { return }
+            let answer = await checkTheBook()
+            book = answer
+            haveAskedTheBook = true
+        }
     }
 }

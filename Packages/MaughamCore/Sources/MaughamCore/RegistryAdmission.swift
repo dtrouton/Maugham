@@ -136,6 +136,49 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// landed works.
     case cannotAdoptANonRoot(fingerprint: String)
 
+    /// **A narrowing event was asked for with no photograph of the book's
+    /// unsigned streams** (P3b Task 1).
+    ///
+    /// The first event that makes somebody anything other than an author of
+    /// the whole book has to carry an `UnsignedSnapshot` — where every stream
+    /// no seal and no device record can name stood at that moment — because
+    /// that mark is what keeps narrowing from reaching back through an
+    /// enclave-less Mac's whole history. An event written without one reads as
+    /// an EMPTY snapshot, which is *everything unattributable is after*: the
+    /// exact, total, silent withdrawal the ruling exists to prevent.
+    ///
+    /// It is a door rather than call-site discipline for the reason every
+    /// other refusal here is: the mark is the CALLER's to compute — it needs a
+    /// sweep of every op-log file in the project — and a verb that merely
+    /// hoped its callers had done so would fail in the one direction nothing
+    /// goes red for.
+    ///
+    /// A NON-narrowing event needs none and never refuses, so no existing
+    /// admission, revocation, retirement or rename can meet this.
+    case narrowingWithoutASnapshot(fingerprint: String)
+
+    /// **The manifest could not be raised to this build's schema before the
+    /// narrowing event was written** (P3b Task 3).
+    ///
+    /// The first narrowing changes what READING this book means: every line has
+    /// to be judged against a permit, and a build with no permit layer cannot
+    /// do it. A v0.40 Mac in a narrowed book applies the reviewer's refused
+    /// text, folds it into the manuscript and re-asserts those words under its
+    /// own book-author key, where every signed Mac then has to take them — the
+    /// writer's demotion undone by the oldest machine in the house, silently.
+    /// `ProjectManifest.decodeGuardingSchema` is the only thing that stops it,
+    /// and it stops it by refusing the project.
+    ///
+    /// So the order is **gate, then event, then record**, and a gate that could
+    /// not be written refuses the act. A crash between the gate and the event
+    /// leaves a gated, un-narrowed book, which costs one old build one project;
+    /// the other order costs the book its permits with nothing to say so.
+    ///
+    /// `reason` is the underlying failure's own words — a folder that would not
+    /// read, a disk that would not take the write — because *the manifest could
+    /// not be written* tells the writer nothing they can act on.
+    case manifestNotGated(reason: String, act: Act)
+
     /// **Which act a refusal is about** (fix round 2, minor C).
     ///
     /// The four verbs that compute a mark all refuse over a short reading, and
@@ -238,6 +281,7 @@ public enum RegistryAdmission {
         scope: String = Permit.bookScope,
         pieces: [String] = [],
         mark: PermitMark = .nothingApplied,
+        unsigned: PermitMark? = nil,
         in projectURL: URL,
         by root: DeviceIdentity,
         cache: RegistryCache,
@@ -250,6 +294,7 @@ public enum RegistryAdmission {
         let decided = try admit(
             device: fingerprint, label: label, ownName: ownName,
             role: role, scope: scope, pieces: pieces, mark: { _ in mark },
+            unsigned: unsigned,
             in: projectURL, by: root, within: registry,
             memory: memory, now: now, presenter: presenter)
         // The re-read the cache needs is also the read that turns the record
@@ -301,6 +346,15 @@ public enum RegistryAdmission {
         scope: String = Permit.bookScope,
         pieces: [String] = [],
         mark: (String) throws -> PermitMark = { _ in .nothingApplied },
+        /// Where every unattributable stream in the book stands
+        /// (`OpLogStore.unattributablePositions`). Required for a NARROWING
+        /// admission and refused without one; meaningless and dropped for any
+        /// other, so `admitRemembered`'s loop — which admits book authors —
+        /// never computes it. **A value rather than a closure**, unlike
+        /// `mark`: the photograph is of the BOOK and not of one person's
+        /// streams, so a caller admitting several devices in one open sweeps
+        /// for it once or not at all.
+        unsigned: PermitMark? = nil,
         silently: Bool = false,
         in projectURL: URL,
         by root: DeviceIdentity,
@@ -385,7 +439,7 @@ public enum RegistryAdmission {
         // would let a correction to a machine's name silently rewrite what its
         // owner may write, with no event behind it and no timeline to say so.
         // `changePermit` is the verb for that, and it writes the history.
-        let standing = existing.flatMap { $0.isRevoked ? nil : $0 }
+        let standing = standingRecord(existing)
         let writtenRole: String
         let writtenScope: String?
         let writtenPieces: [String]?
@@ -425,11 +479,16 @@ public enum RegistryAdmission {
         if standing == nil,
            !eventAlreadyWritten(kind, permit: eventPermit,
                                 about: fingerprint, in: registry) {
+            // Before the sweep and before the write: a refusal here has left
+            // nothing on disk and nothing in the label memory.
+            try refuseANarrowingWithNoSnapshot(
+                eventPermit, unsigned: unsigned, subject: fingerprint)
             try writeEvent(
                 kind, about: fingerprint,
                 role: writtenRole, scope: writtenScope ?? Permit.bookScope,
                 pieces: writtenPieces ?? [],
-                mark: try mark(fingerprint), in: projectURL, by: root,
+                mark: try mark(fingerprint), unsigned: unsigned,
+                in: projectURL, by: root,
                 within: registry, now: now, presenter: presenter)
         }
 
@@ -444,6 +503,30 @@ public enum RegistryAdmission {
             record, signedBy: root, in: projectURL, presenter: presenter)
         memory.remember(fingerprint, label: label, ownName: ownName, at: now())
         return record
+    }
+
+    /// **The record whose permit `admit` may not move** — one already standing.
+    ///
+    /// A person record that is here and not revoked is a person this book has
+    /// already decided about: `admit` over them is a rename at most, it writes
+    /// NO event, and it carries their own stored role and scope back into the
+    /// record rather than whatever it was asked for. A revoked record is the
+    /// opposite case — a re-admission is the revocation's inverse and installs
+    /// the permit it is given — and a fingerprint with no record at all is an
+    /// ordinary admission.
+    ///
+    /// Public and spelled here rather than at the caller (Task 1's review,
+    /// Minor 7) because a CALLER has to know it too: `DocumentStore.admit`
+    /// takes the book's unsigned photograph and gates older builds out before
+    /// it calls in, and both of those are the price of writing an EVENT. Asked
+    /// of the permit it was handed rather than of the one that will be written,
+    /// a rename of a standing person's machine would sweep every op-log file in
+    /// the project and raise the book's schema for an act that writes neither.
+    /// One spelling, so the two cannot disagree about which act is happening.
+    nonisolated public static func standingRecord(
+        _ existing: PersonRecord?
+    ) -> PersonRecord? {
+        existing.flatMap { $0.isRevoked ? nil : $0 }
     }
 
     // MARK: - Changing a permit (spec §6)
@@ -506,6 +589,7 @@ public enum RegistryAdmission {
         scope: String,
         pieces: [String],
         mark: PermitMark,
+        unsigned: PermitMark? = nil,
         in projectURL: URL,
         by root: DeviceIdentity,
         cache: RegistryCache,
@@ -519,8 +603,7 @@ public enum RegistryAdmission {
 
         let asked = Permit.parse(role: role, scope: scope, pieces: pieces)
         let timeline = PermitTimeline(events: events(about: fingerprint, in: registry))
-        let recordSays = Permit.parse(
-            role: existing.role, scope: existing.scope, pieces: existing.pieces)
+        let recordSays = Permit.permit(recordedIn: existing)
 
         // **Two questions, not one** (fix round 1, I1). *Nothing to do* is the
         // history AND the record both saying this already. Asking only the
@@ -545,9 +628,15 @@ public enum RegistryAdmission {
             // happened was the first.
             let kind: PermitEvent.Kind =
                 timeline.current.wireRole == asked.wireRole ? .scopeChanged : .roleChanged
+            // Before the write, so a refusal leaves the record un-re-signed
+            // too: this verb's own contract is event-then-record, and neither
+            // half may land without the other's premise.
+            try refuseANarrowingWithNoSnapshot(
+                asked, unsigned: unsigned, subject: fingerprint)
             try writeEvent(
                 kind, about: fingerprint, role: role, scope: scope, pieces: pieces,
-                mark: mark, in: projectURL, by: root, within: registry,
+                mark: mark, unsigned: unsigned,
+                in: projectURL, by: root, within: registry,
                 now: now, presenter: presenter)
         }
 
@@ -665,9 +754,75 @@ public enum RegistryAdmission {
             // window, seen from the far side.
             return true
         }
-        return Permit.parse(
-            role: record.role, scope: record.scope, pieces: record.pieces
-        ) != timeline.current
+        return Permit.permit(recordedIn: record) != timeline.current
+    }
+
+    /// **Bring a person's record up to their history** — the crash window of
+    /// spec §3.2's write order, closed by a press (P3b Task 5).
+    ///
+    /// Every permit verb writes the EVENT first and the record second, so a
+    /// process that dies between them leaves a history saying *reviewer* and a
+    /// record still saying *author*. Nothing about what is APPLIED is wrong —
+    /// the role check reads the timeline (tripwire 43) — so no load blocks on
+    /// it and there is nothing to refuse. What is wrong is that every surface
+    /// drawing the record shows a permit the book is not enforcing, and there
+    /// was no way to correct it: `changePermit` finds the timeline already
+    /// saying what it was asked for, so it re-signs the record — but only
+    /// where the caller happens to ask for exactly the permit the history
+    /// already holds, which the pane cannot know to do.
+    ///
+    /// **It writes a RECORD and never an event**, which is the whole of why it
+    /// is a verb of its own. There is no permit change here: the book's
+    /// history is untouched, nothing narrows, and so nothing owes the
+    /// photograph or the schema gate that a narrowing verb owes. It re-signs
+    /// one file to say what the events already say.
+    ///
+    /// **`RegistryCanonical.resigned` keeps a later build's unknown fields**
+    /// (tripwire 42), so a record written by a newer Maugham survives this
+    /// press with everything but its three permit words intact.
+    ///
+    /// Its authority is `changePermitOutcome`'s exactly — the root that
+    /// admitted them, never a root subject, never somebody else's chain —
+    /// because re-signing a record IS the second half of a permit change and
+    /// a Mac that may not perform one may not perform half of one either.
+    ///
+    /// Idempotent: a record already agreeing with its history is answered
+    /// unchanged and no file is touched.
+    @discardableResult
+    nonisolated public static func resignFromTimeline(
+        person fingerprint: String,
+        in projectURL: URL,
+        by root: DeviceIdentity,
+        cache: RegistryCache,
+        presenter: NSFilePresenter? = nil
+    ) throws -> PersonRecord {
+        let registry = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        let existing = try changePermitOutcome(
+            person: fingerprint, by: root.fingerprint, in: registry).get()
+
+        let timeline = PermitTimeline(events: events(about: fingerprint, in: registry))
+        guard timeline.hasEvents else { return existing }
+        let says = timeline.current
+        guard Permit.permit(recordedIn: existing) != says else { return existing }
+
+        try RegistryWriter.resign(
+            existing, signedBy: root, in: projectURL, presenter: presenter
+        ) { object in
+            object["role"] = says.wireRole
+            object["scope"] = says.wireScope
+            object["pieces"] = says.wirePieces
+        }
+
+        let verified = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        guard let record = verified.person(fingerprint) else {
+            // Written and did not read back — the one shape that must not be
+            // reported as success, because the pane would redraw the row it
+            // has just told the writer it corrected.
+            throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
+        }
+        return record
     }
 
     /// **Is the event this act would write already on disk?** (fix round 1, I1
@@ -745,6 +900,7 @@ public enum RegistryAdmission {
         scope: String,
         pieces: [String],
         mark: PermitMark,
+        unsigned: PermitMark? = nil,
         in projectURL: URL,
         by signer: DeviceIdentity,
         within registry: Registry,
@@ -801,13 +957,50 @@ public enum RegistryAdmission {
             id = PermitEvent.mintID(subject: subject, after: latest)
         }
 
-        let event = PermitEvent(
-            event: id, kind: kind, subject: subject,
-            role: role, scope: scope, pieces: pieces, mark: streams,
-            at: now(), by: signer.fingerprint)
+        // **Only a NARROWING event carries the photograph** (P3b Task 1). A
+        // book-author admission, a revocation and a retirement change nothing
+        // about who may write what, so writing the field onto one would move
+        // the bytes of an ordinary record to state something it does not mean
+        // — and `UnsignedSnapshot.governing` would then have a second
+        // candidate to choose between where the ruling names exactly one.
+        //
+        // It is NOT carried forward like `mark`. The snapshot is the FIRST
+        // narrowing's and the earliest governs, so a later event copying an
+        // older one's would add a second identical answer for a reader to pick
+        // between, with nothing to gain.
+        let at = now()
+        func made(
+            unsigned unsignedStreams: [String: PermitEvent.StreamMark]?
+        ) -> PermitEvent {
+            PermitEvent(
+                event: id, kind: kind, subject: subject,
+                role: role, scope: scope, pieces: pieces, mark: streams,
+                unsigned: unsignedStreams, at: at, by: signer.fingerprint)
+        }
+        let draft = made(unsigned: nil)
+        let event = PermitTimeline.narrows(draft)
+            ? made(unsigned: (unsigned ?? .nothingApplied).streams)
+            : draft
         try RegistryWriter.write(
             event, signedBy: signer, in: projectURL, presenter: presenter)
         return event
+    }
+
+    /// **The door on a narrowing written without its photograph** (P3b Task 1).
+    ///
+    /// Asked of the permit the EVENT will install rather than of the one the
+    /// caller asked for, because `admit` deliberately does not move a standing
+    /// person's permit: a re-admission that carries the parameters in and one
+    /// that carries the record's own forward must be judged on what actually
+    /// gets written.
+    ///
+    /// Called at the write, so a refusal leaves NOTHING behind — no event, no
+    /// record, no remembered label.
+    nonisolated private static func refuseANarrowingWithNoSnapshot(
+        _ permit: Permit, unsigned: PermitMark?, subject: String
+    ) throws {
+        guard permit.narrows, unsigned == nil else { return }
+        throw RegistryAdmissionError.narrowingWithoutASnapshot(fingerprint: subject)
     }
 
     /// Does this kind's mark say *everything the root has read*, and therefore

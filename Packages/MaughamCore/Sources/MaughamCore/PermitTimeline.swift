@@ -112,6 +112,22 @@ public struct PermitTimeline: Equatable, Hashable, Sendable {
         entries = built
     }
 
+    /// **One person's timeline, off a registry** (P3b Task 5).
+    ///
+    /// The filter is `RegistryAdmission.events(about:in:)`'s and is asked
+    /// rather than repeated, for that function's own stated reason: a filter
+    /// written per caller can drift, and the drift that is silent is the one
+    /// that MISSES an event, which reads as a permit nobody ever changed.
+    ///
+    /// It is here so a SURFACE can ask what a person may write without either
+    /// of the two things tripwire 43 forbids — reading `PersonRecord.role` to
+    /// decide something, or testing a permit against a literal rung. The pane's
+    /// Re-admit needs exactly this: the permit she held when she was revoked,
+    /// which is `current`, because a revocation installs no entry.
+    public init(about person: String, in registry: Registry) {
+        self.init(events: RegistryAdmission.events(about: person, in: registry))
+    }
+
     /// **What governs a line written before this person's first event**
     /// (P3a Task 5's fix round 3).
     ///
@@ -212,6 +228,32 @@ public struct PermitTimeline: Equatable, Hashable, Sendable {
     /// know is a permit a later build may have narrowed, and the whole point of
     /// that case is that we do not get to assume.
     public var narrows: Bool { entries.contains { $0.permit != .bookAuthor } }
+
+    /// **Does this one EVENT narrow the book?** (P3b Task 1.)
+    ///
+    /// The per-event form of the question `narrows` asks of a whole timeline,
+    /// and the predicate the first-narrowing snapshot turns on: a narrowing
+    /// event carries an `UnsignedSnapshot` and every other event carries none.
+    ///
+    /// It is here, in the permit layer, rather than at `RegistryAdmission` —
+    /// a verb that decided for itself what narrowing meant would be a second
+    /// opinion about the one thing `TrustTable.unsignedSnapshot` and
+    /// `hasNarrowingPermits` must agree on, and the two would disagree
+    /// SILENTLY: a book whose table says *narrowed* and whose events name no
+    /// governing snapshot holds every unsigned line ever written in it.
+    ///
+    /// **It asks `installedPermit`**, so a revocation, a revocation-entire and
+    /// a retirement answer FALSE however narrow the role they carry — those
+    /// kinds install no permit at all, the role they carry is the state they
+    /// found rather than a change they make, and `TrustVerdict` already has
+    /// arms that outrank any permit for them. An `unknown` kind narrows, for
+    /// `.unjudgeable`'s reason.
+    ///
+    /// The equivalence this rests on, and which `UnsignedSnapshotTests` pins:
+    /// a person's timeline `narrows` exactly when one of their events does.
+    public static func narrows(_ event: PermitEvent) -> Bool {
+        installedPermit(of: event)?.narrows ?? false
+    }
 
     /// **Which permit each line of one file was written under.**
     ///

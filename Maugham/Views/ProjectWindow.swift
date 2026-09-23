@@ -461,6 +461,17 @@ struct ProjectWindow: View {
             projectURL: url,
             projectTitle: store?.manifest.title ?? url.lastPathComponent,
             documentStore: documentStore,
+            projectStore: store,
+            window: $window))
+        // **The load's other question** (P3b Task 7, spec §4.5): somebody who
+        // may write some of this book has started a piece that is in nobody's
+        // scope. Its own modifier beside admission's, for admission's reason —
+        // one subject, one queue — and the two cannot collide: a stranger has
+        // no permit to widen, and a person who has one is no stranger.
+        .modifier(NewPieceModifier(
+            projectURL: url,
+            documentStore: documentStore,
+            projectStore: store,
             window: $window))
         // And the other question a registry can raise at an open: a book this
         // Mac is holding and has no key in. Its own modifier because it is a
@@ -4005,6 +4016,12 @@ struct ProjectWindow: View {
             let s = try await ProjectStore.load(from: url)
             let ds = try await DocumentStore.open(url: url)
             s.documentStore = ds
+            // The other direction, and set here for the same reason: the
+            // registry's narrowing verbs live on `DocumentStore` and the
+            // manifest lives on `ProjectStore`, so the schema gate at the first
+            // narrowing (P3b Task 3) has to be able to tell the live store what
+            // it just wrote to disk. Weak on both sides; the window owns them.
+            ds.projectStore = s
             // The canvas's equivalent, and set here for the same reason: the
             // model is `@State` on this view, so nothing an MCP tool is handed
             // can reach it otherwise. In `load()` and never in `body` — a store

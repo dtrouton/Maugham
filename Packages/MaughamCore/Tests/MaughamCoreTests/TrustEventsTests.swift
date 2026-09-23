@@ -195,8 +195,109 @@ final class TrustEventsTests: XCTestCase {
         let adopted = events.filter { $0.kind == .adopted }
         XCTAssertEqual(Set(adopted.map(\.subject)), [old, older])
         XCTAssertEqual(Set(adopted.map(\.by)), [newRoot])
-        XCTAssertEqual(Set(adopted.map(\.date)), [at(100)],
-                       "an adoption happened when the claim that carried it was written")
+        XCTAssertEqual(Set(adopted.map(\.date)), [nil],
+                       "an adoption this device has no memory of seeing is UNDATED "
+                       + "— it must not borrow `claimedAt`, which is the day the "
+                       + "book was claimed and stays put across later claims "
+                       + "(Denver's ruling 2, 2026-09-20)")
+    }
+
+    /// **Ruling 2's other half**: where this device DID record seeing the
+    /// adoption, the row takes that day.
+    ///
+    /// Two adoptions seen a week apart under ONE claim is the shape that made
+    /// the rule necessary: `claimedAt` is written once, so both rows used to
+    /// read as the first day.
+    func test_anAdoptionIsDatedByTheDayThisDeviceSawIt() {
+        let newRoot = foreignKey()
+        let old = foreignKey()
+        let older = foreignKey()
+        let store = cache()
+        store.noteAdoption(by: newRoot, of: old, for: project, at: at(100))
+        store.noteAdoption(by: newRoot, of: older, for: project, at: at(700))
+        let registry = Registry(
+            people: [rootRecord(newRoot)],
+            claims: [ClaimRecord(newRoot: newRoot, adopted: [old, older],
+                                 claimedAt: at(100))])
+
+        let events = TrustEvents.derive(
+            registry: registry, cache: store, mine: mine, for: project)
+
+        let dates = Dictionary(
+            uniqueKeysWithValues: events.filter { $0.kind == .adopted }
+                .map { ($0.subject, $0.date) })
+        XCTAssertEqual(dates[old], at(100))
+        XCTAssertEqual(dates[older], at(700),
+                       "the second adoption was seen later than the claim was made")
+    }
+
+    /// The memory is write-once per pair: a resolve a month later does not
+    /// re-stamp the row with today.
+    func test_aSecondSightingOfOneAdoptionDoesNotMoveItsDay() {
+        let newRoot = foreignKey()
+        let old = foreignKey()
+        let store = cache()
+        XCTAssertTrue(store.noteAdoption(by: newRoot, of: old, for: project, at: at(100)))
+        XCTAssertFalse(store.noteAdoption(by: newRoot, of: old, for: project, at: at(900)))
+        XCTAssertEqual(store.adoptionSeenAt(by: newRoot, of: old, for: project), at(100))
+    }
+
+    /// One root adopting X is not another root adopting X: the memory is per
+    /// PAIR, because History draws a row per pair.
+    func test_twoRootsAdoptingTheSameHistoryAreTwoRememberedSightings() {
+        let one = foreignKey()
+        let two = foreignKey()
+        let adopted = foreignKey()
+        let store = cache()
+        store.noteAdoption(by: one, of: adopted, for: project, at: at(100))
+        store.noteAdoption(by: two, of: adopted, for: project, at: at(300))
+        XCTAssertEqual(store.adoptionSeenAt(by: one, of: adopted, for: project), at(100))
+        XCTAssertEqual(store.adoptionSeenAt(by: two, of: adopted, for: project), at(300))
+    }
+
+    // MARK: - The unsigned entry (#8's History half, P3b Task 10)
+
+    /// One dated row per unsigned stream, in a book that has been narrowed.
+    func test_eachUnsignedStreamIsOneDatedEntry() {
+        let events = TrustEvents.derive(
+            registry: Registry(), cache: cache(), mine: mine, for: project,
+            unsigned: TrustEvents.UnsignedStreams(
+                narrowedAt: at(500), streams: ["author-bbbb", "author-aaaa"]))
+
+        XCTAssertEqual(events.map(\.kind), [.unsigned, .unsigned])
+        XCTAssertEqual(events.map(\.date), [at(500), at(500)])
+        XCTAssertEqual(events.map(\.label), ["author-aaaa", "author-bbbb"],
+                       "sorted, so the pane redraws in one order")
+        XCTAssertEqual(
+            Set(events.compactMap { HeldLines.streamOfUnsignedHolder($0.subject) }),
+            ["author-aaaa", "author-bbbb"],
+            "the subject is the holder string the held-line sentences use")
+    }
+
+    /// **An un-narrowed book draws none.** Nothing has happened: an unsigned
+    /// stream there costs nothing, which is exactly what People & Devices'
+    /// `UnsignedStream.beforeNarrowing` says. A dated History row would be
+    /// claiming an event that has no day and no consequence.
+    func test_anUnNarrowedBookDrawsNoUnsignedEntry() {
+        let events = TrustEvents.derive(
+            registry: Registry(), cache: cache(), mine: mine, for: project,
+            unsigned: TrustEvents.UnsignedStreams(
+                narrowedAt: nil, streams: ["author-aaaa"]))
+        XCTAssertTrue(events.isEmpty)
+    }
+
+    /// A narrowed book with nothing unsigned in it draws none either.
+    func test_aNarrowedBookWithNothingUnsignedDrawsNoUnsignedEntry() {
+        let events = TrustEvents.derive(
+            registry: Registry(), cache: cache(), mine: mine, for: project,
+            unsigned: TrustEvents.UnsignedStreams(narrowedAt: at(500), streams: []))
+        XCTAssertTrue(events.isEmpty)
+    }
+
+    /// The default is *nothing to say*, which is what keeps every caller with
+    /// no such reading — the phone, every registry-only test — unchanged.
+    func test_theUnsignedReadingDefaultsToNothing() {
+        XCTAssertEqual(TrustEvents.UnsignedStreams.none.events, [])
     }
 
     // MARK: - The join (Task 2's stamp)

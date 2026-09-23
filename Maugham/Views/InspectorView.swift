@@ -16,11 +16,27 @@ struct InspectorView: View {
     @State private var saveTask: Task<Void, Never>?
     @State private var pageTargetSaveTask: Task<Void, Never>?
 
+    /// **Who writes which piece** (P3b Task 9). Resolved once per project, off
+    /// the main actor, and held here — a row asks it a dictionary question and
+    /// nothing reads the registry from `body` (tripwire 4). `.none` until the
+    /// read comes back, which is also what a book with one writer in it stays.
+    @State private var writers: PieceWriters = .none
+
     var body: some View {
         Form {
             if let item = currentItem, item.type == .document {
                 Section("Document") {
                     LabeledContent("Title", value: item.title)
+                    // **Whose piece this is** — drawn only where somebody in
+                    // this book is an author of PIECES rather than of the
+                    // whole of it. A book with one writer in it, and a book
+                    // whose co-authors may each write the whole thing, draw no
+                    // row here at all: see `PieceWriters` for why that is the
+                    // decision rather than an omission.
+                    if let by = writers.sentence(for: item.id) {
+                        LabeledContent(PieceWriters.rowTitle, value: by)
+                            .accessibilityIdentifier(PieceWriters.rowIdentifier)
+                    }
                     // The review section (M3 P1 Task 4). The free-string
                     // draft/revising/final picker that stood here is gone: the
                     // status is now DERIVED from the passes below it.
@@ -128,6 +144,19 @@ struct InspectorView: View {
         .frame(minWidth: 240, idealWidth: 280)
         .onChange(of: selectedItemId) { _, _ in loadDraftIfNeeded() }
         .task { loadDraftIfNeeded() }
+        // Keyed on the PROJECT, not the selection: who may write in this book
+        // is a fact about the folder, so moving between chapters must not cost
+        // a registry read apiece.
+        .task(id: store.url) { await loadWriters() }
+    }
+
+    /// The one registry read this surface makes, through the one door
+    /// (`PieceWriters.read`, which detaches). Named rather than inlined so a
+    /// test can drive it with no window in the way.
+    func loadWriters() async {
+        writers = await PieceWriters.read(
+            projectURL: store.url,
+            pieces: PermitControl.pieces(in: store.manifest.structure))
     }
 
     private var currentItem: StructureItem? {
@@ -162,9 +191,21 @@ struct InspectorView: View {
     ///
     /// **It deliberately does not call `scheduleSave()`** — see the call site
     /// for why the debounced whole-draft path is wrong for a discrete choice.
+    ///
+    /// **And it holds the store STRONGLY for the duration of the write**
+    /// (P3b carry C15). It used to capture `[weak store]`, which is right for
+    /// the debounced text path below — that one cancels, and a view torn down
+    /// mid-debounce has nothing the writer is owed. This one is different in
+    /// the way that matters: the choice has already been made, the write is
+    /// immediate and unconditional, and a `guard let store else { return }`
+    /// reached after the inspector went away is a pass state the writer
+    /// SELECTED and Maugham silently dropped. Nothing goes red; the row simply
+    /// reads what it read before. The window closing, the persona switching
+    /// and the subject moving all tear this view down, and all three can land
+    /// in the same turn as the click — so the task keeps the store alive until
+    /// its own write has landed, and lets go after.
     func setPass(_ passId: String, to state: PassState?, on itemId: String) {
-        Task { [weak store] in
-            guard let store else { return }
+        Task { [store] in
             try? await store.setPassState(id: itemId, passId: passId, state)
         }
     }

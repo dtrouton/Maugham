@@ -164,6 +164,12 @@ extension Document {
         // `paragraphs` and record into the pending buffer — a write with no
         // writer action behind it at all.
         if rejectMutationIfNotWritable("applyMintedAnchors") { return }
+        // **Was the buffer this splice's alone?** (P3b Task 3.) Asked BEFORE a
+        // single anchor is recorded, because the whole point of the
+        // discriminator is that it cannot mistake the writer's own words for
+        // the app's housekeeping: a buffer holding a keystroke already is not
+        // one this splice may claim. See `Document._pendingIsTheAnchorSpliceAlone`.
+        let bufferWasEmptyBeforeTheSplice = pending.isEmpty()
         // Group by paragraph so we apply all mints to a paragraph in one
         // splice pass (line indices remain stable when we walk lines once).
         var byParagraph: [String: [TaskDeriver.MintedAnchor]] = [:]
@@ -215,6 +221,12 @@ extension Document {
                 paragraphId: pid, prior: priorText, next: nextText)
             burstScheduler.recordActivity()
         }
+        // What the buffer now holds is the splice and nothing else — the burst
+        // that carries exactly this is the load's own and says so. Anything
+        // else that reaches the buffer before the flush moves it away from this
+        // value, and the flush then labels nothing.
+        _pendingIsTheAnchorSpliceAlone =
+            bufferWasEmptyBeforeTheSplice ? pending.snapshot() : nil
     }
 
     /// Sync helper for task-lifecycle and rebalance ops. Updates the

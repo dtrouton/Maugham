@@ -362,3 +362,95 @@ is the first moment the question has an answer worth having.
 - **On a not-permitted device, `close()`'s failed-flush arm declines to
   re-persist**, so un-bursted keystrokes of a failed burst are lost from memory
   (logged). Unreachable once Posture makes such a piece read-only.
+
+---
+
+# P3b OUTCOME — scope's lifecycle and the Mac's surfaces (2026-09-23)
+
+Branch `claude/signed-op-log-p3b-2026-09-20`, off main `8c6c8b26`. Merged to
+local main when the whole-branch review clears; **not pushed, not tagged — P3
+ships whole** (Denver's ruling of 2026-09-20 stands).
+
+## What shipped
+
+Ten tasks and eight fix rounds. The evidence is
+`.superpowers/sdd/2026-09-20-signed-op-log-p3b/ledger.md` (every `Ruling:` line
+with what it costs if wrong) and the ten task reports beside it; hand both to
+P3c's planner and to any reviewer. The shape is in ADR 0032's **P3b
+addendum**, whose *limits* section is the honest list.
+
+- **The unsigned door closes by SNAPSHOT** (`UnsignedSnapshot`), in both
+  directions, with the earliest narrowing governing across two roots. **S4(c)
+  is answered by test** — two roots that adopted each other judge every line
+  identically from the same bytes.
+- **The schema gate** at the first narrowing (gate → event → record), a
+  raise-only write door, and a heal for a narrowed book stamped lower.
+- **An escape for a sweep that would refuse for ever** — a loss the writer has
+  been shown stops being expected, through one function every sweep asks.
+- **The surfaces**: the admission sheet's rung and piece picker (offering no
+  non-author actor key and no contested one), People & Devices' Change… /
+  Re-admit / Re-sign / write-my-record-again, the load's two questions, the
+  loss drawer, History's held-line rows, both §7.4 doors, and *Written by* on
+  the Inspector and the outline.
+- **Retirement is one-way** — §7.3's third load question was WITHDRAWN and the
+  spec amended (`cb513541`). A retired device's later sealed lines come back
+  through the Inbox door, not with one press.
+- Censuses: CLAUDE.md tripwires **49** and **50**, `Maugham/OpLog/AREA.md`'s
+  rows 21–22, each with a planted offender and a control.
+- The narrowed book is **re-measured on a KEPT fixture**
+  (`MaughamTests/Performance/NarrowedBookCostTests.swift`, env-gated,
+  attaching its table to the xcresult): about one 16 ms frame per document
+  open, and the unsigned stream the photograph is about is the bigger half.
+
+## For the release notes (with P3a's)
+
+- A book MADE on this build starts at **schema 9**, and the first narrowing
+  raises an existing book to it. Older Maughams cannot open a narrowed book —
+  which is the point.
+- The kept release census (`scripts/census-load-bursts.sh` over
+  `LoadBurstCensus`) runs on **every Mac that has opened a book** before the P3
+  release, per handoff ruling 3. It walks project folders and prints hits or
+  *none*; **it does not walk hidden directories**, which the checklist's
+  wording has to say. A hit is a per-line manual recovery, never a rule change.
+  This developer's Mac: 29 projects, 203 files, 5 segments, **zero hits**.
+
+## Carries into P3c — added by P3b
+
+- **Spec §7.1's share pre-fill is still not built.** A read-only iCloud share
+  does not suggest *reviewer*; the sheet defaults to the whole book. Build it
+  with Component A's retirement, where `FileURLShareMetadataReader`'s one
+  surviving caller is decided.
+- **A Mac on no chain hears no narrowing at all** and applies every
+  unattributable line. Permissive only, pinned
+  (`UnsignedDoorTests.test_aMacOnNoChainHearsNoNarrowingAtAll`); closing it
+  means deciding what such a Mac should be SHOWN, which is P3c's question.
+- **The phone holds identically and has no surface for any of it** (Task 2's
+  review): it applies `AnnotationOwnership`, its censuses stay empty, and it
+  says nothing about a held line, a permit or a narrowing.
+- **`announcePendingHistory` is narrowed to strangers**, so a §4.5 piece
+  question first appears at the next project open rather than mid-session.
+  Widening it puts a verified-registry read back on a path the writer's
+  keystrokes reach; a separate cheap post is the shape if it is wanted.
+- **Two doors on one pane, with different leads** (*Set aside…* / *Waiting…*),
+  and a `chainBroke` record still OFFERS the record door — decided by content
+  and not by cause, which is right and is also where *the words come back*
+  meets *this was not written by Maugham*.
+- **Everything else is in ADR 0032's P3b limits**, which is the list to read
+  rather than this one: the accepted planted-author-filename risk, the
+  acknowledgement's scope growth and device-local nature, the legacy unsuffixed
+  file outside `expecting:`, the too-new-manifest mid-session window (also
+  filed on the roadmap's *Signed structure*), and the unreachable
+  `.alreadyAdmittedElsewhere` arm.
+
+## P3b whole-branch review (2026-09-23) — READY for LOCAL main; four decisions Denver owes before P3c is planned
+
+The reviewer (Fable, given the ledger, the ten task reports and the plan's seam list) found **no Critical**: no path loses a signed Mac's words, applies an assistant/translator key's manuscript text, or moves a line ruling 1 says must not move. Every seam SOUND. All three of Denver's rulings delivered at the storage layer, both directions, each pinned. Hygiene clean (no pbxproj, no experiment markers, only the four declared assertion moves, the two known non-standalone commits). What it found is that ruling 1 has clauses the code does not deliver, and the docs either defer them to P3c or still promise them:
+
+1. **I1 — the unsigned Mac's standing line is NOT built and cannot be on the shipped design.** An enclave-less Mac can write no device record, so it is on no chain, hears no narrowing event (the signer filter), and nothing on it says the book was narrowed while every word it writes waits elsewhere. It is the ordinary state of every enclave-less Mac, not an edge case; it needs an unfiltered *did anybody narrow this book* read that no type exposes. **P3c MUST**; reword the ADR limit.
+2. **I2 — "everything after is held and reaches the Inbox" is true of paragraphs only.** Held annotation/disposition/checkpoint lines from an unsigned Mac have no door and no admission to pardon them, while `HeldLines.sentence(.unsigned)` counts every held line as "N notes … can be brought back through the Inbox". Decide: the door captures held annotation text as Inbox rows too, or the sentence counts paragraphs and says notes are held with no way back.
+3. **I3 — §4.5's surface is reachable on honest Maugham only through the sync window.** The write side refuses an author of some pieces opening a piece outside her scope (`waitingForPiece`), so "Sam started X" happens only when her Mac has not yet received the narrowing event; once it syncs, her OWN lines in X are held on her own Mac (bootstrap included) and X derives EMPTY on her screen with no standing line. No word lost (*Theirs* on the root brings it back). Decide: let an author of some pieces OPEN a new piece (the spec's premise, the load minting it), or document the sync window and give her own Mac the standing line for a piece held under her own key.
+4. **I4 — the schema gate's in-session window.** A v0.40 Mac that already has the book open when it is narrowed continues its session: its saves write 8 back (the heal re-raises — a ping-pong until it closes) and its bursts apply a reviewer's refused text and re-assert it under a book-author key. The mirror of the stated too-new-manifest limit; ADR limit to add.
+
+Minors, all carries: M1 an acknowledged loss feeding the UNSIGNED photograph is irreversible (the governing event never moves) — say so on the control; M2 `HeldLines.sentence(.unsigned)`/the History `.unsigned` row still assert "no device to admit" about a pre-first-seal stranger (the pane was reworded, these were not; a Send-to-Inbox in that window duplicates words once admitted); M3 one-way adoption also disagrees (B adopted A hears both; A hears its own) and adoption moves the later root's cliff at the moment of adoption; M4 the pane and `PieceWriters` list `chain(underRoot: myRoot)` while the table judges adopted roots' chains too; M5 the planted author-named file, once the real device record syncs, makes that key CONTESTED ⇒ that device's honest MCP annotations stop applying until the planted person is revoked (recoverable); M6 the census script needs a checkout + toolchain — checklist says "run from this Mac against each Mac's folders"; M7 tripwire 50 carries a prose count; M8 a P3a-dev narrowing event without `unsigned` reads as an EMPTY snapshot — **checked 2026-09-23: zero event records exist in any book on this Mac**. Carry 7: every later narrowing verb sweeps a snapshot that never governs — consider skipping the sweep once a governing snapshot exists.
+
+**Denver's decisions carried from the build** (rulings the controller made on his behalf, each with cost-if-wrong in the ledger): retirement is one-way (§7.3's third question withdrawn); *Theirs* cuts before her held span (a settled piece's earlier refusals stay set aside, a later permit refusal in that stream is re-judged); earliest narrowing is chronological; only my chain's roots narrow my book; the §7.1 read-only-share reviewer pre-fill is not built (P3c, with Component A's retirement); Re-admit over a permit this build cannot read refuses.

@@ -921,3 +921,550 @@ final class PeopleAndDevicesModelTests: XCTestCase {
         XCTAssertEqual(first, second)
     }
 }
+
+/// **What a person's row says about what they may write, and the rows Task 4's
+/// three never-offered classes were owed** (signed op log P3b Task 5, spec
+/// §7.2).
+///
+/// Every rule is a value over a registry, a trust table and the held-line union
+/// the admission sheet was built from — so what the pane lists, what it offers
+/// and what it refuses are all assertable with nothing mounted.
+@MainActor
+final class PeopleAndDevicesPermitRowTests: XCTestCase {
+
+    private var mac: DeviceIdentity!
+    private var phone: DeviceIdentity!
+    private var otherRoot: DeviceIdentity!
+
+    override func setUp() async throws {
+        mac = .softwareForTesting()
+        phone = .softwareForTesting()
+        otherRoot = .softwareForTesting()
+    }
+
+    private let admitted = Date(timeIntervalSince1970: 1_757_000_000)
+    private let made = Date(timeIntervalSince1970: 1_756_000_000)
+
+    private let pieces = [
+        PermitControl.Piece(id: "ch1", title: "Chapter 1"),
+        PermitControl.Piece(id: "ch4", title: "Chapter 4"),
+    ]
+
+    private func device(
+        _ identity: DeviceIdentity, name: String, kind: DeviceKind = .phone
+    ) -> DeviceRecord {
+        DeviceRecord(
+            device: identity.fingerprint, name: name, kind: kind,
+            actors: [DeviceActor.author.rawValue: identity.fingerprint],
+            madeAt: made)
+    }
+
+    private func person(
+        _ identity: DeviceIdentity, label: String, ownName: String,
+        admittedBy: DeviceIdentity, permit: Permit = .author(.book),
+        revoked: Bool = false
+    ) -> PersonRecord {
+        PersonRecord(
+            person: identity.fingerprint, label: label, ownName: ownName,
+            role: permit.wireRole,
+            scope: permit == .author(.book) ? nil : permit.wireScope,
+            pieces: permit == .author(.book) ? nil : permit.wirePieces,
+            admittedAt: admitted, admittedBy: admittedBy.fingerprint,
+            revokedAt: revoked ? admitted.addingTimeInterval(86_400) : nil,
+            revokedBy: revoked ? mac.fingerprint : nil)
+    }
+
+    private func event(
+        _ kind: PermitEvent.Kind, about subject: String, permit: Permit,
+        by signer: DeviceIdentity? = nil, id: String = "e-0001"
+    ) -> PermitEvent {
+        PermitEvent(
+            event: id, kind: kind, subject: subject,
+            role: permit.wireRole, scope: permit.wireScope,
+            pieces: permit.wirePieces, mark: [:], at: admitted,
+            by: (signer ?? mac).fingerprint)
+    }
+
+    private func registry(
+        phonePermit: Permit = .author(.book),
+        revoked: Bool = false,
+        events: [PermitEvent] = [],
+        malformed: [MalformedRecord] = [],
+        roots extraRoots: [PersonRecord] = []
+    ) -> Registry {
+        Registry(
+            devices: [
+                device(mac, name: "Denver's MacBook", kind: .mac),
+                device(phone, name: "Denver's iPhone"),
+            ],
+            people: [
+                person(mac, label: "Denver", ownName: "Denver's MacBook",
+                       admittedBy: mac),
+                person(phone, label: "Sam", ownName: "Denver's iPhone",
+                       admittedBy: mac, permit: phonePermit, revoked: revoked),
+            ] + extraRoots,
+            events: events,
+            malformed: malformed)
+    }
+
+    private func model(
+        _ registry: Registry,
+        held: [String: Int] = [:],
+        heldStreams: [String: Set<String>] = [:],
+        unsignedStreams: [String] = [],
+        restorable: Set<RecordRef> = [],
+        me: DeviceIdentity? = nil
+    ) -> PeopleAndDevicesModel {
+        let identity = me ?? mac!
+        let table = TrustTable.resolve(
+            registry: registry, mine: .forAuthor(identity), joinedRoot: nil)
+        return PeopleAndDevicesModel.make(
+            registry: registry, table: table, remembered: [:],
+            requests: AdmissionDecision.requests(
+                pending: held, streams: heldStreams, registry: registry,
+                memory: [:], myRoot: table.myRoot),
+            claimants: [], restorable: restorable,
+            standing: DeviceStanding(
+                code: DeviceCode.short(identity.fingerprint), label: "Denver",
+                rootLabel: "Denver", admitted: true,
+                isRoot: table.myRoot == identity.fingerprint),
+            me: identity.fingerprint,
+            held: held, heldStreams: heldStreams,
+            unsignedStreams: unsignedStreams, pieces: pieces)
+    }
+
+    private func sam(_ model: PeopleAndDevicesModel) throws -> PeopleAndDevicesModel.Person {
+        try XCTUnwrap(model.people.first { $0.fingerprint == phone.fingerprint })
+    }
+
+    // MARK: - Role and pieces on the row
+
+    /// The row says what they may write, in the words the control uses for it —
+    /// so the question the Change… button answers is visible before it is
+    /// pressed.
+    func test_arowSaysWhatTheyMayWriteAndNamesThePieces() throws {
+        let row = try sam(model(registry(phonePermit: .author(.pieces(["ch4"])))))
+
+        XCTAssertEqual(row.rung, .somePieces)
+        XCTAssertEqual(row.pieceTitles, ["Chapter 4"])
+        XCTAssertEqual(row.permitSentence, "Author of some pieces: Chapter 4")
+    }
+
+    /// A piece id this manifest does not carry is drawn as what it is. A
+    /// document id is not a thing a writer has ever seen.
+    func test_apieceThisMacCannotFindIsNeverDrawnAsItsId() throws {
+        let row = try sam(model(registry(phonePermit: .author(.pieces(["ch4", "gone"])))))
+
+        XCTAssertEqual(row.pieceTitles, ["Chapter 4", "a piece this Mac can\u{2019}t find"])
+        XCTAssertFalse(row.permitSentence.contains("gone"), row.permitSentence)
+    }
+
+    /// An author of no pieces yet is a real state, not an error.
+    func test_anAuthorOfNoPiecesYetSaysSo() throws {
+        let row = try sam(model(registry(phonePermit: .author(.pieces([])))))
+
+        XCTAssertEqual(row.permitSentence, "Author of some pieces \u{2014} none chosen yet")
+    }
+
+    /// A role or scope word a later Maugham wrote is said to be exactly that.
+    func test_apermitThisBuildCannotDrawIsSaidToBeUnrecognised() throws {
+        var registry = registry()
+        registry = Registry(
+            devices: registry.devices,
+            people: registry.people.map { record -> PersonRecord in
+                guard record.person == phone.fingerprint else { return record }
+                return PersonRecord(
+                    person: record.person, label: record.label,
+                    ownName: record.ownName, role: "editor-in-chief",
+                    scope: Permit.bookScope, pieces: [],
+                    admittedAt: record.admittedAt, admittedBy: record.admittedBy)
+            })
+        let row = try sam(model(registry))
+
+        XCTAssertNil(row.rung)
+        XCTAssertTrue(row.permitSentence.contains("doesn\u{2019}t recognise"),
+                      row.permitSentence)
+    }
+
+    // MARK: - Who may change it
+
+    /// The root that admitted them, and only them.
+    func test_therootThatAdmittedThemMayChangeWhatTheyMayWrite() throws {
+        let row = try sam(model(registry()))
+
+        XCTAssertTrue(row.canChangePermit)
+        XCTAssertNil(row.whyNotChangeable)
+        XCTAssertTrue(row.offersPermitChange)
+    }
+
+    /// **The root's own row offers no control at all** — Revoke's exception for
+    /// its reason: a root writes the whole book unconditionally and a book must
+    /// not end up with no author, so the control could not become live on any
+    /// folder, on any day. A disabled button is an offer with a condition on
+    /// it; there is no condition here.
+    func test_therootsOwnRowDrawsNoChangeControl() throws {
+        let model = model(registry())
+        let root = try XCTUnwrap(model.people.first { $0.fingerprint == mac.fingerprint })
+
+        XCTAssertFalse(root.offersPermitChange)
+        XCTAssertFalse(root.canChangePermit)
+        XCTAssertEqual(root.whyNotChangeable, PeopleAndDevicesModel.changeARoot)
+    }
+
+    /// **A Mac that did not start this book keeps the button, refused**, naming
+    /// the Mac where it can be done — the same destination Rename names, and
+    /// the reachable case: the pane lists everybody on the chain this device
+    /// judges by, whoever is sitting at it.
+    ///
+    /// (`alreadyAdmittedElsewhere` is `changePermitOutcome`'s fourth refusal
+    /// and is unreachable from this pane, because a person admitted under
+    /// another root is not on this chain and so has no row here at all. It is
+    /// the verb's guard and stays the verb's.)
+    func test_amacThatDidNotStartThisBookIsRefusedAndToldWhere() throws {
+        let row = try sam(model(registry(), me: phone))
+
+        XCTAssertTrue(row.offersPermitChange)
+        XCTAssertFalse(row.canChangePermit)
+        XCTAssertEqual(row.whyNotChangeable,
+                       PeopleAndDevicesModel.changeNotMine(startedOn: "Denver"))
+    }
+
+    /// A permit no control can draw refuses the control rather than offering to
+    /// overwrite a rung the writer was never shown.
+    func test_acontrolIsRefusedOverAPermitItCannotDraw() throws {
+        let registry = Registry(
+            devices: [device(mac, name: "Denver's MacBook", kind: .mac),
+                      device(phone, name: "Denver's iPhone")],
+            people: [person(mac, label: "Denver", ownName: "Denver's MacBook",
+                            admittedBy: mac),
+                     PersonRecord(
+                        person: phone.fingerprint, label: "Sam",
+                        ownName: "Denver's iPhone", role: "editor-in-chief",
+                        scope: Permit.bookScope, pieces: [],
+                        admittedAt: admitted, admittedBy: mac.fingerprint)])
+        let row = try sam(model(registry))
+
+        XCTAssertFalse(row.canChangePermit)
+        XCTAssertEqual(row.whyNotChangeable,
+                       PeopleAndDevicesModel.permitThisBuildCannotDraw)
+    }
+
+    // MARK: - The record a step behind its history (spec §3.2)
+
+    /// Nothing refuses over this and no load blocks on it, so the row is the
+    /// one place it can be said: the screen and the enforcement disagree.
+    func test_arecordAStepBehindItsHistorySaysSoAndOffersToCatchUp() throws {
+        let row = try sam(model(registry(
+            events: [event(.roleChanged, about: phone.fingerprint, permit: .reviewer)])))
+
+        XCTAssertEqual(row.historySays, .reviewer)
+        XCTAssertTrue(row.canResign)
+        let sentence = try XCTUnwrap(row.behindHistorySentence)
+        XCTAssertTrue(sentence.contains("reviewer"), sentence)
+        XCTAssertTrue(sentence.contains("a step behind"), sentence)
+    }
+
+    /// And a record that agrees says nothing at all — which is every person in
+    /// every book written before P3.
+    func test_arecordThatAgreesWithItsHistorySaysNothing() throws {
+        let row = try sam(model(registry()))
+
+        XCTAssertNil(row.historySays)
+        XCTAssertNil(row.behindHistorySentence)
+        XCTAssertFalse(row.canResign)
+    }
+
+    // MARK: - What a Re-admit would install (Task 4's review, the Critical)
+
+    /// **The permit she held when she was shut out**, read off her timeline —
+    /// a revocation installs no entry, so the last thing that did is still the
+    /// last word. Before this, Re-admit passed no permit and `DocumentStore
+    /// .admit`'s default is the whole book.
+    func test_areadmissionProposesThePermitTheyHeldWhenTheyWereRevoked() throws {
+        let narrowed = Permit.author(.pieces(["ch4"]))
+        let row = try sam(model(registry(
+            phonePermit: narrowed, revoked: true,
+            events: [event(.scopeChanged, about: phone.fingerprint, permit: narrowed)])))
+
+        XCTAssertTrue(row.canReadmit)
+        XCTAssertEqual(row.permitWhenRevoked, narrowed,
+                       "never the whole book, which is what a bare admit installed")
+    }
+
+    /// A P2-era person with no events re-admits as an author of the whole book,
+    /// exactly as before — her timeline says so.
+    func test_ap2PersonWithNoEventsStillReadmitsAsTheWholeBook() throws {
+        let row = try sam(model(registry(revoked: true)))
+
+        XCTAssertEqual(row.permitWhenRevoked, .author(.book))
+    }
+
+    /// **A Re-admit over a permit this build cannot draw is REFUSED** (Task 5's
+    /// ruling, built in Task 6) — the same stop Change… makes, one verb over.
+    ///
+    /// The sheet's control has no rung to start at, so it started at the whole
+    /// book after a message. That is a WIDENING chosen by the build that
+    /// understands least: an older Maugham putting back a permission it was
+    /// never shown. The button is kept and disabled, naming the Maugham where
+    /// they can be let back in.
+    func test_areadmissionIsRefusedOverAPermitThisBuildCannotDraw() throws {
+        let registry = Registry(
+            devices: [device(mac, name: "Denver's MacBook", kind: .mac),
+                      device(phone, name: "Denver's iPhone")],
+            people: [person(mac, label: "Denver", ownName: "Denver's MacBook",
+                            admittedBy: mac),
+                     PersonRecord(
+                        person: phone.fingerprint, label: "Sam",
+                        ownName: "Denver's iPhone", role: "editor-in-chief",
+                        scope: Permit.bookScope, pieces: [],
+                        admittedAt: admitted, admittedBy: mac.fingerprint,
+                        revokedAt: admitted.addingTimeInterval(86_400),
+                        revokedBy: mac.fingerprint)],
+            events: [event(
+                .roleChanged, about: phone.fingerprint,
+                permit: Permit.parse(role: "editor-in-chief",
+                                     scope: Permit.bookScope, pieces: []))])
+        let row = try sam(model(registry))
+
+        XCTAssertNil(
+            PermitControl.choice(displaying: row.permitWhenRevoked),
+            "the premise: no control can draw what she held")
+        XCTAssertEqual(
+            row.whyNotReadmittable,
+            PeopleAndDevicesModel.permitThisBuildCannotReinstall)
+        XCTAssertTrue(
+            row.canReadmit,
+            "the button is kept and disabled, like Rename's and Change's")
+        XCTAssertFalse(
+            row.whyNotReadmittable?.contains("whole book") ?? true,
+            "and it never offers the fallback that was the defect")
+    }
+
+    /// The other direction: an ordinary revoked person is offered Re-admit with
+    /// nothing said against it.
+    func test_anordinaryRevokedPersonIsReadmittableWithNoRefusal() throws {
+        let row = try sam(model(registry(
+            phonePermit: .author(.pieces(["ch4"])), revoked: true,
+            events: [event(.scopeChanged, about: phone.fingerprint,
+                           permit: .author(.pieces(["ch4"])))])))
+
+        XCTAssertTrue(row.canReadmit)
+        XCTAssertNil(row.whyNotReadmittable)
+    }
+
+    // MARK: - Held keys that are nobody to ask about
+
+    /// A non-author actor key is silent in the sheet by design; this is the
+    /// line that says why, and it names the actor in the app's own vocabulary.
+    func test_anonAuthorActorKeyGetsALineRatherThanASheet() throws {
+        let key = "ffff0000ffff0000ffff0000ffff0000"
+        // The shape `DeviceSlug.make` produces for a non-author actor: the
+        // actor word, a hyphen, and a PREFIX of the key's hex (truncated at 24
+        // characters, so 13–16 of it rather than always 16).
+        let slug = "assistant-\(key.prefix(13))"
+        let model = model(
+            registry(), held: [key: 3], heldStreams: [key: [slug]])
+
+        XCTAssertTrue(model.pending.isEmpty, "never a sheet")
+        let row = try XCTUnwrap(model.waiting.first)
+        XCTAssertEqual(row.fingerprint, key)
+        XCTAssertEqual(row.heldLines, 3)
+        XCTAssertTrue(row.sentence.contains("The assistant"), row.sentence)
+        XCTAssertFalse(row.sentence.lowercased().contains("claude"),
+                       "the AI actor is never given a product name: \(row.sentence)")
+    }
+
+    /// A stranger with an author key keeps her sheet and gets no waiting row —
+    /// the two lists are the same decision, asked once.
+    func test_astrangerWithAnAuthorKeyIsStillASheetAndNotAWaitingRow() throws {
+        let stranger = DeviceIdentity.softwareForTesting()
+        let model = model(registry(), held: [stranger.fingerprint: 2])
+
+        XCTAssertEqual(model.pending.map(\.fingerprint), [stranger.fingerprint])
+        XCTAssertTrue(model.waiting.isEmpty)
+    }
+
+    /// A key two device records claim is nobody's for good, and naming an owner
+    /// would decide the thing the dispute rule refuses to decide.
+    func test_acontestedKeyGetsItsOwnLine() throws {
+        let contested = "aaaa1111aaaa1111aaaa1111aaaa1111"
+        let registry = Registry(
+            devices: [
+                DeviceRecord(device: mac.fingerprint, name: "Denver's MacBook",
+                             kind: .mac,
+                             actors: [DeviceActor.author.rawValue: mac.fingerprint,
+                                      DeviceActor.assistant.rawValue: contested],
+                             madeAt: made),
+                DeviceRecord(device: phone.fingerprint, name: "Denver's iPhone",
+                             kind: .phone,
+                             actors: [DeviceActor.author.rawValue: phone.fingerprint,
+                                      DeviceActor.assistant.rawValue: contested],
+                             madeAt: made),
+            ],
+            people: [person(mac, label: "Denver", ownName: "Denver's MacBook",
+                            admittedBy: mac)])
+        let model = model(registry, held: [contested: 4])
+
+        XCTAssertTrue(model.pending.isEmpty)
+        let row = try XCTUnwrap(model.waiting.first)
+        XCTAssertEqual(row.sentence, PeopleAndDevicesModel.contestedKey)
+    }
+
+    // MARK: - Streams nothing signs (#8)
+
+    /// **Before any narrowing**, the row says what is true now and what
+    /// narrowing WILL do — which is the half the writer must read before they
+    /// make the first reviewer, because that day is a cliff and not a slope.
+    func test_anunsignedStreamSaysWhatNarrowingWillDoBeforeThereIsAReviewer() throws {
+        let model = model(registry(), unsignedStreams: ["ghostmac"])
+
+        XCTAssertFalse(model.alreadyNarrowed)
+        let row = try XCTUnwrap(model.unsigned.first)
+        XCTAssertEqual(row.stream, "ghostmac")
+        XCTAssertTrue(row.sentence.contains("Nothing this book holds says who signs"),
+                      row.sentence)
+        XCTAssertTrue(
+            PeopleAndDevicesModel.UnsignedStream.beforeNarrowing
+                .contains("waits on the other Macs"),
+            "the cliff, stated before it")
+        XCTAssertTrue(
+            PeopleAndDevicesModel.UnsignedStream.beforeNarrowing
+                .contains("nothing it has already written changes"))
+    }
+
+    /// **The sentence is true in both of its two cases** (Task 2's review, M2):
+    /// a Mac with no Secure Enclave, and a Mac that signs perfectly well whose
+    /// first seal has not synced yet. This Mac cannot tell them apart and never
+    /// claims to.
+    func test_theunsignedSentenceNeverClaimsAnythingAboutThatMacsHardware() {
+        let row = PeopleAndDevicesModel.UnsignedStream(stream: "ghostmac")
+
+        for sentence in [row.sentence,
+                         PeopleAndDevicesModel.UnsignedStream.beforeNarrowing,
+                         PeopleAndDevicesModel.UnsignedStream.afterNarrowing] {
+            XCTAssertFalse(sentence.localizedCaseInsensitiveContains("enclave"), sentence)
+            XCTAssertFalse(sentence.localizedCaseInsensitiveContains("can\u{2019}t sign"),
+                           sentence)
+            XCTAssertFalse(sentence.localizedCaseInsensitiveContains("no key"), sentence)
+        }
+    }
+
+    /// Once the book has been narrowed the tense changes and nothing else does.
+    func test_anunsignedStreamInANarrowedBookSpeaksInThePastTense() throws {
+        let narrowed = registry(
+            phonePermit: .reviewer,
+            events: [event(.roleChanged, about: phone.fingerprint, permit: .reviewer)])
+        let model = model(narrowed, unsignedStreams: ["ghostmac"])
+
+        XCTAssertTrue(model.alreadyNarrowed)
+        XCTAssertTrue(
+            PeopleAndDevicesModel.UnsignedStream.afterNarrowing
+                .contains("Nothing it wrote before then changed."))
+    }
+
+    // MARK: - C2, and F4
+
+    /// **C2: a nameless device never shows its code as its own name.** A device
+    /// that reached the sheet with no record of its own proposes no name, and
+    /// the code goes in its place — so the row read *Denver (4FD2)*, the
+    /// writer's label beside a checksum presented as a machine name.
+    func test_anamelessDeviceNeverShowsItsCodeAsItsOwnName() throws {
+        let code = DeviceCode.short(phone.fingerprint)
+        let registry = Registry(
+            devices: [device(mac, name: "Denver's MacBook", kind: .mac)],
+            people: [person(mac, label: "Denver", ownName: "Denver's MacBook",
+                            admittedBy: mac),
+                     PersonRecord(person: phone.fingerprint, label: "Sam",
+                                  ownName: code, admittedAt: admitted,
+                                  admittedBy: mac.fingerprint)])
+        let row = try sam(model(registry))
+
+        XCTAssertNil(row.ownName)
+        XCTAssertEqual(row.title, "Sam")
+    }
+
+    /// **F4**: this device's own record, unreadable, with no bytes to restore.
+    /// Restore's case with nothing to restore, and until now no way out at all.
+    func test_thismacsOwnUnrestorableRecordOffersToBeWrittenAgain() throws {
+        let ref = RecordRef(directory: .devices, fingerprint: mac.fingerprint)
+        let model = model(registry(malformed: [MalformedRecord(
+            url: URL(fileURLWithPath:
+                "/Book/.maugham/devices/\(mac.fingerprint).json"),
+            reason: .signatureDoesNotVerify)]))
+
+        let row = try XCTUnwrap(model.unverifiable.first { $0.ref == ref })
+        XCTAssertTrue(row.canWriteAgain)
+        XCTAssertFalse(row.canRestore)
+        XCTAssertNil(row.whoRepairsIt, "there is a press; it is not a dead end")
+    }
+
+    /// **Never for another device's record.** A device record is signed by the
+    /// machine it describes, so the row names the Mac that must open the book.
+    func test_anotherDevicesUnverifiableRecordIsNeverOfferedAndNamesWhoCanFixIt() throws {
+        let ref = RecordRef(directory: .devices, fingerprint: phone.fingerprint)
+        let model = model(registry(malformed: [MalformedRecord(
+            url: URL(fileURLWithPath:
+                "/Book/.maugham/devices/\(phone.fingerprint).json"),
+            reason: .signatureDoesNotVerify)]))
+
+        let row = try XCTUnwrap(model.unverifiable.first { $0.ref == ref })
+        XCTAssertFalse(row.canWriteAgain)
+        XCTAssertNotNil(row.whoRepairsIt, "never a dead end")
+    }
+
+    /// **Never where Restore can do it.** The two are alternatives, and the one
+    /// that puts back bytes this Mac read is always the better answer.
+    func test_arecordThisMacCanRestoreIsNeverOfferedANewOne() throws {
+        let ref = RecordRef(directory: .devices, fingerprint: mac.fingerprint)
+        let model = model(
+            registry(malformed: [MalformedRecord(
+                url: URL(fileURLWithPath:
+                    "/Book/.maugham/devices/\(mac.fingerprint).json"),
+                reason: .signatureDoesNotVerify)]),
+            restorable: [ref])
+
+        let row = try XCTUnwrap(model.unverifiable.first { $0.ref == ref })
+        XCTAssertTrue(row.canRestore)
+        XCTAssertFalse(row.canWriteAgain)
+    }
+
+    /// **The person arm is narrower.** Re-writing a person record self-signed
+    /// makes this Mac a root; where the book still has a verified root, that
+    /// would be a second root made out of a damaged file, so the row names that
+    /// Mac instead.
+    func test_adamagedPersonRecordInSomebodyElsesBookNamesTheMacThatDecides() throws {
+        let ref = RecordRef(directory: .people, fingerprint: mac.fingerprint)
+        let registry = Registry(
+            devices: [device(mac, name: "Denver's MacBook", kind: .mac),
+                      device(otherRoot, name: "Amelia's iMac", kind: .mac)],
+            people: [person(otherRoot, label: "Amelia", ownName: "Amelia's iMac",
+                            admittedBy: otherRoot)],
+            malformed: [MalformedRecord(
+                url: URL(fileURLWithPath:
+                    "/Book/.maugham/people/\(mac.fingerprint).json"),
+                reason: .signatureDoesNotVerify)])
+        let model = model(registry)
+
+        let row = try XCTUnwrap(model.unverifiable.first { $0.ref == ref })
+        XCTAssertFalse(row.canWriteAgain)
+        XCTAssertTrue(row.whoRepairsIt?.contains("Amelia") == true,
+                      "\(String(describing: row.whoRepairsIt))")
+    }
+
+    /// And the sole root record tampered with — audit F4 itself — IS offered,
+    /// because there is nobody else to ask.
+    func test_thesoleRootRecordIsOfferedToTheMacItNames() throws {
+        let ref = RecordRef(directory: .people, fingerprint: mac.fingerprint)
+        let registry = Registry(
+            devices: [device(mac, name: "Denver's MacBook", kind: .mac)],
+            people: [],
+            malformed: [MalformedRecord(
+                url: URL(fileURLWithPath:
+                    "/Book/.maugham/people/\(mac.fingerprint).json"),
+                reason: .signatureDoesNotVerify)])
+        let model = model(registry)
+
+        let row = try XCTUnwrap(model.unverifiable.first { $0.ref == ref })
+        XCTAssertTrue(row.canWriteAgain)
+    }
+}

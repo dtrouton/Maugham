@@ -31,9 +31,10 @@ import Foundation
 /// `RegistryCanonicalCensusTests` walks it by name, `Permit*` being in the
 /// population since P3a.)
 ///
-/// **Nothing in production writes one yet.** The verbs that do are the root's
-/// (`RegistryAdmission`, tripwire 41); this task builds the record, the
-/// directory, the reader's verification and the cache's memory of it.
+/// **Only the root's own verbs write one** — `RegistryAdmission.admit`,
+/// `changePermit`, `revoke` and `retire`, through the single private
+/// `writeEvent` (tripwire 41). Everything else here — the directory, the
+/// reader's verification, the cache's memory of it — is read-side.
 public struct PermitEvent: RegistryRecordProtocol {
 
     // MARK: - What happened
@@ -154,6 +155,39 @@ public struct PermitEvent: RegistryRecordProtocol {
     /// Where the old permit stopped, per stream of the subject's. Empty on an
     /// event with nothing to divide: the first admission has no past.
     public let mark: [String: StreamMark]
+    /// **Where every UNATTRIBUTABLE stream in the book stood when this event
+    /// narrowed it** (P3b Task 1; the ruling of 2026-09-20 that closes the
+    /// unsigned door).
+    ///
+    /// A file no seal and no device record can name is applied unjudged — P1's
+    /// design, and a first-class state (a Mac with no Secure Enclave, a VM,
+    /// CI's runner). That is harmless in a book where everybody may write
+    /// everything; it is a hole the moment anybody may not, because a client
+    /// that simply never seals walks past every role in the ladder.
+    ///
+    /// Closing it by REFUSING such lines would reach backwards through a whole
+    /// unsigned Mac's history the day the root first made somebody a reviewer,
+    /// which is the demotion rule inverted. So the first narrowing takes a
+    /// PHOTOGRAPH instead: everything at or before these positions stays
+    /// exactly as P1 applied it, and an unattributable line after them is
+    /// PENDING — held, never set aside, because nothing is wrong with it.
+    ///
+    /// **Omitted while nil**, which is every event this field did not exist
+    /// for and every event that does not narrow: a synthesized encoder writes
+    /// an absent optional with `encodeIfPresent`, so a P3a-era event's bytes
+    /// and digest are untouched and `RegistryCanonical` has nothing new to
+    /// say. `UnsignedSnapshotTests` pins those bytes against a fixture.
+    ///
+    /// **Only a NARROWING event carries one**, and only the EARLIEST such
+    /// event's governs (`UnsignedSnapshot.governing`). A narrowed book whose
+    /// governing event carries no `unsigned` at all — written by a build from
+    /// before this field, which on this developer's Mac is a real possibility
+    /// and nowhere else — reads as an EMPTY snapshot: everything
+    /// unattributable is *after*. Tripwire 11 says do not migrate.
+    ///
+    /// Strings and collections of strings, like every other field here
+    /// (tripwire 42) — it is the same `StreamMark` the mark is made of.
+    public let unsigned: [String: StreamMark]?
     public let at: Date
     /// Who signed it. A root of the subject's chain, or — for `.retired` — the
     /// subject itself.
@@ -164,6 +198,7 @@ public struct PermitEvent: RegistryRecordProtocol {
         event: String, kind: Kind, subject: String,
         role: String = "author", scope: String = "book", pieces: [String] = [],
         mark: [String: StreamMark] = [:],
+        unsigned: [String: StreamMark]? = nil,
         at: Date, by: String, sig: OpLogChain.Credentials? = nil
     ) {
         self.event = event
@@ -173,6 +208,7 @@ public struct PermitEvent: RegistryRecordProtocol {
         self.scope = scope
         self.pieces = pieces
         self.mark = mark
+        self.unsigned = unsigned
         self.at = at
         self.by = by
         self.sig = sig

@@ -540,6 +540,46 @@ final class DocumentWaitingTests: XCTestCase {
             OpLogStore.opLogFileURLs(forDocId: Self.otherDocId, in: projectURL).isEmpty)
     }
 
+    // MARK: - What the PANE says (Task 7, pinned in fix round 1's I5)
+
+    /// **A scoped author is not waiting for a file, she is waiting for a
+    /// person** — and the placeholder says so. The load error keeps its own
+    /// generic sentence (it is a channel with no reader; MCP returns it over a
+    /// socket), and the pane spends one registry read to be exact.
+    func test_thePaneTellsAScopedAuthorWhoWouldAddThePiece() async throws {
+        _ = try makeProject()
+        let root = try makeRoot()
+        try narrow(
+            by: root, role: Permit.authorRole, scope: Permit.piecesScope,
+            pieces: [Self.docId])
+
+        let error = DocumentLoadError.waitingForPiece(
+            docId: Self.otherDocId, from: "Sam")
+        XCTAssertEqual(
+            Document.waitingSentence(
+                error, docId: Self.otherDocId, in: projectURL),
+            "Waiting for Sam to add this piece to yours.")
+    }
+
+    /// **And a REVIEWER keeps P3a's sentence, byte for byte.** She may write no
+    /// piece of this book, so no piece is ever going to become hers: what she
+    /// is waiting for really is the ops.
+    func test_thePaneTellsAReviewerExactlyWhatItAlwaysDid() async throws {
+        _ = try makeProject()
+        let root = try makeRoot()
+        try narrow(by: root, role: Permit.reviewerRole, scope: Permit.bookScope)
+
+        let error = DocumentLoadError.waitingForPiece(
+            docId: Self.docId, from: "Sam")
+        XCTAssertEqual(
+            Document.waitingSentence(error, docId: Self.docId, in: projectURL),
+            "Waiting for this piece to arrive from Sam.")
+        XCTAssertEqual(
+            Document.waitingSentence(error, docId: Self.docId, in: projectURL),
+            error.localizedDescription,
+            "the error's own words, unchanged")
+    }
+
     // MARK: - (3) The two automations (final fix wave, W4)
 
     /// **The orphan sweep is the app's own act and signs as the author.**

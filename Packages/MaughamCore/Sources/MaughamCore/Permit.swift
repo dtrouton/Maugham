@@ -113,6 +113,78 @@ public enum Permit: Equatable, Hashable, Sendable {
         return false
     }
 
+    /// **Is this anything but an author of the whole book?** (P3b Task 1.)
+    ///
+    /// *Narrowing* is the one question a book's whole posture turns on — it is
+    /// what `PermitTimeline.narrows` asks of every entry, what
+    /// `TrustTable.hasNarrowingPermits` asks of every person, and what decides
+    /// whether a verb about to write an event must carry an
+    /// `UnsignedSnapshot`. It lives HERE, on the rung itself, so that a store
+    /// or a surface deciding *is this a narrowing act* asks the permit layer
+    /// rather than testing a permit against a literal rung (tripwire 47): the
+    /// two answers drift the first time a rung is added, and the copy outside
+    /// this file is the one that does not compile-error when it does.
+    ///
+    /// **`.unjudgeable` narrows.** A role word this build does not know is a
+    /// permit a later build may have narrowed, and the whole point of that
+    /// case is that we do not get to assume — the same reading
+    /// `PermitTimeline.narrows` has had since the final fix wave's W1.
+    public var narrows: Bool { self != .bookAuthor }
+
+    // MARK: - The rungs a surface may offer (P3b Task 4)
+
+    /// **What a control can ask the writer for**, and the one place a chosen
+    /// one becomes a `Permit`.
+    ///
+    /// A surface must not build a permit out of the wire words itself: the
+    /// spellings are this file's (`authorRole`, `piecesScope`), the parse is
+    /// this file's, and a view assembling them is a second opinion about what
+    /// *reviewer* is made of — which is the same failure tripwire 47 names, one
+    /// step earlier. So the choice travels as a rung and comes back as a
+    /// permit, and `Maugham/Views/PermitControl.swift` supplies nothing but the
+    /// words the writer reads.
+    ///
+    /// Three cases and not four: `.unjudgeable` is a permit a LATER build
+    /// wrote, and there is nothing for a control to offer about it. That is why
+    /// `rung(of:)` answers an Optional.
+    public enum Rung: String, CaseIterable, Identifiable, Sendable {
+        /// Notes and captures; never the manuscript.
+        case reviewer
+        /// Everything, inside the pieces the writer picks — legitimately none.
+        case somePieces
+        /// Everything, everywhere: what every admission meant before P3.
+        case wholeBook
+
+        /// `Identifiable` here rather than retroactively at the control: a
+        /// conformance a view module adds to another module's type is one a
+        /// later build of THIS module can collide with.
+        public var id: String { rawValue }
+    }
+
+    /// The permit a chosen rung installs. `pieces` is carried for every rung
+    /// and used by one, so a writer changing their mind and changing it back
+    /// does not lose the list on the way past.
+    public static func permit(offering rung: Rung, pieces: Set<String> = []) -> Permit {
+        switch rung {
+        case .reviewer: return .reviewer
+        case .somePieces: return .author(.pieces(pieces))
+        case .wholeBook: return .author(.book)
+        }
+    }
+
+    /// **The rung a permit IS**, or nil where no control can draw it — a role
+    /// or scope word this build does not recognise. A surface meeting nil says
+    /// so; drawing an unknown rung as a known one would offer to overwrite a
+    /// permit the writer was never shown.
+    public static func rung(of permit: Permit) -> Rung? {
+        switch permit {
+        case .reviewer: return .reviewer
+        case .author(.pieces): return .somePieces
+        case .author(.book): return .wholeBook
+        case .unjudgeable: return nil
+        }
+    }
+
     // MARK: - The root
 
     /// **A root is an author of the whole book, unconditionally** (spec §2).
@@ -174,6 +246,46 @@ public enum Permit: Equatable, Hashable, Sendable {
     public var wirePieces: [String] {
         if case .author(.pieces(let mine)) = self { return mine.sorted() }
         return []
+    }
+
+    /// **May a piece nobody has written in yet become theirs?** (spec §4.5.)
+    ///
+    /// The rung half of `PermitPartition.startsAPieceNobodyHasClaimed`, which
+    /// is the rule that ENFORCES it and which adds the two facts a rung cannot
+    /// carry: that the line is manuscript text signed by the person's own hand,
+    /// and that nobody else has written the piece's text yet. It is here
+    /// because *which rungs can start a piece* is a fact about the ladder, and
+    /// the only other way for a surface to ask it is to test a permit against a
+    /// literal rung — tripwire 47, one step early.
+    ///
+    /// A reviewer starts nothing (every manuscript line of theirs is refused
+    /// wherever it lands). An author of the whole book has nothing to start —
+    /// every piece is already theirs — so this is about the middle rung alone,
+    /// which is exactly the rung the piece picker can legitimately be left
+    /// empty for. `PermitTableTests` pins that the two agree.
+    public var mayStartAPieceOfTheirOwn: Bool {
+        if case .author(.pieces) = self { return true }
+        return false
+    }
+
+    /// **The permit a person RECORD says they hold** — the current-state
+    /// convenience, and the one spelling of reading it (P3b Task 5).
+    ///
+    /// It is here because the words on a record are this file's vocabulary and
+    /// `Permit.parse` is this file's function: a surface assembling
+    /// `Permit.parse(role: record.role, …)` for itself would be naming the
+    /// permission table's own spelling outside the permit layer (tripwire 44),
+    /// which is exactly what the admission sheet's first draft did and what the
+    /// census refused.
+    ///
+    /// **It is not the check, and no reader may use it as one** (tripwire 43).
+    /// A line is judged by the permit its signer held WHEN THEY WROTE IT, which
+    /// is `PermitTimeline`'s answer over the events; this is what the record
+    /// currently claims, which is what People & Devices draws on a row and what
+    /// `recordBehindEvents` compares against the history. The two disagreeing
+    /// is a real, detected state with a surface of its own.
+    public static func permit(recordedIn record: PersonRecord) -> Permit {
+        parse(role: record.role, scope: record.scope, pieces: record.pieces)
     }
 
     // MARK: - Comparing two
@@ -589,21 +701,55 @@ extension Permit {
     /// other two `.taskCreate` emitters are the writer's own pane acts, reached
     /// only from editor surfaces), so both are load emissions by KIND alone.
     /// The pending-recovery folds and the anchor burst are `.typingBurst`, and
-    /// **none of the three writes a `synthesisSource`** — they are
-    /// indistinguishable on disk from real typing, so there is no discriminator
-    /// to write the rule against and it is not widened to every `typingBurst`.
-    /// An assistant-signed ordinary `typingBurst` therefore stays REFUSED,
-    /// which is the constitution's sentence about MCP and the manuscript.
+    /// the rule is not widened to reach them.
+    ///
+    /// **Since P3b Task 3 those three DO write a `synthesisSource`**
+    /// (`.pendingRecovery`, `.anchorSplice`) — and the rule is still not
+    /// widened, which is the point worth stating rather than the change. Two
+    /// reasons, either sufficient. It only helps lines written AFTER it ships,
+    /// so every v0.37–v0.40 line the census is about is still unlabelled; and a
+    /// field the assistant writes is a field the assistant can write, so a rule
+    /// keyed on it would make *MCP never mutates manuscript text* rest on the
+    /// assistant's own good manners. An assistant-signed ordinary `typingBurst`
+    /// therefore stays REFUSED, which is the constitution's sentence about MCP
+    /// and the manuscript. The label is provenance — it is what `LoadBurstCensus`
+    /// reads and what History can say — and it reaches no table: `PermitPartition
+    /// .writtenOp` decodes a KIND and nothing else.
     ///
     /// **Nil stays nil.** A key this register cannot attribute names no actor,
     /// and handing it the widest of the four would be the one mistake that
     /// turns the table into decoration (see `allows`). Widening nobody to the
     /// author is not a grandfather, it is a hole.
+    ///
+    /// **And the waiver is the two DOORS' actors, not every actor that is not
+    /// the author** (P3b Task 3). What this rule is for is a document opened
+    /// through a door that is not the writer's editor: MCP, which loads
+    /// `.assistant`, and the translation pipeline, which loads `.translator`.
+    /// Those are the only two actors a v0.37–v0.40 load could have signed an
+    /// emission with, because they are the only two a `Document.load` names.
+    /// `.maugham` is not a door — it is the app acting on nobody's instruction,
+    /// and the single thing the table lets it sign is the task rebalance's
+    /// `taskPriorityChange`. Waiving the actor for a `.maugham`-signed
+    /// `taskCreate` would hand the app's own key a row it has never held, on
+    /// the strength of a shape nothing has ever written; judged as `.maugham`'s
+    /// it is refused, which is the honest answer to a line that should not
+    /// exist.
     public static func actorJudging(
         _ what: Written, signedBy actor: DeviceActor?
     ) -> DeviceActor? {
-        guard let actor, actor != .author, isALoadEmission(what) else { return actor }
+        guard let actor, isADoorTheLoadIsOpenedThrough(actor),
+              isALoadEmission(what) else { return actor }
         return .author
+    }
+
+    /// The two actors a `Document.load` can name that are not the writer's own
+    /// hand — spelled as an exhaustive switch for `isALoadEmission`'s reason: a
+    /// fifth actor has to be decided here rather than inherited.
+    private static func isADoorTheLoadIsOpenedThrough(_ actor: DeviceActor) -> Bool {
+        switch actor {
+        case .assistant, .translator: return true
+        case .author, .maugham: return false
+        }
     }
 
     /// **Is this a line the load path emits on its own account?** — the two

@@ -110,6 +110,9 @@ public final class RegistryCache: @unchecked Sendable {
         /// What this device has put back here, and when. Oldest first, capped
         /// at `restoreLimit`.
         var restores: [Restore] = []
+        /// Every adoption this device has SEEN here, and the day it first saw
+        /// it. Oldest first, capped at `adoptionLimit`. See `noteAdoption`.
+        var adoptions: [Adoption] = []
 
         init() {}
 
@@ -121,7 +124,20 @@ public final class RegistryCache: @unchecked Sendable {
             joinedAt = try container.decodeIfPresent(Date.self, forKey: .joinedAt)
             claimants = try container.decodeIfPresent([String].self, forKey: .claimants) ?? []
             restores = try container.decodeIfPresent([Restore].self, forKey: .restores) ?? []
+            adoptions = try container.decodeIfPresent(
+                [Adoption].self, forKey: .adoptions) ?? []
         }
+    }
+
+    /// One adoption this device has seen, kept so History can date the row it
+    /// draws for it.
+    ///
+    /// Both fingerprints are strings for `Entry`'s reason: a record shape a
+    /// later build changes must cost this row and not the whole decode.
+    private struct Adoption: Codable, Equatable {
+        var root: String
+        var adopted: String
+        var seenAt: Date
     }
 
     /// One restoration, kept so a surface can say WHEN it happened.
@@ -372,6 +388,69 @@ public final class RegistryCache: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return storedLocked.projects[Self.projectKey(projectURL)]?.claimants ?? []
+    }
+
+    // MARK: - Adoptions this device has SEEN (P3b Task 10, Denver's ruling 2)
+
+    /// How many adoptions one project remembers. An adoption is rarer than a
+    /// restoration and there is one per root a claim took in, so the cap is
+    /// about the FILE rather than the history; past it, the newest adoptions
+    /// draw undated, which is this rule's own fallback and not a new state.
+    static let adoptionLimit = 200
+
+    /// **Record that this device has seen `root` adopt `adopted` here, and
+    /// answer whether that was news.**
+    ///
+    /// **Why a device-local date at all** (Denver's ruling 2, 2026-09-20). A
+    /// `ClaimRecord` carries exactly one date, `claimedAt`, and it is the day
+    /// the book was CLAIMED. A later claim by the same root adopts more roots
+    /// and keeps that first date — `RegistryAdmission.claim` is deliberate
+    /// about it and `test_adoptingASecondRootKeepsTheDayTheBookWasClaimed`
+    /// pins it — so History borrowing `claimedAt` for an `.adopted` row dated
+    /// every adoption with the day of the first one. Moving `claimedAt` would
+    /// be the other, worse fix: it is the day the book was claimed, and a
+    /// per-adoption date on the record is a format change filed with the
+    /// roadmap's *Signed structure*.
+    ///
+    /// So the row takes the one date this device can honestly supply: the day
+    /// this Mac first SAW the adoption. It is not the day it happened — a Mac
+    /// that was away for a week sees it a week late — and it is exactly as
+    /// device-local as the join beside it, which is why the two live together
+    /// and why an adoption this device has never seen recorded draws UNDATED
+    /// rather than borrowing anything.
+    ///
+    /// **Write-once per pair**, like the join: the first sighting is the
+    /// answer, and re-stamping it on every resolve would make the row say
+    /// *today* for ever.
+    @discardableResult
+    public func noteAdoption(
+        by root: String, of adopted: String, for projectURL: URL,
+        at when: Date = Date()
+    ) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        var project = storedLocked.projects[Self.projectKey(projectURL)] ?? Project()
+        guard !project.adoptions.contains(where: {
+            $0.root == root && $0.adopted == adopted
+        }) else { return false }
+        guard project.adoptions.count < Self.adoptionLimit else { return false }
+        project.root = projectURL.standardizedFileURL.path
+        project.adoptions.append(
+            Adoption(root: root, adopted: adopted, seenAt: when))
+        storedLocked.projects[Self.projectKey(projectURL)] = project
+        persistLocked()
+        return true
+    }
+
+    /// When this device first saw `root` adopt `adopted` here, or nil where it
+    /// has no memory of it. Nil is drawn as an undated row.
+    public func adoptionSeenAt(
+        by root: String, of adopted: String, for projectURL: URL
+    ) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedLocked.projects[Self.projectKey(projectURL)]?.adoptions
+            .first { $0.root == root && $0.adopted == adopted }?.seenAt
     }
 
     // MARK: - What this device has put back

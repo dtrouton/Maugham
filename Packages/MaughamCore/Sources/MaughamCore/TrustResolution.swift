@@ -112,6 +112,7 @@ public enum TrustResolution {
             guard admitting != joined else { continue }
             cache.recordClaimant(root: admitting, for: projectURL)
         }
+        recordAdoptionsSeen(in: reconciled, cache: cache, projectURL: projectURL)
         recordRefusedClaimants(
             in: reconciled, mine: identities, cache: cache, projectURL: projectURL)
         recordUnansweredRoots(
@@ -165,6 +166,31 @@ public enum TrustResolution {
         return try cache.reconcile(
             folder: folder, cached: remembered,
             in: projectURL, presenter: presenter).registry
+    }
+
+    /// **The day this device saw each adoption** (P3b Task 10, Denver's ruling
+    /// 2, 2026-09-20).
+    ///
+    /// A `ClaimRecord` dates the CLAIM and not the adoptions it carries, so
+    /// History's `.adopted` row had been borrowing `claimedAt` and stamping
+    /// every adoption with the day of the first one. The honest date this
+    /// device can supply is the day it first saw the adoption, and this is
+    /// where every resolve passes the claims — so it is where the sighting is
+    /// recorded. `RegistryCache.noteAdoption` is write-once per pair; every
+    /// later resolve of an already-seen adoption writes nothing at all.
+    ///
+    /// **Every claim, not only mine.** History draws a row per adoption per
+    /// claim whoever made it, so recording only my own root's would leave
+    /// exactly the rows a two-root book comes here to read drawn undated.
+    nonisolated private static func recordAdoptionsSeen(
+        in registry: Registry, cache: RegistryCache, projectURL: URL
+    ) {
+        for claim in registry.claims {
+            for adopted in claim.adopted {
+                cache.noteAdoption(
+                    by: claim.newRoot, of: adopted, for: projectURL)
+            }
+        }
     }
 
     /// **A record of ours the folder now shows under another key is a claim we

@@ -31,6 +31,18 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
         case merge
         case rename
         case restore
+        /// **Change what somebody may write** (P3b Task 5, spec §7.2). The one
+        /// verb here whose message is a function of two values rather than of
+        /// a name: what they hold now, and what they would hold.
+        case changePermit
+        /// **Bring a record up to the history it is a step behind** (spec
+        /// §3.2's crash window). It writes a record and no event, so it moves
+        /// nothing about what is applied — it makes the screen say what the
+        /// book is already enforcing.
+        case resign
+        /// **Write this Mac's own record again**, over one the reader refuses
+        /// and this device holds no earlier bytes for (audit F4).
+        case writeOwnRecord
     }
 
     /// **The one thing the writer types** (P2 smoke find 3).
@@ -62,6 +74,10 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
     /// What the writer types, for the one act that is about a word. Nil for
     /// every verb that only needs a yes.
     let field: Field?
+    /// **What this act would install**, for the one verb that installs a permit
+    /// (P3b Task 5). Nil for every other, because a yes about a name or a file
+    /// is not a permit and a defaulted one would be a rung nobody chose.
+    let permit: Permit?
     /// **The second way to perform the same act**, where there are two. Nil for
     /// every verb with one.
     let alternate: Alternate?
@@ -119,7 +135,14 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
     /// want a word from. It says what it costs in the sentence rather than in
     /// the button, because the button has room for a verb and this needs a
     /// consequence.
-    static func revoke(person fingerprint: String, named name: String) -> Self {
+    ///
+    /// `lostHistory` is how many pieces of this book's history the writer has
+    /// said are gone (P3b Task 6). A revocation marks what this Mac had
+    /// APPLIED, so it is the act an acknowledged loss changes most, and the
+    /// clause is the same one every marking verb carries.
+    static func revoke(
+        person fingerprint: String, named name: String, lostHistory: Int = 0
+    ) -> Self {
         PeopleAndDevicesConfirmation(
             verb: .revoke,
             fingerprint: fingerprint,
@@ -127,9 +150,11 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
             title: "Stop applying what \(name) writes?",
             message: PeopleAndDevicesModel.revokeSentence
                 + " What they have already written stays in this book. "
-                + "You can let them back in from this Mac.",
+                + "You can let them back in from this Mac."
+                + (lostHistoryClause(count: lostHistory).map { " " + $0 } ?? ""),
             confirmTitle: "Revoke",
             field: nil,
+            permit: nil,
             alternate: Alternate(
                 title: "Revoke and Set Aside Everything",
                 message: "Every paragraph and note from \(name) leaves this book "
@@ -151,6 +176,7 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
             message: PeopleAndDevicesModel.mergeSentence,
             confirmTitle: "Merge",
             field: nil,
+            permit: nil,
             alternate: nil)
     }
 
@@ -167,6 +193,7 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
             message: DeviceStanding.retirementConsequence(device: kind),
             confirmTitle: "Retire",
             field: nil,
+            permit: nil,
             alternate: nil)
     }
 
@@ -194,6 +221,7 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
                 + "nobody out.",
             confirmTitle: "Rename",
             field: Field(prompt: "Name", initialValue: label),
+            permit: nil,
             alternate: nil)
     }
 
@@ -217,6 +245,330 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
                 + "admits nobody \u{2014} the next read checks it like any other.",
             confirmTitle: "Restore",
             field: nil,
+            permit: nil,
             alternate: nil)
+    }
+
+    // MARK: - Changing what somebody may write (P3b Task 5, spec §5 and §7.2)
+
+    /// **What a permit change does to one book, in both directions** — the
+    /// value the sentence is a pure function of.
+    ///
+    /// The two directions are spec §5's own two rows, and they are read off the
+    /// PERMIT LAYER rather than restated here: for every piece the book has,
+    /// `Permit.authors(_:)` is asked of the old permit and of the new one, and
+    /// the pieces where the two answers differ are the change. Nothing here
+    /// compares a rung (tripwire 47) or names a wire word (tripwire 44); there
+    /// is no second permission table, because there is no table — there is one
+    /// question asked twice per piece.
+    ///
+    /// **Every transition decomposes into those two sets, and that is why §5's
+    /// two rows cover all of them.** The ladder is ordered — a reviewer may
+    /// write nothing in the manuscript, an author of some pieces may write in
+    /// hers, an author of the whole book may write anywhere — so a change from
+    /// any rung to any other is *these pieces left* and/or *these pieces
+    /// joined*, including the one transition the table does not spell out
+    /// (one piece list becoming another, where both happen at once). The
+    /// sentence states whichever halves are non-empty and never invents a
+    /// third.
+    ///
+    /// The piece list is the manifest's, UNIONED with any id either permit
+    /// names, so a scope holding a document this Mac has not synced is still
+    /// counted and drawn as what it is.
+    struct PermitChange: Equatable {
+        /// The book's manuscript documents, in the binder's own order.
+        let pieces: [PermitControl.Piece]
+        /// What they hold now — the record's permit, which is what the row drew.
+        let from: Permit
+        /// What the writer has chosen.
+        let to: Permit
+
+        init(pieces: [PermitControl.Piece], from: Permit, to: Permit) {
+            // A piece named by a permit and not by the manifest is real: a
+            // document that has not synced to this Mac, or one that was
+            // trashed. It is still a place the change moves, so it is counted
+            // — and drawn as the one thing this Mac can honestly say about it.
+            let known = Set(pieces.map(\.id))
+            let named = Set(from.wirePieces + to.wirePieces).subtracting(known)
+            self.pieces = pieces + named.sorted().map {
+                PermitControl.Piece(id: $0, title: PermitChange.unknownPieceTitle)
+            }
+            self.from = from
+            self.to = to
+        }
+
+        /// What a piece id no manifest here carries is called. Never the raw
+        /// id: a document id is not a thing a writer has ever seen.
+        static let unknownPieceTitle = "a piece this Mac can\u{2019}t find"
+
+        /// Pieces they could write in and now cannot — §5's demotion row.
+        var leaving: [PermitControl.Piece] {
+            pieces.filter {
+                from.authors(.piece($0.id)) && !to.authors(.piece($0.id))
+            }
+        }
+
+        /// Pieces they could not write in and now can — §5's promotion row.
+        var joining: [PermitControl.Piece] {
+            pieces.filter {
+                !from.authors(.piece($0.id)) && to.authors(.piece($0.id))
+            }
+        }
+
+    }
+
+    /// **Change what somebody may write**, with both directions of spec §5 in
+    /// the message.
+    ///
+    /// Two halves, each stated only where it happened:
+    ///
+    /// - **What leaves.** *What Sam already wrote in "Chapter 4" stays.
+    ///   Anything she writes there from now on is set aside.* A demotion does
+    ///   not reach back — the mark is what makes that true — and a writer who
+    ///   thought it did would be afraid to use the verb at all.
+    /// - **What joins.** *…and what was set aside while it wasn't hers stays
+    ///   set aside.* A promotion is not a pardon, which is the half nobody
+    ///   assumes, and the words that were refused come back only through the
+    ///   Inbox door.
+    ///
+    /// `notice` is `PermitControl.firstNarrowingNotice`'s — the ONE sentence
+    /// about what a book's first narrowing costs, shared with the admission
+    /// sheet, never written a second time here.
+    static func changePermit(
+        forPerson fingerprint: String, named name: String,
+        change: PermitChange, notice: String? = nil, lostHistory: Int = 0
+    ) -> Self {
+        var parts: [String] = []
+        if let leaving = sentence(
+            forLeaving: change.leaving, of: change.pieces, named: name) {
+            parts.append(leaving)
+        }
+        if let joining = sentence(
+            forJoining: change.joining, of: change.pieces, named: name) {
+            parts.append(joining)
+        }
+        if parts.isEmpty { parts.append(nothingMoves(named: name)) }
+        if change.to.wirePieces.isEmpty, change.to.mayStartAPieceOfTheirOwn {
+            parts.append(startsTheirOwn(named: name))
+        }
+        if let notice { parts.append(notice) }
+        if let cost = lostHistoryClause(count: lostHistory) { parts.append(cost) }
+
+        return PeopleAndDevicesConfirmation(
+            verb: .changePermit,
+            fingerprint: fingerprint,
+            record: nil,
+            title: "Change what \(name) may write?",
+            message: parts.joined(separator: " "),
+            confirmTitle: "Change",
+            field: nil,
+            permit: change.to,
+            alternate: nil)
+    }
+
+    /// The demotion half. Named where a writer could hold the list in their
+    /// head, counted where they could not, and *this book* where it is
+    /// everything.
+    private static func sentence(
+        forLeaving leaving: [PermitControl.Piece],
+        of all: [PermitControl.Piece], named name: String
+    ) -> String? {
+        guard !leaving.isEmpty else { return nil }
+        if leaving.count == all.count {
+            return "What \(name) has already written in this book stays in it. "
+                + "Anything they write in the manuscript from now on is set aside."
+        }
+        return "What \(name) already wrote in \(list(leaving)) stays in this "
+            + "book. Anything they write there from now on is set aside."
+    }
+
+    /// The promotion half — and the clause nobody assumes, which is that it is
+    /// not a pardon.
+    private static func sentence(
+        forJoining joining: [PermitControl.Piece],
+        of all: [PermitControl.Piece], named name: String
+    ) -> String? {
+        guard !joining.isEmpty else { return nil }
+        let where_ = joining.count == all.count
+            ? "anywhere in this book" : "in \(list(joining))"
+        return "\(name) can write \(where_) from now on, and what was set aside "
+            + "while they couldn\u{2019}t stays set aside."
+    }
+
+    /// Neither half happened: a change of words with no change of places — a
+    /// book with no pieces yet, or a piece list that moved only among documents
+    /// this permit already covered.
+    private static func nothingMoves(named name: String) -> String {
+        "Nothing \(name) has written moves, and there is no piece in this book "
+        + "this changes what they may write in."
+    }
+
+    /// **The empty piece list is a real state, not an error** (`PermitPicker
+    /// .noPiecesChosen`): an author of no pieces yet may still start one, and
+    /// this book asks whose it is when they do.
+    private static func startsTheirOwn(named name: String) -> String {
+        "\(name) can still start a piece of their own; this book will ask you "
+        + "whether it\u{2019}s theirs."
+    }
+
+    /// *"Chapter 4"*, *"Chapter 4" and "Chapter 9"*, else *6 pieces* — a list a
+    /// writer can check against the tree, or a count where naming them would
+    /// be a paragraph.
+    private static func list(_ pieces: [PermitControl.Piece]) -> String {
+        let titles = pieces.map { "\u{201C}\($0.title)\u{201D}" }
+        switch titles.count {
+        case 1: return titles[0]
+        case 2: return "\(titles[0]) and \(titles[1])"
+        case 3: return "\(titles[0]), \(titles[1]) and \(titles[2])"
+        default: return "\(titles.count) pieces"
+        }
+    }
+
+    /// **Let somebody back in, saying what they will be able to write** (Task
+    /// 4's review, the Critical).
+    ///
+    /// `RegistryAdmission.admit` over a REVOKED record installs the permit it
+    /// is given, and `DocumentStore.admit`'s permit defaults to the whole book
+    /// — so before this, Re-admit turned an author of two chapters into an
+    /// author of the whole novel with nothing on screen saying so. Widening is
+    /// the direction a writer must never be moved in silently, which is why
+    /// the message NAMES the permit and the caller's default is the one they
+    /// held when they were shut out.
+    ///
+    /// The set-aside clause is the half nobody assumes and is the same fact
+    /// spec §5's promotion row states: letting them back in is not a pardon.
+    /// What was refused while they were out comes back only through the Inbox.
+    static func readmit(
+        person fingerprint: String, named name: String,
+        change: PermitChange, notice: String? = nil, lostHistory: Int = 0
+    ) -> Self {
+        var parts = [
+            "\(name) can write in this book again.",
+            saying(change.to, among: change.pieces),
+            "What was set aside while they were out stays set aside \u{2014} it "
+                + "comes back only through the Inbox.",
+        ]
+        if let notice { parts.append(notice) }
+        if let cost = lostHistoryClause(count: lostHistory) { parts.append(cost) }
+        return PeopleAndDevicesConfirmation(
+            verb: .changePermit,
+            fingerprint: fingerprint,
+            record: nil,
+            title: "Let \(name) write in this book again?",
+            message: parts.joined(separator: " "),
+            confirmTitle: "Re-admit",
+            field: nil,
+            permit: change.to,
+            alternate: nil)
+    }
+
+    /// **What deciding this over history the writer has put down costs them**
+    /// (P3b Task 6) — nil where nothing has been put down, which is every book
+    /// that has lost nothing.
+    ///
+    /// An acknowledged loss stops being EXPECTED, so the act goes through with
+    /// a mark that cannot name the missing stream — and a stream a mark does
+    /// not name judges wholly new. So if those bytes ever come back, they fall
+    /// on the far side of this decision. That is the right trade (the
+    /// alternative is a book that can never change what anybody may write
+    /// again), and it is not a trade to make without being told.
+    ///
+    /// One sentence, appended last, because it is a condition of the act
+    /// rather than part of what the act does.
+    static func lostHistoryClause(count: Int) -> String? {
+        guard count > 0 else { return nil }
+        let what = count == 1
+            ? "One piece of this book\u{2019}s history is missing"
+            : "\(count) pieces of this book\u{2019}s history are missing"
+        return "\(what) and you\u{2019}ve said you know it is gone, so this is "
+            + "decided without it. If it comes back, Maugham judges it as "
+            + "written after this change."
+    }
+
+    /// **What a permit says, in the words the control uses for it** — the
+    /// rung's own title and explanation, so the sentence a writer reads before
+    /// committing is the sentence they read while choosing.
+    ///
+    /// A permit no control can draw says so: `Permit.rung(of:)` answers nil for
+    /// a role or scope word a later Maugham wrote, and naming it anything would
+    /// be this Mac deciding what it does not know.
+    static func saying(
+        _ permit: Permit, among pieces: [PermitControl.Piece]
+    ) -> String {
+        guard let rung = PermitControl.choice(displaying: permit) else {
+            return "What they may write is something this version of Maugham "
+                + "doesn\u{2019}t recognise."
+        }
+        guard rung.picksPieces else {
+            return "They will be \(article(rung.title)) \u{2014} "
+                + rung.explanation.lowercasedFirst
+        }
+        let named = pieces.filter { permit.authors(.piece($0.id)) }
+        guard !named.isEmpty else {
+            return "They will be \(article(rung.title)), with no piece chosen "
+                + "yet \u{2014} " + PermitPicker.noPiecesChosen.lowercasedFirst
+        }
+        return "They will be \(article(rung.title)): \(list(named))."
+    }
+
+    /// *an author of some pieces*, *a reviewer* — the rung's title as it reads
+    /// mid-sentence.
+    private static func article(_ title: String) -> String {
+        let lowered = title.lowercasedFirst
+        return "aeiou".contains(lowered.first ?? "x") ? "an \(lowered)" : "a \(lowered)"
+    }
+
+    // MARK: - The two repairs
+
+    /// **Bring a record up to its history.** It is confirmed because it writes
+    /// over a signed file, and the message says the thing a writer would
+    /// otherwise assume — that something about what is applied is about to
+    /// change. Nothing is: the book has been enforcing the history all along.
+    static func resign(person fingerprint: String, named name: String,
+                       history: String, record says: String) -> Self {
+        PeopleAndDevicesConfirmation(
+            verb: .resign,
+            fingerprint: fingerprint,
+            record: nil,
+            title: "Bring \(name)\u{2019}s record up to this book\u{2019}s history?",
+            message: "This book\u{2019}s history says \(history) and the file "
+                + "describing \(name) still says \(says). The history is what "
+                + "Maugham has been going by, so nothing about what is applied "
+                + "changes \u{2014} this writes the file again so it agrees.",
+            confirmTitle: "Re-sign",
+            field: nil,
+            permit: nil,
+            alternate: nil)
+    }
+
+    /// **Write this Mac's own record again** (audit F4) — the last resort, and
+    /// the only repair in this pane that invents bytes rather than putting old
+    /// ones back. That distinction is the whole message: Restore replaces a
+    /// file with a version this Mac read; this replaces it with a new one, so
+    /// anything only the old file knew is gone.
+    static func writeOwnRecord(record: RecordRef, kind: String) -> Self {
+        PeopleAndDevicesConfirmation(
+            verb: .writeOwnRecord,
+            fingerprint: record.fingerprint,
+            record: record,
+            title: "Write this Mac\u{2019}s \(kind) record again?",
+            message: "This Mac signs a new \(kind) record for itself, over the "
+                + "one that doesn\u{2019}t check out. It isn\u{2019}t the old "
+                + "file put back \u{2014} this Mac doesn\u{2019}t have that "
+                + "\u{2014} so anything only the old one said is gone. Nothing "
+                + "anyone has written is touched.",
+            confirmTitle: "Write It Again",
+            field: nil,
+            permit: nil,
+            alternate: nil)
+    }
+}
+
+private extension String {
+    /// A sentence's own words, lowered at the front so they read mid-sentence.
+    /// Only the first character, because *Chapter 4* inside one must not move.
+    var lowercasedFirst: String {
+        guard let first else { return self }
+        return first.lowercased() + dropFirst()
     }
 }

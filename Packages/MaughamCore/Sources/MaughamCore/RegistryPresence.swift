@@ -103,6 +103,168 @@ public enum RegistryPresence {
             record, signedBy: author, in: projectURL, presenter: presenter)
     }
 
+    // MARK: - Writing this Mac's own record again (P3b Task 5, audit F4)
+
+    /// **Why this device cannot put its own record back.**
+    ///
+    /// A refusal here is about AUTHORITY or about premise, never about form,
+    /// and each arm is one the pane can draw as a reason beside a control that
+    /// is not offered. `LocalizedError`, because `AdmissionDecision.sentence`
+    /// is `RegistryAdmissionError`'s phrasebook and only that enum's — a second
+    /// vocabulary inside it would be the thing the team lead's 2026-09-11
+    /// ruling forbids.
+    public enum RegistryPresenceError: Error, LocalizedError, Equatable {
+        /// The file names a key that is not this device's. A device signs its
+        /// own record; nobody signs somebody else's.
+        case notThisDevicesRecord
+        /// A directory whose records this device does not author at all — a
+        /// claim, a permit event. Both have verbs of their own.
+        case notADeviceOrPersonRecord
+        /// The record on disk reads perfectly well. Writing over it would be
+        /// replacing a good file with a guess.
+        case theRecordVerifies
+        /// This Mac signs nothing (no enclave), so a record it wrote would be
+        /// one every reader lists as malformed — the state this is meant to
+        /// repair.
+        case thisMacSignsNothing
+        /// The person record is this device's, but somebody else's root decides
+        /// who is in this book. Re-writing it self-signed would make a second
+        /// root out of a damaged file.
+        case anotherMacDecidesWhoIsInThisBook(rootLabel: String?)
+        /// The device record has to read before a person record can be rebuilt
+        /// from it — the machine's own name lives there, and this is the one
+        /// place this device's name is decided.
+        case theDeviceRecordFirst
+
+        public var errorDescription: String? {
+            switch self {
+            case .notThisDevicesRecord:
+                return "Only the Mac a record is about can write it again. "
+                    + "Open this book on that machine."
+            case .notADeviceOrPersonRecord:
+                return "This isn’t a record this Mac writes about itself."
+            case .theRecordVerifies:
+                return "This record reads correctly now, so nothing was written "
+                    + "over it."
+            case .thisMacSignsNothing:
+                return "This Mac signs nothing it writes, so a record it wrote "
+                    + "would be one no other Mac could check."
+            case .anotherMacDecidesWhoIsInThisBook(let rootLabel):
+                guard let rootLabel else {
+                    return "This book was started on another Mac, and that Mac "
+                        + "decides who is in it. Open the book there to put this "
+                        + "record back."
+                }
+                return "This book was started on \(rootLabel), and that Mac "
+                    + "decides who is in it. Open the book there to put this "
+                    + "record back."
+            case .theDeviceRecordFirst:
+                return "This book’s file about this Mac doesn’t read either, so "
+                    + "there is nothing here to rebuild from. Put that one back "
+                    + "first."
+            }
+        }
+    }
+
+    /// **Write this device's own record again**, over one the reader refuses
+    /// (P3b Task 5; audit PR #65's F4).
+    ///
+    /// The case this exists for: `RegistryCache.reconcile` short-circuits on a
+    /// cold cache, so a Mac that has never verified a record it is now shown as
+    /// malformed holds no bytes to Restore — and if that record is its own,
+    /// every surface in the app reads *this book's file about this device
+    /// doesn't check out* with nothing to press. A device signing its own
+    /// record is its authority (spec §2): this is that authority used
+    /// deliberately, by the writer, rather than at an open.
+    ///
+    /// **Two directions, and both are refusals of this verb rather than
+    /// conventions of its callers.** It never writes over another device's
+    /// record — a device record is signed by the machine it describes, and a
+    /// root's person record by the root itself, so a Mac writing somebody
+    /// else's would produce a file every reader lists as malformed, which is
+    /// the state this repairs. And it never writes over a record that VERIFIES:
+    /// the registry is re-read here, so a row the pane drew from a stale read,
+    /// or one another Mac repaired while the sheet was up, is refused rather
+    /// than overwritten with a guess.
+    ///
+    /// **The person record is the narrower arm, on purpose.** A device record
+    /// says what a machine is and is self-evidently that machine's to write. A
+    /// PERSON record says who is in the book, and re-writing one self-signed
+    /// makes this Mac a root. Where the book still has a verified root, that is
+    /// a second root made out of a damaged file, so it refuses and names the
+    /// Mac to go to — which is also the honest answer, because that root is the
+    /// one that signed the record and the only one that can re-sign it. Where
+    /// the book has NO verified root at all, this device's own damaged root
+    /// record is the whole of what is wrong and there is nobody else to ask:
+    /// that is audit F4's case exactly.
+    ///
+    /// It answers the file it wrote.
+    @discardableResult
+    nonisolated public static func writeOwnRecordAgain(
+        _ ref: RecordRef,
+        in projectURL: URL,
+        identities: LocalIdentities,
+        name: String,
+        writerName: String,
+        kind: DeviceKind,
+        now: () -> Date = { Date() },
+        presenter: NSFilePresenter? = nil
+    ) throws -> URL {
+        let author = identities.author
+        guard ref.fingerprint == author.fingerprint else {
+            throw RegistryPresenceError.notThisDevicesRecord
+        }
+        guard author.canSign else {
+            reportUnsigned()
+            throw RegistryPresenceError.thisMacSignsNothing
+        }
+
+        let registry = try RegistryReader.load(
+            projectURL: projectURL, presenter: presenter)
+        // Re-read rather than trust the row: a record repaired since the pane
+        // drew it, by another Mac or by a Restore, must not be written over.
+        guard registry.malformed.contains(where: { $0.ref == ref }) else {
+            throw RegistryPresenceError.theRecordVerifies
+        }
+
+        switch ref.directory {
+        case .devices:
+            var actors: [String: String] = [:]
+            for actor in identities.existingActors {
+                actors[actor.rawValue] = identities[actor].fingerprint
+            }
+            // The author entry IS the device; `ensureDeviceRecord`'s own rule,
+            // for its own reason (the reader refuses a record saying otherwise).
+            actors[DeviceActor.author.rawValue] = author.fingerprint
+            let record = DeviceRecord(
+                device: author.fingerprint, name: name, kind: kind,
+                actors: actors, madeAt: now())
+            return try RegistryWriter.write(
+                record, signedBy: author, in: projectURL, presenter: presenter)
+
+        case .people:
+            // A root that still verifies is the authority here, and it is not
+            // this Mac — even where the damaged record is this device's own.
+            if let root = registry.roots.first(where: { $0.person != author.fingerprint }) {
+                throw RegistryPresenceError
+                    .anotherMacDecidesWhoIsInThisBook(rootLabel: root.label)
+            }
+            guard let mine = registry.devices
+                .first(where: { $0.device == author.fingerprint })
+            else { throw RegistryPresenceError.theDeviceRecordFirst }
+            let record = PersonRecord(
+                person: author.fingerprint,
+                label: rootLabel(writerName: writerName, deviceName: mine.name),
+                ownName: mine.name, role: "author",
+                admittedAt: now(), admittedBy: author.fingerprint)
+            return try RegistryWriter.write(
+                record, signedBy: author, in: projectURL, presenter: presenter)
+
+        case .claims, .events:
+            throw RegistryPresenceError.notADeviceOrPersonRecord
+        }
+    }
+
     // MARK: - And there was nobody here
 
     /// Write this device's self-signed root `PersonRecord` when the book has no

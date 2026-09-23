@@ -480,3 +480,218 @@ private extension PeopleAndDevicesSection {
     func renameForTesting(_ person: PeopleAndDevicesModel.Person) { rename(person) }
     func restoreForTesting(_ record: PeopleAndDevicesModel.Unverifiable) { restore(record) }
 }
+
+/// **The P3b rows and controls reach the screen** (signed op log P3b Task 5).
+///
+/// What each one MEANS is pinned windowlessly in
+/// `PeopleAndDevicesPermitRowTests`; this suite's whole job is that they are
+/// drawn. Nothing here presses a control and waits for its effect (tripwire
+/// 33): the verbs are closures the host supplies and are called directly, and
+/// what is on screen is asserted as text and enabled-ness alone.
+@MainActor
+final class PeopleAndDevicesPermitSectionTests: XCTestCase {
+
+    private var windows: [NSWindow] = []
+
+    override class func setUp() {
+        super.setUp()
+        FontWarmup.ensure()
+    }
+
+    override func tearDown() async throws {
+        for window in windows { window.orderOut(nil) }
+        windows.removeAll()
+    }
+
+    private var rootIdentity: DeviceIdentity!
+    private var root: String { rootIdentity.fingerprint }
+    private let phone = "cccc3333dddd4444"
+    private let contested = "aaaa1111aaaa1111"
+
+    override func setUp() async throws {
+        rootIdentity = .softwareForTesting()
+    }
+
+    private let made = Date(timeIntervalSince1970: 1_756_000_000)
+    private let admitted = Date(timeIntervalSince1970: 1_757_000_000)
+
+    private let pieces = [PermitControl.Piece(id: "ch4", title: "Chapter 4")]
+
+    private func model(
+        phonePermit: Permit = .author(.pieces(["ch4"])),
+        events: [PermitEvent] = [],
+        held: [String: Int] = [:],
+        heldStreams: [String: Set<String>] = [:],
+        unsignedStreams: [String] = [],
+        malformed: [MalformedRecord] = [],
+        // Two device records naming ONE assistant key: `Registry
+        // .actorKeyOwners` drops a key two records claim, so it belongs to
+        // nobody and nobody can be admitted for it.
+        disputingAKey: Bool = false
+    ) -> PeopleAndDevicesModel {
+        let disputed = disputingAKey ? ["assistant": contested] : [:]
+        let registry = Registry(
+            devices: [
+                DeviceRecord(device: root, name: "Denver's MacBook", kind: .mac,
+                             actors: ["author": root].merging(
+                                disputed, uniquingKeysWith: { _, new in new }),
+                             madeAt: made),
+                DeviceRecord(device: phone, name: "Denver's iPhone", kind: .phone,
+                             actors: ["author": phone].merging(
+                                disputed, uniquingKeysWith: { _, new in new }),
+                             madeAt: made),
+            ],
+            people: [
+                PersonRecord(person: root, label: "Denver",
+                             ownName: "Denver's MacBook",
+                             admittedAt: admitted, admittedBy: root),
+                PersonRecord(person: phone, label: "Sam", ownName: "Denver's iPhone",
+                             role: phonePermit.wireRole,
+                             scope: phonePermit.wireScope,
+                             pieces: phonePermit.wirePieces,
+                             admittedAt: admitted, admittedBy: root),
+            ],
+            events: events,
+            malformed: malformed)
+        let table = TrustTable.resolve(
+            registry: registry, mine: .forAuthor(rootIdentity), joinedRoot: nil)
+        return PeopleAndDevicesModel.make(
+            registry: registry, table: table, remembered: [:],
+            requests: AdmissionDecision.requests(
+                pending: held, streams: heldStreams, registry: registry,
+                memory: [:], myRoot: table.myRoot),
+            claimants: [],
+            standing: DeviceStanding(
+                code: DeviceCode.short(root), label: "Denver",
+                rootLabel: "Denver", admitted: true, isRoot: true),
+            me: root, held: held, heldStreams: heldStreams,
+            unsignedStreams: unsignedStreams, pieces: pieces)
+    }
+
+    private func mount(_ model: PeopleAndDevicesModel) -> NSWindow {
+        let window = TestWindow.mount(
+            AnyView(
+                Form {
+                    PeopleAndDevicesSection(model: model)
+                }
+                .formStyle(.grouped)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)),
+            size: CGSize(width: 560, height: 800))
+        windows.append(window)
+        pump(0.2)
+        return window
+    }
+
+    // MARK: - What they may write, and the control that changes it
+
+    func test_apersonsRowDrawsWhatTheyMayWriteAndTheControlThatChangesIt() throws {
+        let window = mount(model())
+        let texts = try axTexts(in: window)
+
+        XCTAssertTrue(texts.contains { $0.contains("Author of some pieces") },
+                      "the rung, in the words the control uses: \(texts)")
+        XCTAssertTrue(texts.contains { $0.contains("Chapter 4") },
+                      "and the pieces, by title: \(texts)")
+        let labels = try axButtonLabels(in: window)
+        XCTAssertTrue(labels.contains { $0.hasPrefix("Change") },
+                      "with the control that moves it: \(labels)")
+    }
+
+    /// The root's own row draws no change control at all — it is not a disabled
+    /// button, it is absent, because the condition it would wait on can never
+    /// come (spec §2).
+    func test_therootsOwnRowDrawsExactlyOneChangeControlForTheOtherPerson() throws {
+        let window = mount(model())
+        let labels = try axButtonLabels(in: window)
+
+        XCTAssertEqual(labels.filter { $0.hasPrefix("Change") }.count, 1,
+                       "one person here can be changed, and it is not the root: \(labels)")
+    }
+
+    /// Spec §3.2's crash window, and the one press that closes it.
+    func test_arecordAStepBehindItsHistoryIsDrawnWithItsRepair() throws {
+        let window = mount(model(events: [PermitEvent(
+            event: "e-0001", kind: .roleChanged, subject: phone,
+            role: Permit.reviewerRole, scope: Permit.bookScope, pieces: [],
+            mark: [:], at: admitted, by: root)]))
+        let texts = try axTexts(in: window)
+
+        XCTAssertTrue(texts.contains { $0.contains("a step behind") },
+                      "the disagreement is stated: \(texts)")
+        let labels = try axButtonLabels(in: window)
+        XCTAssertTrue(labels.contains("Re-sign"), "with the press: \(labels)")
+    }
+
+    // MARK: - The rows that had no voice
+
+    func test_astreamNothingSignsIsDrawnWithWhatNarrowingWillDo() throws {
+        let window = mount(model(unsignedStreams: ["ghostmac"]))
+        let texts = try axTexts(in: window)
+
+        XCTAssertTrue(texts.contains { $0.contains("says who signs for") },
+                      "what is true now: \(texts)")
+        XCTAssertTrue(texts.contains { $0.contains("waits on the other Macs") },
+                      "and what narrowing will do, before there is a reviewer: \(texts)")
+    }
+
+    func test_acontestedKeyIsDrawnWithNoControlToPress() throws {
+        let window = mount(model(held: [contested: 4], disputingAKey: true))
+        let texts = try axTexts(in: window)
+
+        XCTAssertTrue(texts.contains { $0.contains("4 lines waiting") },
+                      "the fact has a size: \(texts)")
+        let labels = try axButtonLabels(in: window)
+        XCTAssertFalse(labels.contains { $0.hasPrefix("Admit") },
+                       "and nothing to press about it: \(labels)")
+    }
+
+    /// F4's press, and the sentence that says what it is not.
+    func test_thismacsOwnUnrestorableRecordDrawsWriteItAgain() throws {
+        let window = mount(model(malformed: [MalformedRecord(
+            url: URL(fileURLWithPath: "/Book/.maugham/devices/\(root).json"),
+            reason: .signatureDoesNotVerify)]))
+        let labels = try axButtonLabels(in: window)
+
+        XCTAssertTrue(labels.contains("Write It Again"), "\(labels)")
+        XCTAssertFalse(labels.contains("Restore"),
+                       "the two are alternatives: \(labels)")
+    }
+
+    /// And somebody else's is a fact with a destination rather than a dead end.
+    func test_anotherDevicesUnrestorableRecordNamesTheMacThatCanRepairIt() throws {
+        let window = mount(model(malformed: [MalformedRecord(
+            url: URL(fileURLWithPath: "/Book/.maugham/devices/\(phone).json"),
+            reason: .signatureDoesNotVerify)]))
+        let texts = try axTexts(in: window)
+        let labels = try axButtonLabels(in: window)
+
+        XCTAssertFalse(labels.contains("Write It Again"), "\(labels)")
+        XCTAssertTrue(texts.contains { $0.contains("Open this book there") },
+                      "never a dead end: \(texts)")
+    }
+
+    // MARK: - The sheet that asks the rung
+
+    /// The control the writer moves is drawn, starting where they already are.
+    /// Nothing is pressed and nothing is waited on (tripwire 33).
+    func test_thepermitSheetDrawsTheControlAndTheConsequence() throws {
+        let person = try XCTUnwrap(model().people.first { $0.fingerprint == phone })
+        let window = TestWindow.mount(
+            AnyView(PermitChangeSheet(
+                person: person, pieces: pieces,
+                book: PermitControl.BookNarrowing(),
+                isReadmission: false, commit: { _ in }, cancel: {})),
+            size: CGSize(width: 480, height: 520))
+        windows.append(window)
+        pump(0.2)
+        let texts = try axTexts(in: window)
+
+        XCTAssertTrue(texts.contains { $0.contains("Change what Sam may write?") },
+                      "\(texts)")
+        XCTAssertTrue(texts.contains { $0.contains("Author of some pieces") },
+                      "the control starts where they already are: \(texts)")
+        let labels = try axButtonLabels(in: window)
+        XCTAssertTrue(labels.contains("Change"), "\(labels)")
+        XCTAssertTrue(labels.contains("Cancel"), "\(labels)")
+    }
+}

@@ -619,6 +619,154 @@ final class PermitStreamLoadTests: XCTestCase {
         XCTAssertEqual(permits, ["w1": .reviewer])
     }
 
+    // MARK: - The restrictiveness tie-break (P3b Task 10; handoff carry 13)
+
+    /// The SAME amendment line, in two of Sam's streams, cut differently.
+    ///
+    /// **Why this fixture and not another.** `AmendmentPermits.record`'s
+    /// collision arm was written in P3a and had no production exerciser at
+    /// all — nothing then could produce two governing permits for one op. It
+    /// takes a narrowing event carrying a MARK (P3b's own `changePermit`), and
+    /// one op id present in two STREAMS: a mark names a stream, so the same
+    /// line judges *old* in the stream the mark cuts and *new* in the one it
+    /// does not name at all. The legacy unsuffixed `<docId>.jsonl` is that
+    /// second stream — ADR 0012's own duplicate case, and the one this
+    /// comment in `record` names.
+    ///
+    /// The rule: the permit that WITHHOLDS MORE wins, and never the one that
+    /// happened to be enumerated first. `opLogFileURLs` is unsorted, so
+    /// first-wins here would mean `contentsOfDirectory`'s order decides
+    /// whether one of Sam's amendments is honoured.
+    private func amendmentInBothOfSamsStreams(
+        _ opId: String
+    ) throws -> PermitMark.StreamMark {
+        let element = try encoded(amendment(opId, by: sam.author))
+        let ownFile = try writeChained(
+            at: OpLogStore.opLogFileURL(
+                forDocId: docId, deviceSlug: sam.author.slug, in: projectURL),
+            by: sam.author, elements: [element])
+        // The same op id, in the file that belongs to no device. Sealed by
+        // Sam, so it is HERS to judge; a different stream key, so the mark
+        // below does not name it and every line of it judges NEW.
+        try writeChained(
+            at: projectURL
+                .appendingPathComponent(".maugham/ops", isDirectory: true)
+                .appendingPathComponent("\(docId).jsonl"),
+            by: sam.author, elements: [element])
+        // The mark cuts her own stream AFTER that line, so her copy there is
+        // under the permit she held before the change.
+        let line = OpLogChain.lineHash(
+            OpLogChain.chainedLine(elementJSON: element, prev: OpLogChain.genesis))
+        XCTAssertNotNil(PermitMark.stream(of: ownFile))
+        return PermitMark.StreamMark(line: line)
+    }
+
+    /// **The tie-break, exercised.** Old in one stream (an author of the whole
+    /// book), new in the other (a reviewer) — and the reviewer's permit is
+    /// what the load writes down.
+    func test_twoGoverningPermitsForOneAmendmentKeepTheMoreRestrictive() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("01", kind: .admitted, role: Permit.authorRole)
+        let mark = try amendmentInBothOfSamsStreams("w1")
+        try writeEvent(
+            "02", kind: .roleChanged, role: Permit.reviewerRole,
+            mark: ["\(docId).\(sam.author.slug.raw)": mark])
+
+        let permits = try await collectedPermits()
+        XCTAssertEqual(
+            permits["w1"], .reviewer,
+            "the permit that withholds more wins, whichever file was read "
+            + "first: \(permits)")
+    }
+
+    /// The control, and the half that makes the assertion above mean
+    /// something: with only her OWN stream, the same line is judged under the
+    /// permit she held when she wrote it — an author of the whole book. So the
+    /// two files really do disagree, and the tie-break really is choosing.
+    func test_withoutTheSecondStreamTheSameLineIsTheAuthorS() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("01", kind: .admitted, role: Permit.authorRole)
+        let element = try encoded(amendment("w1", by: sam.author))
+        try writeChained(
+            at: OpLogStore.opLogFileURL(
+                forDocId: docId, deviceSlug: sam.author.slug, in: projectURL),
+            by: sam.author, elements: [element])
+        let line = OpLogChain.lineHash(
+            OpLogChain.chainedLine(elementJSON: element, prev: OpLogChain.genesis))
+        try writeEvent(
+            "02", kind: .roleChanged, role: Permit.reviewerRole,
+            mark: ["\(docId).\(sam.author.slug.raw)":
+                    PermitMark.StreamMark(line: line)])
+
+        let permits = try await collectedPermits()
+        XCTAssertEqual(permits["w1"], .bookAuthor)
+    }
+
+    // MARK: - A replayed marked line (P3b Task 10; handoff carry 13)
+
+    /// **A forged tail that opens with a line the mark names does not pardon
+    /// what follows it.**
+    ///
+    /// Task 2's minor, analysed and never pinned: `PermitMark.judge`'s rule 2
+    /// says the file CONTAINING the marked line is old through it and new
+    /// after it, so a device that copied the root's marked line to the head of
+    /// a fresh file would be *old* for exactly that one line and NEW for every
+    /// line it then appended. The analysis said it is harmless; this is the
+    /// measurement.
+    ///
+    /// Built directly on `judge`, because a forged tail is by definition not
+    /// something any writer of this app produces — what is being pinned is the
+    /// rule's arithmetic, not a path through the store.
+    func test_aReplayedMarkedLineAsTheHeadOfAForgedTailPardonsOnlyItself() throws {
+        let stream = "\(docId).\(sam.author.slug.raw)"
+        let honest = OpLogChain.chainedLine(
+            elementJSON: try encoded(amendment("w1", by: sam.author)),
+            prev: OpLogChain.genesis)
+        let mark = PermitMark([
+            stream: PermitMark.StreamMark(line: OpLogChain.lineHash(honest)),
+        ])
+        // The forged file: the root's own marked line, copied, and three lines
+        // of the forger's own behind it.
+        let forged = [honest]
+            + (2...4).map { index in
+                OpLogChain.chainedLine(
+                    elementJSON: Data("{\"opId\":\"f\(index)\"}".utf8),
+                    prev: OpLogChain.lineHash(honest))
+            }
+
+        let judged = mark.judge(
+            streamKey: stream, fileIsSegmentWithDigest: nil, lines: forged)
+
+        XCTAssertEqual(judged.sides, [.old, .new, .new, .new],
+                       "the replayed line pardons itself and nothing after it")
+        XCTAssertEqual(judged.lastOldIndex, 0)
+    }
+
+    /// And the other direction, so the assertion above is not an accident of
+    /// position: a marked line in the MIDDLE of a file is old through itself
+    /// and new afterwards, which is rule 2 doing its ordinary job.
+    func test_theMarkedLineCutsWhereverItSitsInTheFile() throws {
+        let stream = "\(docId).\(sam.author.slug.raw)"
+        var lines: [Data] = []
+        var head = OpLogChain.genesis
+        for index in 1...4 {
+            let line = OpLogChain.chainedLine(
+                elementJSON: Data("{\"opId\":\"o\(index)\"}".utf8), prev: head)
+            lines.append(line)
+            head = OpLogChain.lineHash(line)
+        }
+        let mark = PermitMark([
+            stream: PermitMark.StreamMark(line: OpLogChain.lineHash(lines[1])),
+        ])
+
+        XCTAssertEqual(
+            mark.judge(streamKey: stream, fileIsSegmentWithDigest: nil,
+                       lines: lines).sides,
+            [.old, .old, .new, .new])
+    }
+
     // MARK: - Translations
 
     /// A reviewer may not translate at all: the ladder gives her annotations

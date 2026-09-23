@@ -313,4 +313,84 @@ final class OpLogDeviceStateTests: XCTestCase {
 
         XCTAssertEqual(OpLogDeviceState(fileURL: stateURL, identity: mine).head(for: key), "h")
     }
+
+    // MARK: - *Not now* (P3b Task 7)
+
+    /// **The writer was asked whose a piece is, and said not now.**
+    ///
+    /// Device-local, like the acknowledged losses beside it and for the same
+    /// reason: it records nothing about the BOOK — no event, no record,
+    /// nothing another Mac will ever read — only that this one has already
+    /// asked. What it changes is whether the question comes back on the next
+    /// load, and the answer is that it does not: it comes back from People &
+    /// Devices, where the writer went looking for it.
+    func test_aDeclinedPieceIsRememberedPerPersonAndPerPiece() throws {
+        let root = try project("Book")
+        let state = OpLogDeviceState(fileURL: stateURL, identity: mine)
+        state.declinePiece(
+            person: "sam", docId: "ch-2", inRoot: root,
+            at: Date(timeIntervalSince1970: 100))
+
+        let reloaded = OpLogDeviceState(fileURL: stateURL, identity: mine)
+        let declined = reloaded.declinedPieces(inRoot: root)
+        XCTAssertEqual(
+            declined[.init(person: "sam", docId: "ch-2")],
+            Date(timeIntervalSince1970: 100))
+        XCTAssertNil(declined[.init(person: "sam", docId: "ch-3")],
+                     "another piece of hers is a different question")
+        XCTAssertNil(declined[.init(person: "kit", docId: "ch-2")],
+                     "and so is somebody else in the same piece")
+    }
+
+    /// Idempotent, and the FIRST answer keeps its date: *not now* said twice is
+    /// one decision, and the day it was made is the day it was first made.
+    func test_decliningTwiceKeepsTheDayItWasFirstDeclined() throws {
+        let root = try project("Book")
+        let state = OpLogDeviceState(fileURL: stateURL, identity: mine)
+        state.declinePiece(person: "sam", docId: "ch-2", inRoot: root,
+                           at: Date(timeIntervalSince1970: 100))
+        state.declinePiece(person: "sam", docId: "ch-2", inRoot: root,
+                           at: Date(timeIntervalSince1970: 900))
+
+        XCTAssertEqual(
+            state.declinedPieces(inRoot: root)[.init(person: "sam", docId: "ch-2")],
+            Date(timeIntervalSince1970: 100))
+    }
+
+    /// It is scoped to the book, like every other entry keyed this way.
+    func test_aDeclinedPieceInOneBookSaysNothingAboutAnother() throws {
+        let one = try project("One")
+        let other = try project("Other")
+        let state = OpLogDeviceState(fileURL: stateURL, identity: mine)
+        state.declinePiece(person: "sam", docId: "ch-2", inRoot: one)
+
+        XCTAssertFalse(state.declinedPieces(inRoot: one).isEmpty)
+        XCTAssertTrue(state.declinedPieces(inRoot: other).isEmpty)
+    }
+
+    /// And a book that is gone takes its questions with it — the same clause
+    /// the heads, the foreign memory and the acknowledged losses prune on.
+    func test_aDeclinedPieceIsPrunedWithItsBook() throws {
+        let gone = try project("Gone")
+        OpLogDeviceState(fileURL: stateURL, identity: mine)
+            .declinePiece(person: "sam", docId: "ch-2", inRoot: gone)
+        try FileManager.default.removeItem(at: gone)
+
+        XCTAssertTrue(
+            OpLogDeviceState(fileURL: stateURL, identity: mine)
+                .declinedPieces(inRoot: gone).isEmpty)
+    }
+
+    /// **A state file written before this field decodes empty**, which is the
+    /// nobody-has-been-asked case and is exactly right. Every field here is
+    /// additive; this one is too.
+    func test_aStateFileFromBeforeThisFieldDecodesWithNothingDeclined() throws {
+        let root = try project("Book")
+        let older = OpLogDeviceState(fileURL: stateURL, identity: mine)
+        older.remember(head: "h", for: "k/one", root: root)
+
+        let reloaded = OpLogDeviceState(fileURL: stateURL, identity: mine)
+        XCTAssertEqual(reloaded.head(for: "k/one"), "h")
+        XCTAssertTrue(reloaded.declinedPieces(inRoot: root).isEmpty)
+    }
 }

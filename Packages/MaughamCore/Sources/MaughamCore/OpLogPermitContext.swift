@@ -112,8 +112,71 @@ public struct PermitContext: Sendable {
 public final class AmendmentPermits: @unchecked Sendable {
     private let lock = NSLock()
     private var byOpId: [String: Permit] = [:]
+    private var insideTheUnsignedSnapshot: Set<String> = []
+    private var startedAPiece: Set<String> = []
 
     public init() {}
+
+    // MARK: - Who started a piece nobody has claimed (P3b Task 7)
+
+    /// **This held line was §4.5's question, not §4.2's.**
+    ///
+    /// Two arms of the partition hold a line under the very same holder
+    /// string, `trust.person(forSealKey:)`: a line this BUILD cannot judge
+    /// (`Permit.Allowed.cannotJudge`) and a scoped author's own hand opening a
+    /// piece nobody has claimed. They want opposite sentences — *a newer
+    /// version of Maugham will know* against *is this piece hers?* — and the
+    /// second is a question the writer can answer today.
+    ///
+    /// Nothing downstream can tell them apart from the holder, and nothing
+    /// downstream can re-derive it either: `startsAPieceNobodyHasClaimed`
+    /// needs the governing permit, the signing actor, the document class AND
+    /// the op's `Written`, which is the whole partition again — a second
+    /// classifier, and exactly what tripwires 39 and 44 are about. So the
+    /// partition that already decided it writes it down here.
+    ///
+    /// **The same carrier as the governing permit and the snapshot side**, for
+    /// the reason those two are here: the fact is known only inside the
+    /// partition, it is needed a long way downstream where the bytes are gone,
+    /// and a second carrier would be a second opinion about which line was
+    /// which. Keyed by HOLDER rather than by op id because every surface that
+    /// reads it asks *who*, and one writer opening six paragraphs of a new
+    /// piece is one question.
+    ///
+    /// **Empty for every book that has narrowed nobody**, because §4.5 cannot
+    /// fire where every permit is author-of-the-whole-book.
+    func recordStartedAPiece(_ holder: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        startedAPiece.insert(holder)
+    }
+
+    /// The holders whose held lines opened a piece nobody has claimed, over
+    /// every file of the document this carrier was handed to.
+    public var whoStartedAPiece: Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+        return startedAPiece
+    }
+
+    /// **This amendment line was inside the unsigned photograph** (P3b Task 2,
+    /// ruling 1's second direction).
+    ///
+    /// The same carrier as the governing permit, for the same reason: the fact
+    /// is about ONE LINE, it is known only inside the partition that judged
+    /// it, and it is needed a long way downstream where the bytes are gone. A
+    /// second carrier would be a second opinion about which line was which.
+    ///
+    /// Recorded by the unsigned door alone, and only for a line it judged OLD
+    /// in a file no key can name. An op id that is not here is not evidence of
+    /// anything — it is the ordinary case, every line of every attributable
+    /// file — so `AnnotationOwnership.unplaced` reads this only after it has
+    /// already decided the id is one it cannot place.
+    func recordInsideTheUnsignedSnapshot(_ opId: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        insideTheUnsignedSnapshot.insert(opId)
+    }
 
     /// Record one amendment line's governing permit.
     ///
@@ -168,6 +231,14 @@ public final class AmendmentPermits: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return byOpId
+    }
+
+    /// The amendment lines the unsigned door found at or before the
+    /// photograph, across every file of the document.
+    public var resolvedInsideTheUnsignedSnapshot: Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+        return insideTheUnsignedSnapshot
     }
 }
 

@@ -643,6 +643,195 @@ public enum OpLogQuarantine {
             .reduce(0) { $0 + (applied.contains($1.id) ? 0 : 1) }
     }
 
+    // MARK: - The words a refusal took away (P3b Task 8, spec §7.4)
+
+    /// **One paragraph a set-aside line carried**, and who wrote it.
+    ///
+    /// The unit is a PARAGRAPH rather than a line, because that is the unit the
+    /// writer gets back: §7.4's way in is a capture, and a capture holding a
+    /// whole typing burst would be several paragraphs of somebody's chapter in
+    /// one inbox row with no way to take them apart again.
+    ///
+    /// `device` is the raw `device` string the op carried — an actor word and a
+    /// key prefix. It is not resolved to a name here for `QuarantineCause`'s
+    /// own reason: what the book calls a machine lives in the registry, and the
+    /// surface that draws this is the one that has it.
+    public struct SetAsideWords: Equatable, Sendable {
+        /// The op this paragraph came out of, so two records holding the same
+        /// op give the writer one copy of it.
+        public let opId: String
+        public let paragraphId: String
+        /// The paragraph as that op left it — never blank.
+        public let text: String
+        /// The `device` string the op carried.
+        public let device: String
+        /// When it was written, on the machine that wrote it.
+        public let at: Date
+
+        public init(
+            opId: String, paragraphId: String, text: String,
+            device: String, at: Date
+        ) {
+            self.opId = opId
+            self.paragraphId = paragraphId
+            self.text = text
+            self.device = device
+            self.at = at
+        }
+    }
+
+    /// **The manuscript words in a run of set-aside lines** — spec §7.4's
+    /// subject, and the whole of what decides whether the door is offered at
+    /// all.
+    ///
+    /// Three filters, in this order, and none of them is this function's own
+    /// opinion:
+    ///
+    /// 1. A seal is not a change. It is recognised through `OpLogChain` and
+    ///    nowhere else (tripwire 37) — this file states no second opinion about
+    ///    what a seal is.
+    /// 2. What the line WAS is `PermitPartition.writtenOp`'s answer, which is
+    ///    `Op.kind(ofLine:)` and nothing else; a line that is not an op — an
+    ///    inbox row, a translation record, bytes that do not parse — answers
+    ///    nil and is nobody's to recover.
+    /// 3. Whether that kind moves the draft is **asked of
+    ///    `Deriver.appliesToManuscript`** (tripwire 44), never restated here.
+    ///    A second list would be the constitution's *AI is never the author*
+    ///    failing quietly: the copy missing a prose-moving kind would refuse to
+    ///    hand a writer back their own paragraph, and the copy with one too
+    ///    many would offer to re-file a disposition as prose.
+    ///
+    /// A change with no text — a deleted paragraph — is not recoverable: there
+    /// is nothing to give back, and a capture holding an empty string is a row
+    /// the writer has to throw away by hand.
+    ///
+    /// **Deduplicated by op, in file order**, for `setAsideChanges`' reason:
+    /// one op split across two archives is one change and must come back once.
+    public nonisolated static func recoverableWords(
+        inLines lines: [Data]
+    ) -> [SetAsideWords] {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
+        var seen: Set<String> = []
+        var words: [SetAsideWords] = []
+        for line in lines {
+            guard !OpLogChain.isSealLine(line) else { continue }
+            guard case let .op(kind)? = PermitPartition.writtenOp(line),
+                  Deriver.appliesToManuscript(kind)
+            else { continue }
+            guard let op = try? decoder.decode(Op.self, from: line) else { continue }
+            guard seen.insert(op.opId).inserted else { continue }
+            for change in op.changes
+            where !change.next.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                words.append(SetAsideWords(
+                    opId: op.opId, paragraphId: change.paragraphId,
+                    text: change.next, device: op.device, at: op.at))
+            }
+        }
+        return words
+    }
+
+    /// The same question of one record's own archive. A `.file` record answers
+    /// nothing: its data file is a whole op log that would not read, which is a
+    /// different event with a different ending (`attemptReturn`'s).
+    public nonisolated static func recoverableWords(
+        ofRecord record: QuarantineRecord, in projectURL: URL
+    ) -> [SetAsideWords] {
+        guard record.kind == .lines else { return [] }
+        let url = quarantinedFileURL(for: record, in: projectURL)
+        guard let bytes = try? Data(contentsOf: url) else { return [] }  // adr-0018-ok: a set-aside `.lines` archive — forensics the writer may ask for back, never manuscript truth
+        return recoverableWords(inLines: bytes
+            .split(separator: 0x0A, omittingEmptySubsequences: true)
+            .map(Data.init))
+    }
+
+    /// **A revocation's sentence is the one the writer's LAST choice made
+    /// true** (P2 carry C16).
+    ///
+    /// Set-aside archives are content-addressed, so revoking the same device a
+    /// second time — harshly, this time — files no new record: those bytes are
+    /// already on file. The sidecar's frozen `reason` then goes on saying
+    /// *written after this device's access was withdrawn* about a paragraph the
+    /// writer has since set aside along with everything else that device wrote,
+    /// which is the one screen in the app that exists to tell them the truth
+    /// about their book telling them something that has stopped being true.
+    ///
+    /// **Only the revocation pair is re-derived, and only between its own two
+    /// spellings.** A record filed for a broken chain is not re-read as a
+    /// revocation because somebody has since been revoked: the cause is a fact
+    /// about what the walk met, and this has no business revising it. Both
+    /// sentences are `JSONLAppendStore.quarantineReason`'s own, asked of it
+    /// rather than spelled again, so there is still exactly one place that says
+    /// what a set-aside line is called (ADR 0032 §6).
+    ///
+    /// `nowKeepsNothing` nil — the bytes name nobody this register knows — is
+    /// the frozen reason, unchanged.
+    public nonisolated static func reason(
+        _ frozen: String, nowKeepsNothing: Bool?
+    ) -> String {
+        guard let nowKeepsNothing else { return frozen }
+        let harsh = JSONLAppendStore<Op>.quarantineReason(
+            .afterRevocation(person: "", keptNothing: true))
+        let gentle = JSONLAppendStore<Op>.quarantineReason(
+            .afterRevocation(person: "", keptNothing: false))
+        guard frozen == harsh || frozen == gentle else { return frozen }
+        return nowKeepsNothing ? harsh : gentle
+    }
+
+    /// **Was this record filed because the CHAIN did not hold?** (P3b Task 8
+    /// fix round 2, M6.)
+    ///
+    /// The distinction matters to exactly one caller and it matters a great
+    /// deal there. Every other cause names a device whose lines these are — a
+    /// revoked Mac's, a retired one's, one whose permit refused the line — and
+    /// a capture made from them is honestly attributed to that machine. A chain
+    /// break says the opposite: the `device` field in those bytes is a string
+    /// whatever-wrote-them CHOSE, and the walk refused them precisely because
+    /// nothing vouches for it. Attributing a recovered paragraph to the device
+    /// it NAMES would put words in a real machine's mouth on the strength of
+    /// the one field the refusal exists to disbelieve.
+    ///
+    /// Decided from the frozen reason exactly as `reason(_:nowKeepsNothing:)`
+    /// decides the revocation pair — by comparing against
+    /// `JSONLAppendStore.quarantineReason`'s own output for the cause, never by
+    /// a sentence spelled here. Both chain-break spellings, because
+    /// `quarantineReason` gives that cause two.
+    public nonisolated static func isAChainBreakReason(_ frozen: String) -> Bool {
+        let named = JSONLAppendStore<Op>.quarantineReason(
+            .chainBroke(.afterRememberedHead(lineIndex: 0)))
+        let other = JSONLAppendStore<Op>.quarantineReason(
+            .chainBroke(.prevMismatch(lineIndex: 0)))
+        return frozen == named || frozen == other
+    }
+
+    /// **The `device` strings a record's archive carries** — who this book
+    /// would be re-deriving a sentence about (C16), and who a recovered capture
+    /// is attributed to.
+    ///
+    /// Seals are skipped for `recoverableWords`' reason; a line that is not an
+    /// op contributes nothing. Every op counts, not only the ones holding
+    /// words: a record of dispositions alone still shows a sentence, and that
+    /// sentence is about the same person.
+    public nonisolated static func writers(
+        ofRecord record: QuarantineRecord, in projectURL: URL
+    ) -> Set<String> {
+        guard record.kind == .lines else { return [] }
+        let url = quarantinedFileURL(for: record, in: projectURL)
+        guard let bytes = try? Data(contentsOf: url) else { return [] }  // adr-0018-ok: a set-aside `.lines` archive — forensics, never manuscript truth
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
+        var writers: Set<String> = []
+        for slice in bytes.split(separator: 0x0A, omittingEmptySubsequences: true) {
+            let line = Data(slice)
+            guard !OpLogChain.isSealLine(line),
+                  PermitPartition.writtenOp(line) != nil,
+                  let op = try? decoder.decode(Op.self, from: line)
+            else { continue }
+            writers.insert(op.device)
+        }
+        return writers
+    }
+
     /// The identity a line's own stream gives it.
     ///
     /// `op_id` is read through `RevocationSplit.opId(ofLine:)` rather than

@@ -50,6 +50,14 @@ final class RegistryCanonicalCensusTests: XCTestCase {
     /// signed in a file the census was not looking at — the very failure the
     /// derived population was built to prevent.
     ///
+    /// **`UnsignedSnapshot.swift` is in it by name too** (P3b Task 1's review,
+    /// minor 6; added in Task 10). It matches none of the three prefixes and it
+    /// is made ENTIRELY of positions in the signed register: the photograph a
+    /// narrowing event carries is a set of segment DIGESTS and a line hash per
+    /// stream, and `governing` is what picks the event those came out of. A
+    /// hash rolled there would be an opinion about what a mark commits to,
+    /// formed in a file named after neither the registry nor the permit.
+    ///
     /// **`AdmissionMemory.swift` is in the population by name** (P2b Task 10,
     /// from Task 3's carry). It matches neither prefix and is the one other
     /// device-local memory in this layer: it persists the writer's decision
@@ -63,6 +71,7 @@ final class RegistryCanonicalCensusTests: XCTestCase {
         return name.hasPrefix("Registry") || name.hasPrefix("Trust")
             || name.hasPrefix("Permit")
             || name == "AdmissionMemory.swift"
+            || name == "UnsignedSnapshot.swift"
     }
 
     private static func swiftFiles(under root: URL) -> [URL] {
@@ -232,6 +241,7 @@ final class RegistryCanonicalCensusTests: XCTestCase {
         XCTAssertTrue(Self.isRegistryOrTrustSource(URL(fileURLWithPath: "/x/RegistryAdmission.swift")))
         XCTAssertTrue(Self.isRegistryOrTrustSource(URL(fileURLWithPath: "/x/TrustTable.swift")))
         XCTAssertTrue(Self.isRegistryOrTrustSource(URL(fileURLWithPath: "/x/PermitEvent.swift")))
+        XCTAssertTrue(Self.isRegistryOrTrustSource(URL(fileURLWithPath: "/x/UnsignedSnapshot.swift")))
         XCTAssertFalse(Self.isRegistryOrTrustSource(URL(fileURLWithPath: "/x/OpLogChain.swift")))
         XCTAssertFalse(Self.isRegistryOrTrustSource(URL(fileURLWithPath: "/x/RegistryNotes.md")))
     }

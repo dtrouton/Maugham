@@ -155,11 +155,21 @@ below.
 finished with — sold, wiped, replaced. It is the machine saying *I have
 stopped*, so you can only retire the Mac you are sitting at.
 
-Afterwards, every other machine holds back what this one writes. This one keeps
-writing into its own copy quite normally, because it can still see its own
-hardware key — so Maugham tells you plainly, in History and on the row, that
-what you write here now stays here. **A Mac cannot be un-retired.** If you come
-back to it, it comes back as a new machine and you admit it again.
+Afterwards, every other machine **sets aside** what this one writes — it is kept
+in backup and listed in History, not quietly dropped, but it is not in the book.
+This one keeps writing into its own copy quite normally, because it can still
+see its own hardware key — so Maugham tells you plainly, in History and on the
+row, that what you write here now stays here.
+
+**A Mac cannot be un-retired.** If you come back to it, it comes back as a new
+machine and you admit it again — and admitting it does **not** bring back what
+it wrote after it retired, because that was set aside rather than held. Those
+words come back the way any set-aside words do: through **Send to Inbox** in
+History, one capture at a time, in your own hand.
+
+The last thing it wrote before retiring is not affected. A machine seals its
+work in batches, and whatever it had not sealed yet when you retired it is
+treated as work from before — it stays in the book everywhere.
 
 ## Two Macs, and a book that arrived without you
 
@@ -186,6 +196,55 @@ pressed over there takes in yours. Neither Mac gives way; nobody's book becomes
 a copy of the other's. Until the second Mac presses it, it still sees yours as a
 one of these.
 
+## What someone may write
+
+Admitting a machine used to mean one thing: it may write anything, anywhere in
+the book. It still means that by default, and for your own Macs and your own
+phone that is almost always what you want.
+
+When you admit somebody else's machine — an editor, a co-author, somebody
+reading a draft — the panel offers three choices, and you can change your mind
+later from **People & Devices** → **Change…**:
+
+- **Reviewer.** They may leave notes, comments, suggestions and questions. They
+  may not change a word of the manuscript.
+- **Author of some pieces.** Pick the chapters. They write those as fully as you
+  do, and everything else in the book is a reviewer's to them.
+- **Author of the whole book.** What every admission meant before this existed.
+
+**A change never reaches backwards.** Make somebody a reviewer today and every
+chapter they wrote yesterday stays exactly where it is. Widen their access
+tomorrow and nothing the book already refused comes back. Maugham records, in
+the book itself, where each person's history stood when you changed your mind,
+so every Mac reading the book afterwards agrees about which words were written
+under which arrangement.
+
+**Permission follows the person, not the machine.** If somebody is in your book
+from a laptop and a phone, one change covers both.
+
+**One thing to know before the first time.** The day you give anybody less than
+the whole book, Maugham starts judging what it reads — and a machine that
+signs nothing it writes (an old Intel Mac, a virtual machine) has nothing to
+judge by. What such a machine has ALREADY written stays in your draft, exactly
+as it is. What it writes from then on waits, and comes back through the Inbox
+rather than arriving on its own. The panel says so before you press anything,
+and People & Devices lists any such machine the book is holding.
+
+## What this book is missing
+
+History also shows what it can't find: a machine's history that has got shorter
+than Maugham remembers it, or a file that isn't in the folder at all. Usually
+this is a sync halfway through and it fixes itself. Sometimes it doesn't —
+somebody deleted a project folder, or history that will never come back.
+
+While the book is waiting for history it can't find, it refuses to change
+anybody's permission: it would be recording a decision against a picture it
+knows is incomplete. **Acknowledge** on that row tells Maugham you know, and
+the verbs work again. The cost is on the row before you press it: anything from
+that machine that turns up afterwards is judged as though it were written after
+whatever you do next. It is this Mac's own note — your other Macs go on waiting
+until you tell each of them.
+
 ## What History tells you
 
 The History pane (⌘⌥H) shows trust in two shapes, and the difference is
@@ -194,8 +253,18 @@ deliberate.
 - **A banner is something that is true now** — *this book was started on this
   Mac*, *14 notes from iPhone are waiting for admission*.
 - **A dated entry, under a Project heading above the timeline, is something that
-  happened** — admitted on 3 June, revoked on 9 September, this book claimed,
-  a record put back.
+  happened** — admitted on 3 June, admitted without asking, made a reviewer on
+  7 September, revoked on the 9th, this book claimed, a record put back, the day
+  this book was first narrowed while some machine in it was signing nothing.
+
+Two of those are worth a word. An entry that says somebody was **admitted
+without asking** is the silent admission above: a machine you had already named
+elsewhere, let in with no panel. And where a machine's history is waiting, the
+row says so and — for a machine that signs nothing, which can never be admitted
+because there is no key to admit — carries a **Send to Inbox** button, which
+copies the waiting paragraphs into your Inbox as captures. Nothing is applied to
+your draft; you put them where they belong yourself, and the button goes on
+offering whatever has arrived since.
 
 See [Getting Started](getting-started.md#who-wrote-your-history) for the rest of
 what History says about the history's signatures.

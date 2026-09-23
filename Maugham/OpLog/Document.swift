@@ -81,6 +81,21 @@ public final class Document {
     /// moved on.
     public internal(set) var provenance: OpLogProvenance?
 
+    /// **Who, among the holders `provenance` is counting, opened THIS piece**
+    /// (P3b Task 7, spec §4.5).
+    ///
+    /// The partition holds a line it cannot judge and a line that started a
+    /// piece nobody has claimed under the very same holder string, and only
+    /// the walk knows which is which (`AmendmentPermits.recordStartedAPiece`).
+    /// It is a fact about this DOCUMENT — the question is *is this piece hers*
+    /// — so it is stamped here beside the counts rather than on a file's own
+    /// provenance, and the docId it is about is this document's.
+    ///
+    /// Re-stamped by `handleExternalLogChange` for `provenance`'s reason: her
+    /// first paragraph of a new chapter ARRIVES through sync, which produces
+    /// no applied op at all. Empty for every book that has narrowed nobody.
+    public internal(set) var startedAPiece: Set<String> = []
+
     /// The pending file `load` found but could not recover (RULING-54,
     /// M9-OL-010): un-bursted keystrokes from a crashed session, already
     /// preserved in the quarantine record. Stamped by `Document.load` and
@@ -460,6 +475,35 @@ public final class Document {
 
     /// Consecutive bursts emitted without an explicit `sequence` (rule 2 counter).
     internal var _burstsSinceKeyframe: Int = 0
+
+    /// **The pending buffer exactly as the task-anchor splice left it, and only
+    /// where the splice is the whole of what is in it** (signed op log P3b
+    /// Task 3, handoff ruling 3).
+    ///
+    /// The third of the load path's three unlabelled `typingBurst` emissions is
+    /// the burst that carries `applyMintedAnchors`' splice. It is not a separate
+    /// append — it goes out through `flushBurstNow` like any other burst — so
+    /// the label can only be written where the two can be told apart, and they
+    /// share one buffer: the writer's keystrokes and the splice's anchors both
+    /// arrive as `pending.recordChange`.
+    ///
+    /// The discriminator is a VALUE rather than a flag, and it fails safe.
+    /// `applyMintedAnchors` records the buffer's contents only when the buffer
+    /// was EMPTY before it spliced; the flush labels the burst only when what it
+    /// is about to send is equal to that recording. So:
+    ///
+    /// - the writer typed first ⇒ nothing was recorded ⇒ unlabelled;
+    /// - the writer typed afterwards ⇒ the snapshot no longer matches ⇒
+    ///   unlabelled;
+    /// - a recordChange site added later ⇒ the snapshot no longer matches ⇒
+    ///   unlabelled, with no edit needed at the new site.
+    ///
+    /// Every one of those failures is *a load burst that says nothing*, which is
+    /// exactly the state v0.40 shipped; the failure the other way — the writer's
+    /// own words labelled as the app's housekeeping — cannot be reached from
+    /// here. Per-instance, never persisted; the label is provenance and moves no
+    /// judgment (`SynthesisSource.anchorSplice`).
+    internal var _pendingIsTheAnchorSpliceAlone: [Op.ParagraphChange]?
 
     /// F7 ping-pong damping. The discard handler auto-rewrites the `.md` with
     /// op-log truth on every while-open external edit. If op-log sync lags the
@@ -1262,6 +1306,17 @@ public final class Document {
             // pending buffer is the load path's own anchor splice
             // (`applyMintedAnchors`) — a line the permission table refuses to
             // those actors and that the permit partition would set aside.
+            //
+            // **And where this burst IS that splice and nothing else, it says
+            // so** (P3b Task 3, handoff ruling 3). See
+            // `_pendingIsTheAnchorSpliceAlone` for why the discriminator is a
+            // value comparison and why every way it can be wrong leaves the
+            // burst unlabelled rather than calling the writer's words
+            // housekeeping. The label is provenance: `PermitPartition
+            // .writtenOp` decodes a KIND and nothing else, so it reaches no
+            // permission table in either direction.
+            let isTheAnchorSpliceAlone =
+                hadPending && _pendingIsTheAnchorSpliceAlone == changes
             let op = Op(
                 opId: ULID.generate(),
                 docId: docId, at: Date(),
@@ -1270,9 +1325,14 @@ public final class Document {
                 kind: .typingBurst,
                 changes: changes,
                 sequence: emitSequence ? sequence : nil,
-                provenance: nil)
+                provenance: isTheAnchorSpliceAlone
+                    ? Op.Provenance(synthesisSource: .anchorSplice)
+                    : nil)
             try await opStore.append(op)
             appendToMirror(op)
+            // Spent, whichever way it was answered: the buffer this recording
+            // described has just gone out.
+            _pendingIsTheAnchorSpliceAlone = nil
             // Clear the ordering signal ONLY after the append succeeded — a
             // throw above leaves `_orderingDirty` set so the close()-path
             // durable re-flush still carries it (spec §4.2 / T7).

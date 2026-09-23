@@ -50,6 +50,42 @@ struct ProjectSettingsSheet: View {
     /// is still the one switch, so a fifth act is a compile error there.
     @State private var renaming: PeopleAndDevicesConfirmation?
     @State private var renameDraft: String = ""
+    /// **The one act that asks for a rung and a list of pieces** (P3b Task 5).
+    ///
+    /// Its own `@State` and its own sheet for `renaming`'s reason one step
+    /// further on: an `Alert` takes buttons and a text field, and this question
+    /// needs a picker over three choices and a list of the book's pieces. The
+    /// decisions are still a value — `PermitChangeSheet` draws
+    /// `PeopleAndDevicesConfirmation.changePermit`/`.readmit` and holds the
+    /// writer's two choices and nothing else.
+    @State private var changingPermit: PermitChangeAsk?
+    /// What a narrowing would cost this book, as of the last read, so the sheet
+    /// can carry the first-narrowing sentence. Nil until it lands and after a
+    /// read that refused: the act itself runs the same sweep and refuses in the
+    /// error's own words, so a guess here would be a second, quieter account.
+    @State private var bookNarrowing: PermitControl.BookNarrowing?
+    /// **How many pieces of this book's history the writer has said are gone**
+    /// (P3b Task 6). A marking verb no longer waits for one of those, so every
+    /// confirmation in this pane says what deciding without it costs. Read
+    /// beside the rest of the pane, off the main actor.
+    ///
+    /// **Per person as well as per book** (fix round 1, Minor 1): a revocation
+    /// and a permit change that narrows nobody sweep one person's streams, so
+    /// a loss under somebody else's machine is nothing to do with them and
+    /// saying otherwise is an over-statement on the screen that can least
+    /// afford one.
+    @State private var acknowledgedLostHistory = DocumentStore.AcknowledgedLosses()
+
+    /// Who the permit sheet is about, and which of its two questions it is
+    /// asking. `Identifiable` so `.sheet(item:)` can key on it, and keyed on
+    /// both, because Change… and Re-admit over one person are two questions.
+    struct PermitChangeAsk: Identifiable, Equatable {
+        let person: PeopleAndDevicesModel.Person
+        let isReadmission: Bool
+        var id: String {
+            "\(isReadmission ? "readmit" : "change")-\(person.fingerprint)"
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -109,24 +145,7 @@ struct ProjectSettingsSheet: View {
                 coachSection()
                 firstReaderSection()
                 if let peopleAndDevices {
-                    PeopleAndDevicesSection(
-                        model: peopleAndDevices,
-                        admit: {
-                            // The window opens the sheet; a settings sheet is
-                            // not a presenter of another sheet, and only the
-                            // window knows which device is waiting on it now.
-                            MaughamEvent.postAdmissionRequested(
-                                projectURL: store.url, forced: true)
-                            dismiss()
-                        },
-                        forget: forgetDevice,
-                        revoke: confirmRevoke,
-                        retire: confirmRetire,
-                        readmit: readmitDevice,
-                        rename: confirmRename,
-                        restore: confirmRestore,
-                        merge: confirmMerge,
-                        notice: peopleNotice)
+                    peopleSection(peopleAndDevices)
                 }
                 reviewPassesSection()
             }
@@ -181,6 +200,28 @@ struct ProjectSettingsSheet: View {
                 Button("Cancel", role: .cancel) {}
             } message: { confirmation in
                 Text(confirmation.message)
+            }
+            // **The rung, and the pieces, before the act** (P3b Task 5). A
+            // sheet rather than a third alert: an `Alert` takes buttons and a
+            // text field, and this question needs a picker and a list.
+            .sheet(item: $changingPermit) { ask in
+                PermitChangeSheet(
+                    person: ask.person,
+                    pieces: PermitControl.pieces(in: store.manifest.structure),
+                    book: bookNarrowing,
+                    lostHistory: acknowledgedLostHistory.count(
+                        ofPerson: ask.person.fingerprint),
+                    lostHistoryInTheBook: acknowledgedLostHistory.book,
+                    isReadmission: ask.isReadmission,
+                    commit: { permit in
+                        changingPermit = nil
+                        if ask.isReadmission {
+                            readmitDevice(ask.person, as: permit)
+                        } else {
+                            changePersonPermit(ask.person.fingerprint, to: permit)
+                        }
+                    },
+                    cancel: { changingPermit = nil })
             }
 
             HStack {
@@ -443,7 +484,37 @@ struct ProjectSettingsSheet: View {
     /// The inbox is refreshed first: its count is whatever its last read held.
     private func loadPeopleAndDevices() async {
         await store.documentStore?.inboxStore.refresh()
-        let pending = store.documentStore?.heldLinesByDevice() ?? [:]
+        // **One walk, both halves** (P3b Task 4/5). The counts are what
+        // `requests` is built from, and the same map is what the rows Task 5
+        // owes are built from — the holders `requests` DECLINED. A second walk
+        // to find them would be a second opinion about who is waiting.
+        let union = store.documentStore?.heldLines() ?? HeldLineUnion()
+        let pending = union.counts
+        let heldStreams = union.streams
+        // §7.2's questions (fix round 1, I3) — the SAME union the sheet reads,
+        // and this Mac's own memory of the ones already put off, which this
+        // pane lists and the sheet does not.
+        let heldPieceStarts = union.startedAPiece
+        let declinedPieces = store.documentStore?.declinedPieceQuestions() ?? []
+        let settledPieces = store.documentStore?.settledPieceQuestions() ?? []
+        // What a narrowing would cost this book: the unsigned rows' subject,
+        // and the sheet's first-narrowing sentence. It is the same read the
+        // admission sheet makes, through the same store verb, so the two
+        // surfaces cannot say different things about one folder.
+        let reading = await store.documentStore?.unsignedReading()
+            ?? DocumentStore.UnsignedReading()
+        bookNarrowing = reading.refusal == nil
+            ? PermitControl.BookNarrowing(
+                alreadyNarrowed: reading.alreadyNarrowed,
+                holdsAnUnsignedStream: reading.holdsAnUnsignedStream)
+            : nil
+        let unsignedStreams = reading.streams
+        // What the writer has already said is gone: every confirmation below
+        // states what deciding without it costs (P3b Task 6), counted by the
+        // streams the act it precedes actually sweeps (fix round 1).
+        acknowledgedLostHistory = await store.documentStore?
+            .acknowledgedLostHistory() ?? DocumentStore.AcknowledgedLosses()
+        let pieces = PermitControl.pieces(in: store.manifest.structure)
         let url = store.url
         peopleAndDevices = await Task.detached(priority: .userInitiated) {
             let mine = LocalIdentities.current
@@ -467,7 +538,8 @@ struct ProjectSettingsSheet: View {
                     registry: resolved.registry, table: resolved.table,
                     remembered: remembered,
                     requests: AdmissionDecision.requests(
-                        pending: pending, registry: resolved.registry,
+                        pending: pending, streams: heldStreams,
+                        registry: resolved.registry,
                         memory: remembered, myRoot: resolved.table.myRoot),
                     claimants: claimants,
                     restores: restores,
@@ -475,7 +547,14 @@ struct ProjectSettingsSheet: View {
                     standing: DeviceStanding.resolve(
                         registry: resolved.registry, cache: .shared,
                         mine: mine, for: url),
-                    me: mine.author.fingerprint)
+                    me: mine.author.fingerprint,
+                    held: pending,
+                    heldStreams: heldStreams,
+                    unsignedStreams: unsignedStreams,
+                    pieces: pieces,
+                    heldPieceStarts: heldPieceStarts,
+                    declinedPieces: declinedPieces,
+                    settledPieces: settledPieces)
             } catch {
                 // A registry this Mac could not read judges nobody, so there is
                 // no chain to be a stranger to and no request to make of the
@@ -490,6 +569,67 @@ struct ProjectSettingsSheet: View {
         }.value
     }
 
+    /// People & Devices, extracted from `body` for `ProjectWindow.body`'s
+    /// established reason — the type-check ceiling, which this section reached
+    /// the moment §7.2's two verbs joined its eleven others (fix round 1, I3).
+    private func peopleSection(
+        _ model: PeopleAndDevicesModel
+    ) -> some View {
+        PeopleAndDevicesSection(
+            model: model,
+            admit: {
+                // The window opens the sheet; a settings sheet is not a
+                // presenter of another sheet, and only the window knows which
+                // device is waiting on it now.
+                MaughamEvent.postAdmissionRequested(
+                    projectURL: store.url, forced: true)
+                dismiss()
+            },
+            forget: forgetDevice,
+            revoke: confirmRevoke,
+            retire: confirmRetire,
+            readmit: askReadmission,
+            rename: confirmRename,
+            restore: confirmRestore,
+            merge: confirmMerge,
+            changePermit: askPermitChange,
+            resign: confirmResign,
+            onPieceIsTheirs: answerPieceQuestion,
+            onPieceNotNow: putPieceQuestionOff,
+            writeAgain: confirmWriteAgain,
+            notice: peopleNotice)
+    }
+
+    // MARK: - §7.2's piece questions (fix round 1, I3)
+
+    /// **Yes, that piece is theirs.** The store verb decides everything about
+    /// the permit — what is in force now, whether this Mac may change it,
+    /// every record of theirs, the cut that brings her held lines in — and a
+    /// refusal is reported in the pane's own notice rather than swallowed
+    /// (RULING-7).
+    private func answerPieceQuestion(_ question: LoadQuestions.NewPiece) {
+        peopleNotice = nil
+        guard let documentStore = store.documentStore else { return }
+        Task { @MainActor in
+            do {
+                _ = try await documentStore.pieceIsTheirs(
+                    person: question.person, docId: question.docId)
+            } catch {
+                peopleNotice = AdmissionDecision.refusal(error)
+            }
+            await loadPeopleAndDevices()
+        }
+    }
+
+    /// **Not now**, from the pane. It writes nothing to the book; the row
+    /// stays, saying it was put off.
+    private func putPieceQuestionOff(_ question: LoadQuestions.NewPiece) {
+        peopleNotice = nil
+        store.documentStore?.notNowAboutPiece(
+            person: question.person, docId: question.docId)
+        Task { await loadPeopleAndDevices() }
+    }
+
     /// Ask first. The row hands back the fingerprint; the name comes from the
     /// model the row was drawn from, so the alert says who it is about in the
     /// words the writer gave them.
@@ -498,7 +638,12 @@ struct ProjectSettingsSheet: View {
         let name = peopleAndDevices?.people
             .first { $0.fingerprint == fingerprint }?.title
             ?? DeviceCode.short(fingerprint)
-        confirming = .revoke(person: fingerprint, named: name)
+        confirming = .revoke(
+            person: fingerprint, named: name,
+            // A revocation marks THIS person's streams
+            // (`expectedStreams(ofDeviceIds:)`), so it is decided without what
+            // was put down about them and about nobody else (fix round 1).
+            lostHistory: acknowledgedLostHistory.count(ofPerson: fingerprint))
     }
 
     private func confirmRetire(_ fingerprint: String) {
@@ -556,6 +701,98 @@ struct ProjectSettingsSheet: View {
             // would be a Restore about half a record, so it does nothing rather
             // than guessing a directory.
             if let record = confirmation.record { restoreRecord(record) }
+        case .changePermit:
+            // The permit is the act, and it is asked for in a sheet of its own
+            // (`changingPermit`) rather than in an alert, so nothing reaches
+            // this arm from the alert path. A value that did would be a permit
+            // change with no permit, which does nothing rather than guessing a
+            // rung.
+            if let permit = confirmation.permit {
+                changePersonPermit(confirmation.fingerprint, to: permit)
+            }
+        case .resign: resignRecord(confirmation.fingerprint)
+        case .writeOwnRecord:
+            if let record = confirmation.record { writeOwnRecordAgain(record) }
+        }
+    }
+
+    // MARK: - What somebody may write (P3b Task 5)
+
+    /// **Ask the rung, starting where they already are.** The sheet is opened
+    /// rather than the act performed: widening what somebody may write is the
+    /// direction a writer must never be moved in silently, and that holds for
+    /// Re-admit as much as for Change… (Task 4's review, the Critical).
+    private func askPermitChange(_ person: PeopleAndDevicesModel.Person) {
+        peopleNotice = nil
+        changingPermit = PermitChangeAsk(person: person, isReadmission: false)
+    }
+
+    /// **Let them back in, and say what that installs.** Before this, Re-admit
+    /// called `admit` with no permit at all — whose default is the whole book,
+    /// and which a REVOKED record takes from the caller — so an author of two
+    /// chapters came back an author of the novel with nothing on screen.
+    ///
+    /// **And it refuses over a permit this build cannot draw** (Task 5's
+    /// ruling, built in Task 6). The row's button is disabled for that case,
+    /// so this is the second door on the same stop: the sheet's control has no
+    /// rung to start at, and starting it at the whole book would be exactly
+    /// the silent widening above, chosen by the build that understands least.
+    private func askReadmission(_ person: PeopleAndDevicesModel.Person) {
+        peopleNotice = nil
+        if let why = person.whyNotReadmittable {
+            peopleNotice = why
+            return
+        }
+        changingPermit = PermitChangeAsk(person: person, isReadmission: true)
+    }
+
+    /// **Bring a record up to this book's history** (spec §3.2's crash window).
+    private func confirmResign(_ person: PeopleAndDevicesModel.Person) {
+        peopleNotice = nil
+        guard let history = person.historySays else { return }
+        confirming = .resign(
+            person: person.fingerprint, named: person.title,
+            history: PermitControl.choice(displaying: history)?.title
+                ?? "something this version of Maugham doesn\u{2019}t recognise",
+            record: person.rung?.title ?? "something else")
+    }
+
+    /// **Write this Mac's own record again** (audit F4) — the last resort, over
+    /// a record this device cannot Restore because it never read one.
+    private func confirmWriteAgain(_ record: PeopleAndDevicesModel.Unverifiable) {
+        peopleNotice = nil
+        confirming = .writeOwnRecord(record: record.ref, kind: record.kind)
+    }
+
+    /// **Every machine of one writer at once** (fix round 1, I3): the pane
+    /// calls `changePermit(everyRecordOf:to:)` and never the single-record
+    /// primitive, because a permit lives on a record and P2b's admission merges
+    /// a writer's Mac and phone under one label. Demote the Mac alone and she
+    /// goes on writing manuscript text from the phone, applied by every reader.
+    private func changePersonPermit(_ fingerprint: String, to permit: Permit) {
+        Task { @MainActor in
+            guard let store = store.documentStore else { return }
+            do { try await store.changePermit(everyRecordOf: fingerprint, to: permit) }
+            catch { peopleNotice = AdmissionDecision.refusal(error) }
+            await loadPeopleAndDevices()
+        }
+    }
+
+    private func resignRecord(_ fingerprint: String) {
+        Task { @MainActor in
+            guard let store = store.documentStore else { return }
+            do { try await store.resignRecord(person: fingerprint) }
+            catch { peopleNotice = AdmissionDecision.refusal(error) }
+            await loadPeopleAndDevices()
+        }
+    }
+
+    private func writeOwnRecordAgain(_ ref: RecordRef) {
+        Task { @MainActor in
+            guard let store = store.documentStore else { return }
+            do { try await store.writeOwnRecordAgain(ref) }
+            catch { peopleNotice = AdmissionDecision.refusal(error) }
+            await loadPeopleAndDevices()
         }
     }
 
@@ -603,14 +840,24 @@ struct ProjectSettingsSheet: View {
     /// **Let a device back in** (fix round 1, Important 3b) — the same
     /// admission door, under the label and the name the record already holds,
     /// so re-admitting is not also a rename.
-    private func readmitDevice(_ person: PeopleAndDevicesModel.Person) {
+    ///
+    /// **The permit is the writer's, and it is never defaulted here** (Task 4's
+    /// review, the Critical). `RegistryAdmission.admit` over a REVOKED record
+    /// installs the role, scope and pieces it is given, and this call used to
+    /// give none — so `DocumentStore.admit`'s own default, author of the whole
+    /// book, was silently installed over an author of two chapters. The sheet
+    /// starts at the permit they held when they were shut out and shows it in
+    /// its own sentence; what arrives here is what the writer confirmed.
+    private func readmitDevice(
+        _ person: PeopleAndDevicesModel.Person, as permit: Permit
+    ) {
         peopleNotice = nil
         Task { @MainActor in
             guard let store = store.documentStore else { return }
             do {
                 try await store.admit(
                     device: person.fingerprint, label: person.label,
-                    ownName: person.recordedOwnName)
+                    ownName: person.recordedOwnName, permit: permit)
             } catch {
                 peopleNotice = AdmissionDecision.refusal(error)
             }

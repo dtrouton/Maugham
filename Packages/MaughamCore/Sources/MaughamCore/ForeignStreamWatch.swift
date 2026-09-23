@@ -200,21 +200,59 @@ public final class ForeignStreamWatch: @unchecked Sendable {
         }
     }
 
+    /// **Everything the comparison knows**, of which `loss` is one field
+    /// (P3b Task 6).
+    ///
+    /// `settle` needs the other two — whether the stream ROTATED, and which
+    /// remembered digests are MISSING — to decide what the memory moves on to
+    /// and whether a standing finding is over. It used to recompute both
+    /// beside the call to `loss`, which is two spellings of the rotation
+    /// tolerance waiting to disagree: the arithmetic here decides *was
+    /// anything lost*, and the arithmetic there decided *may I keep the head I
+    /// remembered*, and a change to one that missed the other would either
+    /// clear a finding about history that is still gone or carry a head no
+    /// file holds.
+    public struct Outcome: Equatable, Sendable {
+        /// The stream has taken in a segment this device had not seen, so a
+        /// remembered line that is no longer in the tail moved rather than
+        /// went.
+        public let rotated: Bool
+        /// Digests this device took in whole that no segment carries now.
+        /// Never computed while a `.mzseg` is present and unsettled: that
+        /// file's digest is unknown rather than gone.
+        public let missingSegments: Set<String>
+        /// Nil where nothing was lost. See `Loss` for the two arms.
+        public let loss: Loss?
+    }
+
+    /// The one comparison. `loss` is its `loss`.
+    public static func outcome(
+        remembered: OpLogDeviceState.ForeignStreamMemory?, found: Found
+    ) -> Outcome {
+        let known = remembered?.segmentDigests ?? []
+        let rotated = !found.digests.subtracting(known).isEmpty
+        let missing = found.sawUnsettledSegment ? [] : known.subtracting(found.digests)
+        guard let remembered else {
+            // Nothing is remembered, so nothing can have been lost — and
+            // `rotated`/`missing` still answer, because `settle` asks them of a
+            // stream it is meeting for the first time.
+            return Outcome(rotated: rotated, missingSegments: missing, loss: nil)
+        }
+        if let lost = remembered.head, !found.holdsRemembered, !rotated {
+            return Outcome(rotated: rotated, missingSegments: missing, loss: .line(lost))
+        }
+        if let gone = missing.sorted().first {
+            return Outcome(rotated: rotated, missingSegments: missing, loss: .segment(gone))
+        }
+        return Outcome(rotated: rotated, missingSegments: missing, loss: nil)
+    }
+
     /// Nil where nothing was lost. See `Loss` for the two arms and the
     /// tolerance between them.
     public static func loss(
         remembered: OpLogDeviceState.ForeignStreamMemory?, found: Found
     ) -> Loss? {
-        guard let remembered else { return nil }
-        let rotated = !found.digests.subtracting(remembered.segmentDigests).isEmpty
-        let missing = found.sawUnsettledSegment
-            ? []
-            : remembered.segmentDigests.subtracting(found.digests)
-        if let lost = remembered.head, !found.holdsRemembered, !rotated {
-            return .line(lost)
-        }
-        if let gone = missing.sorted().first { return .segment(gone) }
-        return nil
+        outcome(remembered: remembered, found: found).loss
     }
 
     /// Is this hash one of these lines? The head first, because a file nobody
@@ -266,14 +304,15 @@ public final class ForeignStreamWatch: @unchecked Sendable {
                 sawUnsettledSegment: sighting.sawUnsettledSegment,
                 holdsRemembered: sighting.holdsRemembered,
                 answered: answered)
-            let rotated = !sighting.digests
-                .subtracting(remembered?.segmentDigests ?? []).isEmpty
-            let missing = sighting.sawUnsettledSegment
-                ? []
-                : (remembered?.segmentDigests ?? []).subtracting(sighting.digests)
+            // **One comparison, three answers** (P3b Task 6). The rotation
+            // tolerance and the missing-digest set used to be spelled again
+            // here, beside the call that asked for the loss.
+            let outcome = Self.outcome(remembered: remembered, found: found)
+            let rotated = outcome.rotated
+            let missing = outcome.missingSegments
 
             let truncation: OpLogDeviceState.StreamTruncation? =
-                switch Self.loss(remembered: remembered, found: found) {
+                switch outcome.loss {
                 case let .line(lost):
                     .init(streamKey: key, deviceSlug: sighting.slug, loss: .line,
                           lost: lost, noticedAt: now())

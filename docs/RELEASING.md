@@ -18,6 +18,17 @@ Stable releases are tag-triggered via GitHub Actions. The recipe:
 5. ~10 minutes later, the stable app's next check picks it up. Menu title goes to
    "Install Update…"; clicking reveals the `.dmg` in Finder.
 
+**One-off, before the signed-op-log P3 release only.** Run
+`scripts/census-load-bursts.sh <project folder>…` on **every Mac that has opened
+a book**, and report hits to Denver (handoff ruling 3,
+`docs/superpowers/notes/2026-09-17-signed-op-log-p3-handoff.md`). It is
+read-only: it decodes tails and `.mzseg` segments and prints every load-emitted
+`typingBurst` that a released build v0.37–v0.40 may have signed under a
+non-author actor key — lines that stay refused, and are recovered per line by
+hand rather than by changing a rule. **It does not walk hidden directories**, so
+a project folder inside one has to be named directly. This developer's Mac:
+29 projects, 203 files, 5 segments, zero hits.
+
 **Version is tag-derived.** `project.yml`'s `CFBundleShortVersionString` stays at the placeholder
 `"0.0.0-dev"` for local builds; CI rewrites it from the tag at build time. Don't bump it in
 `project.yml` — bump it via the tag. `CFBundleVersion` (the build number) is

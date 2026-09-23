@@ -60,8 +60,29 @@ struct PeopleAndDevicesSection: View {
     /// is the claimant ROOT's fingerprint, and the act is a claim record
     /// adopting it — never a change to which root this device is on (B1).
     var merge: (String) -> Void = { _ in }
+    /// **Change what somebody may write** (P3b Task 5, spec §7.2). The whole
+    /// row, because the control it opens starts at the permit they hold and
+    /// the message states both directions from it.
+    var changePermit: (PeopleAndDevicesModel.Person) -> Void = { _ in }
+    /// Write a person's record again from this book's history (spec §3.2's
+    /// crash window). The whole row, for the sentence naming both.
+    var resign: (PeopleAndDevicesModel.Person) -> Void = { _ in }
+    /// **Yes, that piece is theirs** (spec §7.2, fix round 1's I3). The whole
+    /// question, because the act needs the person AND the piece and either
+    /// alone is half of one.
+    var onPieceIsTheirs: (LoadQuestions.NewPiece) -> Void = { _ in }
+    /// **Not now**, from the pane. It writes nothing to the book — the same
+    /// device-local memory the sheet's own *Not now* writes.
+    var onPieceNotNow: (LoadQuestions.NewPiece) -> Void = { _ in }
+    /// Write this Mac's own registry record again, over one that will not
+    /// verify and that this device holds no earlier bytes for (audit F4).
+    var writeAgain: (PeopleAndDevicesModel.Unverifiable) -> Void = { _ in }
     /// What the last verb said when it refused, or nil.
     var notice: String?
+
+    /// What Write It Again says, and what it is not — Restore puts a file
+    /// back; this makes a new one.
+    static let writeAgainHelp = "Sign a new record for this Mac, over the one that doesn’t check out"
 
     var body: some View {
         Section {
@@ -84,8 +105,30 @@ struct PeopleAndDevicesSection: View {
                 ForEach(model.pending) { request in
                     pendingRow(request)
                 }
+                // **Held keys that are nobody to ask about** (P3b Task 5). The
+                // admission sheet is silent about them by design — a sheet
+                // would offer a control that cannot help — and silence is only
+                // honest if something somewhere says why lines are waiting.
+                ForEach(model.waiting) { key in
+                    waitingRow(key)
+                }
                 ForEach(model.people) { person in
                     personRow(person)
+                }
+                // **§7.2: pieces somebody started that nobody has claimed**
+                // (fix round 1, I3). This is where the sheet's *Not now* says
+                // the question waits, so it has to be here — and the ones
+                // already put off are listed with the rest, because a decline
+                // that hid the question here would leave the writer no way
+                // back to it.
+                ForEach(model.pendingPieces) { piece in
+                    pendingPieceRow(piece)
+                }
+                // **Streams nothing signs** (#8, spec §7.2). Below the people,
+                // because each is a fact about files rather than about anybody
+                // who can be let in or shut out.
+                ForEach(model.unsigned) { stream in
+                    unsignedRow(stream)
                 }
                 ForEach(model.merged) { root in
                     plainRow(root, note: "merged",
@@ -157,6 +200,72 @@ struct PeopleAndDevicesSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// A held key with no question in it: one of a device's other three
+    /// writers, or a key two device records claim. Named by its code, because
+    /// there is nothing else here to call it.
+    private func waitingRow(_ key: PeopleAndDevicesModel.WaitingKey) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(key.heldLines == 1
+                 ? "1 line waiting (\(key.code))"
+                 : "\(key.heldLines) lines waiting (\(key.code))")
+            Text(key.sentence)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// One §7.2 question: whose a piece is, with the same two answers the
+    /// sheet offers and no third (fix round 1, I3).
+    ///
+    /// It draws `LoadQuestions.NewPiece` and derives nothing — the question,
+    /// what each answer costs, and the count are all the model's, so this row
+    /// and the dialog cannot say different things about one piece.
+    private func pendingPieceRow(
+        _ piece: PeopleAndDevicesModel.PendingPiece
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(piece.question.question)
+                .accessibilityIdentifier("pending-piece-question")
+            Text(piece.question.consequence)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if piece.putOff {
+                Text(PeopleAndDevicesModel.pieceQuestionPutOff)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            HStack(spacing: 8) {
+                Button(piece.question.theirsTitle) {
+                    onPieceIsTheirs(piece.question)
+                }
+                .accessibilityIdentifier("pending-piece-theirs")
+                Button(piece.question.notNowTitle) {
+                    onPieceNotNow(piece.question)
+                }
+                .accessibilityIdentifier("pending-piece-not-now")
+                .disabled(piece.putOff)
+            }
+            .controlSize(.small)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A stream in this book that answers to no key (#8). Two sentences: what
+    /// is true now, and what narrowing does — in the tense the book is in.
+    private func unsignedRow(_ stream: PeopleAndDevicesModel.UnsignedStream) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(stream.sentence)
+            Text(model.alreadyNarrowed
+                 ? PeopleAndDevicesModel.UnsignedStream.afterNarrowing
+                 : PeopleAndDevicesModel.UnsignedStream.beforeNarrowing)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func personRow(_ person: PeopleAndDevicesModel.Person) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
@@ -172,8 +281,47 @@ struct PeopleAndDevicesSection: View {
                     Text(person.detail)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    // **What they may write** (spec §7.2), on the row rather
+                    // than behind the control, so the question the control
+                    // answers is visible before it is pressed.
+                    Text(person.permitSentence)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let behind = person.behindHistorySentence {
+                        // Spec §3.2's crash window. Orange because the screen
+                        // and the enforcement disagree and only this row can
+                        // say so — nothing refuses, and no load blocks.
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(behind)
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                            if person.canResign {
+                                Button("Re-sign") { resign(person) }
+                                    .controlSize(.small)
+                                    .help(PeopleAndDevicesModel.resignHelp)
+                                    .accessibilityHint(
+                                        Text(PeopleAndDevicesModel.resignHelp))
+                            }
+                        }
+                    }
                 }
                 Spacer(minLength: 8)
+                if person.offersPermitChange {
+                    // **A root draws no change control at all**, Revoke's own
+                    // exception for its reason: a root writes the whole book
+                    // unconditionally and a book must not end up with no
+                    // author, so this could not become live on any folder, on
+                    // any day. Everyone else keeps the button, disabled, with
+                    // the reason in the tooltip.
+                    Button("Change\u{2026}") { changePermit(person) }
+                        .controlSize(.small)
+                        .disabled(!person.canChangePermit)
+                        .help(person.whyNotChangeable
+                              ?? PeopleAndDevicesModel.changeHelp)
+                        .accessibilityHint(Text(
+                            person.whyNotChangeable
+                            ?? PeopleAndDevicesModel.changeHelp))
+                }
                 // A label was chosen once and could never be corrected (smoke
                 // find 3). Drawn on every person row, live where this Mac is
                 // the root that admitted them — including its own, which is the
@@ -190,10 +338,19 @@ struct PeopleAndDevicesSection: View {
                     // saying "Already revoked", which is a fact the row above
                     // already states and a control that could never act. The
                     // way back belongs in that space.
+                    // Disabled, with the reason, where the permit it would
+                    // put back is one this build cannot draw (P3b Task 6): an
+                    // older Maugham must not re-install a rung it was never
+                    // shown, and the whole-book fallback it used instead was a
+                    // widening chosen by the build that understands least.
                     Button("Re-admit") { readmit(person) }
                         .controlSize(.small)
-                        .help(PeopleAndDevicesModel.readmitHelp)
-                        .accessibilityHint(Text(PeopleAndDevicesModel.readmitHelp))
+                        .disabled(person.whyNotReadmittable != nil)
+                        .help(person.whyNotReadmittable
+                              ?? PeopleAndDevicesModel.readmitHelp)
+                        .accessibilityHint(Text(
+                            person.whyNotReadmittable
+                            ?? PeopleAndDevicesModel.readmitHelp))
                 } else if person.offersRevoke {
                     // A root draws no Revoke at all (smoke find 2). Every other
                     // refused verb here keeps its button, disabled, with the
@@ -336,6 +493,14 @@ struct PeopleAndDevicesSection: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                // **Never a dead end** (Task 1's review, Minor 4's shape).
+                // Where neither press is offered, the row says which Mac can
+                // repair it rather than describing a problem with no next move.
+                if let who = record.whoRepairsIt {
+                    Text(who)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer(minLength: 8)
             if record.canRestore {
@@ -343,6 +508,15 @@ struct PeopleAndDevicesSection: View {
                     .controlSize(.small)
                     .help(PeopleAndDevicesModel.restoreHelp)
                     .accessibilityHint(Text(PeopleAndDevicesModel.restoreHelp))
+            } else if record.canWriteAgain {
+                // **F4: the last resort, and only where Restore is
+                // impossible.** Restore puts back a file this Mac read; this
+                // signs a new one, so anything only the old file knew is gone
+                // — which is why the two are never offered together.
+                Button("Write It Again") { writeAgain(record) }
+                    .controlSize(.small)
+                    .help(PeopleAndDevicesSection.writeAgainHelp)
+                    .accessibilityHint(Text(PeopleAndDevicesSection.writeAgainHelp))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -362,5 +536,125 @@ struct PeopleAndDevicesSection: View {
                 .help("Clear this Mac\u{2019}s memory of the name it gave")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// **The one control that changes what somebody may write** (P3b Task 5, spec
+/// §7.2), and the one that says what re-admitting them installs (Task 4's
+/// review, the Critical).
+///
+/// A sheet rather than an alert, because the question needs a picker and a list
+/// of pieces and an `Alert` takes buttons and a text field. Everything it
+/// DECIDES is still a value: the sentence it draws is
+/// `PeopleAndDevicesConfirmation`'s, built from the same pure factory a test
+/// compares with nothing mounted, and this view holds the writer's two choices
+/// and nothing else (tripwire 33 — the suite asserts the control is drawn, and
+/// never presses it and waits).
+///
+/// **It starts where the writer already is.** A permit change starts at the
+/// permit they hold; a re-admission starts at the permit they held when they
+/// were shut out. Neither ever starts wider than that, which is the whole of
+/// what Task 4's review found: a bare Re-admit installed the caller's default,
+/// and the caller's default was the whole book.
+struct PermitChangeSheet: View {
+    let person: PeopleAndDevicesModel.Person
+    let pieces: [PermitControl.Piece]
+    /// What a narrowing would cost this book, or nil while the read has not
+    /// landed (or refused). Nil says nothing rather than guessing — the act
+    /// runs the same sweep and refuses in the error's own words.
+    let book: PermitControl.BookNarrowing?
+    /// **How many pieces of this book's history the writer has put down** (P3b
+    /// Task 6). Zero in every book that has lost nothing, which is nearly all
+    /// of them; above zero the confirmation says what deciding without that
+    /// history costs.
+    ///
+    /// **Two counts, because the act sweeps two ways** (fix round 1, Minor 1):
+    /// a change that narrows takes the book's photograph as well as this
+    /// person's mark, one that narrows nobody reads this person's streams
+    /// alone — and the control moves between the two as the writer chooses, so
+    /// the sentence is rebuilt with the choice like everything else here.
+    /// `PermitControl.lostHistory` is the one place that is decided.
+    let lostHistory: Int
+    /// The book's, for the narrowing case.
+    let lostHistoryInTheBook: Int
+    /// Is this letting somebody back in, or moving somebody who is already in?
+    let isReadmission: Bool
+    let commit: (Permit) -> Void
+    let cancel: () -> Void
+
+    @State private var choice: PermitControl.Choice
+    @State private var chosenPieces: Set<String>
+
+    init(
+        person: PeopleAndDevicesModel.Person,
+        pieces: [PermitControl.Piece],
+        book: PermitControl.BookNarrowing?,
+        lostHistory: Int = 0,
+        lostHistoryInTheBook: Int = 0,
+        isReadmission: Bool,
+        commit: @escaping (Permit) -> Void,
+        cancel: @escaping () -> Void
+    ) {
+        self.person = person
+        self.pieces = pieces
+        self.book = book
+        self.lostHistory = lostHistory
+        self.lostHistoryInTheBook = lostHistoryInTheBook
+        self.isReadmission = isReadmission
+        self.commit = commit
+        self.cancel = cancel
+        let starting = isReadmission ? person.permitWhenRevoked : person.permit
+        // A permit no control can draw never reaches here — the row's Change…
+        // is refused for one (`whyNotChangeable`) — so the fallback is the one
+        // a re-admission of a P2-era person needs and nothing else.
+        _choice = State(initialValue:
+            PermitControl.choice(displaying: starting) ?? .wholeBook)
+        _chosenPieces = State(initialValue: PermitControl.pieces(displaying: starting))
+    }
+
+    /// The whole question, as a value: what it is called, what it costs, and
+    /// what it would install. Rebuilt as the writer moves the control, which is
+    /// why the sentence under it is always about the choice on screen.
+    var confirmation: PeopleAndDevicesConfirmation {
+        let change = PeopleAndDevicesConfirmation.PermitChange(
+            pieces: pieces,
+            from: isReadmission ? person.permitWhenRevoked : person.permit,
+            to: PermitControl.permit(for: choice, pieces: chosenPieces))
+        let notice = book.flatMap {
+            PermitControl.notice(forGranting: change.to, in: $0)
+        }
+        let put = PermitControl.lostHistory(
+            forGranting: change.to, subject: lostHistory,
+            book: lostHistoryInTheBook)
+        return isReadmission
+            ? .readmit(person: person.fingerprint, named: person.title,
+                       change: change, notice: notice, lostHistory: put)
+            : .changePermit(forPerson: person.fingerprint, named: person.title,
+                            change: change, notice: notice, lostHistory: put)
+    }
+
+    var body: some View {
+        let confirmation = self.confirmation
+        return VStack(alignment: .leading, spacing: 16) {
+            Text(confirmation.title)
+                .font(.headline)
+            PermitPicker(
+                pieces: pieces, choice: $choice, chosenPieces: $chosenPieces)
+            Text(confirmation.message)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { cancel() }
+                    .keyboardShortcut(.cancelAction)
+                Button(confirmation.confirmTitle) {
+                    commit(confirmation.permit ?? person.permit)
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 420, maxWidth: 480)
     }
 }

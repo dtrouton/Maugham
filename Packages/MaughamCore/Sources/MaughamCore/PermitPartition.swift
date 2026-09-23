@@ -226,7 +226,16 @@ public enum PermitPartition {
                     let answer = unownedAnswer ?? unowned()
                     unownedAnswer = answer
                     if answer == .nobodyHasWrittenItsText {
-                        holding[index] = trust.person(forSealKey: key)
+                        let holder = trust.person(forSealKey: key)
+                        holding[index] = holder
+                        // **Which of the two holds this is** (P3b Task 7,
+                        // finding B). `.cannotJudge` above holds under the
+                        // same string, and the two want opposite sentences.
+                        // Recorded rather than re-derived: everything this
+                        // arm turned on — the permit, the actor, the class,
+                        // the `Written` — is gone by the time a surface asks.
+                        // See `AmendmentPermits.recordStartedAPiece`.
+                        amendments?.recordStartedAPiece(holder)
                         continue
                     }
                 }
@@ -285,6 +294,21 @@ public enum PermitPartition {
     ) -> OpLogChain.Verification {
         guard let judge, let stream = PermitMark.stream(of: url)
         else { return verification }
+        // **The unsigned door, before everything below it** (P3b Task 2,
+        // Denver's ruling of 2026-09-20). A file this register can name no key
+        // for reaches none of the rules that follow — `attributableKeys`
+        // answers empty for it by the same two facts `Verification
+        // .unattributable` is made of — so this is not a branch taken instead
+        // of the partition, it is the only thing there ever was to do with
+        // such a file. Spelled at the FILE-level door so every stream reaches
+        // it by the same call the permit partition already reaches: the op
+        // log's two classify paths, `TranslationStore.loadMerged` and
+        // `JSONLAppendStore.loadVerifiedStrict`.
+        if verification.unattributable {
+            return holdingUnsignedLines(
+                of: verification, stream: stream,
+                fileSegmentDigest: fileSegmentDigest, judge: judge)
+        }
         // **A stream whose every line is ONE thing can be answered whole —
         // when its own writer is one the table allows that thing** (fix round
         // 2's R3, narrowed in fix round 3). See `answersWholeFile`.
@@ -302,6 +326,98 @@ public enum PermitPartition {
             decoding: judge.decoding,
             recordingAmendmentsInto: judge.context.amendments,
             unowned: judge.context.unowned)
+    }
+
+    // MARK: - The unsigned door (P3b Task 2)
+
+    /// **A file nothing signs, judged against the photograph the book took the
+    /// first time anybody was narrowed** — the close of P1's last open door.
+    ///
+    /// The rule is `UnsignedSnapshot`'s and is not restated here: a line at or
+    /// before the snapshot is **exactly what P1 made of it** — applied, and
+    /// (`AnnotationOwnership`) its amendments honoured — and a line after it is
+    /// **held**. Held and never refused: nothing is wrong with these bytes, no
+    /// `.lines` record is written, and there is nothing for the writer to be
+    /// told they should have stopped doing. Its one way back in is the Inbox.
+    ///
+    /// **Three guards, and each is a direction of the ruling.**
+    ///
+    /// 1. `judgesAnything` — a device on no chain of its own judges nobody, the
+    ///    same first question the permit partition asks. Without it a Mac that
+    ///    has not joined this book would hold every file whose device has no
+    ///    record here, which is most of a book it can see and none of its
+    ///    business.
+    /// 2. No snapshot ⇒ nothing narrowed this book ⇒ P1, untouched. The table
+    ///    answers a snapshot exactly when it answers `hasNarrowingPermits`, so
+    ///    there is no state in which one of the two says otherwise.
+    /// 3. Only a line the walk APPLIED is moved. A stranger's sealed span is
+    ///    already `.pending` and a revoked key's already `.quarantined`; this
+    ///    never softens either, and never claims one of them for a holder of
+    ///    its own.
+    ///
+    /// **This device's own file is not reachable from here**, and that is
+    /// structural rather than guarded: `TrustTable.resolve` puts every one of
+    /// this device's own actor ids into `keyByDeviceId` whatever the registry
+    /// says, so `PermitMark.keyNaming` names its own file and `unattributable`
+    /// is false for it. An enclave-less Mac therefore applies its own lines on
+    /// its own screen — typing never waits on anything — while a signed Mac
+    /// reading the same file after the snapshot holds what it wrote.
+    ///
+    /// **A stranger-sealed file keeps its stranger** (Task 1's review, minor
+    /// 1). A file sealed by a key no device record names is `unattributable`
+    /// too — `.stranger(device: nil)` is one of the two verdicts that means
+    /// *the register has nothing to say about this key* — but it is somebody's
+    /// file, and that somebody can be ADMITTED, which applies what they wrote.
+    /// So where the walk has already held a line under a device, that device
+    /// is the holder for anything else this rule holds in the same file (ADR
+    /// 0012: one file, one writer). Calling it unsigned instead would file an
+    /// admittable stranger under a holder no admission can pardon.
+    private static func holdingUnsignedLines(
+        of verification: OpLogChain.Verification,
+        stream: PermitMark.Stream,
+        fileSegmentDigest: String?,
+        judge: PermitJudge
+    ) -> OpLogChain.Verification {
+        guard judgesAnything(judge.trust),
+              let snapshot = judge.trust.unsignedSnapshot
+        else { return verification }
+        let lines = verification.lines
+        guard !lines.isEmpty else { return verification }
+        walkObserverForTesting?()
+        let sides = snapshot.side(
+            streamKey: stream.key, fileIsSegmentWithDigest: fileSegmentDigest,
+            lines: lines.map(\.bytes))
+        // The walk's own answer for this file, where it has one; otherwise
+        // the stream itself, which is what an unsigned Mac is.
+        let holder = lines.compactMap(\.state.pendingDevice).first
+            ?? HeldLines.unsignedHolder(for: stream)
+        let amendments = judge.context.amendments
+
+        var holding: [Int: String] = [:]
+        for (index, line) in lines.enumerated() where isApplied(line) {
+            guard sides.side(ofLineAt: index) != .new else {
+                holding[index] = holder
+                continue
+            }
+            // **Inside the photograph: record it, so the ownership rule can
+            // honour it** (ruling 1's other direction). An `annotationEdit` or
+            // an `annotationWithdraw` signed by an id this register cannot
+            // place is not honoured in a narrowed book — that is P3a's answer
+            // and it stays P3a's answer — UNLESS the line is inside the
+            // snapshot, where narrowing must not reach back. The side travels
+            // by op id through the carrier the governing permit already
+            // travels by (`AmendmentPermits`), because a second carrier would
+            // be a second opinion about which line was which.
+            guard let amendments, line.kind == .op,
+                  let what = judge.decoding(line.bytes),
+                  Permit.group(of: what) == .ownAnnotation,
+                  let opId = RevocationSplit.opId(ofLine: line.bytes)
+            else { continue }
+            amendments.recordInsideTheUnsignedSnapshot(opId)
+        }
+        guard !holding.isEmpty else { return verification }
+        return OpLogChain.repartitioned(
+            verification, refusing: [:], holding: holding)
     }
 
     /// §4.5's pass 1: **did a book author apply a manuscript-text line here?**
@@ -706,7 +822,12 @@ public enum PermitPartition {
         permit: Permit, actor: DeviceActor?,
         class documentClass: DocumentClass, what: Written
     ) -> Bool {
-        guard actor == .author,
+        // **The rung half is the permit layer's** (P3b Task 5), so a surface
+        // that needs to SAY this — the pane's permit-change confirmation —
+        // asks the same question rather than testing a permit against a
+        // literal rung. What stays here is what a rung cannot carry: whose
+        // hand wrote it, what it wrote, and where.
+        guard actor == .author, permit.mayStartAPieceOfTheirOwn,
               case let .author(scope) = permit,
               case let .pieces(mine) = scope,
               case let .piece(id) = documentClass, !mine.contains(id),

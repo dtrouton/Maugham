@@ -305,12 +305,24 @@ public final class OpLogStore {
     /// honest answer for a book with no events and for a caller that did not
     /// ask, and an amendment with no entry falls back to the signer's current
     /// permit, which is what those cases mean.
+    ///
+    /// **It takes the CARRIER, not one of its products** (P3b Task 2). The
+    /// partition fills two maps now — the permit each amendment line was
+    /// written under, and which lines the unsigned door found inside the
+    /// book's photograph — and a door that took one of them by value is a door
+    /// the next product has to be remembered at. `AmendmentPermits` is what
+    /// travels through `PermitContext`; this reads it whole.
     public func annotationAmendments(
-        permits: [String: Permit] = [:],
+        from amendments: AmendmentPermits? = nil,
         documentClass: @escaping @Sendable () -> DocumentClass
     ) -> AnnotationAmendments {
         guard let table = registerTable() else { return .honourEverything }
-        return .judged(by: table, permits: permits, class: documentClass)
+        return .judged(
+            by: table,
+            permits: amendments?.resolved ?? [:],
+            insideTheUnsignedSnapshot:
+                amendments?.resolvedInsideTheUnsignedSnapshot ?? [],
+            class: documentClass)
     }
 
     /// Lines this device has appended to each file since that file's last seal.
@@ -393,6 +405,95 @@ public final class OpLogStore {
         return (Self.mergeSortedDedup(merged),
                 ParseDiagnostics(skipped: skipped),
                 OpLogProvenance(files: files))
+    }
+
+    /// **The lines one holder is waiting under, as the walk itself answers
+    /// them** (P3b Task 8 fix round 1, spec §7.4).
+    ///
+    /// A held line is neither applied nor refused, so it is in the file and in
+    /// nothing else: no `.lines` record is written for one, and a load returns
+    /// the ops it APPLIED. This is what lets §7.4's way back reach a held
+    /// line — it asks the same question the load asks, of the same files, and
+    /// reads the answer off the walk's own `Verification` rather than deciding
+    /// anything of its own.
+    ///
+    /// **One classifier, and this is not a second one.** The trust table is
+    /// this store's, the permit context is built exactly as `loadDiagnosed`
+    /// builds it, and `classify` is the same function both `classifyTail` and
+    /// `classifySegment` are reached through. Nothing here re-derives which
+    /// span is inside the unsigned photograph, whether a segment verified, or
+    /// which lines a permit refused: those are the walk's, and a copy of any
+    /// of them would answer differently the first time either changed.
+    ///
+    /// **It reads and never writes.** `classify` only asks the device state
+    /// what it remembers; the three writes a LOAD makes — the adopted head,
+    /// the verified segment digest and the forensic record — are
+    /// `loadFileDiagnosed`'s and are not made here. The remembered head IS
+    /// passed, because leaving it out would give a weaker picture than the
+    /// load's and could offer a line the load had set aside.
+    ///
+    /// **It throws rather than coming back short.** A file present and
+    /// unreadable is `readCoordinated`'s to raise (RULING-54): a silent short
+    /// answer here would offer the writer some of a held span and tell them it
+    /// was all of it.
+    ///
+    /// **The walk itself runs OFF this actor** (fix round 2, I3). This class is
+    /// `@MainActor`, and the walk is a coordinated read plus a P256
+    /// verification per seal, per file — once per holder, on a History reload.
+    /// So the two things that need the actor are taken here (the trust table,
+    /// and the permit context built from it) and the reading is handed to a
+    /// detached task, the way `DocumentStore`'s own sweeps hand theirs over.
+    /// The presenter travels with it exactly as it does into
+    /// `loadFileDiagnosed`, so the coordinated read still declines to bounce
+    /// this process's own writes back at it.
+    ///
+    /// Answers the raw LINE BYTES, in file order, per file in listing order —
+    /// what they MEAN is the caller's (`OpLogQuarantine.recoverableWords`),
+    /// which is the same decode the record door uses.
+    public func heldLines(
+        forDocId docId: String, heldBy holder: String
+    ) async throws -> [Data] {
+        let urls = Self.opLogFileURLs(forDocId: docId, in: projectURL)
+        guard !urls.isEmpty else { return [] }
+        let table = try await trust()
+        let permit = Self.permitContext(
+            forDocId: docId, in: projectURL, trust: table)
+        let presenter = self.presenter
+        let state = deviceState
+        return try await Task.detached(priority: .userInitiated) {
+            try Self.heldLines(
+                in: urls, heldBy: holder, presenter: presenter,
+                state: state, trust: table, permit: permit)
+        }.value
+    }
+
+    /// **Where the held-line walk actually ran** — a test's own variable, so
+    /// the claim above is a measurement rather than a paragraph (fix round 2,
+    /// I3). `PermitPartition.walkObserverForTesting`'s shape and its reason:
+    /// `nonisolated(unsafe)` because a test sets and clears it on one thread,
+    /// and production never assigns it.
+    nonisolated(unsafe) public static var heldLinesWalkObserverForTesting:
+        (@Sendable () -> Void)?
+
+    /// The walk half, `nonisolated` so a caller can run it off the main actor.
+    nonisolated static func heldLines(
+        in urls: [URL], heldBy holder: String, presenter: NSFilePresenter?,
+        state: OpLogDeviceState?, trust: TrustTable?, permit: PermitContext?
+    ) throws -> [Data] {
+        heldLinesWalkObserverForTesting?()
+        var held: [Data] = []
+        for url in urls {
+            guard let bytes = try readCoordinated(url: url, presenter: presenter)
+            else { continue }
+            let classified = classify(
+                url: url, bytes: bytes, state: state, trust: trust, permit: permit)
+            guard let verification = classified.verification else { continue }
+            for line in verification.lines
+            where line.state.pendingDevice == holder {
+                held.append(line.bytes)
+            }
+        }
+        return held
     }
 
     /// The result of `loadDiagnosedPartial` — the recovery spec §4's read.
@@ -872,13 +973,79 @@ public final class OpLogStore {
     /// A SEGMENT the reader took in whole is listed by digest **whether or not
     /// any of its lines were refused**, for the same reason: the digest says
     /// *the root read this whole file*, not *the root applied all of it*.
+    ///
+    /// **`settlingPieces` is the one exception, and it exists because §4.5's
+    /// question has to be answerable** (P3b Task 7 fix round 1, the
+    /// controller's ruling of 2026-09-23). An event that ADDS a piece to
+    /// somebody's scope is the root answering *yes, that piece is hers* — and
+    /// what she already wrote there is HELD, not refused: §4.5's whole premise
+    /// is that those words were never wrong, only unplaced. A mark taken the
+    /// ordinary way records the held span as SEEN, so it falls before the new
+    /// permit and is held all over again, and the sheet's promise that her
+    /// lines will join the draft is false. For the pieces this act settles, the
+    /// mark is therefore cut BEFORE her held span (`markLine`), so those lines
+    /// fall after it and are re-judged under the permit that has just taken
+    /// them in.
+    ///
+    /// **Safe in the other direction because the caller may only widen.**
+    /// Re-judging a line can only change what happens to it if the permit
+    /// changed, and the one verb that passes this (`DocumentStore
+    /// .pieceIsTheirs`) refuses unless the new permit `covers` the old one — so
+    /// nothing that was applied can become refused. Streams of any OTHER piece
+    /// are untouched, and every existing caller passes nothing, so every
+    /// existing mark is byte-identical (spec §5 row 2 stands).
     nonisolated public static func seenPositions(
         ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
-        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:]
+        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:],
+        settlingPieces: Set<String> = []
     ) throws -> PermitMark {
         try positions(
             ofDeviceIds: ids, in: projectURL, trust: trust,
-            expecting: expecting, lastLine: wasSeen)
+            expecting: expecting, settlingPieces: settlingPieces,
+            lastLine: wasSeen)
+    }
+
+    /// **The line a mark records for one stream**, and the one place the
+    /// settling cut is spelled (P3b Task 7 fix round 1).
+    ///
+    /// Ordinarily the last line the reader saw and judged. For a stream of a
+    /// piece this act is SETTLING, the last such line **before the first held
+    /// one** — because a held line is precisely what the act is about, and a
+    /// mark recording it as seen would leave it under the permit that could not
+    /// place it.
+    ///
+    /// **Before the first held line, not merely *not a held line*.** Those are
+    /// different rules and only one of them works: a file of
+    /// `[applied, held, refused]` has a non-held LAST line, so the naive
+    /// spelling would cut after the refusal and leave the held line before the
+    /// mark — the defect this function exists to remove, with a plausible
+    /// implementation.
+    ///
+    /// Nil is a real answer and it means the whole tail is new: a stream whose
+    /// FIRST line is held is a piece she opened and nobody has claimed, which
+    /// is the ordinary shape of the question.
+    ///
+    /// **What the cut does to a REFUSAL, both sides** (fix round 3's ruling,
+    /// amending fix round 1's clause (b)). A refusal BEFORE her first held
+    /// line stays before the cut and is re-judged by nothing: it keeps the
+    /// entry it had and stays set aside. A PERMIT refusal AFTER it in the same
+    /// stream falls after the cut and IS re-judged under the permit the answer
+    /// granted — so her checkpoint in the piece that has just become hers is
+    /// applied, which is right: the writer said the piece is theirs, and the
+    /// refusal was only ever *this piece is not yours*.
+    ///
+    /// The one refusal that might look like a pardon cannot occur here.
+    /// `.aBookAuthorHasWrittenItsText` is a DOCUMENT-level answer: where a
+    /// book author has written the piece's text, §4.5 holds nothing at all and
+    /// her manuscript lines are refused rather than held — so no file ever
+    /// carries both that refusal and a held line, and there is no cut to fall
+    /// after (`test_aClaimedPieceHoldsNothingSoThereIsNoCutToFallAfter`).
+    nonisolated static func markLine(
+        of lines: [OpLogChain.Line], seenWhen lastLine: (OpLogChain.Line) -> Bool,
+        cuttingBeforeHeld: Bool
+    ) -> OpLogChain.Line? {
+        guard cuttingBeforeHeld else { return lines.last(where: lastLine) }
+        return lines.prefix { $0.state.pendingDevice == nil }.last(where: lastLine)
     }
 
     /// Did the reader see and JUDGE this line? — `seenPositions`' predicate,
@@ -887,6 +1054,42 @@ public final class OpLogStore {
         if line.state == .tornTail { return false }
         if case .chainBroke = line.refusal { return false }
         return true
+    }
+
+    /// **One stream's files in the order they were written** — segments by
+    /// their zero-padded index, then the live tail (fix round 2).
+    ///
+    /// Only the settling path asks for it, and only because the rule it
+    /// implements is about WHICH file cuts a stream: a cut in a segment makes
+    /// every later file wholly new, and *later* has to mean something.
+    /// `opLogFileURLs` answers `contentsOfDirectory`'s order, and a plain name
+    /// sort is actively wrong here — `<doc>.<slug>.jsonl` sorts BEFORE
+    /// `<doc>.<slug>.seg0000.mzseg`, because "j" precedes "s".
+    ///
+    /// Files of different streams may interleave freely: a mark is keyed by
+    /// stream and `cutStream` is too, so only the order WITHIN a stream
+    /// decides anything.
+    ///
+    /// **What it costs to leave out** (fix round 3, correcting a weaker claim
+    /// this comment used to make). `opLogFileURLs` answers
+    /// `contentsOfDirectory` order, which is the filesystem's and not a name
+    /// sort — so *any* order is possible, the reverse included. Give one
+    /// stream two segments where the EARLIER holds her span behind a refusal
+    /// (`seg0000` = [refusal, her span], `seg0001` = more of her span) and
+    /// process them the other way round: `seg0001` claims the cut, `seg0000`
+    /// is skipped as *after the cut* and is never listed at all, so the mark
+    /// names the stream nowhere and `judge` answers `.allNew` for both files —
+    /// and the refusal inside `seg0000` is pardoned. That is the whole point
+    /// of the rule, undone by enumeration order.
+    /// `test_theEarlierOfTwoSegmentsDecidesTheCut` pins it, with `reversed()`
+    /// as its disable experiment.
+    nonisolated static func settlingOrder(_ urls: [URL]) -> [URL] {
+        urls.sorted { left, right in
+            let leftIsSegment = left.pathExtension == OpLogSegment.fileExtension
+            let rightIsSegment = right.pathExtension == OpLogSegment.fileExtension
+            if leftIsSegment != rightIsSegment { return leftIsSegment }
+            return left.lastPathComponent < right.lastPathComponent
+        }
     }
 
     /// **The walk both position sweeps share.** They differ in one thing and
@@ -941,6 +1144,7 @@ public final class OpLogStore {
     private nonisolated static func positions(
         ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
         expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:],
+        settlingPieces: Set<String> = [],
         lastLine: (OpLogChain.Line) -> Bool
     ) throws -> PermitMark {
         guard !ids.isEmpty else { return .nothingApplied }
@@ -980,11 +1184,50 @@ public final class OpLogStore {
             change(&entry)
             found[key] = entry
         }
+        /// **What a SEGMENT tells the loss check**, whichever branch read it
+        /// (fix round 3, minor 3).
+        ///
+        /// The two questions a segment answers are different and only one of
+        /// them is about the mark: `found` is *is this stream still whole* and
+        /// `segments` is *is this file old*. A settling branch lists no digest
+        /// in the second and must still answer the first — including the arm
+        /// the ordinary path has always had, where a container that did not
+        /// verify says so (`sawUnsettledSegment`) rather than saying nothing.
+        /// Without it a settling sweep over a broken container would refuse
+        /// where the ordinary sweep does not, which is a marking verb refusing
+        /// for a reason that has nothing to do with the piece being settled.
+        func noteSegment(_ digest: String?, _ key: String) {
+            guard let digest else {
+                note(key) { $0.sawUnsettledSegment = true }
+                return
+            }
+            note(key) {
+                $0.digests.insert(digest)
+                $0.answered = true
+            }
+        }
+        // **Streams of a piece being SETTLED whose mark a segment has already
+        // cut** (fix round 2). Once a segment is cut by line, every later file
+        // of that stream is wholly new by construction, so nothing after it may
+        // contribute a digest or a line — and the tail must not overwrite the
+        // segment's cut.
+        var cutStream: Set<String> = []
         for docId in docIds.sorted() {
             let permit = permitContext(
                 forDocId: docId, in: projectURL, trust: trust,
                 statements: statements)
-            for url in opLogFileURLs(forDocId: docId, in: projectURL) {
+            let settling = settlingPieces.contains(docId)
+            // **Chronological, and only where it decides anything** (fix round
+            // 2). `opLogFileURLs` is UNSORTED, and the settling rule is about
+            // WHICH file cuts the stream — so the files have to arrive in the
+            // order they were written: segments by their zero-padded index,
+            // then the live tail. A plain name sort would put `.jsonl` before
+            // `seg0000.mzseg` ("j" < "s"), which is exactly backwards. Every
+            // other caller keeps the enumeration it has always had.
+            let urls = settling
+                ? settlingOrder(opLogFileURLs(forDocId: docId, in: projectURL))
+                : opLogFileURLs(forDocId: docId, in: projectURL)
+            for url in urls {
                 guard let stream = PermitMark.stream(of: url),
                       let slug = stream.deviceSlug, slugs.contains(slug)
                 else { continue }
@@ -994,6 +1237,48 @@ public final class OpLogStore {
                     url: url, bytes: bytes, state: nil, trust: trust,
                     permit: permit)
                 if url.pathExtension == OpLogSegment.fileExtension {
+                    // **A rotated segment holding her §4.5 span is cut by LINE,
+                    // exactly as a tail is** (fix round 2, the controller's
+                    // ruling of 2026-09-23).
+                    //
+                    // Listing it by digest says *the root read this whole file*,
+                    // which `PermitMark.judge` reads as *every line of it is
+                    // old* — so her held span inside it would fall before the
+                    // widening and stay held, and the milestone's own story
+                    // would break the first time a chapter of hers grew past
+                    // `chainSealInterval`. A whole chapter always does.
+                    //
+                    // `judge` needs no new rule for this: a digest it does not
+                    // find in `mark.segments` falls through to the line lookup
+                    // over the file's own lines, and a segment's lines are its
+                    // decompressed JSONL. So the segment's lines BEFORE her span
+                    // stay old — a refusal there is not pardoned — and her span
+                    // and everything after fall new.
+                    //
+                    // The digest is still NOTED for the loss check: `found` is
+                    // *is this stream still whole* and `segments` is *is this
+                    // file old*, two questions that happen to share a value.
+                    if settling, !cutStream.contains(stream.key),
+                       let judged = classified.verification,
+                       judged.lines.contains(where: { $0.state.pendingDevice != nil }) {
+                        cutStream.insert(stream.key)
+                        if let last = markLine(
+                            of: judged.lines, seenWhen: lastLine,
+                            cuttingBeforeHeld: true) {
+                            lastKnownLine[stream.key] =
+                                OpLogChain.lineHash(last.bytes)
+                        } else {
+                            // Her span opens the segment: nothing in this
+                            // stream is old, which is a mark with no line.
+                            lastKnownLine.removeValue(forKey: stream.key)
+                        }
+                        noteSegment(classified.wholeSegmentDigest, stream.key)
+                        continue
+                    }
+                    if settling, cutStream.contains(stream.key) {
+                        noteSegment(classified.wholeSegmentDigest, stream.key)
+                        continue
+                    }
                     // **The one answer to *did this reader take the segment in
                     // whole*** (Task 9's fix round 1). It used to be computed
                     // here, by a SECOND decode of a container `classify` had
@@ -1021,7 +1306,13 @@ public final class OpLogStore {
                         entry.holdsRemembered = true
                     }
                 }
-                guard let last = verification.lines.last(where: lastLine)
+                // A tail whose stream a segment has already cut contributes
+                // nothing: everything after that cut is new, this file
+                // included (fix round 2).
+                if settling, cutStream.contains(stream.key) { continue }
+                guard let last = markLine(
+                    of: verification.lines, seenWhen: lastLine,
+                    cuttingBeforeHeld: settling)
                 else { continue }
                 lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
             }
@@ -1044,7 +1335,11 @@ public final class OpLogStore {
                     entry.holdsRemembered = true
                 }
             }
-            guard let last = verification.lines.last(where: lastLine) else { continue }
+            // Never settling: a translation sidecar and an inbox manifest are
+            // not manuscript pieces, so §4.5 cannot hold a line in either.
+            guard let last = markLine(
+                of: verification.lines, seenWhen: lastLine,
+                cuttingBeforeHeld: false) else { continue }
             lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
         }
 
@@ -1074,6 +1369,242 @@ public final class OpLogStore {
         return PermitMark(marks)
     }
 
+    // MARK: - The unsigned door's photograph (P3b Task 1)
+
+    /// **Where every UNATTRIBUTABLE stream in this book stands right now** —
+    /// the mark the first narrowing event carries (`UnsignedSnapshot`).
+    ///
+    /// `seenPositions`' sibling, and deliberately its sibling rather than a
+    /// parameter of it: the two ask opposite questions of the listing. A
+    /// position sweep starts from a PERSON and knows which files are theirs
+    /// before it opens one (`DeviceSlug.make` is deterministic); this one
+    /// cannot know whose a file is until it has read it, because the whole
+    /// subject is files nobody's record names. So it walks every op stream,
+    /// every translation sidecar and every inbox manifest in the project, and
+    /// asks each one whether this register can name a key for it
+    /// (`OpLogChain.Verification.unattributable` — one spelling, shared with
+    /// the reader that later decides which side of the photograph a line falls
+    /// on).
+    ///
+    /// **The legacy unsuffixed `<docId>.jsonl` is in it**, under its own P3a
+    /// stream key (a bare docId): it belongs to no device in particular and is
+    /// exactly the file no slug can name.
+    ///
+    /// **It refuses exactly as the other sweeps do**, and the verb that asked
+    /// then writes nothing: a directory that exists and will not list, a file
+    /// that is present and will not read, an iCloud placeholder standing in
+    /// for one, and — since P3b Task 2 — a stream this device REMEMBERS having
+    /// applied from and cannot find now (`expecting:`, `ForeignStreamWatch
+    /// .loss`, the same memory and the same predicate `seenPositions` uses).
+    /// *A short snapshot is the reach-back this ruling exists to prevent* — a
+    /// stream this sweep failed to see is a stream the snapshot does not name,
+    /// which judges wholly NEW, which holds the whole of an unsigned Mac's
+    /// history the moment anybody is narrowed.
+    ///
+    /// **What `expecting:` cannot cover, stated.** The memory is of FOREIGN
+    /// streams, keyed by stream and recorded with a device SLUG, so the legacy
+    /// unsuffixed `<docId>.jsonl` — which has no slug, belongs to no device in
+    /// particular, and is exactly the file no key can name — is outside it. A
+    /// legacy file that is missing at sweep time is not noticed here, and the
+    /// snapshot will not name it; nothing writes to one any more
+    /// (`opLogFileURL` always carries a slug), so the lines at risk are lines
+    /// that were already there when the file went missing, and they come back
+    /// applied the moment it does.
+    ///
+    /// **`state: nil` throughout, exactly as `seenPositions` is** (ledger
+    /// L176): a mark must be computable from the shared bytes alone, or a
+    /// fresh Mac and the root cut the same file in two places. It follows that
+    /// nothing here remembers anything or writes anything.
+    ///
+    /// **And `permit: nil`.** The position a file is at does not depend on
+    /// what the permit partition would do with its lines: `wasSeen` excludes a
+    /// torn tail and what a BROKEN CHAIN quarantined, and neither is something
+    /// a partition can produce. Passing no context also keeps the sweep off
+    /// the manifest and out of `unownedPiece`'s second pass, which is the
+    /// cheaper and the more obviously terminating arrangement.
+    ///
+    /// `nonisolated` and presenter-free, so the whole sweep runs off the main
+    /// actor.
+    nonisolated public static func unattributablePositions(
+        in projectURL: URL, trust: TrustTable,
+        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:]
+    ) throws -> PermitMark {
+        // **Only the streams this photograph is ABOUT** (P3b Task 6, out of
+        // Task 2's review I2, ruled).
+        //
+        // The caller hands over every foreign stream this Mac remembers,
+        // because the photograph's subject cannot be narrowed by person. The
+        // EXPECTATION can be, and must: a stream whose slug this register can
+        // name a key for is judged by that key's permit and named in that
+        // person's own position sweep — it is never in this mark, present or
+        // absent. Expecting it meant one iCloud-evicted chapter of an
+        // ordinary, admitted, signing device refused every attempt to make
+        // anybody a reviewer until the file came back.
+        //
+        // The other direction is untouched: a remembered stream nothing here
+        // names a key for is exactly what this mark is made of, so its absence
+        // still refuses (`ForeignStreamWatch.loss`, below).
+        //
+        // *Cost if the naming is wrong*: a stream whose device record has not
+        // synced yet is unattributable today, so it is still expected — the
+        // conservative direction, and a refusal that resolves itself.
+        let expecting = expecting.filter {
+            trust.key(forDeviceSlug: $0.value.deviceSlug) == nil
+        }
+        let opsDir = projectURL.appendingPathComponent(".maugham/ops")
+        let filenames = try listing(of: opsDir, naming: ".maugham/ops")
+        try refuseAnyPlaceholder(
+            among: filenames, in: opsDir, forSlugs: nil, kind: .history)
+        var docIds = docIds(inOpsDirectoryFilenames: filenames)
+        // Named, because the manuscript reader excludes it by contract — the
+        // project's own task stream is as unattributable as any other.
+        docIds.insert("__project__")
+
+        var segments: [String: Set<String>] = [:]
+        var lastKnownLine: [String: String] = [:]
+        // **What this sweep FOUND, per stream this device REMEMBERS** — the
+        // third way a snapshot comes back short, and the only one nothing
+        // inside this function can see (P3b Task 2, out of Task 1's review).
+        //
+        // A stream that is simply ABSENT — evicted by iCloud, halfway through
+        // a sync — is indistinguishable from a stream that never existed, and
+        // a stream the snapshot does not NAME judges wholly new, which holds
+        // the whole applied history of the very Mac this photograph exists to
+        // leave alone. The memory tells the two apart, and it is `positions`'
+        // own memory asked through `positions`' own predicate — never a second
+        // spelling of *what did this stream lose*.
+        //
+        // **It decides REFUSE-or-proceed and never the mark's contents.** The
+        // positions below come from the shared bytes exactly as they did, so a
+        // fresh Mac with no memory at all computes the same photograph the
+        // root does; what it cannot do is notice that a stream went missing
+        // while it read.
+        var found: [String: ForeignStreamWatch.Found] = [:]
+        func note(
+            _ key: String, _ change: (inout ForeignStreamWatch.Found) -> Void
+        ) {
+            guard expecting[key] != nil else { return }
+            var entry = found[key] ?? .init()
+            change(&entry)
+            found[key] = entry
+        }
+        /// **What a SEGMENT tells the loss check**, whichever branch read it
+        /// (fix round 3, minor 3).
+        ///
+        /// The two questions a segment answers are different and only one of
+        /// them is about the mark: `found` is *is this stream still whole* and
+        /// `segments` is *is this file old*. A settling branch lists no digest
+        /// in the second and must still answer the first — including the arm
+        /// the ordinary path has always had, where a container that did not
+        /// verify says so (`sawUnsettledSegment`) rather than saying nothing.
+        /// Without it a settling sweep over a broken container would refuse
+        /// where the ordinary sweep does not, which is a marking verb refusing
+        /// for a reason that has nothing to do with the piece being settled.
+        func noteSegment(_ digest: String?, _ key: String) {
+            guard let digest else {
+                note(key) { $0.sawUnsettledSegment = true }
+                return
+            }
+            note(key) {
+                $0.digests.insert(digest)
+                $0.answered = true
+            }
+        }
+
+        for docId in docIds.sorted() {
+            for url in opLogFileURLs(forDocId: docId, in: projectURL) {
+                guard let stream = PermitMark.stream(of: url),
+                      let bytes = try readCoordinated(url: url, presenter: nil)
+                else { continue }
+                let classified = classify(
+                    url: url, bytes: bytes, state: nil, trust: trust, permit: nil)
+                if url.pathExtension == OpLogSegment.fileExtension {
+                    // **Noted before the attributability guard, on purpose.**
+                    // The memory is of a STREAM's bytes, not of whose it is: a
+                    // stream that became attributable since this device last
+                    // read it — its device record arrived — has lost nothing,
+                    // and refusing over it would stop the verb for a stream
+                    // the photograph does not need to name anyway.
+                    if let digest = classified.wholeSegmentDigest {
+                        note(stream.key) {
+                            $0.digests.insert(digest)
+                            $0.answered = true
+                        }
+                    } else {
+                        note(stream.key) { $0.sawUnsettledSegment = true }
+                    }
+                    // A settled segment answers no verification at all, and it
+                    // needs none: settling requires a signature whose key this
+                    // device stands behind (`TrustVerdict.isOurWord`), which is
+                    // the definition of attributable. So a segment reaches the
+                    // snapshot only by the fallback WALK saying so — and only
+                    // where that walk reached the end of it, which is
+                    // `wholeSegmentDigest`'s own rule and the same strictness
+                    // `seenPositions` has.
+                    guard classified.verification?.unattributable == true,
+                          let digest = classified.wholeSegmentDigest
+                    else { continue }
+                    segments[stream.key, default: []].insert(digest)
+                    continue
+                }
+                guard let verification = classified.verification else { continue }
+                note(stream.key) { entry in
+                    if verification.head != nil { entry.answered = true }
+                    if let head = expecting[stream.key]?.head,
+                       ForeignStreamWatch.holds(head, verification) {
+                        entry.holdsRemembered = true
+                    }
+                }
+                guard verification.unattributable,
+                      let last = verification.lines.last(where: wasSeen)
+                else { continue }
+                lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
+            }
+        }
+
+        // The other two families. Neither rotates, so there is no segment rule
+        // here and no digest to record — only the last line the reader got to.
+        for url in try otherStreamFileURLs(in: projectURL, forSlugs: nil) {
+            guard let stream = PermitMark.stream(of: url),
+                  let bytes = try readCoordinated(url: url, presenter: nil)
+            else { continue }
+            let verification = verificationForPositions(
+                at: url, bytes: bytes, stream: stream, trust: trust)
+            note(stream.key) { entry in
+                if verification.head != nil { entry.answered = true }
+                if let head = expecting[stream.key]?.head,
+                   ForeignStreamWatch.holds(head, verification) {
+                    entry.holdsRemembered = true
+                }
+            }
+            guard verification.unattributable,
+                  let last = verification.lines.last(where: wasSeen)
+            else { continue }
+            lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
+        }
+
+        // Sorted, so a sweep short of two streams refuses over the same one
+        // twice running — `positions`' rule, asked of `positions`' predicate.
+        for key in expecting.keys.sorted() {
+            let seen = found[key] ?? .init()
+            guard seen.answered,
+                  ForeignStreamWatch.loss(
+                    remembered: expecting[key], found: seen) == nil
+            else { throw ReadError.streamMissingFromSweep(streamKey: key) }
+        }
+
+        var marks: [String: PermitMark.StreamMark] = [:]
+        for key in Set(segments.keys).union(lastKnownLine.keys) {
+            // Sorted, because `opLogFileURLs` is UNSORTED and a snapshot two
+            // devices read from the same bytes must not depend on what
+            // `contentsOfDirectory` felt like saying.
+            marks[key] = .init(
+                segments: segments[key].map { $0.sorted() } ?? [],
+                line: lastKnownLine[key])
+        }
+        return PermitMark(marks)
+    }
+
     /// Every translation sidecar and inbox manifest in this project, in a
     /// stable order (P3a Task 6). Whose they are is decided by the caller off
     /// `PermitMark.stream(of:)`'s slug, exactly as it is for the op streams.
@@ -1084,8 +1615,13 @@ public final class OpLogStore {
     /// the two used to be one `try?`, and the second of them produced a mark
     /// that silently omitted every stream in the folder, which is a mark that
     /// judges every line of them NEW.
+    ///
+    /// **`slugs` nil is *every stream in the folder***, which is what the
+    /// unattributable sweep needs: it does not know whose a file is until it
+    /// has read it, and the placeholder refusal below must therefore fire for
+    /// any op-log-shaped name rather than for a named few.
     private nonisolated static func otherStreamFileURLs(
-        in projectURL: URL, forSlugs slugs: Set<String>
+        in projectURL: URL, forSlugs slugs: Set<String>?
     ) throws -> [URL] {
         var out: [URL] = []
         for (directory, name, kind) in [
@@ -1142,13 +1678,16 @@ public final class OpLogStore {
     /// running and the writer is not chasing a different file each press.
     private nonisolated static func refuseAnyPlaceholder(
         among names: [String], in directory: URL,
-        forSlugs slugs: Set<String>, kind: ReadError.FileKind
+        forSlugs slugs: Set<String>?, kind: ReadError.FileKind
     ) throws {
         for name in names.sorted() {
             guard let real = nameBehindICloudPlaceholder(name),
-                  let stream = PermitMark.stream(of: directory.appendingPathComponent(real)),
-                  let slug = stream.deviceSlug, slugs.contains(slug)
+                  let stream = PermitMark.stream(of: directory.appendingPathComponent(real))
             else { continue }
+            // Nil slugs is *any stream of this project's*, legacy included.
+            if let slugs {
+                guard let slug = stream.deviceSlug, slugs.contains(slug) else { continue }
+            }
             throw ReadError.unreadableFile(
                 name: real,
                 underlying: "it hasn’t been downloaded from iCloud yet",
@@ -1261,6 +1800,198 @@ public final class OpLogStore {
                 label: trust?.label(forDeviceSlug: truncation.deviceSlug)
                     ?? truncation.deviceSlug)
         }
+    }
+
+    // MARK: - History this book is missing (P3b Task 6)
+
+    /// **One piece of history this Mac remembers and cannot find**, in the
+    /// shape History draws and the writer acknowledges.
+    ///
+    /// It has two sources and they are not interchangeable:
+    ///
+    /// - A **truncation**, which a LOAD recorded when it met a stream shorter
+    ///   than it remembered it. The stream is still there; part of it is not.
+    /// - An **absent** stream: the memory names it and the folder holds no
+    ///   file of it at all. A load says nothing about one of these on purpose
+    ///   (`ForeignStreamWatch.settle`: a missing stream is not a truncated one
+    ///   — iCloud may be halfway through) and it is exactly the case a
+    ///   marking verb refuses over, so it must be visible or the refusal's
+    ///   *History shows what this book is missing* is a dead end.
+    ///
+    /// Both are the same fact to the writer — *this history is gone* — and
+    /// both take the same way out.
+    public struct LostHistory: Equatable, Sendable, Identifiable {
+        public enum What: Equatable, Sendable {
+            /// The last line this device settled in the live tail is nowhere
+            /// in the stream any more.
+            case line
+            /// A whole sealed segment this device had taken in is gone.
+            case segment
+            /// No file of this stream is in the folder at all.
+            case absent
+        }
+
+        public let streamKey: String
+        public let deviceSlug: String
+        /// The writer's word for whose stream it was: the label the book gives
+        /// them, else — with no table to ask — the slug their files carry.
+        public let label: String
+        public let what: What
+        /// The day a LOAD noticed it. Nil for an absent stream, which no load
+        /// ever recorded: drawing today's date on it would date a fact nobody
+        /// dated.
+        public let noticedAt: Date?
+        /// Has the writer been shown this and put it down? An acknowledged
+        /// loss stops being EXPECTED by the sweeps; it does not stop being
+        /// true, which is why the row stays.
+        public let acknowledged: Bool
+
+        public var id: String { streamKey }
+
+        public init(
+            streamKey: String, deviceSlug: String, label: String, what: What,
+            noticedAt: Date?, acknowledged: Bool
+        ) {
+            self.streamKey = streamKey
+            self.deviceSlug = deviceSlug
+            self.label = label
+            self.what = what
+            self.noticedAt = noticedAt
+            self.acknowledged = acknowledged
+        }
+
+        /// **What is gone, in the writer's words.** Neither kind takes a word
+        /// out of the draft — what was applied stays applied — so all three
+        /// end at the one place the lost history can be got back from.
+        /// **An ABSENT stream says something weaker, because less is known
+        /// about it** (fix round 1, Important 1).
+        ///
+        /// A truncation was WITNESSED: this Mac held the remembered line and
+        /// the bytes that no longer carry it, in one reading. Absence is not
+        /// witnessed at all — `ForeignStreamWatch.settle`'s own rule is that a
+        /// stream with no file is *missing, not truncated: iCloud has moved
+        /// it, or a sync is halfway through* — so a row asserting it is gone
+        /// from the folder states as a fact the one thing this Mac cannot
+        /// know. It matters because the row carries a control: a writer told
+        /// their collaborator's history is gone presses Acknowledge, and a
+        /// revocation the next day marks a stream that was only ever
+        /// mid-sync.
+        public var sentence: String {
+            switch what {
+            case .absent:
+                return "Maugham can’t find \(label)’s history in this book. "
+                    + "Nothing has left the draft — every word it had already "
+                    + "applied is still in it — but the file those words came "
+                    + "from isn’t here. It may still be syncing; if it isn’t, "
+                    + "a backup is where it can be got back from."
+            case .segment, .line:
+                let what = self.what == .segment
+                    ? "part of \(label)’s sealed history is missing from this book"
+                    : "\(label)’s history here is shorter than it was"
+                return "\(what.prefix(1).uppercased())\(what.dropFirst()). "
+                    + "Nothing has left the draft — every word Maugham had already "
+                    + "applied is still in it — but what is gone is gone from the "
+                    + "folder. A backup is where it can be got back from."
+            }
+        }
+
+        /// **What acknowledging one costs**, in one spelling — read BEFORE the
+        /// press, on the control itself, and again after it in the row
+        /// (fix round 1, Important 1).
+        ///
+        /// It was only ever said afterwards, which is the wrong half of the
+        /// act to say it in: the whole of what the writer takes on is that a
+        /// stream which comes back later falls on the far side of whatever
+        /// they decide in between.
+        public static let costOfAcknowledging =
+            "If it comes back, it is judged as written after that change."
+
+        /// What acknowledging it did, once it has been acknowledged — because
+        /// the row stays and a row that only repeated itself would look like a
+        /// press that did nothing.
+        public static let acknowledgedSentence =
+            "You’ve said you know this history is gone, so Maugham no longer "
+            + "waits for it before changing what somebody may write. "
+            + costOfAcknowledging
+    }
+
+    /// **Every piece of this book's history this Mac remembers and cannot
+    /// find** — the drawer's list, and the one derivation of it.
+    ///
+    /// The truncations come from the memory the loads wrote; the absent
+    /// streams come from that same memory against the folder's own filenames.
+    /// **The memory is read UNFILTERED here** (`foreignStreams`, never
+    /// `expectedStreams`): a loss the writer has put down is still a loss, and
+    /// a drawer that dropped it would take the row away the moment it was
+    /// acknowledged — leaving nothing on screen saying why the book no longer
+    /// waits for that stream.
+    nonisolated public static func lostHistory(
+        in projectURL: URL, state: OpLogDeviceState, trust: TrustTable? = nil
+    ) -> [LostHistory] {
+        let put = state.acknowledgedLosses(inRoot: projectURL)
+        func name(_ slug: String) -> String {
+            trust?.label(forDeviceSlug: slug) ?? slug
+        }
+        var out = state.truncations(inRoot: projectURL).map { truncation in
+            LostHistory(
+                streamKey: truncation.streamKey,
+                deviceSlug: truncation.deviceSlug,
+                label: name(truncation.deviceSlug),
+                what: truncation.loss == .segment ? .segment : .line,
+                noticedAt: truncation.noticedAt,
+                acknowledged: put[truncation.streamKey] != nil)
+        }
+        let known = Set(out.map(\.streamKey))
+        let remembered = state.foreignStreams(inRoot: projectURL, writtenBy: nil)
+        for key in absentStreams(in: projectURL, remembering: remembered).sorted()
+        where !known.contains(key) {
+            guard let memory = remembered[key] else { continue }
+            out.append(LostHistory(
+                streamKey: key, deviceSlug: memory.deviceSlug,
+                label: name(memory.deviceSlug), what: .absent,
+                noticedAt: nil, acknowledged: put[key] != nil))
+        }
+        return out
+    }
+
+    /// **Which remembered streams the folder holds no file of at all.**
+    ///
+    /// Filenames only: `PermitMark.stream(of:)` is the one parse and it takes
+    /// a URL, so a stream key is never taken apart to build a filename back.
+    /// Nothing is opened and nothing is verified — this answers *is there a
+    /// file of this stream here*, which is the question the position sweeps
+    /// answer the hard way while they are reading everything anyway.
+    ///
+    /// **It refuses nothing.** A directory that will not list answers as if it
+    /// were empty, which would call every stream in it absent — so a listing
+    /// that fails is treated as *no opinion* and contributes nothing. The acts
+    /// that must not proceed over a short reading refuse on their own account
+    /// (`ReadError.unlistableStreamDirectory`); this is a read for a sentence.
+    nonisolated public static func absentStreams(
+        in projectURL: URL,
+        remembering expecting: [String: OpLogDeviceState.ForeignStreamMemory]
+    ) -> [String] {
+        guard !expecting.isEmpty else { return [] }
+        let opsDir = projectURL.appendingPathComponent(".maugham/ops")
+        // EITHER listing failing is *no opinion about any of it*: a folder
+        // half read would call every stream in the half it could not see
+        // absent, which is the one wrong answer this can give.
+        guard let filenames = try? listing(of: opsDir, naming: ".maugham/ops"),
+              let others = try? otherStreamFileURLs(in: projectURL, forSlugs: nil)
+        else { return [] }
+        var present: Set<String> = []
+        for filename in filenames {
+            if let stream = PermitMark.stream(
+                of: opsDir.appendingPathComponent(filename)) {
+                present.insert(stream.key)
+            }
+        }
+        for url in others {
+            if let stream = PermitMark.stream(of: url) {
+                present.insert(stream.key)
+            }
+        }
+        return expecting.keys.filter { !present.contains($0) }
     }
 
     /// The file a `ReadError` names, for a caller that reports unreadable
@@ -1483,7 +2214,7 @@ public final class OpLogStore {
             ops: parsed.elements,
             diagnostics: parsed.diagnostics,
             provenance: provenance(
-                name: url.lastPathComponent, lines: settled.lines,
+                url: url, lines: settled.lines,
                 isSealedSegment: false, segmentVerified: nil, trust: trust),
             verification: settled,
             adoptedHead: adopted,
@@ -1669,7 +2400,7 @@ public final class OpLogStore {
                         ops: read.elements,
                         diagnostics: ParseDiagnostics(skipped: skipped),
                         provenance: provenance(
-                            name: url.lastPathComponent, lines: partitioned.lines,
+                            url: url, lines: partitioned.lines,
                             isSealedSegment: true, segmentVerified: true,
                             trust: trust),
                         verification: partitioned,
@@ -1738,7 +2469,7 @@ public final class OpLogStore {
             ops: read.elements,
             diagnostics: ParseDiagnostics(skipped: skipped),
             provenance: provenance(
-                name: url.lastPathComponent, lines: verification.lines,
+                url: url, lines: verification.lines,
                 isSealedSegment: true, segmentVerified: false, trust: trust),
             verification: verification,
             adoptedHead: nil, verifiedSegmentDigest: nil,
@@ -1775,11 +2506,18 @@ public final class OpLogStore {
     /// The counts, taken off the LINES themselves rather than off the walk's
     /// own tallies — one place decides what each class means, and a new state
     /// on `OpLogChain.Line` is a compile error here rather than a silent zero.
+    ///
+    /// **It takes the URL rather than the name** (P3b Task 4): the file's own
+    /// stream slug is recorded beside its counts, and `PermitMark.stream(of:)`
+    /// — the one filename parse — needs the directory as well as the name. A
+    /// second parse of a name here would be a second opinion about which
+    /// stream a file belongs to.
     private nonisolated static func provenance(
-        name: String, lines: [OpLogChain.Line],
+        url: URL, lines: [OpLogChain.Line],
         isSealedSegment: Bool, segmentVerified: Bool?,
         trust: TrustTable? = nil
     ) -> FileProvenance {
+        let name = url.lastPathComponent
         var legacy = 0, verified = 0, unsealed = 0, unsignedHistory = 0, quarantined = 0
         var pending = 0
         // The split by device is `OpLogChain`'s own derivation, asked for here
@@ -1815,6 +2553,11 @@ public final class OpLogStore {
             pendingStrangerDevices: trust.map { table in
                 Set(pendingByDevice.keys.filter(table.isStrangerDevice))
             },
+            // **Which stream these lines were held in** (P3b Task 4). Nil for a
+            // legacy unsuffixed file and for anything this build does not
+            // recognise as a stream, which is the answer that asks nothing of
+            // the holder.
+            deviceSlug: PermitMark.stream(of: url)?.deviceSlug,
             isSealedSegment: isSealedSegment, segmentVerified: segmentVerified)
     }
 

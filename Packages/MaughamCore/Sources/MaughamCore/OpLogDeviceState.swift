@@ -62,6 +62,32 @@ public final class OpLogDeviceState: @unchecked Sendable {
         /// keyed the same way. One entry per stream: a stream truncated twice
         /// is one standing fact, not two rows.
         var foreignTruncations: [String: StreamTruncation] = [:]
+        /// **Losses the writer has been shown and put down** (P3b Task 6),
+        /// keyed the same way again, with the day they put it down.
+        ///
+        /// It is device-local and it never leaves this machine: a mark is
+        /// computed from the shared bytes alone, so what this Mac has been
+        /// told cannot be allowed to change what a mark says — only whether
+        /// the act that would write one is refused.
+        var acknowledgedLosses: [String: Date] = [:]
+        /// **Pieces the writer has been asked about and put off** (P3b Task
+        /// 7), keyed `<project-root hash>/<person>/<docId>` — the same hash
+        /// half again, so the one `prune` pass covers this too.
+        ///
+        /// Device-local for `acknowledgedLosses`' reason and a stronger one:
+        /// *not now* is not an answer, it is the absence of one, and writing
+        /// it into the book would tell every other Mac that a question they
+        /// have not been asked has been settled.
+        var declinedPieces: [String: Date] = [:]
+        /// **Pieces the writer has ANSWERED** (P3b Task 7 fix round 1), keyed
+        /// exactly as the declined ones are.
+        ///
+        /// Its own field rather than a second meaning for `declinedPieces`,
+        /// because the two are different facts and a surface may one day want
+        /// to say which happened. What they share is the only thing this type
+        /// is asked: a question that has been closed either way is never put
+        /// again (`closedPieceQuestions`).
+        var settledPieces: [String: Date] = [:]
 
         init() {}
 
@@ -83,6 +109,12 @@ public final class OpLogDeviceState: @unchecked Sendable {
                 [String: ForeignStreamMemory].self, forKey: .foreignStreams) ?? [:]
             foreignTruncations = try container.decodeIfPresent(
                 [String: StreamTruncation].self, forKey: .foreignTruncations) ?? [:]
+            acknowledgedLosses = try container.decodeIfPresent(
+                [String: Date].self, forKey: .acknowledgedLosses) ?? [:]
+            declinedPieces = try container.decodeIfPresent(
+                [String: Date].self, forKey: .declinedPieces) ?? [:]
+            settledPieces = try container.decodeIfPresent(
+                [String: Date].self, forKey: .settledPieces) ?? [:]
         }
     }
 
@@ -359,6 +391,28 @@ public final class OpLogDeviceState: @unchecked Sendable {
                 stored.foreignStreams[key] = memory
                 changed = true
             }
+            // **A stream that answered and lost nothing is expected again**
+            // (fix round 1, Minor 3), whether or not its memory MOVED and
+            // whether or not `clearsTruncation` was computed true.
+            //
+            // The two clauses below could not see one case: a stream that
+            // comes back ROTATED — a new segment, a fresh tail, the remembered
+            // line inside the segment — answers `loss` nil (the rotation
+            // tolerance) and `clearsTruncation` FALSE (the tail does not hold
+            // the remembered line). Its memory moves on and the writer's
+            // acknowledgement of the old loss survived it, so the sweeps went
+            // on excusing a stream that is whole. It self-heals on the next
+            // load, which is why it is a minor — but *the next load* of a
+            // chapter nobody reopens is never.
+            //
+            // The condition is the honest one: a memory is written only where
+            // the stream ANSWERED and nothing was lost (`ForeignStreamWatch
+            // .settle`), so *memory and no truncation* is exactly *this stream
+            // is whole now*.
+            if update.memory != nil, update.truncation == nil,
+               stored.acknowledgedLosses.removeValue(forKey: key) != nil {
+                changed = true
+            }
             if let truncation = update.truncation {
                 // **The same loss is the same finding**, keeping the day it
                 // was noticed. A stream that stays short is re-detected on
@@ -369,13 +423,30 @@ public final class OpLogDeviceState: @unchecked Sendable {
                 if standing?.loss != truncation.loss || standing?.lost != truncation.lost {
                     stored.foreignTruncations[key] = truncation
                     changed = true
+                    // **A DIFFERENT loss is a different fact** (P3b Task 6),
+                    // so the writer's acknowledgement of the last one does not
+                    // cover it: putting down one loss must never make this Mac
+                    // blind to the next.
+                    if stored.acknowledgedLosses.removeValue(forKey: key) != nil {
+                        changed = true
+                    }
                 }
-            } else if update.clearsTruncation,
-                      stored.foreignTruncations.removeValue(forKey: key) != nil {
+            } else if update.clearsTruncation {
                 // What came back is not missing. A finding is a fact that holds
                 // now, so a project whose evicted chapter iCloud has restored
                 // stops being unhealthy rather than being unhealthy for ever.
-                changed = true
+                if stored.foreignTruncations.removeValue(forKey: key) != nil {
+                    changed = true
+                }
+                // And the acknowledgement goes with it: the stream is whole
+                // again, so it is expected again (P3b Task 6, both
+                // directions). This is also the clause that covers a stream
+                // whose files were wholly ABSENT — a load says nothing about
+                // one of those, so it records no truncation, but the load that
+                // finds it back settles it here.
+                if stored.acknowledgedLosses.removeValue(forKey: key) != nil {
+                    changed = true
+                }
             }
         }
         if changed { persistLocked() }
@@ -396,19 +467,60 @@ public final class OpLogDeviceState: @unchecked Sendable {
     /// CONTENTS are short: a rotation whose tail deletion syncs ahead of its
     /// segment. The sweep asks `ForeignStreamWatch.loss` of these, which is the
     /// same predicate the load settles by.
+    /// **`slugs` nil is *every foreign stream this device remembers here***
+    /// (P3b Task 2), which is what the unsigned snapshot's sweep needs: that
+    /// sweep starts from no person at all — its whole subject is streams
+    /// nobody's record names — so it cannot narrow by slug and must expect
+    /// everything this device has applied from anybody. An empty SET stays
+    /// what it was, *nobody, so nothing is expected*.
     public func foreignStreams(
-        inRoot root: URL, writtenBy slugs: Set<String>
+        inRoot root: URL, writtenBy slugs: Set<String>?
     ) -> [String: ForeignStreamMemory] {
-        guard !slugs.isEmpty else { return [:] }
+        if let slugs, slugs.isEmpty { return [:] }
         lock.lock()
         defer { lock.unlock() }
         let prefix = "\(Self.scopeHash(ofRoot: root))/"
         var out: [String: ForeignStreamMemory] = [:]
         for (key, memory) in stored.foreignStreams
-        where key.hasPrefix(prefix) && slugs.contains(memory.deviceSlug) {
+        where key.hasPrefix(prefix) && (slugs?.contains(memory.deviceSlug) ?? true) {
             out[String(key.dropFirst(prefix.count))] = memory
         }
         return out
+    }
+
+    /// **What a sweep may still be refused over** — everything remembered,
+    /// LESS every loss the writer has been shown and put down (P3b Task 6).
+    ///
+    /// This is the escape, and it is one function rather than a rule each
+    /// caller remembers: `DocumentStore.expectedStreams` and
+    /// `everyExpectedStream` are the only two things that build an `expecting:`
+    /// in production, and both come through here, so a person's position sweep
+    /// and the unsigned snapshot's take the same way out.
+    ///
+    /// **Why there is a way out at all.** A stream this Mac remembers and
+    /// cannot find refuses every marking verb, because a mark that omits a
+    /// stream judges the whole of it new — right while the file might come
+    /// back, and wrong for ever once it cannot. Without this, one permanently
+    /// lost file stops a book from ever revoking, re-admitting or narrowing
+    /// anybody again, naming a filename the writer can do nothing about.
+    ///
+    /// **The other direction is the default.** A loss nobody has been shown
+    /// refuses exactly as it did; an acknowledgement is cleared the moment the
+    /// bytes come back or the loss changes; and it never enters a mark — the
+    /// positions are read from the shared bytes either way, so a fresh Mac and
+    /// this one compute the same mark for every stream both can read.
+    ///
+    /// *The cost, which the confirmation states*: history that returns AFTER a
+    /// verb was pressed over an acknowledged loss is outside that verb's mark,
+    /// and so is judged as written after that change.
+    public func expectedStreams(
+        inRoot root: URL, writtenBy slugs: Set<String>?
+    ) -> [String: ForeignStreamMemory] {
+        let remembered = foreignStreams(inRoot: root, writtenBy: slugs)
+        guard !remembered.isEmpty else { return remembered }
+        let put = acknowledgedLosses(inRoot: root)
+        guard !put.isEmpty else { return remembered }
+        return remembered.filter { put[$0.key] == nil }
     }
 
     /// Every truncation this device has noticed in `root`, oldest first.
@@ -422,10 +534,188 @@ public final class OpLogDeviceState: @unchecked Sendable {
             .sorted { ($0.noticedAt, $0.streamKey) < ($1.noticedAt, $1.streamKey) }
     }
 
+    /// **The writer has been shown this loss and has put it down** (P3b Task
+    /// 6). Idempotent, and dated with the day they pressed.
+    ///
+    /// It records nothing about the BOOK — no event, no record, nothing any
+    /// other device will ever read. What it changes is what this Mac is
+    /// willing to be refused over.
+    public func acknowledgeLoss(
+        _ streamKey: String, inRoot root: URL, at when: Date = Date()
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        let key = Self.foreignKey(streamKey, root: root)
+        let hash = Self.scopeHash(ofKey: key)
+        let path = root.standardizedFileURL.path
+        var changed = false
+        if stored.roots[hash] != path {
+            stored.roots[hash] = path
+            changed = true
+        }
+        if stored.acknowledgedLosses[key] == nil {
+            stored.acknowledgedLosses[key] = when
+            changed = true
+        }
+        if changed { persistLocked() }
+    }
+
+    /// Every loss put down in `root`, by stream key.
+    public func acknowledgedLosses(inRoot root: URL) -> [String: Date] {
+        lock.lock()
+        defer { lock.unlock() }
+        let prefix = "\(Self.scopeHash(ofRoot: root))/"
+        var out: [String: Date] = [:]
+        for (key, when) in stored.acknowledgedLosses where key.hasPrefix(prefix) {
+            out[String(key.dropFirst(prefix.count))] = when
+        }
+        return out
+    }
+
     /// `<project-root hash>/<stream key>` — the heads' key shape with a stream
     /// where a filename goes, so `prune`'s one pass covers both.
     private nonisolated static func foreignKey(_ streamKey: String, root: URL) -> String {
         "\(scopeHash(ofRoot: root))/\(streamKey)"
+    }
+
+    // MARK: - Pieces put off (P3b Task 7)
+
+    /// One question this device has already asked: whose a piece is.
+    public struct DeclinedPiece: Hashable, Sendable {
+        /// The person record's fingerprint — the holder the lines are held
+        /// under, which is also the subject of the permit change *Hers* would
+        /// write.
+        public let person: String
+        public let docId: String
+
+        public init(person: String, docId: String) {
+            self.person = person
+            self.docId = docId
+        }
+    }
+
+    /// **The writer was asked whose this piece is and said *not now*.**
+    ///
+    /// It writes nothing to the book — no event, no record, nothing another
+    /// device will ever read. *Not now* is not an answer; it is the absence of
+    /// one, and recording it in the book would tell every other Mac that a
+    /// question they have never been asked has been settled. What it changes
+    /// is only whether THIS Mac asks again at the next load, and it does not:
+    /// the question keeps on waiting in People & Devices, where the writer
+    /// goes when they are ready to answer it.
+    ///
+    /// **Idempotent, and the first date wins.** *Not now* said twice is one
+    /// decision, and the day it was made is the day it was first made.
+    ///
+    /// Per PERSON and per PIECE, because that is the grain of the question:
+    /// the same writer opening a second piece is a second question, and
+    /// somebody else writing in the same piece is a different one again.
+    public func declinePiece(
+        person: String, docId: String, inRoot root: URL, at when: Date = Date()
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        let key = Self.declinedKey(person: person, docId: docId, root: root)
+        let hash = Self.scopeHash(ofKey: key)
+        let path = root.standardizedFileURL.path
+        var changed = false
+        if stored.roots[hash] != path {
+            stored.roots[hash] = path
+            changed = true
+        }
+        if stored.declinedPieces[key] == nil {
+            stored.declinedPieces[key] = when
+            changed = true
+        }
+        if changed { persistLocked() }
+    }
+
+    /// Every question put off in `root`, with the day it was put off.
+    public func declinedPieces(inRoot root: URL) -> [DeclinedPiece: Date] {
+        lock.lock()
+        defer { lock.unlock() }
+        return Self.pieces(in: stored.declinedPieces, root: root)
+    }
+
+    /// The one parse of a `<root>/<person>/<docId>` map, shared by both fields
+    /// so the two cannot disagree about what a key means. Call with the lock
+    /// held.
+    private nonisolated static func pieces(
+        in stored: [String: Date], root: URL
+    ) -> [DeclinedPiece: Date] {
+        let prefix = "\(scopeHash(ofRoot: root))/"
+        var out: [DeclinedPiece: Date] = [:]
+        for (key, when) in stored where key.hasPrefix(prefix) {
+            let rest = key.dropFirst(prefix.count)
+            // `<person>/<docId>`. A fingerprint is hex and carries no slash,
+            // so the FIRST separator is the one that splits them and a docId
+            // holding one of its own survives intact.
+            guard let slash = rest.firstIndex(of: "/") else { continue }
+            let person = String(rest[rest.startIndex..<slash])
+            let docId = String(rest[rest.index(after: slash)...])
+            guard !person.isEmpty, !docId.isEmpty else { continue }
+            out[DeclinedPiece(person: person, docId: docId)] = when
+        }
+        return out
+    }
+
+    /// **The writer answered it: the piece is theirs** (P3b Task 7 fix round
+    /// 1).
+    ///
+    /// Recorded for the same reason a decline is, and with more force: the
+    /// permit change it goes with is a fact about the BOOK that every device
+    /// will read, so a question re-raised here afterwards would be this Mac
+    /// asking about something it has already written down. Idempotent, first
+    /// date wins.
+    ///
+    /// It is not what makes the answer true — the signed `scopeChanged` event
+    /// is — and nothing reads it but the question's own surfaces.
+    public func settlePiece(
+        person: String, docId: String, inRoot root: URL, at when: Date = Date()
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        let key = Self.declinedKey(person: person, docId: docId, root: root)
+        let hash = Self.scopeHash(ofKey: key)
+        let path = root.standardizedFileURL.path
+        var changed = false
+        if stored.roots[hash] != path {
+            stored.roots[hash] = path
+            changed = true
+        }
+        if stored.settledPieces[key] == nil {
+            stored.settledPieces[key] = when
+            changed = true
+        }
+        if changed { persistLocked() }
+    }
+
+    /// **Every question about a piece this Mac has closed**, however it was
+    /// closed — put off or answered.
+    ///
+    /// The one reader every surface uses, because *has this been asked* is one
+    /// question and two lookups of it would be two answers. A question is
+    /// never re-raised once it is in here; what is still HELD goes on being
+    /// said, because held words with no sentence is the one shape a refusal
+    /// may not take.
+    public func closedPieceQuestions(inRoot root: URL) -> Set<DeclinedPiece> {
+        Set(declinedPieces(inRoot: root).keys)
+            .union(settledPieces(inRoot: root).keys)
+    }
+
+    /// Every question answered in `root`, with the day it was answered.
+    public func settledPieces(inRoot root: URL) -> [DeclinedPiece: Date] {
+        lock.lock()
+        defer { lock.unlock() }
+        return Self.pieces(in: stored.settledPieces, root: root)
+    }
+
+    /// `<project-root hash>/<person>/<docId>` — the foreign key's shape with a
+    /// person and a piece where a stream goes, so `prune` covers this too.
+    private nonisolated static func declinedKey(
+        person: String, docId: String, root: URL
+    ) -> String {
+        "\(scopeHash(ofRoot: root))/\(person)/\(docId)"
     }
 
     // MARK: - Verified segments
@@ -559,6 +849,19 @@ public final class OpLogDeviceState: @unchecked Sendable {
             !hashes.contains(scopeHash(ofKey: $0.key))
         }
         stored.foreignTruncations = stored.foreignTruncations.filter {
+            !hashes.contains(scopeHash(ofKey: $0.key))
+        }
+        // An acknowledgement is a fact about one book's history; a book that
+        // is gone takes it with it (P3b Task 6).
+        stored.acknowledgedLosses = stored.acknowledgedLosses.filter {
+            !hashes.contains(scopeHash(ofKey: $0.key))
+        }
+        // And a question put off — or answered — about a book that is gone is
+        // a question about nothing (P3b Task 7).
+        stored.declinedPieces = stored.declinedPieces.filter {
+            !hashes.contains(scopeHash(ofKey: $0.key))
+        }
+        stored.settledPieces = stored.settledPieces.filter {
             !hashes.contains(scopeHash(ofKey: $0.key))
         }
         for hash in hashes { stored.roots.removeValue(forKey: hash) }

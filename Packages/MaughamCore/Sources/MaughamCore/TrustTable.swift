@@ -151,6 +151,17 @@ public struct TrustTable: Equatable, Sendable {
     /// recorded (P3a Task 7). Absent for every P2-era revocation, where the
     /// record's `highestOpIdSeen` is still the only line there is.
     private let revocationMarkByPerson: [String: PermitMark]
+    /// **The photograph this book took of its unsigned streams the first time
+    /// anybody was narrowed** (P3b Task 1), or nil where nothing narrows it.
+    ///
+    /// **Nil exactly when `hasNarrowingPermits` is false**, and that is a
+    /// property rather than a coincidence: both are derived here, from the one
+    /// root-filtered collection of events, so a book cannot be narrowed
+    /// according to one and un-narrowed according to the other. The failure
+    /// that equivalence prevents is silent and total — a book whose table says
+    /// *narrowed* while no event names a governing snapshot holds every
+    /// unsigned line ever written in it.
+    public let unsignedSnapshot: UnsignedSnapshot?
     /// Person fingerprint → the record, for the revoked/admitted split.
     private let personByFingerprint: [String: PersonRecord]
     /// Every fingerprint this book holds a person record for — `Registry
@@ -223,6 +234,28 @@ public struct TrustTable: Equatable, Sendable {
         }.map(\.person)
 
         let myRoot: String? = joinedRoot ?? ownRecord ?? admittingRoots.first
+
+        // The roots MY root adopted, followed through their own adoptions. A
+        // root that adopted THIS one is not here: only claims written by a root
+        // in the closure widen it, which is what keeps the widening this
+        // device's own act.
+        //
+        // **Resolved here, above the events**, because who may narrow this book
+        // is a question about the adopted closure (P3b Task 2's ruling A) and
+        // `myChain` below is not the only reader of it any more.
+        var adoptedRoots: [String] = []
+        if let myRoot {
+            var reached: Set<String> = [myRoot]
+            var frontier: [String] = [myRoot]
+            while let root = frontier.popLast() {
+                for adopted in registry.adopted(by: root).sorted()
+                where reached.insert(adopted).inserted {
+                    adoptedRoots.append(adopted)
+                    frontier.append(adopted)
+                }
+            }
+            adoptedRoots.sort()
+        }
 
         // **Whose each actor key is, asked of the registry and never derived a
         // second time here** (fix round 2). `Registry.actorKeyOwners` is the
@@ -308,9 +341,51 @@ public struct TrustTable: Equatable, Sendable {
         // because `resolve` is pure and takes a `Registry` from wherever the
         // caller got one, and a device must not be talked out of its own
         // root's authority by a value somebody handed it.
+        //
+        // **And only a root of MY OWN chain is heard** (P3b Task 2's ruling A,
+        // out of Task 1's review). `RegistryReader.entitled` lets ANY root in
+        // the folder sign an event about a subject this registry holds no
+        // person record for — deliberately, because the spec's write order
+        // (the event, then the record) leaves a crash window in which exactly
+        // that is the honest state. What it cannot tell is whether the root
+        // doing the signing is one this device has anything to do with. A
+        // CLAIMANT — a second Mac claiming a book this device already belongs
+        // to somebody else's copy of, whose every seal this table answers
+        // `.otherRoot` about — could therefore write one event about a
+        // fingerprint nobody here has a record for and narrow the book: it
+        // would count in `hasNarrowingPermits`, it would build a timeline, and
+        // (P3b) an event dated 1970 carrying an EMPTY snapshot would become the
+        // governing photograph, which holds every unsigned Mac's whole history
+        // in a book that never trusted the device that said so.
+        //
+        // So the population is filtered by SIGNER as well as by subject: the
+        // root this device is on (`myRoot` — its own record, or the one that
+        // admitted it, or the one it remembers joining) and the roots that root
+        // has adopted, transitively. The moment a claimant is ADOPTED its
+        // events count, which is the other direction and is what makes the
+        // two-roots exit work.
+        //
+        // **`.retired` keeps its own rule**, exactly as `entitled` states it: a
+        // retirement is the device's own word about itself, signed by the
+        // subject, and it installs no permit — so it narrows nothing and
+        // belongs in the timeline whoever this device is on a chain with.
+        //
+        // **All three readers move together**, and that is the point of doing
+        // it here: the timelines, `hasNarrowingPermits` and
+        // `UnsignedSnapshot.governing` are all derived from this one
+        // collection, so the pinned *nil iff not narrowed* equivalence survives
+        // and a filter cannot be applied to one of them alone — which is the
+        // worst direction, a book that counts as narrowed with no governing
+        // photograph in it.
         let rootFingerprints = Set(roots.map(\.person))
+        let rootsIAmOn: Set<String> = myRoot.map { Set([$0]).union(adoptedRoots) } ?? []
         var eventsByPerson: [String: [PermitEvent]] = [:]
         for event in registry.events where !rootFingerprints.contains(event.subject) {
+            if case .retired = event.kind {
+                guard event.subject == event.by else { continue }
+            } else {
+                guard rootsIAmOn.contains(event.by) else { continue }
+            }
             eventsByPerson[event.subject, default: []].append(event)
         }
         let timelineByPerson = eventsByPerson.mapValues { PermitTimeline(events: $0) }
@@ -345,24 +420,6 @@ public struct TrustTable: Equatable, Sendable {
             retiredAtByDevice[device.device] = retiredAt
         }
 
-        // The roots MY root adopted, followed through their own adoptions. A
-        // root that adopted THIS one is not here: only claims written by a root
-        // in the closure widen it, which is what keeps the widening this
-        // device's own act.
-        var adoptedRoots: [String] = []
-        if let myRoot {
-            var reached: Set<String> = [myRoot]
-            var frontier: [String] = [myRoot]
-            while let root = frontier.popLast() {
-                for adopted in registry.adopted(by: root).sorted()
-                where reached.insert(adopted).inserted {
-                    adoptedRoots.append(adopted)
-                    frontier.append(adopted)
-                }
-            }
-            adoptedRoots.sort()
-        }
-
         // Everyone under my root — and under every root it adopted. An adopted
         // root that this registry holds no self-signed record for has no chain
         // to take in (`chain(underRoot:)` answers empty for a non-root), so a
@@ -388,11 +445,18 @@ public struct TrustTable: Equatable, Sendable {
             actorByKey: actorByKey, keyByDeviceId: keyByDeviceId,
             timelineByPerson: timelineByPerson,
             revocationMarkByPerson: revocationMarkByPerson,
+            // From the SAME root-filtered events the timelines are built from,
+            // so `unsignedSnapshot != nil` and `hasNarrowingPermits` cannot
+            // disagree — see the property.
+            unsignedSnapshot: UnsignedSnapshot.governing(
+                events: eventsByPerson.values.flatMap { $0 }),
             personByFingerprint: personByFingerprint,
             knownPeople: registry.knownPeople,
-            keysNamedByADeviceRecord: registry.devices.reduce(into: Set()) {
-                $0.formUnion($1.actorFingerprints)
-            },
+            // The registry's own derivation, asked rather than repeated (P3b
+            // Task 4): `Registry.isContestedActorKey` reads the same set, and
+            // two spellings of *which keys this book has heard of* is how a
+            // sheet comes to offer a key a pane calls contested.
+            keysNamedByADeviceRecord: registry.keysNamedByADeviceRecord,
             retiredAtByDevice: retiredAtByDevice, myChain: myChain,
             otherRootByMember: otherRootByMember)
     }
@@ -573,7 +637,7 @@ public struct TrustTable: Equatable, Sendable {
     /// Read the registry's own doc comment for why a held line and a line
     /// *waiting for admission* stopped being the same fact in P3a.
     nonisolated public func isStrangerDevice(_ fingerprint: String) -> Bool {
-        !knownPeople.contains(fingerprint)
+        !HeldLines.isUnsignedHolder(fingerprint) && !knownPeople.contains(fingerprint)
     }
 
     /// **Does a verified device record NAME this key**, whatever it calls it

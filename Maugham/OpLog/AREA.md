@@ -1052,10 +1052,30 @@ what W1 restored. The moment ONE person is a reviewer the book starts judging,
 and the cost lands where the work is: **+15 ms on a document open**, +65 %, the
 per-line decode plus the class resolution over 1,001 ops. The walks and the
 translation read barely move, because those streams are still one kind each and
-the aggregation's +7 % is inside its own spread. This is P3b's number to carry:
-it is paid once per open rather than per keystroke, and it is the price of the
-rung existing at all — but a reviewer opening a large document will feel two
-frames of it.
+the aggregation's +7 % is inside its own spread. It is paid once per open
+rather than per keystroke, and it is the price of the rung existing at all.
+
+**Re-measured by P3b (2026-09-23), on a fixture that is KEPT.** That probe was
+thrown away; `MaughamTests/Performance/NarrowedBookCostTests.swift` is
+env-gated like `OpLogGrowthBaselineTests` and ATTACHES its table to the
+xcresult (the host is sandboxed and `xcodebuild`'s log does not carry a test's
+stdout), so the number can be re-taken. Same four measures, medians of 7, a
+real novel project with 300 bursts in the measured piece, quiet machine, two
+agreeing runs:
+
+| measure | admissions-only | one reviewer | + a 400-line unsigned stream |
+|---|---|---|---|
+| annotations walk | 9.05 ms | 9.73 ms | 17.25 ms |
+| aggregation walk | 8.95 ms | 9.64 ms | 17.00 ms |
+| `Document.load` | 10.38 ms | 13.47 ms | 24.20 ms |
+| `TranslationStore.loadMerged` | 3.44 ms | 4.23 ms | 4.22 ms |
+
+One reviewer costs about +3 ms here; the stream the photograph is ABOUT is the
+bigger half, +11 ms more, because every load walks and judges it. Taken
+together a narrowed book costs **about one 16 ms frame** per document open —
+which is the figure ADR 0032 gives, and the wording both documents now use.
+(The sentence here used to say *two frames*, reading the larger fixture's
++15.5 ms as if it were the whole cost.)
 
 ### Possession, and a contested actor key
 
@@ -1204,10 +1224,14 @@ the sentence her own hand's line would get. It is NOT gated on
 `hasNarrowingPermits`, because a grandfather switched off by the first reviewer
 P3b creates is the same defect arriving later. **The three other load emissions
 are not covered and that is a stated stop**: both pending-recovery folds and
-the anchor splice are `typingBurst` and none of them writes a
-`synthesisSource`, so on disk they are indistinguishable from a person typing.
-An assistant-signed ordinary burst therefore stays refused, which is the
-constitution's sentence about MCP and the manuscript. A disk census over every
+the anchor splice are `typingBurst`, and an assistant-signed ordinary burst
+stays refused, which is the constitution's sentence about MCP and the
+manuscript. **P3b Task 3 gave those three a `synthesisSource` of their own**
+(`.pendingRecovery`, `.anchorSplice`) and deliberately left the rule where it
+was: the label only reaches lines written after it ships, and a field the
+assistant writes is a field the assistant can write. It is provenance — what
+`LoadBurstCensus` reads and what History can say — and it reaches no table,
+because `PermitPartition.writtenOp` decodes a KIND and nothing else. A disk census over every
 project this Mac can reach (23 projects, 194 tails, 5 `.mzseg` segments, 11,064
 lines) found no such line: the only non-author actor lines anywhere were
 `claude_comment` and `claude_query`, which are the reviewer row.
@@ -1246,7 +1270,20 @@ the root's would refuse for ever over a file sitting there perfectly readable,
 with nothing the writer could do short of deleting `op-log-state.json`. The
 ENTRY's existence is therefore the fact *this device has applied something of
 theirs*. Once it exists it is kept: a stream that answered and has stopped
-answering is the truncation case, and is supposed to refuse. **The two notions
+answering is the truncation case, and is supposed to refuse.
+
+**It is kept, and it GROWS** (P3b Task 10's note). There is no per-stream
+ageing and no cap: an entry leaves only when its PROJECT does
+(`OpLogDeviceState.prune`, which drops every memory whose root is gone), and
+`ForeignStreamMemory.segmentDigests` is a set that only gains members as that
+stream rotates. The bound is *every foreign stream of every project this Mac
+has open, times its segments* — small for a book with two Macs in it, and
+worth knowing before somebody puts a hundred collaborators in one. **What P3b
+added is an ESCAPE, not a prune**: an acknowledged loss stops being EXPECTED
+(`OpLogDeviceState.acknowledgedLosses`), which is about what a sweep demands
+and not about what the memory holds.
+
+**The two notions
 of *answered* are one value** — `FileClassification.wholeSegmentDigest`, which
 both this memory and `positions`' `segments` list are built from, because a
 disagreement between them is that same bug in another coat.
@@ -1378,6 +1415,59 @@ stream per chapter — tens to a low hundreds of kilobytes of
 downgrade throws away for free, so the size is a fact to know rather than a
 thing to fix; if it ever stops being one, the honest cure is a cap plus *older
 than the oldest mark anything still reads*, not a silent trim.
+
+## The unsigned door, and scope's lifecycle (P3b, [ADR 0032](../../docs/adr/0032-the-signed-op-log.md)'s P3b addendum)
+
+P3a enforced the permit; P3b gives it a way to be GIVEN and SEEN, and closes
+the four things the P3a build left open. Nothing here changes what a line
+MEANS.
+
+**`UnsignedSnapshot` — the photograph.** A file this register can name no key
+for used to be applied UNJUDGED, which is P1's design and the ladder's one open
+door. Refusing such lines would withdraw a whole enclave-less Mac's history the
+day the root first makes anybody a reviewer, so the FIRST NARROWING event (not
+the first permit event — an admission changes nothing about who may write what)
+carries a mark over every unattributable stream instead. At or before it:
+exactly P1, words applied and note amendments honoured. After it: PENDING —
+held, never set aside, never pardonable by an admission, with §7.4's *Send to
+Inbox* as its one way in. Narrowing is sticky, so there is no un-narrowing
+direction, and where two roots have both narrowed **the earliest narrowing by
+DATE governs** (`at` is a signed field, so every device reads the same number
+out of the same bytes; the event id is only the tie-break).
+
+**`HeldLines` — three reasons, one storage state.** P2 had exactly one reason
+to hold a line, so *held* and *waiting for admission* were the same fact. There
+are three now — a stranger's key, an admitted person's permit-pending line
+(this BUILD cannot judge it, or she opened a piece nobody has claimed: §4.5,
+recorded at the walk through `AmendmentPermits.recordStartedAPiece`), and an
+unsigned stream — and they are told apart HERE, once, by the string the walk
+held them under. `unsigned:<stream>` is a shape no fingerprint and no device id
+can be, which is what makes the classification total rather than a guess.
+
+**`OpLogDeviceState.acknowledgeLoss` — the escape.** A remembered stream that
+is legitimately gone made `revoke`, `changePermit` and `admit` refuse for ever.
+History draws what the book is missing — a stream found shorter than it was, or
+one the folder holds no file of at all — and **Acknowledge** stops it being
+expected. Every sweep takes the same escape through one function,
+`expectedStreams`, the snapshot's sweep included; the acknowledgement is
+device-local and changes no mark, only which Mac can write one.
+
+**The schema gate.** The first narrowing raises `ProjectManifest.schemaVersion`
+to 9 BEFORE the event is written (gate → event → record), so a v0.40 Mac cannot
+open a narrowed book — which it would otherwise do by applying a reviewer's
+refused text and re-asserting it under its own book-author key. The write door
+is raise-only against what is on DISK, inside the coordinated write, and a P3
+build that meets a narrowed book stamped lower HEALS it at open. A book made on
+this build starts at 9.
+
+**`markLine` and settling pieces.** Answering §4.5's question (*the piece is
+theirs*) writes a `scopeChanged` event whose mark cuts that piece's streams
+BEFORE her first held line — the last line SEEN before the first held one, not
+the last line that is not held — so her held words come in. A refusal before
+her span stays set aside; a PERMIT refusal after it in the same stream is
+re-judged under the granted permit. A segment holding her span is cut by LINE
+HASH and lists no digest, and `cutStream` stops every later file of that stream
+contributing; the earliest file that holds her decides.
 
 ## Sealed segments (ADR 0016, M2)
 
@@ -1610,7 +1700,11 @@ Failure modes:
 
 19. **The write-side question has ONE function, and a rung is compared only in the permit layer** (P3a Task 8). `OpLogStore.localWritePermit(as:documentClass:)` is the one answer to *may this device's actor write here* — it never throws, never suspends, and falls back to this Mac's REMEMBERED register before keyless, because keyless says *author of the whole book* about everybody and a reviewer's Mac meeting one half-downloaded record would otherwise bootstrap. A hand-built `LocalWritePermit` is `.unrestricted` by another name. And a surface that decides by testing a permit against `.reviewer` instead of asking the table is P3c's Posture done wrong: the two drift the first time a rung is added, and the surface is the copy that does not compile-error. Censuses: `TripwireGrepTests.test_theWriteSidePermitQuestionHasOneFunction` + `test_aPermitRungIsComparedOnlyInThePermitLayer`. CLAUDE.md tripwires 46, 47.
 
-20. **Which lines the LOAD emitted is decided once, and the rule is permanent** (final fix wave, W3(a)). `Permit.isALoadEmission` names the two kinds — `bootstrap` and the anchor `taskCreate` — and `Permit.actorJudging` answers which actor judges a line; the partition asks both and restates neither. Released builds v0.37–v0.40 signed those emissions with whichever actor opened the document, and a refused `bootstrap` is a document whose opening op is gone. The rule widens the ACTOR and never the permit, so a reviewer's device's assistant-signed bootstrap is still refused under her own permit; and it is NOT gated on `hasNarrowingPermits`, because a grandfather the first reviewer switches off is the same defect later. **The stop, stated**: the three `typingBurst` load emissions write no `synthesisSource` and are not covered — an assistant-signed ordinary burst stays refused, which is the constitution's sentence about MCP and the manuscript. Census: `TripwireGrepTests.test_theLoadEmissionRuleIsSpelledInThePermitLayerOnly` + the shared planted-offender control. CLAUDE.md tripwire 48.
+20. **Which lines the LOAD emitted is decided once, and the rule is permanent** (final fix wave, W3(a)). `Permit.isALoadEmission` names the two kinds — `bootstrap` and the anchor `taskCreate` — and `Permit.actorJudging` answers which actor judges a line; the partition asks both and restates neither. Released builds v0.37–v0.40 signed those emissions with whichever actor opened the document, and a refused `bootstrap` is a document whose opening op is gone. The rule widens the ACTOR and never the permit, so a reviewer's device's assistant-signed bootstrap is still refused under her own permit; and it is NOT gated on `hasNarrowingPermits`, because a grandfather the first reviewer switches off is the same defect later. **The stop, stated**: the three `typingBurst` load emissions are not covered — an assistant-signed ordinary burst stays refused, which is the constitution's sentence about MCP and the manuscript. They DO carry a `synthesisSource` since P3b Task 3 (`.pendingRecovery`, `.anchorSplice`) and the rule was deliberately not widened to read it: the label only reaches lines written after it ships, and a field the assistant writes is a field the assistant can write. Census: `TripwireGrepTests.test_theLoadEmissionRuleIsSpelledInThePermitLayerOnly` + the shared planted-offender control. CLAUDE.md tripwire 48.
+
+21. **The unsigned door's decisions each have ONE home** (P3b). The narrowing predicate (`PermitTimeline.narrows`) and `UnsignedSnapshot` are spelled in the permit layer only; whether a file is unattributable AT ALL is decided in `OpLogChain` (the `unattributable:` label); the three `HeldLines.Holder` arms are BUILT in `HeldLines`; `AdmissionDecision.HeldKeyStanding` is the one *why is this held key not offered*; `Permit.permit(offering:)` is walked through by `PermitControl` alone; and `RegistryPresence` names no rung, because the admission that shows no sheet may only install the whole book. Every one fails silently and in the direction that moves words — a second answer to *is this book narrowed* holds a line here and applies it there, and a second opinion about *unattributable* keeps a file out of the photograph altogether. Censuses: `TripwireGrepTests.test_theNarrowingPredicateAndTheSnapshotAreInThePermitLayerOnly`, `test_whetherAFileIsUnattributableIsDecidedInOpLogChainOnly`, `test_theThreeHoldersAreBuiltInHeldLinesOnly`, `test_theHolderStandingClassifierIsOneFile`, `test_aSurfaceBuildsAPermitInOnePlace`, `test_theSilentAdmissionNarrowsNobody`, sharing `test_theP3bCensusesFireOnPlantedOffenders`. CLAUDE.md tripwire 49.
+
+22. **Six P3b call-site lists are ARRAYS, not numbers in prose** (P3b). `expectedStreams`, `acknowledgedLosses`, `absentStreams`, `gateOldBuildsOut`, the `currentSchemaVersion` assignments and the held-line door's one caller live in `TripwireGrepTests.countedLists` with a count per file. A builder of `expecting:` somewhere else is a sweep that does not take the acknowledgement, so a loss the writer has already put down refuses a marking verb for ever; a narrowing verb that stopped calling the gate lets a v0.40 Mac into a narrowed book. Census: `test_theP3bCountedListsAreExactlyTheNamedArrays`. CLAUDE.md tripwire 50.
 
 - **Cross-surface contracts:** if you touch op-log/inbox filenames, ids, formats, or Fountain rendering, you may be in shared phone↔Mac territory — the reach-around tripwires will tell you. Registry: `docs/superpowers/notes/cross-surface-contracts.md`.
 

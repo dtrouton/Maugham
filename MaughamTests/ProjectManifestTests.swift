@@ -88,7 +88,7 @@ final class ProjectManifestTests: XCTestCase {
         XCTAssertNoThrow(try makeISODecoder().decode(ProjectManifest.self, from: json))
     }
 
-    func test_schemaVersion8_isCurrent() {
+    func test_schemaVersion9_isCurrent() {
         // claudeAcceptRevert (2026-07-08) bumped the schema 1 -> 2; annotationReopen
         // (2026-07-09, ADR 0015 contract) bumped 2 -> 3; the `statements` section
         // (M1A, 2026-07-31) bumped 3 -> 4 — see ProjectManifest.statements for why
@@ -109,12 +109,17 @@ final class ProjectManifestTests: XCTestCase {
         // writer's named translators and designer, orphaning the annotations
         // they signed) and the new `Statement.Kind.editionBrief` case, which an
         // older build retains losslessly but cannot route — an edition's own
-        // doctrine would sit on disk unread.
+        // doctrine would sit on disk unread. Signed op log P3b (2026-09-20)
+        // bumped 8 -> 9: `SynthesisSource` gained two cases so the load path's
+        // own bursts say what they are — and, load-bearing, 9 is the number the
+        // first NARROWING event writes, because a build with no permit layer
+        // applies a reviewer's refused text and re-asserts it under its own
+        // book-author key. Refusing the project is the only way to stop that.
         //
         // Deliberately a literal, unlike the gate tests: this is the ledger's
         // assertion, and its whole job is to make a bump a conscious act that
         // sends the next person to `currentSchemaVersion`'s doc comment.
-        XCTAssertEqual(ProjectManifest.currentSchemaVersion, 8)
+        XCTAssertEqual(ProjectManifest.currentSchemaVersion, 9)
     }
 
     func test_codable_roundTrips_withTypographyOverride() throws {

@@ -150,6 +150,55 @@ final class ProjectAltitudePaneTests: XCTestCase {
                        + "width laid the columns out at")
     }
 
+    // MARK: - The Writer column exists only in a book that has one (P3b Task 9)
+
+    /// **A book with one writer in it grows no Writer column.** The altitude
+    /// table is the one place the whole book is on screen at once, so a column
+    /// repeating the same name down forty rows is forty rows of nothing —
+    /// which is why the column is asked of the BOOK and not of a row.
+    ///
+    /// The header is read off the mounted `NSTableView`'s own columns, which
+    /// are real AppKit objects here even though the cells publish nothing
+    /// readable (this file's Status-column note).
+    func test_aBookWithOneWriterInItGrowsNoWriterColumn() async throws {
+        defer { PieceWriterFixture.reset() }
+        let book = try await PieceWriterFixture.oneAuthor(named: "Alone", in: temp.url)
+        let window = try await hostPane(
+            store: book.store, layout: .table, title: "Alone")
+        let table = try await pumpUntilTableFound(in: window, expectingAtLeast: 1)
+
+        // A fixed wait on top of the mount: this asserts that a column never
+        // arrives, so there is no condition whose arrival could end it early.
+        await waitOut(1.0)
+
+        let titles = table.tableColumns.compactMap { $0.title }
+        XCTAssertFalse(titles.contains(PieceWriters.columnTitle),
+                       "a book nobody else writes in grew a Writer column. "
+                       + "Columns: \(titles)")
+    }
+
+    /// **And a book with a scoped author in it grows one.** Driven through
+    /// the production verbs against a real folder — there is no other honest
+    /// way to ask this, because the column reads a value the view resolved off
+    /// that folder.
+    func test_abookWithAScopedAuthorInItGrowsTheWriterColumn() async throws {
+        defer { PieceWriterFixture.reset() }
+        let book = try await PieceWriterFixture.narrowed(
+            named: "Shared", in: temp.url, scopedTo: { [$0.pieceIDs[0]] })
+        let window = try await hostPane(
+            store: book.store, layout: .table, title: "Shared")
+        let table = try await pumpUntilTableFound(in: window, expectingAtLeast: 1)
+
+        let grew = await pumpUntil(deadline: 5) {
+            table.tableColumns.contains { $0.title == PieceWriters.columnTitle }
+        }
+
+        XCTAssertTrue(grew,
+                      "the book says Sam writes a chapter of it and the table "
+                      + "never said so. Columns: "
+                      + "\(table.tableColumns.map(\.title))")
+    }
+
     // MARK: - Fixtures and hosting
 
     private func novel(named name: String) async throws -> ProjectStore {

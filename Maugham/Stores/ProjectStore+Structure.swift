@@ -276,11 +276,32 @@ extension ProjectStore {
         }
 
         // Legacy direct path used during initial load before DocumentStore exists.
+        //
+        // **It obeys the same raise-only rule as the coordinated door** (P3b
+        // fix round 1, Critical 1) — `ProjectManifest.raising`, the one
+        // spelling, asked of the file it is about to replace. It matters here
+        // for a narrower reason than at the door but a real one: this path runs
+        // during `ProjectStore.load`, so it is what a migration saving through
+        // it (`adoptLegacyCraftIntentIfNeeded`, the palette heal) writes, and a
+        // manifest that iCloud brought down gated while this open was in flight
+        // must not be lowered by a migration that read the file a moment
+        // earlier. For every un-narrowed book `raising` hands back these exact
+        // bytes, so nothing about an ordinary save moves.
         let manifestURL = url.appendingPathComponent(ProjectManifest.fileName)
         let tmpURL = manifestURL.appendingPathExtension("tmp")
         do {
-            try data.write(to: tmpURL, options: [.atomic])
+            let bytes = ProjectManifest.raising(
+                data, toAtLeast: ProjectManifest.schemaVersion(ofFileAt: manifestURL))
+            try bytes.write(to: tmpURL, options: [.atomic])
             _ = try FileManager.default.replaceItemAt(manifestURL, withItemAt: tmpURL)
+            // Capped at this build's own number, the coordinated door's rule
+            // and for its reason (fix round 2).
+            if let floor = ProjectManifest.schemaVersion(of: bytes) {
+                let capped = min(floor, ProjectManifest.currentSchemaVersion)
+                if manifest.schemaVersion < capped {
+                    manifest.schemaVersion = capped
+                }
+            }
         } catch {
             throw ProjectStoreError.manifestUnwritable(error.localizedDescription)
         }

@@ -440,3 +440,29 @@ final class AdmissionDecisionTests: XCTestCase {
         }
     }
 }
+
+/// **A refusal about a FILE is never a dead end** (signed op log P3b Task 5,
+/// closing Task 1's review Minor 4 and Task 2's review I2).
+///
+/// A narrowing verb sweeps every op-log file in the project, so it can refuse
+/// over a file anywhere in the book — an iCloud placeholder that has not
+/// downloaded, or a stream this Mac remembers applying from that is no longer
+/// there. The error cannot tell the two apart, so the sentence names both
+/// moves; either way the writer has something to do rather than a filename and
+/// a shrug.
+final class HistoryUnreadableWayOutTests: XCTestCase {
+
+    func test_theUnreadableHistoryRefusalNamesBothWaysOut() {
+        let sentence = AdmissionDecision.refusal(
+            RegistryAdmissionError.historyUnreadable(
+                name: "doc-3.maca.jsonl", act: .permitChange))
+
+        XCTAssertTrue(sentence.hasPrefix("Nothing was changed."), sentence)
+        XCTAssertTrue(sentence.contains("doc-3.maca.jsonl"),
+                      "it names the file: \(sentence)")
+        XCTAssertTrue(sentence.contains("open that file"),
+                      "the iCloud placeholder's move: \(sentence)")
+        XCTAssertTrue(sentence.contains("History shows what this book is missing"),
+                      "the missing-stream's move: \(sentence)")
+    }
+}

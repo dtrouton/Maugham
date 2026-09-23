@@ -193,8 +193,19 @@ final class StatementAdoptionTests: XCTestCase {
             to: url.appendingPathComponent(try XCTUnwrap(note.path)),
             atomically: true, encoding: .utf8)
 
+        // A schema-3 project, written to the FILE rather than through the save
+        // door. Since P3b fix round 1 that door is RAISE-ONLY on
+        // `schemaVersion` (`ProjectManifest.raising`): a save can no longer
+        // manufacture an older manifest, because in production nothing ever
+        // wants to — the one thing that moves the number moves it up, and a
+        // book that has been narrowed must not be lowered back under any other
+        // Mac. Writing the file is what a genuinely old project on disk looks
+        // like, and it is how `AdmissionPermitTests.manifestFromAnOlderBuild`
+        // and `NarrowingSchemaGateTests.writeManifestSchema` already do it.
+        // Nothing this test asserts has moved.
         store.manifest.schemaVersion = 3
-        try await store.saveManifest()
+        try ProjectManifest.makeEncoder().encode(store.manifest).write(
+            to: url.appendingPathComponent(ProjectManifest.fileName))
         await store.adoptLegacyCraftIntentIfNeeded()
 
         let statement = try XCTUnwrap(

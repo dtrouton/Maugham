@@ -129,6 +129,27 @@ public struct UIState: Codable, Equatable, Sendable {
     /// writer already put down, and the archives are not this file's to police.
     public var acknowledgedSetAsideRecords: Set<String>
 
+    /// **Which recovered captures this device has already sent to the Inbox**
+    /// (P3b Task 8, reshaped in fix round 2's C1) — door key → the capture ids
+    /// (`SetAsideDoor.captureId`, `<opId>#<paragraphId>`) already made from it.
+    ///
+    /// The key is the door's own subject: an archive filename for a set-aside
+    /// record, and `<docId>|<holder>` for a held span, which has no archive
+    /// because none was ever written for it.
+    ///
+    /// **Ids rather than a once-flag**, which is the whole of C1. A held span
+    /// is LIVE — the stream it names goes on being written to — so a flag left
+    /// every paragraph that arrived after the first press with no way in at
+    /// all, which is the state this door exists to remove. It also lets a send
+    /// that lands only partly be re-pressed for the rest.
+    ///
+    /// **Per device**, like the acknowledgement beside it: what this Mac has
+    /// handed its writer is this Mac's business, and the archives are forensics
+    /// no surface writes into. Additive, no schema bump, no key when empty, and
+    /// never swept: an id whose record is gone stays, because forgetting it
+    /// would file the same paragraph a second time.
+    public var sentRecoveredOpIds: [String: Set<String>]
+
     /// Which review pass each piece was last looked at through
     /// (`ActivePassMemory`, M3-P1 Task 5).
     ///
@@ -209,7 +230,8 @@ public struct UIState: Codable, Equatable, Sendable {
         detailColumnWidth: Double = UIState.defaultDetailColumnWidth,
         publishImprint: String? = nil,
         authorReaderChoice: AuthorReaderChoice? = nil,
-        acknowledgedSetAsideRecords: Set<String> = []
+        acknowledgedSetAsideRecords: Set<String> = [],
+        sentRecoveredOpIds: [String: Set<String>] = [:]
     ) {
         self.schemaVersion = schemaVersion
         self.selectedSubject = selectedSubject
@@ -227,6 +249,7 @@ public struct UIState: Codable, Equatable, Sendable {
         self.publishImprint = publishImprint
         self.authorReaderChoice = authorReaderChoice
         self.acknowledgedSetAsideRecords = acknowledgedSetAsideRecords
+        self.sentRecoveredOpIds = sentRecoveredOpIds
     }
 
     public static let empty = UIState()
@@ -238,7 +261,7 @@ public struct UIState: Codable, Equatable, Sendable {
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
              persona, personaMemory, compilerModel, activePassMemory,
              detailColumnWidth, publishImprint, authorReaderChoice,
-             acknowledgedSetAsideRecords
+             acknowledgedSetAsideRecords, sentRecoveredOpIds
     }
 
     /// Hand-written because `selectedSubject` is not stored the way it is
@@ -274,6 +297,11 @@ public struct UIState: Codable, Equatable, Sendable {
         if !acknowledgedSetAsideRecords.isEmpty {
             try c.encode(acknowledgedSetAsideRecords,
                          forKey: .acknowledgedSetAsideRecords)
+        }
+        // The same rule for the same reason (P3b Task 8): a project where no
+        // set-aside words were ever sent to the Inbox carries no key at all.
+        if !sentRecoveredOpIds.isEmpty {
+            try c.encode(sentRecoveredOpIds, forKey: .sentRecoveredOpIds)
         }
     }
 
@@ -325,6 +353,12 @@ public struct UIState: Codable, Equatable, Sendable {
         self.acknowledgedSetAsideRecords =
             (try? c.decode(Set<String>.self,
                            forKey: .acknowledgedSetAsideRecords)) ?? []
+        // Absent means nothing has been sent, which is where every project
+        // starts and where every file written before P3b Task 8 is: the door
+        // is offered, once.
+        self.sentRecoveredOpIds =
+            (try? c.decode([String: Set<String>].self,
+                           forKey: .sentRecoveredOpIds)) ?? [:]
         // `scrollLine` and `hasShownOpLogBootstrapNotice` were removed in
         // v0.3.1 (dead-code sweep), and `binderSegment` in shell-finish stage
         // 2b Task 7, when the binder strip died with `BinderSegment`, and
