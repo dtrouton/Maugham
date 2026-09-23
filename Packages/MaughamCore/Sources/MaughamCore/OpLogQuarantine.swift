@@ -643,6 +643,108 @@ public enum OpLogQuarantine {
             .reduce(0) { $0 + (applied.contains($1.id) ? 0 : 1) }
     }
 
+    // MARK: - The words a refusal took away (P3b Task 8, spec §7.4)
+
+    /// **One paragraph a set-aside line carried**, and who wrote it.
+    ///
+    /// The unit is a PARAGRAPH rather than a line, because that is the unit the
+    /// writer gets back: §7.4's way in is a capture, and a capture holding a
+    /// whole typing burst would be several paragraphs of somebody's chapter in
+    /// one inbox row with no way to take them apart again.
+    ///
+    /// `device` is the raw `device` string the op carried — an actor word and a
+    /// key prefix. It is not resolved to a name here for `QuarantineCause`'s
+    /// own reason: what the book calls a machine lives in the registry, and the
+    /// surface that draws this is the one that has it.
+    public struct SetAsideWords: Equatable, Sendable {
+        /// The op this paragraph came out of, so two records holding the same
+        /// op give the writer one copy of it.
+        public let opId: String
+        public let paragraphId: String
+        /// The paragraph as that op left it — never blank.
+        public let text: String
+        /// The `device` string the op carried.
+        public let device: String
+        /// When it was written, on the machine that wrote it.
+        public let at: Date
+
+        public init(
+            opId: String, paragraphId: String, text: String,
+            device: String, at: Date
+        ) {
+            self.opId = opId
+            self.paragraphId = paragraphId
+            self.text = text
+            self.device = device
+            self.at = at
+        }
+    }
+
+    /// **The manuscript words in a run of set-aside lines** — spec §7.4's
+    /// subject, and the whole of what decides whether the door is offered at
+    /// all.
+    ///
+    /// Three filters, in this order, and none of them is this function's own
+    /// opinion:
+    ///
+    /// 1. A seal is not a change. It is recognised through `OpLogChain` and
+    ///    nowhere else (tripwire 37) — this file states no second opinion about
+    ///    what a seal is.
+    /// 2. What the line WAS is `PermitPartition.writtenOp`'s answer, which is
+    ///    `Op.kind(ofLine:)` and nothing else; a line that is not an op — an
+    ///    inbox row, a translation record, bytes that do not parse — answers
+    ///    nil and is nobody's to recover.
+    /// 3. Whether that kind moves the draft is **asked of
+    ///    `Deriver.appliesToManuscript`** (tripwire 44), never restated here.
+    ///    A second list would be the constitution's *AI is never the author*
+    ///    failing quietly: the copy missing a prose-moving kind would refuse to
+    ///    hand a writer back their own paragraph, and the copy with one too
+    ///    many would offer to re-file a disposition as prose.
+    ///
+    /// A change with no text — a deleted paragraph — is not recoverable: there
+    /// is nothing to give back, and a capture holding an empty string is a row
+    /// the writer has to throw away by hand.
+    ///
+    /// **Deduplicated by op, in file order**, for `setAsideChanges`' reason:
+    /// one op split across two archives is one change and must come back once.
+    public nonisolated static func recoverableWords(
+        inLines lines: [Data]
+    ) -> [SetAsideWords] {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
+        var seen: Set<String> = []
+        var words: [SetAsideWords] = []
+        for line in lines {
+            guard !OpLogChain.isSealLine(line) else { continue }
+            guard case let .op(kind)? = PermitPartition.writtenOp(line),
+                  Deriver.appliesToManuscript(kind)
+            else { continue }
+            guard let op = try? decoder.decode(Op.self, from: line) else { continue }
+            guard seen.insert(op.opId).inserted else { continue }
+            for change in op.changes
+            where !change.next.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                words.append(SetAsideWords(
+                    opId: op.opId, paragraphId: change.paragraphId,
+                    text: change.next, device: op.device, at: op.at))
+            }
+        }
+        return words
+    }
+
+    /// The same question of one record's own archive. A `.file` record answers
+    /// nothing: its data file is a whole op log that would not read, which is a
+    /// different event with a different ending (`attemptReturn`'s).
+    public nonisolated static func recoverableWords(
+        ofRecord record: QuarantineRecord, in projectURL: URL
+    ) -> [SetAsideWords] {
+        guard record.kind == .lines else { return [] }
+        let url = quarantinedFileURL(for: record, in: projectURL)
+        guard let bytes = try? Data(contentsOf: url) else { return [] }  // adr-0018-ok: a set-aside `.lines` archive — forensics the writer may ask for back, never manuscript truth
+        return recoverableWords(inLines: bytes
+            .split(separator: 0x0A, omittingEmptySubsequences: true)
+            .map(Data.init))
+    }
+
     /// The identity a line's own stream gives it.
     ///
     /// `op_id` is read through `RevocationSplit.opId(ofLine:)` rather than
