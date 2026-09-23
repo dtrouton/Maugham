@@ -271,9 +271,22 @@ final class HeldLineNoticeTests: XCTestCase {
             notices.contains {
                 $0.localizedCaseInsensitiveContains("this version of maugham")
             }, "the admitted person's own sentence: \(notices)")
+        // **The way back is History's, not this pane's** (P3b Task 10; Task 8's
+        // fix-round carry). This sentence used to name the Inbox here too,
+        // which is a circle: it tells a writer standing in the Inbox to go to
+        // the Inbox, about captures that can never carry the door anyway — an
+        // inbox row decodes to `OpKind.unknown`, so §7.4's verb offers it
+        // nothing and there is no control to draw beside this line.
+        let unsignedNotice = try XCTUnwrap(notices.first {
+            $0.localizedCaseInsensitiveContains("signs nothing it writes")
+        }, "\(notices)")
         XCTAssertTrue(
-            notices.contains { $0.localizedCaseInsensitiveContains("Inbox") },
-            "\(notices)")
+            unsignedNotice.localizedCaseInsensitiveContains("from History"),
+            unsignedNotice)
+        XCTAssertFalse(
+            unsignedNotice.localizedCaseInsensitiveContains("through the Inbox"),
+            "the Inbox pane must not send the writer to the Inbox: "
+            + unsignedNotice)
     }
 
     /// Nothing held is nothing said.

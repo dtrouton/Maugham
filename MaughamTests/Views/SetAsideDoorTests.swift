@@ -461,7 +461,7 @@ final class SetAsideDoorTests: XCTestCase {
 
     /// The memory is per DOCUMENT as well as per holder — a holder is a whole
     /// stream, and a stream runs through every chapter it wrote in.
-    func test_oneChaptersSentSpanIsNotAnothersw() throws {
+    func test_oneChaptersSentSpanIsNotAnothers() throws {
         let sent = [
             SetAsideDoor.heldKey(docId: "doc-1", holder: unsignedHolder):
                 Set(["op-1#p"])

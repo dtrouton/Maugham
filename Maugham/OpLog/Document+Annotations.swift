@@ -1402,6 +1402,15 @@ extension Document {
                 // away that is still open in front of them.
                 _sweptSinceLastReport += 1
                 archived += 1
+            } catch is AutomationNotPermitted {
+                // **Expected, and therefore not an error** (P3b Task 10). A
+                // reviewer's Mac may not write a disposition in a piece that
+                // is not hers, so the app's own tidying up is simply not done
+                // here — which is exactly what W4 built and what the author's
+                // Mac will do instead. Logged at `error` it was one red line
+                // PER ORPHAN, so a chapter's deletion burst filled the log
+                // with a decision nothing had got wrong.
+                documentLog.debug("sweepOrphanedAnnotations: this Mac may not archive \(orphan.id, privacy: .public) here; the author's Mac will")
             } catch {
                 documentLog.error("sweepOrphanedAnnotations: archive append failed for \(orphan.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
@@ -1512,6 +1521,11 @@ extension Document {
                     synthesisSource: .rejectConvergence,
                     changes: [.init(paragraphId: pid, prior: live, next: restored)],
                     automation: true)
+            } catch is AutomationNotPermitted {
+                // The sweep's rule, for the sibling automation: expected on a
+                // Mac that may not write here, and not an error anywhere.
+                documentLog.debug("repairRejectedButSpliced: this Mac may not repair \(id, privacy: .public) here; the disagreement stands until the author's Mac opens it")
+                continue
             } catch {
                 documentLog.error("repairRejectedButSpliced: append failed for \(id, privacy: .public): \(error.localizedDescription, privacy: .public) — the disagreement stands")
                 continue

@@ -411,9 +411,18 @@ final class InboxStore {
         held.keys.sorted().compactMap { holder in
             let who = HeldLines.holder(of: holder, registry: registry)
             guard case .stranger = who else {
+                // **`.historysHeldRows`, because this pane IS the Inbox** (P3b
+                // Task 10). The shared sentence's way-back clause names the
+                // Inbox everywhere else, which here would send the writer to
+                // the pane they are reading — and about captures that can
+                // never carry the door in any case: an inbox row decodes to
+                // `OpKind.unknown`, so §7.4's verb offers it nothing and there
+                // is no control to draw beside this line. The door is on
+                // History's held rows, and that is what it now says.
                 return HeldLines.sentence(
                     who, notes: held[holder] ?? 0,
-                    named: InboxByline.name(forDevice: holder, registry: registry))
+                    named: InboxByline.name(forDevice: holder, registry: registry),
+                    wayBackIn: .historysHeldRows)
             }
             return nil
         }

@@ -248,7 +248,7 @@ struct InboxPane: View {
         // after every one of them; counting beside the `refresh()` above
         // instead left the sentence frozen at the first reading.
         .task(id: store.refreshes) {
-            reloadSetAside()
+            await reloadSetAside()
         }
         // Six seconds, as `CanvasPromotionModifier`'s confirmation gives the
         // promotion sentence — and restarted by every send, because the value
@@ -304,12 +304,23 @@ struct InboxPane: View {
     /// writer about, the names are of all of them. `SetAsideAcknowledgement` is
     /// the one predicate — the History pane asks it the same question of a
     /// document's records, and a second spelling here would be a second answer.
-    private func reloadSetAside() {
+    ///
+    /// **C16 reaches this pane too** (P3b Task 10; Task 8's review, M4). The
+    /// correction — a revocation whose record now keeps NOTHING, so the frozen
+    /// reason on an old archive understates it — was resolved in History and
+    /// left to the parameter's default here, which meant one pane could name a
+    /// gentle revocation while the other named the harsh one about the same
+    /// record on the same afternoon. `HistoryPane.keepsNothingNow` is the one
+    /// resolution (it reads the single trust table, off the main actor, and a
+    /// book that has revoked nobody opens no folder at all), so this asks it
+    /// rather than growing a second body.
+    private func reloadSetAside() async {
         let records = store.setAsideRecords
         let projectURL = projectStore.url
         setAsideRecordNames = records.map {
             SetAsideAcknowledgement.name(for: $0, in: projectURL)
         }
+        let keepsNothing = await HistoryPane.keepsNothingNow(records, in: projectURL)
         // `applied` is every manifest row the refresh merged, whatever its
         // status — a capture that was set aside and is now in the inbox (or has
         // since been promoted or trashed) is one the writer HAS.
@@ -320,7 +331,8 @@ struct InboxPane: View {
                     .acknowledgedSetAsideRecords ?? [],
                 in: projectURL),
             in: projectURL,
-            applied: store.appliedManifestIDs)
+            applied: store.appliedManifestIDs,
+            nowKeepsNothing: { keepsNothing[SetAsideDoor.identity(of: $0)] ?? nil })
     }
 
     /// Put the sentence down: every record it could be about is recorded as
@@ -329,7 +341,7 @@ struct InboxPane: View {
     private func acknowledgeSetAside() {
         projectStore.documentStore?
             .acknowledgeSetAsideRecords(Set(setAsideRecordNames))
-        reloadSetAside()
+        Task { await reloadSetAside() }
     }
 
     private var header: some View {

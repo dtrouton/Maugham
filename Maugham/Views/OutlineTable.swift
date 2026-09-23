@@ -95,9 +95,14 @@ struct OutlineTable: View {
             // all, which is `PieceWriters`' own judgement and its reasons.
             if !writers.isEmpty {
                 TableColumn(PieceWriters.columnTitle) { item in
-                    Text(writers.sentence(for: item.id) ?? "—")
+                    // One lookup, not two (Task 9's review). Both halves of the
+                    // cell — the words and whether there are any — are the same
+                    // question, and asking it twice per row per redraw is a
+                    // dictionary hit and a string build nobody reads.
+                    let by = writers.sentence(for: item.id)
+                    Text(by ?? "—")
                         .foregroundStyle(
-                            writers.sentence(for: item.id) == nil
+                            by == nil
                                 ? AnyShapeStyle(.tertiary)
                                 : AnyShapeStyle(.secondary))
                 }

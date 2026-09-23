@@ -24,12 +24,16 @@ import MaughamCore
 ///   is never the author* and spec §5's *a revocation is not undone by reading
 ///   it* in one rule: the only route from a refused line into the manuscript is
 ///   a person deciding, one paragraph at a time.
-/// - It is offered **once**. A record whose words this Mac has already sent
-///   carries no door, because the second press would file every paragraph a
-///   second time. The memory is device-local and sits beside the set-aside
-///   acknowledgement (`UIState.sentSetAsideRecords`) for its reason: what this
-///   Mac has told its writer is this Mac's business, and the archives are not
-///   the place to write it.
+/// - It offers **what is left**, and never the same paragraph twice. A press
+///   remembers each paragraph it filed, by `<opId>#<paragraphId>`
+///   (`UIState.sentRecoveredOpIds`), so a record that goes on being written to
+///   keeps offering the NEW words while the ones already in the Inbox are
+///   counted as sent rather than filed again. (Fix round 2's C1: it used to be
+///   offered *once* per record, which closed the door on a stream that was
+///   still growing and reported the live count as *sent*.) The memory is
+///   device-local, keyed per door, and shared with the held-line door beside
+///   it, for its reason: what this Mac has handed its writer is this Mac's
+///   business, and the archives are not the place to write it.
 ///
 /// Pure over what a refresh already read, like every other model behind these
 /// panes: the disk read is `rows(records:in:…)`'s one pass, and the view draws

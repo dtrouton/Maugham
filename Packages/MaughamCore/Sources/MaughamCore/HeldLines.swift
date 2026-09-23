@@ -175,6 +175,25 @@ public enum HeldLines {
     /// actually true of it, which is that nothing it writes is signed.
     public static let unsignedWriter = "a Mac that signs nothing it writes"
 
+    /// **Where an unsigned stream's words come back**, said in the one place
+    /// that knows whether the reader is standing in it (P3b Task 10).
+    ///
+    /// The unsigned arm is the only sentence here with a way back to name, and
+    /// it named the Inbox everywhere — which in the Inbox PANE is a circle: it
+    /// tells the writer to go where they already are, about captures that can
+    /// never carry the door anyway (an inbox row decodes to `OpKind.unknown`,
+    /// so `Deriver.appliesToManuscript` answers no and §7.4's verb offers it
+    /// nothing). A parameter rather than a second sentence, so the two
+    /// spellings cannot drift apart about what the words ARE.
+    public enum WayBackIn: Equatable, Hashable, Sendable {
+        /// History's held rows, where the **Send to Inbox** control lives.
+        /// The answer everywhere except the Inbox itself.
+        case theInboxDoor
+        /// The Inbox pane's own answer: the door is on the other pane, and
+        /// there is nothing to press here.
+        case historysHeldRows
+    }
+
     /// **One sentence per holder, and none of them is the others'.**
     ///
     /// `name` is the writer's word for whoever is waiting — the label the root
@@ -190,7 +209,8 @@ public enum HeldLines {
     /// Nil for a count of nothing, so a surface drawing this never has to
     /// decide whether zero is worth a sentence.
     public static func sentence(
-        _ holder: Holder, notes count: Int, named name: String? = nil
+        _ holder: Holder, notes count: Int, named name: String? = nil,
+        wayBackIn: WayBackIn = .theInboxDoor
     ) -> String? {
         guard count > 0 else { return nil }
         let noun = count == 1 ? "note" : "notes"
@@ -217,9 +237,11 @@ public enum HeldLines {
                 + "of Maugham can’t tell what they are allowed to write here; "
                 + "a newer one will."
         case .unsigned:
+            let where_ = wayBackIn == .theInboxDoor
+                ? "can be brought back through the Inbox."
+                : "is brought back from History."
             return "\(count) \(noun) \(verb) waiting from \(unsignedWriter). "
-                + "There is no device to admit — what it "
-                + "wrote can be brought back through the Inbox."
+                + "There is no device to admit — what it wrote \(where_)"
         }
     }
 }
