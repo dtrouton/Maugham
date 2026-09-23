@@ -208,17 +208,27 @@ public enum HeldLines {
     ///
     /// Nil for a count of nothing, so a surface drawing this never has to
     /// decide whether zero is worth a sentence.
+    ///
+    /// **`what` says what the lines ARE** (P3b smoke find F2). A held line of
+    /// prose is not a note, and *1 note is waiting* over a paragraph Kit wrote
+    /// told the writer the opposite of what was waiting. Where the caller has
+    /// the kinds — `Waiting`, counted by the load — the sentence says them in
+    /// the writer's terms (*2 paragraphs and 1 note*); where it has only a
+    /// count (the capture stream, which holds no ops), it says *notes* as it
+    /// always did.
     public static func sentence(
-        _ holder: Holder, notes count: Int, named name: String? = nil,
+        _ holder: Holder, notes count: Int, what: Waiting? = nil,
+        named name: String? = nil,
         wayBackIn: WayBackIn = .theInboxDoor
     ) -> String? {
         guard count > 0 else { return nil }
-        let noun = count == 1 ? "note" : "notes"
-        let verb = count == 1 ? "is" : "are"
+        let phrase = what?.phrase
+        let noun = phrase.map(\.text) ?? "\(count) \(count == 1 ? "note" : "notes")"
+        let verb = (phrase.map(\.isPlural) ?? (count != 1)) ? "are" : "is"
         switch holder {
         case .stranger:
             let who = name ?? "another device"
-            return "\(count) \(noun) from \(who) \(verb) waiting for admission."
+            return "\(noun) from \(who) \(verb) waiting for admission."
         case .permitPending(_, let startedAPiece):
             let who = name ?? "a device in this book"
             // **§4.5, and the only held line the writer can do something
@@ -229,19 +239,143 @@ public enum HeldLines {
             // reads her line perfectly well, and telling the writer to wait
             // for a newer Maugham would be telling them to wait for nothing.
             guard !startedAPiece else {
-                return "\(count) \(noun) from \(who) \(verb) waiting in a piece "
+                return "\(noun) from \(who) \(verb) waiting in a piece "
                     + "nobody has claimed yet. Say whether the piece is theirs "
                     + "in People & Devices."
             }
-            return "\(count) \(noun) from \(who) \(verb) waiting. This version "
+            return "\(noun) from \(who) \(verb) waiting. This version "
                 + "of Maugham can’t tell what they are allowed to write here; "
                 + "a newer one will."
         case .unsigned:
             let where_ = wayBackIn == .theInboxDoor
                 ? "can be brought back through the Inbox."
                 : "is brought back from History."
-            return "\(count) \(noun) \(verb) waiting from \(unsignedWriter). "
+            return "\(noun) \(verb) waiting from \(unsignedWriter). "
                 + "There is no device to admit — what it wrote \(where_)"
+        }
+    }
+
+    // MARK: - What is waiting (P3b smoke find F2)
+
+    /// **What a holder's held lines ARE, in the writer's terms** — paragraphs
+    /// of prose, and notes — with a few of the words.
+    ///
+    /// Every surface that counted held lines put *notes* after the number,
+    /// whatever the lines were: the admission sheet said *1 note waiting* and
+    /// History said *1 note is waiting in a piece no one has claimed yet* about
+    /// a paragraph of prose (smoke find F2). The kinds are counted here, from
+    /// the held lines themselves, by ASKING `Deriver.appliesToManuscript` which
+    /// ops move the words (tripwire 44) rather than restating it: an op that
+    /// would become words is prose, and every other op is a note.
+    ///
+    /// **Prose is counted by PARAGRAPH**, not by op: a writer typing one
+    /// paragraph in three bursts wrote one paragraph, and *3 paragraphs* would
+    /// be a number they cannot find. `prose` keeps the op count for the rare
+    /// prose op that names no paragraph at all.
+    public struct Waiting: Equatable, Sendable {
+        /// Every paragraph a held prose op touched.
+        public var paragraphIds: Set<String>
+        /// Held op lines that would move the manuscript's words.
+        public var prose: Int
+        /// Every other held op line — comments, suggestions, queries and the
+        /// rest of the annotation layer, and the task breadcrumbs beside them.
+        public var notes: Int
+        /// The words of the first held paragraph, as it last read in the held
+        /// span — for a peek, never for applying. At most `peekLimit`
+        /// characters; the surface shortens it further for its own line.
+        public var peek: String?
+
+        public init(
+            paragraphIds: Set<String> = [], prose: Int = 0, notes: Int = 0,
+            peek: String? = nil
+        ) {
+            self.paragraphIds = paragraphIds
+            self.prose = prose
+            self.notes = notes
+            self.peek = peek
+        }
+
+        /// How much of a paragraph a peek keeps. Enough for any line a surface
+        /// draws, small enough that a provenance carrying one per holder per
+        /// file costs nothing to hold.
+        public static let peekLimit = 280
+
+        public var paragraphs: Int { paragraphIds.count }
+        public var isEmpty: Bool { prose == 0 && notes == 0 }
+
+        /// Two files' (or two documents') worth, as one. The first peek stands:
+        /// it is the first words the writer will be shown either way.
+        public func merged(with other: Waiting) -> Waiting {
+            Waiting(
+                paragraphIds: paragraphIds.union(other.paragraphIds),
+                prose: prose + other.prose, notes: notes + other.notes,
+                peek: peek ?? other.peek)
+        }
+
+        /// **The noun phrase** — *1 paragraph*, *2 paragraphs and 1 note*,
+        /// *3 notes* — and whether a verb after it is plural. Nil when nothing
+        /// is waiting.
+        ///
+        /// A prose op that named no paragraph is said as a *change* rather than
+        /// silently dropped: there is something held, and a sentence that
+        /// counted nothing would be a pane saying less than is true.
+        public var phrase: (text: String, isPlural: Bool)? {
+            var parts: [(Int, String)] = []
+            if paragraphs > 0 {
+                parts.append((paragraphs, paragraphs == 1 ? "paragraph" : "paragraphs"))
+            } else if prose > 0 {
+                parts.append((prose, prose == 1 ? "change" : "changes"))
+            }
+            if notes > 0 {
+                parts.append((notes, notes == 1 ? "note" : "notes"))
+            }
+            guard !parts.isEmpty else { return nil }
+            let text = parts.map { "\($0.0) \($0.1)" }.joined(separator: " and ")
+            let isPlural = parts.count > 1 || parts[0].0 != 1
+            return (text, isPlural)
+        }
+
+        /// **Counted from the lines a walk classified**, keyed the way
+        /// `OpLogChain.pendingByDevice` keys them — by the device the line is
+        /// held under — and over OP lines only, for that function's reason:
+        /// a seal is neither a paragraph nor a note.
+        ///
+        /// Decodes only the held PROSE lines, and only for their changes; a
+        /// load pays nothing here for a file that holds nothing.
+        public static func byDevice(
+            of lines: [OpLogChain.Line]
+        ) -> [String: Waiting] {
+            var answer: [String: Waiting] = [:]
+            var peekParagraph: [String: String] = [:]
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
+            for line in lines where line.kind == .op {
+                guard let device = line.state.pendingDevice else { continue }
+                var waiting = answer[device] ?? Waiting()
+                defer { answer[device] = waiting }
+                guard let kind = Op.kind(ofLine: line.bytes),
+                      Deriver.appliesToManuscript(kind)
+                else {
+                    waiting.notes += 1
+                    continue
+                }
+                waiting.prose += 1
+                guard let op = try? decoder.decode(Op.self, from: line.bytes)
+                else { continue }
+                for change in op.changes {
+                    waiting.paragraphIds.insert(change.paragraphId)
+                    let text = change.next.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !text.isEmpty else { continue }
+                    // The FIRST paragraph held, as it LAST reads: a paragraph
+                    // typed in three bursts peeks at its third.
+                    let first = peekParagraph[device] ?? change.paragraphId
+                    peekParagraph[device] = first
+                    if change.paragraphId == first {
+                        waiting.peek = String(text.prefix(peekLimit))
+                    }
+                }
+            }
+            return answer
         }
     }
 }

@@ -193,7 +193,27 @@ struct AdmissionModifier: ViewModifier {
         // whoever it is currently asking about, which is how an admission made
         // in a SECOND window reaches this one's sheet.
         guard let requests else { return }
-        admissions.rederived(requests)
+        admissions.rederived(described(requests, in: documentStore))
+    }
+
+    /// **Each request with what it has waiting, and where** (P3b smoke find
+    /// F2): the open documents' own descriptions of their held lines, joined to
+    /// the binder's titles. Read from the loads, so this costs no disk.
+    @MainActor
+    private func described(
+        _ requests: [AdmissionRequest], in documentStore: DocumentStore
+    ) -> [AdmissionRequest] {
+        guard !requests.isEmpty else { return requests }
+        let held = documentStore.heldLines()
+        let order = PermitControl.pieces(in: projectStore?.manifest.structure ?? [])
+            .map { (id: $0.id, title: $0.title) }
+        return requests.map { request in
+            var request = request
+            request.described = AdmissionWaiting.describe(
+                holder: request.fingerprint, waiting: held.waiting,
+                captures: held.captures, order: order)
+            return request
+        }
     }
 
     // MARK: - Answering

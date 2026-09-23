@@ -236,6 +236,26 @@ final class AdmissionSheetTests: XCTestCase {
         XCTAssertEqual(AdmissionSheet.waitingLine(count: 2), "2 notes waiting")
     }
 
+    // MARK: - Who and what (P3b smoke F2)
+
+    func test_theSheetSaysWhatIsWaitingWhereAndPeeksAtTheWords() throws {
+        var described = request(waiting: 1)
+        described.described = AdmissionWaiting(
+            pieces: [.init(title: "Chapter 3", waiting: HeldLines.Waiting(
+                paragraphIds: ["p1ab"], prose: 1, peek: "The rain came in sideways."))],
+            captures: 0)
+        let window = mount(described)
+        let texts = try axTexts(in: window)
+
+        XCTAssertTrue(texts.contains { $0.contains("1 paragraph waiting in “Chapter 3”") },
+                      "\(texts)")
+        XCTAssertTrue(texts.contains { $0.contains("The rain came in sideways.") },
+                      "a peek at the words: \(texts)")
+        XCTAssertFalse(texts.contains { $0.contains("note waiting") }, "\(texts)")
+        XCTAssertTrue(texts.contains { $0.contains(DeviceCode.short(phone)) },
+                      "and the code is still there: \(texts)")
+    }
+
     // MARK: - A shared name (P3b smoke F1)
 
     private func sharedNameRequest() -> AdmissionRequest {

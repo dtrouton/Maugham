@@ -68,6 +68,15 @@ struct AdmissionQueue: Equatable {
            presented?.fingerprint == shown.fingerprint {
             presented = nil
         }
+        // The same stranger, freshly described (F2's *what is waiting* moves as
+        // their lines arrive): the sheet up keeps its identity and shows the
+        // newer words.
+        if let up = presented,
+           let fresh = queue.first(where: { $0.fingerprint == up.fingerprint }),
+           fresh != up {
+            presented = fresh
+            shown = fresh
+        }
         presentHeadIfIdle()
     }
 

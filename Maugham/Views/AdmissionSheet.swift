@@ -4,7 +4,9 @@ import MaughamCore
 
 /// **One device, one sheet** (signed op log P2b, spec §4.1).
 ///
-/// > **Denver’s iPhone wants to write in *Playlist*** — 14 notes waiting.
+/// > **Denver’s iPhone wants to write in *Playlist***
+/// > 1 paragraph waiting in “Chapter 3”, and 14 captures in the Inbox
+/// > “The rain came in sideways…”
 /// > Label: [Denver ▾]
 /// > Code **4F2K** is shown on the device’s Settings too.
 /// > [Not now] [Admit]
@@ -100,6 +102,13 @@ struct AdmissionSheet: View {
     /// the number beside it.
     static func waitingLine(count: Int) -> String {
         count == 1 ? "1 note waiting" : "\(count) notes waiting"
+    }
+
+    /// **What is waiting, in the writer's terms** (P3b smoke find F2): the
+    /// request's own description where the loads gave one — *1 paragraph
+    /// waiting in “Chapter 3”* — else the plain count, as the sheet always said.
+    static func waitingLine(for request: AdmissionRequest) -> String {
+        request.described?.line ?? waitingLine(count: request.waitingCount)
     }
 
     static func codeLine(code: String) -> String {
@@ -204,9 +213,19 @@ struct AdmissionSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(Self.title(request: request, projectTitle: projectTitle))
                 .font(.headline)
-            Text(Self.waitingLine(count: request.waitingCount))
+            Text(Self.waitingLine(for: request))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let peek = request.described?.peek {
+                // A peek at the words, so the writer can tell whose they are
+                // before deciding — never the whole span, and never editable.
+                Text(peek)
+                    .font(.callout)
+                    .italic()
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
 
             Divider()
 

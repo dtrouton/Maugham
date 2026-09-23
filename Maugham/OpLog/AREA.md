@@ -1444,6 +1444,18 @@ unsigned stream — and they are told apart HERE, once, by the string the walk
 held them under. `unsigned:<stream>` is a shape no fingerprint and no device id
 can be, which is what makes the classification total rather than a guess.
 
+**`HeldLines.Waiting` — what a held line IS** (P3b smoke find F2). Every
+surface put *notes* after a held count, so Kit's paragraph of prose was *1 note
+waiting* on the admission sheet and on History's §4.5 banner. The load now
+counts, beside `pendingByDevice` and from the same classified lines,
+`FileProvenance.pendingWaitingByDevice`: prose by distinct PARAGRAPH (a
+paragraph typed in three bursts is one), every other op as a note, and the
+first held paragraph's last words as a peek. It ASKS
+`Deriver.appliesToManuscript` which ops move the words (tripwire 44 —
+`HeldLines.swift` is in `manuscriptClassifierCallers`) and decodes only held
+prose lines. `HeldLines.sentence(_:notes:what:)` says the phrase where it has
+one and the old count where it has none (the capture stream holds no ops).
+
 **`OpLogDeviceState.acknowledgeLoss` — the escape.** A remembered stream that
 is legitimately gone made `revoke`, `changePermit` and `admit` refuse for ever.
 History draws what the book is missing — a stream found shorter than it was, or

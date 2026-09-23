@@ -2562,6 +2562,9 @@ public final class OpLogStore {
             name: name, legacy: legacy, verified: verified, unsealed: unsealed,
             unsignedHistory: unsignedHistory, quarantined: quarantined,
             pending: pending, pendingByDevice: pendingByDevice,
+            // What they ARE (P3b smoke find F2), counted from the same lines.
+            pendingWaitingByDevice: pendingByDevice.isEmpty
+                ? [:] : HeldLines.Waiting.byDevice(of: lines),
             // **Which of them the writer can be asked to ADMIT** (Task 5's D5).
             // The permit partition holds a line it cannot judge under the same
             // `.pending` state a stranger's seal does, and only the table can

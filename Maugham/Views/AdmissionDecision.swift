@@ -45,6 +45,12 @@ struct AdmissionRequest: Identifiable, Equatable {
     /// in that label's spelling — nil when there is none (F1). Set exactly
     /// when the device's name was withheld from `proposedLabel`.
     let sharesItsNameWith: String?
+    /// **What is waiting, and where, in the writer's terms** (P3b smoke find
+    /// F2) — *1 paragraph in “Chapter 3”* and the first words of it. Filled in
+    /// by the window from the loads' own descriptions (`AdmissionWaiting
+    /// .describe`); nil where there is nothing to describe, and the sheet then
+    /// says the plain count.
+    var described: AdmissionWaiting?
 
     init(
         fingerprint: String, ownName: String?, code: String,

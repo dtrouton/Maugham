@@ -81,6 +81,21 @@ final class AdmissionQueueTests: XCTestCase {
         XCTAssertTrue(queue.dismissed.isEmpty)
     }
 
+    /// F2: the stranger up is re-described as their lines arrive, and keeps
+    /// the sheet it has.
+    func test_aFresherDescriptionOfTheStrangerUpReplacesTheOneShown() {
+        var queue = twoWaiting()
+        var fresher = sam
+        fresher.described = AdmissionWaiting(pieces: [], captures: 2)
+
+        queue.rederived([fresher, ren])
+
+        XCTAssertEqual(queue.presented, fresher)
+        XCTAssertEqual(queue.presented?.id, sam.id, "the same sheet, not a new one")
+        queue.admitted(sam.fingerprint)
+        XCTAssertNil(queue.presented)
+    }
+
     // MARK: - Not now
 
     func test_notNowBringsUpTheNextAndNeverReasksTheOneDeclined() {

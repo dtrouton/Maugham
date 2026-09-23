@@ -1361,10 +1361,14 @@ extension DocumentStore {
         var counts: [String: Int] = [:]
         var streams: [String: Set<String>] = [:]
         var startedAPiece: [String: [String: Int]] = [:]
+        var waiting: [String: [String: HeldLines.Waiting]] = [:]
         for document in allOpenDocuments() {
             guard let provenance = document.provenance else { continue }
             for (device, count) in provenance.pendingByDevice {
                 counts[device, default: 0] += count
+            }
+            for (device, what) in provenance.pendingWaitingByDevice {
+                waiting[device, default: [:]][document.docId] = what
             }
             for (device, slugs) in provenance.pendingStreamsByDevice {
                 streams[device, default: []].formUnion(slugs)
@@ -1391,7 +1395,8 @@ extension DocumentStore {
             streams[device, default: []].formUnion(slugs)
         }
         return HeldLineUnion(
-            counts: counts, streams: streams, startedAPiece: startedAPiece)
+            counts: counts, streams: streams, startedAPiece: startedAPiece,
+            waiting: waiting, captures: inboxStore.pendingByDevice)
     }
 
     // MARK: - The words a held line is waiting with (P3b Task 8, spec §7.4)
@@ -1518,14 +1523,27 @@ struct HeldLineUnion: Equatable {
     /// Holder → the pieces they opened → **how much of theirs is held in that
     /// piece** (fix round 1, I4). Per document, because the question names one.
     var startedAPiece: [String: [String: Int]]
+    /// **What each holder's held lines ARE, piece by piece** (P3b smoke find
+    /// F2) — holder → docId → paragraphs and notes, the open documents' own
+    /// `OpLogProvenance.pendingWaitingByDevice` joined to the docId only this
+    /// fold knows. The admission sheet says *1 paragraph in “Chapter 1”* from
+    /// it rather than *1 note waiting*.
+    var waiting: [String: [String: HeldLines.Waiting]]
+    /// Held CAPTURES by holder — the capture stream's share of `counts`, which
+    /// holds captures and never paragraphs or notes, so a surface can say so.
+    var captures: [String: Int]
 
     init(
         counts: [String: Int] = [:], streams: [String: Set<String>] = [:],
-        startedAPiece: [String: [String: Int]] = [:]
+        startedAPiece: [String: [String: Int]] = [:],
+        waiting: [String: [String: HeldLines.Waiting]] = [:],
+        captures: [String: Int] = [:]
     ) {
         self.counts = counts
         self.streams = streams
         self.startedAPiece = startedAPiece
+        self.waiting = waiting
+        self.captures = captures
     }
 }
 

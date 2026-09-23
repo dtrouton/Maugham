@@ -524,9 +524,17 @@ struct HistoryPane: View {
         // device to name, and Admit… would find nothing — so this goes quiet
         // rather than reporting *1 note from another device*.
         guard total > 0 else { return nil }
-        let noun = total == 1 ? "note" : "notes"
-        let verb = total == 1 ? "is" : "are"
         let devices = provenance.pendingStrangersByDevice.keys.sorted()
+        // **What they ARE** (P3b smoke find F2), from the load's own
+        // description of the same held lines — *1 paragraph*, not *1 note*,
+        // where a stranger's line is prose. The plain count stands where the
+        // load had nothing to describe.
+        let described = devices
+            .compactMap { provenance.pendingWaitingByDevice[$0] }
+            .reduce(HeldLines.Waiting()) { $0.merged(with: $1) }
+            .phrase
+        let noun = described?.text ?? (total == 1 ? "1 note" : "\(total) notes")
+        let verb = (described?.isPlural ?? (total != 1)) ? "are" : "is"
         let who: String
         if devices.count > 1 {
             who = "\(devices.count) devices"
@@ -539,7 +547,7 @@ struct HistoryPane: View {
             // that ever stopped being true.
             who = "another device"
         }
-        return "\(total) \(noun) from \(who) \(verb) waiting for admission."
+        return "\(noun) from \(who) \(verb) waiting for admission."
     }
 
     /// **The held lines that are NOT waiting for admission** (P3b Task 7,
@@ -601,8 +609,11 @@ struct HistoryPane: View {
                 startedAPiece: startedAPiece.contains(holder))
             // A stranger's is the sentence above, with its own control.
             guard case .stranger = who else {
+                // **What the lines ARE** (P3b smoke find F2): Kit's paragraph
+                // read *1 note is waiting in a piece no one has claimed yet*.
                 guard let sentence = HeldLines.sentence(
                     who, notes: provenance.pendingByDevice[holder] ?? 0,
+                    what: provenance.pendingWaitingByDevice[holder],
                     named: names[holder])
                 else { return nil }
                 // **The door is the unsigned arm's alone.** An admitted

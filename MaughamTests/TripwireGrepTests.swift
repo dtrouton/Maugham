@@ -8009,9 +8009,13 @@ final class TripwireGrepTests: XCTestCase {
     /// out of the draft, and so which of them spec §7.4's Send to Inbox can
     /// hand back (P3b Task 8) — a second list there would refuse a writer
     /// their own paragraph, or offer to re-file a disposition as prose.
+    /// `HeldLines.swift` says by it what a HELD line is in the writer's terms
+    /// — a paragraph of prose or a note (P3b smoke find F2) — so the admission
+    /// sheet and History cannot call Kit's paragraph a note again, and cannot
+    /// call a comment prose.
     static let manuscriptClassifierCallers: Set<String> = [
         "Deriver.swift", "Permit.swift", "ProcessSignals.swift", "DeltaBuilder.swift",
-        "OpLogQuarantine.swift",
+        "OpLogQuarantine.swift", "HeldLines.swift",
     ]
 
     /// **Which ops become words is asked, never restated** — and the list of

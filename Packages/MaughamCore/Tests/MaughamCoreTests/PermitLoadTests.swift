@@ -826,6 +826,13 @@ final class PermitLoadTests: XCTestCase {
         XCTAssertEqual(applied, [])
         var provenance = try await loadedProvenance()
         XCTAssertEqual(provenance.pendingOpLines, 1, "a question, not a violation")
+        // **And the load says what it IS** (P3b smoke find F2): her opening is
+        // a paragraph of prose, not a note — the words History and the sheet
+        // then put after the number.
+        XCTAssertEqual(
+            provenance.pendingWaitingByDevice.values.first?.phrase?.text, "1 paragraph")
+        XCTAssertEqual(
+            provenance.pendingWaitingByDevice.values.first?.peek, "herOpening")
         XCTAssertEqual(provenance.quarantinedLines, 0)
         XCTAssertTrue(linesRecords().isEmpty)
         XCTAssertEqual(provenance.pendingStrangerOpLines, 0,
