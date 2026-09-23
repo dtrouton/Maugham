@@ -1300,6 +1300,13 @@ next read.
   enforcement is cooperative against a modified client — which is what ADR
   0032 has always claimed to be (provenance, not a lock) but is worth saying in
   the place where somebody will look for it.
+  **CLOSED BY P3b (2026-09-20), by snapshot — Denver's ruling, option B.** The
+  candidate above is what shipped: the first NARROWING event (not the first
+  permit event — an admission changes nothing about who may write what) carries
+  a mark over every stream this register can name no key for, and an
+  unattributable line AFTER that photograph is PENDING. See the P3b addendum
+  below for the rule in both directions, for what it still does not cover, and
+  for what it costs.
 - **A file's fast path rests on one key per file.** A stream whose every line
   is one kind, written by an actor the table allows that kind under a book
   author, is answered whole rather than line by line. That is sound because
@@ -1312,7 +1319,11 @@ next read.
   `DocumentStore.changePermit(everyRecordOf:to:)` are the label-wide verb —
   each record its own mark and its own event, refused whole up front if any
   would be (`PermitChangePartlyApplied`), revoked siblings skipped — and it
-  exists for P3b's pane to press. Nothing presses it in P3a.
+  exists for P3b's pane to press. Nothing presses it in P3a. **P3b presses it**:
+  People & Devices' *Change…* and *Re-admit* both go through it, and
+  `TripwireGrepTests.test_noViewPressesTheSingleRecordPermitVerb` keeps the
+  single-record verb out of every view, so a permit change cannot reach one of a
+  writer's machines and miss the others.
 - **A revocation's cut is positions only where the revocation HAS a mark.** A
   P2-era revocation carries `highestOpIdSeen` and no event, so `RevocationSplit`
   still reads the opId off the line for it. That is the residue of the audit's
@@ -1377,6 +1388,171 @@ person is a reviewer the book judges, and the cost lands on the document open:
 **+15 ms, +65 %**, the per-line decode plus the class resolution over 1,001
 ops. It is paid once per open rather than per keystroke, and it is the price of
 the rung existing; P3b carries it as a known number rather than a surprise.
+
+## Addendum — scope's lifecycle and the Mac's surfaces, 2026-09-20 (P3b)
+
+P3a enforced the permit and gave it no way to be GIVEN or SEEN. P3b is that
+half: the controls that install a rung, the surfaces that say what is held and
+what is lost, and the four things the P3a build left open — the unsigned door,
+the schema gate, a sweep that could refuse for ever, and a sheet offering keys
+it must not.
+
+Nothing here changes what a line MEANS. Every decision is still one pure
+MaughamCore value with a thin surface reading it, there is still one trust
+table (tripwire 39), one permission table (44) and one partition (45), and a
+book that narrows nobody is P2/P3a exactly.
+
+### The unsigned door closes by snapshot, in both directions
+
+`UnsignedSnapshot`. The first NARROWING event carries a mark, in P3a's own
+chain-position form, over every stream with no attributable key.
+
+- **At or before the photograph: exactly P1.** Manuscript text stays applied,
+  and an unsigned Mac's note edits and withdrawals stay honoured — this
+  replaces `AnnotationOwnership.unplaced`'s backward reach, because *narrowing
+  must not reach back* is the demotion rule and it does not stop being the rule
+  when the party has no key.
+- **After it: PENDING.** Held, never set aside (nothing is wrong with the
+  line), never pardonable by an admission (there is no key to admit). Its one
+  way in is §7.4's *Send to Inbox*, from History's held rows.
+
+An un-narrowed or registerless book is untouched, and narrowing is STICKY
+(`TrustTable.hasNarrowingPermits` reads every entry of every timeline), so
+there is no un-narrowing direction. Where two roots have both narrowed, the
+**earliest narrowing event by date** governs — never the newest, because a
+later photograph would MOVE the cliff, and moving it forward applies lines that
+had been held while moving it back withdraws lines that had been applied. `at`
+is a signed field, so every device reads the same number out of the same bytes.
+
+**S4(c) is answered by test, not by argument** (`UnsignedDoorTests
+.test_twoRootsThatAdoptedEachOtherJudgeEveryLineTheSameWay`): two roots that
+each narrowed somebody of their own, each from its own copy of the folder, and
+then adopted each other, reach the same governing snapshot and apply and hold
+exactly the same lines.
+
+### The schema gate, and new books born at 9
+
+The first narrowing raises `ProjectManifest.schemaVersion` to 9 BEFORE the
+event is written (gate → event → record), so a v0.40 Mac cannot open a narrowed
+book — which it would otherwise do by applying a reviewer's refused text and
+re-asserting it under its own book-author key. The write door is **raise-only**
+against what is on disk, inside the coordinated write, and a P3 build that
+finds a narrowed book stamped lower HEALS it at open. A book MADE on this build
+starts at 9, which is a release-notes line rather than a rule.
+
+### A loss the writer has been shown stops being expected
+
+`OpLogDeviceState.acknowledgeLoss`. A remembered stream that is legitimately
+gone made `revoke`, `changePermit` and `admit` refuse for ever, naming history
+that no longer exists. History now draws what this book is missing — a stream
+found shorter than it was, or one the folder holds no file of at all — and
+**Acknowledge** puts it down; every sweep, the snapshot's included, takes the
+same escape through one function (`expectedStreams`).
+
+### What the surfaces are
+
+The admission sheet installs a rung and never offers a non-author actor key or
+a contested one; People & Devices changes a permit across every record of one
+label, re-admits pre-filled with the permit held when revoked, re-signs a
+record the reader refuses and writes this Mac's own record again; the editor
+says which piece is waiting for whom; the Inspector and the outline say whose
+piece is whose; and History carries the dated account — including, now, one
+undated-or-dated adoption row per adoption, and one dated *unsigned* entry per
+unsigned stream in a narrowed book.
+
+### What P3b does NOT do — the limits, stated
+
+- **The unsigned door closes by SNAPSHOT, which is not the same as closing.**
+  A modified client that holds a book-author key can still write whatever that
+  key may write; the photograph is about files nothing signs, not about a key
+  being misused. Enforcement stays provenance rather than a lock, which is what
+  this ADR has always claimed.
+- **The legacy unsuffixed `<docId>.jsonl` is outside `expecting:`.** It carries
+  no slug, so the foreign-stream memory has no key for it and a sweep cannot
+  tell *gone* from *never was* about it. Stated in the sweep's own doc comment.
+- **A Mac on no chain hears no narrowing at all.** No root of its own and
+  adopted by nobody means the event population — filtered by signer to my root
+  and the roots I have adopted — is empty, so the book reads as un-narrowed
+  there and every unattributable line is applied. It errs the permissive way
+  only, and such a Mac can write nothing this book will take; closing it means
+  deciding what a Mac that belongs to nobody should be SHOWN, which is P3c's
+  question. Pinned as
+  `UnsignedDoorTests.test_aMacOnNoChainHearsNoNarrowingAtAll`.
+- **Two admitting roots that have not adopted each other disagree about what is
+  held** (`test_withoutAdoptionEachMacHearsOnlyItsOwnRootsNarrowing`). Each
+  hears its own root's narrowing and drops the other's. That is what a claimant
+  IS and Merge is the way out, but it is a real disagreement and it is on the
+  record rather than a surprise.
+- **A file named `author-<hex of a non-author key>` can take a held span's
+  sheet.** The admission sheet gives an AUTHOR slug for a key precedence over
+  every other, so that a folder-writer cannot deny an honest stranger her sheet
+  by writing one filename beside her tail. **Accepted risk, stated** (Task 4's
+  review): such a file can only contain lines that key really signed, honest
+  Maugham signs only assistant-permitted kinds with that key, and once the
+  device record syncs `Registry.actorKeyOwners` names it an actor key. The cost
+  if it is wrong is that an actor key is admitted as a person and its replayed
+  annotation-kind lines are judged on the author row, which allows them anyway.
+- **An acknowledgement's scope grows, and it is device-local.** It is per
+  STREAM and it outlives the act it was pressed for — nothing re-asks after the
+  first verb — and two Macs can disagree about what the book is still waiting
+  for. That is deliberate: it is a fact about what this writer has been shown,
+  it changes no mark, and it moves only which Mac is able to write one. The
+  admission sheet takes the escape with no clause of its own (the pane's
+  *Re-admit*, which is P3b's surface for a revoked person, does carry it).
+- **A settled question's held lines can outlive their answer.** *Theirs* brings
+  in what was held under §4.5 in the piece it settles; a `.cannotJudge` hold in
+  that piece falls after the same cut and is re-judged to the same answer
+  (still held), and a held line in any OTHER piece stays where it was. The
+  sentence then names People & Devices and there is no control beside it.
+- **A too-new manifest arriving mid-session is decoded without the schema
+  guard.** `handleManifestChanged` re-reads the file; the guard runs at open.
+  Pre-existing, found by Task 3's re-review, carried to the roadmap.
+- **Retirement is one-way.** There is no un-retire verb: a retired device's
+  unsealed tail stays applied, its later SEALED lines are set aside, and their
+  way back is §7.4's door rather than one press. Spec §7.3's third load
+  question was withdrawn for it (Task 7's ruling; spec amended in `cb513541`).
+- **A `chainBroke` record still offers §7.4's door.** The door is decided by
+  what the record's archived LINES hold, never by the cause — which is right,
+  and it is also where *the words come back* meets *this was not written by
+  Maugham*. Such a record's captures are attributed to nobody
+  (*this book cannot say who wrote it*).
+- **Two doors sit on one pane with different leads.** History draws *Set
+  aside…* over records and *Waiting…* over held spans. They are different facts
+  and the words say so, but they are adjacent and orange.
+- **`changePermitOutcome`'s `.alreadyAdmittedElsewhere` arm is unreachable from
+  the pane** — a person under another root has no row there. It is the verb's
+  own guard and correct; there is no test that can be written for it from the
+  surface.
+- **Spec §7.1's share pre-fill is not built.** A read-only iCloud share does
+  not suggest *reviewer* in the admission sheet; the default is the whole book,
+  which is P2b's behaviour exactly. Carried to P3c, where Component A's
+  retirement decides `FileURLShareMetadataReader`'s one surviving caller.
+- **The kept release census does not walk hidden directories.** The P3c release
+  checklist's wording has to say so (`scripts/census-load-bursts.sh`).
+
+### The cost of a narrowed book, re-measured (P3b, 2026-09-23)
+
+P3a's table above is a different fixture and its probe was never committed.
+`MaughamTests/Performance/NarrowedBookCostTests.swift` is kept and env-gated,
+so this is re-takeable: the same four measures, medians of 7, over a real
+novel project with 300 bursts in the measured piece, on a quiet machine
+(`pgrep -x xcodebuild`: nothing). Two runs agreed to within a tenth of a
+millisecond; the first is shown.
+
+| measure | admissions-only | one reviewer | + a 400-line unsigned stream |
+|---|---|---|---|
+| annotations walk | 9.05 ms | 9.73 ms | 17.25 ms |
+| aggregation walk | 8.95 ms | 9.64 ms | 17.00 ms |
+| `Document.load` | 10.38 ms | 13.47 ms | 24.20 ms |
+| `TranslationStore.loadMerged` | 3.44 ms | 4.23 ms | 4.22 ms |
+
+An admissions-only book still pays nothing. One reviewer costs about +3 ms on a
+document open here; the unsigned stream the photograph is about is the bigger
+half, at about +11 ms more, because every load walks and judges it. Taken
+together the narrowed book stays inside **about one 16 ms frame** per document
+open — the figure `Maugham/OpLog/AREA.md` gives, and the one P3a's larger
+fixture reached from the other side.
+
 
 ## Consequences
 

@@ -362,3 +362,82 @@ is the first moment the question has an answer worth having.
 - **On a not-permitted device, `close()`'s failed-flush arm declines to
   re-persist**, so un-bursted keystrokes of a failed burst are lost from memory
   (logged). Unreachable once Posture makes such a piece read-only.
+
+---
+
+# P3b OUTCOME — scope's lifecycle and the Mac's surfaces (2026-09-23)
+
+Branch `claude/signed-op-log-p3b-2026-09-20`, off main `8c6c8b26`. Merged to
+local main when the whole-branch review clears; **not pushed, not tagged — P3
+ships whole** (Denver's ruling of 2026-09-20 stands).
+
+## What shipped
+
+Ten tasks and eight fix rounds. The evidence is
+`.superpowers/sdd/2026-09-20-signed-op-log-p3b/ledger.md` (every `Ruling:` line
+with what it costs if wrong) and the ten task reports beside it; hand both to
+P3c's planner and to any reviewer. The shape is in ADR 0032's **P3b
+addendum**, whose *limits* section is the honest list.
+
+- **The unsigned door closes by SNAPSHOT** (`UnsignedSnapshot`), in both
+  directions, with the earliest narrowing governing across two roots. **S4(c)
+  is answered by test** — two roots that adopted each other judge every line
+  identically from the same bytes.
+- **The schema gate** at the first narrowing (gate → event → record), a
+  raise-only write door, and a heal for a narrowed book stamped lower.
+- **An escape for a sweep that would refuse for ever** — a loss the writer has
+  been shown stops being expected, through one function every sweep asks.
+- **The surfaces**: the admission sheet's rung and piece picker (offering no
+  non-author actor key and no contested one), People & Devices' Change… /
+  Re-admit / Re-sign / write-my-record-again, the load's two questions, the
+  loss drawer, History's held-line rows, both §7.4 doors, and *Written by* on
+  the Inspector and the outline.
+- **Retirement is one-way** — §7.3's third load question was WITHDRAWN and the
+  spec amended (`cb513541`). A retired device's later sealed lines come back
+  through the Inbox door, not with one press.
+- Censuses: CLAUDE.md tripwires **49** and **50**, `Maugham/OpLog/AREA.md`'s
+  rows 21–22, each with a planted offender and a control.
+- The narrowed book is **re-measured on a KEPT fixture**
+  (`MaughamTests/Performance/NarrowedBookCostTests.swift`, env-gated,
+  attaching its table to the xcresult): about one 16 ms frame per document
+  open, and the unsigned stream the photograph is about is the bigger half.
+
+## For the release notes (with P3a's)
+
+- A book MADE on this build starts at **schema 9**, and the first narrowing
+  raises an existing book to it. Older Maughams cannot open a narrowed book —
+  which is the point.
+- The kept release census (`scripts/census-load-bursts.sh` over
+  `LoadBurstCensus`) runs on **every Mac that has opened a book** before the P3
+  release, per handoff ruling 3. It walks project folders and prints hits or
+  *none*; **it does not walk hidden directories**, which the checklist's
+  wording has to say. A hit is a per-line manual recovery, never a rule change.
+  This developer's Mac: 29 projects, 203 files, 5 segments, **zero hits**.
+
+## Carries into P3c — added by P3b
+
+- **Spec §7.1's share pre-fill is still not built.** A read-only iCloud share
+  does not suggest *reviewer*; the sheet defaults to the whole book. Build it
+  with Component A's retirement, where `FileURLShareMetadataReader`'s one
+  surviving caller is decided.
+- **A Mac on no chain hears no narrowing at all** and applies every
+  unattributable line. Permissive only, pinned
+  (`UnsignedDoorTests.test_aMacOnNoChainHearsNoNarrowingAtAll`); closing it
+  means deciding what such a Mac should be SHOWN, which is P3c's question.
+- **The phone holds identically and has no surface for any of it** (Task 2's
+  review): it applies `AnnotationOwnership`, its censuses stay empty, and it
+  says nothing about a held line, a permit or a narrowing.
+- **`announcePendingHistory` is narrowed to strangers**, so a §4.5 piece
+  question first appears at the next project open rather than mid-session.
+  Widening it puts a verified-registry read back on a path the writer's
+  keystrokes reach; a separate cheap post is the shape if it is wanted.
+- **Two doors on one pane, with different leads** (*Set aside…* / *Waiting…*),
+  and a `chainBroke` record still OFFERS the record door — decided by content
+  and not by cause, which is right and is also where *the words come back*
+  meets *this was not written by Maugham*.
+- **Everything else is in ADR 0032's P3b limits**, which is the list to read
+  rather than this one: the accepted planted-author-filename risk, the
+  acknowledgement's scope growth and device-local nature, the legacy unsuffixed
+  file outside `expecting:`, the too-new-manifest mid-session window (also
+  filed on the roadmap's *Signed structure*), and the unreachable
+  `.alreadyAdmittedElsewhere` arm.
