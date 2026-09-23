@@ -6,6 +6,12 @@ struct OutlineTable: View {
     @Bindable var store: ProjectStore
     @Binding var selectedSubject: BinderSubject?
 
+    /// **Who writes which piece** (P3b Task 9). One registry read for the
+    /// whole table, held here — a cell asks it a dictionary question, and the
+    /// read never happens in `body` or per row (tripwire 4, which this table
+    /// is one of the recurrence-trippers for).
+    @State private var writers: PieceWriters = .none
+
     /// **`Table` cannot carry a `BinderSubject`, and this is where that is
     /// paid for.** `List(selection:)` takes any `Hashable` and matches it
     /// against each row's `.tag`, so the binder and the pieces pane hold a
@@ -80,6 +86,31 @@ struct OutlineTable: View {
                         .foregroundStyle(.tertiary)
                 }
             }
+            // **The Writer column exists only in a book that has one.** Asked
+            // of the BOOK rather than of the row: a book where one chapter in
+            // forty has a scoped author gets the column with thirty-nine
+            // blanks in it, because the blanks are the answer for those
+            // chapters. A book with one writer in it — or one whose
+            // co-authors may each write the whole of it — gets no column at
+            // all, which is `PieceWriters`' own judgement and its reasons.
+            if !writers.isEmpty {
+                TableColumn(PieceWriters.columnTitle) { item in
+                    Text(writers.sentence(for: item.id) ?? "—")
+                        .foregroundStyle(
+                            writers.sentence(for: item.id) == nil
+                                ? AnyShapeStyle(.tertiary)
+                                : AnyShapeStyle(.secondary))
+                }
+            }
         }
+        .task(id: store.url) { await loadWriters() }
+    }
+
+    /// The one registry read this table makes — one per project, off the main
+    /// actor, through the door both inspectors use.
+    func loadWriters() async {
+        writers = await PieceWriters.read(
+            projectURL: store.url,
+            pieces: PermitControl.pieces(in: store.manifest.structure))
     }
 }
