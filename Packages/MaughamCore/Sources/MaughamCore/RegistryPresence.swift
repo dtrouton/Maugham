@@ -103,6 +103,72 @@ public enum RegistryPresence {
             record, signedBy: author, in: projectURL, presenter: presenter)
     }
 
+    // MARK: - A key named after the open (P3b smoke find F6)
+
+    /// **Put an actor key this device has just named on its record here**,
+    /// before the first line that key signs — and answer the file if anything
+    /// was written.
+    ///
+    /// `ensureDeviceRecord` runs at OPEN, and `LocalIdentities` is lazy: the
+    /// assistant's key exists only once MCP writes, the translator's once the
+    /// pipeline runs, Maugham's once a rebalance does. A key minted after the
+    /// open signed lines that the record did not name, so every other Mac held
+    /// them as a stranger's until this one relaunched and reopened the book —
+    /// on the smoke rig, an admitted reviewer's first Claude note. The write
+    /// paths that sign as a non-author actor (`OpLogStore.append`,
+    /// `TranslationStore.appendBatch`) ask this first.
+    ///
+    /// **It re-declares; it never declares.** The record is re-signed through
+    /// `ensureDeviceRecord` with the name and kind the record on disk ALREADY
+    /// carries, so this device's name is still decided in exactly one place
+    /// (the open). Where there is no record of this device here at all — a
+    /// book this Mac never opened, or one whose open could not write — it
+    /// writes nothing: the whole device is unknown there, and saying who it is
+    /// is the open's act. A retired device is left alone, for
+    /// `ensureDeviceRecord`'s reason.
+    ///
+    /// The AUTHOR is never declared from here: it IS the device, written at
+    /// open, and a writer's keystroke path must not pay a registry read to
+    /// learn so. It answers before touching the disk.
+    ///
+    /// An unsigned device writes nothing, quietly — `ensureDeviceRecord` has
+    /// already said so once for this process at the open.
+    ///
+    /// Throws what the read and the write throw. The CALLERS treat a throw as
+    /// *not yet* rather than *no*: the line is written regardless (the words
+    /// are safe first), and the record catches up on a later line or the next
+    /// open.
+    @discardableResult
+    nonisolated public static func declareActor(
+        _ actor: DeviceActor,
+        in projectURL: URL,
+        identities: LocalIdentities,
+        presenter: NSFilePresenter? = nil
+    ) throws -> URL? {
+        guard actor != .author else { return nil }
+        // ENUMERATE before naming: a device whose author key does not exist has
+        // declared itself nowhere, and naming the author here would mint a key
+        // for an actor nothing is writing as (`LocalIdentities`' lazy rule).
+        guard identities.existingActors.contains(.author) else { return nil }
+        let author = identities.author
+        guard author.canSign else { return nil }
+        // A stat before a verified read: a book with no device records at all
+        // — a project never opened on a Mac with a key — is answered without
+        // reading the registry.
+        guard FileManager.default.fileExists(
+            atPath: RegistryWriter.directoryURL(.devices, in: projectURL).path)
+        else { return nil }
+
+        let registry = try RegistryReader.load(projectURL: projectURL, presenter: presenter)
+        guard let existing = registry.devices.first(where: { $0.device == author.fingerprint }),
+              existing.retiredAt == nil,
+              existing.actors[actor.rawValue] != identities[actor].fingerprint
+        else { return nil }
+        return try ensureDeviceRecord(
+            in: projectURL, identities: identities,
+            name: existing.name, kind: existing.kind, presenter: presenter)
+    }
+
     // MARK: - Writing this Mac's own record again (P3b Task 5, audit F4)
 
     /// **Why this device cannot put its own record back.**

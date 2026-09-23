@@ -345,6 +345,40 @@ public final class OpLogStore {
     /// the access surface; not part of the public API.
     var appendFailureForTesting: Error?
 
+    /// Test-only observation seam: called in `append` after the actor's key is
+    /// declared and before the line is written, so a test can see the order.
+    var beforeChainedAppendForTesting: (() -> Void)?
+
+    /// The actors this store has already put on this device's record here —
+    /// asked once per store per actor, because the answer does not change
+    /// under a store's feet and a registry read per line would be a folder
+    /// read and a P256 verify per record on every append. Only a declaration
+    /// that did not THROW is remembered, so a registry that could not be
+    /// written is asked again on the next line.
+    private var declaredActors: Set<DeviceActor> = []
+    var declaredActorsForTesting: Set<DeviceActor> { declaredActors }
+
+    /// `RegistryPresence.declareActor`, once per actor, and never at the cost
+    /// of the line: a declaration that fails is logged and the append goes on.
+    /// The line is then held on other Macs until the record catches up — the
+    /// behaviour before F6, and no worse.
+    private func declareBeforeFirstLine(as actor: DeviceActor) {
+        guard !declaredActors.contains(actor) else { return }
+        do {
+            try RegistryPresence.declareActor(
+                actor, in: projectURL, identities: identities, presenter: presenter)
+            declaredActors.insert(actor)
+        } catch {
+            opLogLoadLog.error("""
+                Could not put this device's \(actor.rawValue, privacy: .public) \
+                key on its record in \
+                \(self.projectURL.lastPathComponent, privacy: .public): \
+                \(String(describing: error), privacy: .public). The line is \
+                written; other devices hold it until the record catches up.
+                """)
+        }
+    }
+
     private var opsDir: URL { projectURL.appendingPathComponent(".maugham/ops") }
 
     /// Glob every file for `docId` (legacy `<docId>.jsonl` + per-device
@@ -2588,6 +2622,11 @@ public final class OpLogStore {
         // prefix: another Mac's author carries `author-` too, and adopting one
         // would have this device chain and seal a file it does not own.
         let signer = identities.identity(forDeviceId: op.device)
+        // A key this device named after the book was opened goes on its record
+        // BEFORE the first line it signs, or every other Mac holds that line as
+        // a stranger's until this one reopens the book (P3b smoke find F6).
+        if let signer { declareBeforeFirstLine(as: signer.actor) }
+        beforeChainedAppendForTesting?()
         try await store(
             forDocId: op.docId, deviceSlug: slug, signer: signer
         ).append(op)

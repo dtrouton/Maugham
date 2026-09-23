@@ -140,6 +140,22 @@ public enum TranslationStore {
         }
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // The translator's key is as lazy as the assistant's: put it on this
+        // device's record before its first line, or every other Mac holds the
+        // batch as a stranger's until this one reopens the book (P3b smoke
+        // find F6). Best-effort, for `OpLogStore.append`'s reason — the words
+        // are written whether or not the record could be.
+        do {
+            try RegistryPresence.declareActor(
+                identity.actor, in: projectURL, identities: identities)
+        } catch {
+            translationLog.error("""
+                Could not put this device's \(identity.actor.rawValue, privacy: .public) \
+                key on its record: \(String(describing: error), privacy: .public). \
+                The batch is written; other devices hold it until the record \
+                catches up.
+                """)
+        }
         // One chained line per record inside ONE coordinated write, then one
         // seal over the batch — the op log's own shape, from the op log's own
         // store, so a translation line and a manuscript line are readable by

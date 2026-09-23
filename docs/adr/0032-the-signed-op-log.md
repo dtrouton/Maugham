@@ -421,7 +421,10 @@ tampered with, and a registry deleted wholesale with it. `TrustTable`/
 `TrustResolution` answer the verdicts (count `TrustVerdict`'s cases, not a
 sentence); `RegistryPresence` writes this
 device's record at `DocumentStore.open` (and, on the phone, at the first write),
-with the first Mac in an empty book writing the root. History says what is held
+with the first Mac in an empty book writing the root — and re-signs it, before
+the first line, when a key the lazy `LocalIdentities` minted after the open is
+about to sign one (`declareActor`, P3b smoke find F6; without it a Mac's first
+Claude write of a session was held on every other Mac until it relaunched). History says what is held
 and whose chain this Mac joined.
 
 **The root order, and the rule that a device never switches chains** — the one
