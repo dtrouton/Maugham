@@ -935,6 +935,22 @@ public final class OpLogStore {
     /// Nil is a real answer and it means the whole tail is new: a stream whose
     /// FIRST line is held is a piece she opened and nobody has claimed, which
     /// is the ordinary shape of the question.
+    ///
+    /// **What the cut does to a REFUSAL, both sides** (fix round 3's ruling,
+    /// amending fix round 1's clause (b)). A refusal BEFORE her first held
+    /// line stays before the cut and is re-judged by nothing: it keeps the
+    /// entry it had and stays set aside. A PERMIT refusal AFTER it in the same
+    /// stream falls after the cut and IS re-judged under the permit the answer
+    /// granted — so her checkpoint in the piece that has just become hers is
+    /// applied, which is right: the writer said the piece is theirs, and the
+    /// refusal was only ever *this piece is not yours*.
+    ///
+    /// The one refusal that might look like a pardon cannot occur here.
+    /// `.aBookAuthorHasWrittenItsText` is a DOCUMENT-level answer: where a
+    /// book author has written the piece's text, §4.5 holds nothing at all and
+    /// her manuscript lines are refused rather than held — so no file ever
+    /// carries both that refusal and a held line, and there is no cut to fall
+    /// after (`test_aClaimedPieceHoldsNothingSoThereIsNoCutToFallAfter`).
     nonisolated static func markLine(
         of lines: [OpLogChain.Line], seenWhen lastLine: (OpLogChain.Line) -> Bool,
         cuttingBeforeHeld: Bool
@@ -965,18 +981,19 @@ public final class OpLogStore {
     /// stream and `cutStream` is too, so only the order WITHIN a stream
     /// decides anything.
     ///
-    /// **Stated plainly: this is not independently falsifiable today, and it
-    /// is kept anyway.** A plain name sort happens to order a stream's
-    /// SEGMENTS correctly (`seg0000` before `seg0001`), and a tail that ran
-    /// first would have its line overwritten by the segment branch below — so
-    /// the behaviour coincides either way, and an experiment that swaps this
-    /// for a name sort stays green. What it buys is that the rule is true by
-    /// construction rather than by luck: the code says *the earliest file that
-    /// holds her decides*, and expressing that through a later assignment
-    /// happening to overwrite an earlier one is how the next reader breaks it
-    /// while every test stays green. The tail's own `cutStream` guard IS
-    /// falsifiable (`test_aSegmentsCutDecidesTheStreamAndTheTailCannotMoveIt`),
-    /// and it is only meaningful because of this order.
+    /// **What it costs to leave out** (fix round 3, correcting a weaker claim
+    /// this comment used to make). `opLogFileURLs` answers
+    /// `contentsOfDirectory` order, which is the filesystem's and not a name
+    /// sort — so *any* order is possible, the reverse included. Give one
+    /// stream two segments where the EARLIER holds her span behind a refusal
+    /// (`seg0000` = [refusal, her span], `seg0001` = more of her span) and
+    /// process them the other way round: `seg0001` claims the cut, `seg0000`
+    /// is skipped as *after the cut* and is never listed at all, so the mark
+    /// names the stream nowhere and `judge` answers `.allNew` for both files —
+    /// and the refusal inside `seg0000` is pardoned. That is the whole point
+    /// of the rule, undone by enumeration order.
+    /// `test_theEarlierOfTwoSegmentsDecidesTheCut` pins it, with `reversed()`
+    /// as its disable experiment.
     nonisolated static func settlingOrder(_ urls: [URL]) -> [URL] {
         urls.sorted { left, right in
             let leftIsSegment = left.pathExtension == OpLogSegment.fileExtension
@@ -1078,6 +1095,28 @@ public final class OpLogStore {
             change(&entry)
             found[key] = entry
         }
+        /// **What a SEGMENT tells the loss check**, whichever branch read it
+        /// (fix round 3, minor 3).
+        ///
+        /// The two questions a segment answers are different and only one of
+        /// them is about the mark: `found` is *is this stream still whole* and
+        /// `segments` is *is this file old*. A settling branch lists no digest
+        /// in the second and must still answer the first — including the arm
+        /// the ordinary path has always had, where a container that did not
+        /// verify says so (`sawUnsettledSegment`) rather than saying nothing.
+        /// Without it a settling sweep over a broken container would refuse
+        /// where the ordinary sweep does not, which is a marking verb refusing
+        /// for a reason that has nothing to do with the piece being settled.
+        func noteSegment(_ digest: String?, _ key: String) {
+            guard let digest else {
+                note(key) { $0.sawUnsettledSegment = true }
+                return
+            }
+            note(key) {
+                $0.digests.insert(digest)
+                $0.answered = true
+            }
+        }
         // **Streams of a piece being SETTLED whose mark a segment has already
         // cut** (fix round 2). Once a segment is cut by line, every later file
         // of that stream is wholly new by construction, so nothing after it may
@@ -1144,21 +1183,11 @@ public final class OpLogStore {
                             // stream is old, which is a mark with no line.
                             lastKnownLine.removeValue(forKey: stream.key)
                         }
-                        if let digest = classified.wholeSegmentDigest {
-                            note(stream.key) {
-                                $0.digests.insert(digest)
-                                $0.answered = true
-                            }
-                        }
+                        noteSegment(classified.wholeSegmentDigest, stream.key)
                         continue
                     }
                     if settling, cutStream.contains(stream.key) {
-                        if let digest = classified.wholeSegmentDigest {
-                            note(stream.key) {
-                                $0.digests.insert(digest)
-                                $0.answered = true
-                            }
-                        }
+                        noteSegment(classified.wholeSegmentDigest, stream.key)
                         continue
                     }
                     // **The one answer to *did this reader take the segment in
@@ -1188,12 +1217,6 @@ public final class OpLogStore {
                         entry.holdsRemembered = true
                     }
                 }
-                // A tail whose stream a segment has already cut contributes
-                // nothing: everything after that cut is new, this file
-                // included (fix round 2).
-                // A tail whose stream a segment has already cut contributes
-                // nothing: everything after that cut is new, this file
-                // included (fix round 2).
                 // A tail whose stream a segment has already cut contributes
                 // nothing: everything after that cut is new, this file
                 // included (fix round 2).
@@ -1375,6 +1398,28 @@ public final class OpLogStore {
             var entry = found[key] ?? .init()
             change(&entry)
             found[key] = entry
+        }
+        /// **What a SEGMENT tells the loss check**, whichever branch read it
+        /// (fix round 3, minor 3).
+        ///
+        /// The two questions a segment answers are different and only one of
+        /// them is about the mark: `found` is *is this stream still whole* and
+        /// `segments` is *is this file old*. A settling branch lists no digest
+        /// in the second and must still answer the first — including the arm
+        /// the ordinary path has always had, where a container that did not
+        /// verify says so (`sawUnsettledSegment`) rather than saying nothing.
+        /// Without it a settling sweep over a broken container would refuse
+        /// where the ordinary sweep does not, which is a marking verb refusing
+        /// for a reason that has nothing to do with the piece being settled.
+        func noteSegment(_ digest: String?, _ key: String) {
+            guard let digest else {
+                note(key) { $0.sawUnsettledSegment = true }
+                return
+            }
+            note(key) {
+                $0.digests.insert(digest)
+                $0.answered = true
+            }
         }
 
         for docId in docIds.sorted() {

@@ -208,6 +208,40 @@ final class PermitLoadTests: XCTestCase {
         return url
     }
 
+    /// **A tail whose chain BREAKS after the first op** (fix round 3, minor
+    /// 3's fixture).
+    ///
+    /// Rotated, this is the one segment shape that holds a line AND carries no
+    /// whole-file digest: `classifySegment`'s keyless walk answers
+    /// `wholeSegmentDigest: nil` exactly when some line fails `wasSeen`, and a
+    /// chain break is one of the two ways to fail it. So the settling cut
+    /// branch meets a segment with a held line and no digest, which is the
+    /// only way to reach `noteSegment`'s nil arm.
+    @discardableResult
+    private func writeFileWithABrokenChain(
+        by identity: DeviceIdentity, ops: [Op]
+    ) throws -> URL {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+        var bytes = Data()
+        var head: String?
+        for (index, element) in try ops.map({ try encoder.encode($0) }).enumerated() {
+            // The second line names a `prev` no line in this file hashes to.
+            let prev = index == 1
+                ? String(repeating: "0", count: 64)
+                : (head ?? OpLogChain.genesis)
+            let line = OpLogChain.chainedLine(elementJSON: element, prev: prev)
+            bytes.append(line)
+            bytes.append(0x0A)
+            head = OpLogChain.lineHash(line)
+        }
+        let url = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: identity.slug, in: projectURL)
+        try bytes.write(to: url, options: .atomic)
+        return url
+    }
+
     /// The same bytes, unwritten — for the one test that puts a file where its
     /// own name does not belong.
     private func fileBytes(by identity: DeviceIdentity, ops: [Op]) throws -> Data {
@@ -1210,6 +1244,173 @@ final class PermitLoadTests: XCTestCase {
                        pieces: ["doc-hers", docId], mark: mark.streams)
         applied = try await appliedOpIds()
         XCTAssertEqual(applied, ["earlyNote", "herOpening"].sorted())
+    }
+
+    /// **The EARLIER of two segments decides the cut** (fix round 3, finding
+    /// 1 — the case my first experiment was too weak to catch).
+    ///
+    /// `opLogFileURLs` answers `contentsOfDirectory` order, which is the
+    /// filesystem's: any order is possible, the reverse included. Give one
+    /// stream two segments where the earlier holds her span behind a refusal
+    /// and process them the other way round, and `seg0001` claims the cut
+    /// while `seg0000` is skipped as *after the cut* and never listed — so the
+    /// mark names the stream nowhere, `judge` answers `.allNew` for both, and
+    /// the refusal inside `seg0000` is pardoned.
+    func test_theEarlierOfTwoSegmentsDecidesTheCut() async throws {
+        try writeRootRecord()
+        try admitSam()
+        let samsStore = OpLogStore(
+            projectURL: projectURL, identities: sam, state: samState)
+
+        // seg0000: a refusal, then the beginning of her span.
+        try samsFile([
+            op("herCheckpoint", by: sam.author, kind: .checkpoint),
+            op("herOpening", by: sam.author),
+        ])
+        let first = try await samsStore.sealTailIfNeeded(
+            docId: docId, deviceSlug: sam.author.slug, threshold: 1)
+        XCTAssertNotNil(first)
+        // seg0001: more of the same span.
+        try samsFile([op("herSecondParagraph", by: sam.author)])
+        let second = try await samsStore.sealTailIfNeeded(
+            docId: docId, deviceSlug: sam.author.slug, threshold: 1)
+        XCTAssertNotNil(second)
+        XCTAssertNotEqual(first, second, "two segments, not one")
+
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: ["doc-hers"])
+        let mark = try await OpLogStore.seenPositions(
+            ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+            trust: try await reader().trust(), settlingPieces: [docId])
+        try writeEvent("b", kind: .scopeChanged, role: Permit.authorRole,
+                       scope: Permit.piecesScope,
+                       pieces: ["doc-hers", docId], mark: mark.streams)
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(
+            applied, ["herOpening", "herSecondParagraph"].sorted(),
+            "both segments' worth of her span came in")
+        XCTAssertFalse(
+            applied.contains("herCheckpoint"),
+            "and the refusal in the EARLIER segment is still set aside")
+    }
+
+    /// **A permit refusal AFTER her first held line is re-judged** (fix round
+    /// 3's ruling, amending clause (b)).
+    ///
+    /// The cut is before her span, so everything from there on falls under the
+    /// permit the answer granted — her checkpoint included. That is right:
+    /// the writer said the piece is theirs, and the only reason the checkpoint
+    /// was refused was that the piece was not. The other side of the rule —
+    /// a refusal BEFORE her span staying set aside — is pinned three times
+    /// over, in a tail, in a segment and across two segments.
+    func test_aPermitRefusalAfterHerSpanIsRejudgedByTheAnswer() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try samsFile([
+            op("herOpening", by: sam.author),
+            op("herCheckpoint", by: sam.author, kind: .checkpoint),
+        ])
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: ["doc-hers"])
+        let refusedBefore = try await loadedProvenance().quarantinedLines
+        XCTAssertTrue(refusedBefore > 0, "the checkpoint is refused before the answer")
+
+        let mark = try await OpLogStore.seenPositions(
+            ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+            trust: try await reader().trust(), settlingPieces: [docId])
+        try writeEvent("b", kind: .scopeChanged, role: Permit.authorRole,
+                       scope: Permit.piecesScope,
+                       pieces: ["doc-hers", docId], mark: mark.streams)
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(
+            applied, ["herCheckpoint", "herOpening"].sorted(),
+            "the piece is hers, so what she wrote in it is hers")
+    }
+
+    /// **A claimed piece holds nothing, so there is no cut to fall after** —
+    /// the reason the one refusal that would look like a pardon cannot occur.
+    ///
+    /// `.aBookAuthorHasWrittenItsText` is a DOCUMENT-level answer: where a
+    /// book author has written the piece's text, §4.5 holds nothing and her
+    /// manuscript lines are refused rather than held. So no file carries both
+    /// that refusal and a held line, and `markLine` is never asked to cut one.
+    func test_aClaimedPieceHoldsNothingSoThereIsNoCutToFallAfter() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeFile(by: root.author, ops: [op("rootsText", by: root.author)])
+        try samsFile([op("herOpening", by: sam.author)])
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: ["doc-hers"])
+
+        let provenance = try await loadedProvenance()
+        XCTAssertEqual(
+            provenance.pendingOpLines, 0,
+            "a book author wrote this piece, so nothing of hers is HELD here")
+        XCTAssertTrue(provenance.quarantinedLines > 0, "it is refused instead")
+
+        // And the settling sweep finds no held line to cut on, so its mark is
+        // the ordinary one: the same sweep, with and without the piece named.
+        let trust = try await reader().trust()
+        let ids = Set(sam.all.map(\.deviceId))
+        let settling = try OpLogStore.seenPositions(
+            ofDeviceIds: ids, in: projectURL, trust: trust,
+            settlingPieces: [docId])
+        let ordinary = try OpLogStore.seenPositions(
+            ofDeviceIds: ids, in: projectURL, trust: trust)
+        XCTAssertEqual(settling.streams, ordinary.streams)
+    }
+
+    /// **A segment carrying no whole-file digest refuses no more under a
+    /// settling sweep than under an ordinary one** (fix round 3, minor 3).
+    ///
+    /// The loss check is a different question from the mark, and the two
+    /// sweeps are ALLOWED to answer the mark differently — that is the whole
+    /// of this milestone. What they may not differ about is whether the sweep
+    /// REFUSES: a settling branch that listed no digest used to tell the loss
+    /// check nothing at all, so a stream whose later segment would not verify
+    /// could make a marking verb refuse for a reason with nothing to do with
+    /// the piece being settled.
+    func test_aSegmentWithNoWholeFileDigestRefusesTheSameUnderASettlingSweep()
+        async throws
+    {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: ["doc-hers"])
+        // A segment holding her span whose chain breaks, so the walk answers
+        // no whole-file digest — the one shape that reaches the nil arm.
+        try writeFileWithABrokenChain(by: sam.author, ops: [
+            op("herOpening", by: sam.author),
+            op("afterTheBreak", by: sam.author),
+        ])
+        let samsStore = OpLogStore(
+            projectURL: projectURL, identities: sam, state: samState)
+        let rotated = try await samsStore.sealTailIfNeeded(
+            docId: docId, deviceSlug: sam.author.slug, threshold: 1)
+        XCTAssertNotNil(rotated)
+        // A load, so this Mac remembers her stream and the loss check has
+        // something to be short of.
+        _ = try await appliedOpIds()
+
+        let trust = try await reader().trust()
+        let ids = Set(sam.all.map(\.deviceId))
+        let expecting = rootState.expectedStreams(inRoot: projectURL, writtenBy: nil)
+        XCTAssertFalse(
+            expecting.isEmpty,
+            "the fixture really remembers her stream, so the loss check has "
+            + "something to be short of")
+        let ordinaryRefused = (try? OpLogStore.seenPositions(
+            ofDeviceIds: ids, in: projectURL, trust: trust,
+            expecting: expecting)) == nil
+        let settlingRefused = (try? OpLogStore.seenPositions(
+            ofDeviceIds: ids, in: projectURL, trust: trust,
+            expecting: expecting, settlingPieces: [docId])) == nil
+
+        XCTAssertEqual(
+            settlingRefused, ordinaryRefused,
+            "settling changes what a mark SAYS, never whether the sweep refuses")
     }
 
     /// **One rule, two access points.** The TABLE answers the stranger
