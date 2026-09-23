@@ -1106,6 +1106,73 @@ extension DocumentStore {
             streamKey, inRoot: projectURL)
     }
 
+    // MARK: - A piece nobody has claimed (P3b Task 7, spec §4.5)
+
+    /// **Yes, that piece is theirs** — the one write behind the load's second
+    /// question.
+    ///
+    /// It adds the piece to their scope and changes nothing else. The permit
+    /// it installs is built in the permit layer from the one in force RIGHT
+    /// NOW — `PermitTimeline.current`, never `PersonRecord.role` (tripwire 43)
+    /// and never a rung compared here (tripwire 47) — so a writer who was
+    /// already an author of three pieces becomes an author of four and a
+    /// writer whose permit changed under this window since it drew does not
+    /// have that change quietly reverted.
+    ///
+    /// **Every record of theirs, like every other permit change** (fix round
+    /// 1's I3): a person is a label and a label is as many machines as they
+    /// own. Adding the piece to their Mac alone would leave their phone's
+    /// paragraphs of the same chapter held, with the writer told the question
+    /// was settled.
+    ///
+    /// **It refuses rather than promoting.** §4.5 can only hold a line for
+    /// somebody who may already write *some* of this book, so the permit in
+    /// force is an author-of-some-pieces one; if it is not — a permit changed
+    /// under this window, a word this build cannot read — this answers nothing
+    /// rather than inventing a rung the writer never chose.
+    /// `Permit.mayStartAPieceOfTheirOwn` is that question, asked of the permit
+    /// layer.
+    @discardableResult
+    public func pieceIsTheirs(
+        person: String, docId: String
+    ) async throws -> [PersonRecord] {
+        let projectURL = self.projectURL
+        let cache = Document.loadRegistryCache
+        let registry = try await Task.detached(priority: .userInitiated) {
+            try TrustResolution.verifiedRegistry(
+                projectURL: projectURL, presenter: nil, cache: cache)
+        }.value
+        guard registry.person(person) != nil else {
+            throw RegistryAdmissionError.notAdmitted(fingerprint: person)
+        }
+        let standing = PermitTimeline(about: person, in: registry).current
+        guard standing.mayStartAPieceOfTheirOwn else {
+            throw PieceIsTheirsRefused(person: person)
+        }
+        var pieces = PermitControl.pieces(displaying: standing)
+        pieces.insert(docId)
+        return try await changePermit(
+            everyRecordOf: person,
+            to: PermitControl.permit(for: .somePieces, pieces: pieces))
+    }
+
+    /// **Not now.** It writes nothing to the book — see
+    /// `OpLogDeviceState.declinePiece`, which is the whole of it — and only
+    /// stops THIS Mac asking again at the next load. The question goes on
+    /// waiting in People & Devices.
+    ///
+    /// Synchronous, like `acknowledgeLostHistory` beside it: a small local
+    /// write behind a button.
+    func notNowAboutPiece(person: String, docId: String) {
+        Document.loadDeviceState.declinePiece(
+            person: person, docId: docId, inRoot: projectURL)
+    }
+
+    /// Every question this Mac has already put off in this book.
+    func declinedPieces() -> Set<OpLogDeviceState.DeclinedPiece> {
+        Set(Document.loadDeviceState.declinedPieces(inRoot: projectURL).keys)
+    }
+
     // MARK: - Who is waiting, across this window
 
     /// **Held lines by device, over everything this window can see** — the open
@@ -1242,5 +1309,30 @@ public struct PermitChangePartlyApplied: Error, LocalizedError {
                 + "\(DeviceCode.short(failed)) has not."
         return "\(what) \(underlying.localizedDescription) "
             + "Pressing again finishes the rest and changes nothing twice."
+    }
+}
+
+/// **A piece question whose subject may not write pieces at all** (P3b Task 7).
+///
+/// §4.5 holds a line only for somebody who may already write *some* of this
+/// book, so the permit in force when the question was raised was an
+/// author-of-some-pieces one. It can have moved since: a second window, another
+/// Mac, or this writer themselves in People & Devices while the question stood.
+///
+/// Answering it anyway would install a rung nobody chose — *Theirs* is the
+/// writer saying whose a PIECE is, never a promotion — so the act refuses and
+/// says which of the two facts moved. `LocalizedError`, so
+/// `AdmissionDecision.refusal`'s fallback arm reads as a sentence.
+public struct PieceIsTheirsRefused: Error, LocalizedError {
+    public let person: String
+
+    public init(person: String) { self.person = person }
+
+    public var errorDescription: String? {
+        "Nothing was changed. What the device with code "
+            + "\(DeviceCode.short(person)) may write has moved since this "
+            + "question was asked, so saying the piece is theirs would give "
+            + "them access you haven’t chosen. Set what they may write in "
+            + "People & Devices instead."
     }
 }

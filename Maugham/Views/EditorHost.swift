@@ -1232,11 +1232,18 @@ struct EditorHost: View {
             // no recovery ladder (its three rungs all propose writing), and
             // nothing at all is read from the `.md` (tripwire 20): the pane
             // draws the sentence and the re-attempt below waits for the ops.
-            if case DocumentLoadError.waitingForPiece(let docId, _) = error {
+            if let waiting = error as? DocumentLoadError,
+               case .waitingForPiece(let docId, _) = waiting {
                 recoveryPaneModel = nil
+                // **One more arm on the same outcome** (P3b Task 7). Where
+                // this Mac may write SOME of the book, what it is waiting for
+                // is not a file — it is the root saying this piece is hers.
+                // `Document.waitingSentence` is where that is decided, because
+                // it is a permit question and this is a view.
                 loadOutcome = .waitingForPiece(
                     docId: docId,
-                    sentence: error.localizedDescription)
+                    sentence: Document.waitingSentence(
+                        waiting, docId: docId, in: store.url))
                 return
             }
             // RULING-7 + RULING-54: the refusal is SHOWN — in the pane where

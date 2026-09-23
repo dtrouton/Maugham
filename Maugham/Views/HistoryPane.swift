@@ -521,6 +521,45 @@ struct HistoryPane: View {
         return "\(total) \(noun) from \(who) \(verb) waiting for admission."
     }
 
+    /// **The held lines that are NOT waiting for admission** (P3b Task 7,
+    /// closing Task 2's review I1).
+    ///
+    /// P3a and P3b each added a reason to hold a line that has nothing to do
+    /// with letting a device in — an admitted person's line this build cannot
+    /// judge, one that opened a piece nobody has claimed, and a stream nothing
+    /// signs after the first narrowing — and all three were held SILENTLY: the
+    /// sentence above narrows to strangers on purpose, and nothing else said
+    /// anything at all. Words outside the draft with no sentence anywhere is
+    /// the one shape a refusal may not take.
+    ///
+    /// **`HeldLines` decides all of it**, both who each holder is and what to
+    /// say about them. This function chooses only the ORDER, which is the
+    /// holder's own string, so two reloads over one document say the same
+    /// things in the same sequence.
+    ///
+    /// The stranger split is the one the LOAD stamped, so no registry is read
+    /// on a draw (tripwire 4); `startedAPiece` is the walk's own answer, off
+    /// the open document.
+    nonisolated static func heldLineNotices(
+        provenance: OpLogProvenance?, startedAPiece: Set<String>,
+        names: [String: String]
+    ) -> [String] {
+        guard let provenance else { return [] }
+        let strangers = Set(provenance.pendingStrangersByDevice.keys)
+        return provenance.pendingByDevice.keys.sorted().compactMap { holder in
+            let who = HeldLines.holder(
+                of: holder, isAStranger: strangers.contains(holder),
+                startedAPiece: startedAPiece.contains(holder))
+            // A stranger's is the sentence above, with its own control.
+            guard case .stranger = who else {
+                return HeldLines.sentence(
+                    who, notes: provenance.pendingByDevice[holder] ?? 0,
+                    named: names[holder])
+            }
+            return nil
+        }
+    }
+
     // MARK: - History this book is missing (signed op log P3b Task 6)
 
     /// One drawn row of lost history: the sentence, and whether the writer has
@@ -815,6 +854,27 @@ struct HistoryPane: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+            }
+            // **And the held lines nobody can be admitted for** (P3b Task 7).
+            // No control: there is nothing the writer could press here that
+            // would change either one. A permit this build cannot read wants a
+            // newer build; a piece nobody has claimed is settled in People &
+            // Devices, where the sentence sends them; an unsigned stream's
+            // words come back through the Inbox, which is Task 8's door and
+            // which the sentence already names.
+            ForEach(Self.heldLineNotices(
+                provenance: documentProvenance,
+                startedAPiece: documentStore?
+                    .document(forDocId: activeDocId)?.startedAPiece ?? [],
+                names: chainDeviceNames), id: \.self) { notice in
+                Label(notice, systemImage: "clock.badge.questionmark")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("held-line-notice")
                 Divider()
             }
             if let notice = retirementLine {

@@ -131,10 +131,34 @@ public enum HeldLines {
         of pendingDevice: String, registry: Registry,
         startedAPiece: Bool = false
     ) -> Holder {
+        holder(
+            of: pendingDevice,
+            isAStranger: registry.isStrangerDevice(pendingDevice),
+            startedAPiece: startedAPiece)
+    }
+
+    /// **The same classifier, for a caller that has already been told who the
+    /// strangers are** (P3b Task 7).
+    ///
+    /// The load stamps that split once, with the table it had in hand
+    /// (`FileProvenance.pendingStrangerDevices` →
+    /// `OpLogProvenance.pendingStrangersByDevice`), so a pane drawing a
+    /// document's own counts can classify without reading the folder again —
+    /// which on a `body` pass would be tripwire 4's shape.
+    ///
+    /// **One body, so there is still one classifier.** The overload above is
+    /// this with the predicate asked of a registry instead of handed in; the
+    /// unsigned branch is decided by the string either way, which is why an
+    /// unsigned holder cannot be lost by a caller whose stranger set was
+    /// computed before this rule existed.
+    public static func holder(
+        of pendingDevice: String, isAStranger: Bool,
+        startedAPiece: Bool = false
+    ) -> Holder {
         if let stream = streamOfUnsignedHolder(pendingDevice) {
             return .unsigned(stream: stream)
         }
-        return registry.isStrangerDevice(pendingDevice)
+        return isAStranger
             ? .stranger(fingerprint: pendingDevice)
             : .permitPending(person: pendingDevice, startedAPiece: startedAPiece)
     }

@@ -74,6 +74,53 @@ extension Document {
     /// **Only ever called on the refusing path**, which is why it is allowed to
     /// read the registry a second time: the ordinary load has already gone past
     /// this point and paid nothing.
+    /// **The sentence the PANE shows, which knows one thing the error does
+    /// not** (P3b Task 7, spec §4.5's other half).
+    ///
+    /// `DocumentLoadError.waitingForPiece` says *waiting for this piece to
+    /// arrive*, which is the whole truth on a REVIEWER's Mac: she may write no
+    /// piece of this book, so no piece is ever going to become hers and what
+    /// she is waiting for is the ops. On the Mac of somebody who may write
+    /// SOME of it, that sentence is misleading in the direction that matters —
+    /// she is not waiting for a file, she is waiting for a person, and the
+    /// thing that would end the wait is the root saying this piece is hers.
+    ///
+    /// **Why the error keeps its own words.** It is a generic channel: MCP
+    /// returns it over a socket, a log records it, and neither knows whether
+    /// anybody is looking. The PANE is the one place that knows the writer is
+    /// reading the sentence right now, so it is the one place worth spending a
+    /// registry read on to make it exact. `EditorHost` asks; nothing else does.
+    ///
+    /// **It reads nothing from the `.md`** (tripwire 20) and it asks the
+    /// PERMIT LAYER rather than comparing a rung (tripwire 47):
+    /// `Permit.mayStartAPieceOfTheirOwn` is the question *may this person open
+    /// a piece of their own at all*, and it is spelled once, there.
+    ///
+    /// Only ever called on the refusing path, which is what licenses a second
+    /// registry read — the ordinary load has gone past this point and paid
+    /// nothing.
+    @MainActor
+    internal static func waitingSentence(
+        _ error: DocumentLoadError, docId: String, in projectURL: URL
+    ) -> String {
+        guard case .waitingForPiece(_, let root) = error else {
+            return error.localizedDescription
+        }
+        let opStore = OpLogStore(
+            projectURL: projectURL, identities: loadIdentities,
+            state: loadDeviceState, cache: loadRegistryCache)
+        let permit = opStore.localWritePermit {
+            Document.documentClass(forDocId: docId, in: projectURL)
+        }
+        guard permit.permit.mayStartAPieceOfTheirOwn else {
+            return error.localizedDescription
+        }
+        guard let root else {
+            return "Waiting for this piece to be added to yours."
+        }
+        return "Waiting for \(root) to add this piece to yours."
+    }
+
     internal static func rootLabelForWaiting(in projectURL: URL) -> String? {
         guard let registry = try? TrustResolution.verifiedRegistry(
             projectURL: projectURL, cache: loadRegistryCache) else { return nil }

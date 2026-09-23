@@ -463,6 +463,16 @@ struct ProjectWindow: View {
             documentStore: documentStore,
             projectStore: store,
             window: $window))
+        // **The load's other question** (P3b Task 7, spec §4.5): somebody who
+        // may write some of this book has started a piece that is in nobody's
+        // scope. Its own modifier beside admission's, for admission's reason —
+        // one subject, one queue — and the two cannot collide: a stranger has
+        // no permit to widen, and a person who has one is no stranger.
+        .modifier(NewPieceModifier(
+            projectURL: url,
+            documentStore: documentStore,
+            projectStore: store,
+            window: $window))
         // And the other question a registry can raise at an open: a book this
         // Mac is holding and has no key in. Its own modifier because it is a
         // question about the WHOLE book rather than about a device, and the

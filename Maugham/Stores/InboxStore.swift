@@ -126,6 +126,15 @@ final class InboxStore {
     /// row and `bylines` cannot answer for it.
     private(set) var pendingDeviceNames: [String: String] = [:]
 
+    /// **What is held here that no admission would release** (P3b Task 7) —
+    /// already as sentences, because `HeldLines` decides both who a holder is
+    /// and what to say about them, and a second wording in the pane would be a
+    /// second opinion about a fact History states in the same words.
+    ///
+    /// Sorted by holder, so two refreshes over one folder say the same things
+    /// in the same order. Empty for every book that has narrowed nobody.
+    private(set) var heldNotices: [String] = []
+
     private let projectURL: URL
     private let inboxDir: URL
     /// This Mac's own device identifier — the same string the op-log `device`
@@ -279,6 +288,7 @@ final class InboxStore {
             pendingByDevice = [:]
             pendingStreamsByDevice = [:]
             pendingDeviceNames = [:]
+            heldNotices = []
             setAsideRecords = setAsideLineRecords()
             inboxStoreLog.error(
                 "inbox read refused: \(OpLogStore.unreadableName(error), privacy: .public) is present and unreadable: \(error.localizedDescription, privacy: .public)")
@@ -371,6 +381,24 @@ final class InboxStore {
         pendingStreamsByDevice = heldStreams.filter { strangers[$0.key] != nil }
         pendingDeviceNames = strangers.keys.reduce(into: [:]) { names, device in
             names[device] = InboxByline.name(forDevice: device, registry: registry)
+        }
+        // **And the captures nobody can be admitted for** (P3b Task 7, closing
+        // Task 2's review I1). The narrowing above is right and stays — the
+        // banner it feeds says *waiting for admission* — but until now the
+        // other held captures were simply DROPPED here, so a phone whose
+        // permit this build cannot read, or one that signs nothing it writes,
+        // sent captures into an inbox that showed none of them and said
+        // nothing at all. Classified once, with the registry in hand, by the
+        // one classifier; the pane draws the sentences and offers no control,
+        // because there is nothing to press.
+        heldNotices = held.keys.sorted().compactMap { holder in
+            let who = HeldLines.holder(of: holder, registry: registry)
+            guard case .stranger = who else {
+                return HeldLines.sentence(
+                    who, notes: held[holder] ?? 0,
+                    named: InboxByline.name(forDevice: holder, registry: registry))
+            }
+            return nil
         }
     }
 

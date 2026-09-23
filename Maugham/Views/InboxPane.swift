@@ -136,6 +136,21 @@ struct InboxPane: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
+            // **And the captures no admission would release** (P3b Task 7).
+            // No control beside them, unlike the banner above: a permit this
+            // build cannot read wants a newer build, and a Mac that signs
+            // nothing it writes has no device to admit at all — its words come
+            // back through this very pane, which is Task 8's door and which
+            // the sentence already names.
+            ForEach(store.heldNotices, id: \.self) { notice in
+                Label(notice, systemImage: "clock.badge.questionmark")
+                    .font(.caption)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("inbox-held-notice")
+                Divider()
+            }
             if let registryNotice = store.unreadableRegistry {
                 // A registry record, not a capture. Its own sentence, because
                 // wrapping it in "some captures can't be read" would name a
