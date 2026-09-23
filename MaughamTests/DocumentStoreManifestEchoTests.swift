@@ -29,6 +29,7 @@ final class DocumentStoreManifestEchoTests: XCTestCase {
         let store = try await ProjectStore.load(from: url)
         let ds = try await DocumentStore.open(url: url)
         store.documentStore = ds
+        ds.projectStore = store
         return (url, store, ds)
     }
 
@@ -74,9 +75,11 @@ final class DocumentStoreManifestEchoTests: XCTestCase {
     }
 
     /// A genuinely-different external manifest with a NEWER timestamp must still
-    /// archive (regression guard for the original LWW behavior).
+    /// archive (regression guard for the original LWW behavior). Since F7 the
+    /// window adopts it and the archive is the copy it replaced
+    /// (`ManifestAdoptionTests` pins which copy that is).
     func test_externalNewerManifest_archives() async throws {
-        let (url, _, ds) = try await makeNovel()
+        let (url, store, ds) = try await makeNovel()
         let manifestURL = url.appendingPathComponent(ProjectManifest.fileName)
 
         let project = try await ProjectStore.load(from: url)
@@ -90,6 +93,7 @@ final class DocumentStoreManifestEchoTests: XCTestCase {
 
         XCTAssertFalse(conflictFiles(in: url).isEmpty,
                        "genuine external change must archive")
+        XCTAssertEqual(store.manifest.title, "Externally Renamed")
         await ds.close()
     }
 

@@ -156,6 +156,14 @@ public final class ProjectStore {
     public let url: URL
     public internal(set) var manifest: ProjectManifest
 
+    /// **The manifest as it last stood level with disk** — loaded, saved, or
+    /// adopted from another device (F7, 2026-09-23). `manifest` differing from
+    /// it means a structural change of this window's own is on its way to disk,
+    /// which is the one time a manifest arriving from elsewhere must not be
+    /// adopted over it (`adoptExternalManifest`). `@ObservationIgnored`: it is
+    /// bookkeeping, never something a view draws.
+    @ObservationIgnored internal var settledManifest: ProjectManifest
+
     /// Optional reference to the DocumentStore that owns this project's
     /// coordinated I/O. Set by ProjectWindow at open time. When non-nil,
     /// manifest saves route through DocumentStore.writeManifest. When nil
@@ -398,6 +406,7 @@ public final class ProjectStore {
     ) {
         self.url = url
         self.manifest = manifest
+        self.settledManifest = manifest
         self.trashStore = trashStore
         self.trashEntries = trashEntries
     }

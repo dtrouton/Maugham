@@ -1477,32 +1477,70 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
     private func handleManifestChanged() {
         let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
         guard let data = try? Data(contentsOf: manifestURL) else { return }  // adr-0018-ok: project manifest JSON read, not manuscript
-        // Decode to confirm the bytes are a well-formed manifest before reacting
-        // (a partial/torn write isn't a conflict to archive).
-        guard (try? ProjectManifest.makeDecoder().decode(
-            ProjectManifest.self, from: data)) != nil else { return }
 
         // Content-hash echo guard (findings 1.2 + O2). If the disk content
-        // matches what we last wrote (or loaded at open), this callback is an
-        // echo of our own coordinated write — NOT an external change — so we
-        // must not archive. Only when the bytes genuinely DIFFER is it a real
-        // external manifest, which we preserve per the master spec:
-        // "Last-writer-wins; the loser is `.maugham/conflicts/manifest-<ts>.json`."
-        // Using a content hash (not a whole-second-truncated timestamp) means a
-        // same-second external change is still detected (O2).
+        // matches what we last wrote, loaded at open or adopted below, this
+        // callback is an echo — NOT an external change. A content hash (not a
+        // whole-second-truncated timestamp) means a same-second external change
+        // is still detected (O2).
         let diskEcho = ManifestEcho.afterWrite(bytes: data)
         if diskEcho == lastWrittenManifest {
             return
         }
-        archiveManifestForConflict(data: data)
+
+        // Decoded through the OPEN's own guard. A torn write is not a manifest
+        // at all and is ignored until the whole file lands. A manifest from a
+        // LATER build is refused rather than adopted: this build would decode
+        // it lossily and its next structural save would drop whatever it could
+        // not represent. Its bytes are archived so they outlive that save
+        // (`writeManifest` logs the overwrite) — the pre-F7 behaviour, kept for
+        // the one case where this window cannot honestly take the file on.
+        let incoming: ProjectManifest
+        do {
+            incoming = try ProjectManifest.decodeGuardingSchema(data)
+        } catch let tooNew as ProjectManifest.SchemaTooNewError {
+            documentStoreLog.error(
+                "manifest at \(self.projectURL.lastPathComponent, privacy: .public) arrived at schema \(tooNew.found, privacy: .public), which this build (\(tooNew.supported, privacy: .public)) cannot read; kept this window's copy and archived the incoming one")
+            archiveManifestForConflict(data: data)
+            lastWrittenManifest = diskEcho
+            return
+        } catch {
+            return
+        }
         lastWrittenManifest = diskEcho
+
+        // **Adopt it** (F7, 2026-09-23). The master spec: "Last-writer-wins;
+        // the loser is `.maugham/conflicts/manifest-<ts>.json`." Until this fix
+        // the handler archived the INCOMING manifest and never assigned the
+        // live one, so another Mac's chapter never appeared here and this
+        // window's next structural save wrote its stale copy over it — the
+        // winner archived and the loser kept. Now the loser is whichever copy
+        // will not be on disk: the window's own when it adopts, the incoming
+        // one when a structural change of the window's own is still on its way
+        // there (`ProjectStore.adoptExternalManifest` decides). A headless
+        // store has no live copy, so nothing here can lose.
+        if let live = projectStore {
+            switch live.adoptExternalManifest(incoming) {
+            case .adopted(let replaced):
+                if let replaced,
+                   let loser = try? ProjectManifest.makeEncoder().encode(replaced) {
+                    archiveManifestForConflict(data: loser)
+                }
+                // The verified shadow mirrors the manifest this window now
+                // holds, so a later corrupt file recovers to it and not to the
+                // copy it just replaced. Best-effort, as at every save.
+                try? ManifestShadow.write(data, in: projectURL)
+            case .keptUnsavedChange:
+                archiveManifestForConflict(data: data)
+            }
+        }
+
         // **A manifest that arrived from somewhere else is the other half of
         // the gate's problem** (P3b fix round 1, ruling 2). This is the path an
         // iCloud conflict pick and a pre-fix Mac's save both come down, and
         // either can have landed a number below this build's on a book that has
-        // been narrowed. Raise-only, narrowed-only, never blocking: the
-        // conflict backup above has already been taken, so the bytes that
-        // arrived are kept whatever happens next.
+        // been narrowed. Raise-only, narrowed-only, never blocking: whichever
+        // copy lost has already been archived above.
         Task { [weak self] in await self?.healTheSchemaGateIfNarrowed() }
     }
 

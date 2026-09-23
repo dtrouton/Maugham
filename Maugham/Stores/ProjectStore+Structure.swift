@@ -258,9 +258,12 @@ extension ProjectStore {
     }
 
     func saveManifest() async throws {
+        // What this save puts on disk, captured before the write so a mutation
+        // landing across its `await` is not counted as settled with it (F7).
+        let saving = manifest
         let data: Data
         do {
-            data = try ProjectManifest.makeEncoder().encode(manifest)
+            data = try ProjectManifest.makeEncoder().encode(saving)
         } catch {
             throw ProjectStoreError.manifestUnwritable(error.localizedDescription)
         }
@@ -272,6 +275,7 @@ extension ProjectStore {
             } catch {
                 throw ProjectStoreError.manifestUnwritable(error.localizedDescription)
             }
+            settledManifest = saving
             return
         }
 
@@ -294,6 +298,7 @@ extension ProjectStore {
                 data, toAtLeast: ProjectManifest.schemaVersion(ofFileAt: manifestURL))
             try bytes.write(to: tmpURL, options: [.atomic])
             _ = try FileManager.default.replaceItemAt(manifestURL, withItemAt: tmpURL)
+            settledManifest = saving
             // Capped at this build's own number, the coordinated door's rule
             // and for its reason (fix round 2).
             if let floor = ProjectManifest.schemaVersion(of: bytes) {
