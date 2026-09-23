@@ -108,6 +108,10 @@ extension Document {
             docId: docId, amendmentPermits: amendmentPermits)
         let ops = loaded.ops
         if provenance != loaded.provenance { provenance = loaded.provenance }
+        // P3b Task 7, for the same reason and with the same guard: her opening
+        // of a new chapter ARRIVES through sync and produces no applied op.
+        let started = amendmentPermits.whoStartedAPiece
+        if startedAPiece != started { startedAPiece = started }
 
         // Echo guard: every op we ourselves appended is already in
         // _opLogMirror. If the disk log has no ops we haven't seen, this

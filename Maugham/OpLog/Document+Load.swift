@@ -669,6 +669,9 @@ extension Document {
         // document; `EditorHost` is what tells the pane to look, once a window
         // exists for it to look in.
         doc.provenance = loaded.provenance
+        // P3b Task 7: and which of the holders it is counting opened a piece
+        // nobody has claimed — the one held line the writer can answer today.
+        doc.startedAPiece = amendmentPermits.whoStartedAPiece
         return doc
     }
 }

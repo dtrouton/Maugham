@@ -81,6 +81,21 @@ public final class Document {
     /// moved on.
     public internal(set) var provenance: OpLogProvenance?
 
+    /// **Who, among the holders `provenance` is counting, opened THIS piece**
+    /// (P3b Task 7, spec §4.5).
+    ///
+    /// The partition holds a line it cannot judge and a line that started a
+    /// piece nobody has claimed under the very same holder string, and only
+    /// the walk knows which is which (`AmendmentPermits.recordStartedAPiece`).
+    /// It is a fact about this DOCUMENT — the question is *is this piece hers*
+    /// — so it is stamped here beside the counts rather than on a file's own
+    /// provenance, and the docId it is about is this document's.
+    ///
+    /// Re-stamped by `handleExternalLogChange` for `provenance`'s reason: her
+    /// first paragraph of a new chapter ARRIVES through sync, which produces
+    /// no applied op at all. Empty for every book that has narrowed nobody.
+    public internal(set) var startedAPiece: Set<String> = []
+
     /// The pending file `load` found but could not recover (RULING-54,
     /// M9-OL-010): un-bursted keystrokes from a crashed session, already
     /// preserved in the quarantine record. Stamped by `Document.load` and

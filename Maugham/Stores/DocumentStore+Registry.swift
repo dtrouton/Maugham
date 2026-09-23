@@ -1144,6 +1144,7 @@ extension DocumentStore {
     func heldLines() -> HeldLineUnion {
         var counts: [String: Int] = [:]
         var streams: [String: Set<String>] = [:]
+        var startedAPiece: [String: Set<String>] = [:]
         for document in allOpenDocuments() {
             guard let provenance = document.provenance else { continue }
             for (device, count) in provenance.pendingByDevice {
@@ -1152,6 +1153,13 @@ extension DocumentStore {
             for (device, slugs) in provenance.pendingStreamsByDevice {
                 streams[device, default: []].formUnion(slugs)
             }
+            // **Where the docId joins the walk's answer** (P3b Task 7). The
+            // partition decided WHO opened a piece nobody has claimed; only
+            // this fold knows WHICH piece, because a document knows its own id
+            // and a file's provenance does not.
+            for holder in document.startedAPiece {
+                startedAPiece[holder, default: []].insert(document.docId)
+            }
         }
         for (device, count) in inboxStore.pendingByDevice {
             counts[device, default: 0] += count
@@ -1159,7 +1167,8 @@ extension DocumentStore {
         for (device, slugs) in inboxStore.pendingStreamsByDevice {
             streams[device, default: []].formUnion(slugs)
         }
-        return HeldLineUnion(counts: counts, streams: streams)
+        return HeldLineUnion(
+            counts: counts, streams: streams, startedAPiece: startedAPiece)
     }
 }
 
@@ -1177,10 +1186,24 @@ struct HeldLineUnion: Equatable {
     /// The device slugs of the streams each holder was held in. Legitimately
     /// empty for a holder whose files carry no slug.
     var streams: [String: Set<String>]
+    /// **The pieces each holder OPENED that nobody has claimed** (P3b Task 7,
+    /// spec §4.5) — the walk's own answer (`Document.startedAPiece`) with this
+    /// fold's docIds joined to it.
+    ///
+    /// A third map for `streams`' reason: it is read by a different question.
+    /// `counts` is every *N notes waiting* sentence, `streams` is *is this
+    /// holder a person's key at all*, and this is *did they start something
+    /// that is in nobody's scope* — the one held line the writer can answer
+    /// today. Empty for every book that has narrowed nobody.
+    var startedAPiece: [String: Set<String>]
 
-    init(counts: [String: Int] = [:], streams: [String: Set<String>] = [:]) {
+    init(
+        counts: [String: Int] = [:], streams: [String: Set<String>] = [:],
+        startedAPiece: [String: Set<String>] = [:]
+    ) {
         self.counts = counts
         self.streams = streams
+        self.startedAPiece = startedAPiece
     }
 }
 
