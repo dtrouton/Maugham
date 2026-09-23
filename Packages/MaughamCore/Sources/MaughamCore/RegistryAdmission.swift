@@ -913,7 +913,10 @@ public enum RegistryAdmission {
             for older in own
                 .filter({ carriesForward($0.kind) })
                 .sorted(by: { $0.event > $1.event }) {
-                for (key, position) in older.mark {
+                // §4.5's settling cut is the one position that is short on
+                // purpose, and refilling it would undo the answer before it is
+                // written (P3b smoke find F9) — see `PermitMark.settledStreams`.
+                for (key, position) in older.mark where !mark.settledStreams.contains(key) {
                     // **Per KEY was not enough** (final fix wave, W2). A
                     // carry-forward that only filled in whole streams left the
                     // case where a stream came back NAMED and SHORT: a rotation
@@ -975,7 +978,12 @@ public enum RegistryAdmission {
             PermitEvent(
                 event: id, kind: kind, subject: subject,
                 role: role, scope: scope, pieces: pieces, mark: streams,
-                unsigned: unsignedStreams, at: at, by: signer.fingerprint)
+                unsigned: unsignedStreams,
+                // Nil unless this act answered §4.5's question, so every other
+                // event's bytes are what they were (P3b smoke find F9).
+                settled: mark.settledPieces.isEmpty
+                    ? nil : mark.settledPieces.sorted(),
+                at: at, by: signer.fingerprint)
         }
         let draft = made(unsigned: nil)
         let event = PermitTimeline.narrows(draft)

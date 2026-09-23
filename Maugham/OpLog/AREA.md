@@ -1467,7 +1467,18 @@ the last line that is not held — so her held words come in. A refusal before
 her span stays set aside; a PERMIT refusal after it in the same stream is
 re-judged under the granted permit. A segment holding her span is cut by LINE
 HASH and lists no digest, and `cutStream` stops every later file of that stream
-contributing; the earliest file that holds her decides.
+contributing; the earliest file that holds her decides. **The event write must
+not refill the cut** (P3b smoke find F9): `RegistryAdmission`'s carry-forward
+fills a stream a sweep came back without — or short of — from the subject's
+older events, because every other mark only grows; a settled stream is short
+ON PURPOSE (commonly *not named at all*, her span opening the stream), so the
+sweep hands its cut streams over as `PermitMark.settledStreams` and the
+carry-forward leaves them alone. Without that, a stranger whose admission had
+seen her held line got the admission's position back and *Theirs* did nothing.
+The event also records the pieces it answered about (`PermitEvent.settled`,
+omitted while nil) — read by History alone, whose sentence for such an answer
+says her words came in rather than the widening's *anything set aside before
+then stays set aside*.
 
 ## Sealed segments (ADR 0016, M2)
 

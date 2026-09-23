@@ -1045,7 +1045,15 @@ public final class OpLogStore {
         cuttingBeforeHeld: Bool
     ) -> OpLogChain.Line? {
         guard cuttingBeforeHeld else { return lines.last(where: lastLine) }
-        return lines.prefix { $0.state.pendingDevice == nil }.last(where: lastLine)
+        return lines.prefix { !wasHeld($0) }.last(where: lastLine)
+    }
+
+    /// **Is this line one the settling cut falls before?** — the one spelling
+    /// of *held*, asked by `markLine` and by both branches that decide a stream
+    /// was settled (P3b smoke find F9), so the cut and the record of having
+    /// cut cannot come to disagree about which lines those were.
+    nonisolated static func wasHeld(_ line: OpLogChain.Line) -> Bool {
+        line.state.pendingDevice != nil
     }
 
     /// Did the reader see and JUDGE this line? — `seenPositions`' predicate,
@@ -1212,6 +1220,10 @@ public final class OpLogStore {
         // contribute a digest or a line — and the tail must not overwrite the
         // segment's cut.
         var cutStream: Set<String> = []
+        // **Every stream the settling cut moved backwards**, whether a segment
+        // or a tail held her span — what the event write must not refill from
+        // an older mark (P3b smoke find F9, `PermitMark.settledStreams`).
+        var settledStreams: Set<String> = []
         for docId in docIds.sorted() {
             let permit = permitContext(
                 forDocId: docId, in: projectURL, trust: trust,
@@ -1260,8 +1272,9 @@ public final class OpLogStore {
                     // file old*, two questions that happen to share a value.
                     if settling, !cutStream.contains(stream.key),
                        let judged = classified.verification,
-                       judged.lines.contains(where: { $0.state.pendingDevice != nil }) {
+                       judged.lines.contains(where: wasHeld) {
                         cutStream.insert(stream.key)
+                        settledStreams.insert(stream.key)
                         if let last = markLine(
                             of: judged.lines, seenWhen: lastLine,
                             cuttingBeforeHeld: true) {
@@ -1310,6 +1323,9 @@ public final class OpLogStore {
                 // nothing: everything after that cut is new, this file
                 // included (fix round 2).
                 if settling, cutStream.contains(stream.key) { continue }
+                if settling, verification.lines.contains(where: wasHeld) {
+                    settledStreams.insert(stream.key)
+                }
                 guard let last = markLine(
                     of: verification.lines, seenWhen: lastLine,
                     cuttingBeforeHeld: settling)
@@ -1366,7 +1382,8 @@ public final class OpLogStore {
                     remembered: expecting[key], found: seen) == nil
             else { throw ReadError.streamMissingFromSweep(streamKey: key) }
         }
-        return PermitMark(marks)
+        return PermitMark(
+            marks, settledStreams: settledStreams, settledPieces: settlingPieces)
     }
 
     // MARK: - The unsigned door's photograph (P3b Task 1)

@@ -78,8 +78,47 @@ public struct PermitMark: Equatable, Hashable, Sendable {
     /// named by one function.
     public let streams: [String: StreamMark]
 
-    public init(_ streams: [String: StreamMark] = [:]) {
+    /// **The streams this mark cut BEFORE a position an earlier event of the
+    /// same person may already record** — §4.5's settling cut, and nothing
+    /// else (P3b smoke find F9). Never on the wire: an event carries `streams`
+    /// alone, and a mark read back off one has this empty.
+    ///
+    /// Every other mark only ever GROWS, which is what licenses
+    /// `RegistryAdmission`'s carry-forward to fill a stream the sweep came
+    /// back without — or came back SHORT of — from the subject's older
+    /// events. A settled stream is the one position that is short on purpose,
+    /// and *not named at all* is its commonest answer: her span opens the
+    /// stream, so nothing in it is old. Refilled from the admission that first
+    /// saw her held line, the cut is undone before it is written, her words are
+    /// held under the permit that could not place them, and *Theirs* does
+    /// nothing. So the carry-forward asks this set and leaves these streams as
+    /// the sweep cut them.
+    ///
+    /// **What that gives up, stated rather than implied.** The sweep read the
+    /// file holding her span (a cut needs a held line in hand), but an EARLIER
+    /// segment of the same stream that is absent at sweep time is not refilled
+    /// either. Where this Mac remembers applying it, the loss check refuses the
+    /// act first (`expecting`); where it does not, that segment's lines judge
+    /// new under the permit the answer grants — which only widens, so nothing
+    /// applied can become refused, but a refusal inside such a segment would
+    /// be re-judged.
+    public let settledStreams: Set<String>
+
+    /// **The pieces whose §4.5 question this sweep was answering** — what it
+    /// was ASKED to settle, whether or not any stream of theirs held a line.
+    /// Written onto the event (`PermitEvent.settled`) so History can say what
+    /// the act was, on every device, from the signed record alone. Travels in
+    /// the mark rather than beside it so the cut and the claim about the cut
+    /// are one value and cannot be handed to the write separately.
+    public let settledPieces: Set<String>
+
+    public init(
+        _ streams: [String: StreamMark] = [:],
+        settledStreams: Set<String> = [], settledPieces: Set<String> = []
+    ) {
         self.streams = streams
+        self.settledStreams = settledStreams
+        self.settledPieces = settledPieces
     }
 
     /// *Nothing was applied.* Everything judges new.

@@ -2416,4 +2416,244 @@ final class PermitLoadTests: XCTestCase {
             "a placeholder is dot-prefixed; this is somebody's oddly named file")
         XCTAssertNil(OpLogStore.nameBehindICloudPlaceholder(".icloud"))
     }
+    // MARK: - F9 — *Theirs* over a STRANGER's piece (P3b smoke, 2026-09-23)
+
+    /// The root answers §4.5 through the verb's own sweep and event write.
+    private func answerTheirs(_ pieces: Set<String>) async throws {
+        let mark = try OpLogStore.seenPositions(
+            ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+            trust: try await reader().trust(), settlingPieces: [docId])
+        let widened = Permit.author(.pieces(pieces))
+        _ = try RegistryAdmission.changePermit(
+            person: samPerson, role: widened.wireRole, scope: widened.wireScope,
+            pieces: widened.wirePieces, mark: mark,
+            unsigned: try await unsignedSnapshotMark(),
+            in: projectURL, by: root.author, cache: cache,
+            now: { Date(timeIntervalSince1970: 70) })
+    }
+
+    /// **F9: a stranger starts a piece, is let in as an author of a DIFFERENT
+    /// one, and *Theirs* brings her words in.** The smoke's own shape: her line
+    /// was written while she was held, so the admission's mark names it and it
+    /// judges OLD — under the opening entry. The settling sweep has to agree
+    /// with the load that the line is held, or the cut lands after it.
+    func test_theirsBringsInWhatAStrangerWroteInAPieceSheStarted() async throws {
+        try writeRootRecord()
+        try declareSam()
+        try samsFile([op("herOpening", by: sam.author)])
+        try await admit(.author(.pieces(["doc-hers"])))
+
+        let carrier = AmendmentPermits()
+        let before = try await reader().loadDiagnosed(
+            docId: docId, amendmentPermits: carrier)
+        XCTAssertEqual(before.ops.map(\.opId), [], "held, as §4.5 says")
+        XCTAssertEqual(before.provenance.pendingOpLines, 1)
+        XCTAssertEqual(carrier.whoStartedAPiece, [samPerson], "the question is put")
+
+        try await answerTheirs(["doc-hers", docId])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["herOpening"], "her words come in")
+        let after = try await loadedProvenance()
+        XCTAssertEqual(after.pendingOpLines, 0)
+        XCTAssertTrue(linesRecords().isEmpty, "nothing was ever set aside")
+
+        // And History says so, off the signed event alone.
+        let answer = try XCTUnwrap(
+            TrustEvents.derive(
+                registry: try RegistryReader.load(projectURL: projectURL),
+                cache: cache, mine: root, for: projectURL)
+                .last { $0.kind == .scopeChanged && $0.subject == samPerson })
+        XCTAssertEqual(answer.settledPieces, [docId])
+        XCTAssertTrue(
+            TrustEventSentence.sentence(for: answer, labels: [:])
+                .contains("What they had already written in the piece they started came in."))
+    }
+    /// **The spec's own route, plain** (§4.5 as written): Sam is already an
+    /// author of some pieces, THEN opens a piece nobody has claimed. No event
+    /// of hers has named the new stream yet, so there is nothing for the
+    /// carry-forward to refill — pinned so the two routes are stated side by
+    /// side.
+    func test_theirsBringsInWhatAnAdmittedAuthorWroteInAPieceSheStartedLater()
+        async throws
+    {
+        try writeRootRecord()
+        try declareSam()
+        try await admit(.author(.pieces(["doc-hers"])))
+        try samsFile([op("herOpening", by: sam.author)])
+        let held = try await appliedOpIds()
+        XCTAssertEqual(held, [], "held, as §4.5 says")
+
+        try await answerTheirs(["doc-hers", docId])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["herOpening"])
+        let pending = try await loadedProvenance().pendingOpLines
+        XCTAssertEqual(pending, 0)
+    }
+
+    /// **The spec's route with an event in between — the same defect as F9.**
+    /// Any later change of hers (here the root gives her a third piece) takes
+    /// its mark AFTER she has written in the unclaimed piece, so it names
+    /// that stream at its last line; the answer's cut must not be refilled
+    /// from it.
+    func test_theirsIsNotUndoneByAnEventTakenAfterSheStartedThePiece()
+        async throws
+    {
+        try writeRootRecord()
+        try declareSam()
+        try await admit(.author(.pieces(["doc-hers"])))
+        try samsFile([op("herOpening", by: sam.author)])
+        let unrelated = Permit.author(.pieces(["doc-hers", "doc-third"]))
+        _ = try RegistryAdmission.changePermit(
+            person: samPerson, role: unrelated.wireRole,
+            scope: unrelated.wireScope, pieces: unrelated.wirePieces,
+            mark: PermitMark(try await seenMark()),
+            unsigned: try await unsignedSnapshotMark(),
+            in: projectURL, by: root.author, cache: cache,
+            now: { Date(timeIntervalSince1970: 65) })
+        let held = try await appliedOpIds()
+        XCTAssertEqual(held, [], "still held: doc-third is not this piece")
+
+        try await answerTheirs(["doc-hers", "doc-third", docId])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["herOpening"])
+    }
+
+    /// **The cut is written as cut.** The event on disk names her stream
+    /// nowhere — the sweep's own answer for a stream her span opens — rather
+    /// than at the seal the admission recorded.
+    func test_theAnswersEventDoesNotNameAStreamHerSpanOpens() async throws {
+        try writeRootRecord()
+        try declareSam()
+        let url = try samsFile([op("herOpening", by: sam.author)])
+        let key = try XCTUnwrap(PermitMark.streamKey(of: url))
+        try await admit(.author(.pieces(["doc-hers"])))
+
+        try await answerTheirs(["doc-hers", docId])
+
+        let latest = try XCTUnwrap(
+            RegistryReader.load(projectURL: projectURL).events
+                .filter { $0.subject == samPerson }
+                .max(by: { $0.event < $1.event }))
+        XCTAssertEqual(latest.kind, .scopeChanged)
+        XCTAssertNil(latest.mark[key], "cut before her span, which opens the stream")
+    }
+
+    /// **A refusal BEFORE her span in the same stream stays set aside**, on
+    /// the stranger's route too: the admission saw it and refused it, and the
+    /// cut falls after it.
+    func test_aRefusalBeforeAStrangersSpanStaysSetAsideUnderTheirs() async throws {
+        try writeRootRecord()
+        try declareSam()
+        try samsFile([
+            op("herCheckpoint", by: sam.author, kind: .checkpoint),
+            op("herOpening", by: sam.author),
+        ])
+        try await admit(.author(.pieces(["doc-hers"])))
+        let refusedBefore = try await loadedProvenance().quarantinedLines
+        XCTAssertTrue(refusedBefore > 0, "the checkpoint is refused before the answer")
+
+        try await answerTheirs(["doc-hers", docId])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["herOpening"], "her words came in")
+        let refused = try await loadedProvenance().quarantinedLines
+        XCTAssertTrue(refused > 0, "and the checkpoint before them is still set aside")
+    }
+
+    /// **Theirs widens nothing for another piece of hers.** She started two;
+    /// the answer is about one. The other stream is carried forward exactly as
+    /// the admission recorded it, so her line there is still held.
+    func test_theirsLeavesAnotherPieceSheStartedHeld() async throws {
+        try writeRootRecord()
+        try declareSam()
+        try samsFile([op("here", by: sam.author)])
+        try writeFile(
+            by: sam.author,
+            ops: [op("there", by: sam.author, docId: otherDocId)],
+            docId: otherDocId)
+        try await admit(.author(.pieces(["doc-hers"])))
+
+        try await answerTheirs(["doc-hers", docId])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["here"])
+        let other = try await reader().loadDiagnosed(docId: otherDocId)
+        XCTAssertEqual(other.ops.map(\.opId), [], "the other piece is a second question")
+        XCTAssertEqual(other.provenance.pendingOpLines, 1)
+    }
+
+    /// **Theirs widens nothing for another PERSON.** Kit also opened this
+    /// piece while a stranger and was let in on the same terms; answering the
+    /// question about Sam leaves his line held, because the sweep and the
+    /// event are Sam's alone.
+    func test_theirsForOnePersonLeavesAnothersSpanInTheSamePieceHeld()
+        async throws
+    {
+        try writeRootRecord()
+        try declareSam()
+        let kit = LocalIdentities.softwareForTesting()
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: kit.author.fingerprint, name: "Kit’s Mac", kind: .mac,
+                actors: [DeviceActor.author.rawValue: kit.author.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 6)),
+            signedBy: kit.author, in: projectURL)
+        try samsFile([op("samsOpening", by: sam.author)])
+        try writeFile(by: kit.author, ops: [op("kitsOpening", by: kit.author)])
+        let kitsMark = try OpLogStore.seenPositions(
+            ofDeviceIds: Set(kit.all.map(\.deviceId)), in: projectURL,
+            trust: try await reader().trust())
+        try await admit(.author(.pieces(["doc-hers"])))
+        let kitsPermit = Permit.author(.pieces(["doc-hers"]))
+        _ = try RegistryAdmission.admit(
+            device: kit.author.fingerprint, label: "Kit", ownName: "Kit’s Mac",
+            role: kitsPermit.wireRole, scope: kitsPermit.wireScope,
+            pieces: kitsPermit.wirePieces, mark: kitsMark,
+            unsigned: try await unsignedSnapshotMark(),
+            in: projectURL, by: root.author, cache: cache, memory: memory(),
+            now: { Date(timeIntervalSince1970: 61) })
+        let before = try await appliedOpIds()
+        XCTAssertEqual(before, [])
+
+        try await answerTheirs(["doc-hers", docId])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["samsOpening"], "Sam's words, and only hers")
+        let pending = try await loadedProvenance().pendingOpLines
+        XCTAssertEqual(pending, 1, "Kit's line is his own question")
+    }
+    /// **And when her span is inside a ROTATED segment the admission listed
+    /// whole.** The settling sweep cuts that segment by line and lists no
+    /// digest; carrying the admission's digest forward would say *the root
+    /// read this whole file* again, and every line of it would judge old.
+    func test_theirsReachesAStrangersSpanInASegmentTheAdmissionListedWhole()
+        async throws
+    {
+        try writeRootRecord()
+        try declareSam()
+        try samsFile([op("herOpening", by: sam.author)])
+        let samsStore = OpLogStore(
+            projectURL: projectURL, identities: sam, state: samState)
+        let segment = try await samsStore.sealTailIfNeeded(
+            docId: docId, deviceSlug: sam.author.slug, threshold: 1)
+        let rotated = try XCTUnwrap(segment, "the fixture really rotated")
+        let key = try XCTUnwrap(PermitMark.streamKey(of: rotated))
+        try await admit(.author(.pieces(["doc-hers"])))
+        let admission = try XCTUnwrap(
+            RegistryReader.load(projectURL: projectURL).events
+                .first { $0.subject == samPerson })
+        XCTAssertFalse(
+            admission.mark[key]?.segments.isEmpty ?? true,
+            "the admission read her segment whole, which is the premise")
+        let held = try await appliedOpIds()
+        XCTAssertEqual(held, [], "held, inside the segment")
+
+        try await answerTheirs(["doc-hers", docId])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["herOpening"])
+    }
 }

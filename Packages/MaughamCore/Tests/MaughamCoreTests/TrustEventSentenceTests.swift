@@ -345,6 +345,34 @@ final class TrustEventSentenceTests: XCTestCase {
                 .contains("an author of one piece"))
     }
 
+    /// **An answer to §4.5's question says what it did** (P3b smoke find F9).
+    /// It widens, and the widening sentence — *anything set aside before then
+    /// stays set aside* — is the opposite of what *Theirs* promised; the words
+    /// already written in the piece came in.
+    func test_answeringThePieceQuestionSaysHerWordsCameIn() {
+        let answer = TrustEvent(
+            date: Date(timeIntervalSince1970: 30), kind: .scopeChanged,
+            subject: phone, label: "Sam", by: root,
+            permit: .author(.pieces(["d-one", "d-two"])),
+            previousPermit: .author(.pieces(["d-one"])),
+            settledPieces: ["d-two"], event: "\(phone).a")
+        XCTAssertEqual(
+            TrustEventSentence.sentence(for: answer, labels: [root: "Denver"]),
+            "Sam became an author of 2 pieces. What they had already written "
+                + "in the piece they started came in. Anything set aside before "
+                + "those words stays set aside.")
+        // The other direction: the same widening, not an answer, keeps the
+        // widening sentence.
+        XCTAssertEqual(
+            TrustEventSentence.sentence(
+                for: change(
+                    .scopeChanged, to: .author(.pieces(["d-one", "d-two"])),
+                    from: .author(.pieces(["d-one"]))),
+                labels: [root: "Denver"]),
+            "Sam became an author of 2 pieces. Anything set aside before then "
+                + "stays set aside.")
+    }
+
     /// A change that is neither wider nor narrower — two disjoint lists — gets
     /// the conservative half, because the one thing true of every such change
     /// is that the mark does not reach backwards.

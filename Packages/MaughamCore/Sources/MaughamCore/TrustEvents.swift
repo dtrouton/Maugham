@@ -114,6 +114,11 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
     /// is handed one event at a time, and *what came before this* is a fact
     /// about the timeline the derivation has in hand and a surface does not.
     public let previousPermit: Permit?
+    /// **The pieces this event answered §4.5's question about** — the
+    /// event's own `settled`, empty for every other row (P3b smoke find F9).
+    /// Carried for the sentence's reason: *Theirs* is a widening whose whole
+    /// point is the opposite of the widening sentence.
+    public let settledPieces: [String]
     /// The permit event's own id, where the row came from one. It is what
     /// keeps two `roleChanged` rows about one person apart — see `id`.
     public let event: String?
@@ -121,7 +126,8 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
     public init(
         date: Date?, kind: Kind, subject: String, label: String? = nil,
         ownName: String? = nil, by: String? = nil, isMine: Bool = false,
-        permit: Permit? = nil, previousPermit: Permit? = nil, event: String? = nil
+        permit: Permit? = nil, previousPermit: Permit? = nil,
+        settledPieces: [String] = [], event: String? = nil
     ) {
         self.date = date
         self.kind = kind
@@ -132,6 +138,7 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
         self.isMine = isMine
         self.permit = permit
         self.previousPermit = previousPermit
+        self.settledPieces = settledPieces
         self.event = event
     }
 
@@ -466,7 +473,9 @@ public enum TrustEvents {
             label: person.label, ownName: person.ownName,
             by: event.by, isMine: isMine,
             permit: installed == nil ? nil : Permit(event: event),
-            previousPermit: previous, event: event.event)
+            previousPermit: previous,
+            settledPieces: installed == nil ? [] : (event.settled ?? []),
+            event: event.event)
     }
 
     /// A permit event's kind as History's own. Exhaustive, so a ninth

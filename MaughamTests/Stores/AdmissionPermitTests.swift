@@ -532,6 +532,39 @@ final class AdmissionPermitTests: XCTestCase {
             .init(person: stranger.fingerprint, docId: piece)))
     }
 
+    /// **Theirs brings her words in — the smoke's own route, end to end**
+    /// (P3b smoke find F9). A stranger opens a piece and writes in it; the
+    /// root lets her in as an author of a DIFFERENT piece, so the admission's
+    /// mark names her line; the load asks *is it theirs?*; the writer answers
+    /// Theirs; and the next load applies what she wrote. Before the fix the
+    /// answer's event carried the admission's position forward over the
+    /// settling cut and her line stayed held for good.
+    func test_theirsBringsAStrangersHeldWordsIntoThePieceSheStarted() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let piece = try pieceIdFromManifest()
+        try await writeStrangerFile(docId: piece, opIds: ["herOpening"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: PermitControl.permit(for: .somePieces, pieces: ["ch-A"]))
+
+        let asked = try await Document.load(
+            url: docURL, actor: .author, session: "s", presenter: nil)
+        XCTAssertEqual(asked.startedAPiece, [stranger.fingerprint], "the question is put")
+        XCTAssertFalse(asked.opLogSnapshot.contains { $0.opId == "herOpening" })
+        await asked.close()
+
+        _ = try await store.pieceIsTheirs(person: stranger.fingerprint, docId: piece)
+
+        let answered = try await Document.load(
+            url: docURL, actor: .author, session: "s", presenter: nil)
+        defer { Task { await answered.close() } }
+        XCTAssertTrue(
+            answered.opLogSnapshot.contains { $0.opId == "herOpening" },
+            "her words came in")
+        XCTAssertTrue(answered.startedAPiece.isEmpty, "and nothing of hers is waiting")
+    }
+
     /// **A reviewer is refused, and refused in the act's own words.** §4.5 can
     /// only hold a line for somebody who may already write SOME of this book,
     /// so a reviewer reaching this verb means the permit moved under the

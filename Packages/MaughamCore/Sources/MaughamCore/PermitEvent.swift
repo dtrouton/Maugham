@@ -188,6 +188,21 @@ public struct PermitEvent: RegistryRecordProtocol {
     /// Strings and collections of strings, like every other field here
     /// (tripwire 42) — it is the same `StreamMark` the mark is made of.
     public let unsigned: [String: StreamMark]?
+    /// **The pieces this event said were the subject's in answer to §4.5's
+    /// question** — *X started this piece; is it theirs?* — or nil for every
+    /// other event (P3b smoke find F9).
+    ///
+    /// The mark already carries the answer's cut; this carries what the act
+    /// WAS, which the mark cannot say by itself. History needs it because the
+    /// ordinary sentence for a widening — *anything set aside before then
+    /// stays set aside* — is the opposite of what *Theirs* is for: her held
+    /// words in that piece come in. Read by History alone; no reader judges a
+    /// line by it, and the permit this event installs is `role`/`scope`/
+    /// `pieces` as for any other.
+    ///
+    /// **Omitted while nil**, `unsigned`'s rule, so every other event's bytes
+    /// and digest are untouched.
+    public let settled: [String]?
     public let at: Date
     /// Who signed it. A root of the subject's chain, or — for `.retired` — the
     /// subject itself.
@@ -199,6 +214,7 @@ public struct PermitEvent: RegistryRecordProtocol {
         role: String = "author", scope: String = "book", pieces: [String] = [],
         mark: [String: StreamMark] = [:],
         unsigned: [String: StreamMark]? = nil,
+        settled: [String]? = nil,
         at: Date, by: String, sig: OpLogChain.Credentials? = nil
     ) {
         self.event = event
@@ -209,6 +225,7 @@ public struct PermitEvent: RegistryRecordProtocol {
         self.pieces = pieces
         self.mark = mark
         self.unsigned = unsigned
+        self.settled = settled
         self.at = at
         self.by = by
         self.sig = sig

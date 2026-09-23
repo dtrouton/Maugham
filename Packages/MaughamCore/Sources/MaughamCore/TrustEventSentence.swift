@@ -159,9 +159,23 @@ public enum TrustEventSentence {
     /// a word this build cannot read — gets the conservative half, because the
     /// one thing true of every such change is that the mark does not reach
     /// backwards.
+    ///
+    /// **An answer to §4.5's question is its own sentence** (P3b smoke find
+    /// F9). *Theirs* widens, but what it is FOR is the opposite of the
+    /// widening sentence: the words they had already written in the piece
+    /// they started come in, and only what was set aside before those words
+    /// stays set aside. The event says it was such an answer (`settled`); the
+    /// rung is never compared here (tripwire 47).
     nonisolated static func consequence(of event: TrustEvent) -> String {
         guard let permit = event.permit, let previous = event.previousPermit
         else { return "" }
+        if !event.settledPieces.isEmpty {
+            let pieces = event.settledPieces.count == 1
+                ? "the piece they started"
+                : "the \(event.settledPieces.count) pieces they started"
+            return " What they had already written in \(pieces) came in. "
+                + "Anything set aside before those words stays set aside."
+        }
         let widened = permit.covers(previous) && !previous.covers(permit)
         return widened
             ? " Anything set aside before then stays set aside."
