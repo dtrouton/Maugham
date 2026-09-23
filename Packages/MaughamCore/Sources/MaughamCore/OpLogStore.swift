@@ -951,6 +951,41 @@ public final class OpLogStore {
         return true
     }
 
+    /// **One stream's files in the order they were written** — segments by
+    /// their zero-padded index, then the live tail (fix round 2).
+    ///
+    /// Only the settling path asks for it, and only because the rule it
+    /// implements is about WHICH file cuts a stream: a cut in a segment makes
+    /// every later file wholly new, and *later* has to mean something.
+    /// `opLogFileURLs` answers `contentsOfDirectory`'s order, and a plain name
+    /// sort is actively wrong here — `<doc>.<slug>.jsonl` sorts BEFORE
+    /// `<doc>.<slug>.seg0000.mzseg`, because "j" precedes "s".
+    ///
+    /// Files of different streams may interleave freely: a mark is keyed by
+    /// stream and `cutStream` is too, so only the order WITHIN a stream
+    /// decides anything.
+    ///
+    /// **Stated plainly: this is not independently falsifiable today, and it
+    /// is kept anyway.** A plain name sort happens to order a stream's
+    /// SEGMENTS correctly (`seg0000` before `seg0001`), and a tail that ran
+    /// first would have its line overwritten by the segment branch below — so
+    /// the behaviour coincides either way, and an experiment that swaps this
+    /// for a name sort stays green. What it buys is that the rule is true by
+    /// construction rather than by luck: the code says *the earliest file that
+    /// holds her decides*, and expressing that through a later assignment
+    /// happening to overwrite an earlier one is how the next reader breaks it
+    /// while every test stays green. The tail's own `cutStream` guard IS
+    /// falsifiable (`test_aSegmentsCutDecidesTheStreamAndTheTailCannotMoveIt`),
+    /// and it is only meaningful because of this order.
+    nonisolated static func settlingOrder(_ urls: [URL]) -> [URL] {
+        urls.sorted { left, right in
+            let leftIsSegment = left.pathExtension == OpLogSegment.fileExtension
+            let rightIsSegment = right.pathExtension == OpLogSegment.fileExtension
+            if leftIsSegment != rightIsSegment { return leftIsSegment }
+            return left.lastPathComponent < right.lastPathComponent
+        }
+    }
+
     /// **The walk both position sweeps share.** They differ in one thing and
     /// it is the `lastLine` predicate: what counts as the last line of a tail.
     /// Everything else — the listing, the classification, the segment rule,
@@ -1043,11 +1078,28 @@ public final class OpLogStore {
             change(&entry)
             found[key] = entry
         }
+        // **Streams of a piece being SETTLED whose mark a segment has already
+        // cut** (fix round 2). Once a segment is cut by line, every later file
+        // of that stream is wholly new by construction, so nothing after it may
+        // contribute a digest or a line — and the tail must not overwrite the
+        // segment's cut.
+        var cutStream: Set<String> = []
         for docId in docIds.sorted() {
             let permit = permitContext(
                 forDocId: docId, in: projectURL, trust: trust,
                 statements: statements)
-            for url in opLogFileURLs(forDocId: docId, in: projectURL) {
+            let settling = settlingPieces.contains(docId)
+            // **Chronological, and only where it decides anything** (fix round
+            // 2). `opLogFileURLs` is UNSORTED, and the settling rule is about
+            // WHICH file cuts the stream — so the files have to arrive in the
+            // order they were written: segments by their zero-padded index,
+            // then the live tail. A plain name sort would put `.jsonl` before
+            // `seg0000.mzseg` ("j" < "s"), which is exactly backwards. Every
+            // other caller keeps the enumeration it has always had.
+            let urls = settling
+                ? settlingOrder(opLogFileURLs(forDocId: docId, in: projectURL))
+                : opLogFileURLs(forDocId: docId, in: projectURL)
+            for url in urls {
                 guard let stream = PermitMark.stream(of: url),
                       let slug = stream.deviceSlug, slugs.contains(slug)
                 else { continue }
@@ -1057,6 +1109,58 @@ public final class OpLogStore {
                     url: url, bytes: bytes, state: nil, trust: trust,
                     permit: permit)
                 if url.pathExtension == OpLogSegment.fileExtension {
+                    // **A rotated segment holding her §4.5 span is cut by LINE,
+                    // exactly as a tail is** (fix round 2, the controller's
+                    // ruling of 2026-09-23).
+                    //
+                    // Listing it by digest says *the root read this whole file*,
+                    // which `PermitMark.judge` reads as *every line of it is
+                    // old* — so her held span inside it would fall before the
+                    // widening and stay held, and the milestone's own story
+                    // would break the first time a chapter of hers grew past
+                    // `chainSealInterval`. A whole chapter always does.
+                    //
+                    // `judge` needs no new rule for this: a digest it does not
+                    // find in `mark.segments` falls through to the line lookup
+                    // over the file's own lines, and a segment's lines are its
+                    // decompressed JSONL. So the segment's lines BEFORE her span
+                    // stay old — a refusal there is not pardoned — and her span
+                    // and everything after fall new.
+                    //
+                    // The digest is still NOTED for the loss check: `found` is
+                    // *is this stream still whole* and `segments` is *is this
+                    // file old*, two questions that happen to share a value.
+                    if settling, !cutStream.contains(stream.key),
+                       let judged = classified.verification,
+                       judged.lines.contains(where: { $0.state.pendingDevice != nil }) {
+                        cutStream.insert(stream.key)
+                        if let last = markLine(
+                            of: judged.lines, seenWhen: lastLine,
+                            cuttingBeforeHeld: true) {
+                            lastKnownLine[stream.key] =
+                                OpLogChain.lineHash(last.bytes)
+                        } else {
+                            // Her span opens the segment: nothing in this
+                            // stream is old, which is a mark with no line.
+                            lastKnownLine.removeValue(forKey: stream.key)
+                        }
+                        if let digest = classified.wholeSegmentDigest {
+                            note(stream.key) {
+                                $0.digests.insert(digest)
+                                $0.answered = true
+                            }
+                        }
+                        continue
+                    }
+                    if settling, cutStream.contains(stream.key) {
+                        if let digest = classified.wholeSegmentDigest {
+                            note(stream.key) {
+                                $0.digests.insert(digest)
+                                $0.answered = true
+                            }
+                        }
+                        continue
+                    }
                     // **The one answer to *did this reader take the segment in
                     // whole*** (Task 9's fix round 1). It used to be computed
                     // here, by a SECOND decode of a container `classify` had
@@ -1084,9 +1188,19 @@ public final class OpLogStore {
                         entry.holdsRemembered = true
                     }
                 }
+                // A tail whose stream a segment has already cut contributes
+                // nothing: everything after that cut is new, this file
+                // included (fix round 2).
+                // A tail whose stream a segment has already cut contributes
+                // nothing: everything after that cut is new, this file
+                // included (fix round 2).
+                // A tail whose stream a segment has already cut contributes
+                // nothing: everything after that cut is new, this file
+                // included (fix round 2).
+                if settling, cutStream.contains(stream.key) { continue }
                 guard let last = markLine(
                     of: verification.lines, seenWhen: lastLine,
-                    cuttingBeforeHeld: settlingPieces.contains(docId))
+                    cuttingBeforeHeld: settling)
                 else { continue }
                 lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
             }
