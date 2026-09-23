@@ -464,6 +464,20 @@ public final class DocumentStore {
         updateUIState { $0.acknowledgedSetAsideRecords.formUnion(names) }
     }
 
+    /// Record that this Mac has sent a set-aside record's words to the Inbox
+    /// (P3b Task 8, spec §7.4) — the same archive filenames, and a union for
+    /// `acknowledgeSetAsideRecords`' reason.
+    ///
+    /// It is what makes the door a one-way door: a second press would file
+    /// every recovered paragraph a second time, and a writer who has already
+    /// triaged those captures would get them all again with nothing saying
+    /// why. Nothing under `.maugham/conflicts/` is touched — the archives are
+    /// evidence, and what this Mac has handed its writer is this Mac's memory.
+    public func recordSetAsideSentToInbox(_ names: Set<String>) {
+        guard !names.isEmpty else { return }
+        updateUIState { $0.sentSetAsideRecords.formUnion(names) }
+    }
+
     // MARK: - Non-Document file save path (research notes, partial-restore)
 
     /// Schedule a coordinated write of `text` to `path` on a 750ms debounce.

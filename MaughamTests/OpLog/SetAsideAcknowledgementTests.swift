@@ -140,7 +140,7 @@ final class SetAsideAcknowledgementTests: XCTestCase {
             "the writer has seen all of it; the notice goes away")
         XCTAssertNil(
             InboxPane.setAsideNotice(
-                changeCount: OpLogQuarantine.setAsideChangeCount(
+                byReason: HistoryPane.setAsideChangesByReason(
                     records: standing, in: project)),
             "\u{2026}and the inbox's sentence answers the same predicate")
     }
@@ -317,7 +317,7 @@ final class SetAsideAcknowledgementPaneTests: XCTestCase {
         let body = try XCTUnwrap(Self.declaration(named: "var body: some View {", in: source))
 
         XCTAssertTrue(
-            body.contains("SetAsideRecordsDisclosure(names: setAsideRecordNames)"),
+            body.contains("SetAsideRecordsDisclosure("),
             "the records are listed, from the unfiltered list, so acknowledging "
             + "hides the sentence and never the forensics. Got:\n\(body)")
         // …and the disclosure is still a disclosure. It moved out of `body`
@@ -333,7 +333,7 @@ final class SetAsideAcknowledgementPaneTests: XCTestCase {
         let source = try Self.source(of: "Views/InboxPane.swift")
         let body = try XCTUnwrap(Self.declaration(named: "var body: some View {", in: source))
 
-        XCTAssertTrue(body.contains("Self.setAsideNotice(changeCount: setAsideChangeCount)"),
+        XCTAssertTrue(body.contains("Self.setAsideNotice(byReason: setAsideChangesByReason)"),
                       "premise: the sentence is still drawn. Got:\n\(body)")
         XCTAssertTrue(body.contains("Button(\"Acknowledge\", action: acknowledgeSetAside)"),
                       "\u{2026}and the writer can put it down here too. Got:\n\(body)")

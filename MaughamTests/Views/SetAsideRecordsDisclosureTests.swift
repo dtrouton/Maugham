@@ -50,10 +50,18 @@ final class SetAsideRecordsDisclosureTests: XCTestCase {
     /// the shipped shape asked for.
     private let bound: CGFloat = 400
 
+    /// Rows carrying nothing to send — the forensic list as it was before P3b
+    /// Task 8 gave it a control. `test_theDoorsButtonDoesNotWidenTheList`
+    /// measures the other shape.
+    private static func rows(_ names: [String]) -> [SetAsideDoor.Row] {
+        names.map { SetAsideDoor.Row(name: $0, words: 0, sent: false) }
+    }
+
     func test_theExpandedDisclosureDoesNotAskForTheWholeWindow() {
         let names = (1...3).map { Self.recordName($0) }
         let host = NSHostingView(
-            rootView: SetAsideRecordsDisclosure(names: names, initiallyExpanded: true))
+            rootView: SetAsideRecordsDisclosure(
+                rows: Self.rows(names), initiallyExpanded: true))
 
         XCTAssertLessThanOrEqual(
             host.fittingSize.width, bound,
@@ -65,7 +73,8 @@ final class SetAsideRecordsDisclosureTests: XCTestCase {
     /// moved the growth to the closed state could not hide.
     func test_theCollapsedDisclosureIsBoundedToo() {
         let names = (1...3).map { Self.recordName($0) }
-        let host = NSHostingView(rootView: SetAsideRecordsDisclosure(names: names))
+        let host = NSHostingView(
+            rootView: SetAsideRecordsDisclosure(rows: Self.rows(names)))
 
         XCTAssertLessThanOrEqual(host.fittingSize.width, bound)
     }
@@ -74,15 +83,45 @@ final class SetAsideRecordsDisclosureTests: XCTestCase {
     /// against a revoked device; the width must not move with the count.
     func test_theWidthDoesNotGrowWithTheNumberOfRecords() {
         let three = NSHostingView(rootView: SetAsideRecordsDisclosure(
-            names: (1...3).map { Self.recordName($0) }, initiallyExpanded: true))
+            rows: Self.rows((1...3).map { Self.recordName($0) }),
+            initiallyExpanded: true))
         let forty = NSHostingView(rootView: SetAsideRecordsDisclosure(
-            names: (1...40).map { Self.recordName($0) }, initiallyExpanded: true))
+            rows: Self.rows((1...40).map { Self.recordName($0) }),
+            initiallyExpanded: true))
 
         XCTAssertEqual(forty.fittingSize.width, three.fittingSize.width,
                        accuracy: 1,
                        "every row is the same shape; more of them is taller, "
                        + "never wider")
         XCTAssertLessThanOrEqual(forty.fittingSize.width, bound)
+    }
+
+    /// **The door does not widen the list** (P3b Task 8). A row whose record
+    /// held manuscript text grows a **Send to Inbox** button, and a row already
+    /// sent grows a note; neither may put the History pane — and so every
+    /// column of the window — back in the position this suite exists to keep it
+    /// out of.
+    ///
+    /// C13 was re-run before the control was added and did not reproduce: the
+    /// expanded disclosure in a real three-column split holds `[240, 639, 320]`
+    /// at 1200 pt and `[200, 480, 320]` at 900 pt. This is the narrower thing
+    /// that can be pinned.
+    func test_theDoorsButtonDoesNotWidenTheList() {
+        let names = (1...3).map { Self.recordName($0) }
+        let offering = names.map {
+            SetAsideDoor.Row(name: $0, words: 7, sent: false)
+        }
+        let sent = names.map {
+            SetAsideDoor.Row(name: $0, words: 7, sent: true)
+        }
+
+        for rows in [offering, sent] {
+            let host = NSHostingView(rootView: SetAsideRecordsDisclosure(
+                rows: rows, initiallyExpanded: true))
+            XCTAssertLessThanOrEqual(host.fittingSize.width, bound)
+        }
+        XCTAssertTrue(offering[0].offersTheDoor, "premise: the button is drawn")
+        XCTAssertNotNil(sent[0].sentNote, "premise: the note is drawn")
     }
 
     /// **The control.** The shape that shipped — a `Text` per name with no line

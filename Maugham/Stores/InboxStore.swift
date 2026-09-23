@@ -468,6 +468,45 @@ final class InboxStore {
         }
     }
 
+    /// **Set-aside words, back in the writer's hands** (P3b Task 8, spec
+    /// §7.4) — the one creation verb this store has, and the one route from a
+    /// refused line into a book that is not the op log.
+    ///
+    /// Each paragraph becomes one ordinary capture: minted here, written to
+    /// THIS Mac's own manifest, signed by this Mac's own AUTHOR actor and
+    /// sealed like any other (`appendThrowing`, whose monotonic `writtenAt` and
+    /// per-capture seal this inherits rather than restates — tripwire 17). The
+    /// refused lines are not touched, not re-admitted, not applied: the op log
+    /// never hears about this at all, and what reaches the draft reaches it
+    /// because a person moved it, one paragraph at a time.
+    ///
+    /// `attribution` is the line naming whoever wrote the paragraph — the
+    /// entry's `title`, which is the one field `InboxEntry` already has for a
+    /// label and which needs no new wire field. The WORDS stay alone in
+    /// `inlineText`, so promoting a recovered paragraph writes exactly the
+    /// paragraph and nothing the writer has to delete.
+    ///
+    /// Answers how many captures landed, and refreshes once at the end rather
+    /// than per row.
+    @discardableResult
+    func captureRecoveredWords(_ captures: [SetAsideDoor.Capture]) async throws -> Int {
+        guard !captures.isEmpty else { return 0 }
+        for capture in captures {
+            let createdAt = Date()
+            try await appendThrowing(InboxEntry(
+                id: ULID.generate(),
+                createdAt: createdAt,
+                writtenAt: createdAt,
+                deviceId: deviceId,
+                kind: .text,
+                inlineText: capture.text,
+                title: capture.attribution,
+                status: .new))
+        }
+        await refresh()
+        return captures.count
+    }
+
     /// Throwing core of `append`, used by callers with a throwing channel (the
     /// promote flows) so a failed terminal status write surfaces instead of
     /// being swallowed (S8).

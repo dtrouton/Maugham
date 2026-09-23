@@ -26,14 +26,15 @@ struct InboxPane: View {
 
     @State private var editing: InboxEntry?
     /// How many set-aside CAPTURES this device has not yet told the writer
-    /// about, and the names of every record whether acknowledged or not
+    /// about, **under each reason they were set aside for** (P3b Task 8's C1),
+    /// and the names of every record whether acknowledged or not
     /// (signed op log P2a, D2). Resolved on the pane's `.task` from
     /// `store.setAsideRecords` and held, because both resolutions read the
     /// quarantine directory and a read from `body` would do file I/O on every
     /// evaluation. A capture already in the pane is not counted: the record is
     /// evidence forever, and *set aside* stopped being true of that row the
     /// moment the writer admitted the device that wrote it (P2 smoke, find 7).
-    @State private var setAsideChangeCount: Int = 0
+    @State private var setAsideChangesByReason: [String: Int] = [:]
     @State private var setAsideRecordNames: [String] = []
     @State private var audio = InboxAudioPlayer()
     @State private var promoteError: String?
@@ -63,16 +64,28 @@ struct InboxPane: View {
     /// same contract, and the same words, as `HistoryPane.setAsideLinesNotice`
     /// gives a document.
     ///
-    /// Pure over the count, so the copy pins without a window and without disk.
-    /// The count is taken over `InboxStore.setAsideRecords`, which is the half
-    /// that has to read files.
-    static func setAsideNotice(changeCount: Int) -> String? {
-        guard changeCount > 0 else { return nil }
-        let subject = changeCount == 1
-            ? "1 capture was written"
-            : "\(changeCount) captures were written"
-        return "\(subject) to the inbox by something that is not Maugham; "
-             + "kept in backup, not shown."
+    /// **Reason-aware since P3b Task 8** (carry C1). It used to say *written to
+    /// the inbox by something that is not Maugham* about every refusal there
+    /// is — which was true of the only cause P1 had, and is false of every one
+    /// P2b and P3 added. A writer who revokes their own old laptop, or whose
+    /// phone's permit will not let it write here, was being told a stranger had
+    /// tampered with their capture file.
+    ///
+    /// The composition is `SetAsideDoor.notice`'s, which History's twin also
+    /// calls, so the two panes cannot describe one event differently. What is
+    /// supplied here is only what the INBOX's refusal costs the writer: a
+    /// capture, and that it is not shown.
+    ///
+    /// Pure over the counts, so the copy pins without a window and without
+    /// disk. The counts are taken over `InboxStore.setAsideRecords`, which is
+    /// the half that has to read files.
+    static func setAsideNotice(byReason: [String: Int]) -> String? {
+        func captures(_ count: Int) -> String {
+            count == 1 ? "1 capture" : "\(count) captures"
+        }
+        return SetAsideDoor.notice(
+            byReason: byReason, subject: captures, clause: captures,
+            ending: "kept in backup, not shown")
     }
 
     /// **What this book is holding, and from whom** (signed op log P2, spec
@@ -180,7 +193,7 @@ struct InboxPane: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
-            if let notice = Self.setAsideNotice(changeCount: setAsideChangeCount) {
+            if let notice = Self.setAsideNotice(byReason: setAsideChangesByReason) {
                 // The other half of the one new refusal in the tree (signed op
                 // log P1): a `.lines` record never returns, and until now the
                 // inbox's were written and shown to nobody — `HistoryPane` only
@@ -300,7 +313,7 @@ struct InboxPane: View {
         // `applied` is every manifest row the refresh merged, whatever its
         // status — a capture that was set aside and is now in the inbox (or has
         // since been promoted or trashed) is one the writer HAS.
-        setAsideChangeCount = OpLogQuarantine.setAsideChangeCount(
+        setAsideChangesByReason = SetAsideDoor.changesByReason(
             records: SetAsideAcknowledgement.unacknowledged(
                 records: records,
                 acknowledged: projectStore.documentStore?.uiState

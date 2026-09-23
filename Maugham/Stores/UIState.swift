@@ -129,6 +129,25 @@ public struct UIState: Codable, Equatable, Sendable {
     /// writer already put down, and the archives are not this file's to police.
     public var acknowledgedSetAsideRecords: Set<String>
 
+    /// **Which set-aside records this device has already sent to the Inbox**
+    /// (P3b Task 8, spec §7.4) — the same archive filenames
+    /// `acknowledgedSetAsideRecords` holds, and beside it for the same reasons.
+    ///
+    /// The door is offered once. A second press would file every paragraph a
+    /// second time, and a writer who has already triaged those captures would
+    /// get them all again with nothing saying why.
+    ///
+    /// **Per device**, like the acknowledgement: what this Mac has handed its
+    /// writer is this Mac's business, and the archives are forensics that no
+    /// surface writes into. **Additive with no schema bump** and no key at all
+    /// when empty, so a `ui-state.json` written before this task is the file it
+    /// always was.
+    ///
+    /// **Names, never records**, and never swept: a name whose archive is gone
+    /// stays, because forgetting it would offer the door a second time over
+    /// words the writer already has.
+    public var sentSetAsideRecords: Set<String>
+
     /// Which review pass each piece was last looked at through
     /// (`ActivePassMemory`, M3-P1 Task 5).
     ///
@@ -209,7 +228,8 @@ public struct UIState: Codable, Equatable, Sendable {
         detailColumnWidth: Double = UIState.defaultDetailColumnWidth,
         publishImprint: String? = nil,
         authorReaderChoice: AuthorReaderChoice? = nil,
-        acknowledgedSetAsideRecords: Set<String> = []
+        acknowledgedSetAsideRecords: Set<String> = [],
+        sentSetAsideRecords: Set<String> = []
     ) {
         self.schemaVersion = schemaVersion
         self.selectedSubject = selectedSubject
@@ -227,6 +247,7 @@ public struct UIState: Codable, Equatable, Sendable {
         self.publishImprint = publishImprint
         self.authorReaderChoice = authorReaderChoice
         self.acknowledgedSetAsideRecords = acknowledgedSetAsideRecords
+        self.sentSetAsideRecords = sentSetAsideRecords
     }
 
     public static let empty = UIState()
@@ -238,7 +259,7 @@ public struct UIState: Codable, Equatable, Sendable {
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
              persona, personaMemory, compilerModel, activePassMemory,
              detailColumnWidth, publishImprint, authorReaderChoice,
-             acknowledgedSetAsideRecords
+             acknowledgedSetAsideRecords, sentSetAsideRecords
     }
 
     /// Hand-written because `selectedSubject` is not stored the way it is
@@ -274,6 +295,11 @@ public struct UIState: Codable, Equatable, Sendable {
         if !acknowledgedSetAsideRecords.isEmpty {
             try c.encode(acknowledgedSetAsideRecords,
                          forKey: .acknowledgedSetAsideRecords)
+        }
+        // The same rule for the same reason (P3b Task 8): a project where no
+        // set-aside words were ever sent to the Inbox carries no key at all.
+        if !sentSetAsideRecords.isEmpty {
+            try c.encode(sentSetAsideRecords, forKey: .sentSetAsideRecords)
         }
     }
 
@@ -325,6 +351,12 @@ public struct UIState: Codable, Equatable, Sendable {
         self.acknowledgedSetAsideRecords =
             (try? c.decode(Set<String>.self,
                            forKey: .acknowledgedSetAsideRecords)) ?? []
+        // Absent means nothing has been sent, which is where every project
+        // starts and where every file written before P3b Task 8 is: the door
+        // is offered, once.
+        self.sentSetAsideRecords =
+            (try? c.decode(Set<String>.self,
+                           forKey: .sentSetAsideRecords)) ?? []
         // `scrollLine` and `hasShownOpLogBootstrapNotice` were removed in
         // v0.3.1 (dead-code sweep), and `binderSegment` in shell-finish stage
         // 2b Task 7, when the binder strip died with `BinderSegment`, and

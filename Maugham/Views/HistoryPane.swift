@@ -143,6 +143,16 @@ struct HistoryPane: View {
     /// `SetAsideAcknowledgement.name(for:in:)` reads the quarantine directory
     /// and a per-row read from `body` is tripwire 4.
     @State private var setAsideRecordNames: [String] = []
+    /// The same records as rows the disclosure can act on (P3b Task 8, spec
+    /// §7.4): how many paragraphs each would hand back to the Inbox, whether
+    /// this Mac has already sent them, and the sentence each is shown under.
+    /// Resolved on `reload()` for `setAsideRecordNames`' reason — the count
+    /// reads each archive.
+    @State private var setAsideRows: [SetAsideDoor.Row] = []
+    /// What the last **Send to Inbox** did, or why it could not. Shown on the
+    /// row until the next reload, because a press that appeared to do nothing
+    /// is worse than a refusal (the Retry notice's own rule).
+    @State private var sendToInboxError: String?
     /// Device fingerprint → the name that device's registry record gives it,
     /// for the pending sentence (signed op log P2a). Empty when this project
     /// has no registry, and empty when one could not be read: a name is
@@ -351,23 +361,21 @@ struct HistoryPane: View {
     /// Pure over the counts, so the copy pins without a window and without
     /// disk. The counts come from `setAsideChangesByReason`, which is the half
     /// that has to read files.
+    ///
+    /// **The composition is `SetAsideDoor.notice`'s since P3b Task 8** (carry
+    /// C1): the Inbox's twin was still reason-blind, so the two panes described
+    /// the same event differently. What stays here is only what a DOCUMENT's
+    /// refusal costs the writer — the noun, and that the change was not
+    /// applied.
     static func setAsideChangesNotice(byReason: [String: Int]) -> String? {
-        let groups = byReason
-            .filter { $0.value > 0 }
-            .sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
-        guard !groups.isEmpty else { return nil }
-        let total = groups.reduce(0) { $0 + $1.value }
         func changes(_ count: Int) -> String {
             count == 1 ? "1 change" : "\(count) changes"
         }
-        if groups.count == 1, let only = groups.first {
-            let verb = only.value == 1 ? "was" : "were"
-            return "\(changes(only.value)) to this document \(verb) set aside "
-                 + "(\(only.key)); kept in backup, not applied."
-        }
-        let clauses = groups.map { "\(changes($0.value)) \($0.key)" }
-        return "\(changes(total)) to this document were set aside: "
-             + clauses.joined(separator: "; ") + ". Kept in backup, not applied."
+        return SetAsideDoor.notice(
+            byReason: byReason,
+            subject: { "\(changes($0)) to this document" },
+            clause: changes,
+            ending: "kept in backup, not applied")
     }
 
     /// How many CHANGES were set aside, **under each reason they were set aside
@@ -383,16 +391,18 @@ struct HistoryPane: View {
     /// record is permanent evidence and the disclosure lists it forever, but
     /// once the writer admits the device those ops are in the draft and *set
     /// aside* has stopped being true of them (P2 smoke, find 7).
+    ///
+    /// **The derivation moved to `SetAsideDoor` in P3b Task 8** so the Inbox
+    /// pane can ask the same question of the manifest stream (carry C1); this
+    /// is the ask, kept under its own name because the pane and its suite have
+    /// always called it that.
     static func setAsideChangesByReason(
-        records: [QuarantineRecord], in projectURL: URL, applied: Set<String> = []
+        records: [QuarantineRecord], in projectURL: URL, applied: Set<String> = [],
+        nowKeepsNothing: (QuarantineRecord) -> Bool? = { _ in nil }
     ) -> [String: Int] {
-        var counts: [String: Int] = [:]
-        let changes = OpLogQuarantine.setAsideChanges(
-            records: records, in: projectURL)
-        for change in changes where !applied.contains(change.id) {
-            counts[change.reason, default: 0] += 1
-        }
-        return counts
+        SetAsideDoor.changesByReason(
+            records: records, in: projectURL, applied: applied,
+            nowKeepsNothing: nowKeepsNothing)
     }
 
     /// The notice shown after a Retry completes. Zero orphans is
@@ -923,13 +933,22 @@ struct HistoryPane: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
-            if !setAsideRecordNames.isEmpty {
+            if !setAsideRows.isEmpty {
                 // Listed whether acknowledged or not — the archives are the
                 // writer's to read at any time, and an acknowledgement is a
                 // statement about the sentence above, never about the evidence.
-                SetAsideRecordsDisclosure(names: setAsideRecordNames)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                VStack(alignment: .leading, spacing: 4) {
+                    SetAsideRecordsDisclosure(
+                        rows: setAsideRows, onSend: sendSetAsideToInbox)
+                    if let sendToInboxError {
+                        Text("Couldn’t send to the Inbox: \(sendToInboxError)")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                            .accessibilityIdentifier("set-aside-send-error")
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
                 Divider()
             }
             if let report = recoveredReport, !report.orphans.isEmpty {
@@ -1167,6 +1186,15 @@ struct HistoryPane: View {
         setAsideRecordNames = setAside.map {
             SetAsideAcknowledgement.name(for: $0, in: projectURL)
         }
+        // **C16's input, resolved once for both readers** (P3b Task 8): the
+        // rows below and the sentence beneath them ask the same question of the
+        // same table, so a record cannot be listed under one reason and counted
+        // under another. Nil for every book that has revoked nobody, which
+        // costs nothing to establish.
+        let keepsNothing = await Self.keepsNothingNow(setAside, in: projectURL)
+        setAsideRows = SetAsideDoor.rows(
+            records: setAside, in: projectURL,
+            sent: documentStore?.uiState.sentSetAsideRecords ?? [])
         // `applied` is the ops this document is carrying RIGHT NOW — the list
         // read a few lines above, so nothing new is read from disk for it. An
         // op that was set aside and is now in the draft (the writer admitted the
@@ -1178,7 +1206,8 @@ struct HistoryPane: View {
                 acknowledged: documentStore?.uiState.acknowledgedSetAsideRecords ?? [],
                 in: projectURL),
             in: projectURL,
-            applied: Set(ops.map(\.opId)))
+            applied: Set(ops.map(\.opId)),
+            nowKeepsNothing: { keepsNothing[SetAsideDoor.identity(of: $0)] ?? nil })
         // Read outside `reloadChain`'s registry guard: a book that has never
         // joined a chain can still hold another device's stream, and what this
         // Mac cannot find is true whether or not a register says whose it was.
@@ -1249,6 +1278,92 @@ struct HistoryPane: View {
         joinedChainLine = resolved.joined
         retirementLine = resolved.retired
         trustEventLines = resolved.events
+    }
+
+    /// **C16's input for every set-aside record**, resolved off the main actor
+    /// against the one trust table this project has (P3b Task 8).
+    ///
+    /// **A book that has revoked nobody pays nothing at all**: no register
+    /// means no revocation, so the frozen reasons are the only ones there are
+    /// and the folder is never opened. Keyed on `SetAsideDoor.identity`, which
+    /// is the triple the quarantine directory matches a record on — resolved
+    /// without touching disk, unlike the archive name.
+    static func keepsNothingNow(
+        _ records: [QuarantineRecord], in projectURL: URL
+    ) async -> [String: Bool?] {
+        guard !records.isEmpty, TrustResolution.hasRegistry(in: projectURL)
+        else { return [:] }
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        return await Task.detached(priority: .userInitiated) {
+            // Never fatal, for `reloadChain`'s reason: an unreadable registry
+            // costs the writer a CORRECTION to a sentence, never the sentence.
+            guard let table = try? TrustResolution.resolveVerified(
+                projectURL: projectURL, identities: identities, cache: cache).table
+            else { return [:] }
+            var answers: [String: Bool?] = [:]
+            for record in records where record.kind == .lines {
+                answers[SetAsideDoor.identity(of: record)] =
+                    SetAsideDoor.keepsNothingNow(
+                        record, in: projectURL, table: table)
+            }
+            return answers
+        }.value
+    }
+
+    /// **Send one record's set-aside words to the Inbox** (spec §7.4).
+    ///
+    /// Nothing is applied and nothing on disk moves: the words are copied out
+    /// as captures signed by this Mac's own author actor, and the record stays
+    /// held with the same sentence on it. The press is remembered device-locally
+    /// so the door is not offered a second time and the same paragraphs are not
+    /// filed twice.
+    private func sendSetAsideToInbox(_ row: SetAsideDoor.Row) {
+        guard let documentStore else { return }
+        let projectURL = self.projectURL
+        let records = OpLogQuarantine.records(forDocId: activeDocId, in: projectURL)
+        guard let record = records.first(where: {
+            SetAsideAcknowledgement.name(for: $0, in: projectURL) == row.name
+        }) else { return }
+        Task {
+            let named = await Self.attributions(for: record, in: projectURL)
+            let captures = SetAsideDoor.captures(
+                forRecord: record, in: projectURL,
+                attribution: { named[$0.device] ?? "Set aside — this Mac" })
+            do {
+                _ = try await documentStore.inboxStore.captureRecoveredWords(captures)
+                documentStore.recordSetAsideSentToInbox([row.name])
+                sendToInboxError = nil
+            } catch {
+                sendToInboxError = error.localizedDescription
+            }
+            await reload()
+        }
+    }
+
+    /// Who each of a record's writers is, in the Inbox's own words for the same
+    /// machine (`SetAsideDoor.attribution`), resolved once per press and off
+    /// the main actor.
+    static func attributions(
+        for record: QuarantineRecord, in projectURL: URL
+    ) async -> [String: String] {
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        return await Task.detached(priority: .userInitiated) {
+            let writers = OpLogQuarantine.writers(ofRecord: record, in: projectURL)
+            guard !writers.isEmpty else { return [:] }
+            let resolved = try? TrustResolution.resolveVerified(
+                projectURL: projectURL, identities: identities, cache: cache)
+            let registry = resolved?.registry ?? Registry()
+            let table = resolved?.table
+                ?? TrustResolution.keyless(mine: identities)
+            var answers: [String: String] = [:]
+            for deviceId in writers {
+                answers[deviceId] = SetAsideDoor.attribution(
+                    forDeviceId: deviceId, registry: registry, table: table)
+            }
+            return answers
+        }.value
     }
 
     /// Put the set-aside sentence down: every record it could be about is
@@ -1804,9 +1919,25 @@ private struct HistoryRow: View {
 /// `isExpanded` is state with an injectable seed so the expanded case — the one
 /// that broke — is measurable windowlessly (`SetAsideRecordsDisclosureTests`);
 /// production never passes it, and the disclosure opens closed.
+///
+/// **C13 was re-run before this list grew a control** (P3b Task 8, 2026-09-23)
+/// and did not reproduce: the expanded disclosure inside a real three-column
+/// split holds `[240, 639, 320]` at 1200 pt and `[200, 480, 320]` at 900 pt,
+/// with the shipped framed detail column and with the pre-27 unframed one
+/// alike. The layout is therefore untouched; what is new is a per-row button,
+/// and its width is bounded by the same suite that bounds the names.
+///
+/// **The row carries at most one control, and only where there is something
+/// to give back** (spec §7.4): a record whose refused lines held manuscript
+/// text offers **Send to Inbox**, once. Everything else is a name and a
+/// tooltip, which is what a forensic list is.
 @MainActor
 struct SetAsideRecordsDisclosure: View {
-    let names: [String]
+    let rows: [SetAsideDoor.Row]
+    /// What a press does. The view decides nothing: which rows carry a control
+    /// is `SetAsideDoor.Row.offersTheDoor`, and what a press writes is
+    /// `HistoryPane.sendSetAsideToInbox`.
+    var onSend: (SetAsideDoor.Row) -> Void = { _ in }
     @State private var isExpanded: Bool
 
     /// What this list asks for, whatever its rows are called. Narrow enough to
@@ -1814,23 +1945,44 @@ struct SetAsideRecordsDisclosure: View {
     /// stretch to fill whatever they are actually given.
     static let idealWidth: CGFloat = 220
 
-    init(names: [String], initiallyExpanded: Bool = false) {
-        self.names = names
+    init(
+        rows: [SetAsideDoor.Row],
+        onSend: @escaping (SetAsideDoor.Row) -> Void = { _ in },
+        initiallyExpanded: Bool = false
+    ) {
+        self.rows = rows
+        self.onSend = onSend
         _isExpanded = State(initialValue: initiallyExpanded)
     }
 
     var body: some View {
         DisclosureGroup("Set-aside records", isExpanded: $isExpanded) {
             VStack(alignment: .leading, spacing: 2) {
-                ForEach(names, id: \.self) { name in
-                    Text(name)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(name)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(rows) { row in
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(row.name)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(row.name)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if row.offersTheDoor {
+                            Button("Send to Inbox") { onSend(row) }
+                                .controlSize(.small)
+                                .buttonStyle(.link)
+                                .font(.caption2)
+                                .help(row.doorHelp)
+                                .accessibilityIdentifier("set-aside-send-to-inbox")
+                        } else if let sent = row.sentNote {
+                            Text(sent)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .accessibilityIdentifier("set-aside-sent-note")
+                        }
+                    }
                 }
             }
             .padding(.top, 2)

@@ -17,21 +17,40 @@ final class InboxSetAsideNoticeTests: XCTestCase {
     // MARK: - The copy
 
     func test_nothingSetAsideSaysNothing() {
-        XCTAssertNil(InboxPane.setAsideNotice(changeCount: 0))
+        XCTAssertNil(InboxPane.setAsideNotice(byReason: [:]))
     }
 
     func test_oneCaptureIsSingular() {
         XCTAssertEqual(
-            InboxPane.setAsideNotice(changeCount: 1),
-            "1 capture was written to the inbox by something that is not "
-            + "Maugham; kept in backup, not shown.")
+            InboxPane.setAsideNotice(
+                byReason: ["written by something that is not Maugham": 1]),
+            "1 capture was set aside (written by something that is not "
+            + "Maugham); kept in backup, not shown.")
     }
 
     func test_severalCapturesArePlural() {
         XCTAssertEqual(
-            InboxPane.setAsideNotice(changeCount: 4),
-            "4 captures were written to the inbox by something that is not "
-            + "Maugham; kept in backup, not shown.")
+            InboxPane.setAsideNotice(
+                byReason: ["written by something that is not Maugham": 4]),
+            "4 captures were set aside (written by something that is not "
+            + "Maugham); kept in backup, not shown.")
+    }
+
+    /// **The whole of carry C1** (P3b Task 8). Until this task the inbox said
+    /// *written to the inbox by something that is not Maugham* about every
+    /// refusal there is — so a writer who revoked their own old laptop was told
+    /// a stranger had been in their capture file. The reasons are the records'
+    /// own, and the composition is History's.
+    func test_eachReasonGetsItsOwnClause() {
+        XCTAssertEqual(
+            InboxPane.setAsideNotice(byReason: [
+                "written after this device's access was withdrawn": 2,
+                "written by the assistant, which never changes the manuscript": 1,
+            ]),
+            "3 captures were set aside: 2 captures written after this "
+            + "device's access was withdrawn; 1 capture written by the "
+            + "assistant, which never changes the manuscript. Kept in backup, "
+            + "not shown.")
     }
 
     // MARK: - The count
