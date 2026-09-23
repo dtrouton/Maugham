@@ -27,6 +27,7 @@ says, not an implementation detail.
   lines are held. `revoked` / `retired` are skipped when finding *first*.
   `PermitTimeline.opening(before:)` is the five arms. **Consequence for P3b: a
   re-admission must mint `.readmitted` and never `.admitted`.**
+- **A retirement is ONE-WAY, and a retired device's later words are SET ASIDE rather than held** (found building P3b Task 7, 2026-09-20; ruled by the controller the same day). §7.3's third question — *N paragraphs were written on it while retired — bring them in?* — and §5's *re-admission asks* are **withdrawn**, because neither of the two things they assume is true of the build. A sealed span written at or after `retiredAt` is `.quarantined`, not `.pending` (`TrustVerdict.settling`, OpLogChain.swift:1158–1159): it is refused with `QuarantineCause.afterRetirement`, written into a `.lines` record reading *written after this device was retired*, and `RevocationSplit.partition` excludes a retirement by name, so none of find 5's keep-what-was-applied machinery reaches it. And there is no verb to re-admit a retired DEVICE at all: `retire` is idempotent and clears nothing (RegistryAdmission.swift:1318), `RegistryPresence.ensureDeviceRecord` refuses to un-retire on purpose, and `admit`'s readmission arm is about a revoked PERSON. Building the question would have meant an un-retirement verb in the registry's authority set plus a keep/refuse cut for `.afterRetirement` — a P2b-sized addition, reversing a rule the build states in three places. **A one-way retirement is the honest shape**: a device that stands itself down has said so with its own key, and the words it writes afterwards are somebody else's problem to bring back deliberately rather than the book's to re-absorb on a button. What is unchanged: its unsealed tail stays APPLIED as pre-retirement work (`settlingAnUnsealedSpan` answers nil for `.retired`), so nothing a retiring machine had in flight is lost. Its later words come back through §7.4's **Send to Inbox**, by the writer's own hand, like any other set-aside text. **Cost if wrong**: a writer who retires a Mac by mistake recovers its later paragraphs one at a time through the Inbox instead of with one press.
 - **A contested non-author actor key belongs to NOBODY, forever.** Nothing proves
   possession of a key a device record merely LISTS; only the author slot is
   self-proving. One claimant ⇒ that device's, whatever its standing; two or more
@@ -182,7 +183,7 @@ The question is *Sam started "X" — is it hers?* **Hers** is a scope event addi
 | **promotion / a piece joins her scope** | manuscript lines she signed while the permit said no **stay set aside** — a promotion is not a pardon | lines after the mark are applied |
 | **revocation** (P2, unchanged) | what this Mac had applied, by default; *Set Aside Everything* is the second button | everything after |
 | **late-sync half of any mark** | never applied — nothing judged under a closed permit enters by the log | the inbox door (§7.4) |
-| **retirement** (ruling 2C) | the retired Mac applies its own later lines — typing never fails — under a standing banner | every other device holds them pending; re-admission asks (§7.3) |
+| **retirement** (ruling 2C) | the retired Mac applies its own later lines — typing never fails — under a standing banner | **AMENDED 2026-09-20:** every other device SETS THEM ASIDE (`QuarantineCause.afterRetirement`) rather than holding them, and there is no re-admission to ask; they come back through §7.4's Send to Inbox. See *A retirement is one-way* under *As built*. Its unsealed tail is applied everywhere, unchanged |
 | **the root on her piece** | applied, always | the app warned first (§8) |
 
 ## 6. The acts
@@ -206,9 +207,9 @@ For somebody else's device: a role control (*Reviewer* · *Author of some pieces
 
 Each person's row shows role and pieces; changing either goes through the pane's one `Confirmation` type, whose text states both directions (*What Sam already wrote in Chapter 4 stays. Anything she writes there from now on is set aside.*). Also here: pending new-piece questions (*Hers* / *Not now*, answerable later); an **unsigned** line on a device with no enclave (#8 — with a dated History entry once per project; under roles, unsigned decides whether a device's writing is ever applied elsewhere); a nameless device no longer shows its code as its own name (C2).
 
-### 7.3 The three questions a load can raise
+### 7.3 The questions a load can raise
 
-The admission question gains two siblings on the same load path, through the same held-lines union (`DocumentStore.heldLinesByDevice`): the new piece (§4.5), and on re-admitting a retired device, *N paragraphs were written on it while retired — bring them in?* (**Not now** leaves them pending.) The retired Mac's banner is in the editor's status-footer register, stronger than today's Settings notice.
+**AMENDED 2026-09-20 (P3b Task 7) — the third question is withdrawn; see *A retirement is one-way* under *As built* below.** A load raises TWO questions, not three: the admission question, and the new piece (§4.5), both on the same load path and through the same held-lines union (`DocumentStore.heldLines`). The retired Mac's banner is in the editor's status-footer register, stronger than today's Settings notice.
 
 ### 7.4 The inbox door (ruling 1)
 
