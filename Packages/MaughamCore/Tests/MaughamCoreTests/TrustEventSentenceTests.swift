@@ -355,4 +355,59 @@ final class TrustEventSentenceTests: XCTestCase {
         XCTAssertFalse(sentence.contains("reviewer"), sentence)
         XCTAssertFalse(sentence.contains("author"), sentence)
     }
+
+    // MARK: - A subject whose record has not arrived (P3b Task 7)
+
+    /// **A code with no explanation is a row that says nothing.** An event
+    /// about somebody this book holds no record for draws as four characters,
+    /// which is honest and useless: the writer cannot tell *a Mac I have never
+    /// heard of* from *a record that is still syncing*, and the second is the
+    /// ordinary case — a root admits somebody and their person record lands a
+    /// minute after the event does.
+    ///
+    /// It is a clause BESIDE the sentence rather than inside it, because the
+    /// sentence is shared with the phone and is pinned to the byte above; the
+    /// row composes the two.
+    func test_anEventAboutSomebodyWithNoRecordSaysTheRecordHasNotArrived() {
+        let clause = TrustEventSentence.unknownSubject(
+            for: event(.admitted, subject: phone, by: root), labels: [:])
+        XCTAssertEqual(
+            clause, "This Mac hasn\u{2019}t received their record yet.")
+    }
+
+    /// Both directions. A subject the event NAMES, or one the registry names,
+    /// has arrived — there is nothing to explain.
+    func test_aNamedSubjectGetsNoSuchClause() {
+        XCTAssertNil(TrustEventSentence.unknownSubject(
+            for: event(.admitted, subject: phone, label: "iPhone", by: root),
+            labels: [:]))
+        XCTAssertNil(TrustEventSentence.unknownSubject(
+            for: event(.admitted, subject: phone, by: root),
+            labels: [phone: "Sam"]))
+        XCTAssertNil(TrustEventSentence.unknownSubject(
+            for: event(.admitted, subject: phone, by: root, isMine: true),
+            labels: [:]))
+    }
+
+    /// And the kinds that are ABOUT a book this device has no record for say
+    /// nothing either: a claimant is another Mac's root by definition, and a
+    /// join and an adoption are already about somebody outside this chain.
+    /// Telling the writer their record has not arrived would be telling them
+    /// to wait for something that is not coming.
+    func test_aClaimantAJoinAndAnAdoptionExplainNothing() {
+        for kind in [TrustEvent.Kind.anotherClaimant, .claimed, .adopted, .joined] {
+            XCTAssertNil(
+                TrustEventSentence.unknownSubject(
+                    for: event(kind, subject: phone), labels: [:]),
+                "\(kind)")
+        }
+    }
+
+    /// The sentence itself is untouched by any of this.
+    func test_theSentenceIsUnchangedForAnUnnamedSubject() {
+        XCTAssertEqual(
+            TrustEventSentence.sentence(
+                for: event(.admitted, subject: phone, by: root), labels: [:]),
+            "9C8B admitted by 4F2K.")
+    }
 }

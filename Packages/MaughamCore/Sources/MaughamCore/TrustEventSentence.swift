@@ -168,6 +168,42 @@ public enum TrustEventSentence {
         labels[fingerprint] ?? DeviceCode.short(fingerprint)
     }
 
+    /// **Why this row names four characters and nothing else** (P3b Task 7),
+    /// or nil where it names somebody.
+    ///
+    /// A bare code is honest and useless on its own: it cannot be told from *a
+    /// Mac I have never heard of*, and the case that actually happens is the
+    /// opposite one — a root admits somebody, the EVENT syncs, and the person
+    /// record lands a minute later. Until it does, every surface that resolves
+    /// a name off the registry has nothing, and History drew a row that
+    /// explained none of it.
+    ///
+    /// **Beside the sentence, not inside it.** `sentence(for:labels:)` is
+    /// shared with the phone and pinned to the byte in both surfaces' tests;
+    /// the row composes the two, so the clause can be drawn where there is
+    /// room for it and left out where there is not.
+    ///
+    /// **Not every kind wants it**, and the switch has no `default:` so a
+    /// fourteenth kind has to decide. A claimant is another Mac's root by
+    /// definition, and a claim, an adoption and a join are all about somebody
+    /// outside this chain — telling the writer their record has not arrived
+    /// would be telling them to wait for something that is not coming.
+    nonisolated public static func unknownSubject(
+        for event: TrustEvent, labels: [String: String]
+    ) -> String? {
+        guard !event.isMine,
+              event.label == nil, labels[event.subject] == nil
+        else { return nil }
+        switch event.kind {
+        case .admitted, .silentlyAdmitted, .readmitted, .roleChanged,
+             .scopeChanged, .revoked, .revokedEntirely, .retired,
+             .recordRestored:
+            return "This Mac hasn’t received their record yet."
+        case .claimed, .adopted, .joined, .anotherClaimant:
+            return nil
+        }
+    }
+
     /// `Sam` → `Sam’s`. A typographic apostrophe, because every other sentence
     /// in these surfaces uses one, and no special case for a name ending in s:
     /// the writer chose the name, and second-guessing their spelling of

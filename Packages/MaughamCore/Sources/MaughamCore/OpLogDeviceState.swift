@@ -70,6 +70,15 @@ public final class OpLogDeviceState: @unchecked Sendable {
         /// told cannot be allowed to change what a mark says — only whether
         /// the act that would write one is refused.
         var acknowledgedLosses: [String: Date] = [:]
+        /// **Pieces the writer has been asked about and put off** (P3b Task
+        /// 7), keyed `<project-root hash>/<person>/<docId>` — the same hash
+        /// half again, so the one `prune` pass covers this too.
+        ///
+        /// Device-local for `acknowledgedLosses`' reason and a stronger one:
+        /// *not now* is not an answer, it is the absence of one, and writing
+        /// it into the book would tell every other Mac that a question they
+        /// have not been asked has been settled.
+        var declinedPieces: [String: Date] = [:]
 
         init() {}
 
@@ -93,6 +102,8 @@ public final class OpLogDeviceState: @unchecked Sendable {
                 [String: StreamTruncation].self, forKey: .foreignTruncations) ?? [:]
             acknowledgedLosses = try container.decodeIfPresent(
                 [String: Date].self, forKey: .acknowledgedLosses) ?? [:]
+            declinedPieces = try container.decodeIfPresent(
+                [String: Date].self, forKey: .declinedPieces) ?? [:]
         }
     }
 
@@ -534,6 +545,86 @@ public final class OpLogDeviceState: @unchecked Sendable {
         "\(scopeHash(ofRoot: root))/\(streamKey)"
     }
 
+    // MARK: - Pieces put off (P3b Task 7)
+
+    /// One question this device has already asked: whose a piece is.
+    public struct DeclinedPiece: Hashable, Sendable {
+        /// The person record's fingerprint — the holder the lines are held
+        /// under, which is also the subject of the permit change *Hers* would
+        /// write.
+        public let person: String
+        public let docId: String
+
+        public init(person: String, docId: String) {
+            self.person = person
+            self.docId = docId
+        }
+    }
+
+    /// **The writer was asked whose this piece is and said *not now*.**
+    ///
+    /// It writes nothing to the book — no event, no record, nothing another
+    /// device will ever read. *Not now* is not an answer; it is the absence of
+    /// one, and recording it in the book would tell every other Mac that a
+    /// question they have never been asked has been settled. What it changes
+    /// is only whether THIS Mac asks again at the next load, and it does not:
+    /// the question keeps on waiting in People & Devices, where the writer
+    /// goes when they are ready to answer it.
+    ///
+    /// **Idempotent, and the first date wins.** *Not now* said twice is one
+    /// decision, and the day it was made is the day it was first made.
+    ///
+    /// Per PERSON and per PIECE, because that is the grain of the question:
+    /// the same writer opening a second piece is a second question, and
+    /// somebody else writing in the same piece is a different one again.
+    public func declinePiece(
+        person: String, docId: String, inRoot root: URL, at when: Date = Date()
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        let key = Self.declinedKey(person: person, docId: docId, root: root)
+        let hash = Self.scopeHash(ofKey: key)
+        let path = root.standardizedFileURL.path
+        var changed = false
+        if stored.roots[hash] != path {
+            stored.roots[hash] = path
+            changed = true
+        }
+        if stored.declinedPieces[key] == nil {
+            stored.declinedPieces[key] = when
+            changed = true
+        }
+        if changed { persistLocked() }
+    }
+
+    /// Every question put off in `root`, with the day it was put off.
+    public func declinedPieces(inRoot root: URL) -> [DeclinedPiece: Date] {
+        lock.lock()
+        defer { lock.unlock() }
+        let prefix = "\(Self.scopeHash(ofRoot: root))/"
+        var out: [DeclinedPiece: Date] = [:]
+        for (key, when) in stored.declinedPieces where key.hasPrefix(prefix) {
+            let rest = key.dropFirst(prefix.count)
+            // `<person>/<docId>`. A fingerprint is hex and carries no slash,
+            // so the FIRST separator is the one that splits them and a docId
+            // holding one of its own survives intact.
+            guard let slash = rest.firstIndex(of: "/") else { continue }
+            let person = String(rest[rest.startIndex..<slash])
+            let docId = String(rest[rest.index(after: slash)...])
+            guard !person.isEmpty, !docId.isEmpty else { continue }
+            out[DeclinedPiece(person: person, docId: docId)] = when
+        }
+        return out
+    }
+
+    /// `<project-root hash>/<person>/<docId>` — the foreign key's shape with a
+    /// person and a piece where a stream goes, so `prune` covers this too.
+    private nonisolated static func declinedKey(
+        person: String, docId: String, root: URL
+    ) -> String {
+        "\(scopeHash(ofRoot: root))/\(person)/\(docId)"
+    }
+
     // MARK: - Verified segments
 
     public func isVerified(segmentDigest: String) -> Bool {
@@ -670,6 +761,11 @@ public final class OpLogDeviceState: @unchecked Sendable {
         // An acknowledgement is a fact about one book's history; a book that
         // is gone takes it with it (P3b Task 6).
         stored.acknowledgedLosses = stored.acknowledgedLosses.filter {
+            !hashes.contains(scopeHash(ofKey: $0.key))
+        }
+        // And a question put off about a book that is gone is a question about
+        // nothing (P3b Task 7).
+        stored.declinedPieces = stored.declinedPieces.filter {
             !hashes.contains(scopeHash(ofKey: $0.key))
         }
         for hash in hashes { stored.roots.removeValue(forKey: hash) }
