@@ -308,7 +308,15 @@ struct PeopleAndDevicesModel: Equatable {
         /// 3b): they are revoked, and this Mac is the root that revoked them.
         /// The inverse of a revocation is an admission by the same authority,
         /// so the row offers it where the row offered Revoke.
+        ///
+        /// **The permit it would put back may still be one this build cannot
+        /// draw** — that refusal is `whyNotReadmittable`'s, and the button is
+        /// drawn either way.
         let canReadmit: Bool
+        /// Why not, when the authority is there and the permit is not
+        /// something this build can put back. Nil in every other case,
+        /// including the ones where the button is not drawn at all.
+        let whyNotReadmittable: String?
         /// **The permit a Re-admit should propose** (Task 4's review, the
         /// Critical): the one they held when they were revoked, read off their
         /// `PermitTimeline` — a revocation installs no entry, so `current` is
@@ -907,6 +915,11 @@ struct PeopleAndDevicesModel: Equatable {
             // performed it: `RegistryAdmission.admit` refuses anybody else's
             // record, so a button here would be a control that cannot act.
             canReadmit: record.isRevoked && !record.isRoot && record.admittedBy == me,
+            // **And why it is refused when it is drawn** (Task 5's ruling,
+            // built in Task 6): the authority is this Mac's and the permit is
+            // still one this build cannot put back. The button is kept and
+            // disabled, in the register Rename and Change use.
+            whyNotReadmittable: whyNotReadmittable(timeline.current),
             // **What a Re-admit would put back** (Task 4's review, Critical).
             // The permit she held when she was revoked, which is the
             // timeline's `current` — a revocation installs no entry, so the
@@ -1033,6 +1046,27 @@ struct PeopleAndDevicesModel: Equatable {
     }
     /// What Change… says when it is offered.
     static let changeHelp = "Change what this device may write in this book"
+    /// **Re-admitting a permit no control can draw** (Task 5's ruling, built
+    /// in Task 6) — the same stop as Change…, one verb over.
+    ///
+    /// A re-admission installs a permit: `RegistryAdmission.admit` writes
+    /// whatever it is given over a revoked record. So a build that cannot draw
+    /// the permit they held when they were shut out cannot offer to put it
+    /// back — and it must not fall back to the whole book after a message,
+    /// which is a WIDENING chosen by the build that understands least. The
+    /// newer Maugham that wrote that rung is where they are let back in.
+    private static func whyNotReadmittable(_ permit: Permit) -> String? {
+        PermitControl.choice(displaying: permit) == nil
+            ? permitThisBuildCannotReinstall : nil
+    }
+
+    /// Its sentence — `permitThisBuildCannotDraw`'s twin, in the register of
+    /// the verb it refuses.
+    static let permitThisBuildCannotReinstall =
+        "A newer version of Maugham set what they may write. Let them back in "
+        + "there, so this Mac doesn\u{2019}t put back something it can\u{2019}t "
+        + "show you."
+
     /// **A permit no control can draw** — a role or scope word a later Maugham
     /// wrote. The control is refused rather than shown pre-filled with a rung
     /// this Mac invented, because pressing it would overwrite a permit the

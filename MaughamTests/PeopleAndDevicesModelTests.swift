@@ -1199,6 +1199,59 @@ final class PeopleAndDevicesPermitRowTests: XCTestCase {
         XCTAssertEqual(row.permitWhenRevoked, .author(.book))
     }
 
+    /// **A Re-admit over a permit this build cannot draw is REFUSED** (Task 5's
+    /// ruling, built in Task 6) — the same stop Change… makes, one verb over.
+    ///
+    /// The sheet's control has no rung to start at, so it started at the whole
+    /// book after a message. That is a WIDENING chosen by the build that
+    /// understands least: an older Maugham putting back a permission it was
+    /// never shown. The button is kept and disabled, naming the Maugham where
+    /// they can be let back in.
+    func test_areadmissionIsRefusedOverAPermitThisBuildCannotDraw() throws {
+        let registry = Registry(
+            devices: [device(mac, name: "Denver's MacBook", kind: .mac),
+                      device(phone, name: "Denver's iPhone")],
+            people: [person(mac, label: "Denver", ownName: "Denver's MacBook",
+                            admittedBy: mac),
+                     PersonRecord(
+                        person: phone.fingerprint, label: "Sam",
+                        ownName: "Denver's iPhone", role: "editor-in-chief",
+                        scope: Permit.bookScope, pieces: [],
+                        admittedAt: admitted, admittedBy: mac.fingerprint,
+                        revokedAt: admitted.addingTimeInterval(86_400),
+                        revokedBy: mac.fingerprint)],
+            events: [event(
+                .roleChanged, about: phone.fingerprint,
+                permit: Permit.parse(role: "editor-in-chief",
+                                     scope: Permit.bookScope, pieces: []))])
+        let row = try sam(model(registry))
+
+        XCTAssertNil(
+            PermitControl.choice(displaying: row.permitWhenRevoked),
+            "the premise: no control can draw what she held")
+        XCTAssertEqual(
+            row.whyNotReadmittable,
+            PeopleAndDevicesModel.permitThisBuildCannotReinstall)
+        XCTAssertTrue(
+            row.canReadmit,
+            "the button is kept and disabled, like Rename's and Change's")
+        XCTAssertFalse(
+            row.whyNotReadmittable?.contains("whole book") ?? true,
+            "and it never offers the fallback that was the defect")
+    }
+
+    /// The other direction: an ordinary revoked person is offered Re-admit with
+    /// nothing said against it.
+    func test_anordinaryRevokedPersonIsReadmittableWithNoRefusal() throws {
+        let row = try sam(model(registry(
+            phonePermit: .author(.pieces(["ch4"])), revoked: true,
+            events: [event(.scopeChanged, about: phone.fingerprint,
+                           permit: .author(.pieces(["ch4"])))])))
+
+        XCTAssertTrue(row.canReadmit)
+        XCTAssertNil(row.whyNotReadmittable)
+    }
+
     // MARK: - Held keys that are nobody to ask about
 
     /// A non-author actor key is silent in the sheet by design; this is the
