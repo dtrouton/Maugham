@@ -679,5 +679,35 @@ final class AdmissionPermitTests: XCTestCase {
         XCTAssertTrue(reading.streams.contains("ghostmac-0badf00d"),
                       "named by the SLUG, as the held-line door names it: "
                       + "\(reading.streams)")
+        XCTAssertNil(reading.narrowedAt,
+                     "nobody has been narrowed, so there is no day to date "
+                     + "History's unsigned entry with")
+    }
+
+    /// **The cost rule, in both directions** (P3b Task 10). History draws an
+    /// unsigned entry only in a narrowed book, so its read asks
+    /// `onlyIfNarrowed` and an UN-narrowed book pays for no walk at all — while
+    /// the sheet's and the pane's own read, whose whole sentence is about the
+    /// book *before* its first narrowing, passes nothing and still gets the
+    /// streams.
+    func test_theNarrowedOnlyReadingWalksNothingInAnUnNarrowedBook() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let piece = try await docId()
+        let ghost = projectURL.appendingPathComponent(
+            ".maugham/ops/\(piece).ghostmac-0badf00d.jsonl")
+        try Data("{\"opId\":\"01\"}\n".utf8).write(to: ghost)
+
+        let forHistory = await store.unsignedReading(onlyIfNarrowed: true)
+
+        XCTAssertNil(forHistory.refusal)
+        XCTAssertFalse(forHistory.alreadyNarrowed)
+        XCTAssertTrue(forHistory.streams.isEmpty,
+                      "the walk is not paid for where nothing can be drawn")
+        XCTAssertNil(forHistory.narrowedAt)
+
+        let forTheSheet = await store.unsignedReading()
+        XCTAssertTrue(forTheSheet.streams.contains("ghostmac-0badf00d"),
+                      "premise: the same folder, read the other way, sees it")
     }
 }

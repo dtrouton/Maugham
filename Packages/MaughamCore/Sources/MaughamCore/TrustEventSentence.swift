@@ -35,9 +35,16 @@ public enum TrustEventSentence {
             return actor.map { "\(subject) admitted by \($0)\(rung)." }
                 ?? "\(subject) admitted\(rung)."
         case .silentlyAdmitted:
+            // **C11: the fact is that nobody was ASKED**, which is what a
+            // writer comes to History to find out. *Automatically* named the
+            // mechanism and left the question open — it reads equally well as
+            // *the app did the paperwork* — while the thing that actually
+            // happened is that this Mac had already granted that label
+            // somewhere else (`AdmissionMemory`, decision B2) and so showed no
+            // sheet.
             let rung = rung(of: event)
-            return actor.map { "\(subject) admitted automatically by \($0)\(rung)." }
-                ?? "\(subject) admitted automatically\(rung)."
+            return actor.map { "\(subject) admitted by \($0) without asking\(rung)." }
+                ?? "\(subject) admitted without asking\(rung)."
         case .readmitted:
             let rung = rung(of: event)
             return actor.map { "\(subject) let back in by \($0)\(rung)." }
@@ -86,6 +93,19 @@ public enum TrustEventSentence {
                 : "\(subject) also claims this book."
         case .recordRestored:
             return "\(possessive(subject)) record was missing and has been put back."
+        case .unsigned:
+            // **Named by its STREAM, not by a code** (P3b Task 10). There is no
+            // fingerprint here — that is the whole fact — so `DeviceCode.short`
+            // would print four characters of a filename prefix, and two
+            // unsigned streams would print the same four. The stream is the
+            // same word People & Devices' own unsigned row uses, in the same
+            // quotes.
+            let stream = HeldLines.streamOfUnsignedHolder(event.subject)
+                ?? event.subject
+            return "This book was narrowed while nothing in it said who signs "
+                + "for \u{201C}\(stream)\u{201D}. Anything that stream has "
+                + "written since is waiting: there is no device to admit, and "
+                + "its way back in is the Inbox."
         }
     }
 
@@ -200,6 +220,12 @@ public enum TrustEventSentence {
              .recordRestored:
             return "This Mac hasn’t received their record yet."
         case .claimed, .adopted, .joined, .anotherClaimant:
+            return nil
+        case .unsigned:
+            // There is no record coming. A stream nothing signs has no key, so
+            // it can have no device record and no person record, ever — and
+            // telling the writer to wait for one would be telling them to wait
+            // for the one thing this row exists to say is not there.
             return nil
         }
     }

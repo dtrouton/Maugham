@@ -81,15 +81,30 @@ final class TrustEventSentenceTests: XCTestCase {
             "iPhone admitted.")
     }
 
-    /// The kind Task 4's admission path may later distinguish: a device let in
-    /// under a label this Mac had already granted, with no sheet shown. The
-    /// sentence exists so that when the heuristic lands it has words waiting.
+    /// A device let in under a label this Mac had already granted, with no
+    /// sheet shown.
+    ///
+    /// **C11, closed in the copy** (P3b Task 10). The kind gained its writer in
+    /// P3a; the sentence still said *admitted automatically*, which names a
+    /// mechanism and leaves the writer's actual question open — it reads as
+    /// easily as *the app did the paperwork* as it does as *nobody asked me*.
+    /// This test's own NAME says what the row has to say, and until now the
+    /// string under it did not.
     func test_aSilentAdmissionSaysItWasNotAsked() {
         XCTAssertEqual(
             TrustEventSentence.sentence(
                 for: event(.silentlyAdmitted, subject: phone, label: "iPhone", by: root),
                 labels: [root: "Denver"]),
-            "iPhone admitted automatically by Denver.")
+            "iPhone admitted by Denver without asking.")
+    }
+
+    /// …and with nobody to name, the fact survives on its own.
+    func test_aSilentAdmissionWithNoNamedHandStillSaysItWasNotAsked() {
+        XCTAssertEqual(
+            TrustEventSentence.sentence(
+                for: event(.silentlyAdmitted, subject: phone, label: "iPhone"),
+                labels: [:]),
+            "iPhone admitted without asking.")
     }
 
     func test_aRevocationNamesTheHandThatMadeIt() {
@@ -213,6 +228,35 @@ final class TrustEventSentenceTests: XCTestCase {
             TrustEventSentence.sentence(
                 for: event(.recordRestored, subject: phone, label: "iPhone"), labels: [:]),
             "iPhone’s record was missing and has been put back.")
+    }
+
+    // MARK: - The unsigned entry (#8's History half, P3b Task 10)
+
+    /// **Named by its stream, never by a code.** There is no key here — that is
+    /// the whole fact — so four characters of a filename prefix would be a
+    /// name two unsigned streams share.
+    func test_anUnsignedEntryNamesTheStreamAndNotACode() {
+        let holder = HeldLines.unsignedHolder(
+            forStreamKey: "author-9f3c", deviceSlug: nil)
+        XCTAssertEqual(
+            TrustEventSentence.sentence(
+                for: event(.unsigned, subject: holder, label: "author-9f3c"),
+                labels: [:]),
+            "This book was narrowed while nothing in it said who signs for "
+            + "\u{201C}author-9f3c\u{201D}. Anything that stream has written "
+            + "since is waiting: there is no device to admit, and its way back "
+            + "in is the Inbox.")
+    }
+
+    /// **Nothing is coming.** A stream with no key can never have a record, so
+    /// the *their record hasn't arrived yet* clause — true of every other
+    /// unnamed subject — would be telling the writer to wait for the one thing
+    /// this row exists to say is not there.
+    func test_anUnsignedEntryIsNeverToldToWaitForARecord() {
+        let holder = HeldLines.unsignedHolder(
+            forStreamKey: "author-9f3c", deviceSlug: nil)
+        XCTAssertNil(TrustEventSentence.unknownSubject(
+            for: event(.unsigned, subject: holder), labels: [:]))
     }
 
     // MARK: - Vocabulary

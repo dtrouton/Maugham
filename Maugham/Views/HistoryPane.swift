@@ -804,6 +804,10 @@ struct HistoryPane: View {
         case .joined: return "link"
         case .anotherClaimant: return "exclamationmark.triangle"
         case .recordRestored: return "arrow.uturn.backward.circle"
+        // Not a person at all: a stream this book can name no key for. The
+        // question-mark face rather than a warning triangle, because nothing is
+        // wrong — the words are waiting, not refused (P3b Task 10).
+        case .unsigned: return "person.fill.questionmark"
         }
     }
 
@@ -949,31 +953,7 @@ struct HistoryPane: View {
             // words come back through the Inbox, which is Task 8's door and
             // which the sentence already names.
             ForEach(heldRows) { row in
-                HStack(spacing: 8) {
-                    Label(row.sentence, systemImage: "clock.badge.questionmark")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                        .accessibilityIdentifier("held-line-notice")
-                    Spacer(minLength: 4)
-                    // **The one held line with no other way in** (spec §7.4):
-                    // a stream nothing signs cannot be admitted, so the words
-                    // come back as captures or not at all.
-                    if row.offersTheDoor {
-                        Button("Send to Inbox") { sendHeldWordsToInbox(row) }
-                            .controlSize(.small)
-                            .buttonStyle(.bordered)
-                            .help(row.doorHelp)
-                            .accessibilityIdentifier("held-line-send-to-inbox")
-                    } else if let sent = row.sentNote {
-                        Text(sent)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .accessibilityIdentifier("held-line-sent-note")
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                HeldLineNoticeRow(row: row) { sendHeldWordsToInbox($0) }
                 Divider()
             }
             if let notice = retirementLine {
@@ -1354,10 +1334,19 @@ struct HistoryPane: View {
             trustEventLines = []
             return
         }
+        // **The unsigned entries' two facts, read with everything else that
+        // touches disk** (P3b Task 10). `onlyIfNarrowed` because an unsigned
+        // entry exists only in a narrowed book: an un-narrowed one would pay
+        // for a walk of every op file to draw nothing.
+        let identities = Document.loadIdentities
+        let registryCache = Document.loadRegistryCache
         let resolved = await Task.detached(priority: .userInitiated) {
             () -> (names: [String: String], joined: String?, retired: String?,
                    events: [TrustEventLine]) in
             let registry = try? RegistryReader.load(projectURL: url)
+            let unsigned = DocumentStore.readUnsigned(
+                in: url, identities: identities, cache: registryCache,
+                onlyIfNarrowed: true)
             var names: [String: String] = [:]
             var labels: [String: String] = [:]
             for device in registry?.devices ?? [] { names[device.device] = device.name }
@@ -1369,7 +1358,9 @@ struct HistoryPane: View {
             // this Mac's own facts and survive a folder nobody can read.
             let events = TrustEvents.derive(
                 registry: registry ?? Registry(), cache: .shared,
-                mine: .current, for: url)
+                mine: .current, for: url,
+                unsigned: TrustEvents.UnsignedStreams(
+                    narrowedAt: unsigned.narrowedAt, streams: unsigned.streams))
             // This Mac's own standing, for the one fact on it that the machine
             // itself has to be told: `DeviceStanding` owns the sentence so the
             // pane and People & Devices cannot word it differently (tripwire
@@ -2080,6 +2071,66 @@ private struct HistoryRow: View {
 /// to give back** (spec §7.4): a record whose refused lines held manuscript
 /// text offers **Send to Inbox**, once. Everything else is a name and a
 /// tooltip, which is what a forensic list is.
+/// **One held-line sentence, and the one control any of them can carry** (P3b
+/// Task 8, extracted in Task 10 for the reason the disclosure beside it was).
+///
+/// A view of its own rather than an `HStack` in `body` so its width is
+/// BOUNDABLE: Task 8's review left this row outside the suite that bounds the
+/// set-aside row's button (M5), and a row drawn inline in a pane's body can
+/// only be measured by mounting the pane. Its sibling
+/// `SetAsideRecordsDisclosure` is the precedent, and `C13`'s whole lesson is
+/// that a control added to a column that was already near its width is where
+/// this pane goes wrong.
+///
+/// The sentence is bounded rather than hard-wrapped: these are long and
+/// composed live (fix round 2's I1), so the row asks for a modest width and
+/// takes whatever the column actually gives it.
+@MainActor
+struct HeldLineNoticeRow: View {
+    let row: SetAsideDoor.HeldRow
+    /// What a press does. The view decides nothing: whether a control is drawn
+    /// at all is `SetAsideDoor.HeldRow.offersTheDoor`, and what a press writes
+    /// is `HistoryPane.sendHeldWordsToInbox`.
+    var onSend: (SetAsideDoor.HeldRow) -> Void = { _ in }
+
+    /// What the SENTENCE asks for. Narrower than the disclosure's rows, not
+    /// wider, although its text is far longer: this row puts a control (or a
+    /// *sent* note) on the same LINE, and the two demands add. Measured — at
+    /// the disclosure's 220 the already-sent shape asked 415 pt against the
+    /// suite's 400 pt bound.
+    static let idealWidth: CGFloat = 180
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Label(row.sentence, systemImage: "clock.badge.questionmark")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(idealWidth: Self.idealWidth, alignment: .leading)
+                .accessibilityIdentifier("held-line-notice")
+            Spacer(minLength: 4)
+            // **The one held line with no other way in** (spec §7.4): a stream
+            // nothing signs cannot be admitted, so the words come back as
+            // captures or not at all.
+            if row.offersTheDoor {
+                Button("Send to Inbox") { onSend(row) }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                    .help(row.doorHelp)
+                    .accessibilityIdentifier("held-line-send-to-inbox")
+            } else if let sent = row.sentNote {
+                Text(sent)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("held-line-sent-note")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 @MainActor
 struct SetAsideRecordsDisclosure: View {
     let rows: [SetAsideDoor.Row]

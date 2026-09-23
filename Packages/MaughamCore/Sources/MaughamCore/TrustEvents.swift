@@ -65,6 +65,19 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
         /// A record this device remembered and the folder had lost, put back
         /// from the memory — dated from `RegistryCache.restores` (P2b Task 10).
         case recordRestored
+        /// **A stream this book can name no key for, in a book that has been
+        /// narrowed** (P3b Task 10; handoff decision #8's History half).
+        ///
+        /// One per unsigned stream, dated by the day the book was first
+        /// narrowed — which is the day the fact came into being, because
+        /// before it an unsigned stream cost nothing at all and afterwards
+        /// everything it writes waits. An un-narrowed book draws none: nothing
+        /// has happened, and People & Devices' own unsigned row is where a
+        /// writer reads what narrowing WOULD do.
+        ///
+        /// The subject is `HeldLines.unsignedHolder`'s string rather than a
+        /// fingerprint, because there is no key: that is the whole fact.
+        case unsigned
     }
 
     /// When, or nil where nothing stamps it. Two kinds are honestly undated —
@@ -178,7 +191,8 @@ public enum TrustEvents {
     ///   only place the fact survives, and dating it at read time would stamp a
     ///   week-old deletion with the moment History was opened.
     nonisolated public static func derive(
-        registry: Registry, cache: RegistryCache, mine: LocalIdentities, for projectURL: URL
+        registry: Registry, cache: RegistryCache, mine: LocalIdentities,
+        for projectURL: URL, unsigned: UnsignedStreams = .none
     ) -> [TrustEvent] {
         // ENUMERATES this device's keys; it mints none. A read path that minted
         // would create a key because the writer opened a pane
@@ -291,11 +305,21 @@ public enum TrustEvents {
                 ownName: registry.person(claim.newRoot)?.ownName,
                 isMine: myKeys.contains(claim.newRoot)))
             for adopted in claim.adopted {
-                // Dated by the claim that carried it: adoption is not an act of
-                // its own, it is what a claim SAYS, so it happened when the
-                // claim was written.
+                // **Dated by the day THIS DEVICE saw it, or not at all**
+                // (Denver's ruling 2, 2026-09-20). It used to take
+                // `claim.claimedAt`, which is the day the book was CLAIMED: a
+                // second claim by the same root adopts more roots and keeps
+                // that first date on purpose
+                // (`test_adoptingASecondRootKeepsTheDayTheBookWasClaimed`), so
+                // every adoption after the first was drawn with a day it did
+                // not happen on. The memory beside the join is the one honest
+                // date available without a `ClaimRecord` format change, and an
+                // adoption this device never recorded seeing draws undated
+                // rather than borrowing one.
                 events.append(TrustEvent(
-                    date: claim.claimedAt, kind: .adopted, subject: adopted,
+                    date: cache.adoptionSeenAt(
+                        by: claim.newRoot, of: adopted, for: projectURL),
+                    kind: .adopted, subject: adopted,
                     label: registry.person(adopted)?.label,
                     ownName: registry.person(adopted)?.ownName,
                     by: claim.newRoot, isMine: myKeys.contains(adopted)))
@@ -352,7 +376,58 @@ public enum TrustEvents {
                 isMine: myKeys.contains(fingerprint)))
         }
 
+        events.append(contentsOf: unsigned.events)
+
         return sorted(events)
+    }
+
+    /// **The unsigned streams a narrowed book holds**, as History's derivation
+    /// takes them (P3b Task 10; handoff decision #8's History half).
+    ///
+    /// A value rather than two parameters, and DEFAULTED to `.none`, so a
+    /// caller that has no such reading in hand — the phone, every test of the
+    /// registry's own derivation — passes nothing and draws nothing. The disk
+    /// work that answers it (`OpLogStore.unattributablePositions`, plus the
+    /// governing snapshot's date off `TrustTable`) happens before the
+    /// derivation, like every other input here: `derive` reads no folder.
+    ///
+    /// **Both halves or neither.** `narrowedAt` is the governing narrowing
+    /// event's own day; with no narrowing there is no such day, nothing is
+    /// held, and there is no event — which is why `events` is empty whenever
+    /// it is nil rather than drawing an undated row. An unsigned stream in an
+    /// un-narrowed book is a standing fact with no date, and People & Devices'
+    /// `UnsignedStream` row is where a writer reads it.
+    public struct UnsignedStreams: Equatable, Sendable {
+        /// The day this book was first narrowed — `UnsignedSnapshot.at`, the
+        /// governing one. Nil in a book nobody has been narrowed in.
+        public let narrowedAt: Date?
+        /// The streams no key names, as `HeldLines.unsignedHolder` names them:
+        /// a device slug, or a stream key where a file carries none.
+        public let streams: [String]
+
+        public init(narrowedAt: Date?, streams: [String]) {
+            self.narrowedAt = narrowedAt
+            self.streams = streams
+        }
+
+        /// Nothing to say: an un-narrowed book, a registerless one, or a
+        /// caller with no reading in hand.
+        public static let none = UnsignedStreams(narrowedAt: nil, streams: [])
+
+        /// One dated row per stream. The subject is the unsigned HOLDER string
+        /// — `HeldLines`' own spelling — so History's row, the held-line
+        /// sentence on the same pane and the Inbox capture that comes out of
+        /// §7.4's door all name one writer the same way.
+        var events: [TrustEvent] {
+            guard let narrowedAt else { return [] }
+            return streams.sorted().map { stream in
+                TrustEvent(
+                    date: narrowedAt, kind: .unsigned,
+                    subject: HeldLines.unsignedHolder(
+                        forStreamKey: stream, deviceSlug: nil),
+                    label: stream)
+            }
+        }
     }
 
     /// Is this event somebody ARRIVING? The three kinds that put a person in

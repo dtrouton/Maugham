@@ -993,6 +993,11 @@ extension DocumentStore {
         /// Has anybody in this book already been given less than the whole of
         /// it? Narrowing is sticky, so this only ever becomes true.
         var alreadyNarrowed: Bool = false
+        /// **The day this book was first narrowed** — the governing
+        /// `UnsignedSnapshot`'s own `at`, which is what History dates its
+        /// unsigned entries with (P3b Task 10). Nil exactly when
+        /// `alreadyNarrowed` is false, and nil on a refusal.
+        var narrowedAt: Date?
         /// The streams no key names, by device slug (or stream key where a file
         /// carries no slug), sorted.
         var streams: [String] = []
@@ -1004,24 +1009,36 @@ extension DocumentStore {
     }
 
     /// The reading, off the main actor. `nil` refusal is a reading that stands.
-    func unsignedReading() async -> UnsignedReading {
+    ///
+    /// `onlyIfNarrowed` is a COST rule and never a correctness one: History
+    /// draws an unsigned entry only in a book that has been narrowed, so
+    /// walking every op file of one that has not would be paying for an answer
+    /// with nowhere to go. The sheet and People & Devices pass nothing,
+    /// because their sentence is precisely the one about a book BEFORE its
+    /// first narrowing.
+    func unsignedReading(onlyIfNarrowed: Bool = false) async -> UnsignedReading {
         let projectURL = self.projectURL
         let identities = Document.loadIdentities
         let cache = Document.loadRegistryCache
         return await Task.detached(priority: .userInitiated) {
             DocumentStore.readUnsigned(
-                in: projectURL, identities: identities, cache: cache)
+                in: projectURL, identities: identities, cache: cache,
+                onlyIfNarrowed: onlyIfNarrowed)
         }.value
     }
 
     /// The same read, synchronous and folder-facing, so a caller that is
     /// already detached does not nest a second `Task`.
     nonisolated static func readUnsigned(
-        in projectURL: URL, identities: LocalIdentities, cache: RegistryCache
+        in projectURL: URL, identities: LocalIdentities, cache: RegistryCache,
+        onlyIfNarrowed: Bool = false
     ) -> UnsignedReading {
         do {
             let resolved = try TrustResolution.resolveVerified(
                 projectURL: projectURL, identities: identities, cache: cache)
+            guard !onlyIfNarrowed || resolved.table.hasNarrowingPermits else {
+                return UnsignedReading(alreadyNarrowed: false)
+            }
             let unsigned = try OpLogStore.unattributablePositions(
                 in: projectURL, trust: resolved.table)
             // **Named the way the DOOR names them** — by device slug, falling
@@ -1037,6 +1054,7 @@ extension DocumentStore {
             }
             return UnsignedReading(
                 alreadyNarrowed: resolved.table.hasNarrowingPermits,
+                narrowedAt: resolved.table.unsignedSnapshot?.at,
                 streams: Set(named.compactMap(HeldLines.streamOfUnsignedHolder))
                     .sorted())
         } catch {
