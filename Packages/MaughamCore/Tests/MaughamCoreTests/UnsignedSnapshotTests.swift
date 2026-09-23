@@ -816,4 +816,84 @@ final class UnsignedSnapshotTests: XCTestCase {
         XCTAssertEqual(mark[key]?.line, try lastLineHash(of: url),
                        "and the photograph names where it stands NOW")
     }
+
+    // MARK: - Only the streams this photograph is about (P3b Task 6, addition A)
+
+    /// **An ATTRIBUTABLE stream that has gone missing does not refuse the
+    /// snapshot** (Task 2's review, I2, ruled).
+    ///
+    /// The breadth was inherited rather than chosen: `everyExpectedStream`
+    /// hands over every foreign stream this Mac remembers, and the sweep
+    /// expected all of them. So one iCloud-evicted chapter of a device whose
+    /// record the register HAS — an ordinary mid-sync eviction, on a stream
+    /// this photograph would never have named — refused every attempt to make
+    /// anybody a reviewer, for as long as the file stayed away.
+    ///
+    /// The photograph's whole subject is streams no key can name. A stream the
+    /// table can name a key for is judged by that key's permit, is named in
+    /// that person's own position sweep, and is nothing to do with the
+    /// unsigned door — so its absence must not stop the act.
+    func test_anAttributableStreamThatIsGoneDoesNotRefuseTheSnapshot() throws {
+        try becomeRoot()
+        try admitSam()
+        let hers = try writeSealedStream(
+            by: sam.author, ops: [op("s1", device: sam.author.deviceId)])
+        let key = try XCTUnwrap(PermitMark.streamKey(of: hers))
+        XCTAssertNotNil(
+            try table().key(forDeviceSlug: sam.author.slug.raw),
+            "her person record alone names her author key")
+        let remembered = [key: OpLogDeviceState.ForeignStreamMemory(
+            deviceSlug: sam.author.slug.raw,
+            head: try lastLineHash(of: hers), segmentDigests: [])]
+
+        // Present, it is not in the photograph either: it answers to a key.
+        let whole = try OpLogStore.unattributablePositions(
+            in: projectURL, trust: try table(), expecting: remembered)
+        XCTAssertNil(whole[key], "an attributable stream is never photographed")
+
+        try FileManager.default.removeItem(at: hers)
+        XCTAssertNoThrow(
+            try OpLogStore.unattributablePositions(
+                in: projectURL, trust: try table(), expecting: remembered),
+            "a stream this photograph would never name must not refuse it")
+    }
+
+    /// **And the other direction stands**: an UNATTRIBUTABLE remembered stream
+    /// that is gone still refuses, even with an absent attributable one beside
+    /// it. The narrowing of the expectation is by *can this register name a key
+    /// for that slug*, not by *did the sweep find it*.
+    func test_theUnattributableHalfStillRefusesBesideAnAbsentAttributableOne() throws {
+        try becomeRoot()
+        try admitSam()
+        let hers = try writeSealedStream(
+            by: sam.author, ops: [op("s1", device: sam.author.deviceId)])
+        let theirs = try writeUnsealedStream(
+            slug: ghost, ops: [op("o1", device: "ghost")])
+        let hersKey = try XCTUnwrap(PermitMark.streamKey(of: hers))
+        let ghostKey = try XCTUnwrap(PermitMark.streamKey(of: theirs))
+        let remembered = [
+            hersKey: OpLogDeviceState.ForeignStreamMemory(
+                deviceSlug: sam.author.slug.raw,
+                head: try lastLineHash(of: hers), segmentDigests: []),
+            ghostKey: OpLogDeviceState.ForeignStreamMemory(
+                deviceSlug: ghost.raw,
+                head: try lastLineHash(of: theirs), segmentDigests: []),
+        ]
+
+        try FileManager.default.removeItem(at: hers)
+        try FileManager.default.removeItem(at: theirs)
+
+        do {
+            _ = try OpLogStore.unattributablePositions(
+                in: projectURL, trust: try table(), expecting: remembered)
+            XCTFail("the unsigned stream this Mac applied from is gone")
+        } catch let error as OpLogStore.ReadError {
+            guard case .streamMissingFromSweep(let missing) = error else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(
+                missing, ghostKey,
+                "and it is the unattributable one that is named")
+        }
+    }
 }

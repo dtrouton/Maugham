@@ -1146,6 +1146,28 @@ public final class OpLogStore {
         in projectURL: URL, trust: TrustTable,
         expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:]
     ) throws -> PermitMark {
+        // **Only the streams this photograph is ABOUT** (P3b Task 6, out of
+        // Task 2's review I2, ruled).
+        //
+        // The caller hands over every foreign stream this Mac remembers,
+        // because the photograph's subject cannot be narrowed by person. The
+        // EXPECTATION can be, and must: a stream whose slug this register can
+        // name a key for is judged by that key's permit and named in that
+        // person's own position sweep — it is never in this mark, present or
+        // absent. Expecting it meant one iCloud-evicted chapter of an
+        // ordinary, admitted, signing device refused every attempt to make
+        // anybody a reviewer until the file came back.
+        //
+        // The other direction is untouched: a remembered stream nothing here
+        // names a key for is exactly what this mark is made of, so its absence
+        // still refuses (`ForeignStreamWatch.loss`, below).
+        //
+        // *Cost if the naming is wrong*: a stream whose device record has not
+        // synced yet is unattributable today, so it is still expected — the
+        // conservative direction, and a refusal that resolves itself.
+        let expecting = expecting.filter {
+            trust.key(forDeviceSlug: $0.value.deviceSlug) == nil
+        }
         let opsDir = projectURL.appendingPathComponent(".maugham/ops")
         let filenames = try listing(of: opsDir, naming: ".maugham/ops")
         try refuseAnyPlaceholder(
