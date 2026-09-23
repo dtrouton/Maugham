@@ -1449,10 +1449,14 @@ struct HistoryPane: View {
                         table: TrustResolution.keyless(mine: .current))
                 })
             do {
+                // Recorded as each one lands, so a send that fails halfway
+                // leaves a re-press with only the rest to do (fix round 2, M2).
                 _ = try await documentStore.inboxStore.captureRecoveredWords(
-                    captures)
-                documentStore.recordRecoveredCapturesSent(
-                    door: row.name, ids: Set(captures.map(\.id)))
+                    captures,
+                    onLanded: { landed in
+                        documentStore.recordRecoveredCapturesSent(
+                            door: row.name, ids: [landed.id])
+                    })
                 sendToInboxError = nil
             } catch {
                 sendToInboxError = error.localizedDescription

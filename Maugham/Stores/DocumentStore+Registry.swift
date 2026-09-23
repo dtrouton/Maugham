@@ -1465,10 +1465,12 @@ extension DocumentStore {
                     attribution: attribution)
             }
         guard !captures.isEmpty else { return 0 }
-        let landed = try await inboxStore.captureRecoveredWords(captures)
-        recordRecoveredCapturesSent(
-            door: key, ids: Set(captures.map(\.id)))
-        return landed
+        // Recorded as each one LANDS (fix round 2, M2): a manifest that stops
+        // being writable halfway leaves a re-press with only the rest to do,
+        // rather than with every paragraph the writer already has.
+        return try await inboxStore.captureRecoveredWords(captures) { landed in
+            recordRecoveredCapturesSent(door: key, ids: [landed.id])
+        }
     }
 }
 

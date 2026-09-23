@@ -34,6 +34,7 @@ final class InboxRecoveredWordsTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        openTheManifest()
         try? FileManager.default.removeItem(at: projectURL)
         try? FileManager.default.removeItem(at: cacheURL)
     }
@@ -115,6 +116,66 @@ final class InboxRecoveredWordsTests: XCTestCase {
             "the record is still held — the refusal has not been softened")
         XCTAssertEqual(store.entries.first?.inlineText, "A paragraph.",
                        "and the words are in the writer's hands")
+    }
+
+    /// **A send that fails halfway remembers what landed** (fix round 2, M2).
+    ///
+    /// Without it the writer's one way to get the rest is a press that files
+    /// the ones they already have a second time — the door's whole promise
+    /// inverted by a manifest that stopped being writable.
+    ///
+    /// The failure is forced through `onLanded` itself, which is also what
+    /// pins its ORDERING: it fires per capture, after that capture is on disk
+    /// and before anything later can throw.
+    func test_aSendThatFailsHalfwayRemembersWhatLanded() async throws {
+        let store = makeInbox()
+        let captures = (1...3).map {
+            SetAsideDoor.Capture(
+                id: "op-\($0)#p1ab", text: "Paragraph \($0).",
+                attribution: "Set aside — Sam")
+        }
+        var remembered: [String] = []
+
+        do {
+            _ = try await store.captureRecoveredWords(captures) { landed in
+                remembered.append(landed.id)
+                if remembered.count == 1 { self.sealTheManifestShut() }
+            }
+            XCTFail("premise: the second write must fail")
+        } catch {
+            // The manifest stopped being writable, which is the case.
+        }
+
+        XCTAssertEqual(remembered, ["op-1#p1ab"],
+                       "exactly what landed — not the whole batch, and not "
+                       + "nothing")
+        openTheManifest()
+        await store.refresh()
+        XCTAssertEqual(store.entries.compactMap(\.inlineText), ["Paragraph 1."],
+                       "…and what landed is what the writer has")
+    }
+
+    /// Make this Mac's own manifest unwritable, the way a permissions change
+    /// or a read-only volume would.
+    private func sealTheManifestShut() {
+        for url in manifestURLs() {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o444], ofItemAtPath: url.path)
+        }
+    }
+
+    private func openTheManifest() {
+        for url in manifestURLs() {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o644], ofItemAtPath: url.path)
+        }
+    }
+
+    private func manifestURLs() -> [URL] {
+        let dir = projectURL.appendingPathComponent(".maugham/inbox")
+        return ((try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension == "jsonl" }
     }
 
     /// Nothing to send is not an error and writes nothing.

@@ -486,10 +486,20 @@ final class InboxStore {
     /// `inlineText`, so promoting a recovered paragraph writes exactly the
     /// paragraph and nothing the writer has to delete.
     ///
+    /// **`onLanded` fires per capture, before anything can throw** (fix round
+    /// 2, M2). A manifest that stops being writable halfway through leaves
+    /// some captures in the Inbox and some not; if the caller could only
+    /// record a send that COMPLETED, the writer's one way to get the rest
+    /// would be a press that files the ones they already have a second time.
+    /// Both doors record through it, so both survive a partial landing.
+    ///
     /// Answers how many captures landed, and refreshes once at the end rather
     /// than per row.
     @discardableResult
-    func captureRecoveredWords(_ captures: [SetAsideDoor.Capture]) async throws -> Int {
+    func captureRecoveredWords(
+        _ captures: [SetAsideDoor.Capture],
+        onLanded: (SetAsideDoor.Capture) -> Void = { _ in }
+    ) async throws -> Int {
         guard !captures.isEmpty else { return 0 }
         var landed = 0
         for capture in captures {
@@ -504,6 +514,7 @@ final class InboxStore {
                 title: capture.attribution,
                 status: .new))
             landed += 1
+            onLanded(capture)
         }
         await refresh()
         return landed
