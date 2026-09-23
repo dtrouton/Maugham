@@ -1497,6 +1497,171 @@ public final class OpLogStore {
         }
     }
 
+    // MARK: - History this book is missing (P3b Task 6)
+
+    /// **One piece of history this Mac remembers and cannot find**, in the
+    /// shape History draws and the writer acknowledges.
+    ///
+    /// It has two sources and they are not interchangeable:
+    ///
+    /// - A **truncation**, which a LOAD recorded when it met a stream shorter
+    ///   than it remembered it. The stream is still there; part of it is not.
+    /// - An **absent** stream: the memory names it and the folder holds no
+    ///   file of it at all. A load says nothing about one of these on purpose
+    ///   (`ForeignStreamWatch.settle`: a missing stream is not a truncated one
+    ///   — iCloud may be halfway through) and it is exactly the case a
+    ///   marking verb refuses over, so it must be visible or the refusal's
+    ///   *History shows what this book is missing* is a dead end.
+    ///
+    /// Both are the same fact to the writer — *this history is gone* — and
+    /// both take the same way out.
+    public struct LostHistory: Equatable, Sendable, Identifiable {
+        public enum What: Equatable, Sendable {
+            /// The last line this device settled in the live tail is nowhere
+            /// in the stream any more.
+            case line
+            /// A whole sealed segment this device had taken in is gone.
+            case segment
+            /// No file of this stream is in the folder at all.
+            case absent
+        }
+
+        public let streamKey: String
+        public let deviceSlug: String
+        /// The writer's word for whose stream it was: the label the book gives
+        /// them, else — with no table to ask — the slug their files carry.
+        public let label: String
+        public let what: What
+        /// The day a LOAD noticed it. Nil for an absent stream, which no load
+        /// ever recorded: drawing today's date on it would date a fact nobody
+        /// dated.
+        public let noticedAt: Date?
+        /// Has the writer been shown this and put it down? An acknowledged
+        /// loss stops being EXPECTED by the sweeps; it does not stop being
+        /// true, which is why the row stays.
+        public let acknowledged: Bool
+
+        public var id: String { streamKey }
+
+        public init(
+            streamKey: String, deviceSlug: String, label: String, what: What,
+            noticedAt: Date?, acknowledged: Bool
+        ) {
+            self.streamKey = streamKey
+            self.deviceSlug = deviceSlug
+            self.label = label
+            self.what = what
+            self.noticedAt = noticedAt
+            self.acknowledged = acknowledged
+        }
+
+        /// **What is gone, in the writer's words.** Neither kind takes a word
+        /// out of the draft — what was applied stays applied — so all three
+        /// end at the one place the lost history can be got back from.
+        public var sentence: String {
+            let what: String
+            switch self.what {
+            case .segment:
+                what = "part of \(label)’s sealed history is missing from this book"
+            case .line:
+                what = "\(label)’s history here is shorter than it was"
+            case .absent:
+                what = "\(label)’s history is not in this book any more"
+            }
+            return "\(what.prefix(1).uppercased())\(what.dropFirst()). "
+                + "Nothing has left the draft — every word Maugham had already "
+                + "applied is still in it — but what is gone is gone from the "
+                + "folder. A backup is where it can be got back from."
+        }
+
+        /// What acknowledging it did, once it has been acknowledged — because
+        /// the row stays and a row that only repeated itself would look like a
+        /// press that did nothing.
+        public static let acknowledgedSentence =
+            "You’ve said you know this history is gone, so Maugham no longer "
+            + "waits for it before changing what somebody may write. If it "
+            + "comes back, it is judged as written after that change."
+    }
+
+    /// **Every piece of this book's history this Mac remembers and cannot
+    /// find** — the drawer's list, and the one derivation of it.
+    ///
+    /// The truncations come from the memory the loads wrote; the absent
+    /// streams come from that same memory against the folder's own filenames.
+    /// **The memory is read UNFILTERED here** (`foreignStreams`, never
+    /// `expectedStreams`): a loss the writer has put down is still a loss, and
+    /// a drawer that dropped it would take the row away the moment it was
+    /// acknowledged — leaving nothing on screen saying why the book no longer
+    /// waits for that stream.
+    nonisolated public static func lostHistory(
+        in projectURL: URL, state: OpLogDeviceState, trust: TrustTable? = nil
+    ) -> [LostHistory] {
+        let put = state.acknowledgedLosses(inRoot: projectURL)
+        func name(_ slug: String) -> String {
+            trust?.label(forDeviceSlug: slug) ?? slug
+        }
+        var out = state.truncations(inRoot: projectURL).map { truncation in
+            LostHistory(
+                streamKey: truncation.streamKey,
+                deviceSlug: truncation.deviceSlug,
+                label: name(truncation.deviceSlug),
+                what: truncation.loss == .segment ? .segment : .line,
+                noticedAt: truncation.noticedAt,
+                acknowledged: put[truncation.streamKey] != nil)
+        }
+        let known = Set(out.map(\.streamKey))
+        let remembered = state.foreignStreams(inRoot: projectURL, writtenBy: nil)
+        for key in absentStreams(in: projectURL, remembering: remembered).sorted()
+        where !known.contains(key) {
+            guard let memory = remembered[key] else { continue }
+            out.append(LostHistory(
+                streamKey: key, deviceSlug: memory.deviceSlug,
+                label: name(memory.deviceSlug), what: .absent,
+                noticedAt: nil, acknowledged: put[key] != nil))
+        }
+        return out
+    }
+
+    /// **Which remembered streams the folder holds no file of at all.**
+    ///
+    /// Filenames only: `PermitMark.stream(of:)` is the one parse and it takes
+    /// a URL, so a stream key is never taken apart to build a filename back.
+    /// Nothing is opened and nothing is verified — this answers *is there a
+    /// file of this stream here*, which is the question the position sweeps
+    /// answer the hard way while they are reading everything anyway.
+    ///
+    /// **It refuses nothing.** A directory that will not list answers as if it
+    /// were empty, which would call every stream in it absent — so a listing
+    /// that fails is treated as *no opinion* and contributes nothing. The acts
+    /// that must not proceed over a short reading refuse on their own account
+    /// (`ReadError.unlistableStreamDirectory`); this is a read for a sentence.
+    nonisolated public static func absentStreams(
+        in projectURL: URL,
+        remembering expecting: [String: OpLogDeviceState.ForeignStreamMemory]
+    ) -> [String] {
+        guard !expecting.isEmpty else { return [] }
+        let opsDir = projectURL.appendingPathComponent(".maugham/ops")
+        // EITHER listing failing is *no opinion about any of it*: a folder
+        // half read would call every stream in the half it could not see
+        // absent, which is the one wrong answer this can give.
+        guard let filenames = try? listing(of: opsDir, naming: ".maugham/ops"),
+              let others = try? otherStreamFileURLs(in: projectURL, forSlugs: nil)
+        else { return [] }
+        var present: Set<String> = []
+        for filename in filenames {
+            if let stream = PermitMark.stream(
+                of: opsDir.appendingPathComponent(filename)) {
+                present.insert(stream.key)
+            }
+        }
+        for url in others {
+            if let stream = PermitMark.stream(of: url) {
+                present.insert(stream.key)
+            }
+        }
+        return expecting.keys.filter { !present.contains($0) }
+    }
+
     /// The file a `ReadError` names, for a caller that reports unreadable
     /// files by name and has caught something that might not be one.
     nonisolated public static func unreadableName(_ error: Error) -> String {

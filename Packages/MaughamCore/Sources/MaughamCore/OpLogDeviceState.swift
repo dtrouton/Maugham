@@ -62,6 +62,14 @@ public final class OpLogDeviceState: @unchecked Sendable {
         /// keyed the same way. One entry per stream: a stream truncated twice
         /// is one standing fact, not two rows.
         var foreignTruncations: [String: StreamTruncation] = [:]
+        /// **Losses the writer has been shown and put down** (P3b Task 6),
+        /// keyed the same way again, with the day they put it down.
+        ///
+        /// It is device-local and it never leaves this machine: a mark is
+        /// computed from the shared bytes alone, so what this Mac has been
+        /// told cannot be allowed to change what a mark says — only whether
+        /// the act that would write one is refused.
+        var acknowledgedLosses: [String: Date] = [:]
 
         init() {}
 
@@ -83,6 +91,8 @@ public final class OpLogDeviceState: @unchecked Sendable {
                 [String: ForeignStreamMemory].self, forKey: .foreignStreams) ?? [:]
             foreignTruncations = try container.decodeIfPresent(
                 [String: StreamTruncation].self, forKey: .foreignTruncations) ?? [:]
+            acknowledgedLosses = try container.decodeIfPresent(
+                [String: Date].self, forKey: .acknowledgedLosses) ?? [:]
         }
     }
 
@@ -369,13 +379,30 @@ public final class OpLogDeviceState: @unchecked Sendable {
                 if standing?.loss != truncation.loss || standing?.lost != truncation.lost {
                     stored.foreignTruncations[key] = truncation
                     changed = true
+                    // **A DIFFERENT loss is a different fact** (P3b Task 6),
+                    // so the writer's acknowledgement of the last one does not
+                    // cover it: putting down one loss must never make this Mac
+                    // blind to the next.
+                    if stored.acknowledgedLosses.removeValue(forKey: key) != nil {
+                        changed = true
+                    }
                 }
-            } else if update.clearsTruncation,
-                      stored.foreignTruncations.removeValue(forKey: key) != nil {
+            } else if update.clearsTruncation {
                 // What came back is not missing. A finding is a fact that holds
                 // now, so a project whose evicted chapter iCloud has restored
                 // stops being unhealthy rather than being unhealthy for ever.
-                changed = true
+                if stored.foreignTruncations.removeValue(forKey: key) != nil {
+                    changed = true
+                }
+                // And the acknowledgement goes with it: the stream is whole
+                // again, so it is expected again (P3b Task 6, both
+                // directions). This is also the clause that covers a stream
+                // whose files were wholly ABSENT — a load says nothing about
+                // one of those, so it records no truncation, but the load that
+                // finds it back settles it here.
+                if stored.acknowledgedLosses.removeValue(forKey: key) != nil {
+                    changed = true
+                }
             }
         }
         if changed { persistLocked() }
@@ -417,6 +444,41 @@ public final class OpLogDeviceState: @unchecked Sendable {
         return out
     }
 
+    /// **What a sweep may still be refused over** — everything remembered,
+    /// LESS every loss the writer has been shown and put down (P3b Task 6).
+    ///
+    /// This is the escape, and it is one function rather than a rule each
+    /// caller remembers: `DocumentStore.expectedStreams` and
+    /// `everyExpectedStream` are the only two things that build an `expecting:`
+    /// in production, and both come through here, so a person's position sweep
+    /// and the unsigned snapshot's take the same way out.
+    ///
+    /// **Why there is a way out at all.** A stream this Mac remembers and
+    /// cannot find refuses every marking verb, because a mark that omits a
+    /// stream judges the whole of it new — right while the file might come
+    /// back, and wrong for ever once it cannot. Without this, one permanently
+    /// lost file stops a book from ever revoking, re-admitting or narrowing
+    /// anybody again, naming a filename the writer can do nothing about.
+    ///
+    /// **The other direction is the default.** A loss nobody has been shown
+    /// refuses exactly as it did; an acknowledgement is cleared the moment the
+    /// bytes come back or the loss changes; and it never enters a mark — the
+    /// positions are read from the shared bytes either way, so a fresh Mac and
+    /// this one compute the same mark for every stream both can read.
+    ///
+    /// *The cost, which the confirmation states*: history that returns AFTER a
+    /// verb was pressed over an acknowledged loss is outside that verb's mark,
+    /// and so is judged as written after that change.
+    public func expectedStreams(
+        inRoot root: URL, writtenBy slugs: Set<String>?
+    ) -> [String: ForeignStreamMemory] {
+        let remembered = foreignStreams(inRoot: root, writtenBy: slugs)
+        guard !remembered.isEmpty else { return remembered }
+        let put = acknowledgedLosses(inRoot: root)
+        guard !put.isEmpty else { return remembered }
+        return remembered.filter { put[$0.key] == nil }
+    }
+
     /// Every truncation this device has noticed in `root`, oldest first.
     public func truncations(inRoot root: URL) -> [StreamTruncation] {
         lock.lock()
@@ -426,6 +488,44 @@ public final class OpLogDeviceState: @unchecked Sendable {
             .filter { $0.key.hasPrefix(prefix) }
             .values
             .sorted { ($0.noticedAt, $0.streamKey) < ($1.noticedAt, $1.streamKey) }
+    }
+
+    /// **The writer has been shown this loss and has put it down** (P3b Task
+    /// 6). Idempotent, and dated with the day they pressed.
+    ///
+    /// It records nothing about the BOOK — no event, no record, nothing any
+    /// other device will ever read. What it changes is what this Mac is
+    /// willing to be refused over.
+    public func acknowledgeLoss(
+        _ streamKey: String, inRoot root: URL, at when: Date = Date()
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        let key = Self.foreignKey(streamKey, root: root)
+        let hash = Self.scopeHash(ofKey: key)
+        let path = root.standardizedFileURL.path
+        var changed = false
+        if stored.roots[hash] != path {
+            stored.roots[hash] = path
+            changed = true
+        }
+        if stored.acknowledgedLosses[key] == nil {
+            stored.acknowledgedLosses[key] = when
+            changed = true
+        }
+        if changed { persistLocked() }
+    }
+
+    /// Every loss put down in `root`, by stream key.
+    public func acknowledgedLosses(inRoot root: URL) -> [String: Date] {
+        lock.lock()
+        defer { lock.unlock() }
+        let prefix = "\(Self.scopeHash(ofRoot: root))/"
+        var out: [String: Date] = [:]
+        for (key, when) in stored.acknowledgedLosses where key.hasPrefix(prefix) {
+            out[String(key.dropFirst(prefix.count))] = when
+        }
+        return out
     }
 
     /// `<project-root hash>/<stream key>` — the heads' key shape with a stream
@@ -565,6 +665,11 @@ public final class OpLogDeviceState: @unchecked Sendable {
             !hashes.contains(scopeHash(ofKey: $0.key))
         }
         stored.foreignTruncations = stored.foreignTruncations.filter {
+            !hashes.contains(scopeHash(ofKey: $0.key))
+        }
+        // An acknowledgement is a fact about one book's history; a book that
+        // is gone takes it with it (P3b Task 6).
+        stored.acknowledgedLosses = stored.acknowledgedLosses.filter {
             !hashes.contains(scopeHash(ofKey: $0.key))
         }
         for hash in hashes { stored.roots.removeValue(forKey: hash) }
