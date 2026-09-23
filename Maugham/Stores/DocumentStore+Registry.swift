@@ -131,13 +131,15 @@ extension DocumentStore {
     /// so no mark of any shape could name it.
     @discardableResult
     public func changePermit(
-        person fingerprint: String, to permit: Permit
+        person fingerprint: String, to permit: Permit,
+        settling: Set<String> = []
     ) async throws -> PersonRecord {
         // Refuse rather than record a mark that came back short, for the
         // revocation's reason: a short mark moves a permission boundary
         // silently, and the direction it moves it in is *more set aside than
         // the writer asked for*.
-        let mark = try await sweptPermitMark(forPerson: fingerprint)
+        let mark = try await sweptPermitMark(
+            forPerson: fingerprint, settling: settling)
         let unsigned = try await sweptUnsignedSnapshot(for: permit)
         // Gate, then event, then record (P3b Task 3).
         try await gateOldBuildsOut(before: permit)
@@ -314,8 +316,11 @@ extension DocumentStore {
 
     /// `changePermit`'s sweep, alone — so the plural verb below can take every
     /// record's mark BEFORE it writes any of them (fix round 1, minor 2).
-    private func sweptPermitMark(forPerson fingerprint: String) async throws -> PermitMark {
-        switch await permitMark(forPerson: fingerprint, seen: true) {
+    private func sweptPermitMark(
+        forPerson fingerprint: String, settling: Set<String> = []
+    ) async throws -> PermitMark {
+        switch await permitMark(
+            forPerson: fingerprint, seen: true, settling: settling) {
         case .mark(let found): return found
         case .unreadable(let name):
             throw RegistryAdmissionError.historyUnreadable(
@@ -381,7 +386,8 @@ extension DocumentStore {
     /// finishes the job — each record's own verb is idempotent in both halves.
     @discardableResult
     public func changePermit(
-        everyRecordOf person: String, to permit: Permit
+        everyRecordOf person: String, to permit: Permit,
+        settling: Set<String> = []
     ) async throws -> [PersonRecord] {
         let projectURL = self.projectURL
         let author = Document.loadIdentities.author
@@ -426,7 +432,8 @@ extension DocumentStore {
         }
         var marks: [String: PermitMark] = [:]
         for record in records {
-            marks[record.person] = try await sweptPermitMark(forPerson: record.person)
+            marks[record.person] = try await sweptPermitMark(
+                forPerson: record.person, settling: settling)
         }
         // **One photograph for the whole act** (P3b Task 1). The snapshot is
         // of the BOOK's unsigned streams, not of this person's, so sweeping it
@@ -522,9 +529,14 @@ extension DocumentStore {
         // round 2). This arm recorded `.nothingApplied` and let the retirement
         // through, which is the I2 defect wearing a different hat: an empty
         // mark calls EVERY paragraph this machine ever wrote *written while
-        // retired*, so P3b's *N paragraphs were written on it while retired*
-        // would offer the writer their whole history as something to bring
-        // back in. A retirement is not typing — refusing one breaks no
+        // retired*, so every other Mac would set aside this machine's whole
+        // history under a sentence that is false about nearly all of it.
+        // (P3b's *N paragraphs — bring them in?* question, which this comment
+        // used to name, was WITHDRAWN on 2026-09-23: a retirement is one-way
+        // and what follows it is set aside rather than held, so there is
+        // nothing to bring in and the Inbox is the way back. The refusal below
+        // matters more for it, not less.) A retirement is not typing —
+        // refusing one breaks no
         // constitutional must — and a folder that will not read is a fact the
         // writer can fix, while a mark signed over it is not. The root can
         // still revoke a device whose folder will not open.
@@ -879,7 +891,9 @@ extension DocumentStore {
         state.expectedStreams(inRoot: projectURL, writtenBy: nil)
     }
 
-    private func permitMark(forPerson person: String, seen: Bool) async -> SweptPositions {
+    private func permitMark(
+        forPerson person: String, seen: Bool, settling: Set<String> = []
+    ) async -> SweptPositions {
         let projectURL = self.projectURL
         let identities = Document.loadIdentities
         let cache = Document.loadRegistryCache
@@ -900,7 +914,7 @@ extension DocumentStore {
                 return .success(seen
                     ? try OpLogStore.seenPositions(
                         ofDeviceIds: ids, in: projectURL, trust: resolved.table,
-                        expecting: expected)
+                        expecting: expected, settlingPieces: settling)
                     : try OpLogStore.appliedPositions(
                         ofDeviceIds: ids, in: projectURL, trust: resolved.table,
                         expecting: expected))
@@ -1206,9 +1220,25 @@ extension DocumentStore {
         }
         var pieces = PermitControl.pieces(displaying: standing)
         pieces.insert(docId)
-        return try await changePermit(
-            everyRecordOf: person,
-            to: PermitControl.permit(for: .somePieces, pieces: pieces))
+        let widened = PermitControl.permit(for: .somePieces, pieces: pieces)
+        // **It may only ever widen, and that is what licenses the cut below**
+        // (fix round 1, C1). `settling` makes the mark fall BEFORE her held
+        // span in this piece, so those lines are re-judged under `widened`;
+        // re-judging is safe in one direction only, and this is the assertion
+        // that it is that direction. `Permit.covers` is the permit layer's own
+        // comparison — never a rung tested here (tripwire 47).
+        guard widened.covers(standing) else {
+            throw PieceIsTheirsRefused(person: person)
+        }
+        let moved = try await changePermit(
+            everyRecordOf: person, to: widened, settling: [docId])
+        // **The question is answered, and is never put again** (fix round 1).
+        // Device-local beside the declines: what makes it true for the book is
+        // the signed event above, and this only stops THIS Mac asking about
+        // something it has already written down.
+        Document.loadDeviceState.settlePiece(
+            person: person, docId: docId, inRoot: projectURL)
+        return moved
     }
 
     /// **Not now.** It writes nothing to the book — see
@@ -1223,9 +1253,11 @@ extension DocumentStore {
             person: person, docId: docId, inRoot: projectURL)
     }
 
-    /// Every question this Mac has already put off in this book.
-    func declinedPieces() -> Set<OpLogDeviceState.DeclinedPiece> {
-        Set(Document.loadDeviceState.declinedPieces(inRoot: projectURL).keys)
+    /// Every question about a piece this Mac has already closed in this book —
+    /// put off OR answered (fix round 1). One reader, because *has this been
+    /// asked* is one question.
+    func closedPieceQuestions() -> Set<OpLogDeviceState.DeclinedPiece> {
+        Document.loadDeviceState.closedPieceQuestions(inRoot: projectURL)
     }
 
     // MARK: - Who is waiting, across this window
@@ -1266,7 +1298,7 @@ extension DocumentStore {
     func heldLines() -> HeldLineUnion {
         var counts: [String: Int] = [:]
         var streams: [String: Set<String>] = [:]
-        var startedAPiece: [String: Set<String>] = [:]
+        var startedAPiece: [String: [String: Int]] = [:]
         for document in allOpenDocuments() {
             guard let provenance = document.provenance else { continue }
             for (device, count) in provenance.pendingByDevice {
@@ -1279,8 +1311,15 @@ extension DocumentStore {
             // partition decided WHO opened a piece nobody has claimed; only
             // this fold knows WHICH piece, because a document knows its own id
             // and a file's provenance does not.
+            //
+            // **With this document's OWN count** (fix round 1, I4). The
+            // question names a piece and promises what pressing it brings in,
+            // so the number beside it has to be the number in THAT piece — the
+            // holder's total across every open document is a different figure
+            // and it is the one the sheet was printing.
             for holder in document.startedAPiece {
-                startedAPiece[holder, default: []].insert(document.docId)
+                startedAPiece[holder, default: [:]][document.docId] =
+                    provenance.pendingByDevice[holder] ?? 0
             }
         }
         for (device, count) in inboxStore.pendingByDevice {
@@ -1317,11 +1356,13 @@ struct HeldLineUnion: Equatable {
     /// holder a person's key at all*, and this is *did they start something
     /// that is in nobody's scope* — the one held line the writer can answer
     /// today. Empty for every book that has narrowed nobody.
-    var startedAPiece: [String: Set<String>]
+    /// Holder → the pieces they opened → **how much of theirs is held in that
+    /// piece** (fix round 1, I4). Per document, because the question names one.
+    var startedAPiece: [String: [String: Int]]
 
     init(
         counts: [String: Int] = [:], streams: [String: Set<String>] = [:],
-        startedAPiece: [String: Set<String>] = [:]
+        startedAPiece: [String: [String: Int]] = [:]
     ) {
         self.counts = counts
         self.streams = streams

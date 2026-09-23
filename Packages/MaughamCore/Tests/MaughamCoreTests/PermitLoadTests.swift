@@ -63,10 +63,15 @@ final class PermitLoadTests: XCTestCase {
     private var rootPerson: String { root.author.fingerprint }
     private var samPerson: String { sam.author.fingerprint }
 
+    /// A second piece, for the tests that are about ONE piece being settled
+    /// while another of hers is not (fix round 1, C1).
+    private let otherDocId = "doc-permit-other"
+
     private func op(
-        _ opId: String, by identity: DeviceIdentity, kind: OpKind = .typingBurst
+        _ opId: String, by identity: DeviceIdentity, kind: OpKind = .typingBurst,
+        docId: String? = nil
     ) -> Op {
-        Op(opId: opId, docId: docId, at: Date(timeIntervalSince1970: 0),
+        Op(opId: opId, docId: docId ?? self.docId, at: Date(timeIntervalSince1970: 0),
            device: identity.deviceId, session: "s", kind: kind,
            changes: [.init(paragraphId: "aaaa", prior: nil, next: opId)],
            sequence: ["aaaa"])
@@ -145,7 +150,8 @@ final class PermitLoadTests: XCTestCase {
     /// chain is `OpLogChain`'s own, and the seal is the real signature.
     @discardableResult
     private func writeFile(
-        by identity: DeviceIdentity, ops: [Op], extraLines: [Data] = []
+        by identity: DeviceIdentity, ops: [Op], extraLines: [Data] = [],
+        docId: String? = nil
     ) throws -> URL {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -169,7 +175,8 @@ final class PermitLoadTests: XCTestCase {
         bytes.append(0x0A)
 
         let url = OpLogStore.opLogFileURL(
-            forDocId: docId, deviceSlug: identity.slug, in: projectURL)
+            forDocId: docId ?? self.docId, deviceSlug: identity.slug,
+            in: projectURL)
         try bytes.write(to: url, options: .atomic)
         return url
     }
@@ -863,6 +870,153 @@ final class PermitLoadTests: XCTestCase {
             docId: docId, amendmentPermits: carrier)
         XCTAssertEqual(loaded.ops.map(\.opId), ["02"], "applied, as ever")
         XCTAssertTrue(carrier.whoStartedAPiece.isEmpty)
+    }
+
+    // MARK: - §4.5 settled — the mark cuts before her held span (fix round 1, C1)
+
+    /// **Answering *yes, that piece is hers* brings in what she already wrote
+    /// there** (the controller's ruling of 2026-09-23).
+    ///
+    /// The whole premise of §4.5 is that her words were never wrong — held,
+    /// not set aside. A mark taken the ordinary way records the held span as
+    /// SEEN, so it falls before the widening and is held all over again; the
+    /// question's own promise would be false and the Inbox would be the only
+    /// way in, which is the *yours* shape §4.5 exists to forbid.
+    func test_addingThePieceBringsInWhatSheAlreadyWroteThere() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try samsFile([op("herOpening", by: sam.author)])
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: ["doc-hers"])
+        var applied = try await appliedOpIds()
+        XCTAssertEqual(applied, [], "held, as §4.5 says")
+
+        // The root answers the question: this piece is hers too.
+        let mark = try await OpLogStore.seenPositions(
+            ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+            trust: try await reader().trust(), settlingPieces: [docId])
+        try writeEvent("b", kind: .scopeChanged, role: Permit.authorRole,
+                       scope: Permit.piecesScope,
+                       pieces: ["doc-hers", docId], mark: mark.streams)
+
+        applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["herOpening"])
+        let provenance = try await loadedProvenance()
+        XCTAssertEqual(provenance.pendingOpLines, 0)
+        XCTAssertEqual(provenance.quarantinedLines, 0)
+        XCTAssertTrue(linesRecords().isEmpty, "nothing was ever set aside")
+    }
+
+    /// **The other direction, and the one the ordinary mark gets right**: the
+    /// SAME widening, swept without naming the piece it settles, leaves her
+    /// held span exactly where it was. This is what the fix changes, stated as
+    /// a fact about the two sweeps rather than about the fix.
+    func test_theSameWideningSweptWithoutSettlingLeavesHerSpanHeld() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try samsFile([op("herOpening", by: sam.author)])
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: ["doc-hers"])
+
+        let mark = try await seenMark()
+        try writeEvent("b", kind: .scopeChanged, role: Permit.authorRole,
+                       scope: Permit.piecesScope,
+                       pieces: ["doc-hers", docId], mark: mark)
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, [])
+        let held = try await loadedProvenance().pendingOpLines
+        XCTAssertEqual(held, 1)
+    }
+
+    /// **Held lines in ANOTHER piece stay held.** The cut is per stream and the
+    /// streams are named by the piece being settled, so a second chapter she
+    /// also opened is a second question and is not answered by this one.
+    func test_aPieceThatWasNotSettledKeepsItsHeldSpan() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try samsFile([op("here", by: sam.author)])
+        try writeFile(
+            by: sam.author,
+            ops: [op("there", by: sam.author, docId: otherDocId)],
+            docId: otherDocId)
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: ["doc-hers"])
+
+        let mark = try await OpLogStore.seenPositions(
+            ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+            trust: try await reader().trust(), settlingPieces: [docId])
+        try writeEvent("b", kind: .scopeChanged, role: Permit.authorRole,
+                       scope: Permit.piecesScope,
+                       pieces: ["doc-hers", docId], mark: mark.streams)
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["here"])
+        let other = try await reader().loadDiagnosed(docId: otherDocId)
+        XCTAssertEqual(other.ops.map(\.opId), [], "the other piece is a second question")
+        XCTAssertEqual(other.provenance.pendingOpLines, 1)
+    }
+
+    /// **Census, pinned: a line this BUILD cannot judge falls after the cut too
+    /// — and is still held.** The cut cannot tell the two holds apart (they
+    /// share a state and a holder by design), and it does not need to: an
+    /// unjudgeable line re-judged under any permit is still unjudgeable. The
+    /// controller's stated cost, made a fact.
+    func test_anUnjudgeableLineFallsAfterTheCutAndIsStillHeld() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeFile(
+            by: sam.author,
+            ops: [op("herOpening", by: sam.author)],
+            extraLines: [try futureKindLine("fromTomorrow", by: sam.author)])
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: ["doc-hers"])
+
+        let mark = try await OpLogStore.seenPositions(
+            ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+            trust: try await reader().trust(), settlingPieces: [docId])
+        try writeEvent("b", kind: .scopeChanged, role: Permit.authorRole,
+                       scope: Permit.piecesScope,
+                       pieces: ["doc-hers", docId], mark: mark.streams)
+
+        let provenance = try await loadedProvenance()
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["herOpening"],
+                       "her manuscript line comes in")
+        XCTAssertEqual(provenance.pendingOpLines, 1,
+                       "and the kind this build has never heard of is still held")
+        XCTAssertTrue(linesRecords().isEmpty)
+    }
+
+    /// **A refused line before her held span stays refused** — the cut is
+    /// taken before the FIRST held line, so everything earlier keeps the entry
+    /// it already had. A promotion is not a pardon, in the settled piece too.
+    func test_aRefusalBeforeHerHeldSpanIsNotPardonedByTheSettlement() async throws {
+        try writeRootRecord()
+        try admitSam()
+        // The assistant never changes the manuscript on any device, whatever
+        // its person's permit says — so this line is refused before the
+        // widening and after it.
+        try writeFile(
+            by: sam.assistant,
+            ops: [op("assistantText", by: sam.assistant)])
+        try samsFile([op("herOpening", by: sam.author)])
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: ["doc-hers"])
+
+        let mark = try await OpLogStore.seenPositions(
+            ofDeviceIds: Set(sam.all.map(\.deviceId)), in: projectURL,
+            trust: try await reader().trust(), settlingPieces: [docId])
+        try writeEvent("b", kind: .scopeChanged, role: Permit.authorRole,
+                       scope: Permit.piecesScope,
+                       pieces: ["doc-hers", docId], mark: mark.streams)
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["herOpening"])
+        let refused = try await loadedProvenance().quarantinedLines
+        XCTAssertTrue(
+            refused > 0,
+            "the assistant's manuscript line is refused on both sides of this")
     }
 
     /// **One rule, two access points.** The TABLE answers the stranger

@@ -51,11 +51,19 @@ struct NewPieceModifier: ViewModifier {
                     onTheirs: { theirs(question) },
                     onNotNow: { notNow(question) })
             }
+            // **A new store is a new book AND the first one this view sees**
+            // (fix round 1, C2). `.task(id: projectURL)` runs while
+            // `documentStore` is still nil on a window's first pass, so the
+            // early return there was the whole of this modifier's behaviour at
+            // an open: the store arrives afterwards and nothing asked again.
+            // So this both scorches what the last book left and re-derives for
+            // the one that has just arrived.
             .onChange(of: documentStore.map(ObjectIdentifier.init)) { _, _ in
                 queue = []
                 presented = nil
                 shown = nil
                 refusal = nil
+                Task { await recompute() }
             }
             .task(id: projectURL) { await recompute() }
             // A load is how this window finds out somebody is waiting, and a
@@ -135,7 +143,7 @@ struct NewPieceModifier: ViewModifier {
         }
         queue = LoadQuestions.newPieces(
             held: held, registry: resolved.registry, titles: titles,
-            declined: documentStore.declinedPieces(), me: me)
+            declined: documentStore.closedPieceQuestions(), me: me)
         takeDownAVanishedSheet()
         presentHeadIfIdle()
     }

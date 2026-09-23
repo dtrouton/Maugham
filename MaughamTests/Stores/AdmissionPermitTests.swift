@@ -135,6 +135,22 @@ final class AdmissionPermitTests: XCTestCase {
     /// can be removed.
     private var unreadable: [URL] = []
 
+    /// The piece's id **without opening it** (fix round 1, C2).
+    ///
+    /// `docId()` below LOADS the document, and on this Mac — the root, an
+    /// author of the whole book — a load of a piece with no history bootstraps
+    /// it. That is a book author writing the piece's text, which is exactly
+    /// what makes §4.5 stop applying: the piece becomes claimed and her lines
+    /// are refused rather than held. So a test about the unclaimed case has to
+    /// learn the id from the manifest and leave the file alone.
+    private func pieceIdFromManifest() throws -> String {
+        let manifest = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+        return try XCTUnwrap(
+            TreeWalk.collect(in: manifest.structure) { $0.type == .document }
+                .first?.id)
+    }
+
     private func docId() async throws -> String {
         let doc = try await Document.load(
             url: docURL, actor: .author, session: "s", presenter: nil)
@@ -398,6 +414,163 @@ final class AdmissionPermitTests: XCTestCase {
         XCTAssertEqual(registry.person(herPhone.fingerprint)?.role,
                        Permit.reviewerRole,
                        "her phone moved too, or she goes on writing from it")
+    }
+
+    // MARK: - The question reaches a window (fix round 1, C2)
+
+    /// **A piece start is ANNOUNCED.** Before this the only trigger was the
+    /// stranger narrowing, and a person who may write some of this book is not
+    /// a stranger — so §4.5's question had no way of reaching a window
+    /// mid-session at all, which is to say it was never shown to anybody.
+    ///
+    /// Asserted on the EVENT rather than on a mounted sheet (tripwire 33): the
+    /// post is the wiring, and what the window then does with it is
+    /// `LoadQuestions`', pinned without a window of its own.
+    func test_aPieceStartAnnouncesItselfToTheWindow() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let piece = try pieceIdFromManifest()
+        try await writeStrangerFile(docId: piece, opIds: ["02"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: PermitControl.permit(for: .somePieces, pieces: ["ch-A"]))
+
+        var posts = 0
+        let token = NotificationCenter.default.addObserver(
+            forName: Notification.Name.maughamAdmissionRequested, object: nil,
+            queue: .main) { _ in posts += 1 }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        // A load of the piece she opened: the walk stamps her on it, and
+        // registering the finished load is what tells the window.
+        let doc = try await Document.load(
+            url: docURL, actor: .author, session: "s", presenter: nil)
+        store.register(document: doc, for: "manuscript/c1.md")
+        XCTAssertFalse(doc.startedAPiece.isEmpty, "the walk said so")
+        XCTAssertEqual(posts, 1, "and the window was told once")
+
+        // **A second load of the same document does not ask again.** The
+        // memory is per (holder, piece) and is never emptied.
+        store.register(document: doc, for: "manuscript/c1.md")
+        XCTAssertEqual(posts, 1)
+        await doc.close()
+    }
+
+    /// **A question the writer has already closed never posts.** *Not now* is
+    /// remembered on this Mac for good; a load that finds the same held span
+    /// says nothing about it.
+    func test_aPieceQuestionPutOffIsNeverAnnouncedAgain() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let piece = try pieceIdFromManifest()
+        try await writeStrangerFile(docId: piece, opIds: ["02"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: PermitControl.permit(for: .somePieces, pieces: ["ch-A"]))
+        store.notNowAboutPiece(person: stranger.fingerprint, docId: piece)
+
+        var posts = 0
+        let token = NotificationCenter.default.addObserver(
+            forName: Notification.Name.maughamAdmissionRequested, object: nil,
+            queue: .main) { _ in posts += 1 }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let doc = try await Document.load(
+            url: docURL, actor: .author, session: "s", presenter: nil)
+        store.register(document: doc, for: "manuscript/c1.md")
+        XCTAssertFalse(doc.startedAPiece.isEmpty, "it is still held")
+        XCTAssertEqual(posts, 0, "and the writer has already been asked")
+        await doc.close()
+    }
+
+    // MARK: - §4.5's answer (Task 7 fix round 1, I1)
+
+    /// **`pieceIsTheirs` ADDS a piece — it does not replace her scope.**
+    ///
+    /// The defect this pins is one line long and silent in the worst
+    /// direction: building the new permit from `[docId]` alone rather than
+    /// from what she already holds would answer *yes, this piece is hers* by
+    /// taking every other piece away from her, and the writer pressed a button
+    /// that said *Nothing else they may write changes*.
+    func test_sayingAPieceIsTheirsAddsItToWhatTheyAlreadyHold() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let piece = try await docId()
+        try await writeStrangerFile(docId: piece, opIds: ["02"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: PermitControl.permit(for: .somePieces, pieces: ["ch-A"]))
+
+        _ = try await store.pieceIsTheirs(
+            person: stranger.fingerprint, docId: piece)
+
+        let record = try XCTUnwrap(registry().person(stranger.fingerprint))
+        XCTAssertEqual(record.role, Permit.authorRole)
+        XCTAssertEqual(record.scope, Permit.piecesScope)
+        XCTAssertEqual(
+            Set(record.pieces ?? []), ["ch-A", piece],
+            "she keeps the piece she already had AND gains this one")
+    }
+
+    /// And it records the question ANSWERED on this Mac, so nothing puts it
+    /// again — the signed event is what makes it true for the book; this is
+    /// only what stops this window asking about what it has written down.
+    func test_answeringThePieceQuestionClosesItOnThisMac() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let piece = try await docId()
+        try await writeStrangerFile(docId: piece, opIds: ["02"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: PermitControl.permit(for: .somePieces, pieces: ["ch-A"]))
+        XCTAssertTrue(store.closedPieceQuestions().isEmpty)
+
+        _ = try await store.pieceIsTheirs(
+            person: stranger.fingerprint, docId: piece)
+
+        XCTAssertTrue(store.closedPieceQuestions().contains(
+            .init(person: stranger.fingerprint, docId: piece)))
+    }
+
+    /// **A reviewer is refused, and refused in the act's own words.** §4.5 can
+    /// only hold a line for somebody who may already write SOME of this book,
+    /// so a reviewer reaching this verb means the permit moved under the
+    /// question — and answering it anyway would install a rung nobody chose.
+    func test_sayingAPieceIsAReviewersIsRefused() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let piece = try await docId()
+        try await writeStrangerFile(docId: piece, opIds: ["02"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: .reviewer)
+
+        do {
+            _ = try await store.pieceIsTheirs(
+                person: stranger.fingerprint, docId: piece)
+            XCTFail("a reviewer may write no piece of this book")
+        } catch is PieceIsTheirsRefused {
+            XCTAssertEqual(
+                try registry().person(stranger.fingerprint)?.role,
+                Permit.reviewerRole, "and nothing was changed")
+        }
+    }
+
+    /// Somebody this book has never let in is refused too, by the registry's
+    /// own word rather than by this verb's.
+    func test_sayingAPieceIsAStrangersIsRefused() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let piece = try await docId()
+
+        do {
+            _ = try await store.pieceIsTheirs(
+                person: stranger.fingerprint, docId: piece)
+            XCTFail("there is nobody here to give a piece to")
+        } catch let error as RegistryAdmissionError {
+            XCTAssertEqual(
+                error, .notAdmitted(fingerprint: stranger.fingerprint))
+        }
     }
 
     /// **Re-admission installs what the writer confirmed, not the default**

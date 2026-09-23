@@ -884,13 +884,63 @@ public final class OpLogStore {
     /// A SEGMENT the reader took in whole is listed by digest **whether or not
     /// any of its lines were refused**, for the same reason: the digest says
     /// *the root read this whole file*, not *the root applied all of it*.
+    ///
+    /// **`settlingPieces` is the one exception, and it exists because §4.5's
+    /// question has to be answerable** (P3b Task 7 fix round 1, the
+    /// controller's ruling of 2026-09-23). An event that ADDS a piece to
+    /// somebody's scope is the root answering *yes, that piece is hers* — and
+    /// what she already wrote there is HELD, not refused: §4.5's whole premise
+    /// is that those words were never wrong, only unplaced. A mark taken the
+    /// ordinary way records the held span as SEEN, so it falls before the new
+    /// permit and is held all over again, and the sheet's promise that her
+    /// lines will join the draft is false. For the pieces this act settles, the
+    /// mark is therefore cut BEFORE her held span (`markLine`), so those lines
+    /// fall after it and are re-judged under the permit that has just taken
+    /// them in.
+    ///
+    /// **Safe in the other direction because the caller may only widen.**
+    /// Re-judging a line can only change what happens to it if the permit
+    /// changed, and the one verb that passes this (`DocumentStore
+    /// .pieceIsTheirs`) refuses unless the new permit `covers` the old one — so
+    /// nothing that was applied can become refused. Streams of any OTHER piece
+    /// are untouched, and every existing caller passes nothing, so every
+    /// existing mark is byte-identical (spec §5 row 2 stands).
     nonisolated public static func seenPositions(
         ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
-        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:]
+        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:],
+        settlingPieces: Set<String> = []
     ) throws -> PermitMark {
         try positions(
             ofDeviceIds: ids, in: projectURL, trust: trust,
-            expecting: expecting, lastLine: wasSeen)
+            expecting: expecting, settlingPieces: settlingPieces,
+            lastLine: wasSeen)
+    }
+
+    /// **The line a mark records for one stream**, and the one place the
+    /// settling cut is spelled (P3b Task 7 fix round 1).
+    ///
+    /// Ordinarily the last line the reader saw and judged. For a stream of a
+    /// piece this act is SETTLING, the last such line **before the first held
+    /// one** — because a held line is precisely what the act is about, and a
+    /// mark recording it as seen would leave it under the permit that could not
+    /// place it.
+    ///
+    /// **Before the first held line, not merely *not a held line*.** Those are
+    /// different rules and only one of them works: a file of
+    /// `[applied, held, refused]` has a non-held LAST line, so the naive
+    /// spelling would cut after the refusal and leave the held line before the
+    /// mark — the defect this function exists to remove, with a plausible
+    /// implementation.
+    ///
+    /// Nil is a real answer and it means the whole tail is new: a stream whose
+    /// FIRST line is held is a piece she opened and nobody has claimed, which
+    /// is the ordinary shape of the question.
+    nonisolated static func markLine(
+        of lines: [OpLogChain.Line], seenWhen lastLine: (OpLogChain.Line) -> Bool,
+        cuttingBeforeHeld: Bool
+    ) -> OpLogChain.Line? {
+        guard cuttingBeforeHeld else { return lines.last(where: lastLine) }
+        return lines.prefix { $0.state.pendingDevice == nil }.last(where: lastLine)
     }
 
     /// Did the reader see and JUDGE this line? — `seenPositions`' predicate,
@@ -953,6 +1003,7 @@ public final class OpLogStore {
     private nonisolated static func positions(
         ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
         expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:],
+        settlingPieces: Set<String> = [],
         lastLine: (OpLogChain.Line) -> Bool
     ) throws -> PermitMark {
         guard !ids.isEmpty else { return .nothingApplied }
@@ -1033,7 +1084,9 @@ public final class OpLogStore {
                         entry.holdsRemembered = true
                     }
                 }
-                guard let last = verification.lines.last(where: lastLine)
+                guard let last = markLine(
+                    of: verification.lines, seenWhen: lastLine,
+                    cuttingBeforeHeld: settlingPieces.contains(docId))
                 else { continue }
                 lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
             }
@@ -1056,7 +1109,11 @@ public final class OpLogStore {
                     entry.holdsRemembered = true
                 }
             }
-            guard let last = verification.lines.last(where: lastLine) else { continue }
+            // Never settling: a translation sidecar and an inbox manifest are
+            // not manuscript pieces, so §4.5 cannot hold a line in either.
+            guard let last = markLine(
+                of: verification.lines, seenWhen: lastLine,
+                cuttingBeforeHeld: false) else { continue }
             lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
         }
 

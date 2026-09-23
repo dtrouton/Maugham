@@ -53,10 +53,21 @@ final class LoadQuestionsTests: XCTestCase {
         registry(people: [person(sam, label: "Sam", admittedBy: root)])
     }
 
+    /// `startedAPiece` is now holder → piece → **that piece's own count**
+    /// (fix round 1, I4). The helper takes the pieces and the count so the
+    /// tests below read as they did, and the per-piece figure is what reaches
+    /// the model.
     private func union(
         counts: [String: Int], startedAPiece: [String: Set<String>] = [:]
     ) -> HeldLineUnion {
-        HeldLineUnion(counts: counts, streams: [:], startedAPiece: startedAPiece)
+        var perPiece: [String: [String: Int]] = [:]
+        for (holder, docIds) in startedAPiece {
+            for docId in docIds {
+                perPiece[holder, default: [:]][docId] = counts[holder] ?? 0
+            }
+        }
+        return HeldLineUnion(
+            counts: counts, streams: [:], startedAPiece: perPiece)
     }
 
     // MARK: - The question appears
@@ -234,6 +245,51 @@ final class LoadQuestionsTests: XCTestCase {
             registry: samsBook(), titles: [:], declined: [], me: root)
         XCTAssertEqual(questions.count, 1)
         XCTAssertFalse(questions[0].title.isEmpty)
+    }
+
+    // MARK: - The count is this piece's (fix round 1, I4)
+
+    /// **The number beside the question is the number in THAT piece.** The
+    /// holder's total across every open document is a different figure, and it
+    /// is the one the sheet was printing — so a writer with three held lines in
+    /// one chapter and forty in another was promised forty in both.
+    func test_theCountIsThePiecesOwnAndNotTheHoldersTotal() throws {
+        let held = HeldLineUnion(
+            counts: [sam: 43], streams: [:],
+            startedAPiece: [sam: ["ch-2": 3, "ch-9": 40]])
+
+        let questions = LoadQuestions.newPieces(
+            held: held, registry: samsBook(),
+            titles: ["ch-2": "The Orchard", "ch-9": "The Ferry"],
+            declined: [], me: root)
+
+        XCTAssertEqual(questions.map(\.heldLines), [3, 40])
+        XCTAssertTrue(try XCTUnwrap(questions.first).consequence.contains("3 lines"))
+        XCTAssertTrue(questions[1].consequence.contains("40 lines"))
+    }
+
+    /// **The consequence tells the truth about what *Theirs* does** (fix round
+    /// 1, C1): what she already wrote HERE joins the draft, and from now on she
+    /// may write in this piece. Both halves, because a sentence with only the
+    /// second would be the promise the mark could not keep.
+    func test_theConsequenceSaysBothWhatComesInAndWhatChangesFromNowOn() throws {
+        let question = LoadQuestions.NewPiece(
+            person: sam, name: "Sam", docId: "ch-2", title: "The Orchard",
+            heldLines: 2)
+        XCTAssertTrue(question.consequence.contains("already written here"))
+        XCTAssertTrue(question.consequence.contains("from now on"))
+        XCTAssertTrue(question.consequence.contains("join the draft"))
+    }
+
+    /// A question the writer ANSWERED is never put again either — the closed
+    /// set is one set, however it was closed.
+    func test_aPieceAlreadyAnsweredIsNotAskedAgain() {
+        XCTAssertEqual(
+            LoadQuestions.newPieces(
+                held: union(counts: [sam: 4], startedAPiece: [sam: ["ch-2"]]),
+                registry: samsBook(), titles: [:],
+                declined: [.init(person: sam, docId: "ch-2")], me: root),
+            [])
     }
 
     // MARK: - It is not the admission queue

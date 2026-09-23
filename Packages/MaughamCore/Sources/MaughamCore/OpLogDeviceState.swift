@@ -79,6 +79,15 @@ public final class OpLogDeviceState: @unchecked Sendable {
         /// it into the book would tell every other Mac that a question they
         /// have not been asked has been settled.
         var declinedPieces: [String: Date] = [:]
+        /// **Pieces the writer has ANSWERED** (P3b Task 7 fix round 1), keyed
+        /// exactly as the declined ones are.
+        ///
+        /// Its own field rather than a second meaning for `declinedPieces`,
+        /// because the two are different facts and a surface may one day want
+        /// to say which happened. What they share is the only thing this type
+        /// is asked: a question that has been closed either way is never put
+        /// again (`closedPieceQuestions`).
+        var settledPieces: [String: Date] = [:]
 
         init() {}
 
@@ -104,6 +113,8 @@ public final class OpLogDeviceState: @unchecked Sendable {
                 [String: Date].self, forKey: .acknowledgedLosses) ?? [:]
             declinedPieces = try container.decodeIfPresent(
                 [String: Date].self, forKey: .declinedPieces) ?? [:]
+            settledPieces = try container.decodeIfPresent(
+                [String: Date].self, forKey: .settledPieces) ?? [:]
         }
     }
 
@@ -623,9 +634,18 @@ public final class OpLogDeviceState: @unchecked Sendable {
     public func declinedPieces(inRoot root: URL) -> [DeclinedPiece: Date] {
         lock.lock()
         defer { lock.unlock() }
-        let prefix = "\(Self.scopeHash(ofRoot: root))/"
+        return Self.pieces(in: stored.declinedPieces, root: root)
+    }
+
+    /// The one parse of a `<root>/<person>/<docId>` map, shared by both fields
+    /// so the two cannot disagree about what a key means. Call with the lock
+    /// held.
+    private nonisolated static func pieces(
+        in stored: [String: Date], root: URL
+    ) -> [DeclinedPiece: Date] {
+        let prefix = "\(scopeHash(ofRoot: root))/"
         var out: [DeclinedPiece: Date] = [:]
-        for (key, when) in stored.declinedPieces where key.hasPrefix(prefix) {
+        for (key, when) in stored where key.hasPrefix(prefix) {
             let rest = key.dropFirst(prefix.count)
             // `<person>/<docId>`. A fingerprint is hex and carries no slash,
             // so the FIRST separator is the one that splits them and a docId
@@ -637,6 +657,57 @@ public final class OpLogDeviceState: @unchecked Sendable {
             out[DeclinedPiece(person: person, docId: docId)] = when
         }
         return out
+    }
+
+    /// **The writer answered it: the piece is theirs** (P3b Task 7 fix round
+    /// 1).
+    ///
+    /// Recorded for the same reason a decline is, and with more force: the
+    /// permit change it goes with is a fact about the BOOK that every device
+    /// will read, so a question re-raised here afterwards would be this Mac
+    /// asking about something it has already written down. Idempotent, first
+    /// date wins.
+    ///
+    /// It is not what makes the answer true — the signed `scopeChanged` event
+    /// is — and nothing reads it but the question's own surfaces.
+    public func settlePiece(
+        person: String, docId: String, inRoot root: URL, at when: Date = Date()
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        let key = Self.declinedKey(person: person, docId: docId, root: root)
+        let hash = Self.scopeHash(ofKey: key)
+        let path = root.standardizedFileURL.path
+        var changed = false
+        if stored.roots[hash] != path {
+            stored.roots[hash] = path
+            changed = true
+        }
+        if stored.settledPieces[key] == nil {
+            stored.settledPieces[key] = when
+            changed = true
+        }
+        if changed { persistLocked() }
+    }
+
+    /// **Every question about a piece this Mac has closed**, however it was
+    /// closed — put off or answered.
+    ///
+    /// The one reader every surface uses, because *has this been asked* is one
+    /// question and two lookups of it would be two answers. A question is
+    /// never re-raised once it is in here; what is still HELD goes on being
+    /// said, because held words with no sentence is the one shape a refusal
+    /// may not take.
+    public func closedPieceQuestions(inRoot root: URL) -> Set<DeclinedPiece> {
+        Set(declinedPieces(inRoot: root).keys)
+            .union(settledPieces(inRoot: root).keys)
+    }
+
+    /// Every question answered in `root`, with the day it was answered.
+    public func settledPieces(inRoot root: URL) -> [DeclinedPiece: Date] {
+        lock.lock()
+        defer { lock.unlock() }
+        return Self.pieces(in: stored.settledPieces, root: root)
     }
 
     /// `<project-root hash>/<person>/<docId>` — the foreign key's shape with a
@@ -785,9 +856,12 @@ public final class OpLogDeviceState: @unchecked Sendable {
         stored.acknowledgedLosses = stored.acknowledgedLosses.filter {
             !hashes.contains(scopeHash(ofKey: $0.key))
         }
-        // And a question put off about a book that is gone is a question about
-        // nothing (P3b Task 7).
+        // And a question put off — or answered — about a book that is gone is
+        // a question about nothing (P3b Task 7).
         stored.declinedPieces = stored.declinedPieces.filter {
+            !hashes.contains(scopeHash(ofKey: $0.key))
+        }
+        stored.settledPieces = stored.settledPieces.filter {
             !hashes.contains(scopeHash(ofKey: $0.key))
         }
         for hash in hashes { stored.roots.removeValue(forKey: hash) }

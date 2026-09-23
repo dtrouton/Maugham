@@ -70,12 +70,11 @@ enum LoadQuestions {
         /// the piece rather than the rung, because *what may they write* is a
         /// question this sentence must not answer twice (tripwire 47).
         var consequence: String {
-            let waiting = heldLines == 1
-                ? "The 1 line waiting"
-                : "The \(heldLines) lines waiting"
-            return "\(waiting) will join the draft, and \(name) will be able to "
-                + "go on writing in this piece. Nothing else they may write "
-                + "changes."
+            let already = heldLines == 1
+                ? "The 1 line \(name) has already written here"
+                : "The \(heldLines) lines \(name) has already written here"
+            return "\(already) will join the draft, and from now on they may "
+                + "write in this piece. Nothing else they may write changes."
         }
 
         /// Both answers, and there is no third.
@@ -120,7 +119,7 @@ enum LoadQuestions {
         me: String
     ) -> [NewPiece] {
         held.startedAPiece.keys.sorted().flatMap { holder -> [NewPiece] in
-            guard let waiting = held.counts[holder], waiting > 0 else { return [] }
+            let pieces = held.startedAPiece[holder] ?? [:]
             // Task 2's one classifier, asked with Task 7's widened input. A
             // holder the walk named here IS an admitted person in every honest
             // case; the check is what makes that a fact rather than an
@@ -132,7 +131,12 @@ enum LoadQuestions {
                 person: person, by: me, in: registry).get()) != nil
             else { return [] }
             let name = registry.person(person)?.label ?? DeviceCode.short(person)
-            return (held.startedAPiece[holder] ?? []).sorted().compactMap { docId in
+            return pieces.keys.sorted().compactMap { docId in
+                // **This piece's own count** (fix round 1, I4). The question
+                // names one piece and promises what pressing it brings in, so
+                // the number beside it is the number held THERE — the holder's
+                // total across every open document is a different figure.
+                guard let waiting = pieces[docId], waiting > 0 else { return nil }
                 guard !declined.contains(
                     .init(person: person, docId: docId)) else { return nil }
                 return NewPiece(
