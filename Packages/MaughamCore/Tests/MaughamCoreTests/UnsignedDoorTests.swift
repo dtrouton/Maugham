@@ -710,4 +710,117 @@ final class UnsignedDoorTests: XCTestCase {
         _ = try await appliedOpIds()
         XCTAssertEqual(walked.count, 0)
     }
+
+    // MARK: - The way back in (P3b Task 8 fix round 1, spec §7.4)
+
+    /// **The walk answers which lines are waiting, and nobody else does.**
+    /// The held bytes are in the file and in nothing else — no `.lines` record
+    /// is written for one and a load returns what it APPLIED — so §7.4's door
+    /// asks the same question of the same files and reads the walk's own
+    /// `Verification`.
+    func test_theHeldLinesCanBeReadBackWithoutASecondClassifier() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try ghostFile([op("01", by: ghost.author)])
+        try await narrowSamToReviewer()
+        try ghostFile([
+            op("01", by: ghost.author), op("02", by: ghost.author),
+            op("03", by: ghost.author),
+        ])
+
+        let provenance = try await loadedProvenance()
+        XCTAssertEqual(provenance.pendingByDevice[ghostHolder], 2,
+                       "premise: two lines are waiting under the ghost")
+
+        let held = try await reader().heldLines(
+            forDocId: docId, heldBy: ghostHolder)
+        let words = OpLogQuarantine.recoverableWords(inLines: held)
+
+        XCTAssertEqual(words.map(\.text), ["02", "03"],
+                       "exactly the held paragraphs, in file order")
+        XCTAssertEqual(Set(words.map(\.device)), [ghost.author.deviceId])
+    }
+
+    /// **The other direction, and the one the door turns on.** A holder
+    /// nothing is waiting under answers nothing — the writer is offered no
+    /// capture rather than a wrong one.
+    func test_aHolderNothingIsWaitingUnderAnswersNothing() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try ghostFile([op("01", by: ghost.author)])
+        try await narrowSamToReviewer()
+        try ghostFile([op("01", by: ghost.author), op("02", by: ghost.author)])
+
+        let strangerHolder = HeldLines.unsignedHolder(
+            forStreamKey: "\(docId).nobody", deviceSlug: "nobody")
+        let none = try await reader().heldLines(
+            forDocId: docId, heldBy: strangerHolder)
+        XCTAssertTrue(none.isEmpty)
+        XCTAssertTrue(
+            OpLogQuarantine.recoverableWords(inLines: none).isEmpty)
+
+        let absent = try await reader().heldLines(
+            forDocId: "doc-that-does-not-exist", heldBy: ghostHolder)
+        XCTAssertTrue(absent.isEmpty, "and a document with no files is no door")
+    }
+
+    /// **An un-narrowed book holds nothing, so it offers nothing** — the read
+    /// is the load's, so P1's behaviour reaches here unchanged.
+    func test_anUnNarrowedBookOffersNoHeldLines() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try ghostFile([op("01", by: ghost.author), op("02", by: ghost.author)])
+
+        let none = try await reader().heldLines(
+            forDocId: docId, heldBy: ghostHolder)
+        XCTAssertTrue(none.isEmpty)
+    }
+
+    /// **Reading them back applies nothing.** The bytes on disk are identical
+    /// and the next load holds exactly the same lines under exactly the same
+    /// holder — the read is a read.
+    func test_readingThemBackAppliesNothingAndChangesNoByte() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try ghostFile([op("01", by: ghost.author)])
+        try await narrowSamToReviewer()
+        let file = try ghostFile([
+            op("01", by: ghost.author), op("02", by: ghost.author),
+        ])
+        let before = try Data(contentsOf: file)
+
+        _ = try await reader().heldLines(forDocId: docId, heldBy: ghostHolder)
+
+        XCTAssertEqual(try Data(contentsOf: file), before,
+                       "not one byte of the stream moved")
+        try await assertApplied(["01"], "and the line is still outside the draft")
+        let after = try await loadedProvenance()
+        XCTAssertEqual(after.pendingByDevice[ghostHolder], 1,
+                       "still waiting, under the same holder")
+        XCTAssertTrue(linesRecords().isEmpty,
+                      "and nothing was set aside by reading it")
+    }
+
+    /// A span inside a rotated segment is read back the same way, because the
+    /// walk that decides it is the same walk — this is the shape a
+    /// re-derivation of `fileIsSegmentWithDigest` would get wrong.
+    func test_aHeldSpanInsideARotatedSegmentIsReadBackToo() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try ghostFile([op("01", by: ghost.author)])
+        try await narrowSamToReviewer()
+        try ghostFile([
+            op("01", by: ghost.author), op("02", by: ghost.author),
+        ])
+        try rotateGhostTail()
+
+        let provenance = try await loadedProvenance()
+        XCTAssertEqual(provenance.pendingByDevice[ghostHolder], 1,
+                       "premise: the held line is now inside the segment")
+
+        let words = OpLogQuarantine.recoverableWords(
+            inLines: try await reader().heldLines(
+                forDocId: docId, heldBy: ghostHolder))
+        XCTAssertEqual(words.map(\.text), ["02"])
+    }
 }

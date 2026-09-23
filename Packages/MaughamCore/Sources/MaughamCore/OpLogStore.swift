@@ -407,6 +407,74 @@ public final class OpLogStore {
                 OpLogProvenance(files: files))
     }
 
+    /// **The lines one holder is waiting under, as the walk itself answers
+    /// them** (P3b Task 8 fix round 1, spec §7.4).
+    ///
+    /// A held line is neither applied nor refused, so it is in the file and in
+    /// nothing else: no `.lines` record is written for one, and a load returns
+    /// the ops it APPLIED. This is what lets §7.4's way back reach a held
+    /// line — it asks the same question the load asks, of the same files, and
+    /// reads the answer off the walk's own `Verification` rather than deciding
+    /// anything of its own.
+    ///
+    /// **One classifier, and this is not a second one.** The trust table is
+    /// this store's, the permit context is built exactly as `loadDiagnosed`
+    /// builds it, and `classify` is the same function both `classifyTail` and
+    /// `classifySegment` are reached through. Nothing here re-derives which
+    /// span is inside the unsigned photograph, whether a segment verified, or
+    /// which lines a permit refused: those are the walk's, and a copy of any
+    /// of them would answer differently the first time either changed.
+    ///
+    /// **It reads and never writes.** `classify` only asks the device state
+    /// what it remembers; the three writes a LOAD makes — the adopted head,
+    /// the verified segment digest and the forensic record — are
+    /// `loadFileDiagnosed`'s and are not made here. The remembered head IS
+    /// passed, because leaving it out would give a weaker picture than the
+    /// load's and could offer a line the load had set aside.
+    ///
+    /// **It throws rather than coming back short.** A file present and
+    /// unreadable is `readCoordinated`'s to raise (RULING-54): a silent short
+    /// answer here would offer the writer some of a held span and tell them it
+    /// was all of it.
+    ///
+    /// Answers the raw LINE BYTES, in file order, per file in listing order —
+    /// what they MEAN is the caller's (`OpLogQuarantine.recoverableWords`),
+    /// which is the same decode the record door uses.
+    public func heldLines(
+        forDocId docId: String, heldBy holder: String
+    ) async throws -> [Data] {
+        let urls = Self.opLogFileURLs(forDocId: docId, in: projectURL)
+        guard !urls.isEmpty else { return [] }
+        let table = try await trust()
+        let permit = Self.permitContext(
+            forDocId: docId, in: projectURL, trust: table)
+        let presenter = self.presenter
+        let state = deviceState
+        return try Self.heldLines(
+            in: urls, heldBy: holder, presenter: presenter,
+            state: state, trust: table, permit: permit)
+    }
+
+    /// The walk half, `nonisolated` so a caller can run it off the main actor.
+    nonisolated static func heldLines(
+        in urls: [URL], heldBy holder: String, presenter: NSFilePresenter?,
+        state: OpLogDeviceState?, trust: TrustTable?, permit: PermitContext?
+    ) throws -> [Data] {
+        var held: [Data] = []
+        for url in urls {
+            guard let bytes = try readCoordinated(url: url, presenter: presenter)
+            else { continue }
+            let classified = classify(
+                url: url, bytes: bytes, state: state, trust: trust, permit: permit)
+            guard let verification = classified.verification else { continue }
+            for line in verification.lines
+            where line.state.pendingDevice == holder {
+                held.append(line.bytes)
+            }
+        }
+        return held
+    }
+
     /// The result of `loadDiagnosedPartial` — the recovery spec §4's read.
     public struct PartialOpLogLoad {
         public let ops: [Op]
