@@ -374,4 +374,62 @@ final class LostHistoryTests: XCTestCase {
         XCTAssertEqual(before, after, "the same bytes, the same positions")
         XCTAssertEqual(photographBefore, photographAfter)
     }
+
+    // MARK: - Whose loss the confirmation is about (fix round 1, Minor 1)
+
+    /// **A revocation is decided over ONE person's streams**, so the
+    /// confirmation before it counts what was put down about THEM.
+    ///
+    /// The count was the book's, which over-states: a writer revoking Bob was
+    /// told the act is being decided without history they had put down about
+    /// Sam — history a revocation of Bob never reads
+    /// (`expectedStreams(ofDeviceIds:)`). An over-statement on the screen
+    /// before a destructive act is the kind a writer learns to skip.
+    func test_theCountIsTheSubjectsForAnActThatSweepsOnePerson() async throws {
+        let store = try await DocumentStore.open(url: projectURL)
+        let docId = try await openTheChapter()
+        let hers = try await writeSamsFile(docId: docId, opIds: ["02"])
+        try await admitSam(store)
+        // A second person, whose own stream this Mac has never lost.
+        let bob = LocalIdentities.softwareForTesting()
+        let bobState = OpLogDeviceState(
+            fileURL: projectURL.appendingPathComponent("bob-state.json"))
+        let bobStore = OpLogStore(
+            projectURL: projectURL, identity: bob.author, state: bobState)
+        try await bobStore.append(Op(
+            opId: "03", docId: docId, at: Date(timeIntervalSince1970: 0),
+            device: bob.author.deviceId, session: "s", kind: .typingBurst,
+            changes: [.init(paragraphId: "aaaa", prior: nil, next: "03")],
+            sequence: ["aaaa"]))
+        _ = try await bobStore.sealChain(docId: docId)
+        _ = try await store.admit(
+            device: bob.author.fingerprint, label: "Bob", ownName: "Bob\u{2019}s Mac")
+        try await openTheChapter()
+
+        try FileManager.default.removeItem(at: hers)
+        try await openTheChapter()
+        store.acknowledgeLostHistory(streamKey: try streamKey(of: hers))
+
+        let counted = await store.acknowledgedLostHistory()
+        XCTAssertEqual(counted.book, 1)
+        XCTAssertEqual(counted.count(ofPerson: sam.author.fingerprint), 1,
+                       "it was her machine")
+        XCTAssertEqual(
+            counted.count(ofPerson: bob.author.fingerprint), 0,
+            "and revoking Bob is decided over nothing the writer put down")
+    }
+
+    /// The book that has put nothing down pays nothing to say so, and answers
+    /// zero for everybody.
+    func test_aBookWithNothingPutDownCountsNothing() async throws {
+        let store = try await DocumentStore.open(url: projectURL)
+        let docId = try await openTheChapter()
+        try await writeSamsFile(docId: docId, opIds: ["02"])
+        try await admitSam(store)
+        try await openTheChapter()
+
+        let counted = await store.acknowledgedLostHistory()
+        XCTAssertEqual(counted.book, 0)
+        XCTAssertEqual(counted.count(ofPerson: sam.author.fingerprint), 0)
+    }
 }

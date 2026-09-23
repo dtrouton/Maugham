@@ -514,7 +514,16 @@ struct PermitChangeSheet: View {
     /// Task 6). Zero in every book that has lost nothing, which is nearly all
     /// of them; above zero the confirmation says what deciding without that
     /// history costs.
+    ///
+    /// **Two counts, because the act sweeps two ways** (fix round 1, Minor 1):
+    /// a change that narrows takes the book's photograph as well as this
+    /// person's mark, one that narrows nobody reads this person's streams
+    /// alone — and the control moves between the two as the writer chooses, so
+    /// the sentence is rebuilt with the choice like everything else here.
+    /// `PermitControl.lostHistory` is the one place that is decided.
     let lostHistory: Int
+    /// The book's, for the narrowing case.
+    let lostHistoryInTheBook: Int
     /// Is this letting somebody back in, or moving somebody who is already in?
     let isReadmission: Bool
     let commit: (Permit) -> Void
@@ -528,6 +537,7 @@ struct PermitChangeSheet: View {
         pieces: [PermitControl.Piece],
         book: PermitControl.BookNarrowing?,
         lostHistory: Int = 0,
+        lostHistoryInTheBook: Int = 0,
         isReadmission: Bool,
         commit: @escaping (Permit) -> Void,
         cancel: @escaping () -> Void
@@ -536,6 +546,7 @@ struct PermitChangeSheet: View {
         self.pieces = pieces
         self.book = book
         self.lostHistory = lostHistory
+        self.lostHistoryInTheBook = lostHistoryInTheBook
         self.isReadmission = isReadmission
         self.commit = commit
         self.cancel = cancel
@@ -559,12 +570,14 @@ struct PermitChangeSheet: View {
         let notice = book.flatMap {
             PermitControl.notice(forGranting: change.to, in: $0)
         }
+        let put = PermitControl.lostHistory(
+            forGranting: change.to, subject: lostHistory,
+            book: lostHistoryInTheBook)
         return isReadmission
             ? .readmit(person: person.fingerprint, named: person.title,
-                       change: change, notice: notice, lostHistory: lostHistory)
+                       change: change, notice: notice, lostHistory: put)
             : .changePermit(forPerson: person.fingerprint, named: person.title,
-                            change: change, notice: notice,
-                            lostHistory: lostHistory)
+                            change: change, notice: notice, lostHistory: put)
     }
 
     var body: some View {

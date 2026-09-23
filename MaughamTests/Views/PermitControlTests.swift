@@ -166,4 +166,31 @@ final class PermitControlTests: XCTestCase {
                 "\(choice) narrows the book and the writer is owed the sentence")
         }
     }
+
+    // MARK: - Which acknowledged-loss count the confirmation carries
+    //         (fix round 1, Minor 1)
+
+    /// **The count follows the sweep.** A change that narrows takes the book's
+    /// photograph (`everyExpectedStream`) as well as this person's mark, so it
+    /// is decided without whatever the writer put down anywhere in the book.
+    /// One that narrows nobody reads this person's streams alone.
+    func test_thecountIsTheBooksWhenTheChangeNarrowsAndTheSubjectsWhenItDoesNot() {
+        XCTAssertEqual(
+            PermitControl.lostHistory(
+                forGranting: PermitControl.permit(for: .reviewer, pieces: []),
+                subject: 1, book: 4),
+            4)
+        XCTAssertEqual(
+            PermitControl.lostHistory(
+                forGranting: PermitControl.permit(for: .somePieces, pieces: ["ch1"]),
+                subject: 1, book: 4),
+            4,
+            "an author of some pieces narrows the book too")
+        XCTAssertEqual(
+            PermitControl.lostHistory(
+                forGranting: PermitControl.permit(for: .wholeBook, pieces: []),
+                subject: 1, book: 4),
+            1,
+            "a promotion to the whole book sweeps this person alone")
+    }
 }

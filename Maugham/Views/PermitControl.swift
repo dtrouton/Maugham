@@ -148,6 +148,25 @@ enum PermitControl {
             isTheBooksFirstNarrowing: permit.narrows && !book.alreadyNarrowed,
             holdsAnUnsignedStream: book.holdsAnUnsignedStream)
     }
+
+    /// **Which acknowledged-loss count a confirmation about THIS permit
+    /// carries** (fix round 1, Minor 1) — the same question, asked of the same
+    /// place.
+    ///
+    /// A permit change that narrows takes the book's photograph
+    /// (`everyExpectedStream`) as well as the subject's own mark, so what it
+    /// decides without is the book's. One that narrows nobody sweeps the
+    /// subject's streams alone, and naming a loss under somebody else's
+    /// machine would be an over-statement on the one screen that must not make
+    /// them.
+    ///
+    /// The narrowing question is the permit layer's (`Permit.narrows`), asked
+    /// here exactly as `notice` asks it and never by comparing a rung.
+    static func lostHistory(
+        forGranting permit: Permit, subject: Int, book: Int
+    ) -> Int {
+        permit.narrows ? book : subject
+    }
 }
 
 /// **The words the writer reads for each rung** — here rather than in Core,

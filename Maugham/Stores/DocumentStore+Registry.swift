@@ -1093,6 +1093,61 @@ extension DocumentStore {
         }.value
     }
 
+    /// **How many acknowledged losses each act would be deciding over** (fix
+    /// round 1, Minor 1) — the book's, and one count per person.
+    ///
+    /// The two are needed because the verbs sweep differently. A revocation
+    /// and a permit change that narrows NOBODY sweep one person's streams
+    /// (`expectedStreams(ofDeviceIds:)`), so a loss under somebody else's
+    /// machine cannot affect them and must not be mentioned: a confirmation
+    /// that says *this is decided without history you said was gone* about an
+    /// act that reads none of it is an over-statement, and an over-statement
+    /// about a destructive act is the kind a writer learns to skip. A permit
+    /// change that NARROWS also takes the book's photograph
+    /// (`everyExpectedStream`), so its count is the book's.
+    ///
+    /// Read off the same rows the drawer draws, so the pane's sentence and its
+    /// rows cannot disagree about what has been put down.
+    struct AcknowledgedLosses: Sendable, Equatable {
+        /// Every loss this writer has put down in this book.
+        var book: Int = 0
+        /// Those under one person's own machines, by person fingerprint.
+        var byPerson: [String: Int] = [:]
+
+        func count(ofPerson fingerprint: String) -> Int {
+            byPerson[fingerprint] ?? 0
+        }
+    }
+
+    func acknowledgedLostHistory() async -> AcknowledgedLosses {
+        let projectURL = self.projectURL
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        let state = Document.loadDeviceState
+        return await Task.detached(priority: .userInitiated) {
+            // The drawer's own short circuit, for its own reason: the ordinary
+            // book has put nothing down and pays nothing to say so.
+            guard !state.acknowledgedLosses(inRoot: projectURL).isEmpty
+            else { return AcknowledgedLosses() }
+            guard let resolved = try? TrustResolution.resolveVerified(
+                projectURL: projectURL, identities: identities, cache: cache)
+            else { return AcknowledgedLosses() }
+            let put = OpLogStore.lostHistory(
+                in: projectURL, state: state, trust: resolved.table
+            ).filter(\.acknowledged)
+            guard !put.isEmpty else { return AcknowledgedLosses() }
+            var byPerson: [String: Int] = [:]
+            for person in resolved.registry.people {
+                let slugs = Set(DocumentStore.opLogDeviceIds(
+                    ofPerson: person.person, in: resolved.registry
+                ).map { DeviceSlug.make(from: $0).raw })
+                let mine = put.filter { slugs.contains($0.deviceSlug) }.count
+                if mine > 0 { byPerson[person.person] = mine }
+            }
+            return AcknowledgedLosses(book: put.count, byPerson: byPerson)
+        }.value
+    }
+
     /// **The writer has been shown a loss and has put it down.**
     ///
     /// It writes nothing to the book: no event, no record, nothing another

@@ -68,7 +68,13 @@ struct ProjectSettingsSheet: View {
     /// (P3b Task 6). A marking verb no longer waits for one of those, so every
     /// confirmation in this pane says what deciding without it costs. Read
     /// beside the rest of the pane, off the main actor.
-    @State private var acknowledgedLostHistory: Int = 0
+    ///
+    /// **Per person as well as per book** (fix round 1, Minor 1): a revocation
+    /// and a permit change that narrows nobody sweep one person's streams, so
+    /// a loss under somebody else's machine is nothing to do with them and
+    /// saying otherwise is an over-statement on the screen that can least
+    /// afford one.
+    @State private var acknowledgedLostHistory = DocumentStore.AcknowledgedLosses()
 
     /// Who the permit sheet is about, and which of its two questions it is
     /// asking. `Identifiable` so `.sheet(item:)` can key on it, and keyed on
@@ -223,7 +229,9 @@ struct ProjectSettingsSheet: View {
                     person: ask.person,
                     pieces: PermitControl.pieces(in: store.manifest.structure),
                     book: bookNarrowing,
-                    lostHistory: acknowledgedLostHistory,
+                    lostHistory: acknowledgedLostHistory.count(
+                        ofPerson: ask.person.fingerprint),
+                    lostHistoryInTheBook: acknowledgedLostHistory.book,
                     isReadmission: ask.isReadmission,
                     commit: { permit in
                         changingPermit = nil
@@ -516,9 +524,10 @@ struct ProjectSettingsSheet: View {
             : nil
         let unsignedStreams = reading.streams
         // What the writer has already said is gone: every confirmation below
-        // states what deciding without it costs (P3b Task 6).
-        acknowledgedLostHistory = await (store.documentStore?.lostHistory() ?? [])
-            .filter(\.acknowledged).count
+        // states what deciding without it costs (P3b Task 6), counted by the
+        // streams the act it precedes actually sweeps (fix round 1).
+        acknowledgedLostHistory = await store.documentStore?
+            .acknowledgedLostHistory() ?? DocumentStore.AcknowledgedLosses()
         let pieces = PermitControl.pieces(in: store.manifest.structure)
         let url = store.url
         peopleAndDevices = await Task.detached(priority: .userInitiated) {
@@ -581,7 +590,10 @@ struct ProjectSettingsSheet: View {
             ?? DeviceCode.short(fingerprint)
         confirming = .revoke(
             person: fingerprint, named: name,
-            lostHistory: acknowledgedLostHistory)
+            // A revocation marks THIS person's streams
+            // (`expectedStreams(ofDeviceIds:)`), so it is decided without what
+            // was put down about them and about nobody else (fix round 1).
+            lostHistory: acknowledgedLostHistory.count(ofPerson: fingerprint))
     }
 
     private func confirmRetire(_ fingerprint: String) {
