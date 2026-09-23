@@ -1075,6 +1075,17 @@ extension DocumentStore {
         let cache = Document.loadRegistryCache
         let state = Document.loadDeviceState
         return await Task.detached(priority: .userInitiated) {
+            // **The ordinary book costs nothing at all.** A project this Mac
+            // has never read another device's stream in can have lost none of
+            // one, so it answers before resolving a table (a folder read and a
+            // signature check per record) or listing a directory. The answer is
+            // the same either way — `lostHistory` over an empty memory with no
+            // truncations is empty — which is what makes the short circuit a
+            // cost decision rather than a second rule.
+            guard !state.truncations(inRoot: projectURL).isEmpty
+                    || !state.foreignStreams(
+                        inRoot: projectURL, writtenBy: nil).isEmpty
+            else { return [] }
             let table = try? TrustResolution.resolveVerified(
                 projectURL: projectURL, identities: identities, cache: cache).table
             return OpLogStore.lostHistory(
