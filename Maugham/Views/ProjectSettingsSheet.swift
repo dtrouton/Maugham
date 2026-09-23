@@ -145,27 +145,7 @@ struct ProjectSettingsSheet: View {
                 coachSection()
                 firstReaderSection()
                 if let peopleAndDevices {
-                    PeopleAndDevicesSection(
-                        model: peopleAndDevices,
-                        admit: {
-                            // The window opens the sheet; a settings sheet is
-                            // not a presenter of another sheet, and only the
-                            // window knows which device is waiting on it now.
-                            MaughamEvent.postAdmissionRequested(
-                                projectURL: store.url, forced: true)
-                            dismiss()
-                        },
-                        forget: forgetDevice,
-                        revoke: confirmRevoke,
-                        retire: confirmRetire,
-                        readmit: askReadmission,
-                        rename: confirmRename,
-                        restore: confirmRestore,
-                        merge: confirmMerge,
-                        changePermit: askPermitChange,
-                        resign: confirmResign,
-                        writeAgain: confirmWriteAgain,
-                        notice: peopleNotice)
+                    peopleSection(peopleAndDevices)
                 }
                 reviewPassesSection()
             }
@@ -511,6 +491,11 @@ struct ProjectSettingsSheet: View {
         let union = store.documentStore?.heldLines() ?? HeldLineUnion()
         let pending = union.counts
         let heldStreams = union.streams
+        // §7.2's questions (fix round 1, I3) — the SAME union the sheet reads,
+        // and this Mac's own memory of the ones already put off, which this
+        // pane lists and the sheet does not.
+        let heldPieceStarts = union.startedAPiece
+        let declinedPieces = store.documentStore?.closedPieceQuestions() ?? []
         // What a narrowing would cost this book: the unsigned rows' subject,
         // and the sheet's first-narrowing sentence. It is the same read the
         // admission sheet makes, through the same store verb, so the two
@@ -565,7 +550,9 @@ struct ProjectSettingsSheet: View {
                     held: pending,
                     heldStreams: heldStreams,
                     unsignedStreams: unsignedStreams,
-                    pieces: pieces)
+                    pieces: pieces,
+                    heldPieceStarts: heldPieceStarts,
+                    declinedPieces: declinedPieces)
             } catch {
                 // A registry this Mac could not read judges nobody, so there is
                 // no chain to be a stranger to and no request to make of the
@@ -578,6 +565,67 @@ struct ProjectSettingsSheet: View {
                     me: mine.author.fingerprint)
             }
         }.value
+    }
+
+    /// People & Devices, extracted from `body` for `ProjectWindow.body`'s
+    /// established reason — the type-check ceiling, which this section reached
+    /// the moment §7.2's two verbs joined its eleven others (fix round 1, I3).
+    private func peopleSection(
+        _ model: PeopleAndDevicesModel
+    ) -> some View {
+        PeopleAndDevicesSection(
+            model: model,
+            admit: {
+                // The window opens the sheet; a settings sheet is not a
+                // presenter of another sheet, and only the window knows which
+                // device is waiting on it now.
+                MaughamEvent.postAdmissionRequested(
+                    projectURL: store.url, forced: true)
+                dismiss()
+            },
+            forget: forgetDevice,
+            revoke: confirmRevoke,
+            retire: confirmRetire,
+            readmit: askReadmission,
+            rename: confirmRename,
+            restore: confirmRestore,
+            merge: confirmMerge,
+            changePermit: askPermitChange,
+            resign: confirmResign,
+            onPieceIsTheirs: answerPieceQuestion,
+            onPieceNotNow: putPieceQuestionOff,
+            writeAgain: confirmWriteAgain,
+            notice: peopleNotice)
+    }
+
+    // MARK: - §7.2's piece questions (fix round 1, I3)
+
+    /// **Yes, that piece is theirs.** The store verb decides everything about
+    /// the permit — what is in force now, whether this Mac may change it,
+    /// every record of theirs, the cut that brings her held lines in — and a
+    /// refusal is reported in the pane's own notice rather than swallowed
+    /// (RULING-7).
+    private func answerPieceQuestion(_ question: LoadQuestions.NewPiece) {
+        peopleNotice = nil
+        guard let documentStore = store.documentStore else { return }
+        Task { @MainActor in
+            do {
+                _ = try await documentStore.pieceIsTheirs(
+                    person: question.person, docId: question.docId)
+            } catch {
+                peopleNotice = AdmissionDecision.refusal(error)
+            }
+            await loadPeopleAndDevices()
+        }
+    }
+
+    /// **Not now**, from the pane. It writes nothing to the book; the row
+    /// stays, saying it was put off.
+    private func putPieceQuestionOff(_ question: LoadQuestions.NewPiece) {
+        peopleNotice = nil
+        store.documentStore?.notNowAboutPiece(
+            person: question.person, docId: question.docId)
+        Task { await loadPeopleAndDevices() }
     }
 
     /// Ask first. The row hands back the fingerprint; the name comes from the

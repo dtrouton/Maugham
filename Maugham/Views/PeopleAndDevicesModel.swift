@@ -62,6 +62,12 @@ struct PeopleAndDevicesModel: Equatable {
     /// started on a Mac, and that Mac decides who is in it. The label is the
     /// starting Mac's own (the person record's `label`); with none known the
     /// sentence still says where to go.
+    /// What a question the writer has already put off says about itself, in
+    /// the one place it is still offered (fix round 1, I3).
+    static let pieceQuestionPutOff =
+        "You put this off. It is still waiting — nothing has been written and "
+        + "nothing has been set aside."
+
     static func revokeNotMine(startedOn label: String?) -> String {
         guard let label else {
             return "Only the Mac this book was started on can remove a device"
@@ -538,6 +544,30 @@ struct PeopleAndDevicesModel: Equatable {
         var id: String { fingerprint }
     }
 
+    /// **A piece somebody started that nobody has claimed** (spec §7.2, P3b
+    /// Task 7 fix round 1, I3).
+    ///
+    /// The question a load puts in a sheet, and the place it waits when the
+    /// writer says *Not now* — which is what the sheet's own copy promises,
+    /// and until this row existed that promise pointed at nothing.
+    ///
+    /// It is the very `LoadQuestions.NewPiece` the sheet draws, carried rather
+    /// than re-derived: a second derivation is how one surface comes to name a
+    /// different count, a different title or a different person than the other
+    /// about one question.
+    ///
+    /// **Questions already DECLINED are listed here too**, and only here: a
+    /// decline silences the sheet for good, so a pane that also hid them would
+    /// leave the writer no way back to a question they meant to answer later.
+    struct PendingPiece: Equatable, Identifiable {
+        let question: LoadQuestions.NewPiece
+        /// Whether the writer has already put this one off. Drawn as a note,
+        /// not as a reason to hide the row.
+        let putOff: Bool
+
+        var id: String { question.id }
+    }
+
     /// A claimant row — a `Named` plus whether this Mac can actually answer it
     /// (whole-branch review, I2).
     ///
@@ -584,6 +614,8 @@ struct PeopleAndDevicesModel: Equatable {
     /// with a different answer (nothing to press).
     let waiting: [WaitingKey]
     let people: [Person]
+    /// §7.2's pending-piece questions, including the ones already put off.
+    let pendingPieces: [PendingPiece]
     /// Streams in this book that answer to no key (#8). Drawn whether or not
     /// the book has been narrowed, with a different sentence for each.
     let unsigned: [UnsignedStream]
@@ -659,13 +691,16 @@ struct PeopleAndDevicesModel: Equatable {
         held: [String: Int] = [:],
         heldStreams: [String: Set<String>] = [:],
         unsignedStreams: [String] = [],
-        pieces: [PermitControl.Piece] = []
+        pieces: [PermitControl.Piece] = [],
+        heldPieceStarts: [String: [String: Int]] = [:],
+        declinedPieces: Set<OpLogDeviceState.DeclinedPiece> = []
     ) -> PeopleAndDevicesModel {
         if let refusal = standing.refusal {
             return PeopleAndDevicesModel(
                 refusal: refusal, standing: standing.sentence, code: standing.code,
                 startedOnThisMac: standing.isRoot,
-                pending: [], waiting: [], people: [], unsigned: [],
+                pending: [], waiting: [], people: [], pendingPieces: [],
+                unsigned: [],
                 alreadyNarrowed: false,
                 merged: [], claimants: [], absent: [],
                 unverifiable: [])
@@ -739,6 +774,24 @@ struct PeopleAndDevicesModel: Equatable {
         let people: [Person] = memberRecords.map { record in
             person(record, in: registry, myRoot: table.myRoot,
                    restoredAt: restoredAt, me: me, pieces: pieces)
+        }
+
+        // **§7.2's pending-piece questions** (fix round 1, I3) — the very
+        // values the sheet draws, from the one model, so the pane cannot name
+        // a different count or a different piece than the dialog did. The
+        // DECLINED ones are here and nowhere else: a decline silences the
+        // sheet for good, and a pane that also hid them would leave the writer
+        // with no way back to a question they meant to answer later.
+        var pieceTitleById: [String: String] = [:]
+        for piece in pieces { pieceTitleById[piece.id] = piece.title }
+        let asked = LoadQuestions.newPieces(
+            held: HeldLineUnion(counts: held, startedAPiece: heldPieceStarts),
+            registry: registry, titles: pieceTitleById, declined: [], me: me)
+        let pendingPieces: [PendingPiece] = asked.map { question in
+            PendingPiece(
+                question: question,
+                putOff: declinedPieces.contains(
+                    .init(person: question.person, docId: question.docId)))
         }
 
         // **The holders `requests` DECLINED** (P3b Task 4's two never-offered
@@ -843,6 +896,7 @@ struct PeopleAndDevicesModel: Equatable {
             pending: pendingRows,
             waiting: waiting,
             people: people,
+            pendingPieces: pendingPieces,
             unsigned: unsigned,
             alreadyNarrowed: table.hasNarrowingPermits,
             merged: merged,

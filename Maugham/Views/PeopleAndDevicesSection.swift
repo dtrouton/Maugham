@@ -67,6 +67,13 @@ struct PeopleAndDevicesSection: View {
     /// Write a person's record again from this book's history (spec §3.2's
     /// crash window). The whole row, for the sentence naming both.
     var resign: (PeopleAndDevicesModel.Person) -> Void = { _ in }
+    /// **Yes, that piece is theirs** (spec §7.2, fix round 1's I3). The whole
+    /// question, because the act needs the person AND the piece and either
+    /// alone is half of one.
+    var onPieceIsTheirs: (LoadQuestions.NewPiece) -> Void = { _ in }
+    /// **Not now**, from the pane. It writes nothing to the book — the same
+    /// device-local memory the sheet's own *Not now* writes.
+    var onPieceNotNow: (LoadQuestions.NewPiece) -> Void = { _ in }
     /// Write this Mac's own registry record again, over one that will not
     /// verify and that this device holds no earlier bytes for (audit F4).
     var writeAgain: (PeopleAndDevicesModel.Unverifiable) -> Void = { _ in }
@@ -107,6 +114,15 @@ struct PeopleAndDevicesSection: View {
                 }
                 ForEach(model.people) { person in
                     personRow(person)
+                }
+                // **§7.2: pieces somebody started that nobody has claimed**
+                // (fix round 1, I3). This is where the sheet's *Not now* says
+                // the question waits, so it has to be here — and the ones
+                // already put off are listed with the rest, because a decline
+                // that hid the question here would leave the writer no way
+                // back to it.
+                ForEach(model.pendingPieces) { piece in
+                    pendingPieceRow(piece)
                 }
                 // **Streams nothing signs** (#8, spec §7.2). Below the people,
                 // because each is a fact about files rather than about anybody
@@ -195,6 +211,43 @@ struct PeopleAndDevicesSection: View {
             Text(key.sentence)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// One §7.2 question: whose a piece is, with the same two answers the
+    /// sheet offers and no third (fix round 1, I3).
+    ///
+    /// It draws `LoadQuestions.NewPiece` and derives nothing — the question,
+    /// what each answer costs, and the count are all the model's, so this row
+    /// and the dialog cannot say different things about one piece.
+    private func pendingPieceRow(
+        _ piece: PeopleAndDevicesModel.PendingPiece
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(piece.question.question)
+                .accessibilityIdentifier("pending-piece-question")
+            Text(piece.question.consequence)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if piece.putOff {
+                Text(PeopleAndDevicesModel.pieceQuestionPutOff)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            HStack(spacing: 8) {
+                Button(piece.question.theirsTitle) {
+                    onPieceIsTheirs(piece.question)
+                }
+                .accessibilityIdentifier("pending-piece-theirs")
+                Button(piece.question.notNowTitle) {
+                    onPieceNotNow(piece.question)
+                }
+                .accessibilityIdentifier("pending-piece-not-now")
+                .disabled(piece.putOff)
+            }
+            .controlSize(.small)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

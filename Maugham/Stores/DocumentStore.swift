@@ -1160,10 +1160,53 @@ public final class DocumentStore {
         let waiting = Set((document.provenance?.pendingStrangersByDevice ?? [:])
             .filter { $0.value > 0 }.keys)
         let newcomers = waiting.subtracting(announcedPendingDevices)
-        guard !newcomers.isEmpty else { return }
+        // **And §4.5's question, which this path was silent about** (P3b Task 7
+        // fix round 1, C2). The sheet had no trigger that fired in the piece
+        // case at all: the narrowing above is to STRANGERS, and a person who
+        // may write some of this book is not one. So the question was only
+        // ever reachable at a project open, which is to say it was never shown
+        // to anybody mid-session.
+        //
+        // **Off the load's own stamp, so this path reads no folder**
+        // (tripwire 3's shape, and the review's Important 3 that narrowed this
+        // function). `Document.startedAPiece` is decided by the walk that just
+        // ran; whether there is anything to ASK about — is this Mac the root
+        // that could answer it, has the writer already closed it — stays the
+        // receiving window's question, where the verified read already lives.
+        //
+        // **Its own memory, never `announcedPendingDevices`.** That set is
+        // keyed by FINGERPRINT and is never emptied, so folding a piece
+        // question into it would silence the admission question about the same
+        // device for the life of the store — and one writer opening a second
+        // chapter is a second question, which a fingerprint cannot tell from
+        // the first.
+        let started = Set(
+            document.startedAPiece.map { pieceQuestionKey($0, document.docId) })
+        let closed = Set(closedPieceQuestions().map {
+            pieceQuestionKey($0.person, $0.docId)
+        })
+        let unasked = started.subtracting(announcedPieceQuestions).subtracting(closed)
+        guard !newcomers.isEmpty || !unasked.isEmpty else { return }
         announcedPendingDevices.formUnion(newcomers)
+        announcedPieceQuestions.formUnion(unasked)
         MaughamEvent.postAdmissionRequested(projectURL: projectURL)
     }
+
+    /// The (holder, piece) pair a piece question is asked once per.
+    ///
+    /// A person is a device fingerprint and carries no slash, so the first
+    /// separator splits them — `OpLogDeviceState`'s own key shape, kept the
+    /// same so the two memories are read the same way.
+    private nonisolated func pieceQuestionKey(
+        _ person: String, _ docId: String
+    ) -> String { "\(person)/\(docId)" }
+
+    /// Piece questions this store has already asked the window about.
+    ///
+    /// Separate from `announcedPendingDevices` for the reason stated above: one
+    /// is about a DEVICE and the other about a device and a PIECE, and folding
+    /// them would make the first silence the second.
+    private var announcedPieceQuestions: Set<String> = []
 
     public func unregister(path: String) {
         openDocuments.removeValue(forKey: path)
