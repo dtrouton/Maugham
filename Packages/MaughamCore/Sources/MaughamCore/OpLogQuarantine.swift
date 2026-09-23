@@ -745,6 +745,67 @@ public enum OpLogQuarantine {
             .map(Data.init))
     }
 
+    /// **A revocation's sentence is the one the writer's LAST choice made
+    /// true** (P2 carry C16).
+    ///
+    /// Set-aside archives are content-addressed, so revoking the same device a
+    /// second time — harshly, this time — files no new record: those bytes are
+    /// already on file. The sidecar's frozen `reason` then goes on saying
+    /// *written after this device's access was withdrawn* about a paragraph the
+    /// writer has since set aside along with everything else that device wrote,
+    /// which is the one screen in the app that exists to tell them the truth
+    /// about their book telling them something that has stopped being true.
+    ///
+    /// **Only the revocation pair is re-derived, and only between its own two
+    /// spellings.** A record filed for a broken chain is not re-read as a
+    /// revocation because somebody has since been revoked: the cause is a fact
+    /// about what the walk met, and this has no business revising it. Both
+    /// sentences are `JSONLAppendStore.quarantineReason`'s own, asked of it
+    /// rather than spelled again, so there is still exactly one place that says
+    /// what a set-aside line is called (ADR 0032 §6).
+    ///
+    /// `nowKeepsNothing` nil — the bytes name nobody this register knows — is
+    /// the frozen reason, unchanged.
+    public nonisolated static func reason(
+        _ frozen: String, nowKeepsNothing: Bool?
+    ) -> String {
+        guard let nowKeepsNothing else { return frozen }
+        let harsh = JSONLAppendStore<Op>.quarantineReason(
+            .afterRevocation(person: "", keptNothing: true))
+        let gentle = JSONLAppendStore<Op>.quarantineReason(
+            .afterRevocation(person: "", keptNothing: false))
+        guard frozen == harsh || frozen == gentle else { return frozen }
+        return nowKeepsNothing ? harsh : gentle
+    }
+
+    /// **The `device` strings a record's archive carries** — who this book
+    /// would be re-deriving a sentence about (C16), and who a recovered capture
+    /// is attributed to.
+    ///
+    /// Seals are skipped for `recoverableWords`' reason; a line that is not an
+    /// op contributes nothing. Every op counts, not only the ones holding
+    /// words: a record of dispositions alone still shows a sentence, and that
+    /// sentence is about the same person.
+    public nonisolated static func writers(
+        ofRecord record: QuarantineRecord, in projectURL: URL
+    ) -> Set<String> {
+        guard record.kind == .lines else { return [] }
+        let url = quarantinedFileURL(for: record, in: projectURL)
+        guard let bytes = try? Data(contentsOf: url) else { return [] }  // adr-0018-ok: a set-aside `.lines` archive — forensics, never manuscript truth
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
+        var writers: Set<String> = []
+        for slice in bytes.split(separator: 0x0A, omittingEmptySubsequences: true) {
+            let line = Data(slice)
+            guard !OpLogChain.isSealLine(line),
+                  PermitPartition.writtenOp(line) != nil,
+                  let op = try? decoder.decode(Op.self, from: line)
+            else { continue }
+            writers.insert(op.device)
+        }
+        return writers
+    }
+
     /// The identity a line's own stream gives it.
     ///
     /// `op_id` is read through `RevocationSplit.opId(ofLine:)` rather than

@@ -7997,9 +7997,14 @@ final class TripwireGrepTests: XCTestCase {
     /// `Permit.swift` asks it rather than restating the list (a second copy
     /// would drift, and the drift would wave a manuscript-moving kind through
     /// on the reviewer row); `ProcessSignals.swift` finds the writer's frontier
-    /// by it; `DeltaBuilder.swift` builds a run's delta by it.
+    /// by it; `DeltaBuilder.swift` builds a run's delta by it;
+    /// `OpLogQuarantine.swift` decides by it which SET-ASIDE lines took words
+    /// out of the draft, and so which of them spec §7.4's Send to Inbox can
+    /// hand back (P3b Task 8) — a second list there would refuse a writer
+    /// their own paragraph, or offer to re-file a disposition as prose.
     static let manuscriptClassifierCallers: Set<String> = [
         "Deriver.swift", "Permit.swift", "ProcessSignals.swift", "DeltaBuilder.swift",
+        "OpLogQuarantine.swift",
     ]
 
     /// **Which ops become words is asked, never restated** — and the list of

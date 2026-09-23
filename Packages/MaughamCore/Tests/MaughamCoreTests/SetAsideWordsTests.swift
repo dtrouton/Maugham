@@ -134,6 +134,70 @@ final class SetAsideWordsTests: XCTestCase {
         XCTAssertTrue(OpLogQuarantine.recoverableWords(ofRecord: record, in: tmp).isEmpty)
     }
 
+    // MARK: - Who wrote the lines in a record
+
+    func test_aRecordNamesEveryDeviceItsLinesCarry() throws {
+        let record = try XCTUnwrap(OpLogQuarantine.setAsideLines(
+            [opLine(kind: "typing_burst", device: "author-abcdef0123456789",
+                    changes: [("p1ab", "Hers.")]),
+             opLine(kind: "annotation_triage", device: "assistant-abcdef0123456789",
+                    changes: [("p2cd", "not words, but still a writer")]),
+             seal()],
+            from: tmp.appendingPathComponent(".maugham/ops/doc-1.macb.jsonl"),
+            docId: "doc-1", reason: "written after this device was retired",
+            in: tmp))
+
+        XCTAssertEqual(
+            OpLogQuarantine.writers(ofRecord: record, in: tmp),
+            ["author-abcdef0123456789", "assistant-abcdef0123456789"],
+            "every op counts, not only the ones holding words — a record of "
+            + "dispositions alone still shows a sentence about somebody")
+    }
+
+    // MARK: - C16: the reason a record is shown under
+
+    /// A second, harsher revocation of the same bytes files no new record
+    /// (content-addressed), so the frozen sentence goes on describing a choice
+    /// the writer has replaced.
+    func test_aRevocationsSentenceFollowsTheWritersLatestChoice() {
+        let gentle = "written after this device's access was withdrawn"
+        let harsh = "set aside with everything this device wrote"
+
+        XCTAssertEqual(OpLogQuarantine.reason(gentle, nowKeepsNothing: true), harsh)
+        XCTAssertEqual(OpLogQuarantine.reason(harsh, nowKeepsNothing: false), gentle)
+        XCTAssertEqual(OpLogQuarantine.reason(gentle, nowKeepsNothing: nil), gentle,
+                       "nobody this register knows wrote it")
+    }
+
+    /// **The other direction.** A cause is a fact about what the walk met, and
+    /// a revocation since is no reason to revise it.
+    func test_noOtherCauseIsEverReDerived() {
+        for frozen in [
+            "written by something that is not Maugham",
+            "the history's chain is broken",
+            "written after this device was retired",
+            "written under another claimant's copy of this book",
+            "written into the manuscript by a device that may not write it here",
+        ] {
+            XCTAssertEqual(
+                OpLogQuarantine.reason(frozen, nowKeepsNothing: true), frozen)
+            XCTAssertEqual(
+                OpLogQuarantine.reason(frozen, nowKeepsNothing: false), frozen)
+        }
+    }
+
+    /// The two sentences are the op log's own, asked of `quarantineReason`
+    /// rather than spelled here — so a change to either moves both together.
+    func test_theTwoSentencesAreTheOpLogsOwn() {
+        XCTAssertEqual(
+            OpLogQuarantine.reason(
+                JSONLAppendStore<Op>.quarantineReason(
+                    .afterRevocation(person: "p", keptNothing: false)),
+                nowKeepsNothing: true),
+            JSONLAppendStore<Op>.quarantineReason(
+                .afterRevocation(person: "p", keptNothing: true)))
+    }
+
     // MARK: - Fixtures
 
     private func opLine(
