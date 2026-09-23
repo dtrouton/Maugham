@@ -391,7 +391,24 @@ final class InboxStore {
         // nothing at all. Classified once, with the registry in hand, by the
         // one classifier; the pane draws the sentences and offers no control,
         // because there is nothing to press.
-        heldNotices = held.keys.sorted().compactMap { holder in
+        heldNotices = Self.heldNotices(from: held, registry: registry)
+    }
+
+    /// **What is held here that no admission would release**, as sentences
+    /// (P3b Task 7; extracted in fix round 1's I5 so the copy pins with no
+    /// folder and no window).
+    ///
+    /// `HeldLines` decides both who each holder is and what to say about them,
+    /// so the Inbox and History cannot word one fact differently. A STRANGER
+    /// is left out: their captures have the banner above, with its own control,
+    /// and saying it twice would put two counts about one device on one screen.
+    ///
+    /// Sorted by holder, so two refreshes over one folder say the same things
+    /// in the same order.
+    nonisolated static func heldNotices(
+        from held: [String: Int], registry: Registry
+    ) -> [String] {
+        held.keys.sorted().compactMap { holder in
             let who = HeldLines.holder(of: holder, registry: registry)
             guard case .stranger = who else {
                 return HeldLines.sentence(

@@ -136,9 +136,22 @@ public enum MCPToolsCallHandler {
                 error: "waiting_for_piece",
                 message: waiting.errorDescription
                     ?? "Waiting for this piece to arrive.",
-                hint: "This piece has not arrived on this device yet. Open the "
-                    + "project on the device it was written on, or wait for "
-                    + "sync to bring its history across, and try again.")
+                // **Two moves, and neither is a guess** (P3b Task 7 fix round
+                // 1, M1). The refusal has exactly two causes and this handler
+                // holds no project to tell them apart: either the piece's ops
+                // have not synced, or this device may write only SOME of the
+                // book and this piece is not one of its pieces. The first is
+                // fixed by waiting and the second never is — it is fixed by the
+                // person who started the book. Naming only the first sent a
+                // reviewer's or a scoped author's Claude to wait for a file
+                // that was never coming. `historyUnreadable`'s own shape: say
+                // both, guess neither.
+                hint: "Either this piece's history has not synced to this "
+                    + "device yet — wait for sync, or open the project on the "
+                    + "device it was written on — or this device may write only "
+                    + "some of this book and this piece is not one of them, in "
+                    + "which case the Mac the book was started on has to add it "
+                    + "(People & Devices).")
         default:
             return .init(
                 error: "internal_error",

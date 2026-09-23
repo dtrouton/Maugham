@@ -692,13 +692,24 @@ struct HistoryPane: View {
     }
 
     /// Events → rows. Pure, so the whole section is pinnable with no window.
+    ///
+    /// **A row about somebody this book has no record for says why it names
+    /// four characters** (P3b Task 7 fix round 1, I2). The clause is
+    /// `TrustEventSentence.unknownSubject`'s — beside the sentence rather than
+    /// inside it, because the sentence is shared with the phone and pinned to
+    /// the byte on both sides — and this is the one place the two are joined.
+    /// The commonest case is not a mystery machine but an ordinary lag: the
+    /// event synced and the person record has not.
     nonisolated static func trustEventLines(
         _ events: [TrustEvent], labels: [String: String]
     ) -> [TrustEventLine] {
         events.map { event in
-            TrustEventLine(
+            let sentence = TrustEventSentence.sentence(for: event, labels: labels)
+            let clause = TrustEventSentence.unknownSubject(
+                for: event, labels: labels)
+            return TrustEventLine(
                 id: event.id,
-                sentence: TrustEventSentence.sentence(for: event, labels: labels),
+                sentence: clause.map { "\(sentence) \($0)" } ?? sentence,
                 date: event.date,
                 symbol: symbol(for: event.kind))
         }

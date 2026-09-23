@@ -68,12 +68,6 @@ extension Document {
         OpLogStore.documentClass(forDocId: docId, in: projectURL)
     }
 
-    /// The label of the root this device is on, for the waiting sentence — or
-    /// nil, which is the sentence without its last clause.
-    ///
-    /// **Only ever called on the refusing path**, which is why it is allowed to
-    /// read the registry a second time: the ordinary load has already gone past
-    /// this point and paid nothing.
     /// **The sentence the PANE shows, which knows one thing the error does
     /// not** (P3b Task 7, spec §4.5's other half).
     ///
@@ -121,6 +115,12 @@ extension Document {
         return "Waiting for \(root) to add this piece to yours."
     }
 
+    /// The label of the root this device is on, for the waiting sentence — or
+    /// nil, which is the sentence without its last clause.
+    ///
+    /// **Only ever called on the refusing path**, which is why it is allowed to
+    /// read the registry a second time: the ordinary load has already gone past
+    /// this point and paid nothing.
     internal static func rootLabelForWaiting(in projectURL: URL) -> String? {
         guard let registry = try? TrustResolution.verifiedRegistry(
             projectURL: projectURL, cache: loadRegistryCache) else { return nil }
