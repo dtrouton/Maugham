@@ -478,6 +478,15 @@ public final class DocumentStore {
         updateUIState { $0.sentSetAsideRecords.formUnion(names) }
     }
 
+    /// The same memory for the HELD door (P3b Task 8 fix round 1) — keyed
+    /// `<docId>|<holder>` (`SetAsideDoor.heldKey`) rather than by an archive
+    /// name, because a held span has no archive: no record is written for one,
+    /// which is the whole reason it needs a door of its own.
+    public func recordHeldWordsSentToInbox(_ keys: Set<String>) {
+        guard !keys.isEmpty else { return }
+        updateUIState { $0.sentHeldSpans.formUnion(keys) }
+    }
+
     // MARK: - Non-Document file save path (research notes, partial-restore)
 
     /// Schedule a coordinated write of `text` to `path` on a 750ms debounce.

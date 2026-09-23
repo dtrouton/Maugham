@@ -179,6 +179,147 @@ final class SetAsideDoorTests: XCTestCase {
                           "four writers, four sentences")
     }
 
+    // MARK: - The other door: a held span nothing signs (fix round 1)
+
+    private func heldProvenance(
+        _ counts: [String: Int], strangers: Set<String> = []
+    ) -> OpLogProvenance {
+        OpLogProvenance(files: [FileProvenance(
+            name: "doc.author-a.jsonl",
+            pending: counts.values.reduce(0, +),
+            pendingByDevice: counts,
+            pendingStrangerDevices: strangers)])
+    }
+
+    private var unsignedHolder: String {
+        HeldLines.unsignedHolder(forStreamKey: "doc-1.ghost", deviceSlug: "ghost")
+    }
+
+    private var personHolder: String { String(repeating: "a2", count: 32) }
+
+    func test_anUnsignedHolderWithWaitingWordsOffersTheDoor() throws {
+        let rows = HistoryPane.heldLineRows(
+            provenance: heldProvenance([unsignedHolder: 2]),
+            startedAPiece: [], names: [:],
+            words: [unsignedHolder: 3], sent: [], docId: "doc-1")
+
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertTrue(rows[0].offersTheDoor)
+        XCTAssertEqual(rows[0].words, 3)
+        XCTAssertTrue(rows[0].doorHelp.contains("3 waiting paragraphs"))
+        XCTAssertTrue(rows[0].doorHelp.contains("Nothing is applied"))
+        XCTAssertTrue(rows[0].sentence.contains("Inbox"),
+                      "premise: the sentence already names the way in")
+    }
+
+    /// **The door is the unsigned arm's alone.** An admitted person's held line
+    /// is let in by a later build or by the writer's own answer about a piece,
+    /// and both of those APPLY it — copying it out as a capture beside them
+    /// would be a second, worse way in for words that have a real one.
+    func test_aPermitPendingHolderIsOfferedNoDoorEvenWithWordsInHand() throws {
+        let rows = HistoryPane.heldLineRows(
+            provenance: heldProvenance([personHolder: 2]),
+            startedAPiece: [], names: [personHolder: "Sam"],
+            words: [personHolder: 4], sent: [], docId: "doc-1")
+
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].words, 0)
+        XCTAssertFalse(rows[0].offersTheDoor)
+    }
+
+    /// A re-read that found no prose — or that would not read at all — leaves
+    /// the holder out of the map, and no door is offered rather than one that
+    /// promises a capture nobody can make.
+    func test_aReReadThatFoundNothingOffersNoDoor() throws {
+        let rows = HistoryPane.heldLineRows(
+            provenance: heldProvenance([unsignedHolder: 2]),
+            startedAPiece: [], names: [:], words: [:], sent: [], docId: "doc-1")
+
+        XCTAssertEqual(rows.count, 1, "the sentence is still said")
+        XCTAssertEqual(rows[0].words, 0)
+        XCTAssertFalse(rows[0].offersTheDoor)
+        XCTAssertNil(rows[0].sentNote)
+    }
+
+    /// Offered once, and the memory is per DOCUMENT as well as per holder — a
+    /// holder is a whole stream, and a stream runs through every chapter it
+    /// wrote in.
+    func test_aSpanThisMacHasSentOffersNoSecondDoorAndOnlyForThatDocument() throws {
+        let sent: Set<String> = [
+            SetAsideDoor.heldKey(docId: "doc-1", holder: unsignedHolder)
+        ]
+        func rows(_ docId: String) -> [SetAsideDoor.HeldRow] {
+            HistoryPane.heldLineRows(
+                provenance: heldProvenance([unsignedHolder: 2]),
+                startedAPiece: [], names: [:],
+                words: [unsignedHolder: 3], sent: sent, docId: docId)
+        }
+
+        XCTAssertFalse(rows("doc-1")[0].offersTheDoor)
+        XCTAssertEqual(rows("doc-1")[0].sentNote, "3 paragraphs sent to the Inbox")
+        XCTAssertTrue(rows("doc-2")[0].offersTheDoor,
+                      "another chapter's waiting words are another door")
+    }
+
+    /// A stranger is left to the admission sentence, which has a control of its
+    /// own — saying it twice would put two counts about one device on one
+    /// screen.
+    func test_aStrangerIsStillNoRowAtAll() throws {
+        let stranger = String(repeating: "f1", count: 32)
+        XCTAssertTrue(HistoryPane.heldLineRows(
+            provenance: heldProvenance([stranger: 3], strangers: [stranger]),
+            startedAPiece: [], names: [:], words: [stranger: 9],
+            sent: [], docId: "doc-1").isEmpty)
+    }
+
+    /// The sentences are unchanged: `heldLineNotices` is these rows' own.
+    func test_theNoticesAreTheRowsSentences() throws {
+        let provenance = heldProvenance([unsignedHolder: 2, personHolder: 1])
+        XCTAssertEqual(
+            HistoryPane.heldLineNotices(
+                provenance: provenance, startedAPiece: [],
+                names: [personHolder: "Sam"]),
+            HistoryPane.heldLineRows(
+                provenance: provenance, startedAPiece: [],
+                names: [personHolder: "Sam"]).map(\.sentence))
+    }
+
+    /// **`HeldLines`' own words, and never a missing part.** Telling a writer
+    /// their other machine has *no key* describes what it lacks; what is true
+    /// of it is that nothing it writes is signed.
+    func test_aRecoveredHeldParagraphIsAttributedInHeldLinesOwnWords() {
+        let line = SetAsideDoor.unsignedAttribution
+
+        XCTAssertTrue(line.contains(HeldLines.unsignedWriter),
+                      "one phrase, shared — got \(line)")
+        for banned in ["enclave", "no key", "unsigned:", "claude"] {
+            XCTAssertFalse(line.localizedCaseInsensitiveContains(banned),
+                           "\(banned) in \(line)")
+        }
+        XCTAssertTrue(
+            HeldLines.sentence(.unsigned(stream: "ghost"), notes: 1)?
+                .contains(HeldLines.unsignedWriter) ?? false,
+            "…and the sentence the row draws uses the same phrase")
+    }
+
+    /// The press over a book holding nothing sends nothing, writes no memory,
+    /// and raises nothing.
+    func test_aPressWithNothingWaitingSendsNothingAndRemembersNothing() async throws {
+        let temp = try TempDirectory()
+        let url = try await ProjectFactory.createNovelProject(
+            named: "HeldDoor", in: temp.url)
+        let store = try await DocumentStore.open(url: url)
+
+        let landed = try await store.sendHeldWordsToInbox(
+            forDocId: "doc-nothing", heldBy: unsignedHolder)
+
+        XCTAssertEqual(landed, 0)
+        XCTAssertTrue(store.uiState.sentHeldSpans.isEmpty,
+                      "nothing was sent, so the door stays open for the span "
+                      + "that may yet arrive")
+        XCTAssertTrue(store.inboxStore.entries.isEmpty)
+    }
+
     // MARK: - Where the memory lives
 
     /// Per device, additive, and no key at all where the door has never been
@@ -186,21 +327,26 @@ final class SetAsideDoorTests: XCTestCase {
     /// always was.
     func test_theSentMemoryIsAdditiveAndWritesNoKeyWhenEmpty() throws {
         let encoded = try JSONEncoder().encode(UIState.empty)
-        XCTAssertFalse(
-            String(decoding: encoded, as: UTF8.self)
-                .contains("sentSetAsideRecords"))
+        for key in ["sentSetAsideRecords", "sentHeldSpans"] {
+            XCTAssertFalse(
+                String(decoding: encoded, as: UTF8.self).contains(key), key)
+        }
 
         let older = try JSONDecoder().decode(
             UIState.self, from: Data("{\"schemaVersion\":1}".utf8))
+        XCTAssertTrue(older.sentHeldSpans.isEmpty)
         XCTAssertTrue(older.sentSetAsideRecords.isEmpty,
                       "absent means the door has not been used, and it is "
                       + "offered once")
 
         var state = UIState.empty
         state.sentSetAsideRecords = ["a.lines", "b.lines"]
+        state.sentHeldSpans = ["doc-1|unsigned:ghost"]
         let back = try JSONDecoder().decode(
             UIState.self, from: try JSONEncoder().encode(state))
         XCTAssertEqual(back.sentSetAsideRecords, ["a.lines", "b.lines"])
+        XCTAssertEqual(back.sentHeldSpans, ["doc-1|unsigned:ghost"],
+                       "the held door's memory round-trips beside it")
         XCTAssertTrue(back.acknowledgedSetAsideRecords.isEmpty,
                       "the two memories are two facts: sending is not "
                       + "acknowledging")
@@ -222,6 +368,13 @@ final class SetAsideDoorTests: XCTestCase {
         store.recordSetAsideSentToInbox([])
         XCTAssertEqual(store.uiState.sentSetAsideRecords, ["a.lines", "b.lines"],
                        "an empty press is a no-op, not a clear")
+
+        store.recordHeldWordsSentToInbox(["doc-1|unsigned:ghost"])
+        store.recordHeldWordsSentToInbox([])
+        XCTAssertEqual(store.uiState.sentHeldSpans, ["doc-1|unsigned:ghost"],
+                       "the held door's memory unions and never forgets either")
+        XCTAssertEqual(store.uiState.sentSetAsideRecords, ["a.lines", "b.lines"],
+                       "…and the two memories are two facts")
         XCTAssertTrue(store.uiState.acknowledgedSetAsideRecords.isEmpty,
                       "and sending has not quietly acknowledged anything")
     }

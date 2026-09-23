@@ -148,6 +148,21 @@ public struct UIState: Codable, Equatable, Sendable {
     /// words the writer already has.
     public var sentSetAsideRecords: Set<String>
 
+    /// **Which HELD spans this device has already sent to the Inbox** (P3b
+    /// Task 8 fix round 1, spec §7.4) — `SetAsideDoor.heldKey`'s
+    /// `<docId>|<holder>`, beside `sentSetAsideRecords` and under the same
+    /// rules.
+    ///
+    /// A separate set because the two doors have separate subjects and separate
+    /// keys: a set-aside record is an archive with a filename, and a held span
+    /// is a stream's waiting lines in one document, which no archive names
+    /// because none was ever written for it.
+    ///
+    /// Per DOCUMENT as well as per holder: a holder is a whole stream, and a
+    /// stream runs through every chapter it wrote in. Additive, no schema bump,
+    /// and no key at all when empty.
+    public var sentHeldSpans: Set<String>
+
     /// Which review pass each piece was last looked at through
     /// (`ActivePassMemory`, M3-P1 Task 5).
     ///
@@ -229,7 +244,8 @@ public struct UIState: Codable, Equatable, Sendable {
         publishImprint: String? = nil,
         authorReaderChoice: AuthorReaderChoice? = nil,
         acknowledgedSetAsideRecords: Set<String> = [],
-        sentSetAsideRecords: Set<String> = []
+        sentSetAsideRecords: Set<String> = [],
+        sentHeldSpans: Set<String> = []
     ) {
         self.schemaVersion = schemaVersion
         self.selectedSubject = selectedSubject
@@ -248,6 +264,7 @@ public struct UIState: Codable, Equatable, Sendable {
         self.authorReaderChoice = authorReaderChoice
         self.acknowledgedSetAsideRecords = acknowledgedSetAsideRecords
         self.sentSetAsideRecords = sentSetAsideRecords
+        self.sentHeldSpans = sentHeldSpans
     }
 
     public static let empty = UIState()
@@ -259,7 +276,7 @@ public struct UIState: Codable, Equatable, Sendable {
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
              persona, personaMemory, compilerModel, activePassMemory,
              detailColumnWidth, publishImprint, authorReaderChoice,
-             acknowledgedSetAsideRecords, sentSetAsideRecords
+             acknowledgedSetAsideRecords, sentSetAsideRecords, sentHeldSpans
     }
 
     /// Hand-written because `selectedSubject` is not stored the way it is
@@ -300,6 +317,9 @@ public struct UIState: Codable, Equatable, Sendable {
         // set-aside words were ever sent to the Inbox carries no key at all.
         if !sentSetAsideRecords.isEmpty {
             try c.encode(sentSetAsideRecords, forKey: .sentSetAsideRecords)
+        }
+        if !sentHeldSpans.isEmpty {
+            try c.encode(sentHeldSpans, forKey: .sentHeldSpans)
         }
     }
 
@@ -357,6 +377,8 @@ public struct UIState: Codable, Equatable, Sendable {
         self.sentSetAsideRecords =
             (try? c.decode(Set<String>.self,
                            forKey: .sentSetAsideRecords)) ?? []
+        self.sentHeldSpans =
+            (try? c.decode(Set<String>.self, forKey: .sentHeldSpans)) ?? []
         // `scrollLine` and `hasShownOpLogBootstrapNotice` were removed in
         // v0.3.1 (dead-code sweep), and `binderSegment` in shell-finish stage
         // 2b Task 7, when the binder strip died with `BinderSegment`, and

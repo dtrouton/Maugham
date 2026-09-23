@@ -76,11 +76,38 @@ final class SetAsideWordsTests: XCTestCase {
 
     /// A line that does not parse, or carries no `kind`, is nobody's to
     /// recover — the same answer `PermitPartition.writtenOp` gives about it.
+    /// A translation record is the production case: `TranslationRecord` has no
+    /// `kind` at all.
     func test_aLineThatIsNotAnOpCarriesNoWords() throws {
+        let translation = #"{"op_id":"01","paragraph_id":"p1ab","language":"es","#
+            + #""text":"La mar.","source_hash":"h","verbatim":false,"#
+            + #""at":"2026-09-20T10:00:00.000Z"}"#
+
         XCTAssertTrue(OpLogQuarantine.recoverableWords(inLines: [
             Data("not json at all".utf8),
-            Data(#"{"id":"row-1","inline_text":"an inbox row"}"#.utf8),
+            Data(translation.utf8),
         ]).isEmpty)
+    }
+
+    /// **An inbox row carries a `kind` and it is still not words** (P3b Task 8
+    /// fix round 1's census). `InboxEntry.Kind` is `text`/`image`/`audio`, so
+    /// `Op.kind(ofLine:)` answers `.unknown` rather than nil — and `.unknown`
+    /// is inert through `Deriver.appliesToManuscript` (ADR 0015), which is why
+    /// the capture streams offer no door. Stated as a test because the two
+    /// reasons a stream offers nothing — no `kind`, and a `kind` this table
+    /// calls unknown — are different, and only one of them was pinned.
+    func test_anInboxRowsOwnKindIsNotAManuscriptKind() throws {
+        let row = #"{"id":"01M2RMZS8S08J1MKA7CPTFK4MS","created_at":"#
+            + #""2026-09-20T10:00:00.000Z","device_id":"author-abcdef0123456789","#
+            + #""kind":"text","inline_text":"A captured sentence.","#
+            + #""transcription_state":"none","status":"new"}"#
+
+        XCTAssertEqual(
+            PermitPartition.writtenOp(Data(row.utf8)), .op(.unknown),
+            "premise: the row's own kind reads as an unknown op kind")
+        XCTAssertFalse(Deriver.appliesToManuscript(.unknown))
+        XCTAssertTrue(
+            OpLogQuarantine.recoverableWords(inLines: [Data(row.utf8)]).isEmpty)
     }
 
     /// A deletion took no words away — `next` is empty, and a capture holding

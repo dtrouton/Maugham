@@ -1375,6 +1375,84 @@ extension DocumentStore {
         return HeldLineUnion(
             counts: counts, streams: streams, startedAPiece: startedAPiece)
     }
+
+    // MARK: - The words a held line is waiting with (P3b Task 8, spec §7.4)
+
+    /// **How many paragraphs each unsigned holder is waiting with**, for the
+    /// one document the pane is showing.
+    ///
+    /// A held line writes no `.lines` record — nothing is wrong with it — so
+    /// the count cannot be read off the quarantine directory the way the record
+    /// door's is. It is the walk's own answer, re-run over that document's
+    /// files (`OpLogStore.heldLines`), which is why it is resolved on a reload
+    /// and held rather than asked from `body` (tripwire 4).
+    ///
+    /// **Unsigned holders only, and nothing else is asked.** A stranger's held
+    /// lines have an admission, which applies them; a permit-pending line has a
+    /// later build or the writer's own answer about a piece. Only a stream
+    /// nothing signs has no way in but this one, so only it pays for the walk —
+    /// and a book that has narrowed nobody has no unsigned holder at all and
+    /// pays nothing.
+    ///
+    /// A read that throws answers NOTHING for that holder rather than a short
+    /// count: no door is better than a door that promises half a span.
+    func unsignedHeldWordCounts(
+        forDocId docId: String, holders: [String]
+    ) async -> [String: Int] {
+        let unsigned = holders.filter { HeldLines.isUnsignedHolder($0) }
+        guard !unsigned.isEmpty else { return [:] }
+        var counts: [String: Int] = [:]
+        for holder in unsigned {
+            guard let words = try? await unsignedHeldWords(
+                forDocId: docId, heldBy: holder), !words.isEmpty
+            else { continue }
+            counts[holder] = words.count
+        }
+        return counts
+    }
+
+    /// The words themselves — the walk's held lines for this holder, decoded
+    /// by the same `OpLogQuarantine.recoverableWords` the record door uses, so
+    /// the two doors cannot disagree about what counts as the writer's prose.
+    func unsignedHeldWords(
+        forDocId docId: String, heldBy holder: String
+    ) async throws -> [OpLogQuarantine.SetAsideWords] {
+        // `Document.makeLoadOpStore` is the ONE construction on a load path, so
+        // the walk this re-runs is built from the same identities, the same
+        // remembered heads and the same registry memory the load was — a store
+        // put together by hand here would judge the same bytes differently.
+        let store = Document.makeLoadOpStore(
+            projectURL: projectURL, presenter: presenter)
+        let lines = try await store.heldLines(forDocId: docId, heldBy: holder)
+        return OpLogQuarantine.recoverableWords(inLines: lines)
+    }
+
+    /// **Send an unsigned holder's held words to the Inbox** (spec §7.4).
+    ///
+    /// The same act the record door performs, over a different source: nothing
+    /// is applied, nothing on disk moves, the lines stay held exactly as they
+    /// were, and the words arrive as ordinary captures signed by this Mac's own
+    /// author actor. The press is remembered per (holder, document) so the door
+    /// is not offered twice over the same span.
+    ///
+    /// Answers how many captures landed. Zero — a re-read that found nothing —
+    /// writes no memory either, because there is nothing to have sent and the
+    /// door should still be there if the span arrives later.
+    @discardableResult
+    func sendHeldWordsToInbox(
+        forDocId docId: String, heldBy holder: String
+    ) async throws -> Int {
+        let words = try await unsignedHeldWords(forDocId: docId, heldBy: holder)
+        guard !words.isEmpty else { return 0 }
+        let attribution = SetAsideDoor.unsignedAttribution
+        let captures = words.map {
+            SetAsideDoor.Capture(text: $0.text, attribution: attribution)
+        }
+        let landed = try await inboxStore.captureRecoveredWords(captures)
+        recordHeldWordsSentToInbox(
+            [SetAsideDoor.heldKey(docId: docId, holder: holder)])
+        return landed
+    }
 }
 
 /// **What this window can see being held, and where** (P3b Task 4).

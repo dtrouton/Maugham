@@ -165,6 +165,16 @@ public enum HeldLines {
 
     // MARK: - What to say
 
+    /// **What an unsigned stream IS**, in one phrase, said once.
+    ///
+    /// The sentence below puts it in a count; §7.4's door puts it on the
+    /// capture a held paragraph comes back as. Two spellings would be two
+    /// answers to *whose words are these*, and the wrong one is easy to reach
+    /// for: a Mac with no enclave has no key, but telling a writer their other
+    /// machine *has no key* describes a missing part rather than what is
+    /// actually true of it, which is that nothing it writes is signed.
+    public static let unsignedWriter = "a Mac that signs nothing it writes"
+
     /// **One sentence per holder, and none of them is the others'.**
     ///
     /// `name` is the writer's word for whoever is waiting — the label the root
@@ -207,8 +217,8 @@ public enum HeldLines {
                 + "of Maugham can’t tell what they are allowed to write here; "
                 + "a newer one will."
         case .unsigned:
-            return "\(count) \(noun) \(verb) waiting from a Mac that signs "
-                + "nothing it writes. There is no device to admit — what it "
+            return "\(count) \(noun) \(verb) waiting from \(unsignedWriter). "
+                + "There is no device to admit — what it "
                 + "wrote can be brought back through the Inbox."
         }
     }

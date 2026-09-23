@@ -153,6 +153,11 @@ struct HistoryPane: View {
     /// row until the next reload, because a press that appeared to do nothing
     /// is worse than a refusal (the Retry notice's own rule).
     @State private var sendToInboxError: String?
+    /// The held-line notices as rows that can carry a control (P3b Task 8 fix
+    /// round 1). Resolved on `reload()` — the word counts re-run the walk over
+    /// this document's files, which is disk work and never `body`'s
+    /// (tripwire 4).
+    @State private var heldLineRows: [SetAsideDoor.HeldRow] = []
     /// Device fingerprint → the name that device's registry record gives it,
     /// for the pending sentence (signed op log P2a). Empty when this project
     /// has no registry, and empty when one could not be read: a name is
@@ -554,6 +559,34 @@ struct HistoryPane: View {
         provenance: OpLogProvenance?, startedAPiece: Set<String>,
         names: [String: String]
     ) -> [String] {
+        heldLineRows(
+            provenance: provenance, startedAPiece: startedAPiece, names: names
+        ).map(\.sentence)
+    }
+
+    /// **The same notices, as rows that can carry a control** (P3b Task 8 fix
+    /// round 1, spec §7.4).
+    ///
+    /// One of the three reasons a line is held has no way in but this: a
+    /// stream nothing signs cannot be admitted, because there is no key to
+    /// admit, and no `.lines` record is ever written for it because nothing is
+    /// wrong with its bytes. So the unsigned row offers **Send to Inbox** — the
+    /// same offer the set-aside disclosure makes, over words the book is
+    /// HOLDING rather than words it refused.
+    ///
+    /// `words` is the walk's own count, resolved on a reload by
+    /// `DocumentStore.unsignedHeldWordCounts` — never here, and never from
+    /// `body`: reading it re-runs the walk over that document's files. A holder
+    /// missing from the map offers nothing, which is the right answer for a
+    /// re-read that would not read as well as for one that found no prose.
+    ///
+    /// `heldLineNotices` is this function's sentences, kept under its own name
+    /// because the pane and its suite have always called it that.
+    nonisolated static func heldLineRows(
+        provenance: OpLogProvenance?, startedAPiece: Set<String>,
+        names: [String: String], words: [String: Int] = [:],
+        sent: Set<String> = [], docId: String = ""
+    ) -> [SetAsideDoor.HeldRow] {
         guard let provenance else { return [] }
         let strangers = Set(provenance.pendingStrangersByDevice.keys)
         return provenance.pendingByDevice.keys.sorted().compactMap { holder in
@@ -562,9 +595,23 @@ struct HistoryPane: View {
                 startedAPiece: startedAPiece.contains(holder))
             // A stranger's is the sentence above, with its own control.
             guard case .stranger = who else {
-                return HeldLines.sentence(
+                guard let sentence = HeldLines.sentence(
                     who, notes: provenance.pendingByDevice[holder] ?? 0,
                     named: names[holder])
+                else { return nil }
+                // **The door is the unsigned arm's alone.** An admitted
+                // person's held line is let in by a later build or by the
+                // writer's own answer about a piece, and both of those APPLY
+                // it — offering to copy it out as a capture beside them would
+                // be a second, worse way in for words that have a real one.
+                let unsigned: Bool
+                if case .unsigned = who { unsigned = true } else { unsigned = false }
+                return SetAsideDoor.HeldRow(
+                    holder: holder,
+                    sentence: sentence,
+                    words: unsigned ? (words[holder] ?? 0) : 0,
+                    sent: sent.contains(
+                        SetAsideDoor.heldKey(docId: docId, holder: holder)))
             }
             return nil
         }
@@ -893,18 +940,32 @@ struct HistoryPane: View {
             // Devices, where the sentence sends them; an unsigned stream's
             // words come back through the Inbox, which is Task 8's door and
             // which the sentence already names.
-            ForEach(Self.heldLineNotices(
-                provenance: documentProvenance,
-                startedAPiece: documentStore?
-                    .document(forDocId: activeDocId)?.startedAPiece ?? [],
-                names: chainDeviceNames), id: \.self) { notice in
-                Label(notice, systemImage: "clock.badge.questionmark")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("held-line-notice")
+            ForEach(heldLineRows) { row in
+                HStack(spacing: 8) {
+                    Label(row.sentence, systemImage: "clock.badge.questionmark")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .accessibilityIdentifier("held-line-notice")
+                    Spacer(minLength: 4)
+                    // **The one held line with no other way in** (spec §7.4):
+                    // a stream nothing signs cannot be admitted, so the words
+                    // come back as captures or not at all.
+                    if row.offersTheDoor {
+                        Button("Send to Inbox") { sendHeldWordsToInbox(row) }
+                            .controlSize(.small)
+                            .buttonStyle(.bordered)
+                            .help(row.doorHelp)
+                            .accessibilityIdentifier("held-line-send-to-inbox")
+                    } else if let sent = row.sentNote {
+                        Text(sent)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("held-line-sent-note")
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
             if let notice = retirementLine {
@@ -1208,6 +1269,21 @@ struct HistoryPane: View {
             in: projectURL,
             applied: Set(ops.map(\.opId)),
             nowKeepsNothing: { keepsNothing[SetAsideDoor.identity(of: $0)] ?? nil })
+        // **The held-line rows, and what each one can give back** (P3b Task 8
+        // fix round 1). The counts re-run the walk, so they are resolved once
+        // here and only for the unsigned holders that have no other way in —
+        // a book that has narrowed nobody has none, and pays nothing.
+        let provenanceNow = documentProvenance
+        let started = documentStore?.document(forDocId: activeDocId)?
+            .startedAPiece ?? []
+        let holders = Array(provenanceNow?.pendingByDevice.keys ?? [:].keys)
+        let heldWords = await documentStore?.unsignedHeldWordCounts(
+            forDocId: activeDocId, holders: holders) ?? [:]
+        heldLineRows = Self.heldLineRows(
+            provenance: provenanceNow, startedAPiece: started,
+            names: chainDeviceNames, words: heldWords,
+            sent: documentStore?.uiState.sentHeldSpans ?? [],
+            docId: activeDocId)
         // Read outside `reloadChain`'s registry guard: a book that has never
         // joined a chain can still hold another device's stream, and what this
         // Mac cannot find is true whether or not a register says whose it was.
@@ -1334,6 +1410,30 @@ struct HistoryPane: View {
                 _ = try await documentStore.inboxStore.captureRecoveredWords(captures)
                 documentStore.recordSetAsideSentToInbox([row.name])
                 sendToInboxError = nil
+            } catch {
+                sendToInboxError = error.localizedDescription
+            }
+            await reload()
+        }
+    }
+
+    /// **Send an unsigned holder's WAITING words to the Inbox** (spec §7.4).
+    ///
+    /// The set-aside door's twin over the other refusal: nothing is applied,
+    /// no byte of the stream moves, the lines stay held under the same holder,
+    /// and the words arrive as captures signed by this Mac's own author actor.
+    /// A re-read that will not read, or that finds no prose, says so and sends
+    /// nothing rather than filing a capture it is not sure of.
+    private func sendHeldWordsToInbox(_ row: SetAsideDoor.HeldRow) {
+        guard let documentStore else { return }
+        let docId = activeDocId
+        Task {
+            do {
+                let landed = try await documentStore.sendHeldWordsToInbox(
+                    forDocId: docId, heldBy: row.holder)
+                sendToInboxError = landed > 0
+                    ? nil
+                    : "Nothing is waiting to send any more."
             } catch {
                 sendToInboxError = error.localizedDescription
             }

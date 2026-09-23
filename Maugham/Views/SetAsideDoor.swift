@@ -265,6 +265,65 @@ enum SetAsideDoor {
             + clauses.joined(separator: "; ") + ". \(tail)."
     }
 
+    // MARK: - The other door: a held span nothing signs (spec §7.4)
+
+    /// **A row of History's held-line notices**, with what it can give back.
+    ///
+    /// The held door and the set-aside door are the same offer over two
+    /// different refusals, and the difference is worth stating: a `.lines`
+    /// record is words the book REFUSED and archived, while this is words the
+    /// book is HOLDING in the file it found them in, because a stream nothing
+    /// signs has written after the book's first narrowing. Nothing is wrong
+    /// with them, which is exactly why no record was ever written for them and
+    /// why nothing but the walk can say which they are.
+    struct HeldRow: Identifiable, Equatable {
+        /// The holder string the walk held these lines under.
+        let holder: String
+        /// The sentence `HeldLines` gives this holder — never worded here.
+        let sentence: String
+        /// How many paragraphs **Send to Inbox** would hand back. Zero for
+        /// every holder that is not an unsigned stream, and for one whose
+        /// re-read found nothing or would not read.
+        let words: Int
+        /// Already sent from this Mac, for this document.
+        let sent: Bool
+
+        var id: String { holder }
+
+        var offersTheDoor: Bool { words > 0 && !sent }
+
+        var doorHelp: String {
+            let noun = words == 1 ? "paragraph" : "paragraphs"
+            return "Send \(words) waiting \(noun) to the Inbox as captures. "
+                + "Nothing is applied to the draft and the lines stay where "
+                + "they are."
+        }
+
+        var sentNote: String? {
+            guard sent else { return nil }
+            let noun = words == 1 ? "paragraph" : "paragraphs"
+            return "\(words) \(noun) sent to the Inbox"
+        }
+    }
+
+    /// The key this Mac remembers a held-span send under — per DOCUMENT and per
+    /// holder, because a holder is a whole stream and a stream runs through
+    /// every chapter it wrote in. Sending one chapter's waiting paragraphs must
+    /// not close the door on another's.
+    static func heldKey(docId: String, holder: String) -> String {
+        "\(docId)|\(holder)"
+    }
+
+    /// **Who a recovered held paragraph is from**, in `HeldLines`' own words.
+    ///
+    /// There is no device to name and there never will be: an unsigned Mac
+    /// files no record, so the book has never been told what to call it — which
+    /// is the same reason `HeldLines.sentence` names nobody in its unsigned
+    /// arm. The phrase is that arm's, shared rather than re-worded, and it says
+    /// what is true of the machine rather than what is missing from it.
+    static let unsignedAttribution =
+        "Waiting — \(HeldLines.unsignedWriter)"
+
     // MARK: - Who wrote it
 
     /// **The line a recovered capture carries** — who the paragraph is from.
