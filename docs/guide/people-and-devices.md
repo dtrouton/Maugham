@@ -179,14 +179,19 @@ Two situations look alike and are not.
 can read but not vouch for, and holds it. Your first Mac admits it the ordinary
 way: open the project there, answer the panel, done.
 
-**A book you have but no key in it at all** — restored from a backup, handed to
-you, or your old Mac is gone. Maugham asks a different question, once:
+**A book you have but no key in it at all** — restored from a backup, or your
+old Mac is gone. Maugham never asks about this on its own, because from inside
+the folder your new Mac looks exactly like somebody you invited, and somebody
+you invited must not be asked to take your book over. Instead, open **Project
+Settings → People & Devices** and press **This Book Is Mine…**. It is there only
+on a Mac that is not yet part of the book, and only when that Mac can sign and
+can write the book's folder.
 
-> **Is this book yours?**
-
-Answering **Claim** makes this Mac an owner of the book and takes in everything
-already in it. Answering **Not mine** writes nothing at all, and the book goes
-on reading exactly as it did.
+The confirmation asks *Is this book yours?* and names the machines whose history
+you would be taking in. **Claim** makes this Mac an owner of the book and takes
+in everything already in it. **Cancel** writes nothing at all, and the book goes
+on reading exactly as it did. If somebody invited you, don't claim: ask them to
+let your Mac in.
 
 **Two Macs that both started as owners** — the usual way this happens is
 starting the same book independently on two machines — each hold the other's

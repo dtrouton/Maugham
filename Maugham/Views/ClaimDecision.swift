@@ -2,29 +2,43 @@
 import Foundation
 import MaughamCore
 
-/// **Is this book yours?** (signed op log P2b Task 8, spec §5, parent §4.7.)
+/// **This book is mine** — the claim, as a verb the writer chooses (signed op
+/// log P2b Task 8, spec §5; made explicit by Denver's ruling on P3b smoke find
+/// F3, 2026-09-23).
 ///
-/// One question, asked once, of a Mac that is holding a book it has no key in:
-/// the writer restored a backup, moved to a new machine, or opened a folder
-/// that arrived through a share. Everything the sheet says is decided here and
-/// carried as a value, so *would the writer be asked, and what would they be
-/// asked about* is answerable with no window at all.
+/// The claim is how a Mac holding a book it has no key in — the writer's
+/// restored or new machine, after every device that could have admitted it is
+/// gone — takes that book's history as its own. Until F3 it was a QUESTION put
+/// to every such Mac at open, and an invited collaborator's Mac is exactly such
+/// a Mac: the smoke saw one asked *Is it yours?* about somebody else's book,
+/// where *Claim* would have made it a second root. Nothing in the folder tells
+/// the restored Mac from the collaborator's (a Mac declares its own device
+/// record at open, and a restored Mac holds a NEW key), so no predicate could
+/// ask only the right one. **No Mac is asked unprompted.** The claim is a
+/// control in People & Devices — *This Book Is Mine…* — pressed by the writer
+/// who knows it is theirs, confirmed on `ClaimSheet`, and performed by
+/// `DocumentStore.claim(adopting:)`.
 ///
-/// **Three conditions, each a refusal in its own right.**
+/// Everything the control and its sheet say is decided here and carried as a
+/// value, so *would the verb be offered, and what would it name* is
+/// answerable with no window at all.
+///
+/// **Four conditions, each a refusal in its own right.**
 ///
 /// - This Mac is in **no chain here** (`TrustTable.myRoot == nil`). A Mac
 ///   already on a chain has nothing to claim: it is in this book. The merge
 ///   between two live roots is the same primitive reached from a different
-///   surface — People & Devices' *this is also me* — and never from this sheet.
+///   row — the claimant's *Merge: this is also me* — never this one.
 /// - The book **has a root**. A folder with no people in it is not somebody
 ///   else's book; it is a book with no registry yet, and
-///   `RegistryPresence.ensureRootIfEmpty` roots it at the next open without
-///   asking anybody anything. Asking here would put a dialog in front of the
-///   ordinary first open of an ordinary new project.
+///   `RegistryPresence.ensureRootIfEmpty` roots it at the next open.
 /// - This Mac **can write the folder**. A book on a read-only volume, or a
 ///   share mounted for reading, is one where the only thing Claim could do is
-///   fail after the writer had already answered — which is worse than not
-///   asking, because it teaches them the answer does not matter.
+///   fail after the writer had already decided.
+/// - This Mac **can sign**. A claim is two signed records, and a Mac with no
+///   key (a VM, CI's runner) is refused by `RegistryWriter` before anything is
+///   written — so the control is not offered at all rather than offered and
+///   refused.
 struct ClaimOffer: Identifiable, Equatable {
     /// The roots this claim would adopt — every root in the book, because the
     /// question is about the whole book and answering it by halves is not
@@ -69,32 +83,41 @@ enum ClaimDecision {
         + "devices wrote, so their history is applied and attributed. They keep "
         + "their own keys."
 
-    /// And what *Not mine* does, which is nothing: decision B3, the state the
+    /// And what *Cancel* does, which is nothing: decision B3, the state the
     /// book is already in.
-    static let notMineConsequence =
-        "If it isn’t yours, Maugham goes on reading this history as unsigned and "
-        + "changes nothing."
+    static let cancelConsequence =
+        "Cancel changes nothing: Maugham goes on reading this history as unsigned."
 
     // `title` lived here and was read by nothing: `ClaimSheet` builds its own
     // headline from the project's name (`ClaimSheet.title(projectTitle:)`), so
     // this was a second, quieter answer to what the sheet is called — the shape
     // a reviewer has to prove dead before touching the file. Deleted with C8.
     static let claimTitle = "Claim"
-    static let notMineTitle = "Not mine"
+    static let cancelTitle = "Cancel"
 
-    // MARK: - Whether to ask
+    /// The People & Devices control, and the sentence beside it. The sentence
+    /// is who the control is FOR, because a collaborator reading the pane must
+    /// be able to tell at a glance that it is not for them.
+    static let verbTitle = "This Book Is Mine\u{2026}"
+    static let verbSentence =
+        "If this is your own book and the Mac that started it is gone, claim it "
+        + "here. If somebody invited you, don\u{2019}t — ask them to let this Mac in."
 
-    /// The offer for one project, or nil where any of the three conditions
-    /// fails.
+    // MARK: - Whether the verb is offered
+
+    /// The claim People & Devices offers for one project, or nil where any of
+    /// the four conditions fails.
     ///
     /// Pure: the registry a reader already verified, the table resolved from
-    /// exactly that registry, and the answer to *can this Mac write the
-    /// folder* — which is I/O and is therefore the caller's to ask
-    /// (`canWriteRegistry(in:)` below).
+    /// exactly that registry, the answer to *can this Mac write the folder* —
+    /// which is I/O and is therefore the caller's to ask
+    /// (`canWriteRegistry(in:)` below) — and whether this Mac's author key can
+    /// sign.
     static func offer(
-        registry: Registry, table: TrustTable, canWriteRegistry: Bool
+        registry: Registry, table: TrustTable, canWriteRegistry: Bool,
+        canSign: Bool
     ) -> ClaimOffer? {
-        guard table.myRoot == nil, canWriteRegistry else { return nil }
+        guard table.myRoot == nil, canWriteRegistry, canSign else { return nil }
         let roots = registry.roots.map(\.person).sorted()
         guard !roots.isEmpty else { return nil }
 
@@ -121,7 +144,7 @@ enum ClaimDecision {
     /// **It is a probe, not a promise.** A sandbox, an ACL or a volume
     /// remounting a second later can all refuse a write this answered yes to,
     /// which is why `RegistryAdmission.claim` still throws and the sheet still
-    /// carries a refusal. What it buys is not asking a question this Mac could
+    /// carries a refusal. What it buys is not offering a verb this Mac could
     /// not act on.
     static func canWriteRegistry(
         in projectURL: URL, fileManager: FileManager = .default
@@ -163,30 +186,5 @@ enum ClaimDecision {
         let shown = names.prefix(namesShown).joined(separator: ", ")
         let rest = names.count - namesShown
         return "\(shown), and \(rest) more"
-    }
-}
-
-/// **Once per project per launch** (spec §5: *one sheet*).
-///
-/// The claim is a question about a whole book, and a book that asks it twice in
-/// one sitting is a dialog the writer cannot get rid of — so a project that has
-/// been asked is remembered for the life of the process, whether the answer was
-/// Claim, *Not mine*, or Escape. It is deliberately NOT persisted: the next
-/// launch is a new chance to notice, which is what *until the next open* means
-/// everywhere else in this milestone.
-///
-/// A class with a `shared` instance rather than a static set, so a test can
-/// have one of its own and the production memory is not something a test can
-/// leave marked.
-@MainActor
-final class ClaimPromptMemory {
-    static let shared = ClaimPromptMemory()
-
-    private var asked: Set<String> = []
-
-    /// Answers whether this project should be asked NOW, and remembers that it
-    /// was. One call per decision, so a caller cannot ask and forget to record.
-    func shouldAsk(about projectURL: URL) -> Bool {
-        asked.insert(projectURL.standardizedFileURL.path).inserted
     }
 }

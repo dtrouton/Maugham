@@ -77,6 +77,14 @@ struct PeopleAndDevicesSection: View {
     /// Write this Mac's own registry record again, over one that will not
     /// verify and that this device holds no earlier bytes for (audit F4).
     var writeAgain: (PeopleAndDevicesModel.Unverifiable) -> Void = { _ in }
+    /// **The claim this Mac may make** (spec §5; the only door to it since P3b
+    /// smoke find F3), or nil where `ClaimDecision.offer` says it may not — a
+    /// Mac already on a chain, a book with no root, a folder this Mac cannot
+    /// write, a Mac that cannot sign. Nil draws nothing, and where it is drawn
+    /// the sentence beside it tells an invited collaborator it is not theirs.
+    var claim: ClaimOffer?
+    /// Open the claim's confirmation. The sheet belongs to the host.
+    var claimBook: () -> Void = {}
     /// What the last verb said when it refused, or nil.
     var notice: String?
 
@@ -96,6 +104,7 @@ struct PeopleAndDevicesSection: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 thisMac
+                if claim != nil { claimRow }
                 if let notice {
                     Label(notice, systemImage: "exclamationmark.triangle")
                         .font(.callout)
@@ -178,6 +187,22 @@ struct PeopleAndDevicesSection: View {
                  : "This Mac\u{2019}s code is \(model.code).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// *This Book Is Mine…* — under this Mac's own standing, because it is a
+    /// statement about this Mac's relation to the book, with the sentence that
+    /// tells the writer it was built for from the one it was not.
+    private var claimRow: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(ClaimDecision.verbSentence)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button(ClaimDecision.verbTitle, action: claimBook)
+                .controlSize(.small)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

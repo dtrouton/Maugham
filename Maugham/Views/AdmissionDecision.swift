@@ -430,8 +430,8 @@ enum AdmissionDecision {
                 + "this book was started on, and that Mac answers to itself. To move "
                 + "the book, claim it on the Mac you want to keep."
         case .cannotAdoptItself(let root):
-            // Unreachable from either surface as they stand — the claim sheet
-            // adopts the roots this Mac is NOT, and a claimant row is by
+            // Unreachable from either surface as they stand — the claim
+            // (People & Devices' *This Book Is Mine…*) adopts the roots this Mac is NOT, and a claimant row is by
             // definition somebody else — so this sentence exists for the day a
             // third caller gets the list wrong, and says what it would mean
             // rather than what went wrong.

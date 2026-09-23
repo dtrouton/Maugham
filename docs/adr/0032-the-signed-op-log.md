@@ -823,6 +823,20 @@ and this Mac can actually write the registry folder. The last is a probe and not
 a promise, which is why the claim still throws and the sheet still carries a
 refusal; what it buys is not asking a question this Mac could not act on.
 
+**Amended 2026-09-23, from the P3b smoke (find F3; Denver's ruling C): nobody is
+asked.** The three conditions describe an invited collaborator's Mac exactly as
+well as the writer's restored one — every Mac declares its own device record at
+open, and a restored Mac holds a new key — so the open put *is this book yours?*
+to the collaborator, and *Claim* would have made her a second root. No predicate
+over the folder tells the two apart (a narrower one, *this Mac holds history of
+its own nobody can attribute*, was considered and is unreachable in practice: a signing
+Mac's lines are attributable through the device record it writes at open, and a
+Mac that cannot sign cannot claim). So the claim is a VERB, not a question: *This Book Is Mine…* in People &
+Devices, offered where the three conditions hold AND this Mac can sign, confirmed
+on the same sheet (*Claim* / *Cancel*), performed by the same
+`DocumentStore.claim(adopting:)`. The open presents nothing, and the claim sheet
+is built in `ProjectSettingsSheet` alone (`ClaimDecisionTests`' census).
+
 **Claiming is two writes and the order is the contract**: this device's own
 self-signed root record FIRST, then the `ClaimRecord` naming the roots it
 adopts. A claim written alone is malformed and adopts nobody. **A claim adopts

@@ -2,14 +2,15 @@ import XCTest
 @testable import Maugham
 @testable import MaughamCore
 
-/// **Is this book yours?** (signed op log P2b Task 8, spec §5.)
+/// **This book is mine** (signed op log P2b Task 8, spec §5; a verb in People &
+/// Devices since P3b smoke find F3).
 ///
-/// The one question a Mac holding a book it has no key in is asked, decided as
-/// a value: whether to ask at all, and what the question names. Nothing here
-/// reads a folder or mounts a window, so every condition is pinned with the
-/// sheet nowhere near it.
+/// Whether People & Devices offers the claim at all, and what it names, decided
+/// as a value. Nothing here reads a folder or mounts a window, so every
+/// condition is pinned with the sheet nowhere near it — and, since F3, that no
+/// surface puts the question to a Mac unprompted.
 ///
-/// The three conditions are each a refusal in their own right. A Mac already on
+/// The four conditions are each a refusal in their own right. A Mac already on
 /// a chain has nothing to claim — it is IN this book. A folder with no root in
 /// it is not somebody else's book, it is a book with no registry yet, and
 /// `RegistryPresence.ensureRootIfEmpty` roots it at the next open without
@@ -74,10 +75,10 @@ final class ClaimDecisionTests: XCTestCase {
 
     // MARK: - When it is offered
 
-    func test_aMacWithNoChainInABookThatHasARootIsAsked() throws {
+    func test_aMacWithNoChainInABookThatHasARootIsOfferedTheClaim() throws {
         let registry = somebodyElsesBook()
         let offer = try XCTUnwrap(ClaimDecision.offer(
-            registry: registry, table: table(registry), canWriteRegistry: true))
+            registry: registry, table: table(registry), canWriteRegistry: true, canSign: true))
 
         XCTAssertEqual(offer.roots, [oldMac.fingerprint],
                        "the roots it would adopt are the ones it found")
@@ -89,7 +90,7 @@ final class ClaimDecisionTests: XCTestCase {
     func test_theQuestionNamesTheDevicesThisMacDoesNotKnow() throws {
         let registry = somebodyElsesBook()
         let offer = try XCTUnwrap(ClaimDecision.offer(
-            registry: registry, table: table(registry), canWriteRegistry: true))
+            registry: registry, table: table(registry), canWriteRegistry: true, canSign: true))
 
         XCTAssertEqual(offer.names, ["Denver's old MacBook", "Denver's iPhone"])
         XCTAssertTrue(offer.question.contains("Denver's old MacBook"), offer.question)
@@ -104,14 +105,14 @@ final class ClaimDecisionTests: XCTestCase {
             person(oldMac, label: "", ownName: "", admittedBy: oldMac),
         ])
         let offer = try XCTUnwrap(ClaimDecision.offer(
-            registry: registry, table: table(registry), canWriteRegistry: true))
+            registry: registry, table: table(registry), canWriteRegistry: true, canSign: true))
 
         XCTAssertEqual(offer.names, [DeviceCode.short(oldMac.fingerprint)])
     }
 
     // MARK: - When it is not
 
-    func test_aMacAlreadyOnAChainIsNotAskedWhetherTheBookIsItsOwn() {
+    func test_aMacAlreadyOnAChainIsNotOfferedTheClaim() {
         let registry = Registry(
             devices: [deviceRecord(mac, name: "Denver's MacBook", kind: .mac)],
             people: [
@@ -122,7 +123,7 @@ final class ClaimDecisionTests: XCTestCase {
             ])
 
         XCTAssertNil(ClaimDecision.offer(
-            registry: registry, table: table(registry), canWriteRegistry: true),
+            registry: registry, table: table(registry), canWriteRegistry: true, canSign: true),
             "it is IN this book; there is nothing to claim")
     }
 
@@ -131,25 +132,35 @@ final class ClaimDecisionTests: XCTestCase {
             devices: [deviceRecord(oldPhone, name: "Denver's iPhone", kind: .phone)])
 
         XCTAssertNil(ClaimDecision.offer(
-            registry: registry, table: table(registry), canWriteRegistry: true),
+            registry: registry, table: table(registry), canWriteRegistry: true, canSign: true),
             "a book with no registry yet is rooted at the next open, not claimed")
+    }
+
+    /// A claim is two signed records, and a Mac with no key is refused by the
+    /// writer before anything is written — so the control is not offered.
+    func test_aMacThatCannotSignIsNotOfferedAClaimItCouldNotPerform() {
+        let registry = somebodyElsesBook()
+
+        XCTAssertNil(ClaimDecision.offer(
+            registry: registry, table: table(registry),
+            canWriteRegistry: true, canSign: false))
     }
 
     func test_aFolderThisMacCannotWriteIsNotOfferedAClaimItCouldNotPerform() {
         let registry = somebodyElsesBook()
 
         XCTAssertNil(ClaimDecision.offer(
-            registry: registry, table: table(registry), canWriteRegistry: false))
+            registry: registry, table: table(registry), canWriteRegistry: false, canSign: true))
     }
 
-    // MARK: - Not mine
+    // MARK: - Cancel
 
-    /// *Not mine* is the absence of an act, and this is what that leaves: the
+    /// *Cancel* is the absence of an act, and this is what that leaves: the
     /// table the writer already had, in which every foreign key is `.noChain`
     /// and its history applies as P1's unsigned history (decision B3). Nothing
     /// is written, so there is nothing to assert about the folder — which is
     /// the point.
-    func test_notMineLeavesTheBookExactlyAsB3Reads() {
+    func test_cancelLeavesTheBookExactlyAsB3Reads() {
         let registry = somebodyElsesBook()
         let table = table(registry)
 
@@ -208,21 +219,51 @@ final class ClaimDecisionTests: XCTestCase {
         return url
     }
 
-    // MARK: - Once per project per launch
+    // MARK: - Nobody is asked (P3b smoke find F3, Denver's ruling C)
 
-    func test_aProjectIsAskedOnceAndThenLeftAlone() {
-        let memory = ClaimPromptMemory()
-        let project = URL(fileURLWithPath: "/tmp/a-book")
+    /// **Opening a rooted book as an unadmitted Mac presents nothing.** The
+    /// smoke's collaborator was asked *Is it yours?* at open, and *Claim* would
+    /// have made her a second root; nothing in the folder tells her Mac from the
+    /// writer's restored one, so no Mac is asked at all. The claim's sheet is
+    /// reached from People & Devices' control alone — this pins that no other
+    /// production file builds it, and that the open-time modifier is gone.
+    func test_theClaimSheetIsPresentedFromPeopleAndDevicesAlone() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Maugham")
+        var files: [(name: String, text: String)] = []
+        let walk = FileManager.default.enumerator(
+            at: root, includingPropertiesForKeys: nil)
+        while let url = walk?.nextObject() as? URL {
+            guard url.pathExtension == "swift" else { continue }
+            files.append((url.lastPathComponent,
+                          try String(contentsOf: url, encoding: .utf8)))
+        }
+        XCTAssertGreaterThan(files.count, 100, "the walk found the app's sources")
 
-        XCTAssertTrue(memory.shouldAsk(about: project))
-        XCTAssertFalse(memory.shouldAsk(about: project),
-                       "asking twice in one launch is the dialog a writer cannot get rid of")
+        XCTAssertEqual(Self.claimSheetBuilders(in: files), ["ProjectSettingsSheet.swift"],
+                       "the claim is confirmed only from the People & Devices verb")
     }
 
-    func test_eachProjectGetsItsOwnQuestion() {
-        let memory = ClaimPromptMemory()
+    /// The census, fed a planted offender under a name it would otherwise
+    /// accept nothing from — a window presenting the sheet at open, which is
+    /// exactly the shape F3 removed.
+    func test_theClaimSheetCensusCatchesAPlantedOffender() {
+        let files = [
+            ("ProjectSettingsSheet.swift", ".sheet(item: $claiming) { ClaimSheet(offer: $0) }"),
+            ("ProjectWindow.swift", ".sheet(item: $offer) { ClaimSheet(offer: $0) }"),
+            ("ClaimSheet.swift", "struct ClaimSheet: View { init() { _ = ClaimSheet(" ),
+        ]
+        XCTAssertEqual(Self.claimSheetBuilders(in: files),
+                       ["ProjectSettingsSheet.swift", "ProjectWindow.swift"])
+    }
 
-        XCTAssertTrue(memory.shouldAsk(about: URL(fileURLWithPath: "/tmp/a-book")))
-        XCTAssertTrue(memory.shouldAsk(about: URL(fileURLWithPath: "/tmp/another-book")))
+    /// Every production file that builds the claim's sheet, sorted — the
+    /// sheet's own file excepted.
+    private static func claimSheetBuilders(
+        in files: [(name: String, text: String)]
+    ) -> [String] {
+        files.filter { $0.name != "ClaimSheet.swift" && $0.text.contains("ClaimSheet(") }
+            .map(\.name).sorted()
     }
 }
