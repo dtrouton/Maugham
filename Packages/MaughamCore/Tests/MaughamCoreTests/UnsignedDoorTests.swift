@@ -855,4 +855,197 @@ final class UnsignedDoorTests: XCTestCase {
         XCTAssertEqual(place.onMain, [false],
                        "the walk ran once, and not on the writer's own thread")
     }
+    // MARK: - S4(c): two roots that adopted each other (P3b Task 10)
+
+    /// Rootless-of-me: a second Mac that rooted this book for itself.
+    private func writeSecondRootRecord(_ them: LocalIdentities, name: String) throws {
+        try RegistryWriter.write(
+            PersonRecord(
+                person: them.author.fingerprint, label: name, ownName: name,
+                admittedAt: Date(timeIntervalSince1970: 11),
+                admittedBy: them.author.fingerprint),
+            signedBy: them.author, in: projectURL)
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: them.author.fingerprint, name: name, kind: .mac,
+                actors: [DeviceActor.author.rawValue: them.author.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 2)),
+            signedBy: them.author, in: projectURL)
+    }
+
+    /// A person admitted by a given root, and narrowed by that root with a
+    /// photograph taken from the folder AS IT STANDS — which is what makes
+    /// this two-root case a real one: each root sweeps its own copy, at its
+    /// own moment, and the ghost's stream is a different length each time.
+    private func narrow(
+        _ who: LocalIdentities, under root: LocalIdentities,
+        label: String, at seconds: TimeInterval
+    ) async throws {
+        try RegistryWriter.write(
+            PersonRecord(
+                person: who.author.fingerprint, label: label, ownName: label,
+                admittedAt: Date(timeIntervalSince1970: seconds - 1),
+                admittedBy: root.author.fingerprint),
+            signedBy: root.author, in: projectURL)
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: who.author.fingerprint, name: label, kind: .mac,
+                actors: [DeviceActor.author.rawValue: who.author.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 6)),
+            signedBy: who.author, in: projectURL)
+        let snapshot = try OpLogStore.unattributablePositions(
+            in: projectURL,
+            trust: try TrustResolution.resolve(
+                projectURL: projectURL, identities: root, cache: cacheFor(root)))
+        try RegistryAdmission.changePermit(
+            person: who.author.fingerprint,
+            role: Permit.reviewerRole, scope: Permit.bookScope, pieces: [],
+            mark: .nothingApplied, unsigned: snapshot,
+            in: projectURL, by: root.author, cache: cacheFor(root),
+            now: { Date(timeIntervalSince1970: seconds) })
+    }
+
+    private var caches: [String: RegistryCache] = [:]
+
+    /// One cache per Mac, because a cache is a DEVICE's memory and two Macs
+    /// sharing one would be the test lending each other a fact neither has.
+    private func cacheFor(_ who: LocalIdentities) -> RegistryCache {
+        let key = who.author.fingerprint
+        if let existing = caches[key] { return existing }
+        let made = RegistryCache(
+            fileURL: projectURL.appendingPathComponent("cache-\(key).json"),
+            identity: key)
+        caches[key] = made
+        return made
+    }
+
+    /// Everything one Mac applies, read with that Mac's own identities, its own
+    /// device state and its own cache.
+    private func appliedOn(_ who: LocalIdentities) throws -> [String] {
+        let table = try TrustResolution.resolve(
+            projectURL: projectURL, identities: who, cache: cacheFor(who))
+        return try OpLogStore.loadSyncMerged(
+            forDocId: docId, in: projectURL, identities: who,
+            state: state("mac-\(who.author.fingerprint.prefix(6))"),
+            trust: table).map(\.opId)
+    }
+
+    private func governingOn(_ who: LocalIdentities) throws -> UnsignedSnapshot? {
+        try TrustResolution.resolve(
+            projectURL: projectURL, identities: who,
+            cache: cacheFor(who)).unsignedSnapshot
+    }
+
+    /// **S4(c), answered: two roots that adopted each other judge every line
+    /// identically, from the same bytes.**
+    ///
+    /// The shape the design question asks about: two Macs each rooted this
+    /// book, each admitted and NARROWED somebody of their own, and each took
+    /// the photograph from the folder as their own copy of it stood — so the
+    /// two snapshots name the ghost's stream at two different lengths. Then
+    /// they adopted each other.
+    ///
+    /// Both halves have to hold, and the second is the one that could have
+    /// gone wrong: they must reach the same GOVERNING snapshot (the earliest by
+    /// date, across both roots), and therefore apply and hold exactly the same
+    /// lines. `at` is a signed field of the event record, so the ordering is
+    /// over bytes both Macs read rather than over anything either remembers.
+    func test_twoRootsThatAdoptedEachOtherJudgeEveryLineTheSameWay() async throws {
+        let other = LocalIdentities.softwareForTesting()
+        let kim = LocalIdentities.softwareForTesting()
+        try writeRootRecord()
+        try writeSecondRootRecord(other, name: "The studio Mac")
+
+        // One ghost line exists when the FIRST root narrows.
+        try ghostFile([op("01", by: ghost.author)])
+        try await narrow(sam, under: root, label: "Sam", at: 60)
+        // Two more arrive before the SECOND root narrows, from its own copy.
+        try ghostFile([op("01", by: ghost.author), op("02", by: ghost.author),
+                       op("03", by: ghost.author)])
+        try await narrow(kim, under: other, label: "Kim", at: 900)
+
+        // And only then do the two Macs merge.
+        try RegistryAdmission.claim(
+            adopting: [other.author.fingerprint], in: projectURL,
+            by: root.author, cache: cacheFor(root),
+            now: { Date(timeIntervalSince1970: 1000) })
+        try RegistryAdmission.claim(
+            adopting: [rootPerson], in: projectURL,
+            by: other.author, cache: cacheFor(other),
+            now: { Date(timeIntervalSince1970: 1001) })
+
+        let here = try governingOn(root)
+        let there = try governingOn(other)
+        XCTAssertNotNil(here, "premise: this book has been narrowed")
+        XCTAssertEqual(here, there,
+                       "the same bytes, ordered by a signed field: one answer")
+        XCTAssertEqual(here?.at, Date(timeIntervalSince1970: 60),
+                       "the EARLIEST narrowing governs, across the two roots")
+
+        // The line that matters: `02` and `03` were written after the earliest
+        // photograph and before the later one. Under the later snapshot they
+        // would be applied on one Mac and held on the other.
+        let mine = try appliedOn(root)
+        let theirs = try appliedOn(other)
+        XCTAssertEqual(mine, ["01"])
+        XCTAssertEqual(mine, theirs, "both Macs, same folder, same answer")
+    }
+
+    /// **The limit of that agreement, measured rather than assumed** (Task 2's
+    /// ruling A, stated here because S4(c)'s test found it).
+    ///
+    /// A Mac on NO chain — no root record of its own, admitted by nobody, so
+    /// it has joined nothing — hears no events at all, because the population
+    /// every timeline is built from is filtered by signer to *my root and the
+    /// roots I have adopted* and it has neither. The book therefore reads as
+    /// UN-NARROWED there and every unattributable line is applied, which is
+    /// P1 exactly.
+    ///
+    /// It only ever errs the permissive way, and it cannot put words into
+    /// anybody else's copy: such a Mac can write nothing this book will take
+    /// (it signs no seal any of these registers can name), so what it is doing
+    /// is reading a folder it has not been let into. Stated in the ADR's
+    /// limits rather than closed here — closing it means deciding what a Mac
+    /// that belongs to nobody should be shown, which is P3c's question.
+    func test_aMacOnNoChainHearsNoNarrowingAtAll() async throws {
+        try writeRootRecord()
+        try ghostFile([op("01", by: ghost.author)])
+        try await narrow(sam, under: root, label: "Sam", at: 60)
+        try ghostFile([op("01", by: ghost.author), op("02", by: ghost.author)])
+
+        let stranger = LocalIdentities.softwareForTesting()
+        XCTAssertNil(try governingOn(stranger),
+                     "no root of its own and nobody adopted: no events count")
+        XCTAssertEqual(try appliedOn(root), ["01"])
+        XCTAssertEqual(try appliedOn(stranger), ["01", "02"])
+    }
+
+    /// **M5, named** (Task 2's carry). The same two roots, with NO adoption
+    /// either way: each Mac hears only its OWN root's events (Task 2's ruling
+    /// A, the one filtered population), so the second root's narrowing is
+    /// dropped on the first Mac and the first's is dropped on the second.
+    ///
+    /// That is intended and it is what a claimant IS — a Mac whose say-so this
+    /// one has not taken — but it is a real disagreement about which lines are
+    /// held, and the test exists so it is a decision on the record rather than
+    /// a surprise. History draws the other root as a claimant, with Merge
+    /// beside it, and taking it puts both Macs back in the case above.
+    func test_withoutAdoptionEachMacHearsOnlyItsOwnRootsNarrowing() async throws {
+        let other = LocalIdentities.softwareForTesting()
+        let kim = LocalIdentities.softwareForTesting()
+        try writeRootRecord()
+        try writeSecondRootRecord(other, name: "The studio Mac")
+
+        try ghostFile([op("01", by: ghost.author)])
+        try await narrow(sam, under: root, label: "Sam", at: 60)
+        try ghostFile([op("01", by: ghost.author), op("02", by: ghost.author)])
+        try await narrow(kim, under: other, label: "Kim", at: 900)
+
+        XCTAssertEqual(try governingOn(root)?.at, Date(timeIntervalSince1970: 60))
+        XCTAssertEqual(try governingOn(other)?.at, Date(timeIntervalSince1970: 900),
+                       "the studio Mac hears its own narrowing and not mine")
+        XCTAssertEqual(try appliedOn(root), ["01"])
+        XCTAssertEqual(try appliedOn(other), ["01", "02"],
+                       "its own photograph was taken later, so `02` is inside it")
+    }
 }
