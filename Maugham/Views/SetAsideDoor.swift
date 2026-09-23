@@ -194,8 +194,12 @@ enum SetAsideDoor {
     /// key for the same record and reads the quarantine directory to resolve
     /// it.
     static func identity(of record: QuarantineRecord) -> String {
-        "\(record.docId)|\(record.originalName)|"
-            + "\(record.quarantinedAt.timeIntervalSince1970)"
+        // The stamp is lifted out of the interpolation on purpose: the
+        // writer-copy census bans the internal verb inside a string literal
+        // anywhere under `Views/`, and an interpolated property name is one
+        // (`TripwireGrepTests.test_noWriterVisibleCopyNamesTheQuarantineVerb`).
+        let filedAt = record.quarantinedAt.timeIntervalSince1970
+        return "\(record.docId)|\(record.originalName)|\(filedAt)"
     }
 
     /// **Does the book NOW keep nothing of what this record's writers wrote?**
