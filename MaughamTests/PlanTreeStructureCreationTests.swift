@@ -167,7 +167,11 @@ final class PlanTreeStructureCreationTests: XCTestCase {
                 callers.append("\(file.lastPathComponent): \(line.trimmingCharacters(in: .whitespaces))")
             }
         }
-        XCTAssertEqual(callers, callers.filter { $0.hasPrefix("BinderView.swift:") },
+        // `TestDocumentTools.swift` is the dev-only `test_add_document` MCP tool
+        // (`#if MAUGHAM_DEV_BUILD`, absent from the stable binary): a scripted
+        // multi-Mac smoke reaching the binder's own verb, not a second door.
+        let allowed = ["BinderView.swift:", "TestDocumentTools.swift:"]
+        XCTAssertEqual(callers, callers.filter { c in allowed.contains { c.hasPrefix($0) } },
                        "structure creation grew a second production caller: \(callers)")
         XCTAssertFalse(callers.isEmpty,
                        "the control: no caller found at all means this scan is "
