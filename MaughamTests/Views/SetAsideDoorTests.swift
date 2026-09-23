@@ -410,6 +410,68 @@ final class SetAsideDoorTests: XCTestCase {
                       "another chapter's waiting words are another door")
     }
 
+    // MARK: - The rows follow their inputs (fix round 2, I1)
+
+    /// **A name that arrives later is in the sentence on that same pass.** The
+    /// rows used to be snapshotted in `reload()` BEFORE `reloadChain()` had
+    /// resolved a single name, so a person's label was always one reload
+    /// behind and a rename showed the old one.
+    func test_aNameResolvedLaterIsInTheSentenceOnTheSamePass() throws {
+        let provenance = heldProvenance([personHolder: 2])
+
+        let unnamed = HistoryPane.heldLineRows(
+            provenance: provenance, startedAPiece: [], names: [:])
+        let named = HistoryPane.heldLineRows(
+            provenance: provenance, startedAPiece: [],
+            names: [personHolder: "Sam"])
+
+        XCTAssertFalse(unnamed[0].sentence.contains("Sam"))
+        XCTAssertTrue(named[0].sentence.contains("Sam"),
+                      "the same provenance with a name in hand says the name")
+        XCTAssertNotEqual(unnamed[0].sentence, named[0].sentence)
+    }
+
+    /// **A provenance that lands later draws its rows.** Nil is a document
+    /// whose load has not finished — no rows, and no claim that it is holding
+    /// nothing; the moment it lands, the same call says so.
+    func test_aProvenanceThatLandsLaterDrawsItsRows() throws {
+        XCTAssertTrue(HistoryPane.heldLineRows(
+            provenance: nil, startedAPiece: [], names: [:]).isEmpty)
+        XCTAssertEqual(HistoryPane.heldLineRows(
+            provenance: heldProvenance([unsignedHolder: 2]),
+            startedAPiece: [], names: [:]).count, 1)
+    }
+
+    /// **And the pane composes them live rather than holding a snapshot.**
+    /// This is the half the two pure cases above cannot reach: what `body`
+    /// actually reads. The disk half — the word counts — stays snapshotted and
+    /// gets a `.task(id:)` of its own, keyed on the holders, so a provenance
+    /// that arrives late is followed rather than waited out.
+    func test_theHeldRowsAreComposedFromTheLiveProvenanceAndNames() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Maugham/Views/HistoryPane.swift"),
+            encoding: .utf8)
+
+        XCTAssertTrue(source.contains("ForEach(heldRows) { row in"),
+                      "the pane draws the computed rows")
+        XCTAssertTrue(
+            source.contains("provenance: documentProvenance,\n            startedAPiece: documentStore?"),
+            "…composed from the live provenance")
+        XCTAssertTrue(
+            source.contains("names: chainDeviceNames, words: heldWordCounts,"),
+            "…and the live names, with only the disk half stored")
+        XCTAssertTrue(
+            source.contains(".task(id: heldHolderKey) { await reloadHeldWordCounts() }"),
+            "…and the counts follow the holders")
+        XCTAssertFalse(
+            source.contains("@State private var heldLineRows"),
+            "the snapshot the review found is gone")
+    }
+
     /// A stranger is left to the admission sentence, which has a control of its
     /// own — saying it twice would put two counts about one device on one
     /// screen.

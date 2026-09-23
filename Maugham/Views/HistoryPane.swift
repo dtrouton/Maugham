@@ -153,11 +153,17 @@ struct HistoryPane: View {
     /// row until the next reload, because a press that appeared to do nothing
     /// is worse than a refusal (the Retry notice's own rule).
     @State private var sendToInboxError: String?
-    /// The held-line notices as rows that can carry a control (P3b Task 8 fix
-    /// round 1). Resolved on `reload()` — the word counts re-run the walk over
-    /// this document's files, which is disk work and never `body`'s
-    /// (tripwire 4).
-    @State private var heldLineRows: [SetAsideDoor.HeldRow] = []
+    /// **How many waiting paragraphs each unsigned holder has**, and nothing
+    /// else about the rows (P3b Task 8; narrowed in fix round 2's I1).
+    ///
+    /// This half re-runs the walk over the document's files, which is disk work
+    /// and never `body`'s (tripwire 4). The SENTENCES are not here: they are
+    /// composed in `body` from the live provenance and the live names, because
+    /// a snapshot of them taken in `reload()` was taken before `reloadChain()`
+    /// had resolved a single name and before a document opening in the same
+    /// pass had a provenance at all — so Task 7's held sentences were
+    /// intermittently not drawn, and a renamed person's was a reload behind.
+    @State private var heldWordCounts: [String: Int] = [:]
     /// Device fingerprint → the name that device's registry record gives it,
     /// for the pending sentence (signed op log P2a). Empty when this project
     /// has no registry, and empty when one could not be read: a name is
@@ -940,7 +946,7 @@ struct HistoryPane: View {
             // Devices, where the sentence sends them; an unsigned stream's
             // words come back through the Inbox, which is Task 8's door and
             // which the sentence already names.
-            ForEach(heldLineRows) { row in
+            ForEach(heldRows) { row in
                 HStack(spacing: 8) {
                     Label(row.sentence, systemImage: "clock.badge.questionmark")
                         .font(.caption)
@@ -1089,6 +1095,11 @@ struct HistoryPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(WindowAccessor(window: $window))
         .task { await reload() }
+        // **The counts follow the provenance** (fix round 2, I1): a document
+        // whose load lands after this pane's first reload brings its held
+        // holders with it, and the door must appear on that pass rather than
+        // on whatever reload happens next.
+        .task(id: heldHolderKey) { await reloadHeldWordCounts() }
         .onChange(of: activeDocId) { _, _ in Task { await reload() } }
         // Project-scoped (ADR 0021): only this project's checkpoint reloads
         // this pane. Fixes the cross-window leak where every open window's
@@ -1269,27 +1280,47 @@ struct HistoryPane: View {
             in: projectURL,
             applied: Set(ops.map(\.opId)),
             nowKeepsNothing: { keepsNothing[SetAsideDoor.identity(of: $0)] ?? nil })
-        // **The held-line rows, and what each one can give back** (P3b Task 8
-        // fix round 1). The counts re-run the walk, so they are resolved once
-        // here and only for the unsigned holders that have no other way in —
-        // a book that has narrowed nobody has none, and pays nothing.
-        let provenanceNow = documentProvenance
-        let started = documentStore?.document(forDocId: activeDocId)?
-            .startedAPiece ?? []
-        let holders = Array(provenanceNow?.pendingByDevice.keys ?? [:].keys)
-        let heldWords = await documentStore?.unsignedHeldWordCounts(
-            forDocId: activeDocId, holders: holders) ?? [:]
-        heldLineRows = Self.heldLineRows(
-            provenance: provenanceNow, startedAPiece: started,
-            names: chainDeviceNames, words: heldWords,
-            sent: documentStore?.uiState.sentHeldSpans ?? [],
-            docId: activeDocId)
         // Read outside `reloadChain`'s registry guard: a book that has never
         // joined a chain can still hold another device's stream, and what this
         // Mac cannot find is true whether or not a register says whose it was.
         lostHistoryRows = await Self.lostHistoryRows(
             documentStore?.lostHistory() ?? [])
         await reloadChain()
+        await reloadHeldWordCounts()
+    }
+
+    /// **What each unsigned holder is waiting with** — the disk half of the
+    /// held-line rows (fix round 2, I1).
+    ///
+    /// Keyed off the LIVE provenance rather than a value captured earlier in
+    /// `reload()`, and re-run by `body`'s `.task(id:)` whenever that set of
+    /// holders changes — which is what a document whose provenance lands after
+    /// the first reload looks like from here. A book with no unsigned holder
+    /// asks nothing and costs nothing.
+    private func reloadHeldWordCounts() async {
+        let holders = Array(documentProvenance?.pendingByDevice.keys ?? [:].keys)
+        heldWordCounts = await documentStore?.unsignedHeldWordCounts(
+            forDocId: activeDocId, holders: holders) ?? [:]
+    }
+
+    /// The holders this document is currently holding lines under, as one
+    /// stable string — the id `body`'s `.task` watches, so the counts follow a
+    /// provenance that arrives late without polling for it.
+    private var heldHolderKey: String {
+        (documentProvenance?.pendingByDevice.keys.sorted() ?? []).joined(separator: ",")
+    }
+
+    /// The rows, composed live. Pure and cheap — a classification and a
+    /// sentence per holder, no disk — so it costs a `body` pass what a stored
+    /// array would have cost, minus the staleness.
+    private var heldRows: [SetAsideDoor.HeldRow] {
+        Self.heldLineRows(
+            provenance: documentProvenance,
+            startedAPiece: documentStore?
+                .document(forDocId: activeDocId)?.startedAPiece ?? [],
+            names: chainDeviceNames, words: heldWordCounts,
+            sent: documentStore?.uiState.sentHeldSpans ?? [],
+            docId: activeDocId)
     }
 
     /// The names the two chain sentences are told in, resolved off the main
