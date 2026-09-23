@@ -126,6 +126,32 @@ struct AdmissionSheet: View {
     /// VoiceOver announces.
     static let knownLabelsIdentifier = "admissionSheet.knownLabels"
 
+    /// **Why the label field is empty** when the device's own name is already
+    /// somebody's label here (P3b smoke find F1).
+    ///
+    /// Two Macs sharing a name is the ordinary case, so the sheet must neither
+    /// pre-fill the merge nor leave the writer wondering why the name they can
+    /// see on the other screen is not in the field. It names both ways on:
+    /// a name of their own, or — deliberately — the existing person.
+    static func sharedNameNotice(ownName: String, existing: String) -> String {
+        "This device calls itself \u{201C}\(ownName)\u{201D}, which is already the "
+            + "name of someone who writes in this book. Give whoever writes on it "
+            + "a name of their own \u{2014} or, if they are the same person, choose "
+            + "\u{201C}\(existing)\u{201D} from \u{201C}\(knownLabelsTitle)\u{201D}."
+    }
+
+    /// Drawn while the writer has not yet chosen a label — once they type one
+    /// or choose one, the merge notice (or nothing) says what Admit will do.
+    static func sharedNameNotice(
+        for request: AdmissionRequest, typedLabel: String
+    ) -> String? {
+        guard let existing = request.sharesItsNameWith,
+              let ownName = request.ownName,
+              AdmissionDecision.outcome(for: request, typedLabel: typedLabel) == .notNow
+        else { return nil }
+        return sharedNameNotice(ownName: ownName, existing: existing)
+    }
+
     /// What the writer is being told the label is FOR. A label is the author's
     /// word for a person, not the device's name, and the distinction is the
     /// whole of labels-only.
@@ -209,6 +235,13 @@ struct AdmissionSheet: View {
                         .accessibilityLabel(Text(Self.knownLabelsTitle))
                         .accessibilityIdentifier(Self.knownLabelsIdentifier)
                     }
+                }
+                if let shared = Self.sharedNameNotice(
+                    for: request, typedLabel: typedLabel) {
+                    Text(shared)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Text(Self.labelExplanation)
                     .font(.caption)
