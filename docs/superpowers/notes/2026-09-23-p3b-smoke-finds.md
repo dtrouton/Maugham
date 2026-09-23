@@ -1,0 +1,28 @@
+# Signed op log P3b — smoke finds (2026-09-23)
+
+Four-Mac rig on one machine (`scripts/second-mac.sh`, `--name third`, `--name fourth`): A = the dev app (root), B = Sam, C = Ren, D = Kit. Book `TestWorkspace/P3b Smoke`. B/C/D were driven over their own MCP sockets (scratch `mcpcall.sh`: `MAUGHAM_MCP_SOCKET=<home>/Library/Application Support/Maugham Dev/mcp.sock` + the built `maugham-mcp`), using three new dev-only tools this branch adds — `test_add_document`, `test_open_document`, `test_close_document` (`Maugham/MCP/Test/Tools/TestDocumentTools.swift`). Denver pressed only A's sheets and panes.
+
+## Passed
+
+- Admission with a rung: Ren as reviewer (book), Sam as author of Chapter 2. A applied Sam's pre-admission Chapter 2 line, refused her Chapter 1 line and Ren's prose; Ren's comment applied.
+- **Demotion while typing**: Sam typed one line every ~3 s; Change… → Reviewer at 21:30:31, back to author of Chapter 2 at 21:31:08. A set aside exactly lines 20–31 (typed 21:30:33–21:31:07) and applied every line before and after. History: *12 changes … set aside (written … after its permission here changed)*.
+- Change… in both directions; the events carry the right role/scope/pieces.
+- *Not now* on the new-piece question is remembered and the question waits in People & Devices (the sheet's small print says so).
+- Loss drawer: a stream cut by 10 lines reads *Sam's history here is shorter than it was … every word Maugham had already applied is still in it*; Chapter 2's text on A was unchanged. Acknowledge offered.
+- Send to Inbox on the set-aside record: the 12 lines arrived in the Inbox; a second press offered nothing left.
+- Revoke (keeping) kept Ren's applied comment; Re-admit restored her; a new comment after re-admission applied on A.
+- Schema 9 on a book made on this build.
+
+## Finds
+
+- **F9 — CRITICAL. *Theirs* does not bring the words in.** Kit (stranger) started Chapter 3 and wrote in it; A admitted him as author of Chapter 2; A asked *Kit started "Chapter 3" — is it theirs?*; *Theirs* wrote a `scopeChanged` event with Chapter 3 in his pieces — and Kit's line stayed held on A (History: *1 note is waiting in a piece no one has claimed yet*), and on a fresh load on Kit's own Mac, after reload. The event's mark for `doc-6ee9bc0a.author-56ce…` is the hash of the stream's LAST line (its seal), not a cut before his held span. `OpLogStore.markLine(cuttingBeforeHeld:)` cuts only at lines whose `state.pendingDevice != nil`; the sweep's `classify` (with `permitContext`) did not see Kit's line as pending, while the load did — two judgments of one line disagree. The line predates the admission and falls under the admission mark, so it is judged under the Chapter-2-only permit for ever. Also: History's entry for this event reads *became an author of 2 pieces. Anything set aside before then stays set aside* — the ordinary change sentence, which is the opposite of what *Theirs* promises. Reproduce: a stranger creates a piece and writes, root admits them as author of some OTHER piece, answer Theirs. (The spec's own route — an admitted author opening a piece in the sync window — was not reachable on this rig; check whether it has the same defect.)
+- **F6 — an actor key minted mid-session is missing from the device record until the next project open.** Ren's first MCP `add_comment` minted her assistant key; her device record (written at open by `RegistryPresence`) still listed only `author`, so A held the comment as a stranger's until Ren's Mac relaunched. Every Mac's first Claude write in a session is invisible to everyone else until relaunch.
+- **F7 — an open window never picks up a piece another Mac added.** Kit's `addStructureItem` wrote Chapter 3 into the shared manifest; A's open project kept two chapters (get_outline, the tree), so A never looked at Chapter 3 and never offered Kit's admission — until the window was closed and reopened. (Same folder on one machine; check whether this is the rig — cross-process presenter delivery — or real.)
+- **F4 — the admission sheet does not advance.** With two strangers waiting, admitting the first did not bring up the second; Denver had to go to Project Settings → Admit…
+- **F1 — the default label merges a stranger into an existing person.** The label field is pre-filled with the stranger's machine name; when it equals a known label (here every Mac is "Denver's MacBook Air", the root's own) the sheet says *This device will join Denver's MacBook Air, who already writes in this book* — one Admit makes the stranger the root, with the root's permit. Two Macs sharing a name is the ordinary case (tripwire 35).
+- **F2 — the sheet does not say who or what.** Only the four-character code identifies the device; *1 note waiting* describes a paragraph of prose. The same "note" wording appears on History's §4.5 banner (*1 note is waiting in a piece no one has claimed yet*). Wanted: *1 paragraph in Chapter 1*, a peek at the words.
+- **F3 — every unadmitted Mac is asked to claim the book.** `ClaimDecision.offer` fires for any Mac not on a root of a rooted book, whether or not it holds any history of its own; the question names the root's devices as "Denver's MacBook Air" (reads as the asker's own machine), and *Claim* makes an invited collaborator a second root. **Denver's call:** should the offer require that this Mac holds unattributed history (the keyless case it was built for)?
+
+## Observed as designed (P3c)
+
+- Sam's Mac dropped her own out-of-scope Chapter 1 line and her demoted lines 20–31 from her screen; Ren's Mac dropped her own reviewer prose — silently. P3c's posture and the standing line are the answer.

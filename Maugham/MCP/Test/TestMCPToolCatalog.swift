@@ -21,7 +21,10 @@ public enum TestMCPToolCatalog {
         TestQuitTool.self,
         TestAutosaveStatusTool.self,
         TestPendingBufferTool.self,
-        TestListCheckpointsTool.self
+        TestListCheckpointsTool.self,
+        TestAddDocumentTool.self,
+        TestOpenDocumentTool.self,
+        TestCloseDocumentTool.self
     ]
 
     @MainActor
