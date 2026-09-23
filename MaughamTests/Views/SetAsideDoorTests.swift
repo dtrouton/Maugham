@@ -148,6 +148,103 @@ final class SetAsideDoorTests: XCTestCase {
             SetAsideDoor.sentence(frozen: retired, nowKeepsNothing: true), retired)
     }
 
+    // MARK: - C16's input: which revocation the writer actually pressed
+
+    /// **The harsh press, and only it, is `keptNothing`** (fix round 2, I2).
+    ///
+    /// Both arms, because the two presses are told apart by one field and
+    /// getting it wrong is silent in the direction that misreports the writer's
+    /// own choice back to them.
+    func test_onlyARevocationThatRecordsNoMarkKeepsNothing() throws {
+        let project = try makeProject()
+        // The id's hex run must be a PREFIX of the key it claims, or nothing
+        // in the register joins the two (`DeviceIdentity.actor(ofDeviceId:
+        // signingWith:)`) — which is what makes the device string a claim this
+        // table checks rather than a name it believes.
+        let key = String(repeating: "c3", count: 32)
+        let device = "author-" + String(key.prefix(16))
+        let record = try lines([
+            burst(device: device, paragraphs: [("p1ab", "Hers.")])
+        ], in: project, reason: "written after this device's access was withdrawn")
+
+        // The GENTLE press over a person this book had applied nothing of: a
+        // real mark, written so the two presses stay tellable apart.
+        XCTAssertEqual(
+            SetAsideDoor.keepsNothingNow(
+                record, in: project,
+                table: revoked(device: device, key: key,
+                               mark: RevocationScope.nothingAppliedMark)),
+            false,
+            "the writer pressed the gentle button; History must not redraw it "
+            + "as the harsh one")
+
+        // The HARSH press: no mark at all.
+        XCTAssertEqual(
+            SetAsideDoor.keepsNothingNow(
+                record, in: project,
+                table: revoked(device: device, key: key, mark: nil)),
+            true)
+
+        // And a person in good standing corrects nothing.
+        XCTAssertNil(SetAsideDoor.keepsNothingNow(
+            record, in: project,
+            table: revoked(device: device, key: key, mark: "01", standing: true)))
+    }
+
+    /// The two sentences that follow, so the arms above are connected to what
+    /// the writer reads.
+    func test_theGentlePressKeepsItsOwnSentence() throws {
+        let project = try makeProject()
+        let key = String(repeating: "c3", count: 32)
+        let device = "author-" + String(key.prefix(16))
+        let gentle = "written after this device's access was withdrawn"
+        let record = try lines([
+            burst(device: device, paragraphs: [("p1ab", "Hers.")])
+        ], in: project, reason: gentle)
+        let table = revoked(device: device, key: key,
+                            mark: RevocationScope.nothingAppliedMark)
+
+        XCTAssertEqual(
+            SetAsideDoor.changesByReason(
+                records: [record], in: project,
+                nowKeepsNothing: {
+                    SetAsideDoor.keepsNothingNow($0, in: project, table: table)
+                }),
+            [gentle: 1])
+    }
+
+    /// A trust table in which `device` resolves to a person this root revoked.
+    private func revoked(
+        device: String, key: String, mark: String?, standing: Bool = false
+    ) -> TrustTable {
+        let root = String(repeating: "b4", count: 32)
+        let person = key
+        let registry = Registry(
+            devices: [
+                DeviceRecord(
+                    device: person, name: "Their Mac", kind: .mac,
+                    actors: [DeviceActor.author.rawValue: key],
+                    madeAt: Date(timeIntervalSince1970: 1)),
+                DeviceRecord(
+                    device: root, name: "Root", kind: .mac,
+                    actors: [DeviceActor.author.rawValue: root],
+                    madeAt: Date(timeIntervalSince1970: 1)),
+            ],
+            people: [
+                PersonRecord(
+                    person: root, label: "Denver", ownName: "Root",
+                    admittedAt: Date(timeIntervalSince1970: 1), admittedBy: root),
+                PersonRecord(
+                    person: person, label: "Sam", ownName: "Their Mac",
+                    admittedAt: Date(timeIntervalSince1970: 2), admittedBy: root,
+                    revokedAt: standing ? nil : Date(timeIntervalSince1970: 3),
+                    revokedBy: standing ? nil : root,
+                    highestOpIdSeen: mark),
+            ])
+        return TrustTable.resolve(
+            registry: registry, mine: .current, joinedRoot: root)
+    }
+
     // MARK: - Who a recovered capture is from
 
     func test_theAssistantIsNamedAndNeverGivenAProductName() {

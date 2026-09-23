@@ -209,6 +209,20 @@ enum SetAsideDoor {
     /// Nil is the ordinary answer and means *nothing to correct*: the bytes
     /// name nobody this register can place, or nobody it has revoked, or two
     /// writers whose revocations disagree. The frozen reason then stands.
+    ///
+    /// **`keptNothing` is `mark == nil` and nothing else** (fix round 2, I2;
+    /// ruled 2026-09-23). `TrustVerdict.refusal` is the one spelling of that
+    /// rule (`OpLogChain.swift`, `.afterRevocation(person:keptNothing: mark ==
+    /// nil)`) and this asks the same question of the same field.
+    ///
+    /// `RevocationScope.nothingAppliedMark` is emphatically NOT the harsh
+    /// press: it is what the GENTLE one records over a person this book had
+    /// applied nothing of (`DocumentStore+Registry`'s `.nothingApplied` arm,
+    /// find-5's High). A real mark, written precisely so the two presses stay
+    /// tellable apart. Reading it as *set aside everything it wrote* is the
+    /// defect that ruling exists to prevent, arriving one layer up: the writer
+    /// pressed the gentle button and History would redraw their choice as the
+    /// harsh one.
     static func keepsNothingNow(
         _ record: QuarantineRecord, in projectURL: URL, table: TrustTable
     ) -> Bool? {
@@ -217,7 +231,7 @@ enum SetAsideDoor {
             guard let key = table.deviceKey(forDeviceId: deviceId)?.key,
                   case let .revoked(_, mark) = table.verdict(forSealKey: key)
             else { continue }
-            let harsh = mark == nil || mark == RevocationScope.nothingAppliedMark
+            let harsh = mark == nil
             if let answer, answer != harsh { return nil }
             answer = harsh
         }
