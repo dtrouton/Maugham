@@ -64,6 +64,11 @@ struct ProjectSettingsSheet: View {
     /// read that refused: the act itself runs the same sweep and refuses in the
     /// error's own words, so a guess here would be a second, quieter account.
     @State private var bookNarrowing: PermitControl.BookNarrowing?
+    /// **How many pieces of this book's history the writer has said are gone**
+    /// (P3b Task 6). A marking verb no longer waits for one of those, so every
+    /// confirmation in this pane says what deciding without it costs. Read
+    /// beside the rest of the pane, off the main actor.
+    @State private var acknowledgedLostHistory: Int = 0
 
     /// Who the permit sheet is about, and which of its two questions it is
     /// asking. `Identifiable` so `.sheet(item:)` can key on it, and keyed on
@@ -218,6 +223,7 @@ struct ProjectSettingsSheet: View {
                     person: ask.person,
                     pieces: PermitControl.pieces(in: store.manifest.structure),
                     book: bookNarrowing,
+                    lostHistory: acknowledgedLostHistory,
                     isReadmission: ask.isReadmission,
                     commit: { permit in
                         changingPermit = nil
@@ -509,6 +515,10 @@ struct ProjectSettingsSheet: View {
                 holdsAnUnsignedStream: reading.holdsAnUnsignedStream)
             : nil
         let unsignedStreams = reading.streams
+        // What the writer has already said is gone: every confirmation below
+        // states what deciding without it costs (P3b Task 6).
+        acknowledgedLostHistory = await (store.documentStore?.lostHistory() ?? [])
+            .filter(\.acknowledged).count
         let pieces = PermitControl.pieces(in: store.manifest.structure)
         let url = store.url
         peopleAndDevices = await Task.detached(priority: .userInitiated) {
@@ -569,7 +579,9 @@ struct ProjectSettingsSheet: View {
         let name = peopleAndDevices?.people
             .first { $0.fingerprint == fingerprint }?.title
             ?? DeviceCode.short(fingerprint)
-        confirming = .revoke(person: fingerprint, named: name)
+        confirming = .revoke(
+            person: fingerprint, named: name,
+            lostHistory: acknowledgedLostHistory)
     }
 
     private func confirmRetire(_ fingerprint: String) {
@@ -657,8 +669,18 @@ struct ProjectSettingsSheet: View {
     /// called `admit` with no permit at all — whose default is the whole book,
     /// and which a REVOKED record takes from the caller — so an author of two
     /// chapters came back an author of the novel with nothing on screen.
+    ///
+    /// **And it refuses over a permit this build cannot draw** (Task 5's
+    /// ruling, built in Task 6). The row's button is disabled for that case,
+    /// so this is the second door on the same stop: the sheet's control has no
+    /// rung to start at, and starting it at the whole book would be exactly
+    /// the silent widening above, chosen by the build that understands least.
     private func askReadmission(_ person: PeopleAndDevicesModel.Person) {
         peopleNotice = nil
+        if let why = person.whyNotReadmittable {
+            peopleNotice = why
+            return
+        }
         changingPermit = PermitChangeAsk(person: person, isReadmission: true)
     }
 

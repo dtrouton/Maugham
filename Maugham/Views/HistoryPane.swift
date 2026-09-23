@@ -164,6 +164,11 @@ struct HistoryPane: View {
     /// P2b, ruling C). Resolved in `reloadChain` beside the names they are told
     /// in, because both come out of the same off-actor registry read.
     @State private var trustEventLines: [TrustEventLine] = []
+    /// **History this Mac remembers and cannot find** (P3b Task 6): a stream
+    /// found shorter than it was, or one the folder holds no file of at all.
+    /// Resolved off the main actor with the registry read that names each
+    /// device, like everything else here that touches disk (tripwire 4).
+    @State private var lostHistoryRows: [LostHistoryRow] = []
     @State private var isRetryingQuarantine: Bool = false
     /// The report from the most recently completed Retry, kept only long
     /// enough for the writer to view or dismiss it — cleared when the sheet
@@ -516,6 +521,55 @@ struct HistoryPane: View {
         return "\(total) \(noun) from \(who) \(verb) waiting for admission."
     }
 
+    // MARK: - History this book is missing (signed op log P3b Task 6)
+
+    /// One drawn row of lost history: the sentence, and whether the writer has
+    /// put it down.
+    ///
+    /// A value built once per reload rather than in `body` (tripwire 4), and
+    /// decided in `OpLogStore.lostHistory` rather than here — the pane draws a
+    /// row and presses a verb; what is missing from this book is the op log's
+    /// own question.
+    struct LostHistoryRow: Identifiable, Equatable {
+        let streamKey: String
+        /// What is gone, in the writer's words, with what acknowledging it did
+        /// appended once it has been.
+        let sentence: String
+        let acknowledged: Bool
+        let noticedAt: Date?
+
+        var id: String { streamKey }
+    }
+
+    /// Findings → rows. Pure, so the whole drawer is pinnable with no window.
+    ///
+    /// **An acknowledged row STAYS**, in the register the rest of this pane
+    /// uses for a statement of fact: the history is still gone, so the sentence
+    /// is still true. What changes is the colour, the button and the second
+    /// sentence — because a press that made the row disappear would look like
+    /// the loss had been undone.
+    nonisolated static func lostHistoryRows(
+        _ lost: [OpLogStore.LostHistory]
+    ) -> [LostHistoryRow] {
+        lost.map { one in
+            LostHistoryRow(
+                streamKey: one.streamKey,
+                sentence: one.acknowledged
+                    ? one.sentence + " " + OpLogStore.LostHistory.acknowledgedSentence
+                    : one.sentence,
+                acknowledged: one.acknowledged,
+                noticedAt: one.noticedAt)
+        }
+    }
+
+    /// What Acknowledge says it is for. It is not *dismiss*: it is the writer
+    /// telling this Mac that the history is gone, which is the only thing that
+    /// stops the book waiting for it before it will change what somebody may
+    /// write.
+    static let acknowledgeLostHelp =
+        "I know this history is gone — stop waiting for it before changing "
+        + "what somebody may write in this book"
+
     /// Whose chain this Mac is on — nil when it has joined nobody's.
     ///
     /// A Mac that is its own root joins nothing (B1, asked as
@@ -691,6 +745,37 @@ struct HistoryPane: View {
                     Button("Acknowledge", action: acknowledgeSetAside)
                         .controlSize(.small)
                         .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+            }
+            // **History this book is missing** (P3b Task 6). A fact about the
+            // FOLDER rather than about the draft — every word Maugham had
+            // applied is still in it — and the one fact here that a registry
+            // verb refuses over, which is why it is the one that can be put
+            // down. Orange while it is waiting to be read, secondary once the
+            // writer has said they know, because an acknowledged row is a
+            // standing explanation rather than a thing to do.
+            ForEach(lostHistoryRows) { row in
+                HStack(spacing: 8) {
+                    Label(row.sentence, systemImage: "clock.badge.xmark")
+                        .font(.caption)
+                        .foregroundStyle(row.acknowledged
+                                         ? AnyShapeStyle(.secondary)
+                                         : AnyShapeStyle(Color.orange))
+                    Spacer(minLength: 4)
+                    if !row.acknowledged {
+                        Button("Acknowledge") {
+                            acknowledgeLostHistory(row.streamKey)
+                        }
+                            .controlSize(.small)
+                            .buttonStyle(.bordered)
+                            .help(Self.acknowledgeLostHelp)
+                            // .help is hover-only; the WHY must reach VoiceOver.
+                            .accessibilityHint(Text(Self.acknowledgeLostHelp))
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
@@ -1014,6 +1099,11 @@ struct HistoryPane: View {
                 in: projectURL),
             in: projectURL,
             applied: Set(ops.map(\.opId)))
+        // Read outside `reloadChain`'s registry guard: a book that has never
+        // joined a chain can still hold another device's stream, and what this
+        // Mac cannot find is true whether or not a register says whose it was.
+        lostHistoryRows = await Self.lostHistoryRows(
+            documentStore?.lostHistory() ?? [])
         await reloadChain()
     }
 
@@ -1087,6 +1177,17 @@ struct HistoryPane: View {
     /// above goes on listing exactly what it listed before.
     private func acknowledgeSetAside() {
         documentStore?.acknowledgeSetAsideRecords(Set(setAsideRecordNames))
+        Task { await reload() }
+    }
+
+    /// **The writer says they know this history is gone** (P3b Task 6).
+    ///
+    /// It writes nothing to the book — this Mac's own memory of having been
+    /// told, and nothing another device will ever read — and what it changes is
+    /// that the marking verbs stop waiting for that stream. The row stays,
+    /// saying so.
+    private func acknowledgeLostHistory(_ streamKey: String) {
+        documentStore?.acknowledgeLostHistory(streamKey: streamKey)
         Task { await reload() }
     }
 

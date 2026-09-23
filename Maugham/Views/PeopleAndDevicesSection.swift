@@ -285,10 +285,19 @@ struct PeopleAndDevicesSection: View {
                     // saying "Already revoked", which is a fact the row above
                     // already states and a control that could never act. The
                     // way back belongs in that space.
+                    // Disabled, with the reason, where the permit it would
+                    // put back is one this build cannot draw (P3b Task 6): an
+                    // older Maugham must not re-install a rung it was never
+                    // shown, and the whole-book fallback it used instead was a
+                    // widening chosen by the build that understands least.
                     Button("Re-admit") { readmit(person) }
                         .controlSize(.small)
-                        .help(PeopleAndDevicesModel.readmitHelp)
-                        .accessibilityHint(Text(PeopleAndDevicesModel.readmitHelp))
+                        .disabled(person.whyNotReadmittable != nil)
+                        .help(person.whyNotReadmittable
+                              ?? PeopleAndDevicesModel.readmitHelp)
+                        .accessibilityHint(Text(
+                            person.whyNotReadmittable
+                            ?? PeopleAndDevicesModel.readmitHelp))
                 } else if person.offersRevoke {
                     // A root draws no Revoke at all (smoke find 2). Every other
                     // refused verb here keeps its button, disabled, with the
@@ -501,6 +510,11 @@ struct PermitChangeSheet: View {
     /// landed (or refused). Nil says nothing rather than guessing — the act
     /// runs the same sweep and refuses in the error's own words.
     let book: PermitControl.BookNarrowing?
+    /// **How many pieces of this book's history the writer has put down** (P3b
+    /// Task 6). Zero in every book that has lost nothing, which is nearly all
+    /// of them; above zero the confirmation says what deciding without that
+    /// history costs.
+    let lostHistory: Int
     /// Is this letting somebody back in, or moving somebody who is already in?
     let isReadmission: Bool
     let commit: (Permit) -> Void
@@ -513,6 +527,7 @@ struct PermitChangeSheet: View {
         person: PeopleAndDevicesModel.Person,
         pieces: [PermitControl.Piece],
         book: PermitControl.BookNarrowing?,
+        lostHistory: Int = 0,
         isReadmission: Bool,
         commit: @escaping (Permit) -> Void,
         cancel: @escaping () -> Void
@@ -520,6 +535,7 @@ struct PermitChangeSheet: View {
         self.person = person
         self.pieces = pieces
         self.book = book
+        self.lostHistory = lostHistory
         self.isReadmission = isReadmission
         self.commit = commit
         self.cancel = cancel
@@ -545,9 +561,10 @@ struct PermitChangeSheet: View {
         }
         return isReadmission
             ? .readmit(person: person.fingerprint, named: person.title,
-                       change: change, notice: notice)
+                       change: change, notice: notice, lostHistory: lostHistory)
             : .changePermit(forPerson: person.fingerprint, named: person.title,
-                            change: change, notice: notice)
+                            change: change, notice: notice,
+                            lostHistory: lostHistory)
     }
 
     var body: some View {

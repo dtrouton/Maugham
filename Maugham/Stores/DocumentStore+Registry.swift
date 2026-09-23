@@ -849,10 +849,17 @@ extension DocumentStore {
     /// a subject who IS this device — `retire`, the one verb whose subject is
     /// its own machine — names no foreign stream at all, so this answers empty
     /// and that verb's sweep is byte-for-byte what it was.
+    ///
+    /// **And a loss the writer has been shown is not expected** (P3b Task 6).
+    /// `OpLogDeviceState.expectedStreams` is the one place that is decided —
+    /// this door and its sibling below are the only two things in production
+    /// that build an `expecting:`, and both ask it, so a person's position
+    /// sweep and the unsigned snapshot's take the same way out of a stream
+    /// that is never coming back.
     nonisolated static func expectedStreams(
         ofDeviceIds ids: Set<String>, in projectURL: URL, state: OpLogDeviceState
     ) -> [String: OpLogDeviceState.ForeignStreamMemory] {
-        state.foreignStreams(
+        state.expectedStreams(
             inRoot: projectURL,
             writtenBy: Set(ids.map { DeviceSlug.make(from: $0).raw }))
     }
@@ -869,7 +876,7 @@ extension DocumentStore {
     nonisolated static func everyExpectedStream(
         in projectURL: URL, state: OpLogDeviceState
     ) -> [String: OpLogDeviceState.ForeignStreamMemory] {
-        state.foreignStreams(inRoot: projectURL, writtenBy: nil)
+        state.expectedStreams(inRoot: projectURL, writtenBy: nil)
     }
 
     private func permitMark(forPerson person: String, seen: Bool) async -> SweptPositions {
@@ -1046,6 +1053,46 @@ extension DocumentStore {
         await settle(after: "writing this Mac\u{2019}s own record again for",
                      DeviceCode.short(ref.fingerprint))
         return url
+    }
+
+    // MARK: - History this book is missing (P3b Task 6)
+
+    /// **What this Mac remembers of this book's history and cannot find** —
+    /// History's drawer, and the fact behind every `historyUnreadable`
+    /// refusal that names a stream.
+    ///
+    /// Off the main actor: it resolves a table so each row can be named the
+    /// way the book names that device, and it lists the two stream
+    /// directories. It reads no file of the op log and it verifies nothing.
+    ///
+    /// A folder this Mac cannot read answers with whatever the memory alone
+    /// says — the truncations — rather than refusing: this is a read for a
+    /// sentence, and the acts that must not proceed over a short reading
+    /// refuse on their own account.
+    func lostHistory() async -> [OpLogStore.LostHistory] {
+        let projectURL = self.projectURL
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        let state = Document.loadDeviceState
+        return await Task.detached(priority: .userInitiated) {
+            let table = try? TrustResolution.resolveVerified(
+                projectURL: projectURL, identities: identities, cache: cache).table
+            return OpLogStore.lostHistory(
+                in: projectURL, state: state, trust: table)
+        }.value
+    }
+
+    /// **The writer has been shown a loss and has put it down.**
+    ///
+    /// It writes nothing to the book: no event, no record, nothing another
+    /// device will ever read — only this Mac's own memory of having been told
+    /// (`OpLogDeviceState.acknowledgeLoss`), which is what stops the marking
+    /// verbs waiting for a stream that is never coming back. Synchronous
+    /// because it is a small local write behind a button, like
+    /// `acknowledgeSetAsideRecords`.
+    func acknowledgeLostHistory(streamKey: String) {
+        Document.loadDeviceState.acknowledgeLoss(
+            streamKey, inRoot: projectURL)
     }
 
     // MARK: - Who is waiting, across this window

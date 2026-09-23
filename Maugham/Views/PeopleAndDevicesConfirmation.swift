@@ -135,7 +135,14 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
     /// want a word from. It says what it costs in the sentence rather than in
     /// the button, because the button has room for a verb and this needs a
     /// consequence.
-    static func revoke(person fingerprint: String, named name: String) -> Self {
+    ///
+    /// `lostHistory` is how many pieces of this book's history the writer has
+    /// said are gone (P3b Task 6). A revocation marks what this Mac had
+    /// APPLIED, so it is the act an acknowledged loss changes most, and the
+    /// clause is the same one every marking verb carries.
+    static func revoke(
+        person fingerprint: String, named name: String, lostHistory: Int = 0
+    ) -> Self {
         PeopleAndDevicesConfirmation(
             verb: .revoke,
             fingerprint: fingerprint,
@@ -143,7 +150,8 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
             title: "Stop applying what \(name) writes?",
             message: PeopleAndDevicesModel.revokeSentence
                 + " What they have already written stays in this book. "
-                + "You can let them back in from this Mac.",
+                + "You can let them back in from this Mac."
+                + (lostHistoryClause(count: lostHistory).map { " " + $0 } ?? ""),
             confirmTitle: "Revoke",
             field: nil,
             permit: nil,
@@ -328,7 +336,7 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
     /// sheet, never written a second time here.
     static func changePermit(
         forPerson fingerprint: String, named name: String,
-        change: PermitChange, notice: String? = nil
+        change: PermitChange, notice: String? = nil, lostHistory: Int = 0
     ) -> Self {
         var parts: [String] = []
         if let leaving = sentence(
@@ -344,6 +352,7 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
             parts.append(startsTheirOwn(named: name))
         }
         if let notice { parts.append(notice) }
+        if let cost = lostHistoryClause(count: lostHistory) { parts.append(cost) }
 
         return PeopleAndDevicesConfirmation(
             verb: .changePermit,
@@ -431,7 +440,7 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
     /// What was refused while they were out comes back only through the Inbox.
     static func readmit(
         person fingerprint: String, named name: String,
-        change: PermitChange, notice: String? = nil
+        change: PermitChange, notice: String? = nil, lostHistory: Int = 0
     ) -> Self {
         var parts = [
             "\(name) can write in this book again.",
@@ -440,6 +449,7 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
                 + "comes back only through the Inbox.",
         ]
         if let notice { parts.append(notice) }
+        if let cost = lostHistoryClause(count: lostHistory) { parts.append(cost) }
         return PeopleAndDevicesConfirmation(
             verb: .changePermit,
             fingerprint: fingerprint,
@@ -450,6 +460,29 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
             field: nil,
             permit: change.to,
             alternate: nil)
+    }
+
+    /// **What deciding this over history the writer has put down costs them**
+    /// (P3b Task 6) — nil where nothing has been put down, which is every book
+    /// that has lost nothing.
+    ///
+    /// An acknowledged loss stops being EXPECTED, so the act goes through with
+    /// a mark that cannot name the missing stream — and a stream a mark does
+    /// not name judges wholly new. So if those bytes ever come back, they fall
+    /// on the far side of this decision. That is the right trade (the
+    /// alternative is a book that can never change what anybody may write
+    /// again), and it is not a trade to make without being told.
+    ///
+    /// One sentence, appended last, because it is a condition of the act
+    /// rather than part of what the act does.
+    static func lostHistoryClause(count: Int) -> String? {
+        guard count > 0 else { return nil }
+        let what = count == 1
+            ? "One piece of this book\u{2019}s history is missing"
+            : "\(count) pieces of this book\u{2019}s history are missing"
+        return "\(what) and you\u{2019}ve said you know it is gone, so this is "
+            + "decided without it. If it comes back, Maugham judges it as "
+            + "written after this change."
     }
 
     /// **What a permit says, in the words the control uses for it** — the

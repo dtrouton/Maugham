@@ -414,6 +414,63 @@ final class PermitChangeConfirmationTests: XCTestCase {
         XCTAssertFalse(said.contains("Older versions of Maugham"), said)
     }
 
+    // MARK: - Deciding over history the writer has put down (P3b Task 6)
+
+    /// **A book that has lost nothing is told nothing** — which is nearly
+    /// every book, and the clause must not become a permanent paragraph on a
+    /// confirmation about something else.
+    func test_abookMissingNothingCarriesNoLostHistoryClause() {
+        XCTAssertNil(PeopleAndDevicesConfirmation.lostHistoryClause(count: 0))
+        let said = message(from: .author(.book), to: .reviewer)
+        XCTAssertFalse(said.contains("is missing"), said)
+    }
+
+    /// **And a book deciding over an acknowledged loss is told the cost**: the
+    /// act goes through with a mark that cannot name the missing stream, so
+    /// anything that comes back afterwards falls on the far side of it.
+    func test_anAcknowledgedLossIsStatedWithItsCostOnEveryMarkingVerb() {
+        let changed = PeopleAndDevicesConfirmation.changePermit(
+            forPerson: sam, named: "Sam",
+            change: .init(pieces: pieces, from: .author(.book), to: .reviewer),
+            lostHistory: 1
+        ).message
+        let readmitted = PeopleAndDevicesConfirmation.readmit(
+            person: sam, named: "Sam",
+            change: .init(pieces: pieces, from: .reviewer, to: .reviewer),
+            lostHistory: 2
+        ).message
+        let revoked = PeopleAndDevicesConfirmation.revoke(
+            person: sam, named: "Sam", lostHistory: 1).message
+
+        for said in [changed, readmitted, revoked] {
+            XCTAssertTrue(said.contains("you\u{2019}ve said you know it is gone"), said)
+            XCTAssertTrue(
+                said.contains("judges it as written after this change"),
+                "the cost, which is the whole of what the writer takes on: \(said)")
+        }
+        XCTAssertTrue(changed.contains("One piece"), changed)
+        XCTAssertTrue(readmitted.contains("2 pieces"), readmitted)
+    }
+
+    /// It comes LAST, because it is a condition of the act rather than part of
+    /// what the act does.
+    func test_thelostHistoryClauseIsAppendedAfterEverythingElse() throws {
+        let clause = try XCTUnwrap(
+            PeopleAndDevicesConfirmation.lostHistoryClause(count: 1))
+        let notice = try XCTUnwrap(PermitControl.notice(
+            forGranting: .reviewer,
+            in: PermitControl.BookNarrowing(
+                alreadyNarrowed: false, holdsAnUnsignedStream: true)))
+        let said = PeopleAndDevicesConfirmation.changePermit(
+            forPerson: sam, named: "Sam",
+            change: .init(pieces: pieces, from: .author(.book), to: .reviewer),
+            notice: notice, lostHistory: 1
+        ).message
+
+        XCTAssertTrue(said.hasSuffix(clause), said)
+        XCTAssertTrue(said.contains(notice), "and the first-narrowing sentence survives")
+    }
+
     // MARK: - Re-admission (Task 4's review, the Critical)
 
     /// **A re-admission names the permit it installs.** `RegistryAdmission
