@@ -313,9 +313,15 @@ struct PeopleAndDevicesModel: Equatable {
         /// draw** — that refusal is `whyNotReadmittable`'s, and the button is
         /// drawn either way.
         let canReadmit: Bool
-        /// Why not, when the authority is there and the permit is not
-        /// something this build can put back. Nil in every other case,
-        /// including the ones where the button is not drawn at all.
+        /// Why a Re-admit would be refused: the permit they held when they
+        /// were shut out is one no control here can draw.
+        ///
+        /// **It is computed for every row, not only for the readmittable
+        /// ones** (fix round 1, Minor 4), because it is a fact about their
+        /// permit rather than about the authority — so a person who is not
+        /// revoked at all can carry it. The gate is `canReadmit`: the section
+        /// draws the button only there, and disables it on this. A surface
+        /// that read this alone would refuse a verb it was never offering.
         let whyNotReadmittable: String?
         /// **The permit a Re-admit should propose** (Task 4's review, the
         /// Critical): the one they held when they were revoked, read off their
