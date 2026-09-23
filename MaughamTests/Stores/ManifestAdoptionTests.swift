@@ -157,96 +157,265 @@ final class ManifestAdoptionTests: XCTestCase {
         await ds.close()
     }
 
-    /// **A structural change of this window's own that has not reached disk
-    /// yet is not thrown away.** Every structural verb mutates the manifest and
-    /// then awaits its save — a rename moves files in between — so a manifest
-    /// arriving in that window would, if adopted, lose the change whose file
-    /// surgery has already happened. This window's save is about to land, which
-    /// makes it the later writer: the incoming manifest is the loser, and is
-    /// what gets archived.
-    func test_anUnsavedChangeOfThisWindowsOwnIsKeptAndTheIncomingIsArchived() async throws {
+    /// **A change of this window's own that never reached disk — a verb whose
+    /// save threw — does not keep the window out of step for ever** (review
+    /// M1). Outside a verb nothing is in flight, so the incoming manifest is
+    /// adopted, and the unsaved copy is the loser the archive keeps.
+    func test_anUnsavedChangeOutsideAVerbIsArchivedAndTheIncomingAdopted() async throws {
         let (url, store, ds) = try await openWindow()
         let firstId = store.manifest.structure[0].id
-        store.mutateItem(id: firstId) { $0.title = "Renamed Here, Not Yet Saved" }
+        store.mutateItem(id: firstId) { $0.title = "Renamed Here, Never Saved" }
         let added = try await anotherMacAddsAChapter(url)
 
         ds.presenterDidChangeSubitem(at: manifestURL(url))
 
-        XCTAssertEqual(TreeWalk.find(id: firstId, in: store.manifest.structure)?.title,
-                       "Renamed Here, Not Yet Saved")
+        XCTAssertNotNil(TreeWalk.find(id: added.id, in: store.manifest.structure))
         let archived = archives(in: url)
         XCTAssertEqual(archived.count, 1)
         let loser = try ProjectManifest.makeDecoder().decode(
             ProjectManifest.self, from: Data(contentsOf: archived[0]))
-        XCTAssertNotNil(TreeWalk.find(id: added.id, in: loser.structure),
-                        "the incoming manifest lost, so it is the one kept aside")
+        XCTAssertEqual(TreeWalk.find(id: firstId, in: loser.structure)?.title,
+                       "Renamed Here, Never Saved",
+                       "the unsaved change is kept aside, not dropped")
         await ds.close()
     }
 
-    /// And once the window's own save has landed it is settled again, so the
-    /// NEXT manifest from elsewhere is adopted rather than refused for ever.
-    func test_afterItsOwnSaveTheWindowAdoptsAgain() async throws {
-        let (url, store, ds) = try await openWindow()
-        let firstId = store.manifest.structure[0].id
-        store.mutateItem(id: firstId) { $0.title = "Renamed Here" }
-        try await store.saveManifest()
-        ds.presenterDidChangeSubitem(at: manifestURL(url))  // our own echo
+    // MARK: - A manifest arriving mid-verb (review I1)
 
-        let added = try await anotherMacAddsAChapter(url, title: "Later Chapter")
+    /// **The verb that copies, waits and writes back.** `moveStructureItem`
+    /// copies the destination's children, awaits `relocate` (which really
+    /// suspends: it closes and flushes open Documents) and writes the copy
+    /// back. A manifest adopted in that wait used to be undone by the write,
+    /// and archived nowhere. Now it is held; the verb writes last, so it is the
+    /// loser, and the archive keeps it.
+    func test_aManifestArrivingMidVerbIsHeldAndKeptAsTheLoser() async throws {
+        let (url, store, ds) = try await openWindow()
+        let second = try await store.addStructureItem(
+            parentId: nil, title: "Chapter Two", kind: .document(extension: "md"))
+        var added: StructureItem?
+        var adoptedMidVerb = false
+        ds.relocateWillMove = { [weak ds, weak store] in
+            guard let ds, let store else { return }
+            added = try? await self.anotherMacAddsAChapter(url)
+            ds.presenterDidChangeSubitem(at: self.manifestURL(url))
+            adoptedMidVerb = added.map {
+                TreeWalk.find(id: $0.id, in: store.manifest.structure) != nil
+            } ?? false
+        }
+
+        try await store.moveStructureItem(id: second.id, toParentId: nil, atIndex: 0)
+        ds.relocateWillMove = nil
+
+        let chapter3 = try XCTUnwrap(added)
+        XCTAssertFalse(adoptedMidVerb, "nothing is adopted while the verb holds its copy")
+        XCTAssertEqual(store.manifest.structure.first?.id, second.id, "the move landed")
+        let keptAside = try archives(in: url).map {
+            try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: Data(contentsOf: $0))
+        }
+        XCTAssertTrue(
+            keptAside.contains { TreeWalk.find(id: chapter3.id, in: $0.structure) != nil },
+            "the manifest that lost is in .maugham/conflicts, not nowhere")
+        await ds.close()
+    }
+
+    /// And a held manifest that nothing wrote over is taken on as soon as the
+    /// verb is done.
+    func test_aManifestHeldThroughAVerbThatWroteNothingIsAdoptedAfterIt() async throws {
+        let (url, store, ds) = try await openWindow()
+        store.beginStructuralVerb()
+        let added = try await anotherMacAddsAChapter(url)
         ds.presenterDidChangeSubitem(at: manifestURL(url))
+        XCTAssertNil(TreeWalk.find(id: added.id, in: store.manifest.structure),
+                     "held while the verb runs")
+
+        store.endStructuralVerb()
 
         XCTAssertNotNil(TreeWalk.find(id: added.id, in: store.manifest.structure))
         await ds.close()
     }
 
-    // MARK: - Edges, pinned
+    // MARK: - A manifest nobody announced (review M2)
 
-    /// A remote rename of the chapter this window has open arrives as a new
-    /// PATH for the same id. The editor's reload keys on path (tripwire 22), so
-    /// adopting the manifest is what makes `EditorHost` re-bind at the new
-    /// path rather than keep a Document writing to the old one.
-    func test_aRemoteRenameReachesTheEditorsPathKeyedReload() async throws {
+    /// The narrowing gate and the heal read the disk manifest and write it
+    /// back, which records the bytes as this window's own echo. A manifest
+    /// whose presenter callback had not yet run would then never be adopted.
+    /// The read takes it on first.
+    func test_readingTheManifestTakesOnOneWhoseCallbackHasNotRun() async throws {
         let (url, store, ds) = try await openWindow()
-        let item = store.manifest.structure[0]
-        let oldPath = try XCTUnwrap(item.path)
-        var external = store.manifest
-        external.structure[0].path = "01-renamed-elsewhere.md"
-        try ProjectManifest.makeEncoder().encode(external)
-            .write(to: manifestURL(url), options: [.atomic])
+        let added = try await anotherMacAddsAChapter(url)
 
-        ds.presenterDidChangeSubitem(at: manifestURL(url))
+        _ = try await ds.readManifest()
 
-        let adopted = try XCTUnwrap(TreeWalk.find(id: item.id, in: store.manifest.structure))
-        XCTAssertEqual(adopted.path, "01-renamed-elsewhere.md")
-        XCTAssertTrue(EditorHost.needsReload(
-            itemId: item.id, path: try XCTUnwrap(adopted.path),
-            loadedItemId: item.id, loadedPath: oldPath))
+        XCTAssertNotNil(TreeWalk.find(id: added.id, in: store.manifest.structure))
         await ds.close()
     }
 
-    /// **The adoption closes nothing.** A chapter another Mac trashed or
-    /// renamed while it is open here stays open, and registered, until this
-    /// window lets go of it — the words already typed are in the op log, and
-    /// closing a Document out from under the writer's cursor is a product
-    /// decision this fix does not make (reported with F7).
-    func test_theAdoptionLeavesAnOpenDocumentOpen() async throws {
-        let (url, store, ds) = try await openWindow()
-        let item = store.manifest.structure[0]
-        let path = try XCTUnwrap(item.path)
+    // MARK: - A piece open here, moved or trashed elsewhere (Denver, 2026-09-23)
+
+    private func openAndType(
+        _ path: String, in url: URL, ds: DocumentStore, text: String
+    ) async throws -> Document {
         let doc = try await Document.load(
             url: url.appendingPathComponent(path), actor: .author,
             session: "adoption-test", presenter: ds.presenter)
         ds.register(document: doc, for: path)
+        doc.setFullText(doc.displayText + "\n\n" + text)
+        return doc
+    }
+
+    private func waitUntil(_ condition: () -> Bool) async {
+        for _ in 0..<500 where !condition() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    private func wordsInOpLog(_ id: String, _ store: ProjectStore) -> String {
+        let state = try? store.derivedCache.state(forDocId: id, in: store.url)
+        return state?.paragraphs.values.joined(separator: " ") ?? ""
+    }
+
+    /// **A remote rename follows.** The adoption moves the item's path, which
+    /// is what the editor's path-keyed reload fires on (tripwire 22), and the
+    /// Document open at the old path is let go of WITHOUT rendering there — a
+    /// flush at the old path would be tripwire 14's phantom, arriving from
+    /// another Mac. The words typed here are in the op log.
+    func test_aRemoteRenameClosesTheOpenPieceWithoutAPhantomAtTheOldPath() async throws {
+        let (url, store, ds) = try await openWindow()
+        let item = store.manifest.structure[0]
+        let oldPath = try XCTUnwrap(item.path)
+        let doc = try await openAndType(oldPath, in: url, ds: ds, text: "Typed here before the rename.")
+        // The other Mac's rename: the file moves, then the manifest says so.
+        let newPath = "manuscript/01-renamed-elsewhere.md"
+        try FileManager.default.moveItem(
+            at: url.appendingPathComponent(oldPath), to: url.appendingPathComponent(newPath))
+        var external = store.manifest
+        external.structure[0].path = newPath
+        try ProjectManifest.makeEncoder().encode(external)
+            .write(to: manifestURL(url), options: [.atomic])
+
+        ds.presenterDidChangeSubitem(at: manifestURL(url))
+        await waitUntil { doc.isClosed }
+
+        XCTAssertEqual(TreeWalk.find(id: item.id, in: store.manifest.structure)?.path, newPath)
+        XCTAssertTrue(EditorHost.needsReload(
+            itemId: item.id, path: newPath, loadedItemId: item.id, loadedPath: oldPath),
+            "the editor re-binds at the new path")
+        XCTAssertTrue(doc.isClosed)
+        XCTAssertNil(ds.document(for: oldPath))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathComponent(oldPath).path),
+                       "nothing was rendered back at the old path")
+        XCTAssertTrue(wordsInOpLog(item.id, store).contains("Typed here before the rename."))
+        await ds.close()
+    }
+
+    /// **A remote trash closes the piece, with a notice.** The editor has no
+    /// item left to show, the Document takes no more keystrokes, nothing is
+    /// rendered back at the old path, the words are in the op log, and the
+    /// writer is told who moved it — "another device", because the trash
+    /// record names none — and that it can be restored from Trash.
+    func test_aRemoteTrashClosesTheOpenPieceAndSaysSo() async throws {
+        let (url, store, ds) = try await openWindow()
+        let item = store.manifest.structure[0]
+        let path = try XCTUnwrap(item.path)
+        let doc = try await openAndType(path, in: url, ds: ds, text: "Typed here before the trash.")
+        try FileManager.default.removeItem(at: url.appendingPathComponent(path))
         var external = store.manifest
         external.structure.removeAll { $0.id == item.id }
         try ProjectManifest.makeEncoder().encode(external)
             .write(to: manifestURL(url), options: [.atomic])
 
+        var notices: [String] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let m = note.userInfo?[MaughamEvent.noticeMessageKey] as? String {
+                notices.append(m)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
         ds.presenterDidChangeSubitem(at: manifestURL(url))
+        await waitUntil { !notices.isEmpty }
 
         XCTAssertNil(TreeWalk.find(id: item.id, in: store.manifest.structure))
-        XCTAssertTrue(ds.document(for: path) === doc)
-        XCTAssertFalse(doc.isClosed)
+        XCTAssertTrue(doc.isClosed, "no more keystrokes into a piece that has left the structure")
+        XCTAssertNil(ds.document(for: path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathComponent(path).path),
+                       "nothing was rendered back where the piece used to be")
+        XCTAssertTrue(wordsInOpLog(item.id, store).contains("Typed here before the trash."))
+        XCTAssertEqual(notices, [DocumentStore.trashedElsewhereNotice(title: item.title)])
+        XCTAssertTrue(notices[0].contains("another device"))
+        XCTAssertTrue(notices[0].contains("Trash"))
+        await ds.close()
+    }
+
+    // MARK: - Word counts (Denver, 2026-09-23)
+
+    /// Another Mac's chapter, with words in its op log.
+    private func anotherMacWritesAChapter(_ url: URL, words: String) async throws -> StructureItem {
+        let added = try await anotherMacAddsAChapter(url, title: "Their Chapter")
+        let doc = try await Document.load(
+            url: url.appendingPathComponent(try XCTUnwrap(added.path)),
+            actor: .author, session: "other-mac", presenter: nil)
+        doc.setFullText(words)
+        await doc.close()
+        return added
+    }
+
+    /// **Half one: a piece that arrived shows its true count.**
+    func test_aPieceAnotherMacAddedShowsItsTrueCount() async throws {
+        let (url, store, ds) = try await openWindow()
+        let before = store.projectWordCount
+        let added = try await anotherMacWritesAChapter(url, words: "one two three four five")
+
+        ds.presenterDidChangeSubitem(at: manifestURL(url))
+
+        XCTAssertEqual(store.cachedWordCount(for: added.id), 5)
+        XCTAssertEqual(store.projectWordCount, before + 5)
+        await ds.close()
+    }
+
+    /// And a piece that left takes its count with it.
+    func test_aPieceAnotherMacRemovedLeavesTheCount() async throws {
+        let (url, store, ds) = try await openWindow()
+        let added = try await anotherMacWritesAChapter(url, words: "one two three")
+        ds.presenterDidChangeSubitem(at: manifestURL(url))
+        XCTAssertEqual(store.cachedWordCount(for: added.id), 3)
+        var external = store.manifest
+        external.structure.removeAll { $0.id == added.id }
+        try ProjectManifest.makeEncoder().encode(external)
+            .write(to: manifestURL(url), options: [.atomic])
+
+        ds.presenterDidChangeSubitem(at: manifestURL(url))
+
+        XCTAssertNil(store.cachedWordCount(for: added.id))
+        await ds.close()
+    }
+
+    /// **Half two: another person's words never enter this writer's session**
+    /// — not the live count and not the session event that goes into the log
+    /// behind wordsToday and the streaks.
+    func test_anotherMacsWordsNeverEnterThisWritersSession() async throws {
+        let (url, store, ds) = try await openWindow()
+        // The writer starts a session here.
+        ds.recordSessionActivity(
+            documentId: store.manifest.structure[0].id,
+            projectWordCount: store.projectWordCount)
+        XCTAssertEqual(ds.liveSessionWordsNet, 0)
+
+        _ = try await anotherMacWritesAChapter(url, words: "one two three four five six seven")
+        ds.presenterDidChangeSubitem(at: manifestURL(url))
+
+        XCTAssertEqual(ds.liveSessionWordsNet, 0, "their seven words are not this session's")
+        // The writer's next keystroke reports the project total, which now
+        // includes the other Mac's piece: still none of it is theirs.
+        ds.recordSessionActivity(
+            documentId: store.manifest.structure[0].id,
+            projectWordCount: store.projectWordCount)
+        XCTAssertEqual(ds.liveSessionWordsNet, 0, "not even at the next keystroke")
+        await ds.flushSessionOnQuit()
+        let log = try await ds.loadSessionLog()
+        XCTAssertEqual(log.events.last?.wordsNet, 0)
         await ds.close()
     }
 }

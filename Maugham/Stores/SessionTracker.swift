@@ -57,6 +57,21 @@ public final class SessionTracker {
         }
     }
 
+    /// **Words that arrived from someone else are not this session's**
+    /// (F7, Denver's ruling 2026-09-23). When another device adds or removes
+    /// a piece, the project total moves by `delta` without the writer typing a
+    /// word; moving the baseline by the same amount keeps `wordsNet` the
+    /// writer's own. No active session, nothing to move: the next one starts
+    /// from a total that already includes them.
+    public func shiftBaseline(by delta: Int) {
+        guard delta != 0, let session = activeSession else { return }
+        activeSession = ActiveSession(
+            startedAt: session.startedAt,
+            lastChangeAt: session.lastChangeAt,
+            startWordCount: session.startWordCount + delta,
+            deviceId: session.deviceId)
+    }
+
     /// Called by the idle timer. If there's an active session, finalise
     /// it as a SessionEvent (using `lastChangeAt` as endedAt — the moment
     /// of the last keystroke, not the moment the timer fired). Returns

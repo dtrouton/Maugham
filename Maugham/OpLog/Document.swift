@@ -38,6 +38,20 @@ public final class Document {
     /// resurrecting the husk. Mirror of `EditorCoordinator.detach()`.
     public private(set) var isClosed = false
 
+    /// **Whether this Document may still write its `.md`** (F7 fix round,
+    /// Denver's ruling 2026-09-23). Cleared by `stopRendering()` when another
+    /// device has moved or trashed the piece while it was open here: the file
+    /// is no longer at `url`, and an autosave or the flush in `close()` would
+    /// put it back there, which is tripwire 14's phantom arriving from another
+    /// Mac. The op log and the pending mirror are still written, so no word is
+    /// lost; only the derived render is withheld.
+    public private(set) var rendersToDisk = true
+
+    /// Stop rendering the `.md` for good. See `rendersToDisk`.
+    public func stopRendering() {
+        rendersToDisk = false
+    }
+
     /// Recovery spec §4: the read-only partial open. Set only by
     /// `Document.load(recovery: .readOnlyPartial)`; a doc carrying this state
     /// can write NOTHING — every path that reaches `opStore.append` or
@@ -743,6 +757,10 @@ public final class Document {
                     "pending mirror flush failed for doc \(self.docId, privacy: .public); crash recovery may lose the un-bursted tail: \(error.localizedDescription, privacy: .public)")
             }
         }
+
+        // A piece another device moved or trashed has no file at `url` any
+        // more, and writing one would be a phantom (see `rendersToDisk`).
+        guard rendersToDisk else { return }
 
         // ADR 0019: the on-disk file is the clean display form (no ¶id / t-
         // anchors). The op log + in-memory NSTextStorage keep the anchors.

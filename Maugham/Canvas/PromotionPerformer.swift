@@ -477,6 +477,7 @@ struct PromotionPerformer {
     // MARK: - The four targets
 
     private func performResearchNote(_ plan: PromotionPlan) async throws -> PromotionResult {
+        store.beginStructuralVerb(); defer { store.endStructuralVerb() }
         let itemID: String
         switch plan.mode {
         case .new:
