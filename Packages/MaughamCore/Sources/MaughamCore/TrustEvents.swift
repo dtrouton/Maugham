@@ -474,7 +474,7 @@ public enum TrustEvents {
             by: event.by, isMine: isMine,
             permit: installed == nil ? nil : Permit(event: event),
             previousPermit: previous,
-            settledPieces: installed == nil ? [] : (event.settled ?? []),
+            settledPieces: installed.map { timeline.entries[$0].settles.sorted() } ?? [],
             event: event.event)
     }
 

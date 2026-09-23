@@ -435,4 +435,62 @@ final class PermitTimelineTests: XCTestCase {
         XCTAssertEqual(PermitTimeline(entries: []).current, .author(.book))
         XCTAssertEqual(PermitTimeline(entries: []).entries.count, 1)
     }
+
+    // MARK: - An answer to §4.5 reaches BACK, by reason (P3b smoke find F9)
+
+    /// **Every entry before the answer is judged as having held the piece;
+    /// the answer's own entry holds it already; an entry after it does not.**
+    /// And what each entry INSTALLED is untouched, so History and `current`
+    /// say what the events said.
+    func test_anAnswerWidensTheEntriesBeforeItAndNotTheOnesAfter() {
+        var answer = event(
+            "b", kind: .scopeChanged, scope: Permit.piecesScope,
+            pieces: ["d-one", "d-new"], mark: mark(after: 1))
+        answer = PermitEvent(
+            event: answer.event, kind: answer.kind, subject: answer.subject,
+            role: answer.role, scope: answer.scope, pieces: answer.pieces,
+            mark: answer.mark, settled: ["d-new"], at: answer.at, by: answer.by)
+        let timeline = PermitTimeline(events: [
+            event("a", kind: .admitted, scope: Permit.piecesScope, pieces: ["d-one"]),
+            answer,
+            event("c", kind: .scopeChanged, scope: Permit.piecesScope,
+                  pieces: ["d-one"], mark: mark(after: 2)),
+        ])
+
+        XCTAssertEqual(
+            timeline.entries.map(\.judging),
+            [
+                .author(.pieces(["d-one", "d-new"])),  // opening: the admission
+                .author(.pieces(["d-one", "d-new"])),  // the admission's own entry
+                .author(.pieces(["d-one", "d-new"])),  // the answer
+                .author(.pieces(["d-one"])),           // taken away again
+            ])
+        XCTAssertEqual(
+            timeline.entries.map(\.permit),
+            [
+                .author(.pieces(["d-one"])), .author(.pieces(["d-one"])),
+                .author(.pieces(["d-one", "d-new"])), .author(.pieces(["d-one"])),
+            ],
+            "what each event installed is what it installed")
+        XCTAssertEqual(timeline.entries[2].settles, ["d-new"])
+        XCTAssertEqual(timeline.current, .author(.pieces(["d-one"])))
+    }
+
+    /// **A `settled` over a permit that does not author the piece settles
+    /// nothing** — read here, so it holds whoever wrote the event.
+    func test_aSettledPieceTheEventDoesNotGiveSettlesNothing() {
+        let bare = event(
+            "b", kind: .scopeChanged, scope: Permit.piecesScope,
+            pieces: ["d-one"], mark: mark(after: 1))
+        let claims = PermitEvent(
+            event: bare.event, kind: bare.kind, subject: bare.subject,
+            role: bare.role, scope: bare.scope, pieces: bare.pieces,
+            mark: bare.mark, settled: ["d-new"], at: bare.at, by: bare.by)
+        let timeline = PermitTimeline(events: [
+            event("a", kind: .admitted, scope: Permit.piecesScope, pieces: ["d-one"]),
+            claims,
+        ])
+        XCTAssertTrue(timeline.entries.allSatisfy { $0.settledLater.isEmpty })
+        XCTAssertTrue(timeline.entries.allSatisfy { $0.settles.isEmpty })
+    }
 }

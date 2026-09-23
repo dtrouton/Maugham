@@ -345,11 +345,13 @@ final class TrustEventSentenceTests: XCTestCase {
                 .contains("an author of one piece"))
     }
 
-    /// **An answer to §4.5's question says what it did** (P3b smoke find F9).
-    /// It widens, and the widening sentence — *anything set aside before then
-    /// stays set aside* — is the opposite of what *Theirs* promised; the words
-    /// already written in the piece came in.
-    func test_answeringThePieceQuestionSaysHerWordsCameIn() {
+    /// **An answer to §4.5's question says what it did** (P3b smoke find F9,
+    /// Denver's ruling of 2026-09-23). It widens, and the widening sentence —
+    /// *anything set aside before then stays set aside* — is the opposite of
+    /// what *Theirs* is for. It says *counts as theirs*, never *came in*: the
+    /// same event is written on every record under the label, and a machine
+    /// that never wrote in the piece had nothing to bring (review finding 3).
+    func test_answeringThePieceQuestionSaysHerWordsCountAsTheirs() {
         let answer = TrustEvent(
             date: Date(timeIntervalSince1970: 30), kind: .scopeChanged,
             subject: phone, label: "Sam", by: root,
@@ -359,8 +361,8 @@ final class TrustEventSentenceTests: XCTestCase {
         XCTAssertEqual(
             TrustEventSentence.sentence(for: answer, labels: [root: "Denver"]),
             "Sam became an author of 2 pieces. What they had already written "
-                + "in the piece they started came in. Anything set aside before "
-                + "those words stays set aside.")
+                + "in the piece they started counts as theirs. Anything set "
+                + "aside for any other reason stays set aside.")
         // The other direction: the same widening, not an answer, keeps the
         // widening sentence.
         XCTAssertEqual(

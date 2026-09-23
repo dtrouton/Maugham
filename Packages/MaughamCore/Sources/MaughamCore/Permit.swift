@@ -625,6 +625,27 @@ extension Permit {
         }
     }
 
+    /// **This permit, read as having held `pieces` as well** — what an answer
+    /// to §4.5's question does to the permits BEFORE it (P3b smoke find F9,
+    /// Denver's ruling of 2026-09-23: *Theirs* re-judges by REASON).
+    ///
+    /// Only the middle rung moves, and only its piece list. That is the whole
+    /// of the rule, because it is exactly the one thing a *this piece is not
+    /// yours* refusal turns on (`authors`): widen the list and a line refused
+    /// for that reason alone is allowed, while every other refusal is asked
+    /// of something this leaves where it was — a reviewer's rung, the actor
+    /// rows (the assistant is the reviewer row whatever the list says), a kind
+    /// this build cannot read (`.cannotJudge` under every permit), a word it
+    /// cannot read (`.unjudgeable`). A book author already holds every piece.
+    ///
+    /// Spelled here, beside the table, for tripwire 47's reason: *which rung
+    /// can be widened by a piece* is a fact about the ladder, and the timeline
+    /// that asks it compares no rung of its own.
+    public func settling(_ pieces: Set<String>) -> Permit {
+        guard !pieces.isEmpty, case .author(.pieces(let mine)) = self else { return self }
+        return .author(.pieces(mine.union(pieces)))
+    }
+
     /// **Can this permit refuse anything at all, whatever the line says and
     /// wherever the stream sits?** (P3a Task 5's fix round 1, I1 and I3.)
     ///

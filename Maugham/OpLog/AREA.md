@@ -1460,25 +1460,32 @@ is raise-only against what is on DISK, inside the coordinated write, and a P3
 build that meets a narrowed book stamped lower HEALS it at open. A book made on
 this build starts at 9.
 
-**`markLine` and settling pieces.** Answering §4.5's question (*the piece is
-theirs*) writes a `scopeChanged` event whose mark cuts that piece's streams
-BEFORE her first held line — the last line SEEN before the first held one, not
-the last line that is not held — so her held words come in. A refusal before
-her span stays set aside; a PERMIT refusal after it in the same stream is
-re-judged under the granted permit. A segment holding her span is cut by LINE
-HASH and lists no digest, and `cutStream` stops every later file of that stream
-contributing; the earliest file that holds her decides. **The event write must
-not refill the cut** (P3b smoke find F9): `RegistryAdmission`'s carry-forward
-fills a stream a sweep came back without — or short of — from the subject's
-older events, because every other mark only grows; a settled stream is short
-ON PURPOSE (commonly *not named at all*, her span opening the stream), so the
-sweep hands its cut streams over as `PermitMark.settledStreams` and the
-carry-forward leaves them alone. Without that, a stranger whose admission had
-seen her held line got the admission's position back and *Theirs* did nothing.
-The event also records the pieces it answered about (`PermitEvent.settled`,
-omitted while nil) — read by History alone, whose sentence for such an answer
-says her words came in rather than the widening's *anything set aside before
-then stays set aside*.
+**Settling a piece — *Theirs* re-judges BY REASON** (P3b smoke find F9;
+Denver's ruling of 2026-09-23, replacing the positional cut). Answering §4.5's
+question (*the piece is theirs*) writes an ordinary `scopeChanged` event — the
+ordinary seen mark, the piece added — carrying `PermitEvent.settled`, the
+pieces it answered (omitted while nil, so every other event's bytes are
+unchanged). `PermitTimeline` reads it: every EARLIER entry of that person is
+judged by `Entry.judging` — its permit read as having held the settled piece
+(`Permit.settling`, which widens only an author-of-some-pieces list) — while
+`Entry.permit` stays what the event installed, for History and `current`. So a
+line of hers in that piece refused ONLY because the piece was not hers is
+re-judged under the granted permit wherever it sits: before her held span,
+after it, in a segment that arrives late. Every other refusal stays set aside
+wherever it sits — the actor rows (the assistant never writes the manuscript),
+a reviewer's rung, a verdict (a revocation, a broken chain: those are refused
+before the partition runs), another person's line (the answer is on HER
+timeline). A line held for a reason that is not §4.5's — a kind this build
+cannot read — stays held, because `.cannotJudge` is the table's answer under
+every permit. An entry AFTER the answer is not widened, so a piece taken away
+again is taken away from that event's mark on; and `settled` over a permit that
+does not author the piece settles nothing (`Entry.settles`, which History reads
+too). The partition asks `entry.judging` and nothing else — one judgment, the
+load and every sweep alike. The mark being the ordinary one, the answer takes
+the ordinary loss check: a segment this Mac APPLIED that is missing now refuses
+it (`streamMissingFromSweep`); one it never applied is honest late sync and is
+judged by reason when it arrives. The positional machinery that preceded this
+(`markLine`, the settling cut, `settlingOrder`) is gone.
 
 ## Sealed segments (ADR 0016, M2)
 

@@ -973,87 +973,13 @@ public final class OpLogStore {
     /// A SEGMENT the reader took in whole is listed by digest **whether or not
     /// any of its lines were refused**, for the same reason: the digest says
     /// *the root read this whole file*, not *the root applied all of it*.
-    ///
-    /// **`settlingPieces` is the one exception, and it exists because §4.5's
-    /// question has to be answerable** (P3b Task 7 fix round 1, the
-    /// controller's ruling of 2026-09-23). An event that ADDS a piece to
-    /// somebody's scope is the root answering *yes, that piece is hers* — and
-    /// what she already wrote there is HELD, not refused: §4.5's whole premise
-    /// is that those words were never wrong, only unplaced. A mark taken the
-    /// ordinary way records the held span as SEEN, so it falls before the new
-    /// permit and is held all over again, and the sheet's promise that her
-    /// lines will join the draft is false. For the pieces this act settles, the
-    /// mark is therefore cut BEFORE her held span (`markLine`), so those lines
-    /// fall after it and are re-judged under the permit that has just taken
-    /// them in.
-    ///
-    /// **Safe in the other direction because the caller may only widen.**
-    /// Re-judging a line can only change what happens to it if the permit
-    /// changed, and the one verb that passes this (`DocumentStore
-    /// .pieceIsTheirs`) refuses unless the new permit `covers` the old one — so
-    /// nothing that was applied can become refused. Streams of any OTHER piece
-    /// are untouched, and every existing caller passes nothing, so every
-    /// existing mark is byte-identical (spec §5 row 2 stands).
     nonisolated public static func seenPositions(
         ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
-        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:],
-        settlingPieces: Set<String> = []
+        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:]
     ) throws -> PermitMark {
         try positions(
             ofDeviceIds: ids, in: projectURL, trust: trust,
-            expecting: expecting, settlingPieces: settlingPieces,
-            lastLine: wasSeen)
-    }
-
-    /// **The line a mark records for one stream**, and the one place the
-    /// settling cut is spelled (P3b Task 7 fix round 1).
-    ///
-    /// Ordinarily the last line the reader saw and judged. For a stream of a
-    /// piece this act is SETTLING, the last such line **before the first held
-    /// one** — because a held line is precisely what the act is about, and a
-    /// mark recording it as seen would leave it under the permit that could not
-    /// place it.
-    ///
-    /// **Before the first held line, not merely *not a held line*.** Those are
-    /// different rules and only one of them works: a file of
-    /// `[applied, held, refused]` has a non-held LAST line, so the naive
-    /// spelling would cut after the refusal and leave the held line before the
-    /// mark — the defect this function exists to remove, with a plausible
-    /// implementation.
-    ///
-    /// Nil is a real answer and it means the whole tail is new: a stream whose
-    /// FIRST line is held is a piece she opened and nobody has claimed, which
-    /// is the ordinary shape of the question.
-    ///
-    /// **What the cut does to a REFUSAL, both sides** (fix round 3's ruling,
-    /// amending fix round 1's clause (b)). A refusal BEFORE her first held
-    /// line stays before the cut and is re-judged by nothing: it keeps the
-    /// entry it had and stays set aside. A PERMIT refusal AFTER it in the same
-    /// stream falls after the cut and IS re-judged under the permit the answer
-    /// granted — so her checkpoint in the piece that has just become hers is
-    /// applied, which is right: the writer said the piece is theirs, and the
-    /// refusal was only ever *this piece is not yours*.
-    ///
-    /// The one refusal that might look like a pardon cannot occur here.
-    /// `.aBookAuthorHasWrittenItsText` is a DOCUMENT-level answer: where a
-    /// book author has written the piece's text, §4.5 holds nothing at all and
-    /// her manuscript lines are refused rather than held — so no file ever
-    /// carries both that refusal and a held line, and there is no cut to fall
-    /// after (`test_aClaimedPieceHoldsNothingSoThereIsNoCutToFallAfter`).
-    nonisolated static func markLine(
-        of lines: [OpLogChain.Line], seenWhen lastLine: (OpLogChain.Line) -> Bool,
-        cuttingBeforeHeld: Bool
-    ) -> OpLogChain.Line? {
-        guard cuttingBeforeHeld else { return lines.last(where: lastLine) }
-        return lines.prefix { !wasHeld($0) }.last(where: lastLine)
-    }
-
-    /// **Is this line one the settling cut falls before?** — the one spelling
-    /// of *held*, asked by `markLine` and by both branches that decide a stream
-    /// was settled (P3b smoke find F9), so the cut and the record of having
-    /// cut cannot come to disagree about which lines those were.
-    nonisolated static func wasHeld(_ line: OpLogChain.Line) -> Bool {
-        line.state.pendingDevice != nil
+            expecting: expecting, lastLine: wasSeen)
     }
 
     /// Did the reader see and JUDGE this line? — `seenPositions`' predicate,
@@ -1062,42 +988,6 @@ public final class OpLogStore {
         if line.state == .tornTail { return false }
         if case .chainBroke = line.refusal { return false }
         return true
-    }
-
-    /// **One stream's files in the order they were written** — segments by
-    /// their zero-padded index, then the live tail (fix round 2).
-    ///
-    /// Only the settling path asks for it, and only because the rule it
-    /// implements is about WHICH file cuts a stream: a cut in a segment makes
-    /// every later file wholly new, and *later* has to mean something.
-    /// `opLogFileURLs` answers `contentsOfDirectory`'s order, and a plain name
-    /// sort is actively wrong here — `<doc>.<slug>.jsonl` sorts BEFORE
-    /// `<doc>.<slug>.seg0000.mzseg`, because "j" precedes "s".
-    ///
-    /// Files of different streams may interleave freely: a mark is keyed by
-    /// stream and `cutStream` is too, so only the order WITHIN a stream
-    /// decides anything.
-    ///
-    /// **What it costs to leave out** (fix round 3, correcting a weaker claim
-    /// this comment used to make). `opLogFileURLs` answers
-    /// `contentsOfDirectory` order, which is the filesystem's and not a name
-    /// sort — so *any* order is possible, the reverse included. Give one
-    /// stream two segments where the EARLIER holds her span behind a refusal
-    /// (`seg0000` = [refusal, her span], `seg0001` = more of her span) and
-    /// process them the other way round: `seg0001` claims the cut, `seg0000`
-    /// is skipped as *after the cut* and is never listed at all, so the mark
-    /// names the stream nowhere and `judge` answers `.allNew` for both files —
-    /// and the refusal inside `seg0000` is pardoned. That is the whole point
-    /// of the rule, undone by enumeration order.
-    /// `test_theEarlierOfTwoSegmentsDecidesTheCut` pins it, with `reversed()`
-    /// as its disable experiment.
-    nonisolated static func settlingOrder(_ urls: [URL]) -> [URL] {
-        urls.sorted { left, right in
-            let leftIsSegment = left.pathExtension == OpLogSegment.fileExtension
-            let rightIsSegment = right.pathExtension == OpLogSegment.fileExtension
-            if leftIsSegment != rightIsSegment { return leftIsSegment }
-            return left.lastPathComponent < right.lastPathComponent
-        }
     }
 
     /// **The walk both position sweeps share.** They differ in one thing and
@@ -1152,7 +1042,6 @@ public final class OpLogStore {
     private nonisolated static func positions(
         ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
         expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:],
-        settlingPieces: Set<String> = [],
         lastLine: (OpLogChain.Line) -> Bool
     ) throws -> PermitMark {
         guard !ids.isEmpty else { return .nothingApplied }
@@ -1192,54 +1081,11 @@ public final class OpLogStore {
             change(&entry)
             found[key] = entry
         }
-        /// **What a SEGMENT tells the loss check**, whichever branch read it
-        /// (fix round 3, minor 3).
-        ///
-        /// The two questions a segment answers are different and only one of
-        /// them is about the mark: `found` is *is this stream still whole* and
-        /// `segments` is *is this file old*. A settling branch lists no digest
-        /// in the second and must still answer the first — including the arm
-        /// the ordinary path has always had, where a container that did not
-        /// verify says so (`sawUnsettledSegment`) rather than saying nothing.
-        /// Without it a settling sweep over a broken container would refuse
-        /// where the ordinary sweep does not, which is a marking verb refusing
-        /// for a reason that has nothing to do with the piece being settled.
-        func noteSegment(_ digest: String?, _ key: String) {
-            guard let digest else {
-                note(key) { $0.sawUnsettledSegment = true }
-                return
-            }
-            note(key) {
-                $0.digests.insert(digest)
-                $0.answered = true
-            }
-        }
-        // **Streams of a piece being SETTLED whose mark a segment has already
-        // cut** (fix round 2). Once a segment is cut by line, every later file
-        // of that stream is wholly new by construction, so nothing after it may
-        // contribute a digest or a line — and the tail must not overwrite the
-        // segment's cut.
-        var cutStream: Set<String> = []
-        // **Every stream the settling cut moved backwards**, whether a segment
-        // or a tail held her span — what the event write must not refill from
-        // an older mark (P3b smoke find F9, `PermitMark.settledStreams`).
-        var settledStreams: Set<String> = []
         for docId in docIds.sorted() {
             let permit = permitContext(
                 forDocId: docId, in: projectURL, trust: trust,
                 statements: statements)
-            let settling = settlingPieces.contains(docId)
-            // **Chronological, and only where it decides anything** (fix round
-            // 2). `opLogFileURLs` is UNSORTED, and the settling rule is about
-            // WHICH file cuts the stream — so the files have to arrive in the
-            // order they were written: segments by their zero-padded index,
-            // then the live tail. A plain name sort would put `.jsonl` before
-            // `seg0000.mzseg` ("j" < "s"), which is exactly backwards. Every
-            // other caller keeps the enumeration it has always had.
-            let urls = settling
-                ? settlingOrder(opLogFileURLs(forDocId: docId, in: projectURL))
-                : opLogFileURLs(forDocId: docId, in: projectURL)
-            for url in urls {
+            for url in opLogFileURLs(forDocId: docId, in: projectURL) {
                 guard let stream = PermitMark.stream(of: url),
                       let slug = stream.deviceSlug, slugs.contains(slug)
                 else { continue }
@@ -1249,49 +1095,6 @@ public final class OpLogStore {
                     url: url, bytes: bytes, state: nil, trust: trust,
                     permit: permit)
                 if url.pathExtension == OpLogSegment.fileExtension {
-                    // **A rotated segment holding her §4.5 span is cut by LINE,
-                    // exactly as a tail is** (fix round 2, the controller's
-                    // ruling of 2026-09-23).
-                    //
-                    // Listing it by digest says *the root read this whole file*,
-                    // which `PermitMark.judge` reads as *every line of it is
-                    // old* — so her held span inside it would fall before the
-                    // widening and stay held, and the milestone's own story
-                    // would break the first time a chapter of hers grew past
-                    // `chainSealInterval`. A whole chapter always does.
-                    //
-                    // `judge` needs no new rule for this: a digest it does not
-                    // find in `mark.segments` falls through to the line lookup
-                    // over the file's own lines, and a segment's lines are its
-                    // decompressed JSONL. So the segment's lines BEFORE her span
-                    // stay old — a refusal there is not pardoned — and her span
-                    // and everything after fall new.
-                    //
-                    // The digest is still NOTED for the loss check: `found` is
-                    // *is this stream still whole* and `segments` is *is this
-                    // file old*, two questions that happen to share a value.
-                    if settling, !cutStream.contains(stream.key),
-                       let judged = classified.verification,
-                       judged.lines.contains(where: wasHeld) {
-                        cutStream.insert(stream.key)
-                        settledStreams.insert(stream.key)
-                        if let last = markLine(
-                            of: judged.lines, seenWhen: lastLine,
-                            cuttingBeforeHeld: true) {
-                            lastKnownLine[stream.key] =
-                                OpLogChain.lineHash(last.bytes)
-                        } else {
-                            // Her span opens the segment: nothing in this
-                            // stream is old, which is a mark with no line.
-                            lastKnownLine.removeValue(forKey: stream.key)
-                        }
-                        noteSegment(classified.wholeSegmentDigest, stream.key)
-                        continue
-                    }
-                    if settling, cutStream.contains(stream.key) {
-                        noteSegment(classified.wholeSegmentDigest, stream.key)
-                        continue
-                    }
                     // **The one answer to *did this reader take the segment in
                     // whole*** (Task 9's fix round 1). It used to be computed
                     // here, by a SECOND decode of a container `classify` had
@@ -1319,16 +1122,7 @@ public final class OpLogStore {
                         entry.holdsRemembered = true
                     }
                 }
-                // A tail whose stream a segment has already cut contributes
-                // nothing: everything after that cut is new, this file
-                // included (fix round 2).
-                if settling, cutStream.contains(stream.key) { continue }
-                if settling, verification.lines.contains(where: wasHeld) {
-                    settledStreams.insert(stream.key)
-                }
-                guard let last = markLine(
-                    of: verification.lines, seenWhen: lastLine,
-                    cuttingBeforeHeld: settling)
+                guard let last = verification.lines.last(where: lastLine)
                 else { continue }
                 lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
             }
@@ -1351,11 +1145,7 @@ public final class OpLogStore {
                     entry.holdsRemembered = true
                 }
             }
-            // Never settling: a translation sidecar and an inbox manifest are
-            // not manuscript pieces, so §4.5 cannot hold a line in either.
-            guard let last = markLine(
-                of: verification.lines, seenWhen: lastLine,
-                cuttingBeforeHeld: false) else { continue }
+            guard let last = verification.lines.last(where: lastLine) else { continue }
             lastKnownLine[stream.key] = OpLogChain.lineHash(last.bytes)
         }
 
@@ -1382,8 +1172,7 @@ public final class OpLogStore {
                     remembered: expecting[key], found: seen) == nil
             else { throw ReadError.streamMissingFromSweep(streamKey: key) }
         }
-        return PermitMark(
-            marks, settledStreams: settledStreams, settledPieces: settlingPieces)
+        return PermitMark(marks)
     }
 
     // MARK: - The unsigned door's photograph (P3b Task 1)
