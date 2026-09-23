@@ -261,7 +261,7 @@ final class AdmissionKeyStandingTests: XCTestCase {
         XCTAssertEqual(
             AdmissionDecision.standing(
                 ofHolder: samsKey, streams: [], registry: registry),
-            .notAStranger(.permitPending(person: samsKey)))
+            .notAStranger(.permitPending(person: samsKey, startedAPiece: false)))
         XCTAssertTrue(
             AdmissionDecision.requests(
                 pending: [samsKey: 5], registry: registry,

@@ -646,7 +646,7 @@ final class UnsignedDoorTests: XCTestCase {
             .stranger(fingerprint: stranger))
         XCTAssertEqual(
             HeldLines.holder(of: samPerson, registry: registry),
-            .permitPending(person: samPerson))
+            .permitPending(person: samPerson, startedAPiece: false))
         XCTAssertEqual(
             HeldLines.holder(of: ghostHolder, registry: registry),
             .unsigned(stream: ghost.author.slug.raw))
@@ -675,7 +675,9 @@ final class UnsignedDoorTests: XCTestCase {
             stranger, "2 notes from Sam’s Mac are waiting for admission.")
 
         let pending = try? XCTUnwrap(
-            HeldLines.sentence(.permitPending(person: "ff"), notes: 1, named: "Sam"))
+            HeldLines.sentence(
+                .permitPending(person: "ff", startedAPiece: false),
+                notes: 1, named: "Sam"))
         XCTAssertEqual(pending?.hasPrefix("1 note from Sam is waiting."), true)
         XCTAssertEqual(pending?.contains("admission"), false)
 

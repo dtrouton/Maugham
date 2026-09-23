@@ -805,6 +805,66 @@ final class PermitLoadTests: XCTestCase {
             ["written into the manuscript by a device that may not write it here"])
     }
 
+    /// **The walk says WHICH held lines were somebody starting a piece**
+    /// (P3b Task 7, finding B).
+    ///
+    /// `.cannotJudge` and §4.5 hold a line under the very same string —
+    /// `trust.person(forSealKey:)` — so nothing downstream could tell them
+    /// apart, and the two want opposite sentences: *a newer build will know*
+    /// against *is this piece hers?*. Re-deriving it at a surface would need
+    /// the permit, the actor, the class AND the op's `Written` — the whole
+    /// partition again, which is a second classifier. So the partition that
+    /// already decided it writes it down, in the carrier that already carries
+    /// its other per-line product.
+    func test_theWalkSaysWhichHeldLinesStartedAPieceNobodyHasClaimed() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try samsFile([op("herOpening", by: sam.author)])
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: ["doc-hers"])
+
+        let carrier = AmendmentPermits()
+        let loaded = try await reader().loadDiagnosed(
+            docId: docId, amendmentPermits: carrier)
+        XCTAssertEqual(loaded.provenance.pendingOpLines, 1, "it IS held")
+        XCTAssertEqual(carrier.whoStartedAPiece, [samPerson])
+    }
+
+    /// The other direction, and the one that makes the flag worth carrying: a
+    /// line held because this BUILD cannot judge it is not a piece start, even
+    /// though it is held under the same holder in a document no book author
+    /// has written a word of.
+    func test_aLineThisBuildCannotJudgeIsNotAPieceStart() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeFile(
+            by: sam.assistant,
+            ops: [op("today", by: sam.assistant, kind: .claudeComment)],
+            extraLines: [try futureKindLine("fromTomorrow", by: sam.assistant)])
+
+        let carrier = AmendmentPermits()
+        let loaded = try await reader().loadDiagnosed(
+            docId: docId, amendmentPermits: carrier)
+        XCTAssertEqual(loaded.provenance.pendingOpLines, 1, "it IS held")
+        XCTAssertTrue(
+            carrier.whoStartedAPiece.isEmpty,
+            "nobody started a piece — this build simply cannot read the line")
+    }
+
+    /// And a book nobody has narrowed records nothing at all, because §4.5
+    /// cannot fire in one: every permit there is author-of-the-whole-book.
+    func test_anUnNarrowedBookRecordsNoPieceStart() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try samsFile([op("02", by: sam.author)])
+
+        let carrier = AmendmentPermits()
+        let loaded = try await reader().loadDiagnosed(
+            docId: docId, amendmentPermits: carrier)
+        XCTAssertEqual(loaded.ops.map(\.opId), ["02"], "applied, as ever")
+        XCTAssertTrue(carrier.whoStartedAPiece.isEmpty)
+    }
+
     /// **One rule, two access points.** The TABLE answers the stranger
     /// question off the set `resolve` took from the same registry, so the load
     /// can stamp the split without keeping a registry and the sheet cannot

@@ -12,10 +12,16 @@ import Foundation
 ///
 /// - **a stranger** — a key this book has no person record for. The writer can
 ///   be asked to admit it, and admitting applies what it wrote.
-/// - **permit-pending** — an ADMITTED person whose line this build cannot
-///   judge (`Permit.Allowed.cannotJudge`: a later build's op kind, a role or
-///   scope word this one does not know). She is already in the book; offering
-///   an admission sheet about her would offer a control that changes nothing.
+/// - **permit-pending** — an ADMITTED person whose line was held rather than
+///   applied. She is already in the book; offering an admission sheet about her
+///   would offer a control that changes nothing. **Two reasons, one holder
+///   string** (P3b Task 7): this build cannot judge the line
+///   (`Permit.Allowed.cannotJudge`: a later build's op kind, a role or scope
+///   word this one does not know), or she opened a piece nobody has claimed
+///   (spec §4.5) — which is a question the writer can answer today. The string
+///   cannot tell them apart and neither can anything downstream, so the walk
+///   that decided it says so: `AmendmentPermits.recordStartedAPiece`, carried
+///   into `holder(of:registry:startedAPiece:)` as an INPUT.
 /// - **unsigned** — a line written after the first narrowing by a file this
 ///   register can name no key for (`UnsignedSnapshot`). There is no device to
 ///   admit, because there is no key: nothing on that Mac signs what it writes.
@@ -85,8 +91,22 @@ public enum HeldLines {
     public enum Holder: Equatable, Hashable, Sendable {
         /// A key this book has no person record for. Admittable.
         case stranger(fingerprint: String)
-        /// A person already in the book, whose line this build cannot judge.
-        case permitPending(person: String)
+        /// A person already in the book whose line was held rather than
+        /// applied — for one of two reasons, which the payload tells apart
+        /// (P3b Task 7, finding B).
+        ///
+        /// `startedAPiece` is spec §4.5: an author of some pieces put
+        /// manuscript text, with her own hand, into a piece that is in nobody's
+        /// scope. That is a **question the writer can answer today** — is the
+        /// piece hers? — and it is decided in the partition, where the permit,
+        /// the actor, the class and the op kind are all in hand
+        /// (`AmendmentPermits.recordStartedAPiece`).
+        ///
+        /// `false` is P3a's reason and stays P3a's: this BUILD cannot judge
+        /// the line (`Permit.Allowed.cannotJudge` — a later build's op kind, a
+        /// role or scope word this one does not know), and there is nothing to
+        /// do but wait for a build that can.
+        case permitPending(person: String, startedAPiece: Bool)
         /// A stream nothing signs, after the first narrowing. The payload is
         /// `unsignedHolder`'s own — a device slug, or a stream key.
         case unsigned(stream: String)
@@ -96,15 +116,27 @@ public enum HeldLines {
     /// by the string itself and no registry can contradict it; then the
     /// registry's own stranger predicate, which this function is the reason
     /// for.
+    ///
+    /// **`startedAPiece` widens the INPUT and never the classification** (P3b
+    /// Task 7). It is the walk's own answer — did this holder's held lines open
+    /// a piece nobody has claimed (`AmendmentPermits.whoStartedAPiece`) — and
+    /// it reaches only the one arm it is about. A stranger is still a stranger
+    /// and an unsigned stream is still unsigned whatever it says, because
+    /// neither of those is a person whose SCOPE could be widened: there is one
+    /// classifier, and this is a fact it carries rather than a second opinion
+    /// about who is waiting. It defaults to the P3a answer, so a caller that
+    /// has no walk to ask — `AdmissionDecision.standing`, which only ever
+    /// matches `.stranger` — is untouched.
     public static func holder(
-        of pendingDevice: String, registry: Registry
+        of pendingDevice: String, registry: Registry,
+        startedAPiece: Bool = false
     ) -> Holder {
         if let stream = streamOfUnsignedHolder(pendingDevice) {
             return .unsigned(stream: stream)
         }
         return registry.isStrangerDevice(pendingDevice)
             ? .stranger(fingerprint: pendingDevice)
-            : .permitPending(person: pendingDevice)
+            : .permitPending(person: pendingDevice, startedAPiece: startedAPiece)
     }
 
     // MARK: - What to say
@@ -133,8 +165,20 @@ public enum HeldLines {
         case .stranger:
             let who = name ?? "another device"
             return "\(count) \(noun) from \(who) \(verb) waiting for admission."
-        case .permitPending:
+        case .permitPending(_, let startedAPiece):
             let who = name ?? "a device in this book"
+            // **§4.5, and the only held line the writer can do something
+            // about** (P3b Task 7). She wrote in a piece that is in nobody's
+            // scope, which is a question rather than a violation — so the
+            // sentence states the fact and names the one surface that can
+            // settle it. It must not borrow the other arm's words: this build
+            // reads her line perfectly well, and telling the writer to wait
+            // for a newer Maugham would be telling them to wait for nothing.
+            guard !startedAPiece else {
+                return "\(count) \(noun) from \(who) \(verb) waiting in a piece "
+                    + "nobody has claimed yet. Say whether the piece is theirs "
+                    + "in People & Devices."
+            }
             return "\(count) \(noun) from \(who) \(verb) waiting. This version "
                 + "of Maugham can’t tell what they are allowed to write here; "
                 + "a newer one will."

@@ -226,7 +226,16 @@ public enum PermitPartition {
                     let answer = unownedAnswer ?? unowned()
                     unownedAnswer = answer
                     if answer == .nobodyHasWrittenItsText {
-                        holding[index] = trust.person(forSealKey: key)
+                        let holder = trust.person(forSealKey: key)
+                        holding[index] = holder
+                        // **Which of the two holds this is** (P3b Task 7,
+                        // finding B). `.cannotJudge` above holds under the
+                        // same string, and the two want opposite sentences.
+                        // Recorded rather than re-derived: everything this
+                        // arm turned on — the permit, the actor, the class,
+                        // the `Written` — is gone by the time a surface asks.
+                        // See `AmendmentPermits.recordStartedAPiece`.
+                        amendments?.recordStartedAPiece(holder)
                         continue
                     }
                 }
