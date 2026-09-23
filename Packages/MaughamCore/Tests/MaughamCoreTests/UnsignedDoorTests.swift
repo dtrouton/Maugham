@@ -823,4 +823,36 @@ final class UnsignedDoorTests: XCTestCase {
                 forDocId: docId, heldBy: ghostHolder))
         XCTAssertEqual(words.map(\.text), ["02"])
     }
+
+    /// **The walk runs off the main actor** (fix round 2, I3). `OpLogStore` is
+    /// `@MainActor` and the walk is a coordinated read plus a P256
+    /// verification per seal per file — once per holder, on a History reload.
+    /// What is pinned is a MEASUREMENT taken inside the walk itself, not a
+    /// paragraph about it: the observer records where it was standing.
+    func test_theHeldLineWalkDoesNotRunOnTheMainThread() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try ghostFile([op("01", by: ghost.author)])
+        try await narrowSamToReviewer()
+        try ghostFile([op("01", by: ghost.author), op("02", by: ghost.author)])
+
+        final class Where: @unchecked Sendable {
+            private let lock = NSLock()
+            private var seen: [Bool] = []
+            func note(_ main: Bool) { lock.lock(); seen.append(main); lock.unlock() }
+            var onMain: [Bool] { lock.lock(); defer { lock.unlock() }; return seen }
+        }
+        let place = Where()
+        OpLogStore.heldLinesWalkObserverForTesting = {
+            place.note(Thread.isMainThread)
+        }
+        defer { OpLogStore.heldLinesWalkObserverForTesting = nil }
+
+        let held = try await reader().heldLines(
+            forDocId: docId, heldBy: ghostHolder)
+
+        XCTAssertFalse(held.isEmpty, "premise: there was a walk to run")
+        XCTAssertEqual(place.onMain, [false],
+                       "the walk ran once, and not on the writer's own thread")
+    }
 }

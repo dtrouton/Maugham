@@ -437,6 +437,16 @@ public final class OpLogStore {
     /// answer here would offer the writer some of a held span and tell them it
     /// was all of it.
     ///
+    /// **The walk itself runs OFF this actor** (fix round 2, I3). This class is
+    /// `@MainActor`, and the walk is a coordinated read plus a P256
+    /// verification per seal, per file — once per holder, on a History reload.
+    /// So the two things that need the actor are taken here (the trust table,
+    /// and the permit context built from it) and the reading is handed to a
+    /// detached task, the way `DocumentStore`'s own sweeps hand theirs over.
+    /// The presenter travels with it exactly as it does into
+    /// `loadFileDiagnosed`, so the coordinated read still declines to bounce
+    /// this process's own writes back at it.
+    ///
     /// Answers the raw LINE BYTES, in file order, per file in listing order —
     /// what they MEAN is the caller's (`OpLogQuarantine.recoverableWords`),
     /// which is the same decode the record door uses.
@@ -450,16 +460,27 @@ public final class OpLogStore {
             forDocId: docId, in: projectURL, trust: table)
         let presenter = self.presenter
         let state = deviceState
-        return try Self.heldLines(
-            in: urls, heldBy: holder, presenter: presenter,
-            state: state, trust: table, permit: permit)
+        return try await Task.detached(priority: .userInitiated) {
+            try Self.heldLines(
+                in: urls, heldBy: holder, presenter: presenter,
+                state: state, trust: table, permit: permit)
+        }.value
     }
+
+    /// **Where the held-line walk actually ran** — a test's own variable, so
+    /// the claim above is a measurement rather than a paragraph (fix round 2,
+    /// I3). `PermitPartition.walkObserverForTesting`'s shape and its reason:
+    /// `nonisolated(unsafe)` because a test sets and clears it on one thread,
+    /// and production never assigns it.
+    nonisolated(unsafe) public static var heldLinesWalkObserverForTesting:
+        (@Sendable () -> Void)?
 
     /// The walk half, `nonisolated` so a caller can run it off the main actor.
     nonisolated static func heldLines(
         in urls: [URL], heldBy holder: String, presenter: NSFilePresenter?,
         state: OpLogDeviceState?, trust: TrustTable?, permit: PermitContext?
     ) throws -> [Data] {
+        heldLinesWalkObserverForTesting?()
         var held: [Data] = []
         for url in urls {
             guard let bytes = try readCoordinated(url: url, presenter: presenter)
