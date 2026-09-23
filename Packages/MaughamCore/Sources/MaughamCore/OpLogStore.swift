@@ -1558,29 +1558,56 @@ public final class OpLogStore {
         /// **What is gone, in the writer's words.** Neither kind takes a word
         /// out of the draft — what was applied stays applied — so all three
         /// end at the one place the lost history can be got back from.
+        /// **An ABSENT stream says something weaker, because less is known
+        /// about it** (fix round 1, Important 1).
+        ///
+        /// A truncation was WITNESSED: this Mac held the remembered line and
+        /// the bytes that no longer carry it, in one reading. Absence is not
+        /// witnessed at all — `ForeignStreamWatch.settle`'s own rule is that a
+        /// stream with no file is *missing, not truncated: iCloud has moved
+        /// it, or a sync is halfway through* — so a row asserting it is gone
+        /// from the folder states as a fact the one thing this Mac cannot
+        /// know. It matters because the row carries a control: a writer told
+        /// their collaborator's history is gone presses Acknowledge, and a
+        /// revocation the next day marks a stream that was only ever
+        /// mid-sync.
         public var sentence: String {
-            let what: String
-            switch self.what {
-            case .segment:
-                what = "part of \(label)’s sealed history is missing from this book"
-            case .line:
-                what = "\(label)’s history here is shorter than it was"
+            switch what {
             case .absent:
-                what = "\(label)’s history is not in this book any more"
+                return "Maugham can’t find \(label)’s history in this book. "
+                    + "Nothing has left the draft — every word it had already "
+                    + "applied is still in it — but the file those words came "
+                    + "from isn’t here. It may still be syncing; if it isn’t, "
+                    + "a backup is where it can be got back from."
+            case .segment, .line:
+                let what = self.what == .segment
+                    ? "part of \(label)’s sealed history is missing from this book"
+                    : "\(label)’s history here is shorter than it was"
+                return "\(what.prefix(1).uppercased())\(what.dropFirst()). "
+                    + "Nothing has left the draft — every word Maugham had already "
+                    + "applied is still in it — but what is gone is gone from the "
+                    + "folder. A backup is where it can be got back from."
             }
-            return "\(what.prefix(1).uppercased())\(what.dropFirst()). "
-                + "Nothing has left the draft — every word Maugham had already "
-                + "applied is still in it — but what is gone is gone from the "
-                + "folder. A backup is where it can be got back from."
         }
+
+        /// **What acknowledging one costs**, in one spelling — read BEFORE the
+        /// press, on the control itself, and again after it in the row
+        /// (fix round 1, Important 1).
+        ///
+        /// It was only ever said afterwards, which is the wrong half of the
+        /// act to say it in: the whole of what the writer takes on is that a
+        /// stream which comes back later falls on the far side of whatever
+        /// they decide in between.
+        public static let costOfAcknowledging =
+            "If it comes back, it is judged as written after that change."
 
         /// What acknowledging it did, once it has been acknowledged — because
         /// the row stays and a row that only repeated itself would look like a
         /// press that did nothing.
         public static let acknowledgedSentence =
             "You’ve said you know this history is gone, so Maugham no longer "
-            + "waits for it before changing what somebody may write. If it "
-            + "comes back, it is judged as written after that change."
+            + "waits for it before changing what somebody may write. "
+            + costOfAcknowledging
     }
 
     /// **Every piece of this book's history this Mac remembers and cannot

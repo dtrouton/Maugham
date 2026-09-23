@@ -380,6 +380,28 @@ public final class OpLogDeviceState: @unchecked Sendable {
                 stored.foreignStreams[key] = memory
                 changed = true
             }
+            // **A stream that answered and lost nothing is expected again**
+            // (fix round 1, Minor 3), whether or not its memory MOVED and
+            // whether or not `clearsTruncation` was computed true.
+            //
+            // The two clauses below could not see one case: a stream that
+            // comes back ROTATED — a new segment, a fresh tail, the remembered
+            // line inside the segment — answers `loss` nil (the rotation
+            // tolerance) and `clearsTruncation` FALSE (the tail does not hold
+            // the remembered line). Its memory moves on and the writer's
+            // acknowledgement of the old loss survived it, so the sweeps went
+            // on excusing a stream that is whole. It self-heals on the next
+            // load, which is why it is a minor — but *the next load* of a
+            // chapter nobody reopens is never.
+            //
+            // The condition is the honest one: a memory is written only where
+            // the stream ANSWERED and nothing was lost (`ForeignStreamWatch
+            // .settle`), so *memory and no truncation* is exactly *this stream
+            // is whole now*.
+            if update.memory != nil, update.truncation == nil,
+               stored.acknowledgedLosses.removeValue(forKey: key) != nil {
+                changed = true
+            }
             if let truncation = update.truncation {
                 // **The same loss is the same finding**, keeping the day it
                 // was noticed. A stream that stays short is re-detected on

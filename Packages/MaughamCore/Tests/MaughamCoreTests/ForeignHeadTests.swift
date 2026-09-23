@@ -1094,6 +1094,137 @@ final class ForeignHeadTests: XCTestCase {
             "the same fact, already put down")
     }
 
+    /// **A stream that comes back ROTATED is expected again** (fix round 1,
+    /// Minor 3).
+    ///
+    /// The clearing rule used to have two clauses — a DIFFERENT truncation, or
+    /// `clearsTruncation` — and neither sees this shape: a rotated return
+    /// answers `loss` nil (the rotation tolerance) while `clearsTruncation` is
+    /// false, because the tail does not hold the remembered line. The memory
+    /// moved on and the acknowledgement survived it, so the sweeps went on
+    /// excusing a stream that was whole.
+    func test_aRotatedReturnClearsTheAcknowledgementAndIsExpectedAgain() async throws {
+        try writeRootRecord()
+        try admitSam()
+        let url = try writeFile(
+            by: sam.author,
+            ops: ["01", "02", "03"].map { op($0, by: sam.author) })
+        _ = try await load()
+        try truncate(url, toFirst: 1)
+        _ = try await load()
+        XCTAssertEqual(truncations().count, 1)
+        rootState.acknowledgeLoss(samStreamKey, inRoot: projectURL)
+        XCTAssertTrue(
+            rootState.expectedStreams(
+                inRoot: projectURL, writtenBy: [samSlug]).isEmpty,
+            "the premise: the sweeps are excusing this stream")
+
+        // Sam's Mac writes on and rotates: the stream takes in a segment this
+        // Mac has never seen, and the tail that remains holds no line it
+        // remembers. Nothing was lost — that is the rotation tolerance — but
+        // `clearsTruncation` cannot say so.
+        try writeFile(
+            by: sam.author, ops: ["04", "05"].map { op($0, by: sam.author) })
+        _ = try await samsStore().sealTailIfNeeded(
+            docId: docId, deviceSlug: sam.author.slug, threshold: 1)
+        try writeFile(by: sam.author, ops: [op("06", by: sam.author)])
+        _ = try await load()
+
+        XCTAssertTrue(
+            rootState.acknowledgedLosses(inRoot: projectURL).isEmpty,
+            "a stream that answered and lost nothing is expected again")
+        XCTAssertFalse(
+            rootState.expectedStreams(
+                inRoot: projectURL, writtenBy: [samSlug]).isEmpty)
+    }
+
+    /// **The converse, at the door itself**: an update that carries a memory
+    /// AND a standing truncation keeps the acknowledgement. The condition is
+    /// *answered and nothing lost*, never *answered*.
+    ///
+    /// `ForeignStreamWatch.settle` never writes both together — a memory is
+    /// written only where the loss is nil — so this is asserted of
+    /// `settleForeign` directly, which is the shape a second caller could
+    /// produce.
+    func test_aMemoryWrittenBesideAStandingLossKeepsTheAcknowledgement() throws {
+        let memory = OpLogDeviceState.ForeignStreamMemory(
+            deviceSlug: samSlug, head: "aaaa", segmentDigests: [])
+        rootState.settleForeign([.init(
+            streamKey: samStreamKey, root: projectURL,
+            memory: memory,
+            truncation: .init(
+                streamKey: samStreamKey, deviceSlug: samSlug,
+                lost: "aaaa", noticedAt: Date(timeIntervalSince1970: 1)))])
+        rootState.acknowledgeLoss(samStreamKey, inRoot: projectURL)
+
+        rootState.settleForeign([.init(
+            streamKey: samStreamKey, root: projectURL,
+            memory: memory,
+            truncation: .init(
+                streamKey: samStreamKey, deviceSlug: samSlug,
+                lost: "aaaa", noticedAt: Date(timeIntervalSince1970: 2)))])
+
+        XCTAssertFalse(
+            rootState.acknowledgedLosses(inRoot: projectURL).isEmpty,
+            "the loss still stands, so what the writer put down still stands")
+    }
+
+    // MARK: - What the rows say (fix round 1, Important 1)
+
+    /// **An absent stream is not asserted to be gone.** `settle`'s own rule is
+    /// that a stream with no file is MISSING rather than truncated — iCloud
+    /// has moved it, or a sync is halfway through — and the row carries a
+    /// control, so a writer told their collaborator's history is gone can
+    /// press Acknowledge over a stream that was only ever mid-sync.
+    func test_theAbsentRowSaysWhatIsKnownAndTheTruncationRowIsUnchanged() async throws {
+        try writeRootRecord()
+        try admitSam()
+        let url = try writeFile(by: sam.author, ops: [op("01", by: sam.author)])
+        _ = try await load()
+        try FileManager.default.removeItem(at: url)
+        _ = try await load()
+        let table = try await reader().trust()
+
+        let absent = try XCTUnwrap(OpLogStore.lostHistory(
+            in: projectURL, state: rootState, trust: table).first)
+        XCTAssertEqual(absent.what, .absent)
+        XCTAssertTrue(absent.sentence.contains("can\u{2019}t find"), absent.sentence)
+        XCTAssertTrue(absent.sentence.contains("may still be syncing"), absent.sentence)
+        XCTAssertFalse(
+            absent.sentence.contains("gone from the folder"),
+            "what this Mac cannot know is not stated as a fact: \(absent.sentence)")
+        XCTAssertFalse(
+            absent.sentence.contains("not in this book any more"), absent.sentence)
+
+        // A witnessed truncation keeps its wording, because that one WAS seen:
+        // this Mac held the remembered line and the bytes that no longer carry
+        // it, in one reading.
+        let shortened = OpLogStore.LostHistory(
+            streamKey: samStreamKey, deviceSlug: samSlug, label: "Sam",
+            what: .line, noticedAt: Date(timeIntervalSince1970: 1),
+            acknowledged: false)
+        XCTAssertTrue(
+            shortened.sentence.contains("history here is shorter than it was"),
+            shortened.sentence)
+        XCTAssertTrue(
+            shortened.sentence.contains("what is gone is gone from the folder"),
+            shortened.sentence)
+    }
+
+    /// The cost of acknowledging is ONE sentence, and the row after the press
+    /// carries it — the control before the press carries the same one
+    /// (`HistoryPane.acknowledgeLostHelp`, pinned on the Mac side).
+    func test_theCostOfAcknowledgingIsOneSentence() {
+        XCTAssertTrue(
+            OpLogStore.LostHistory.acknowledgedSentence.hasSuffix(
+                OpLogStore.LostHistory.costOfAcknowledging),
+            OpLogStore.LostHistory.acknowledgedSentence)
+        XCTAssertTrue(
+            OpLogStore.LostHistory.costOfAcknowledging.contains(
+                "judged as written after that change"),
+            OpLogStore.LostHistory.costOfAcknowledging)
+    }
+
     /// **The acknowledgement never enters a mark.** Two Macs reading the same
     /// bytes, one of which has been told, compute the same positions for every
     /// stream both can read — a mark is derived from the shared bytes alone,

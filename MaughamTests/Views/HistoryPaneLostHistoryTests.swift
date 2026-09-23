@@ -55,7 +55,7 @@ final class HistoryPaneLostHistoryTests: XCTestCase {
         // The three losses are three different facts and say so.
         XCTAssertTrue(rows[0].sentence.contains("shorter than it was"))
         XCTAssertTrue(rows[1].sentence.contains("sealed history is missing"))
-        XCTAssertTrue(rows[2].sentence.contains("not in this book any more"))
+        XCTAssertTrue(rows[2].sentence.contains("can\u{2019}t find"))
     }
 
     /// A stream with no file at all was never NOTICED on a day, so no row
@@ -95,6 +95,45 @@ final class HistoryPaneLostHistoryTests: XCTestCase {
             "the consequence, not the gesture")
         XCTAssertFalse(
             HistoryPane.acknowledgeLostHelp.localizedCaseInsensitiveContains("dismiss"))
+    }
+
+    /// **And it carries the cost BEFORE the press** (fix round 1, Important 1).
+    ///
+    /// The cost was stated only in the row afterwards, which is the wrong half
+    /// of the act: a writer pressing this over a stream that is merely
+    /// mid-sync has taken on that everything it eventually delivers is judged
+    /// as written after whatever they decide in between. One spelling, shared
+    /// with the row (`LostHistory.costOfAcknowledging`), so the two cannot
+    /// drift.
+    func test_theAcknowledgeControlSaysWhatItCostsBeforeItIsPressed() {
+        XCTAssertTrue(
+            HistoryPane.acknowledgeLostHelp.hasSuffix(
+                OpLogStore.LostHistory.costOfAcknowledging),
+            HistoryPane.acknowledgeLostHelp)
+        XCTAssertTrue(
+            HistoryPane.acknowledgeLostHelp.contains(
+                "judged as written after that change"),
+            HistoryPane.acknowledgeLostHelp)
+    }
+
+    /// **The absent row says only what this Mac knows** (fix round 1,
+    /// Important 1), and the witnessed ones are untouched.
+    func test_theAbsentRowNeverAssertsThatTheHistoryIsGone() {
+        let absent = try? XCTUnwrap(
+            HistoryPane.lostHistoryRows([lost(what: .absent)]).first)
+        XCTAssertTrue(absent?.sentence.contains("can\u{2019}t find") ?? false,
+                      absent?.sentence ?? "—")
+        XCTAssertTrue(absent?.sentence.contains("may still be syncing") ?? false,
+                      absent?.sentence ?? "—")
+        XCTAssertFalse(absent?.sentence.contains("gone from the folder") ?? true,
+                       absent?.sentence ?? "—")
+
+        for witnessed in [OpLogStore.LostHistory.What.line, .segment] {
+            let row = HistoryPane.lostHistoryRows([lost(what: witnessed)]).first
+            XCTAssertTrue(
+                row?.sentence.contains("what is gone is gone from the folder") ?? false,
+                "a truncation WAS seen, and keeps its wording: \(row?.sentence ?? "—")")
+        }
     }
 
     // MARK: - What the row offers

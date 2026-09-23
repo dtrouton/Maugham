@@ -605,9 +605,18 @@ struct HistoryPane: View {
     /// telling this Mac that the history is gone, which is the only thing that
     /// stops the book waiting for it before it will change what somebody may
     /// write.
+    ///
+    /// **And what it costs, before the press** (fix round 1, Important 1). The
+    /// cost was stated only in the row AFTER the act, which is the wrong half
+    /// of it: a writer pressing this on a stream that is merely mid-sync has
+    /// taken on that everything it eventually delivers is judged as written
+    /// after whatever they decide in the meantime. The clause is
+    /// `LostHistory.costOfAcknowledging`'s — one spelling, read here and
+    /// repeated in the row, never written twice.
     static let acknowledgeLostHelp =
         "I know this history is gone — stop waiting for it before changing "
-        + "what somebody may write in this book"
+        + "what somebody may write in this book. "
+        + OpLogStore.LostHistory.costOfAcknowledging
 
     /// Whose chain this Mac is on — nil when it has joined nobody's.
     ///
