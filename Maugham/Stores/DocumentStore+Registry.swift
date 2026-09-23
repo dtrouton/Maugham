@@ -131,8 +131,22 @@ extension DocumentStore {
     /// so no mark of any shape could name it.
     @discardableResult
     public func changePermit(
+        person fingerprint: String, to permit: Permit
+    ) async throws -> PersonRecord {
+        try await changePermit(person: fingerprint, to: permit, settling: [])
+    }
+
+    /// **The same verb, told which pieces this act SETTLES** (fix round 1's
+    /// C1, made internal in fix round 3's minor 4).
+    ///
+    /// `settling` is not a knob: it names the pieces whose §4.5 question this
+    /// act is answering, and passing it means *cut those streams before her
+    /// held span*. Exactly one caller has an answer to give — `pieceIsTheirs`
+    /// — so the parameter is internal and the public verb above is the
+    /// signature every other surface has always called.
+    func changePermit(
         person fingerprint: String, to permit: Permit,
-        settling: Set<String> = []
+        settling: Set<String>
     ) async throws -> PersonRecord {
         // Refuse rather than record a mark that came back short, for the
         // revocation's reason: a short mark moves a permission boundary
@@ -386,8 +400,17 @@ extension DocumentStore {
     /// finishes the job — each record's own verb is idempotent in both halves.
     @discardableResult
     public func changePermit(
+        everyRecordOf person: String, to permit: Permit
+    ) async throws -> [PersonRecord] {
+        try await changePermit(everyRecordOf: person, to: permit, settling: [])
+    }
+
+    /// The plural verb's own settling form; internal for the singular's
+    /// reason (fix round 3, minor 4).
+    @discardableResult
+    func changePermit(
         everyRecordOf person: String, to permit: Permit,
-        settling: Set<String> = []
+        settling: Set<String>
     ) async throws -> [PersonRecord] {
         let projectURL = self.projectURL
         let author = Document.loadIdentities.author
@@ -1221,12 +1244,16 @@ extension DocumentStore {
         var pieces = PermitControl.pieces(displaying: standing)
         pieces.insert(docId)
         let widened = PermitControl.permit(for: .somePieces, pieces: pieces)
-        // **It may only ever widen, and that is what licenses the cut below**
-        // (fix round 1, C1). `settling` makes the mark fall BEFORE her held
-        // span in this piece, so those lines are re-judged under `widened`;
-        // re-judging is safe in one direction only, and this is the assertion
-        // that it is that direction. `Permit.covers` is the permit layer's own
-        // comparison — never a rung tested here (tripwire 47).
+        // **An ASSERTION about the two lines above it, not a reachable
+        // refusal** (fix round 3, minor 4). `widened` is `standing`'s piece
+        // list plus one id, so it covers `standing` by construction and this
+        // can only fire if somebody changes how the permit above is built.
+        // It is kept because of what it is guarding: `settling` makes the mark
+        // fall BEFORE her held span, so those lines are re-judged under
+        // `widened` — and re-judging is safe in one direction only. The day
+        // this verb learns to narrow, the cut stops being safe, and this line
+        // is where that is noticed. `Permit.covers` is the permit layer's own
+        // comparison, never a rung tested here (tripwire 47).
         guard widened.covers(standing) else {
             throw PieceIsTheirsRefused(person: person)
         }
@@ -1254,10 +1281,27 @@ extension DocumentStore {
     }
 
     /// Every question about a piece this Mac has already closed in this book —
-    /// put off OR answered (fix round 1). One reader, because *has this been
-    /// asked* is one question.
+    /// put off OR answered (fix round 1). One reader, because *should this be
+    /// ASKED again* is one question and both answers are no.
     func closedPieceQuestions() -> Set<OpLogDeviceState.DeclinedPiece> {
         Document.loadDeviceState.closedPieceQuestions(inRoot: projectURL)
+    }
+
+    /// **The ones put OFF, and only those** (fix round 3, minor 5).
+    ///
+    /// *Should this be asked again* and *what happened to it* are different
+    /// questions, and People & Devices needs the second: a question the writer
+    /// ANSWERED must not be drawn at all, while one they put off is drawn with
+    /// a note saying so. Reading the closed set for both made a settled
+    /// question appear under *You put this off*, which is the opposite of what
+    /// the writer did.
+    func declinedPieceQuestions() -> Set<OpLogDeviceState.DeclinedPiece> {
+        Set(Document.loadDeviceState.declinedPieces(inRoot: projectURL).keys)
+    }
+
+    /// The ones ANSWERED. The pane filters these out entirely.
+    func settledPieceQuestions() -> Set<OpLogDeviceState.DeclinedPiece> {
+        Set(Document.loadDeviceState.settledPieces(inRoot: projectURL).keys)
     }
 
     // MARK: - Who is waiting, across this window

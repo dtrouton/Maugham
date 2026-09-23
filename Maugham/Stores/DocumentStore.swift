@@ -1182,10 +1182,21 @@ public final class DocumentStore {
         // the first.
         let started = Set(
             document.startedAPiece.map { pieceQuestionKey($0, document.docId) })
-        let closed = Set(closedPieceQuestions().map {
-            pieceQuestionKey($0.person, $0.docId)
-        })
-        let unasked = started.subtracting(announcedPieceQuestions).subtracting(closed)
+        // **The memory is read only where there is a question to ask about**
+        // (fix round 3, minor 6). `closedPieceQuestions` parses this device's
+        // whole per-book memory, and this function runs on every load and on
+        // every external-change callback — which includes this device's own
+        // typing echoes. A book with no piece question pays nothing.
+        let unasked: Set<String>
+        if started.isEmpty {
+            unasked = []
+        } else {
+            let closed = Set(closedPieceQuestions().map {
+                pieceQuestionKey($0.person, $0.docId)
+            })
+            unasked = started.subtracting(announcedPieceQuestions)
+                .subtracting(closed)
+        }
         guard !newcomers.isEmpty || !unasked.isEmpty else { return }
         announcedPendingDevices.formUnion(newcomers)
         announcedPieceQuestions.formUnion(unasked)

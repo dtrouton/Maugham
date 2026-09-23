@@ -62,12 +62,6 @@ struct PeopleAndDevicesModel: Equatable {
     /// started on a Mac, and that Mac decides who is in it. The label is the
     /// starting Mac's own (the person record's `label`); with none known the
     /// sentence still says where to go.
-    /// What a question the writer has already put off says about itself, in
-    /// the one place it is still offered (fix round 1, I3).
-    static let pieceQuestionPutOff =
-        "You put this off. It is still waiting — nothing has been written and "
-        + "nothing has been set aside."
-
     static func revokeNotMine(startedOn label: String?) -> String {
         guard let label else {
             return "Only the Mac this book was started on can remove a device"
@@ -75,6 +69,16 @@ struct PeopleAndDevicesModel: Equatable {
         return "Devices are removed on \(label), where this book was started"
     }
     static let revokeARoot = "The Mac a book was started on can’t be removed from it"
+
+    /// What a question the writer has already put off says about itself, in
+    /// the one place it is still offered (fix round 1, I3).
+    ///
+    /// A question they ANSWERED never reaches this row at all (fix round 3,
+    /// minor 5) — it is over, and saying they put it off would tell them the
+    /// opposite of what they did.
+    static let pieceQuestionPutOff =
+        "You put this off. It is still waiting — nothing has been written and "
+        + "nothing has been set aside."
     static let alreadyRevoked = "Already revoked"
 
     /// What Re-admit says, and what it is: the same door an admission goes
@@ -693,7 +697,8 @@ struct PeopleAndDevicesModel: Equatable {
         unsignedStreams: [String] = [],
         pieces: [PermitControl.Piece] = [],
         heldPieceStarts: [String: [String: Int]] = [:],
-        declinedPieces: Set<OpLogDeviceState.DeclinedPiece> = []
+        declinedPieces: Set<OpLogDeviceState.DeclinedPiece> = [],
+        settledPieces: Set<OpLogDeviceState.DeclinedPiece> = []
     ) -> PeopleAndDevicesModel {
         if let refusal = standing.refusal {
             return PeopleAndDevicesModel(
@@ -784,9 +789,16 @@ struct PeopleAndDevicesModel: Equatable {
         // with no way back to a question they meant to answer later.
         var pieceTitleById: [String: String] = [:]
         for piece in pieces { pieceTitleById[piece.id] = piece.title }
+        // **SETTLED questions are not drawn; DECLINED ones are** (fix round
+        // 3, minor 5). The two are different facts and the row says which:
+        // a question the writer ANSWERED is over — drawing it under *You put
+        // this off* tells them the opposite of what they did — while one they
+        // put off is still theirs to come back to, and this is the only
+        // surface that offers it.
         let asked = LoadQuestions.newPieces(
             held: HeldLineUnion(counts: held, startedAPiece: heldPieceStarts),
-            registry: registry, titles: pieceTitleById, declined: [], me: me)
+            registry: registry, titles: pieceTitleById,
+            declined: settledPieces, me: me)
         let pendingPieces: [PendingPiece] = asked.map { question in
             PendingPiece(
                 question: question,

@@ -177,6 +177,42 @@ final class HeldLineNoticeTests: XCTestCase {
         XCTAssertFalse(PeopleAndDevicesModel.pieceQuestionPutOff.isEmpty)
     }
 
+    /// **A question the writer ANSWERED is not drawn at all** (fix round 3,
+    /// minor 5).
+    ///
+    /// Put off and answered are different facts, and reading one set for both
+    /// made a settled question appear under *You put this off* — which tells
+    /// the writer the opposite of what they did, about a permit change they
+    /// have already made.
+    func test_aQuestionAlreadyAnsweredIsNotDrawnAtAll() throws {
+        let root = String(repeating: "a1", count: 32)
+        let registry = Registry(devices: [], people: [
+            PersonRecord(person: root, label: "Denver", ownName: "Mac",
+                         admittedAt: Date(timeIntervalSince1970: 1),
+                         admittedBy: root),
+            PersonRecord(person: sam, label: "Sam", ownName: "Sam’s Mac",
+                         admittedAt: Date(timeIntervalSince1970: 2),
+                         admittedBy: root),
+        ])
+        let model = PeopleAndDevicesModel.make(
+            registry: registry,
+            table: TrustTable.resolve(
+                registry: registry, mine: .forTesting(author: .softwareForTesting()),
+                joinedRoot: nil),
+            remembered: [:], requests: [], claimants: [],
+            standing: .init(code: "AAAA", isRoot: true),
+            me: root,
+            held: [sam: 3],
+            pieces: [.init(id: "ch-2", title: "The Orchard")],
+            heldPieceStarts: [sam: ["ch-2": 3]],
+            declinedPieces: [],
+            settledPieces: [.init(person: sam, docId: "ch-2")])
+
+        XCTAssertTrue(
+            model.pendingPieces.isEmpty,
+            "answered is over; it is not a question waiting to be answered")
+    }
+
     // MARK: - A History row about somebody with no record (fix round 1, I2)
 
     /// The clause is DRAWN, not merely available: `unknownSubject` had no

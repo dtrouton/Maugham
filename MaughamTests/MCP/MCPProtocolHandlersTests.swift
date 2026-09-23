@@ -250,4 +250,41 @@ final class MCPProtocolHandlersTests: XCTestCase {
             (payload["message"] as? String ?? "").contains("Optional("),
             "never raw enum syntax")
     }
+
+    /// **The hint names BOTH causes of the wait** (P3b Task 7's M1).
+    ///
+    /// The refusal has exactly two, and this handler holds no project to tell
+    /// them apart: either the piece's ops have not synced, or this device may
+    /// write only SOME of the book and this piece is not one of its pieces.
+    /// The first is fixed by waiting and the second never is — it is fixed by
+    /// the person who started the book. Naming only the first sent a scoped
+    /// author's Claude to wait for a file that was never coming.
+    func test_toolsCall_waitingForPiece_hintNamesBothCausesAndGuessesNeither()
+        async throws
+    {
+        let router = MCPRouter()
+        router.register(method: "anno") { _ in
+            throw DocumentLoadError.waitingForPiece(docId: "ch-1", from: "Sam")
+        }
+        let resp = try await MCPToolsCallHandler.handle(
+            paramsJSON: Data(#"{"name":"anno","arguments":{}}"#.utf8),
+            router: router)
+        let any = try JSONDecoder().decode(AnyJSON.self, from: resp)
+        guard case .object(let obj) = any,
+              case .array(let content) = obj["content"],
+              case .object(let block) = content.first ?? .null,
+              case .string(let text) = block["text"] else {
+            return XCTFail("expected a text payload, got \(any)")
+        }
+        let payload = try JSONSerialization.jsonObject(
+            with: Data(text.utf8)) as? [String: Any] ?? [:]
+        let hint = payload["hint"] as? String ?? ""
+        XCTAssertTrue(hint.contains("sync"), hint)
+        XCTAssertTrue(
+            hint.localizedCaseInsensitiveContains("only"), 
+            "the scoped-author arm: \(hint)")
+        XCTAssertTrue(
+            hint.contains("People & Devices"),
+            "and where that one is fixed: \(hint)")
+    }
 }

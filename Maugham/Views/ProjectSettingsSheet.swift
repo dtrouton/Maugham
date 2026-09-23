@@ -495,7 +495,8 @@ struct ProjectSettingsSheet: View {
         // and this Mac's own memory of the ones already put off, which this
         // pane lists and the sheet does not.
         let heldPieceStarts = union.startedAPiece
-        let declinedPieces = store.documentStore?.closedPieceQuestions() ?? []
+        let declinedPieces = store.documentStore?.declinedPieceQuestions() ?? []
+        let settledPieces = store.documentStore?.settledPieceQuestions() ?? []
         // What a narrowing would cost this book: the unsigned rows' subject,
         // and the sheet's first-narrowing sentence. It is the same read the
         // admission sheet makes, through the same store verb, so the two
@@ -552,7 +553,8 @@ struct ProjectSettingsSheet: View {
                     unsignedStreams: unsignedStreams,
                     pieces: pieces,
                     heldPieceStarts: heldPieceStarts,
-                    declinedPieces: declinedPieces)
+                    declinedPieces: declinedPieces,
+                    settledPieces: settledPieces)
             } catch {
                 // A registry this Mac could not read judges nobody, so there is
                 // no chain to be a stranger to and no request to make of the
