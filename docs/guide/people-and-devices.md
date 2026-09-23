@@ -155,11 +155,21 @@ below.
 finished with — sold, wiped, replaced. It is the machine saying *I have
 stopped*, so you can only retire the Mac you are sitting at.
 
-Afterwards, every other machine holds back what this one writes. This one keeps
-writing into its own copy quite normally, because it can still see its own
-hardware key — so Maugham tells you plainly, in History and on the row, that
-what you write here now stays here. **A Mac cannot be un-retired.** If you come
-back to it, it comes back as a new machine and you admit it again.
+Afterwards, every other machine **sets aside** what this one writes — it is kept
+in backup and listed in History, not quietly dropped, but it is not in the book.
+This one keeps writing into its own copy quite normally, because it can still
+see its own hardware key — so Maugham tells you plainly, in History and on the
+row, that what you write here now stays here.
+
+**A Mac cannot be un-retired.** If you come back to it, it comes back as a new
+machine and you admit it again — and admitting it does **not** bring back what
+it wrote after it retired, because that was set aside rather than held. Those
+words come back the way any set-aside words do: through **Send to Inbox** in
+History, one capture at a time, in your own hand.
+
+The last thing it wrote before retiring is not affected. A machine seals its
+work in batches, and whatever it had not sealed yet when you retired it is
+treated as work from before — it stays in the book everywhere.
 
 ## Two Macs, and a book that arrived without you
 

@@ -236,7 +236,7 @@ One Core value, **`Posture`**, derived from *this device's own permit for the do
 
 - **Constitution.** *AI is never the author* gains its storage-layer sentence and falsification condition (parent §6) and the `assistant` row as its mechanism. New, stated as a limit: *roles guard the words, not the binder.*
 - **ADR 0032 — P3 addendum:** line-by-line set-aside; marks as chain positions and why not opIds or local memory; events as history and the timeline as the only thing the check reads; scope; the root asymmetry; the load seam's amendment to the Bootstrap invariant.
-- **Guides.** `docs/guide/people-and-devices.md` gains roles, scope, the three questions and the inbox door; `docs/guide/index.json` is explicit. The WF1 spec gains a header note: Component A retired.
+- **Guides.** `docs/guide/people-and-devices.md` gains roles, scope, the questions a load can raise (TWO — see §7.3 as amended) and the inbox door; `docs/guide/index.json` is explicit. The WF1 spec gains a header note: Component A retired.
 - **CLAUDE.md.** Tripwires 39–42 extended (events directory; events' writer). New tripwires with census + planted offender: the permit table has one spelling; `Posture` is asked of the permit; the role check reads the timeline, never `PersonRecord.role`. The Hard-invariants Bootstrap bullet is reworded per §4.6. The OpLog per-area cell gains P3.
 
 ## 11. Amendments to the parent spec (annotate in place)
