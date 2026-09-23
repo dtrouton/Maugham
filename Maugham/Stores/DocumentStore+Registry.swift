@@ -917,6 +917,137 @@ extension DocumentStore {
         case unreadable(name: String)
     }
 
+    // MARK: - What a narrowing would cost this book (P3b Tasks 4 and 5)
+
+    /// **What this book's own state says about narrowing it**, and which of its
+    /// streams answer to no key.
+    ///
+    /// Two surfaces need this and must not compute it twice: the admission
+    /// sheet, before Admit is pressable over a narrowing rung, and People &
+    /// Devices, for its unsigned rows and the same first-narrowing sentence.
+    /// Two bodies would let the sheet and the pane say different things about
+    /// one folder on one afternoon.
+    ///
+    /// Both halves come off the FOLDER rather than this Mac's own enclave:
+    /// whether anybody here has already been given less than the whole book
+    /// (`TrustTable.hasNarrowingPermits`) and which streams no key can name
+    /// (`OpLogStore.unattributablePositions`, the same sweep a narrowing act
+    /// takes its photograph with). The Mac that signs nothing is usually
+    /// somebody else's.
+    ///
+    /// **It reports a refusal rather than guessing.** A folder this Mac could
+    /// not read answers with the read's own sentence and no streams; the act
+    /// itself runs the same sweep and refuses in the error's own words, so a
+    /// guess here would be a second, quieter account of a failure the writer is
+    /// about to be told about properly.
+    ///
+    /// **No `expecting:`, deliberately.** This is a READ for a sentence, not the
+    /// photograph a verb writes: a stream that has gone missing mid-sync must
+    /// refuse the ACT (`sweptUnsignedSnapshot` passes `everyExpectedStream`) and
+    /// must not cost the writer the sentence explaining what the act would do.
+    struct UnsignedReading: Sendable, Equatable {
+        /// Has anybody in this book already been given less than the whole of
+        /// it? Narrowing is sticky, so this only ever becomes true.
+        var alreadyNarrowed: Bool = false
+        /// The streams no key names, by device slug (or stream key where a file
+        /// carries no slug), sorted.
+        var streams: [String] = []
+        /// The read's own sentence, where it refused. Everything else is then
+        /// its default, deliberately — a guess is worse than nothing here.
+        var refusal: String?
+
+        var holdsAnUnsignedStream: Bool { !streams.isEmpty }
+    }
+
+    /// The reading, off the main actor. `nil` refusal is a reading that stands.
+    func unsignedReading() async -> UnsignedReading {
+        let projectURL = self.projectURL
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        return await Task.detached(priority: .userInitiated) {
+            DocumentStore.readUnsigned(
+                in: projectURL, identities: identities, cache: cache)
+        }.value
+    }
+
+    /// The same read, synchronous and folder-facing, so a caller that is
+    /// already detached does not nest a second `Task`.
+    nonisolated static func readUnsigned(
+        in projectURL: URL, identities: LocalIdentities, cache: RegistryCache
+    ) -> UnsignedReading {
+        do {
+            let resolved = try TrustResolution.resolveVerified(
+                projectURL: projectURL, identities: identities, cache: cache)
+            let unsigned = try OpLogStore.unattributablePositions(
+                in: projectURL, trust: resolved.table)
+            // **Named the way the DOOR names them** — by device slug, falling
+            // back to the stream key where a file carries none. One Mac is one
+            // row whatever it wrote in, because a stream outlives its
+            // filenames and two rows for one machine would ask the writer
+            // about it twice. The spelling is `HeldLines`', so an unsigned row
+            // here and a held-line holder in History are the same word.
+            let named = unsigned.streams.keys.map { key in
+                HeldLines.unsignedHolder(
+                    forStreamKey: key,
+                    deviceSlug: PermitMark.deviceSlug(ofStreamKey: key))
+            }
+            return UnsignedReading(
+                alreadyNarrowed: resolved.table.hasNarrowingPermits,
+                streams: Set(named.compactMap(HeldLines.streamOfUnsignedHolder))
+                    .sorted())
+        } catch {
+            return UnsignedReading(refusal: error.localizedDescription)
+        }
+    }
+
+    // MARK: - The two repairs (P3b Task 5)
+
+    /// **Bring a person's record up to this book's history** — spec §3.2's
+    /// crash window, pressed by the root.
+    ///
+    /// It writes a record and NO event, so it narrows nothing: no photograph is
+    /// owed and no schema gate, and neither is paid. The rule about what the
+    /// record should say is `RegistryAdmission.resignFromTimeline`'s, which
+    /// reads the timeline the check reads (tripwire 43).
+    @discardableResult
+    public func resignRecord(person fingerprint: String) async throws -> PersonRecord {
+        let projectURL = self.projectURL
+        let author = Document.loadIdentities.author
+        let cache = Document.loadRegistryCache
+        let record = try await Task.detached(priority: .userInitiated) {
+            try RegistryAdmission.resignFromTimeline(
+                person: fingerprint, in: projectURL, by: author, cache: cache)
+        }.value
+
+        await settle(after: "re-signing the record for",
+                     DeviceCode.short(fingerprint))
+        return record
+    }
+
+    /// **Write this Mac's own registry record again** (audit PR #65's F4).
+    ///
+    /// The last resort, over a record the reader refuses that this device holds
+    /// no earlier bytes for — Restore's case with nothing to restore. Every
+    /// refusal is `RegistryPresence.writeOwnRecordAgain`'s: it is never another
+    /// device's record, never one that verifies, and for a person record never
+    /// where some other Mac's root decides who is in this book.
+    @discardableResult
+    public func writeOwnRecordAgain(_ ref: RecordRef) async throws -> URL {
+        let projectURL = self.projectURL
+        let identities = Document.loadIdentities
+        let name = DocumentStore.thisMacsName
+        let writerName = DocumentStore.thisWritersName
+        let url = try await Task.detached(priority: .userInitiated) {
+            try RegistryPresence.writeOwnRecordAgain(
+                ref, in: projectURL, identities: identities,
+                name: name, writerName: writerName, kind: .mac)
+        }.value
+
+        await settle(after: "writing this Mac\u{2019}s own record again for",
+                     DeviceCode.short(ref.fingerprint))
+        return url
+    }
+
     // MARK: - Who is waiting, across this window
 
     /// **Held lines by device, over everything this window can see** — the open

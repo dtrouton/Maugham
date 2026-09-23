@@ -112,6 +112,22 @@ public struct PermitTimeline: Equatable, Hashable, Sendable {
         entries = built
     }
 
+    /// **One person's timeline, off a registry** (P3b Task 5).
+    ///
+    /// The filter is `RegistryAdmission.events(about:in:)`'s and is asked
+    /// rather than repeated, for that function's own stated reason: a filter
+    /// written per caller can drift, and the drift that is silent is the one
+    /// that MISSES an event, which reads as a permit nobody ever changed.
+    ///
+    /// It is here so a SURFACE can ask what a person may write without either
+    /// of the two things tripwire 43 forbids — reading `PersonRecord.role` to
+    /// decide something, or testing a permit against a literal rung. The pane's
+    /// Re-admit needs exactly this: the permit she held when she was revoked,
+    /// which is `current`, because a revocation installs no entry.
+    public init(about person: String, in registry: Registry) {
+        self.init(events: RegistryAdmission.events(about: person, in: registry))
+    }
+
     /// **What governs a line written before this person's first event**
     /// (P3a Task 5's fix round 3).
     ///

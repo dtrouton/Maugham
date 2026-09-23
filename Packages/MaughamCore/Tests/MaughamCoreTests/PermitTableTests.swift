@@ -1253,4 +1253,46 @@ final class DocumentClassTests: XCTestCase {
     func test_aPermitThisBuildCannotReadHasNoRungToDrawItWith() {
         XCTAssertNil(Permit.rung(of: .unjudgeable(raw: "curator")))
     }
+
+    // MARK: - P3b Task 5: the two accessors a surface asks
+
+    /// **The permit a RECORD says they hold**, spelled in the permit layer so
+    /// no surface assembles `Permit.parse(role:…)` for itself (tripwire 44).
+    /// It round-trips every rung, including the two whose record omits the
+    /// scope and pieces keys entirely.
+    func test_everyRungRoundTripsThroughAPersonRecord() {
+        for permit in [Permit.reviewer, .author(.book),
+                       .author(.pieces(["ch1", "ch4"])), .author(.pieces([]))] {
+            let record = PersonRecord(
+                person: "abcd", label: "Sam", ownName: "Sam's Mac",
+                role: permit.wireRole, scope: permit.wireScope,
+                pieces: permit.wirePieces,
+                admittedAt: Date(timeIntervalSince1970: 1), admittedBy: "root")
+            XCTAssertEqual(Permit.permit(recordedIn: record), permit)
+        }
+    }
+
+    /// A P2-era record carries neither key, and a missing `scope` MEANS the
+    /// whole book (spec §3.1) — so the accessor answers what P2 meant.
+    func test_ap2RecordWithNoScopeOrPiecesIsAnAuthorOfTheWholeBook() {
+        let record = PersonRecord(
+            person: "abcd", label: "Sam", ownName: "Sam's Mac",
+            admittedAt: Date(timeIntervalSince1970: 1), admittedBy: "root")
+
+        XCTAssertEqual(Permit.permit(recordedIn: record), .author(.book))
+    }
+
+    /// **The rung half of `PermitPartition.startsAPieceNobodyHasClaimed`**, and
+    /// the two must agree: the partition ENFORCES the rule and the accessor is
+    /// what a surface asks so that it never tests a permit against a literal
+    /// rung (tripwire 47).
+    func test_onlyAnAuthorOfSomePiecesMayStartAPieceOfTheirOwn() {
+        XCTAssertTrue(Permit.author(.pieces([])).mayStartAPieceOfTheirOwn)
+        XCTAssertTrue(Permit.author(.pieces(["ch1"])).mayStartAPieceOfTheirOwn)
+        XCTAssertFalse(Permit.reviewer.mayStartAPieceOfTheirOwn)
+        XCTAssertFalse(Permit.author(.book).mayStartAPieceOfTheirOwn,
+                       "an author of the whole book has nothing to start — "
+                       + "every piece is already theirs")
+        XCTAssertFalse(Permit.unjudgeable(raw: "editor").mayStartAPieceOfTheirOwn)
+    }
 }

@@ -248,6 +248,46 @@ public enum Permit: Equatable, Hashable, Sendable {
         return []
     }
 
+    /// **May a piece nobody has written in yet become theirs?** (spec §4.5.)
+    ///
+    /// The rung half of `PermitPartition.startsAPieceNobodyHasClaimed`, which
+    /// is the rule that ENFORCES it and which adds the two facts a rung cannot
+    /// carry: that the line is manuscript text signed by the person's own hand,
+    /// and that nobody else has written the piece's text yet. It is here
+    /// because *which rungs can start a piece* is a fact about the ladder, and
+    /// the only other way for a surface to ask it is to test a permit against a
+    /// literal rung — tripwire 47, one step early.
+    ///
+    /// A reviewer starts nothing (every manuscript line of theirs is refused
+    /// wherever it lands). An author of the whole book has nothing to start —
+    /// every piece is already theirs — so this is about the middle rung alone,
+    /// which is exactly the rung the piece picker can legitimately be left
+    /// empty for. `PermitTableTests` pins that the two agree.
+    public var mayStartAPieceOfTheirOwn: Bool {
+        if case .author(.pieces) = self { return true }
+        return false
+    }
+
+    /// **The permit a person RECORD says they hold** — the current-state
+    /// convenience, and the one spelling of reading it (P3b Task 5).
+    ///
+    /// It is here because the words on a record are this file's vocabulary and
+    /// `Permit.parse` is this file's function: a surface assembling
+    /// `Permit.parse(role: record.role, …)` for itself would be naming the
+    /// permission table's own spelling outside the permit layer (tripwire 44),
+    /// which is exactly what the admission sheet's first draft did and what the
+    /// census refused.
+    ///
+    /// **It is not the check, and no reader may use it as one** (tripwire 43).
+    /// A line is judged by the permit its signer held WHEN THEY WROTE IT, which
+    /// is `PermitTimeline`'s answer over the events; this is what the record
+    /// currently claims, which is what People & Devices draws on a row and what
+    /// `recordBehindEvents` compares against the history. The two disagreeing
+    /// is a real, detected state with a surface of its own.
+    public static func permit(recordedIn record: PersonRecord) -> Permit {
+        parse(role: record.role, scope: record.scope, pieces: record.pieces)
+    }
+
     // MARK: - Comparing two
 
     /// **Does this permit allow everything `other` allows?**

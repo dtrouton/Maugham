@@ -1103,6 +1103,105 @@ final class TripwireGrepTests: XCTestCase {
             + "FirstReaderRuling must contain at least one")
     }
 
+    // MARK: - A permit change reaches every machine of one writer (P3b Task 5)
+
+    /// **The one spelling a surface may not use.** `DocumentStore.changePermit(
+    /// person:to:)` is the single-record primitive; `changePermit(everyRecordOf:
+    /// to:)` is the verb.
+    static let singleRecordPermitVerb = "changePermit(person:"
+
+    /// **A pane that demoted one machine of two would be worse than one that
+    /// offered nothing** (fix round 1, I3; P3b Task 5).
+    ///
+    /// A permit lives on a person RECORD and a record is one device, but P2b's
+    /// admission merges a typed label matching a known one under that label's
+    /// own spelling — so a writer whose Mac and phone were both let in is two
+    /// records the root has said are one person. Demote the Mac alone and she
+    /// goes on writing manuscript text from the phone, applied by every reader,
+    /// with nothing anywhere saying why.
+    ///
+    /// The plural verb pre-flights every record's outcome AND every record's
+    /// sweep before a byte is written, so it is also the only one that can
+    /// refuse the whole act. A view reaching past it gets neither.
+    func test_noViewPressesTheSingleRecordPermitVerb() throws {
+        let offenders = try grepSwift(
+            in: sourceDir.appendingPathComponent("Views", isDirectory: true),
+            patterns: [Self.singleRecordPermitVerb],
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A view calls the single-record permit verb. A permit lives on a "
+            + "record and one writer can be two records (a Mac and a phone "
+            + "merged under one label), so a surface must call "
+            + "`changePermit(everyRecordOf:to:)` — which also pre-flights every "
+            + "record's outcome and sweep before it writes. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL: the census fires on a planted press, and lets a comment naming
+    /// the verb and a call of the PLURAL one through.
+    func test_theSingleRecordPermitVerbCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-permitverb-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        struct HonestPane {
+            func commit(_ store: DocumentStore, _ permit: Permit) async throws {
+                // changePermit(person: fingerprint, to: permit) would be wrong here.
+                try await store.changePermit(everyRecordOf: who, to: permit)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("Honest.swift"),
+                  atomically: true, encoding: .utf8)
+        XCTAssertTrue(
+            try grepSwift(in: tmp, patterns: [Self.singleRecordPermitVerb],
+                          excludeLine: Self.admissionExcludeLine).isEmpty,
+            "the plural verb and a comment are not offenders")
+
+        try """
+        struct HalfADemotion {
+            func commit(_ store: DocumentStore, _ permit: Permit) async throws {
+                try await store.changePermit(person: who, to: permit)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("Planted.swift"),
+                  atomically: true, encoding: .utf8)
+        XCTAssertFalse(
+            try grepSwift(in: tmp, patterns: [Self.singleRecordPermitVerb],
+                          excludeLine: Self.admissionExcludeLine).isEmpty,
+            "a planted press of the single-record verb must be caught")
+    }
+
+    // MARK: - The two repair verbs have one writer each (P3b Task 5)
+
+    /// `RegistryPresence.writeOwnRecordAgain` is tripwire 41's third writer's
+    /// verb and no view may reach a registry writer around it.
+    static let ownRecordRepairPatterns = [
+        "RegistryPresence.writeOwnRecordAgain", "RegistryAdmission.resignFromTimeline",
+    ]
+
+    /// **The two P3b repairs are store verbs, never view verbs** (tripwire 41).
+    ///
+    /// Both write a signed registry record — one through `RegistryPresence`,
+    /// one through `RegistryAdmission` — and tripwire 41 puts the AUTHORITY for
+    /// that behind three files. A view calling either directly would reach the
+    /// signer without reaching the store's `settle`, so every open document in
+    /// the project would go on applying by a table the folder no longer
+    /// supports: a repair the writer made and cannot see.
+    func test_theRepairVerbsAreReachedFromTheStoreOnly() throws {
+        let offenders = try grepSwift(
+            in: sourceDir.appendingPathComponent("Views", isDirectory: true),
+            patterns: Self.ownRecordRepairPatterns,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(offenders.isEmpty,
+            "A view calls a registry repair verb directly. Both write a signed "
+            + "record and both must go through `DocumentStore`, which forgets "
+            + "every resolved table afterwards. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
     /// CONTROL for the census above: a planted second writer is caught, and
     /// neither an `.editionBrief` call beside it nor a comment naming the verb
     /// is.
@@ -7846,7 +7945,14 @@ final class TripwireGrepTests: XCTestCase {
                                     "record.scope", "record.pieces",
                                     "person?.role", "person?.scope",
                                     "person?.pieces"],
-        "Permit.swift": ["event.role", "event.scope", "event.pieces"],
+        // The one PARSE reads an EVENT's three strings — and, since P3b Task
+        // 5, a person RECORD's, which is `Permit.permit(recordedIn:)`: the
+        // current-state convenience, spelled here so a surface drawing a row
+        // does not assemble `Permit.parse(role:…)` for itself (tripwire 44).
+        // It is still not the check — what judges a line is `PermitTimeline`,
+        // and this file's own doc comment says so.
+        "Permit.swift": ["event.role", "event.scope", "event.pieces",
+                         "record.role", "record.scope", "record.pieces"],
         "RegistryReader.swift": ["record.role", "record.scope"],
         "PeopleAndDevicesModel.swift": ["record.role"],
     ]

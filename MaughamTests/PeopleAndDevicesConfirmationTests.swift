@@ -201,3 +201,258 @@ final class PeopleAndDevicesConfirmationTests: XCTestCase {
         XCTAssertNotEqual(revoke, retire)
     }
 }
+
+/// **Both directions, for every transition on the ladder** (signed op log P3b
+/// Task 5, spec §5 and §7.2).
+///
+/// A permit change has two halves and a writer is owed both before they press:
+/// a demotion does not reach back through what is already in the book, and a
+/// promotion is not a pardon for what was set aside. Spec §5 states each as its
+/// own row; every transition the control can produce is one of them or both at
+/// once, so the table below walks all of them and asserts the halves that
+/// happened and the absence of the halves that did not.
+///
+/// Nothing here mounts anything or presses anything (tripwire 33): the sentence
+/// is a pure function of (old permit, new permit, the book's pieces).
+final class PermitChangeConfirmationTests: XCTestCase {
+
+    private let sam = "cccc3333dddd4444"
+
+    private let pieces = [
+        PermitControl.Piece(id: "ch1", title: "Chapter 1"),
+        PermitControl.Piece(id: "ch4", title: "Chapter 4"),
+        PermitControl.Piece(id: "ch9", title: "Chapter 9"),
+    ]
+
+    private func message(from: Permit, to: Permit, notice: String? = nil) -> String {
+        PeopleAndDevicesConfirmation.changePermit(
+            forPerson: sam, named: "Sam",
+            change: .init(pieces: pieces, from: from, to: to),
+            notice: notice
+        ).message
+    }
+
+    /// The demotion half's own words, and the promotion half's, so each
+    /// assertion below is about one half rather than about a substring somebody
+    /// could move.
+    private let staysInTheBook = "stays in this book"
+    private let setAsideFromNowOn = "from now on is set aside"
+    private let notAPardon = "stays set aside"
+
+    // MARK: - The whole ladder, both directions
+
+    /// **Author of the whole book → reviewer.** Everything leaves; nothing
+    /// joins. The row a writer is most likely to press, and the one they are
+    /// most likely to be afraid of.
+    func test_demotingToAReviewerSaysWhatStaysAndWhatIsSetAsideFromNowOn() {
+        let said = message(from: .author(.book), to: .reviewer)
+
+        XCTAssertTrue(said.contains("has already written in this book stays in it"), said)
+        XCTAssertTrue(said.contains(setAsideFromNowOn), said)
+        XCTAssertFalse(said.contains("can write"), "nothing joins: \(said)")
+    }
+
+    /// **Reviewer → author of the whole book.** Everything joins, and the half
+    /// nobody assumes is stated: it is not a pardon.
+    func test_promotingToTheWholeBookSaysItIsNotAPardon() {
+        let said = message(from: .reviewer, to: .author(.book))
+
+        XCTAssertTrue(said.contains("can write anywhere in this book from now on"), said)
+        XCTAssertTrue(said.contains(notAPardon), said)
+        XCTAssertFalse(said.contains(setAsideFromNowOn), "nothing leaves: \(said)")
+    }
+
+    /// **Author of the whole book → author of some pieces.** The transition
+    /// spec §5's table does not spell out by name, and which decomposes into
+    /// its demotion row: the pieces she keeps are unchanged, the rest leave.
+    func test_narrowingTheWholeBookToSomePiecesNamesWhatLeaves() {
+        let said = message(
+            from: .author(.book), to: .author(.pieces(["ch4"])))
+
+        XCTAssertTrue(said.contains("\u{201C}Chapter 1\u{201D}"), said)
+        XCTAssertTrue(said.contains("\u{201C}Chapter 9\u{201D}"), said)
+        XCTAssertFalse(said.contains("\u{201C}Chapter 4\u{201D}"),
+                       "the piece she keeps is not a place anything moved: \(said)")
+        XCTAssertTrue(said.contains(staysInTheBook), said)
+        XCTAssertTrue(said.contains(setAsideFromNowOn), said)
+    }
+
+    /// **Author of some pieces → author of the whole book.** The rest join; the
+    /// pieces she already had say nothing.
+    func test_wideningSomePiecesToTheWholeBookNamesWhatJoins() {
+        let said = message(
+            from: .author(.pieces(["ch4"])), to: .author(.book))
+
+        XCTAssertTrue(said.contains("\u{201C}Chapter 1\u{201D}"), said)
+        XCTAssertTrue(said.contains("\u{201C}Chapter 9\u{201D}"), said)
+        XCTAssertTrue(said.contains(notAPardon), said)
+        XCTAssertFalse(said.contains(setAsideFromNowOn), said)
+    }
+
+    /// **Reviewer → author of some pieces.** Only the chosen pieces join.
+    func test_aReviewerGivenSomePiecesJoinsOnlyThose() {
+        let said = message(
+            from: .reviewer, to: .author(.pieces(["ch9"])))
+
+        XCTAssertTrue(said.contains("can write in \u{201C}Chapter 9\u{201D} from now on"), said)
+        XCTAssertFalse(said.contains("\u{201C}Chapter 1\u{201D}"), said)
+        XCTAssertTrue(said.contains(notAPardon), said)
+    }
+
+    /// **Author of some pieces → reviewer.** Only the pieces she had leave.
+    func test_anAuthorOfSomePiecesDemotedToReviewerLosesOnlyThose() {
+        let said = message(
+            from: .author(.pieces(["ch1", "ch4"])), to: .reviewer)
+
+        XCTAssertTrue(said.contains("\u{201C}Chapter 1\u{201D}"), said)
+        XCTAssertTrue(said.contains("\u{201C}Chapter 4\u{201D}"), said)
+        XCTAssertFalse(said.contains("\u{201C}Chapter 9\u{201D}"), said)
+        XCTAssertTrue(said.contains(setAsideFromNowOn), said)
+    }
+
+    /// **One piece list becoming another** — the transition where both
+    /// directions happen at once, which is the one a single-row sentence would
+    /// get half right. Both halves are stated, each naming its own pieces.
+    func test_apieceListThatBothGainsAndLosesStatesBothHalves() {
+        let said = message(
+            from: .author(.pieces(["ch1"])), to: .author(.pieces(["ch9"])))
+
+        XCTAssertTrue(
+            said.contains("already wrote in \u{201C}Chapter 1\u{201D} stays in this book"),
+            said)
+        XCTAssertTrue(said.contains(setAsideFromNowOn), said)
+        XCTAssertTrue(
+            said.contains("can write in \u{201C}Chapter 9\u{201D} from now on"), said)
+        XCTAssertTrue(said.contains(notAPardon), said)
+    }
+
+    /// A change that moves no place at all — a book with no pieces, or a list
+    /// that moved only among documents this permit already covered — says so
+    /// rather than saying one of the two halves about nothing.
+    func test_achangeThatMovesNoPieceSaysThat() {
+        let said = PeopleAndDevicesConfirmation.changePermit(
+            forPerson: sam, named: "Sam",
+            change: .init(pieces: [], from: .reviewer, to: .author(.book))
+        ).message
+
+        XCTAssertTrue(said.contains("Nothing Sam has written moves"), said)
+        XCTAssertFalse(said.contains(setAsideFromNowOn), said)
+    }
+
+    /// **An empty piece list is a real state** (`PermitPicker.noPiecesChosen`):
+    /// an author of no pieces yet may still start one, and this book asks whose
+    /// it is when they do. The rule is the permit layer's
+    /// (`Permit.mayStartAPieceOfTheirOwn`), so a reviewer never gets the clause.
+    func test_anAuthorOfNoPiecesYetIsToldWhatThatMeans() {
+        let asAuthor = message(from: .reviewer, to: .author(.pieces([])))
+        let asReviewer = message(from: .author(.book), to: .reviewer)
+
+        XCTAssertTrue(asAuthor.contains("can still start a piece of their own"), asAuthor)
+        XCTAssertTrue(asAuthor.contains("will ask you whether it\u{2019}s theirs"), asAuthor)
+        XCTAssertFalse(asReviewer.contains("start a piece of their own"), asReviewer)
+    }
+
+    // MARK: - Pieces this Mac cannot find
+
+    /// A scope naming a document this Mac has not synced is still a place the
+    /// change moves, so it is counted — and drawn as what it is, never as a
+    /// document id, which is not a thing a writer has ever seen.
+    func test_apieceThisMacCannotFindIsCountedAndNamedAsSuch() {
+        let said = message(
+            from: .author(.pieces(["not-here"])), to: .reviewer)
+
+        XCTAssertTrue(said.contains("a piece this Mac can\u{2019}t find"), said)
+        XCTAssertFalse(said.contains("not-here"), "never the raw id: \(said)")
+    }
+
+    // MARK: - More pieces than a writer can hold in their head
+
+    /// Four or more are counted rather than listed: a sentence naming six
+    /// chapters is a paragraph, and the writer can check a count against the
+    /// tree as well as a list.
+    func test_manyPiecesAreCountedRatherThanListed() {
+        let many = (1...6).map {
+            PermitControl.Piece(id: "ch\($0)", title: "Chapter \($0)")
+        }
+        let said = PeopleAndDevicesConfirmation.changePermit(
+            forPerson: sam, named: "Sam",
+            change: .init(pieces: many, from: .author(.book),
+                          to: .author(.pieces(["ch1"])))
+        ).message
+
+        XCTAssertTrue(said.contains("5 pieces"), said)
+        XCTAssertFalse(said.contains("Chapter 6"), said)
+    }
+
+    // MARK: - The first narrowing (one sentence, two callers)
+
+    /// The sentence about what a book's FIRST narrowing costs is
+    /// `PermitControl.firstNarrowingNotice`'s — the admission sheet's too — and
+    /// it is appended rather than restated here.
+    func test_thefirstNarrowingSentenceIsTheSharedOneAndIsAppended() throws {
+        let notice = try XCTUnwrap(PermitControl.notice(
+            forGranting: .reviewer,
+            in: PermitControl.BookNarrowing(
+                alreadyNarrowed: false, holdsAnUnsignedStream: true)))
+        let said = message(from: .author(.book), to: .reviewer, notice: notice)
+
+        XCTAssertTrue(said.hasSuffix(notice),
+                      "the shared sentence, last and whole: \(said)")
+        XCTAssertTrue(said.contains("Older versions of Maugham will no longer open"), said)
+        XCTAssertTrue(said.contains("waits on the other Macs"), said)
+    }
+
+    /// And a book already narrowed is told nothing again — the guard is
+    /// `PermitControl`'s and this only proves the pane honours nil.
+    func test_abookAlreadyNarrowedGetsNoSecondNotice() {
+        let notice = PermitControl.notice(
+            forGranting: .reviewer,
+            in: PermitControl.BookNarrowing(alreadyNarrowed: true))
+        XCTAssertNil(notice)
+
+        let said = message(from: .author(.book), to: .reviewer, notice: notice)
+        XCTAssertFalse(said.contains("Older versions of Maugham"), said)
+    }
+
+    // MARK: - Re-admission (Task 4's review, the Critical)
+
+    /// **A re-admission names the permit it installs.** `RegistryAdmission
+    /// .admit` over a revoked record installs what the caller gives it, and the
+    /// caller's default is the whole book — so an author of two chapters came
+    /// back an author of the novel with nothing on screen saying so.
+    func test_areadmissionSaysWhatItInstallsAndThatItIsNotAPardon() {
+        let said = PeopleAndDevicesConfirmation.readmit(
+            person: sam, named: "Sam",
+            change: .init(pieces: pieces, from: .author(.pieces(["ch4"])),
+                          to: .author(.pieces(["ch4"])))
+        ).message
+
+        XCTAssertTrue(said.contains("can write in this book again"), said)
+        XCTAssertTrue(said.contains("an author of some pieces"), said)
+        XCTAssertTrue(said.contains("\u{201C}Chapter 4\u{201D}"), said)
+        XCTAssertTrue(said.contains("stays set aside"),
+                      "letting them back in is not a pardon: \(said)")
+    }
+
+    /// The whole-book re-admission says so in as many words, which is exactly
+    /// what was happening silently before.
+    func test_areadmissionToTheWholeBookSaysTheWholeBook() {
+        let said = PeopleAndDevicesConfirmation.readmit(
+            person: sam, named: "Sam",
+            change: .init(pieces: pieces, from: .author(.book), to: .author(.book))
+        ).message
+
+        XCTAssertTrue(said.contains("an author of the whole book"), said)
+        XCTAssertTrue(said.contains("can write anywhere in the book"), said)
+    }
+
+    /// And a permit no control can draw is said to be exactly that, rather than
+    /// guessed at — a role word a later Maugham wrote is not *author*.
+    func test_apermitThisBuildCannotDrawIsNeverGuessedAt() {
+        let said = PeopleAndDevicesConfirmation.saying(
+            .unjudgeable(raw: "editor-in-chief"), among: pieces)
+
+        XCTAssertTrue(said.contains("doesn\u{2019}t recognise"), said)
+        XCTAssertFalse(said.contains("author"), said)
+    }
+}

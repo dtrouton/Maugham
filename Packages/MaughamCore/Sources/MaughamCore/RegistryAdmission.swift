@@ -603,8 +603,7 @@ public enum RegistryAdmission {
 
         let asked = Permit.parse(role: role, scope: scope, pieces: pieces)
         let timeline = PermitTimeline(events: events(about: fingerprint, in: registry))
-        let recordSays = Permit.parse(
-            role: existing.role, scope: existing.scope, pieces: existing.pieces)
+        let recordSays = Permit.permit(recordedIn: existing)
 
         // **Two questions, not one** (fix round 1, I1). *Nothing to do* is the
         // history AND the record both saying this already. Asking only the
@@ -755,9 +754,75 @@ public enum RegistryAdmission {
             // window, seen from the far side.
             return true
         }
-        return Permit.parse(
-            role: record.role, scope: record.scope, pieces: record.pieces
-        ) != timeline.current
+        return Permit.permit(recordedIn: record) != timeline.current
+    }
+
+    /// **Bring a person's record up to their history** — the crash window of
+    /// spec §3.2's write order, closed by a press (P3b Task 5).
+    ///
+    /// Every permit verb writes the EVENT first and the record second, so a
+    /// process that dies between them leaves a history saying *reviewer* and a
+    /// record still saying *author*. Nothing about what is APPLIED is wrong —
+    /// the role check reads the timeline (tripwire 43) — so no load blocks on
+    /// it and there is nothing to refuse. What is wrong is that every surface
+    /// drawing the record shows a permit the book is not enforcing, and there
+    /// was no way to correct it: `changePermit` finds the timeline already
+    /// saying what it was asked for, so it re-signs the record — but only
+    /// where the caller happens to ask for exactly the permit the history
+    /// already holds, which the pane cannot know to do.
+    ///
+    /// **It writes a RECORD and never an event**, which is the whole of why it
+    /// is a verb of its own. There is no permit change here: the book's
+    /// history is untouched, nothing narrows, and so nothing owes the
+    /// photograph or the schema gate that a narrowing verb owes. It re-signs
+    /// one file to say what the events already say.
+    ///
+    /// **`RegistryCanonical.resigned` keeps a later build's unknown fields**
+    /// (tripwire 42), so a record written by a newer Maugham survives this
+    /// press with everything but its three permit words intact.
+    ///
+    /// Its authority is `changePermitOutcome`'s exactly — the root that
+    /// admitted them, never a root subject, never somebody else's chain —
+    /// because re-signing a record IS the second half of a permit change and
+    /// a Mac that may not perform one may not perform half of one either.
+    ///
+    /// Idempotent: a record already agreeing with its history is answered
+    /// unchanged and no file is touched.
+    @discardableResult
+    nonisolated public static func resignFromTimeline(
+        person fingerprint: String,
+        in projectURL: URL,
+        by root: DeviceIdentity,
+        cache: RegistryCache,
+        presenter: NSFilePresenter? = nil
+    ) throws -> PersonRecord {
+        let registry = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        let existing = try changePermitOutcome(
+            person: fingerprint, by: root.fingerprint, in: registry).get()
+
+        let timeline = PermitTimeline(events: events(about: fingerprint, in: registry))
+        guard timeline.hasEvents else { return existing }
+        let says = timeline.current
+        guard Permit.permit(recordedIn: existing) != says else { return existing }
+
+        try RegistryWriter.resign(
+            existing, signedBy: root, in: projectURL, presenter: presenter
+        ) { object in
+            object["role"] = says.wireRole
+            object["scope"] = says.wireScope
+            object["pieces"] = says.wirePieces
+        }
+
+        let verified = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        guard let record = verified.person(fingerprint) else {
+            // Written and did not read back — the one shape that must not be
+            // reported as success, because the pane would redraw the row it
+            // has just told the writer it corrected.
+            throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
+        }
+        return record
     }
 
     /// **Is the event this act would write already on disk?** (fix round 1, I1

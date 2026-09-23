@@ -813,7 +813,12 @@ public enum PermitPartition {
         permit: Permit, actor: DeviceActor?,
         class documentClass: DocumentClass, what: Written
     ) -> Bool {
-        guard actor == .author,
+        // **The rung half is the permit layer's** (P3b Task 5), so a surface
+        // that needs to SAY this — the pane's permit-change confirmation —
+        // asks the same question rather than testing a permit against a
+        // literal rung. What stays here is what a rung cannot carry: whose
+        // hand wrote it, what it wrote, and where.
+        guard actor == .author, permit.mayStartAPieceOfTheirOwn,
               case let .author(scope) = permit,
               case let .pieces(mine) = scope,
               case let .piece(id) = documentClass, !mine.contains(id),

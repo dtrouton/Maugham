@@ -229,6 +229,47 @@ struct PeopleAndDevicesModel: Equatable {
         /// machines, where the label alone would not say which one was admitted.
         let ownName: String?
         let role: String
+        /// **What this record says they may write** (P3b Task 5, spec §7.2) —
+        /// the record's own permit, which is the current-state convenience the
+        /// registry keeps beside the history.
+        ///
+        /// Not the enforcement (tripwire 43): a line is judged by the permit
+        /// its signer held when they wrote it, off the timeline. Where the two
+        /// disagree the row says so and offers to correct it
+        /// (`recordBehindHistory`), which is the one honest thing a surface can
+        /// do about spec §3.2's crash window.
+        let permit: Permit
+        /// The rung the permit control would draw, or nil where no control can
+        /// draw it: a role or scope word a later build invented. Nil is why the
+        /// change control is refused rather than offering to overwrite a rung
+        /// this Mac never showed.
+        let rung: Permit.Rung?
+        /// The pieces the permit names, as titles, in the binder's own order —
+        /// an id no manifest here carries drawn as what it is rather than as a
+        /// document id, which is not a thing a writer has ever seen.
+        let pieceTitles: [String]
+        /// Whether THIS Mac may change what they may write, by
+        /// `RegistryAdmission.changePermitOutcome` — the verb's own rule, asked
+        /// of the verb (`whyNotRenamable`'s arrangement, for its reason).
+        let canChangePermit: Bool
+        /// Why not, when not. The control is drawn either way EXCEPT on a root
+        /// (`offersPermitChange`), which is the same exception Revoke keeps.
+        let whyNotChangeable: String?
+        /// **Whether the row draws a change control at all.** A root writes the
+        /// whole book unconditionally (spec §2) and a book must not end up with
+        /// no author, so the verb could not become live on any folder, on any
+        /// day — a disabled button is an offer with a condition on it, and
+        /// there is no condition here.
+        let offersPermitChange: Bool
+        /// **The record is a step behind this book's history**
+        /// (`RegistryAdmission.recordBehindEvents`) — spec §3.2's crash window,
+        /// which nothing refuses because nothing about what is APPLIED is
+        /// wrong. Carries what the history says, so the row can state both.
+        let historySays: Permit?
+        /// Whether this Mac may write the record again from that history. The
+        /// same authority a permit change needs, because re-signing the record
+        /// is the second half of one.
+        let canResign: Bool
         let admittedAt: Date
         let revokedAt: Date?
         /// Whether THIS Mac may revoke them — it is the root that admitted
@@ -268,6 +309,18 @@ struct PeopleAndDevicesModel: Equatable {
         /// The inverse of a revocation is an admission by the same authority,
         /// so the row offers it where the row offered Revoke.
         let canReadmit: Bool
+        /// **The permit a Re-admit should propose** (Task 4's review, the
+        /// Critical): the one they held when they were revoked, read off their
+        /// `PermitTimeline` — a revocation installs no entry, so `current` is
+        /// still the last permit anything installed. A P2-era person with no
+        /// events answers author-of-the-whole-book, which is what re-admission
+        /// has always meant for them.
+        ///
+        /// It is here rather than derived at the press because a re-admission
+        /// that WIDENS must never happen in silence, and the only way to make
+        /// that true is for the value the confirmation proposes to come from
+        /// the same read the row was drawn from.
+        let permitWhenRevoked: Permit
         /// The device's own name as the RECORD holds it — what a re-admission
         /// writes back. `ownName` above is nil when it matches the label, which
         /// is a drawing decision; this is the fact.
@@ -285,6 +338,36 @@ struct PeopleAndDevicesModel: Equatable {
         var title: String {
             guard let ownName else { return label }
             return "\(label) (\(ownName))"
+        }
+
+        /// **What they may write, in the writer's own words** — the rung's
+        /// title, with the pieces where there are any. Drawn on the row, so the
+        /// question the change control answers is visible before it is pressed.
+        ///
+        /// A rung this build cannot draw says so rather than guessing: the
+        /// record carries a word a later Maugham wrote, and naming it *author*
+        /// would be this Mac deciding something it does not know.
+        var permitSentence: String {
+            guard let rung else {
+                return "This book says something about what they may write that "
+                    + "this version of Maugham doesn\u{2019}t recognise."
+            }
+            guard rung.picksPieces else { return rung.title }
+            guard !pieceTitles.isEmpty else {
+                return "\(rung.title) \u{2014} none chosen yet"
+            }
+            return "\(rung.title): \(pieceTitles.joined(separator: ", "))"
+        }
+
+        /// **The record and the history disagree**, in one sentence naming both
+        /// (spec §3.2). Nil when they agree, which is every person in every book
+        /// written before P3.
+        var behindHistorySentence: String? {
+            guard let historySays else { return nil }
+            let said = Permit.rung(of: historySays)?.title ?? "something else"
+            return "This book\u{2019}s history says \(said.lowercased()), and it "
+                + "is the history Maugham goes by. The file describing them is "
+                + "a step behind it."
         }
 
         var detail: String {
@@ -351,6 +434,19 @@ struct PeopleAndDevicesModel: Equatable {
         /// never verified here was never remembered — and the row is listed
         /// either way, because naming the file is the whole point.
         let canRestore: Bool
+        /// **This Mac can write the record again** (audit PR #65's F4; P3b
+        /// Task 5). True only where the record is this device's OWN, this Mac
+        /// cannot Restore it, and — for a person record — there is no other
+        /// verified root in this book whose decision it is.
+        ///
+        /// It is the last resort and never the first: Restore puts back a file
+        /// this Mac read, and this writes a new one, so it is offered only
+        /// where the first is impossible. `RegistryPresence.writeOwnRecordAgain`
+        /// refuses all three ways itself; this decides what is DRAWN.
+        let canWriteAgain: Bool
+        /// Where nobody here can repair it, the Mac that can — so the row is
+        /// never a dead end. Nil when `canRestore` or `canWriteAgain`.
+        let whoRepairsIt: String?
 
         var fingerprint: String { ref.fingerprint }
         var id: String { "\(ref.directory.rawValue)-\(ref.fingerprint)" }
@@ -358,6 +454,74 @@ struct PeopleAndDevicesModel: Equatable {
         var sentence: String {
             "The \(kind) record for \(name) (\(code)) \(reason)."
         }
+    }
+
+    /// **A stream in this book that nothing signs** (#8, spec §7.2; P3b Task 5).
+    ///
+    /// There is no device to admit, because there is no key: whatever wrote
+    /// these files put no seal on them that any register can name. It is a row
+    /// about a FILE rather than about a person, which is why it names a stream
+    /// and never a code.
+    ///
+    /// **Its sentence is true in both of the two cases it covers**, which is
+    /// the wording Task 2's review earned (M2). One is a Mac with no Secure
+    /// Enclave — a VM, an old Intel machine — which signs nothing it will ever
+    /// write. The other is a Mac that signs perfectly well whose FIRST seal has
+    /// not synced into this folder yet, and which will stop being here the
+    /// moment it does. This Mac cannot tell them apart and must not claim to:
+    /// what it knows is that nothing this book holds says who signs for that
+    /// stream, and that is what the row says.
+    struct UnsignedStream: Equatable, Identifiable {
+        /// The device slug the stream's files carry, or the stream key where
+        /// there is no slug at all — `HeldLines.unsignedHolder`'s own choice,
+        /// so a rotated segment and the tail it came out of are one row.
+        let stream: String
+
+        var id: String { stream }
+
+        /// **What is true now**, in both cases above.
+        var sentence: String {
+            "Nothing this book holds says who signs for \u{201C}\(stream)\u{201D}."
+        }
+
+        /// **What narrowing will do to it, before there is a reviewer** — the
+        /// half a writer must read BEFORE they create the first one, because
+        /// the day they do is a cliff rather than a slope (the fix wave's
+        /// *unsigned Mac's cliff*).
+        static let beforeNarrowing =
+            "While everyone in this book writes the whole of it, that changes "
+            + "nothing: what this stream writes is applied everywhere, as it "
+            + "always has been. The first time anyone here is anything less "
+            + "than an author of the whole book, what it writes from then on "
+            + "waits on the other Macs until it is sent to the Inbox \u{2014} "
+            + "and nothing it has already written changes."
+
+        /// And what narrowing HAS done, once it has.
+        static let afterNarrowing =
+            "Since this book first limited what somebody may write, what this "
+            + "stream writes waits on the other Macs until it is sent to the "
+            + "Inbox. Nothing it wrote before then changed."
+    }
+
+    /// **A held key that is nobody to ask about** (P3b Task 4's two never-offered
+    /// classes, given the row Task 5 owes them).
+    ///
+    /// The admission sheet is silent about both on purpose — a sheet would
+    /// offer a control that cannot help — and silence is only honest if
+    /// something somewhere says why lines are waiting. That is this row.
+    ///
+    /// `AdmissionDecision.standing` is the one classification and this reads
+    /// it; a reason derived twice is how one surface comes to say *waiting to
+    /// be let in* about a holder the other calls contested.
+    struct WaitingKey: Equatable, Identifiable {
+        let fingerprint: String
+        let code: String
+        /// What is waiting, so the row is a fact with a size.
+        let heldLines: Int
+        /// Why it is not a question for the writer.
+        let sentence: String
+
+        var id: String { fingerprint }
     }
 
     /// A claimant row — a `Named` plus whether this Mac can actually answer it
@@ -400,7 +564,20 @@ struct PeopleAndDevicesModel: Equatable {
     /// Denver*, where "it" would be the other Mac.
     let startedOnThisMac: Bool
     let pending: [PendingRequest]
+    /// Held keys that are nobody to ask about — a non-author actor key whose
+    /// device record has not arrived, and a key two device records claim. They
+    /// sit with `pending` because they are the same fact (something is waiting)
+    /// with a different answer (nothing to press).
+    let waiting: [WaitingKey]
     let people: [Person]
+    /// Streams in this book that answer to no key (#8). Drawn whether or not
+    /// the book has been narrowed, with a different sentence for each.
+    let unsigned: [UnsignedStream]
+    /// Has anybody in this book already been given less than the whole of it?
+    /// It decides which of `UnsignedStream`'s two sentences a row carries, and
+    /// it is the FOLDER's answer (`TrustTable.hasNarrowingPermits`) rather than
+    /// a guess from this Mac's own permit.
+    let alreadyNarrowed: Bool
     /// Roots this device's own root has adopted: listed as *merged*, because
     /// the writer has already answered the question a claimant asks.
     let merged: [Named]
@@ -440,6 +617,21 @@ struct PeopleAndDevicesModel: Equatable {
     ///     shared memory, which is what lets every rule below be pinned.
     ///   - standing: this device's own sentence, and the carrier of a refusal.
     ///   - me: this device's author fingerprint.
+    ///   - held: every held-line count this window is holding, as
+    ///     `DocumentStore.heldLines` counted them — the SAME map `requests`
+    ///     was built from. It is taken as well as the requests because the
+    ///     rows Task 5 owes are about the holders `requests` DECLINED, and a
+    ///     second walk to find them would be a second opinion about who is
+    ///     waiting.
+    ///   - heldStreams: the slugs each holder was held under, the union's
+    ///     second half. `AdmissionDecision.standing` needs them to tell a
+    ///     non-author actor key from a person's.
+    ///   - unsignedStreams: streams this book holds that answer to no key, as
+    ///     `OpLogStore.unattributablePositions` swept them — a fact about
+    ///     FILES, never about this Mac's own enclave, because the Mac that
+    ///     signs nothing is usually somebody else's.
+    ///   - pieces: the book's manuscript documents, for drawing a permit's
+    ///     piece list as titles.
     static func make(
         registry: Registry,
         table: TrustTable,
@@ -449,13 +641,19 @@ struct PeopleAndDevicesModel: Equatable {
         restores: [RestoredRecord] = [],
         restorable: Set<RecordRef> = [],
         standing: DeviceStanding,
-        me: String
+        me: String,
+        held: [String: Int] = [:],
+        heldStreams: [String: Set<String>] = [:],
+        unsignedStreams: [String] = [],
+        pieces: [PermitControl.Piece] = []
     ) -> PeopleAndDevicesModel {
         if let refusal = standing.refusal {
             return PeopleAndDevicesModel(
                 refusal: refusal, standing: standing.sentence, code: standing.code,
                 startedOnThisMac: standing.isRoot,
-                pending: [], people: [], merged: [], claimants: [], absent: [],
+                pending: [], waiting: [], people: [], unsigned: [],
+                alreadyNarrowed: false,
+                merged: [], claimants: [], absent: [],
                 unverifiable: [])
         }
 
@@ -526,8 +724,37 @@ struct PeopleAndDevicesModel: Equatable {
         }
         let people: [Person] = memberRecords.map { record in
             person(record, in: registry, myRoot: table.myRoot,
-                   restoredAt: restoredAt, me: me)
+                   restoredAt: restoredAt, me: me, pieces: pieces)
         }
+
+        // **The holders `requests` DECLINED** (P3b Task 4's two never-offered
+        // classes). The classification is `AdmissionDecision.standing`'s and is
+        // asked, never re-derived — a reason worked out twice is how one
+        // surface comes to say *waiting to be let in* about a holder the other
+        // calls contested. The unsigned and permit-pending arms belong to Task
+        // 7's sentences and get no row here.
+        let offered = Set(requests.map(\.fingerprint))
+        let waiting: [WaitingKey] = held.keys.sorted().compactMap { holder in
+            guard let count = held[holder], count > 0,
+                  !offered.contains(holder) else { return nil }
+            let sentence: String
+            switch AdmissionDecision.standing(
+                ofHolder: holder, streams: heldStreams[holder] ?? [],
+                registry: registry) {
+            case .waitingForItsDeviceRecord(let actor):
+                sentence = waitingForADeviceRecord(actor: actor)
+            case .contested:
+                sentence = contestedKey
+            case .aStrangerToAskAbout, .notAStranger:
+                return nil
+            }
+            return WaitingKey(
+                fingerprint: holder, code: DeviceCode.short(holder),
+                heldLines: count, sentence: sentence)
+        }
+
+        let unsigned: [UnsignedStream] = unsignedStreams.sorted()
+            .map(UnsignedStream.init(stream:))
 
         let adopted = Set(table.adoptedRoots)
         let merged: [Named] = table.adoptedRoots.map(named)
@@ -573,7 +800,24 @@ struct PeopleAndDevicesModel: Equatable {
                     code: DeviceCode.short(ref.fingerprint),
                     reason: fault.reason.sentence,
                     isMine: ref.fingerprint == me,
-                    canRestore: restorable.contains(ref))
+                    canRestore: restorable.contains(ref),
+                    // **F4: the last resort, and never the first.** Restore
+                    // puts back bytes this Mac read; this writes a new record,
+                    // so it is offered only where there are no bytes to put
+                    // back and where the record is this device's own. The
+                    // person arm is narrower for the reason
+                    // `RegistryPresence.writeOwnRecordAgain` refuses on: a
+                    // person record written self-signed makes this Mac a root,
+                    // and where the book still has a verified root that would
+                    // be a second root made out of a damaged file.
+                    canWriteAgain: canWriteAgain(
+                        ref, registry: registry, me: me,
+                        restorable: restorable),
+                    whoRepairsIt: restorable.contains(ref)
+                        || canWriteAgain(ref, registry: registry, me: me,
+                                         restorable: restorable)
+                        ? nil
+                        : whoRepairsIt(ref, registry: registry, me: me))
             }
             .sorted { $0.id < $1.id }
 
@@ -583,7 +827,10 @@ struct PeopleAndDevicesModel: Equatable {
             code: standing.code,
             startedOnThisMac: standing.isRoot,
             pending: pendingRows,
+            waiting: waiting,
             people: people,
+            unsigned: unsigned,
+            alreadyNarrowed: table.hasNarrowingPermits,
             merged: merged,
             claimants: stillClaiming,
             absent: absent,
@@ -596,7 +843,8 @@ struct PeopleAndDevicesModel: Equatable {
     /// leaves room for is a person key with several.
     private static func person(
         _ record: PersonRecord, in registry: Registry, myRoot: String?,
-        restoredAt: [RecordRef: Date], me: String
+        restoredAt: [RecordRef: Date], me: String,
+        pieces: [PermitControl.Piece]
     ) -> Person {
         let devices: [Device] = registry.devices
             .filter { $0.device == record.person }
@@ -622,10 +870,33 @@ struct PeopleAndDevicesModel: Equatable {
                     restoredAt: restoredAt[RecordRef(
                         directory: .devices, fingerprint: device.device)])
             }
+        // **What the RECORD says** (the current-state convenience), and what
+        // the HISTORY says (what every reader in this book is actually going
+        // by). They agree for everybody in every book written before P3, and
+        // where they do not the row says so — spec §3.2's crash window is the
+        // one thing a surface can honestly do about a state nothing refuses.
+        let permit = Permit.permit(recordedIn: record)
+        let timeline = PermitTimeline(about: record.person, in: registry)
+        let behind = RegistryAdmission.recordBehindEvents(
+            person: record.person, in: registry)
+        let changeRefusal = whyNotChangeable(record, in: registry, me: me)
         return Person(
             fingerprint: record.person, label: record.label,
             ownName: bracketedOwnName(of: record, beside: devices),
-            role: record.role, admittedAt: record.admittedAt,
+            role: record.role,
+            permit: permit,
+            rung: PermitControl.choice(displaying: permit),
+            pieceTitles: titles(
+                of: PermitControl.pieces(displaying: permit), among: pieces),
+            canChangePermit: changeRefusal == nil,
+            whyNotChangeable: changeRefusal,
+            // A root writes the whole book unconditionally and a book must not
+            // end up with no author, so this control could not become live on
+            // any folder, on any day — Revoke's own exception, for its reason.
+            offersPermitChange: !record.isRoot,
+            historySays: behind ? timeline.current : nil,
+            canResign: behind && changeRefusal == nil,
+            admittedAt: record.admittedAt,
             revokedAt: record.revokedAt,
             canRevoke: revocable(record, in: registry, me: me),
             whyNotRevocable: whyNotRevocable(record, in: registry, me: me),
@@ -636,6 +907,15 @@ struct PeopleAndDevicesModel: Equatable {
             // performed it: `RegistryAdmission.admit` refuses anybody else's
             // record, so a button here would be a control that cannot act.
             canReadmit: record.isRevoked && !record.isRoot && record.admittedBy == me,
+            // **What a Re-admit would put back** (Task 4's review, Critical).
+            // The permit she held when she was revoked, which is the
+            // timeline's `current` — a revocation installs no entry, so the
+            // last thing that did is still the last word. A P2-era person with
+            // no events answers author-of-the-whole-book, exactly as before.
+            // Re-admitting must never WIDEN in silence, which is what a bare
+            // `admit` did: its role/scope/pieces default to the whole book and
+            // a revoked record takes them from the caller.
+            permitWhenRevoked: timeline.current,
             recordedOwnName: record.ownName,
             mark: mark(for: record, myRoot: myRoot, me: me),
             restoredAt: restoredAt[RecordRef(
@@ -659,7 +939,16 @@ struct PeopleAndDevicesModel: Equatable {
         of record: PersonRecord, beside devices: [Device]
     ) -> String? {
         guard record.ownName != record.label,
-              !devices.contains(where: { $0.name == record.ownName })
+              !devices.contains(where: { $0.name == record.ownName }),
+              // **C2: a nameless device never shows its code as its own name**
+              // (P3b Task 5, spec §7.2). A device that reached the admission
+              // sheet with no record of its own proposes no `ownName`, and the
+              // sheet writes the code in its place — so the row read *Denver
+              // (4FD2)*, which is the writer's own label next to a checksum
+              // presented as the machine's name. The code is already on the
+              // row in its own right; a third way of saying it is the code
+              // pretending to be something it is not.
+              record.ownName != DeviceCode.short(record.person)
         else { return nil }
         return record.ownName
     }
@@ -702,6 +991,141 @@ struct PeopleAndDevicesModel: Equatable {
             return renameNotMine(startedOn: startingMac(of: record, in: registry, me: me))
         }
     }
+
+    /// **The verb's own rule, asked of the verb** — `whyNotRenamable`'s
+    /// arrangement for `changePermit`, because the two refuse for four of the
+    /// same reasons and this pane must not spell any of them twice.
+    ///
+    /// `RegistryAdmission.changePermitOutcome` is the one definition of who may
+    /// change whose permit. Only the root arm earns a sentence of its own;
+    /// every other refusal amounts to *not this Mac's to change*, which is the
+    /// same destination Rename names.
+    private static func whyNotChangeable(
+        _ record: PersonRecord, in registry: Registry, me: String
+    ) -> String? {
+        switch RegistryAdmission.changePermitOutcome(
+            person: record.person, by: me, in: registry) {
+        case .success:
+            // A record that DOES read but says something this build cannot
+            // draw is a fifth refusal, and it is this surface's own rather
+            // than the verb's: the verb would happily overwrite it, and a
+            // control offering to replace a rung the writer was never shown is
+            // the thing that must not be drawn.
+            guard PermitControl.choice(
+                displaying: Permit.permit(recordedIn: record)) != nil
+            else { return permitThisBuildCannotDraw }
+            return nil
+        case .failure(.cannotChangeARoot): return changeARoot
+        case .failure:
+            return changeNotMine(startedOn: startingMac(of: record, in: registry, me: me))
+        }
+    }
+
+    /// The root's own refusal, in the register the disabled tooltips use.
+    static let changeARoot =
+        "The Mac a book was started on writes the whole of it"
+    /// `revokeNotMine`'s twin, and the same destination for the same reason.
+    static func changeNotMine(startedOn label: String?) -> String {
+        guard let label else {
+            return "What a device may write is changed on the Mac this book was started on"
+        }
+        return "What a device may write is changed on \(label), where this book was started"
+    }
+    /// What Change… says when it is offered.
+    static let changeHelp = "Change what this device may write in this book"
+    /// **A permit no control can draw** — a role or scope word a later Maugham
+    /// wrote. The control is refused rather than shown pre-filled with a rung
+    /// this Mac invented, because pressing it would overwrite a permit the
+    /// writer was never shown (`PermitControl.choice(displaying:)` answering
+    /// nil is the one place that is decided).
+    static let permitThisBuildCannotDraw =
+        "A newer version of Maugham set what they may write. Change it there, "
+        + "so this Mac doesn\u{2019}t overwrite something it can\u{2019}t show you."
+
+    /// What Re-sign says, and what it is not: it moves nothing about what is
+    /// applied, because the history is what the book has been going by.
+    static let resignHelp = "Write the record again so it agrees with this book’s history"
+
+    /// **A held key that is one of a device's other three writers** (P3b Task 4
+    /// / Task 5). Silent in the sheet by design; this is the line that says why.
+    ///
+    /// The actor is named in the app's own vocabulary — *the assistant*, never
+    /// a product name — and the sentence says what is waited FOR, because it
+    /// resolves itself the moment that device's record syncs in.
+    static func waitingForADeviceRecord(actor: DeviceActor) -> String {
+        "\(actorWord(actor)) on a Mac this book hasn\u{2019}t been introduced "
+        + "to yet. There is no person here to let in \u{2014} the machine\u{2019}s "
+        + "own record has to arrive first, and then its writer is asked about."
+    }
+
+    /// **Two device records claim one key** (`Registry.isContestedActorKey`).
+    /// Nobody's, for good: naming one owner would decide the thing the dispute
+    /// rule refuses to decide, and there is no person to admit.
+    static let contestedKey =
+        "Two devices in this book say this key is theirs, so Maugham can\u{2019}t "
+        + "tell whose writing this is. It waits until one of them stops "
+        + "claiming it."
+
+    /// The app's word for each writer a device holds. *The assistant*, never a
+    /// product name (P3's standing instruction).
+    private static func actorWord(_ actor: DeviceActor) -> String {
+        switch actor {
+        case .author: return "Somebody\u{2019}s own hand"
+        case .assistant: return "The assistant"
+        case .translator: return "The translation pipeline"
+        case .maugham: return "Maugham itself"
+        }
+    }
+
+    /// **Can this Mac write this record again?** (audit F4.) Three conditions,
+    /// and the third is the person arm's alone.
+    private static func canWriteAgain(
+        _ ref: RecordRef, registry: Registry, me: String,
+        restorable: Set<RecordRef>
+    ) -> Bool {
+        guard ref.fingerprint == me, !restorable.contains(ref) else { return false }
+        switch ref.directory {
+        case .devices: return true
+        case .people: return !registry.roots.contains { $0.person != me }
+        case .claims, .events: return false
+        }
+    }
+
+    /// **Where a record nobody here can repair is repaired** — so the row is
+    /// never a dead end. The Mac it is ABOUT for a device record, the Mac that
+    /// signed it for a person record.
+    private static func whoRepairsIt(
+        _ ref: RecordRef, registry: Registry, me: String
+    ) -> String? {
+        if ref.fingerprint != me {
+            return "The Mac this is about is the only one that can write it "
+                + "again. Open this book there."
+        }
+        switch ref.directory {
+        case .people:
+            guard let root = registry.roots.first(where: { $0.person != me })
+            else { return nil }
+            return "This book was started on \(root.label), and that Mac decides "
+                + "who is in it. Open the book there to put this record back."
+        case .devices, .claims, .events:
+            return nil
+        }
+    }
+
+    /// The titles of the pieces a permit names, in the binder's own order, with
+    /// an id this manifest does not carry drawn as what it is. A document id is
+    /// not a thing a writer has ever seen, so it is never shown raw.
+    private static func titles(
+        of chosen: Set<String>, among pieces: [PermitControl.Piece]
+    ) -> [String] {
+        guard !chosen.isEmpty else { return [] }
+        let known = Set(pieces.map(\.id))
+        return pieces.filter { chosen.contains($0.id) }.map(\.title)
+            + chosen.subtracting(known).sorted().map { _ in unknownPiece }
+    }
+
+    /// What a piece id this Mac cannot find is called on a row.
+    static let unknownPiece = "a piece this Mac can\u{2019}t find"
 
     private static func whyNotRevocable(
         _ record: PersonRecord, in registry: Registry, me: String

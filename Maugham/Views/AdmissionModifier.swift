@@ -265,27 +265,29 @@ struct AdmissionModifier: ViewModifier {
     /// at all: the act runs the same sweep and refuses in the error's own
     /// words, so a guess here would only be a second, quieter account of a
     /// failure the writer is about to be told about properly.
+    ///
+    /// **One body, two callers** (P3b Task 5). People & Devices asks the same
+    /// question for its unsigned rows and for the same first-narrowing
+    /// sentence, so the read is `DocumentStore.readUnsigned` and both surfaces
+    /// go through it — two bodies would let the sheet and the pane say
+    /// different things about one folder on one afternoon.
     @MainActor
     private func checkTheBook() async -> PermitControl.BookNarrowing? {
         let url = projectURL
         let identities = Document.loadIdentities
         let cache = Document.loadRegistryCache
-        return await Task.detached(priority: .userInitiated) {
-            () -> PermitControl.BookNarrowing? in
-            do {
-                let resolved = try TrustResolution.resolveVerified(
-                    projectURL: url, identities: identities, cache: cache)
-                let unsigned = try OpLogStore.unattributablePositions(
-                    in: url, trust: resolved.table)
-                return PermitControl.BookNarrowing(
-                    alreadyNarrowed: resolved.table.hasNarrowingPermits,
-                    holdsAnUnsignedStream: !unsigned.streams.isEmpty)
-            } catch {
-                admissionLog.error(
-                    "admission could not read \(url.lastPathComponent, privacy: .public) to say what a narrowing would cost: \(error.localizedDescription, privacy: .public)")
-                return nil
-            }
+        let reading = await Task.detached(priority: .userInitiated) {
+            DocumentStore.readUnsigned(
+                in: url, identities: identities, cache: cache)
         }.value
+        if let refusal = reading.refusal {
+            admissionLog.error(
+                "admission could not read \(url.lastPathComponent, privacy: .public) to say what a narrowing would cost: \(refusal, privacy: .public)")
+            return nil
+        }
+        return PermitControl.BookNarrowing(
+            alreadyNarrowed: reading.alreadyNarrowed,
+            holdsAnUnsignedStream: reading.holdsAnUnsignedStream)
     }
 
     /// Write the admission, and let the held ops in.

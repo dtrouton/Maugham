@@ -449,10 +449,23 @@ enum AdmissionDecision {
             // a mark and all four refuse over a short reading; this said *a
             // revocation* to all of them, so a writer who pressed *make Sam a
             // reviewer* was told a revocation had been refused.
+            //
+            // **And it says what to DO** (P3b Task 5, closing Task 1's review
+            // Minor 4 and Task 2's review I2). A narrowing verb sweeps every
+            // op-log file in the project, so it can refuse over a file
+            // anywhere in the book — an iCloud placeholder that has not
+            // downloaded, or a stream this Mac remembers applying from that is
+            // no longer there. *Try again in a moment* is true for the first
+            // and false for the second, and on its own it is a dead end for
+            // both: the writer is told a filename and left with nothing to do
+            // about it. The error cannot tell the two apart, so the sentence
+            // names both moves and neither is a guess.
             return "Nothing was changed. Maugham couldn’t read everything this "
                 + "device wrote (\(name)), and \(act.phrase) decided on a partial "
                 + "reading would set aside more than you asked it to. Try again "
-                + "in a moment."
+                + "in a moment. If it keeps refusing, open that file so iCloud "
+                + "finishes downloading it \u{2014} and History shows what this "
+                + "book is missing."
         case .notThatDevice(let device):
             return "Only the device with code \(DeviceCode.short(device)) can retire "
                 + "itself — a retirement from anything else is one no other Mac would "

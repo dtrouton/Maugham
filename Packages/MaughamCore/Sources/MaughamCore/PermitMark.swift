@@ -166,6 +166,32 @@ public struct PermitMark: Equatable, Hashable, Sendable {
     /// `stream(of:)`'s key alone, for a caller that wants nothing else.
     public static func streamKey(of url: URL) -> String? { stream(of: url)?.key }
 
+    /// **The device slug a stream KEY names**, or nil where it names none
+    /// (P3b Task 5).
+    ///
+    /// The table above read backwards, and spelled HERE for that table's own
+    /// reason: a mark is a map keyed by stream key, so a surface holding one
+    /// and wanting to say *which machine* has no URL to ask `stream(of:)`
+    /// about — and the alternative is a second filename-shaped parse in a view
+    /// file, which is exactly the drift the one-function rule exists to stop.
+    ///
+    /// A slug carries no dot and an ops docId carries none either, so the last
+    /// dot-separated component is the slug in both keyed ops and translation
+    /// spellings; `inbox:` carries its slug whole; and the legacy unsuffixed
+    /// `<docId>` has none at all, which is nil and is the honest answer — that
+    /// file belongs to no device in particular, which is why it is the one file
+    /// no key can name. `PermitMarkTests` pins the round trip against
+    /// `stream(of:)` for every family.
+    public static func deviceSlug(ofStreamKey key: String) -> String? {
+        if key.hasPrefix("inbox:") {
+            let slug = key.dropFirst("inbox:".count)
+            return slug.isEmpty ? nil : String(slug)
+        }
+        guard let dot = key.lastIndex(of: ".") else { return nil }
+        let slug = key[key.index(after: dot)...]
+        return slug.isEmpty ? nil : String(slug)
+    }
+
     /// **The seal key a FILE's own name can be matched to** (Task 11) — arm 2
     /// of *the file's key*, and the one place the two hops are spelled: this
     /// type's filename parse, then `TrustTable.key(forDeviceSlug:)`.

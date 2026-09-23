@@ -546,4 +546,39 @@ final class PermitMarkTests: XCTestCase {
         }
         return out
     }
+
+    // MARK: - A stream key read backwards (P3b Task 5)
+
+    /// **`deviceSlug(ofStreamKey:)` is `stream(of:)`'s own table read the other
+    /// way**, and the round trip is what keeps it from becoming a second
+    /// opinion about which machine a file belongs to. A mark is keyed by stream
+    /// key, so a surface holding one has no URL to ask about.
+    func test_thedeviceSlugOfAStreamKeyAgreesWithTheOneParse() {
+        let root = URL(fileURLWithPath: "/Book/.maugham")
+        let files = [
+            root.appendingPathComponent("ops/d-one.macbook-3fa21bc0.jsonl"),
+            root.appendingPathComponent("ops/d-one.macbook-3fa21bc0.seg0001.mzseg"),
+            root.appendingPathComponent("inbox/inbox.macbook-3fa21bc0.jsonl"),
+            root.appendingPathComponent("translations/d-one.es.macbook-3fa21bc0.jsonl"),
+        ]
+        for url in files {
+            let stream = PermitMark.stream(of: url)
+            XCTAssertNotNil(stream, "\(url.lastPathComponent)")
+            XCTAssertEqual(
+                PermitMark.deviceSlug(ofStreamKey: stream?.key ?? ""),
+                stream?.deviceSlug, "\(url.lastPathComponent)")
+        }
+    }
+
+    /// **The legacy unsuffixed file has no slug and the answer is nil** — that
+    /// file belongs to no device in particular, which is exactly why it is the
+    /// one file no key can name.
+    func test_thelegacyStreamKeyNamesNoDevice() {
+        let legacy = URL(fileURLWithPath: "/Book/.maugham/ops/d-one.jsonl")
+        let stream = PermitMark.stream(of: legacy)
+
+        XCTAssertEqual(stream?.key, "d-one")
+        XCTAssertNil(stream?.deviceSlug)
+        XCTAssertNil(PermitMark.deviceSlug(ofStreamKey: "d-one"))
+    }
 }

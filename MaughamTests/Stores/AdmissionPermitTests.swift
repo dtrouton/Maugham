@@ -373,4 +373,138 @@ final class AdmissionPermitTests: XCTestCase {
                        "one walk, two readers")
         await held.close()
     }
+
+    // MARK: - P3b Task 5: the pane's verbs, driven from the store
+
+    /// **The pane's verb reaches every machine of one writer** — and the
+    /// single-record primitive is never what a surface presses (the census in
+    /// `TripwireGrepTests` is the other half of this).
+    func test_thepanesPermitChangeMovesEveryRecordUnderOneLabel() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let herPhone = DeviceIdentity.softwareForTesting()
+        try await writeStrangerFile(docId: try await docId(), opIds: ["02"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        _ = try await store.admit(
+            device: herPhone.fingerprint, label: "Sam", ownName: "Sam’s iPhone")
+
+        _ = try await store.changePermit(
+            everyRecordOf: stranger.fingerprint, to: .reviewer)
+
+        let registry = try self.registry()
+        XCTAssertEqual(registry.person(stranger.fingerprint)?.role,
+                       Permit.reviewerRole)
+        XCTAssertEqual(registry.person(herPhone.fingerprint)?.role,
+                       Permit.reviewerRole,
+                       "her phone moved too, or she goes on writing from it")
+    }
+
+    /// **Re-admission installs what the writer confirmed, not the default**
+    /// (Task 4's review, the Critical). The pane reads her permit off her
+    /// timeline and hands it back; `DocumentStore.admit`'s own default is the
+    /// whole book, which is what she would silently have come back as.
+    func test_areadmissionInstallsThePermitItIsGivenAndNotTheWholeBook() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let piece = try await docId()
+        try await writeStrangerFile(docId: piece, opIds: ["02"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: .author(.pieces([piece])))
+        _ = try await store.revoke(person: stranger.fingerprint)
+
+        // What the pane reads off her timeline, which is what it proposes.
+        let held = PermitTimeline(
+            about: stranger.fingerprint, in: try registry()).current
+        XCTAssertEqual(held, .author(.pieces([piece])))
+
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: held)
+
+        XCTAssertEqual(
+            try registry().person(stranger.fingerprint).map(Permit.permit(recordedIn:)),
+            .author(.pieces([piece])),
+            "she comes back as what she was, never as an author of the novel")
+        XCTAssertEqual(try events().last?.kind, .readmitted)
+    }
+
+    /// **Bringing a record up to its history writes no event and pays for
+    /// nothing** — there is no permit change here, so no photograph and no
+    /// gate are owed, and neither is taken.
+    func test_theresignVerbWritesARecordAndNoEventAndGatesNothing() async throws {
+        beThisMac()
+        try manifestFromAnOlderBuild()
+        let store = try await DocumentStore.open(url: projectURL)
+        try await writeStrangerFile(docId: try await docId(), opIds: ["02"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac")
+        // Spec §3.2's crash window: the event landed, the record did not.
+        try RegistryWriter.write(
+            PermitEvent(
+                event: PermitEvent.mintID(subject: stranger.fingerprint),
+                kind: .roleChanged, subject: stranger.fingerprint,
+                role: Permit.reviewerRole, scope: Permit.bookScope, pieces: [],
+                mark: [:], at: Date(timeIntervalSince1970: 99),
+                by: Document.loadIdentities.author.fingerprint),
+            signedBy: Document.loadIdentities.author, in: projectURL)
+        let before = try events().count
+        let manifest = try manifestBytes()
+
+        _ = try await store.resignRecord(person: stranger.fingerprint)
+
+        XCTAssertEqual(
+            try registry().person(stranger.fingerprint).map(Permit.permit(recordedIn:)),
+            .reviewer)
+        XCTAssertEqual(try events().count, before, "no event")
+        XCTAssertEqual(try manifestBytes(), manifest,
+                       "and no gate: nothing narrowed, so nothing is owed")
+    }
+
+    /// **F4's press, end to end.** The record on disk will not verify and this
+    /// Mac holds no earlier bytes for it; afterwards the reader accepts it.
+    func test_thismacWritesItsOwnDeviceRecordAgainThroughTheStore() async throws {
+        let mine = beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let ref = RecordRef(directory: .devices,
+                            fingerprint: mine.author.fingerprint)
+        let url = RegistryWriter.url(
+            .devices, fingerprint: mine.author.fingerprint, in: projectURL)
+        var object = try JSONSerialization.jsonObject(
+            with: try Data(contentsOf: url)) as! [String: Any]
+        object["name"] = "tampered"
+        try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            .write(to: url)
+        XCTAssertFalse(try registry().malformed.isEmpty)
+
+        _ = try await store.writeOwnRecordAgain(ref)
+
+        XCTAssertTrue(try registry().malformed.isEmpty,
+                      "the reader accepts it now")
+        XCTAssertNotNil(try registry().devices
+            .first { $0.device == mine.author.fingerprint })
+    }
+
+    /// And the reading both surfaces share: what a narrowing would cost this
+    /// book, and which of its streams answer to no key.
+    func test_theunsignedReadingNamesTheStreamNoKeyCanName() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let piece = try await docId()
+        // A file with a slug no device record names — the unsigned door's own
+        // subject, and the one this Mac cannot attribute.
+        let ghost = projectURL.appendingPathComponent(
+            ".maugham/ops/\(piece).ghostmac-0badf00d.jsonl")
+        try Data("{\"opId\":\"01\"}\n".utf8).write(to: ghost)
+
+        let reading = await store.unsignedReading()
+
+        XCTAssertNil(reading.refusal)
+        XCTAssertFalse(reading.alreadyNarrowed)
+        XCTAssertTrue(reading.holdsAnUnsignedStream)
+        XCTAssertTrue(reading.streams.contains("ghostmac-0badf00d"),
+                      "named by the SLUG, as the held-line door names it: "
+                      + "\(reading.streams)")
+    }
 }
