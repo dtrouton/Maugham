@@ -86,6 +86,13 @@ struct AdmissionRequest: Identifiable, Equatable {
         if let ownName, !ownName.isEmpty { return ownName }
         return code
     }
+
+    /// **What a request with nothing held says about what is waiting** (P3b
+    /// smoke find F10, in F2's shape): a device whose record has arrived and
+    /// none of whose writing has. One sentence, read by the sheet and by People
+    /// & Devices' pending row alike, so neither can say *0 notes waiting* —
+    /// a count of nothing reads as a count that failed.
+    static let nothingYet = "Nothing from it has reached this Mac yet."
 }
 
 /// What pressing a button on the sheet means.
@@ -115,8 +122,31 @@ enum AdmissionOutcome: Equatable {
 /// only observable by mounting a window.
 enum AdmissionDecision {
 
-    /// The strangers waiting, one request each, ordered by fingerprint so two
-    /// runs over the same folder ask in the same order.
+    /// The strangers waiting, one request each: the ones holding lines first,
+    /// then the ones whose device record has arrived with nothing yet, each
+    /// group ordered by fingerprint so two runs over the same folder ask in the
+    /// same order.
+    ///
+    /// **Two ways to be somebody to ask about** (P3b smoke find F10, Denver's
+    /// ruling 2026-09-24). A holder of held lines, as since P2b — and a
+    /// STRANGER'S DEVICE RECORD on its own, with no line of theirs anywhere
+    /// this window can see. Without the second a collaborator who wrote only
+    /// in chapters this Mac has not opened, or who has not written yet, was
+    /// asked about by nothing: the sheet was raised by lines, and lines in a
+    /// closed chapter cost a full read of its log to find. The record is
+    /// already in the verified registry this reads, so the second way costs
+    /// nothing. Such a request carries `waitingCount` 0 and no `described`,
+    /// and the sheet says *nothing from it has reached this Mac yet*
+    /// (`AdmissionRequest.nothingYet`). A device that is both is ONE request,
+    /// with its held count.
+    ///
+    /// A record-only candidate is a verified `DeviceRecord` that has not
+    /// RETIRED (a retired machine is not asking to write anything), that is not
+    /// `thisDevice` (a Mac's own record is never a request of its own), and
+    /// that `standing(ofHolder:streams:registry:)` offers with no streams to
+    /// judge — which is where `Registry.isStrangerDevice` is asked, so a person
+    /// record under any root, an unsigned holder and a contested key are all
+    /// refused by the same classification a held holder is.
     ///
     /// **Empty when this device has no root** (decision B3). A device no record
     /// names judges nobody, so nothing of anybody's is held and there is
@@ -133,21 +163,39 @@ enum AdmissionDecision {
     /// those judgements is made. `streams` is `DocumentStore.heldLines`'
     /// second half; passing none is the P2b answer, which offers everything
     /// this book has no record of.
+    ///
+    /// `thisDevice` is this Mac's author fingerprint — the key its own device
+    /// record is filed under. Both production callers pass it; nil excludes
+    /// nothing, which is only right for a registry this Mac has no record in.
     static func requests(
         pending: [String: Int],
         streams: [String: Set<String>] = [:],
         registry: Registry,
         memory: [String: AdmissionMemory.Label],
-        myRoot: String?
+        myRoot: String?,
+        thisDevice: String? = nil
     ) -> [AdmissionRequest] {
         guard myRoot != nil else { return [] }
         let labels = knownLabels(registry: registry, memory: memory)
-        return pending.keys.sorted().compactMap { fingerprint -> AdmissionRequest? in
-            guard let waiting = pending[fingerprint], waiting > 0 else { return nil }
-            guard standing(ofHolder: fingerprint,
-                           streams: streams[fingerprint] ?? [],
-                           registry: registry) == .aStrangerToAskAbout
-            else { return nil }
+        let holding = pending.keys.sorted().filter { fingerprint in
+            guard let waiting = pending[fingerprint], waiting > 0 else { return false }
+            return standing(ofHolder: fingerprint,
+                            streams: streams[fingerprint] ?? [],
+                            registry: registry) == .aStrangerToAskAbout
+        }
+        let alreadyAsked = Set(holding)
+        let arrived = Set(registry.devices.filter { record in
+            record.retiredAt == nil
+                && record.device != thisDevice
+                && !alreadyAsked.contains(record.device)
+                // The one classification, as for a holder: it asks
+                // `Registry.isStrangerDevice` (a person record anywhere, or an
+                // unsigned holder's string, is not a stranger) and refuses a
+                // contested key.
+                && standing(ofHolder: record.device, streams: [], registry: registry)
+                    == .aStrangerToAskAbout
+        }.map(\.device)).sorted()
+        return (holding + arrived).map { fingerprint -> AdmissionRequest in
             let record = registry.devices.first { $0.device == fingerprint }
             let ownName = record?.name
             let start = Self.proposal(ownName: ownName, knownLabels: labels)
@@ -155,7 +203,7 @@ enum AdmissionDecision {
                 fingerprint: fingerprint,
                 ownName: ownName,
                 code: DeviceCode.short(fingerprint),
-                waitingCount: waiting,
+                waitingCount: pending[fingerprint] ?? 0,
                 proposedLabel: start.label,
                 knownLabels: labels,
                 sharesItsNameWith: start.collidesWith)
@@ -305,30 +353,64 @@ enum AdmissionDecision {
     /// nothing names is offered exactly as it was. It is a second closure
     /// rather than a widened first one so that the order above — admit, then
     /// re-read, then resolve — is still the only thing this function decides.
+    ///
+    /// **`arrivedDevices` is the F10 pre-check** (Denver's ruling,
+    /// 2026-09-24): the fingerprints whose device record is on disk with no
+    /// person record beside it — `devicesWithNoPersonRecord(in:excluding:)`, a
+    /// listing of two folders, run detached, never a signature check and never
+    /// an op log. It is what lets a stranger's RECORD raise the question with
+    /// no line of theirs held, and it is also the gate on the verified read:
+    /// nothing held and no such file means nobody can be asked about, so a
+    /// book of admitted people pays for no resolve on a settle or an open. It
+    /// is UNVERIFIED on purpose — it only decides whether to look; `requests`
+    /// decides, over the verified registry, who is asked.
+    ///
+    /// **`recountCaptures` runs when an arrived device has nothing counted**,
+    /// before anything else reads the counts. A registry settle refreshes the
+    /// inbox on a task nobody awaits (`DocumentStore.invalidateTrust`), so the
+    /// capture counts read here can predate captures that synced in beside the
+    /// record — and the sheet would say *nothing from it has reached this Mac
+    /// yet* over captures that have. Paid only when such a device exists.
+    ///
+    /// The silent admission is attempted for an arrived device this Mac has
+    /// already named as well as for a remembered holder (`anyRemembered`):
+    /// `RegistryPresence.admitRemembered` walks the folder's device records and
+    /// needs no held line, so a known machine joins on its record's arrival.
     @MainActor
     static func refreshedRequests(
         heldLines: @MainActor () -> [String: Int],
         heldStreams: @MainActor () -> [String: Set<String>] = { [:] },
+        arrivedDevices: @MainActor () async -> Set<String> = { [] },
+        recountCaptures: @MainActor () async -> Void = {},
+        thisDevice: String? = nil,
         memory: [String: AdmissionMemory.Label],
         admitRemembered: @MainActor () async -> Void,
         resolve: @MainActor () async -> (registry: Registry, myRoot: String?)?
     ) async -> [AdmissionRequest]? {
         var pending = heldLines()
-        guard !pending.isEmpty else { return [] }
-        if anyRemembered(pending: pending, memory: memory) {
-            await admitRemembered()
-            // What it let in is applied, so the counts moved underneath us.
+        var arrived = await arrivedDevices()
+        guard !pending.isEmpty || !arrived.isEmpty else { return [] }
+        if arrived.contains(where: { (pending[$0] ?? 0) == 0 }) {
+            await recountCaptures()
             pending = heldLines()
-            guard !pending.isEmpty else { return [] }
+        }
+        if anyRemembered(pending: pending, arrived: arrived, memory: memory) {
+            await admitRemembered()
+            // What it let in is applied, so the counts moved underneath us —
+            // and the person records it wrote are beside their device records.
+            pending = heldLines()
+            arrived = await arrivedDevices()
+            guard !pending.isEmpty || !arrived.isEmpty else { return [] }
         }
         guard let resolved = await resolve() else { return nil }
         return requests(
             pending: pending, streams: heldStreams(),
             registry: resolved.registry,
-            memory: memory, myRoot: resolved.myRoot)
+            memory: memory, myRoot: resolved.myRoot,
+            thisDevice: thisDevice)
     }
 
-    /// Is any device with lines held here one this writer has already named?
+    /// Is any device waiting here one this writer has already named?
     ///
     /// Cheap and folder-free, and keyed the way the held counts are keyed —
     /// `OpLogChain.pendingByDevice` counts under the device record's own
@@ -338,12 +420,65 @@ enum AdmissionDecision {
     /// `RegistryPresence.admitRemembered` either — it walks the folder's device
     /// records — so answering false about it costs nothing and the sheet still
     /// asks.
+    ///
+    /// **`arrived` is the second way to be waiting** (F10): a device whose
+    /// record is on disk with no person record, and no line held. That is
+    /// exactly the set `admitRemembered` walks, so a remembered one of them is
+    /// let in on its record's arrival rather than put in front of the writer.
     static func anyRemembered(
-        pending: [String: Int], memory: [String: AdmissionMemory.Label]
+        pending: [String: Int], arrived: Set<String> = [],
+        memory: [String: AdmissionMemory.Label]
     ) -> Bool {
         pending.contains { fingerprint, waiting in
             waiting > 0 && memory[fingerprint] != nil
-        }
+        } || arrived.contains { memory[$0] != nil }
+    }
+
+    // MARK: - The F10 pre-check: the one thing here that touches a folder
+
+    /// **Which device records have arrived with no person record beside them**
+    /// — by FILENAME, from a listing of `.maugham/devices` and
+    /// `.maugham/people` and nothing else (P3b smoke find F10).
+    ///
+    /// Records are filed `<fingerprint>.json` (`RegistryWriter.url`), so a
+    /// device file with no person file of the same name is a device the book
+    /// has not let in — or one whose admission has not synced yet, which the
+    /// verified read then sorts out. Nothing here opens a file: no signature
+    /// check and no op log, because this runs on every registry settle and
+    /// every open, and its only job is to say whether the verified read is
+    /// worth paying for. A malformed or forged file answers *look*, and the
+    /// look is what refuses it.
+    ///
+    /// `thisDevice` is left out — a Mac waiting to be let into somebody else's
+    /// book has exactly this shape for its own record, and it asks nobody about
+    /// itself. A folder that will not list is answered as its absence: no
+    /// devices listed means nobody to look for; no people listed means every
+    /// device is worth a look, which errs toward the verified read deciding.
+    ///
+    /// Asks `RegistryWriter.directoryURL` for both paths (tripwire 40) and
+    /// skips by NAME only (`DotfileScan`), the reader's own rule.
+    nonisolated static func devicesWithNoPersonRecord(
+        in projectURL: URL, excluding thisDevice: String?
+    ) -> Set<String> {
+        let devices = recordNames(in: .devices, projectURL: projectURL)
+        guard !devices.isEmpty else { return [] }
+        var arrived = devices.subtracting(recordNames(in: .people, projectURL: projectURL))
+        if let thisDevice { arrived.remove(thisDevice) }
+        return arrived
+    }
+
+    /// The fingerprints one registry folder files records under, from their
+    /// names alone.
+    nonisolated private static func recordNames(
+        in directory: RegistryDirectory, projectURL: URL
+    ) -> Set<String> {
+        let folder = RegistryWriter.directoryURL(directory, in: projectURL)
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: folder, includingPropertiesForKeys: nil, options: [])
+        else { return [] }
+        return Set(entries
+            .filter { !DotfileScan.isDotfile($0) && $0.pathExtension == "json" }
+            .map { $0.deletingPathExtension().lastPathComponent })
     }
 
     /// What the writer's typed label means for this request.

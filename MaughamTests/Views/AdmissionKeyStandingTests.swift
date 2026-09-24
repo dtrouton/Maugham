@@ -216,10 +216,14 @@ final class AdmissionKeyStandingTests: XCTestCase {
             AdmissionDecision.standing(
                 ofHolder: herAssistantKey, streams: [], registry: registry),
             .contested)
-        XCTAssertTrue(
-            AdmissionDecision.requests(
-                pending: [herAssistantKey: 2], registry: registry,
-                memory: [:], myRoot: root).isEmpty)
+        let requests = AdmissionDecision.requests(
+            pending: [herAssistantKey: 2], registry: registry,
+            memory: [:], myRoot: root).map(\.fingerprint)
+        XCTAssertFalse(requests.contains(herAssistantKey),
+                       "a contested key is nobody's, so nobody to admit")
+        // F10: the two unadmitted device records are strangers' records, and a
+        // record alone is now somebody to ask about.
+        XCTAssertEqual(Set(requests), [samsKey, otherKey])
     }
 
     /// The converse, so the contested rule cannot quietly widen: a key exactly

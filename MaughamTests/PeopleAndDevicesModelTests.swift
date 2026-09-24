@@ -267,6 +267,31 @@ final class PeopleAndDevicesModelTests: XCTestCase {
                        "The old iPhone (\(row.code)) — 1 paragraph waiting in “Chapter 3”")
     }
 
+    /// **A stranger's record with nothing held is a pending row too** (P3b
+    /// smoke F10), in the sheet's own words — never *0 lines waiting*. The
+    /// fixture's old iPhone has a device record and no admission, and nothing
+    /// of it is held.
+    func test_aRecordOnlyStrangerIsPendingAndSaysNothingHasReachedThisMac() throws {
+        let model = model(registry())
+
+        let row = try XCTUnwrap(model.pending.first)
+        XCTAssertEqual(model.pending.map(\.fingerprint), [stranger.fingerprint])
+        XCTAssertEqual(row.heldLines, 0)
+        XCTAssertEqual(row.sentence,
+                       "The old iPhone (\(row.code)) — Nothing from it has reached this Mac yet.")
+        XCTAssertFalse(row.sentence.contains("0 lines"), row.sentence)
+    }
+
+    /// And the held one first: a stranger whose words are here is the one the
+    /// writer is asked about first.
+    func test_aStrangerHoldingLinesIsListedBeforeARecordOnlyOne() {
+        let unknown = DeviceIdentity.softwareForTesting()
+        let model = model(registry(), pending: [unknown.fingerprint: 1])
+
+        XCTAssertEqual(model.pending.map(\.fingerprint),
+                       [unknown.fingerprint, stranger.fingerprint])
+    }
+
     /// A device with nothing on disk to describe it is named by its code — the
     /// four characters its own Settings screen shows, which is the whole of
     /// how an admission is checked.
@@ -285,8 +310,14 @@ final class PeopleAndDevicesModelTests: XCTestCase {
         let model = model(registry(), pending: [phone.fingerprint: 9,
                                                 mac.fingerprint: 2])
 
-        XCTAssertTrue(model.pending.isEmpty,
-                      "the phone is admitted and the Mac is this device: \(model.pending)")
+        let pending = model.pending.map(\.fingerprint)
+        XCTAssertFalse(pending.contains(phone.fingerprint),
+                       "the phone is admitted: \(model.pending)")
+        XCTAssertFalse(pending.contains(mac.fingerprint),
+                       "the Mac is this device: \(model.pending)")
+        // F10: the fixture's unadmitted old iPhone has a record and no lines,
+        // and a stranger's record alone is now somebody to ask about.
+        XCTAssertEqual(pending, [stranger.fingerprint])
     }
 
     // MARK: - One row per person, devices nested
@@ -1325,7 +1356,11 @@ final class PeopleAndDevicesPermitRowTests: XCTestCase {
                             admittedBy: mac)])
         let model = model(registry, held: [contested: 4])
 
-        XCTAssertTrue(model.pending.isEmpty)
+        XCTAssertFalse(model.pending.map(\.fingerprint).contains(contested),
+                       "a contested key is never a pending row")
+        // F10: the phone's record has no person record in this fixture, so the
+        // record alone is now a pending row of its own.
+        XCTAssertTrue(model.pending.map(\.fingerprint).contains(phone.fingerprint))
         let row = try XCTUnwrap(model.waiting.first)
         XCTAssertEqual(row.sentence, PeopleAndDevicesModel.contestedKey)
     }

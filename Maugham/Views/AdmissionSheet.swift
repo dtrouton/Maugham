@@ -100,8 +100,13 @@ struct AdmissionSheet: View {
     /// *14 notes waiting* — plural because the count is the whole point of the
     /// line, and "1 notes waiting" is the shape that makes a writer distrust
     /// the number beside it.
+    ///
+    /// **Nothing is not a count** (P3b smoke find F10): a stranger asked about
+    /// because their device record arrived, with none of their writing, is
+    /// told as `AdmissionRequest.nothingYet` rather than *0 notes waiting*.
     static func waitingLine(count: Int) -> String {
-        count == 1 ? "1 note waiting" : "\(count) notes waiting"
+        if count <= 0 { return AdmissionRequest.nothingYet }
+        return count == 1 ? "1 note waiting" : "\(count) notes waiting"
     }
 
     /// **What is waiting, in the writer's terms** (P3b smoke find F2): the

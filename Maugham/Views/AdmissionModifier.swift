@@ -138,7 +138,11 @@ struct AdmissionModifier: ViewModifier {
     /// chapters nobody has opened yet is asked about when one of them is
     /// opened, not before. The load itself is what announces
     /// (`DocumentStore.register`), so no chapter can be opened without the
-    /// question being put.
+    /// question being put. **And a stranger's device RECORD puts it too**
+    /// (P3b smoke find F10): the registry settle that brings one runs this, and
+    /// the refresh's pre-check finds the record by a folder listing, so a
+    /// collaborator who has written only in closed chapters — or not yet at
+    /// all — is asked about when their machine arrives.
     @MainActor
     private func recompute(forced: Bool) async {
         if forced { admissions.forgetDismissals() }
@@ -155,6 +159,7 @@ struct AdmissionModifier: ViewModifier {
         let url = projectURL
         let identities = Document.loadIdentities
         let cache = Document.loadRegistryCache
+        let me = identities.author.fingerprint
         let requests = await AdmissionDecision.refreshedRequests(
             heldLines: { documentStore.heldLinesByDevice() },
             // The streams those held lines were in (P3b Task 4), read from the
@@ -162,6 +167,21 @@ struct AdmissionModifier: ViewModifier {
             // not be offered as one, and only the file it wrote in says which
             // of a device's four writers it is.
             heldStreams: { documentStore.heldLines().streams },
+            // **A stranger's device record raises the question on its own**
+            // (P3b smoke find F10). A listing of two registry folders, off the
+            // main actor and never a signature check — it only says whether the
+            // verified read below is worth paying for; `requests` decides.
+            arrivedDevices: {
+                await Task.detached(priority: .userInitiated) {
+                    AdmissionDecision.devicesWithNoPersonRecord(
+                        in: url, excluding: me)
+                }.value
+            },
+            // The settle that brought the record refreshed the inbox on a task
+            // nobody awaits; a device asked about for its record alone is
+            // measured against the captures actually there.
+            recountCaptures: { await documentStore.inboxStore.refresh() },
+            thisDevice: me,
             memory: Document.loadAdmissionMemory.remembered,
             // Decision B2 does not stop at the open (find 4). The same verb
             // `DocumentStore.open` calls, off the main actor like the resolve

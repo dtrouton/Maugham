@@ -572,7 +572,8 @@ struct ProjectSettingsSheet: View {
                     requests: AdmissionDecision.requests(
                         pending: pending, streams: heldStreams,
                         registry: resolved.registry,
-                        memory: remembered, myRoot: resolved.table.myRoot),
+                        memory: remembered, myRoot: resolved.table.myRoot,
+                        thisDevice: mine.author.fingerprint),
                     claimants: claimants,
                     restores: restores,
                     restorable: restorable,
