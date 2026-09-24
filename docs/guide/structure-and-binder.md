@@ -39,6 +39,8 @@ Drag items to reorder. Move chapters between groups; folders physically move on 
 
 If gaps appear in numbering after deletes, **Tidy Filenames** (right-click a group, or File → Tidy All Filenames) renumbers cleanly.
 
+**Removed Elsewhere.** If a chapter disappears from the binder because another Mac saved an older copy of the book's outline — rather than because anybody deleted it — it does not go to Trash. Its words are still in the book, and it appears under **Removed Elsewhere**, beside Trash at the foot of the tree, with the date the change reached this Mac. **Restore** puts it back in the binder where it was (at the top of the manuscript if its group is gone too), with its file rewritten from its history. The section is only there while something is in it.
+
 ### The Inspector
 
 Click an item to see its metadata:
