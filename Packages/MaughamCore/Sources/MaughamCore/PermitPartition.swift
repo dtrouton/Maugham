@@ -874,9 +874,10 @@ public enum PermitPartition {
     /// The write side asks the same three facts through
     /// `OpLogStore.localWritePermit`. Its answer is stamped on the open
     /// `Document`, and the third fact (no book author has written the text)
-    /// changes as lines ARRIVE — so the Mac re-stamps such a Document on every
-    /// external re-read (ruling H), the same re-read at which this arm stops
-    /// applying her lines. Between a book author's line landing on disk and
+    /// changes as lines ARRIVE — so the Mac re-stamps such a Document after
+    /// every external re-read that APPLIED another hand's change (ruling H;
+    /// an echo of her own burst cannot claim the piece), the same re-read at
+    /// which this arm stops applying her lines. Between a book author's line landing on disk and
     /// that re-read, what she types is set aside by the re-read; it is kept
     /// in History.
     private static func appliesOnItsWritersOwnMac(

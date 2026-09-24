@@ -364,9 +364,12 @@ extension DocumentStore {
     }
 
     /// **The drawn posture follows a Document's re-stamp** (P3c plan 2,
-    /// controller ruling H). `Document.handleExternalLogChange` re-stamps a
-    /// Document whose permit carries Option A's arm, because a book author's
-    /// text arriving closes it. The door caches per epoch and prefers that
+    /// controller ruling H; fix round 2). THIS door re-stamps a Document whose
+    /// permit carries Option A's arm (`Document
+    /// .restampWhereItsStarterArmMayHaveClosed`), after a re-read that APPLIED
+    /// another hand's change (`Document.externalChangesApplied` moved), because
+    /// a book author's text arriving closes the arm — and does it in the same
+    /// turn as the bump below. The door caches per epoch and prefers that
     /// cache, so a changed stamp forgets this document's cached answer (the
     /// next draw rebuilds it off the warm table and the live manifest), leaves
     /// the new stamp as the provisional answer, and bumps the epoch so every

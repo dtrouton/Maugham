@@ -286,14 +286,30 @@ public struct PermitTimeline: Equatable, Hashable, Sendable {
     /// stay unclaimed, and — if she is its recorded starter — her own Mac
     /// writes it under Option A while the root is asked *Sam started …*.
     public func wasTakenFromThem(piece: String) -> Bool {
-        !current.authors(.piece(piece)) && entries.contains { $0.permit.namesPiece(piece) }
+        wasTakenFromThem(piece: piece, before: entries.count)
+    }
+
+    /// **The same question, as it stood just before the entry at `index`** —
+    /// what History asks of a *Theirs* answer (P3c plan 2, fix round 3; ruling
+    /// J): was the piece that answer settled one taken from her NAMED pieces
+    /// before it, so its row says *given back* rather than *started*? The
+    /// permit in force before that entry does not author the piece, and some
+    /// entry before it named the piece. One predicate family: the form above is
+    /// this one asked at the end of the timeline.
+    public func wasTakenFromThem(piece: String, before index: Int) -> Bool {
+        let prior = entries.prefix(max(0, index))
+        guard let last = prior.last else { return false }
+        return !last.permit.authors(.piece(piece))
+            && prior.contains { $0.permit.namesPiece(piece) }
     }
 
     /// Did any entry before `index` install a permit that authors this piece?
-    /// What History asks about the entry an answer installed (`TrustEvents`) —
-    /// a narration of what that EVENT did, which is why it keeps the broad
-    /// *authors* reading: a whole-book narrowing did take every piece, and the
-    /// dated entry says so. It is not asked by `wasTakenFromThem`.
+    /// The broad *authors* fact — a whole-book entry authors every piece.
+    /// **It has NO production caller since fix round 3** (ruling J): every
+    /// "taken from her" sentence — the load question, History's held row and
+    /// its dated *Theirs* row — asks `wasTakenFromThem` (named pieces), and
+    /// nothing may build such a sentence from this. Kept as a plain fact about
+    /// the timeline, pinned by `PermitTimelineTests`.
     public func authored(piece: String, before index: Int) -> Bool {
         entries.prefix(max(0, index)).contains { $0.permit.authors(.piece(piece)) }
     }

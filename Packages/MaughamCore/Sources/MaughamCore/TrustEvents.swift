@@ -120,9 +120,11 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
     /// point is the opposite of the widening sentence.
     public let settledPieces: [String]
     /// **The settled pieces that had been TAKEN from them** — a subset of
-    /// `settledPieces` where an earlier permit authored the piece (Q1,
-    /// `PermitTimeline.authored(piece:before:)`), so the row says the piece
-    /// went back to them rather than that they started it.
+    /// `settledPieces` that had been taken from their NAMED pieces before
+    /// this event (Q1; `PermitTimeline.wasTakenFromThem(piece:before:)`,
+    /// ruling J), so the row says the piece went back to them rather than
+    /// that they started it. A piece started after a whole-book narrowing was
+    /// taken from nobody, and its row says *they started*.
     public let returnedPieces: [String]
     /// The permit event's own id, where the row came from one. It is what
     /// keeps two `roleChanged` rows about one person apart — see `id`.
@@ -484,7 +486,7 @@ public enum TrustEvents {
             settledPieces: installed.map { timeline.entries[$0].settles.sorted() } ?? [],
             returnedPieces: installed.map { at in
                 timeline.entries[at].settles
-                    .filter { timeline.authored(piece: $0, before: at) }.sorted()
+                    .filter { timeline.wasTakenFromThem(piece: $0, before: at) }.sorted()
             } ?? [],
             event: event.event)
     }

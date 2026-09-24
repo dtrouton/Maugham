@@ -2478,6 +2478,46 @@ final class PermitLoadTests: XCTestCase {
                 .contains("taken from them"))
     }
 
+    /// **A writer narrowed from the WHOLE book who then starts a piece gets
+    /// the *they started* row, not *taken from them*** (P3c plan 2, fix round
+    /// 3; ruling J). The whole book authored every piece without naming one;
+    /// the piece did not exist when she was narrowed, and nothing was given
+    /// back by answering *Theirs*. History's dated row must agree with the
+    /// question the root answered (*Sam started … — is it theirs?*).
+    func test_aPieceStartedAfterAWholeBookNarrowingIsSaidToBeStartedInHistory()
+        async throws
+    {
+        try writeRootRecord()
+        try declareSam()
+        try await admit(.bookAuthor)
+        let narrowed = Permit.author(.pieces(["doc-hers"]))
+        _ = try RegistryAdmission.changePermit(
+            person: samPerson, role: narrowed.wireRole,
+            scope: narrowed.wireScope, pieces: narrowed.wirePieces,
+            mark: PermitMark(try await seenMark()),
+            unsigned: try await unsignedSnapshotMark(),
+            in: projectURL, by: root.author, cache: cache,
+            now: { Date(timeIntervalSince1970: 65) })
+        try samsFile([op("herOpening", by: sam.author)])
+
+        let carrier = AmendmentPermits()
+        _ = try await reader().loadDiagnosed(docId: docId, amendmentPermits: carrier)
+        XCTAssertEqual(carrier.whoStartedAPiece, [samPerson], "the question is put")
+        XCTAssertTrue(carrier.whoKeptWritingInATakenPiece.isEmpty)
+
+        try await answerTheirs(["doc-hers", docId])
+        let answer = try XCTUnwrap(
+            TrustEvents.derive(
+                registry: try RegistryReader.load(projectURL: projectURL),
+                cache: cache, mine: root, for: projectURL)
+                .last { $0.subject == samPerson && !$0.settledPieces.isEmpty })
+        XCTAssertEqual(answer.settledPieces, [docId])
+        XCTAssertEqual(answer.returnedPieces, [], "nothing was given back")
+        let sentence = TrustEventSentence.sentence(for: answer, labels: [:])
+        XCTAssertTrue(sentence.contains("the piece they started"), sentence)
+        XCTAssertFalse(sentence.contains("taken from them"), sentence)
+    }
+
     // MARK: Co-written, deliberately (Denver's case-2 ruling)
 
     /// **Theirs over a piece a book author has already written in brings her

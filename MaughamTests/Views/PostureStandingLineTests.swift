@@ -345,15 +345,28 @@ final class PostureStandingLineTests: XCTestCase {
             }
         }
         while log.samples.isEmpty { await Task.yield() }
+        let beforeTheReRead = log.samples.count
+        // **A turn inside the re-read, deterministically** (review NB3): the
+        // re-read's own seam waits until the sampler has sampled again, so the
+        // parallel suite's scheduling cannot leave the window unsampled.
+        doc.externalLogChangeWillBegin = {
+            doc.externalLogChangeWillBegin = nil
+            while log.samples.count == beforeTheReRead { await Task.yield() }
+        }
         try await store.reReadAfterExternalChange(doc)
         log.running = false
         await sampler.value
+        // Taken WHILE the re-read ran (after it began, before the post-loop
+        // sample below) — so the no-split assertion is about turns inside the
+        // re-read's suspensions, not only the two ends (review NB3).
+        let during = Array(log.samples[beforeTheReRead...])
+        XCTAssertFalse(during.isEmpty, "the sampler took a turn inside the re-read")
         log.samples.append((
             !doc.mayWriteItsText,
             !store.posture(forDocId: PostureFixture.docId).allows(.writeText)))
 
         XCTAssertTrue(log.samples.contains { !$0.0 }, "the sampler saw it unlocked")
-        XCTAssertTrue(log.samples.contains { $0.0 }, "and the claim land")
+        XCTAssertTrue(log.samples.last?.0 == true, "and the claim land")
         let split = log.samples.filter { $0.0 != $0.1 }
         XCTAssertTrue(split.isEmpty,
             "a turn saw the Document's stamp and the drawn answer disagree: "
