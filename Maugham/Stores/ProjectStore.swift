@@ -288,6 +288,12 @@ public final class ProjectStore {
     /// why, never part of it silently (RULING-40).
     public internal(set) var lastDeletion: TrashDeletion?
 
+    /// Pieces that left the structure WITHOUT going to Trash — derived by
+    /// `refreshRemovedElsewhere()` from the op logs, the live structure, Trash
+    /// and the archived outlines, never stored (Denver's ruling, 2026-09-24).
+    /// See `ProjectStore+RemovedElsewhere.swift`.
+    var removedElsewhere: [RemovedElsewherePiece] = []
+
     // MARK: - Search state
 
     public internal(set) var currentSearch: SearchResults?

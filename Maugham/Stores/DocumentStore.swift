@@ -1877,23 +1877,20 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
     }
 
     /// The sentence for a piece that left this book on another device WITHOUT
-    /// going to Trash. It promises no way back, because the app offers none
-    /// yet: its words are still in the book's op log and the outline that held
-    /// it is in `.maugham/conflicts/`, but nothing in the window reaches either.
+    /// going to Trash. The way back is *Removed Elsewhere*, below the binder
+    /// (Denver's ruling, 2026-09-24): the adoption that closed it has just
+    /// archived the outline that held it, which is what that list reads
+    /// (`RemovedElsewhere`), so the promise holds from this moment.
     static func removedElsewhereNotice(title: String) -> String {
-        "“\(title)” was removed from this book on another device, so it has been closed here. It is not in Trash."
+        "“\(title)” was removed from this book on another device, so it has been closed here. It is not in Trash — restore it from Removed Elsewhere, below the binder."
     }
 
     private func archiveManifestForConflict(data: Data) {
         let conflictsDir = projectURL.appendingPathComponent(".maugham/conflicts")
         try? FileManager.default.createDirectory(
             at: conflictsDir, withIntermediateDirectories: true)
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let stamp = formatter.string(from: Date())
-            .replacingOccurrences(of: ":", with: "-")
         let backupURL = conflictsDir
-            .appendingPathComponent("manifest-\(stamp).json")
+            .appendingPathComponent(ManifestConflictArchive.fileName(for: Date()))
         // LOG (sync, non-throwing context): this is the conflict backup — the
         // *loser* of a cloud manifest conflict, i.e. the safety net itself. A
         // swallowed `try?` would let that safety net vanish silently on a write

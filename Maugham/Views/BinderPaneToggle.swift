@@ -104,7 +104,16 @@ struct BinderPaneToggle: View {
                 TrashDisclosure(store: store, isExpanded: $trashExpanded,
                                 onRestoreOutcome: onRestoreOutcome)
             }
+            // Pieces that left the binder on another device WITHOUT going to
+            // Trash (Denver's ruling, 2026-09-24) — beside Trash, and like it
+            // present only while there is something in it.
+            if !store.removedElsewhere.isEmpty {
+                Divider()
+                RemovedElsewhereDisclosure(store: store,
+                                           onRestoreOutcome: onRestoreOutcome)
+            }
         }
+        .modifier(RemovedElsewhereRefresh(store: store))
     }
 
     /// The manuscript tree. Extracted because two arms render it and a second

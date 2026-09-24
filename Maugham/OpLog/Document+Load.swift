@@ -588,7 +588,11 @@ extension Document {
         // divergent file doesn't accumulate identical copies. A backup-write
         // failure must NEVER abort the load — the manuscript still opens; the
         // snapshot is forensics, not a gate (mirrors the quarantine-write above).
-        if logExists {
+        // A MISSING file has no bytes to keep, so it is not a divergence: a
+        // piece restored from *Removed Elsewhere* is loaded to write its first
+        // render, and snapshotting "" there would leave an empty "backup" of
+        // nothing in `.maugham/conflicts/`.
+        if logExists && FileManager.default.fileExists(atPath: url.path) {
             let derivedRender = MarkdownDisplayFilter.stripAnchors(
                 Materializer.materialize(
                     paragraphs: initial.paragraphs, sequence: initial.sequence))
