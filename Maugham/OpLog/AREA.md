@@ -961,9 +961,9 @@ holds the fingerprint.
 ## The permit — what a person may write (P3a, [ADR 0032](../../docs/adr/0032-the-signed-op-log.md)'s P3a addendum)
 
 P2 answered *is this key somebody this book admits?* P3a answers **admitted to
-write WHAT**, and answers it where lines are read. **No surface** — nothing in
-Maugham can yet give anybody a permit (P3b), and the membrane and the phone are
-P3c's. It is **behaviour-neutral for every existing book**: no permit events ⇒
+write WHAT**, and answers it where lines are read. **No surface** in P3a —
+P3b gave the permit its controls and P3c plan 1 the Mac's posture (below); the
+phone's is P3c plan 2's. It is **behaviour-neutral for every existing book**: no permit events ⇒
 every admitted person is an author of the whole book from the start ⇒ the P2
 suite passes untouched.
 
@@ -1272,7 +1272,40 @@ silent. Annotation creation and the writer's own note's edit and withdraw are
 not doors here: they are the reviewer row. **Known edge**: the table files
 `annotationReopen` under dispositions whatever it undoes, so a reviewer's ⌘Z of
 her OWN Delete (a reopen) is refused and said — a table question, not this
-door's.
+door's. Controller ruling P moves own-note reopen onto the ownership path, in
+`Permit.swift` and `AnnotationOwnership` on both surfaces together (tripwire
+19), in P3c plan 2.
+
+**The stamp is LIVE, not a load-time snapshot** (P3c plan 1, Task 2).
+`Document.localWritePermit` is `internal private(set)`, and its one setter is
+`stamp(localWritePermit:)`: the load calls it, and so does the posture door's
+refresh (`DocumentStore+Posture.swift`) for every open document after every
+trust change and manifest adoption, from the same builder, over the table the
+refresh just warmed. So every door on this page — the disposition guard,
+`mayWriteThePendingFile`, the task door below — reads the permit as it stands
+NOW: a demotion arriving while she types stops the next burst being signed, and
+a promotion gives the keyboard back, with no reopen. **The re-stamp keeps the
+stamp's own actor** (controller ruling J): the load stamps the AUTHOR's permit
+whoever opened the file, because what it emits on its own account is the
+author's (tripwire 38), so re-stamping as the loading actor would change what
+the stamp means.
+
+**Task ops have a door too** (P3c Task 8, `Document+Tasks.swift`).
+`appendTaskOpInternal` refuses any op whose kind the stamp refuses, and
+`archiveTask` refuses up front when either its op or — for an inline task —
+its text splice is refused, so an op is never refused while its splice lands.
+Both decline an undo out loud (`UndoDecline.taskNotPermitted`). The load's own
+anchors and the rebalance were already gated on the same question. The
+PROJECT stream's task verbs (`ProjectStore.createProjectPaneTask`/
+`archiveProjectTask`) have no door — surface-only, a stated limit in ADR 0032's
+P3c addendum.
+
+**`author_collaborator_id` is decoded and never written** (P3c Task 4, spec §8,
+claim M5-AN-012). Attribution is the signing device through the registry, so
+the WF1 collaborator id on a reviewer's note is read from old logs
+(`AnnotationDeriver`) and nothing writes it: `addReviewerAnnotation` and its
+edit/withdraw siblings lost `authorId:`, and `AnnotationInverse.editRevertOp`
+lost its pass-through. See tripwire 23 below.
 
 **And what RELEASED builds wrote is judged as the author's, permanently**
 (final fix wave, W3(a)). The attribution rule above fixes what this build
@@ -1808,6 +1841,8 @@ Failure modes:
 21. **The unsigned door's decisions each have ONE home** (P3b). The narrowing predicate (`PermitTimeline.narrows`) and `UnsignedSnapshot` are spelled in the permit layer only; whether a file is unattributable AT ALL is decided in `OpLogChain` (the `unattributable:` label); the three `HeldLines.Holder` arms are BUILT in `HeldLines`; `AdmissionDecision.HeldKeyStanding` is the one *why is this held key not offered*; `Permit.permit(offering:)` is walked through by `PermitControl` alone; and `RegistryPresence` names no rung, because the admission that shows no sheet may only install the whole book. Every one fails silently and in the direction that moves words — a second answer to *is this book narrowed* holds a line here and applies it there, and a second opinion about *unattributable* keeps a file out of the photograph altogether. Censuses: `TripwireGrepTests.test_theNarrowingPredicateAndTheSnapshotAreInThePermitLayerOnly`, `test_whetherAFileIsUnattributableIsDecidedInOpLogChainOnly`, `test_theThreeHoldersAreBuiltInHeldLinesOnly`, `test_theHolderStandingClassifierIsOneFile`, `test_aSurfaceBuildsAPermitInOnePlace`, `test_theSilentAdmissionNarrowsNobody`, sharing `test_theP3bCensusesFireOnPlantedOffenders`. CLAUDE.md tripwire 49.
 
 22. **Six P3b call-site lists are ARRAYS, not numbers in prose** (P3b). `expectedStreams`, `acknowledgedLosses`, `absentStreams`, `gateOldBuildsOut`, the `currentSchemaVersion` assignments and the held-line door's one caller live in `TripwireGrepTests.countedLists` with a count per file. A builder of `expecting:` somewhere else is a sweep that does not take the acknowledgement, so a loss the writer has already put down refuses a marking verb for ever; a narrowing verb that stopped calling the gate lets a v0.40 Mac into a narrowed book. Census: `test_theP3bCountedListsAreExactlyTheNamedArrays`. CLAUDE.md tripwire 50.
+
+23. **`author_collaborator_id` is decoded and never written** (P3c Task 4). Only `Op.swift` names the `authorCollaboratorId:` label — the field, its init parameter and its decode; a read carries no colon. A second writer is a second attribution beside the signature, one nothing verifies. `TripwireGrepTests.test_theCollaboratorIdIsDecodedAndNeverWritten` + `test_theCollaboratorIdCensusFiresOnAPlantedOffender`, over `Maugham/`, `MaughamPhone/` and Core sources.
 
 - **Cross-surface contracts:** if you touch op-log/inbox filenames, ids, formats, or Fountain rendering, you may be in shared phone↔Mac territory — the reach-around tripwires will tell you. Registry: `docs/superpowers/notes/cross-surface-contracts.md`.
 

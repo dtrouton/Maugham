@@ -92,6 +92,15 @@ Invariants:
 
 10. **Any control flag that swaps which BUFFER the editor is showing (not just its styling) must flip the membrane synchronously, before the buffer-swap decision is made.** Translation review (Task 11, ADR 0024) hit this: `EditorSurface.reconcileTextBuffer` calls `coordinator.setTranslationReview(...)` FIRST, then checks whether `textView.string != text` to decide on a replace — in that order, deliberately. Reordering it (check-then-flip, or flipping on a later pass) let the membrane see a stale posture for one layout pass, and separately let an in-mode translated-content refresh retain a stale `preserveUndoStack` decision across a buffer swap that must always drop the native undo stack (carrying the SOURCE manuscript's undo actions across a translation-render swap reopens the ADR-0023 D1 corruption class). `setLockEditing` established the "plain stored-property flip, read live in `shouldChangeTextIn`" shape this reuses; the buffer-identity case adds the ordering requirement on top. `EditorUndoStackClearTests` is the regression net.
 
+## The membrane reads the posture (signed op log P3c plan 1)
+
+What the editor refuses is decided by `EditorEditPolicy.allowsTextMutation(isReviewMode:lockEditing:isTranslationReview:)`, keyed off `shouldChangeTextIn` alone — the editor stays selectable, scrollable and copyable, and `isEditable` is never touched. **`lockEditing` has exactly these inputs**, composed once in the pure `EditorControlMirror.membrane(posture:manualReview:shareIsReadOnly:)` (`ProjectWindow.swift`):
+
+- **the posture** — `!posture.allows(.writeText)`, asked of the window's one door (`DocumentStore.posture(forDocId:)`) for the document shown. A reviewer, an author of some pieces outside her own, the root yielding on somebody else's piece until **Edit Anyway**, and `Posture.settling` (nothing decided yet) all lock. A trust change bumps the door's epoch, so a demotion arriving mid-session reaches this mirror as a changed value — and the `Document`'s own stamp is re-stamped by the same refresh, so the next burst is not signed either;
+- **a read-only iCloud share** — `ProjectWindow.shareIsReadOnly(_:)`, an OS-level lock that claims no role (WF1's Component A, which turned a share into a "reviewer" role, is retired).
+
+Neither input unlocks what the other locks, and the manual ⌘⌥⇧R (`isReviewMode`) flips the review RENDER but never the lock. The statement editor asks the same door for `.editStatement` (`StatementEditorHost.locksEditing`). The line above the text that says WHY is `Maugham/Views/PostureStandingLine.swift`, not this area's. `PostureMembraneTests` (in `ReviewModeMembraneTests.swift`) and `PostureStandingLineTests` pin both directions.
+
 ## Two editors in one window (M1A)
 
 Until M1A there was exactly one `EditorSurface` alive in a window at a time. The statement panes (`Maugham/Views/StatementEditorHost.swift`) put a second one in the right column while the manuscript editor holds the centre, and **two things broke immediately** — neither visible by reading, both caught by a test that hosted the pair in one window (`StatementEditorMountTests`):

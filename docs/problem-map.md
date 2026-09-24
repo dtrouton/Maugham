@@ -45,7 +45,7 @@
 - ✓ **Keep the lessons from feedback, not just the fixes** — accepted craft principles persist and inform future passes. *(the lessons ledger: a project-scope statement of its own, **What I've Learned** (⌘⌥G), whose rows are live lessons, settled choices and dated retirements. The writer's own verbs file into it — Keep as lesson, This is a choice, Retire — every round is briefed on what stands there, and Claude reads it through `read_lessons` and never writes it)*
 - ~ **See what's flagged while I'm in the text** — know a paragraph carries an open note without leaving the editor. *(the pane shows all annotations; inline marks in the editor margin are open)*
 - • **Point feedback at a clause, not a paragraph** — tight suggestions on exactly the words in question. *(unserved — sub-paragraph range anchors are open)*
-- • **Get the same quality of feedback from humans** — a trusted reader annotates through the same membrane, with the same writer-disposes control. *(unserved — collaborator layer is a design, not a feature)*
+- ~ **Get the same quality of feedback from humans** — a trusted reader annotates through the same membrane, with the same writer-disposes control. *(a person admitted as a **reviewer** leaves notes that arrive in the writer's Annotations pane like any other, and their own Mac offers them nothing but annotating — see [People & Devices](guide/people-and-devices.md). Awkward: unproven with a real second writer and the phone shows no permit yet)*
 
 ## Keeping the words safe
 

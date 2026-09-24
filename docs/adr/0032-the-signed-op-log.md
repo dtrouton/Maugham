@@ -1580,10 +1580,13 @@ unsigned stream in a narrowed book.
   the pane** — a person under another root has no row there. It is the verb's
   own guard and correct; there is no test that can be written for it from the
   surface.
-- **Spec §7.1's share pre-fill is not built.** A read-only iCloud share does
+- ~~**Spec §7.1's share pre-fill is not built.** A read-only iCloud share does
   not suggest *reviewer* in the admission sheet; the default is the whole book,
   which is P2b's behaviour exactly. Carried to P3c, where Component A's
-  retirement decides `FileURLShareMetadataReader`'s one surviving caller.
+  retirement decides `FileURLShareMetadataReader`'s one surviving caller.~~
+  **STRUCK by P3c plan 1 (ruling R1):** the pre-fill was dropped on merit, not
+  deferred — the admitting root cannot read another participant's share
+  permission, so there is nothing to pre-fill from. See the P3c addendum.
 - **The kept release census does not walk hidden directories.** The P3c release
   checklist's wording has to say so (`scripts/census-load-bursts.sh`).
 
@@ -1609,6 +1612,289 @@ half, at about +11 ms more, because every load walks and judges it. Taken
 together the narrowed book stays inside **about one 16 ms frame** per document
 open — the figure `Maugham/OpLog/AREA.md` gives, and the one P3a's larger
 fixture reached from the other side.
+
+
+## Addendum — the posture, Component A retired, and F10, 2026-09-24 (P3c plan 1)
+
+P3a enforced the permit where lines are READ, and P3b gave it a way to be
+given and seen. What neither did was make the permit-holder's own Mac honest
+about it: a reviewer could still press Accept, and the next read set her own
+act aside in silence. P3c is split into plans. This addendum covers plan 1: the Mac
+half of spec §8 (the membrane widens to the table), the retirement of WF1's
+Component A, and smoke find F10. Plan 2 covers Option A (starting a piece of
+your own) and the phone.
+
+Nothing here changes what a line MEANS. The table (tripwire 44), the partition
+(45) and the one *may this actor write here* (46) are untouched. A book whose
+device has no narrowing permit answers `Posture.author` everywhere, so it is
+P3b exactly: every verb is offered. The pre-P3c suites passed unchanged apart from these declared
+edits: the Component A suites that were deleted with it, the F10
+premise narrowings (controller ruling Y), and mechanical edits that pass a newly
+required posture argument (ruling S).
+
+### One value, asked of the permit
+
+`Posture` (MaughamCore) is built from a `LocalWritePermit`, which comes from the
+one builder, `OpLogStore.localWritePermit`. It answers one question: *may a
+surface offer this verb?*
+
+- The verbs are the cases of `Posture.Verb`. Count the enum, not this
+  paragraph.
+- ONE `default:`-less switch maps each verb to the line it would write, and the
+  permit's own `allows` answers.
+- Pass state, structure and a round are not ops. Each is probed as *may you
+  write this piece's text* (R3, R4).
+- *Start a piece* is asked in the hardest class, so it is a whole-book
+  author's act until plan 2.
+- `reason` names why the words are not hers: `.reviewer`, `.notYourPiece`,
+  `.yielding(to:)` or `.cannotJudge`. It reads the rung only to NAME the
+  reason, never to decide a verb (tripwire 47).
+- The permit is private, so a surface cannot ask it a second question.
+
+Named values stand beside the built ones.
+
+- **`Posture.author`** is P1's posture.
+- **`Posture.settling`** is the door's *not yet* answer: the answer about a
+  document it has never answered, in a book that has a register, before its
+  off-main table lands. It offers the reviewer row alone, because a verb
+  appearing a frame late is harmless and a verb appearing that must not is not.
+  A book with no register never answers `settling`.
+
+**The Mac asks through one door** (`DocumentStore+Posture.swift`, controller
+rulings B and I). Which accessor a caller uses is the rule:
+
+- **`posture(forDocId:as:)` is the DRAWING accessor.** It is a per-epoch cache
+  and never resolves the registry on the main actor. After a trust change and
+  before the refresh lands, it answers provisionally (this key's last answer,
+  else the open document's stamp, else `settling`) and caches nothing.
+- **`settledPosture(forDocId:as:)` is what every door that ACTS asks.** It waits
+  out any refresh, re-warms if the folder moved under it, and never returns a
+  provisional or `settling` answer.
+
+**Fresh on every trust change.** `invalidateTrust` and manifest adoption bump
+the epoch, and the refresh that follows re-stamps every open `Document`'s
+`localWritePermit` from the same builder. A demotion arriving mid-session
+therefore stops the next keystroke's burst, a promotion restores it, and
+neither needs a reopen. The re-stamp keeps the actor the stamp was made for,
+which is the author's, because the load's own emissions are (tripwire 38;
+ruling J).
+
+`TripwireGrepTests.test_postureIsAskedOfThePermitInOnePlace` (CLAUDE.md tripwire
+51) keeps every other file from asking a permit a question or building a
+`Posture` of its own. It checks by file AND spelling, over `Maugham/` and
+`MaughamPhone/`, with a planted-offender control.
+
+### Every verb has a door and a surface
+
+The shape is the same everywhere. **The surface hides** a verb the posture
+forbids — a greyed Accept reads as broken, so nothing is disabled. **The verb's
+own door refuses it** if a stale press or a stale undo reaches it anyway. Both
+ask the one door.
+
+**The exceptions to hiding:**
+- **The editor** stays selectable and copyable and refuses mutation. This is
+  the P2 membrane's shape: `EditorEditPolicy` and `shouldChangeTextIn` alone,
+  with `isEditable` untouched.
+- **The File menu's piece items** are DISABLED (ruling X). A menu-bar item is
+  greyed, not removed.
+
+**The doors:**
+- **Dispositions** refuse in `Document+Annotations` (`PostureRefusal`). An undo
+  whose compensating op is refused is declined out loud (`UndoDecline
+  .notPermitted`), never silently re-applied.
+- **Task ops** refuse in `Document+Tasks` (`UndoDecline.taskNotPermitted`).
+- **Statements** refuse at `RulingPerformer`'s rule/revoke/edit/restore and at
+  `StatementProposalGate.adopt`.
+- **A round** refuses in `CompilerOrchestrator.runRequested`. It starts nothing:
+  no marker moves, no session, no pass memory, and `runState` stays idle.
+- **⌘S's op** refuses in `CheckpointCapture`.
+- **A translation** refuses in `TranslationWritePipeline`, and at the desk's
+  Run. Both are judged as the TRANSLATOR actor.
+- **The Collection's start-a-piece commands** refuse at `StartAPieceDoor`.
+
+**Where the posture comes from for each kind of document.** A statement's
+posture is its piece's (a piece statement) or the book's (a project statement).
+A translation is judged as the translator. A queue row is judged by ITS OWN
+document's posture, never the window's selection.
+
+**The standing line** (`PostureStandingLine`) sits above the editor and says
+why the words are not hers. It is keyed on `reason`, never on `isRestricted`
+(ruling E), so an author of some pieces inside her own piece sees no line.
+**Ruling K** adds a clause: *Some of what you wrote here is kept in History*,
+counted exactly from the set-aside and held lines of this device's own files
+(`OpLogProvenance.ownLinesKeptInHistory`).
+
+**The root's cooperative yield** (spec §2/§8, R2, ruling H). Where this Mac
+holds the book's root and `PieceWriters` names somebody else on a piece, the
+author's posture on that piece yields: *This is Sam's piece*, with **Edit
+Anyway**.
+
+- It applies to that piece's statement and its translation as well.
+- It never yields to this device's own person, and never to a whole-book
+  co-author.
+- A whole-book author who is not the root yields to nobody.
+- The override is per window, per piece, for the session. It is not persisted
+  and not synced.
+- The acting doors honour the yield too (ruling T). The root presses Edit
+  Anyway before ruling on or checkpointing Sam's piece, even though storage
+  would take her lines.
+
+### The plan's rulings, and the controller rulings that changed behaviour
+
+**Plan rulings:**
+- **R1.** Spec §7.1's share pre-fill is DROPPED on merit. The admitting root
+  cannot read another participant's share permission, and a read-only
+  participant cannot upload a device record to be asked about.
+- **R2.** The root's override is per window, per piece, per session.
+- **R3.** Pass state and structural verbs are probed as the piece's text. Start
+  a piece is the book-author probe. Duplicate needs both (ruling W), because a
+  copy is a new piece.
+- **R4.** A round is gated. Author's check is anyone's, because it mints the
+  reviewer row.
+- **R5.** ⌘S on a piece this Mac may not write flashes and writes nothing: no op
+  and no checkpoint entry. ⇧⌘S says why instead of opening its sheet.
+  - **Ruling L:** ⌘S with the project row selected is unchanged.
+  - **Ruling N:** a labelled ⇧⌘S that succeeds now flashes too.
+
+**Controller rulings that moved behaviour beyond the plan:**
+- **Ruling K**, the own-lines clause, described above.
+- **Ruling O.** `author_collaborator_id` is decoded and never written. Claim
+  M5-AN-012 is amended, and `test_theCollaboratorIdIsDecodedAndNeverWritten`
+  guards it.
+- **Ruling P.** A reviewer's reopen of her OWN withdrawn note is refused for
+  now, loudly. `annotationReopen` is a disposition in the table, and moving
+  own-note reopen onto the ownership path is a storage-table change that must
+  move on the Mac and the phone together. It is plan 2's.
+- **Ruling X,** the File menu, described above.
+- **Rulings AA–AC,** F10, described below.
+
+### Component A is retired
+
+`CollaborationRole`, `ShareIdentityMapper`, `ReviewPosturePolicy`,
+`ProjectWindow`'s role plumbing and the phone's `SharingRoleBanner` are
+deleted. What remains of the share:
+
+- **It is an indicator, not a role.** `ShareMetadata` survives, moved to a file
+  of its own, and `SharingStatusPill` shows *Shared* or *Shared by <owner>*
+  and claims no role.
+- **A read-only iCloud share is an OS-level lock.** `ShareMetadata.canWrite ==
+  false` still locks the editor and shows `ViewOnlyShareNotice`, as the
+  mirror's second input beside the posture. Neither input ever unlocks what the
+  other locks.
+
+Behaviour changes that follow, by design:
+
+- A participant on a read-WRITE share is no longer locked as a "reviewer". What
+  she may write is her permit.
+- An unresolved share no longer locks the window while it resolves.
+
+### F10 — the question is asked when the stranger arrives
+
+**Smoke find F10.** The admission sheet used to be raised by a stranger's held
+LINES alone, so a collaborator whose device record had synced, but who had not
+written yet, was invisible until her first words were already being held.
+`AdmissionDecision.requests` now also asks about every verified, unretired
+device record that `standing(ofHolder:)` calls a stranger to ask about. Such a
+request carries *Nothing from it has reached this Mac yet.* A device that is
+both held and newly recorded is one request, not two.
+
+- **Ruling AA.** The question is asked ONLY on a Mac that holds the book's root
+  — its own root record, the same test `admitRemembered` uses — on both paths.
+  An admitted non-root Mac is never shown the sheet.
+- **Ruling AB.** The inbox recount runs on a registry settle, never on a
+  document open.
+- **Rulings AB and AC.** A retired record is never a waiting stranger. The
+  filename pre-check reads `retiredAt` from unmatched device files, unverified,
+  which fails toward silence.
+
+### The cost of the drawing door, measured and fixed (Task 10, ruling AD)
+
+Task 2 promised O(1) in a view body *after the first question per document per
+epoch*. Task 10 measured the first one, on a trust change with a queue of rows
+each on its own document. The fixture is `MaughamTests/Performance
+/PostureMissCostTests.swift`, kept and env-gated in `NarrowedBookCostTests`'
+shape: the root's Mac with one person narrowed, medians of 7, no other
+`xcodebuild` running.
+
+**Before.** The first redraw after the refresh landed was all misses.
+
+| rows | first redraw after the refresh |
+|---|---|
+| 10 | 8.6 ms |
+| 50 | **42.0 ms** |
+| 200 | 167 ms |
+
+Each miss cost about 0.84 ms:
+
+| what a miss did | cost |
+|---|---|
+| decode the manifest from disk for the document's class | 0.47 ms |
+| folder signature, taken twice | about 0.11 ms each |
+| is-there-a-register question, asked twice | about 0.06 ms each |
+
+That breached tripwire 3 on every registry arrival for any queue showing about
+twenty documents.
+
+**The fix changes no answer:**
+- **The class comes from the window's live manifest** where the store holds
+  one, through `DocumentClass.resolve(docId:statements:)`, which is what the
+  disk path computes over the statements it decodes. The builder is unchanged
+  (tripwire 46), and manifest adoption already bumps the epoch.
+- **The refresh warms every `(docId, actor)` the window has asked about**, off
+  the table it just warmed. It works in chunks that yield the main actor, and
+  checks the folder's signature once per chunk rather than once per key.
+- **Its epoch bump keeps the warmed cache.** The yields' second bump never
+  clears it, because a permit does not depend on who is yielded to.
+- **A folder that moves mid-warm abandons it** and falls back to the clearing
+  bump, as before.
+
+**After:**
+
+| rows | first redraw after | provisional, during the refresh | a never-asked queue |
+|---|---|---|---|
+| 10 | 0.008 ms | — | — |
+| 50 | **0.023 ms** | 2.95 ms | 18.2 ms |
+| 200 | 0.083 ms | — | — |
+
+`DocumentStorePostureTests` passed unchanged. A queue of documents this window
+has never asked about still costs about 0.36 ms a row. That is the folder
+signature and the register check, each taken once by the door and once again
+inside the builder. The door's own check is what keeps a registry resolution
+off the main actor, so it stays per miss; see the limits.
+
+### What P3c plan 1 does NOT do — the limits, stated
+
+- **The binder is cooperative.** *Roles guard the words, not the binder* (P3a's
+  first limit) still holds. The tree hides structural verbs from a posture that
+  forbids them, and nothing at storage refuses a reviewer's manifest write.
+  Starting a piece is refused at its command's receiver as well, but that is the
+  app's courtesy too; what storage guarantees is only that nobody whose permit
+  does not name the new piece can write its text (the load refuses it).
+- **A read-only iCloud share is an OS lock and no role.** It locks the editor on
+  that Mac because the file system will not take the write. It says nothing
+  about the person's permit, and no permit is inferred from it (R1).
+- **Project-stream tasks are hidden in the pane but have no door.**
+  `ProjectStore.createProjectPaneTask`/`archiveProjectTask` are unguarded. The
+  reviewer's pane never draws them, and the read side sets aside a reviewer's
+  `__project__` task op. A door there needs a permit on `ProjectStore`.
+- **A reviewer cannot restore her own deleted note until plan 2** (ruling P).
+  The refusal is loud rather than silent.
+- **M5-AN-012's filing awaits a register ruling.** The claim is amended and
+  pinned. Its filing stays NO_RULING_REACHES until Denver promotes spec §8's
+  sentence to a RULING-n.
+- **A late capture does not refresh an open F10 sheet.** A capture arriving
+  after the sheet is up leaves it reading *Nothing from it has reached this Mac
+  yet* until the next settle or load.
+- **A corrupt `people/<fp>.json` hides a record-only stranger.** The pre-check
+  skips the verified read and fails toward silence until the next verified
+  read. A forged `retiredAt` on an unmatched device file does the same (ruling
+  AC).
+- **A never-asked document still costs a door check and a builder check on the
+  main actor** (about 0.36 ms a row). Only the redraw after a trust change was
+  made cheap.
+- **The phone draws none of this.** Its banner is gone with Component A, and its
+  posture (dispositions per piece, `AnnotationOwnership`, ruling P's reopen
+  change) is plan 2's.
 
 
 ## Consequences
@@ -1782,4 +2068,4 @@ fixture reached from the other side.
 - `Maugham/OpLog/AREA.md` ("Chained and sealed", "Sealed segments"),
   `Maugham/Stores/AREA.md` (the inbox manifest; the `.maugham/` layout),
   `MaughamPhone/AREA.md` (the phone's writers and the aim's removal).
-- CLAUDE.md tripwires 35, 36, 37 and 38.
+- CLAUDE.md tripwires 35, 36, 37 and 38; and 51, the posture census (P3c).

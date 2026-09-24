@@ -472,3 +472,217 @@ P3b was smoked on a four-Mac rig on 2026-09-23, fixed, re-smoked and merged to l
 - The admission sheet says who and what, never merges by default, advances (F1/F2/F4).
 
 **Added to P3c (Denver, 2026-09-24): F10** — the admission question is raised only for strangers whose lines are in chapters OPEN on the root (`AdmissionModifier.recompute`). Raise it also when a stranger's DEVICE RECORD arrives (the `.registry` arrival arm), with no log read, so a collaborator who wrote only in chapters the root hasn't opened is still asked about.
+
+---
+
+# P3c plan 1 OUTCOME — the posture, Component A retired, F10 (2026-09-24)
+
+Branch `claude/signed-op-log-p3c-plan1-2026-09-24` (off main `5b2fa0d9`; plan
+`docs/superpowers/plans/2026-09-24-signed-op-log-p3c-posture-and-component-a.md`,
+commit `d6ee0b3d`). The ledger — every ruling with its cost — is
+`.superpowers/sdd/2026-09-24-signed-op-log-p3c-posture-and-component-a/progress.md`.
+ADR 0032's *P3c plan 1* addendum is the design record; this section is what the
+next plan needs. UNMERGED and UNRELEASED: P3 ships whole.
+
+## What shipped
+
+- **`Posture`** (MaughamCore): one value built from `LocalWritePermit`, one
+  `default:`-less verb→line switch (count `Posture.Verb`), `reason` naming why
+  the words are not hers, `Posture.author`, and `Posture.settling` (the door's
+  not-yet answer — the reviewer row alone).
+- **The Mac's one door**, `DocumentStore+Posture.swift`:
+  - `posture(forDocId:as:)` DRAWS and `settledPosture(forDocId:as:)` is what a
+    verb's door ACTS on (ruling I).
+  - It is fresh on every trust change, and every open `Document` is re-stamped
+    (`stamp(localWritePermit:)`), so a demotion stops the next burst with no
+    reopen.
+  - The root yields cooperatively on somebody else's piece, with **Edit
+    Anyway** per window, per piece, per session (R2, rulings H, T).
+- **Door plus surface for every verb**:
+  - dispositions (with loud undo declines), pass state, a round's Run (a check
+    is anybody's)
+  - statements and the letter's offers
+  - the tree (cooperative)
+  - tasks (with a task door)
+  - translations and the desk (as the translator)
+  - ⌘S / ⇧⌘S (the flash always, no op and no entry where refused)
+  - the File menu's piece items (disabled)
+  - the editor's standing line, including ruling K's *kept in History* clause.
+- **Component A retired**:
+  - `CollaborationRole`, `ShareIdentityMapper`, `ReviewPosturePolicy` and the
+    phone's `SharingRoleBanner` are gone.
+  - `SharingStatusPill` is an indicator.
+  - A read-only share is an OS lock beside the posture.
+  - `author_collaborator_id` is decoded and never written (ruling O; claim
+    M5-AN-012 amended; census).
+- **F10**:
+  - The admission sheet is raised by a stranger's device RECORD, not only held
+    lines.
+  - Only on the Mac holding the book's root (ruling AA), recounted on a settle
+    only, and never about a retired record (rulings AB, AC).
+- **Tripwire 51**, the posture census, with a planted-offender control; Task
+  10's check narrowed the translation pipeline's allow-list entry to the one
+  spelling it uses.
+- **The drawing door's cost, measured and fixed** (ruling AD):
+  `PostureMissCostTests` (kept, env-gated). A 50-row queue's first redraw after
+  a trust change went from 42 ms to 0.02 ms. The class is now read from the
+  live manifest, and the refresh warms every asked key before its non-clearing
+  epoch bump.
+- **Docs**:
+  - ADR 0032's P3c addendum and limits, and the struck §7.1 limit.
+  - The constitution's must-not #1 storage-layer sentence and violation
+    condition, and *roles guard the words, not the binder* in *Not for: Teams*.
+  - The guide's *What their Mac shows them* and F10.
+  - The WF1 spec header, and P3 spec §7.1/§8 annotated in place.
+  - CLAUDE.md (tripwire 51; the Views, Editor and OpLog cells), the four
+    AREA.md files, and the roadmap.
+
+## The rulings, with their costs
+
+Plan rulings, approved by Denver with the plan:
+
+- **R1** — the §7.1 share pre-fill was dropped on merit. The root cannot read
+  another participant's share permission. *Cost:* one click per reviewer
+  admission.
+- **R2** — the root's override is per window / per piece / per session. *Cost:*
+  pressed again after a relaunch.
+- **R3** — pass state and structure are probed as the piece's text, and start a
+  piece is the book author's. *Cost:* a pieces-author cannot add a chapter
+  until plan 2.
+- **R4** — a round is gated and a check is not. *Cost:* a reviewer asks the
+  author for a round.
+- **R5** — ⌘S where refused flashes and writes nothing. *Cost:* no labelled
+  restore point of someone else's text.
+
+Controller rulings made on Denver's behalf (confirm):
+
+- **A** — Tasks 7/8 extend the census allow-list, by file and spelling.
+- **B** — the door takes an actor.
+- **C** — tasks ran sequentially.
+- **D** — `Document+Load.swift` is admitted `.allows(.op(`.
+- **E** — `isRestricted` means any verb is false; the standing line keys on
+  `reason`.
+- **F** — a refused non-author actor reads `.reviewer`.
+- **G** — census disable-experiment target.
+- **H** — a yielded piece's statement and translation yield too. *Cost:* an
+  unexpected line on Sam's chapter statement.
+- **I** — draw from `posture`, act on `settledPosture`. *Cost:* a refused act in
+  the first frames after open.
+- **J** — the re-stamp keeps the author actor.
+- **K** — the own-lines clause is built exactly. *Cost:* one Core field; it
+  counts a chain-break line inside her own file.
+- **L** — ⌘S on the project row is unchanged.
+- **M** — the census substring fix.
+- **N** — a successful labelled ⇧⌘S flashes.
+- **O** — `authorCollaboratorId` has no writer. *Cost:* the old WF1 field stops
+  being written by a path nothing called.
+- **P** — a reviewer's reopen of her own note is refused until plan 2. *Cost:*
+  she cannot restore her own deleted note meanwhile; the refusal is loud.
+- **Q** — disposition verbs outside the queue are gated in Tasks 7/8.
+- **R** — `AnnotationRowVerbs` takes no kind.
+- **S** — mechanical posture-argument edits to older tests.
+- **T** — the acting doors honour the root's yield. *Cost:* one extra press for
+  the root.
+- **U** — the letter's task verbs are gated in Task 8; discarding a proposal
+  needs no door. *Cost:* a reviewer can discard a proposal she can see.
+- **V** — the translator disable experiment was a plan defect.
+- **W** — Duplicate needs `.startAPiece`. *Cost:* a pieces-author cannot
+  duplicate her own chapter until plan 2.
+- **X** — the File menu is disabled, not hidden. *Cost:* a greyed item.
+- **Y** — older F10 tests narrowed to their subject key. *Cost:* weaker
+  assertions.
+- **Z** — `ProjectSettingsSheet` edit.
+- **AA** — only the root asks. *Cost:* a non-root Mac is not told a newcomer is
+  waiting.
+- **AB** — recount on a settle only; retired is not waiting.
+- **AC** — unverified `retiredAt` in the pre-check. *Cost:* a forged value hides
+  a stranger until the next verified read.
+- **AD** — the drawing door's miss cost is fixed in plan 1, not deferred.
+
+## For the release notes (with P3a's and P3b's)
+
+- A participant on a read-WRITE iCloud share is no longer locked as a
+  "reviewer". What she may write is her permit, and a read-only share still
+  locks.
+- A reviewer's Mac offers only what the book will take. ⌘S still flashes there.
+  The File menu's New Prose Story / New Screenplay / Link Existing Project are
+  greyed for anybody who is not a whole-book author.
+- A successful labelled checkpoint (⇧⌘S) now flashes, like ⌘S.
+- The admission sheet can appear before a newcomer has written anything, and
+  only on the Mac that holds the book.
+
+## What plan 2 carries
+
+- **Option A (Denver's I3 ruling, 2026-09-23).** An author of some pieces may
+  OPEN a new piece nobody has claimed (the load mints it; `LocalWritePermit`
+  gains a *may start a piece* arm; her own Mac applies her own lines under
+  *Waiting for <root> to say this piece is yours*). This widens R3's
+  `.startAPiece` and ruling W's Duplicate.
+- **The phone**:
+  - posture off `DeviceStanding`: dispositions per piece, capture always
+    offered, Settings showing role and pieces, a refresh watcher
+  - the P3a carry that the phone reads annotations WITHOUT the ownership rule
+    (`AnnotationLoading.swift`, `AnnotationDetailView`)
+  - **ruling P's table change on both surfaces together**: own-note reopen onto
+    the ownership path in `Permit.swift` and `AnnotationOwnership` — her own ⇒
+    allowed, somebody else's ⇒ still author-only (tripwire 19).
+- **Carries from P3b and P2** (the handoff's lists above):
+  - skip the unsigned-snapshot sweep once a governing snapshot exists (carry 7)
+  - the pane and `PieceWriters` listing people admitted by an ADOPTED root (M4)
+  - the pre-first-seal stranger's wording plus a sent-memory keyed off the seal
+    (M2)
+  - the census checklist's *run from this Mac against each Mac's folders* (M6)
+  - tripwire 50's prose count (M7)
+  - what a Mac on no chain is SHOWN
+  - `announcePendingHistory` narrowed to strangers
+  - I1, I2 and I4 stay filed as future enhancements, per Denver's ruling.
+- **Deferred minors from this plan worth doing**:
+  - **Plan 1's own limits:**
+    - Project-stream tasks have no door (`ProjectStore.createProjectPaneTask`
+      / `archiveProjectTask`); it needs a permit on `ProjectStore`.
+    - A capture arriving while an F10 sheet is up does not refresh it.
+    - A corrupt `people/<fp>.json` hides a record-only stranger from the
+      pre-check.
+    - Project-OPEN's direct `admitRemembered` still silently admits a
+      remembered RETIRED device.
+    - A non-root Mac pays one resolve per settle before answering empty.
+  - **Cost:**
+    - A never-asked queue still pays about 0.36 ms a row (door check plus
+      builder check).
+    - An unreadable registry re-resolves on the main actor per miss (m2).
+    - `posture(forPath:)` decodes the manifest per call for an unknown path
+      (m4).
+  - **Tests and code hygiene:**
+    - Untested: the provisional path, `forPath` on a closed document, and a
+      re-stamp after a class-changing adoption (m7).
+    - No disable experiments on the no-registry and second-window-override
+      tests (m5).
+    - `passOrderNudge` is not tested end to end.
+    - The margin card's nil posture draws permissive (reachable only with no
+      manuscript document selected).
+    - `RulingPerformer.windowlessPosture`'s synchronous registry read; three
+      near-identical `offersVerbs` wrappers.
+    - `TasksPane`'s `.project` arm proxies through the active document.
+    - `CollectionPieceModifier` computes the start-a-piece answer on
+      non-Collection projects.
+    - The Collection empty state says *Use the + button* when the + is hidden.
+    - Departure rows' *Keep mine / Make it a rule* are not gated (the doors
+      refuse them loudly).
+    - `AnnotationInverse`'s doc comment overstates *stamped with whoever pressed
+      ⌘Z*.
+    - Ruling H's translation half is pinned at the desk (Task 8), but the
+      `.translation` arm of the door's yield lookup is unreachable
+      (`DocumentClass.resolve` never yields `.translation`): delete it, or give
+      a translation stream a class.
+  - **Verified:** QueryRuling / FirstReaderRuling / QueueLedgerVerbs
+    dispositions are gated through Task 5's row verbs (the whole-branch reviewer
+    should confirm).
+
+## Open for Denver
+
+- **M5-AN-012's filing.** The claim is amended and pinned (*decoded from old
+  logs, never written*). Its filing stays **NO_RULING_REACHES** because spec §8
+  is not a register RULING-n. If Denver promotes spec §8's sentence — *`authorCollaboratorId` is decoded and never
+  written; attribution is the signing device through the registry* — to a RULING-n in `_meta.rulings`,
+  `scripts/flip-claim.py` flips the claim to COMPLIES.
+- **Confirm the controller rulings above**, the ones marked with a cost first.
