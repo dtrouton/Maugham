@@ -290,6 +290,25 @@ final class RegistryArrivalTests: XCTestCase {
                      "nobody was let in")
     }
 
+    /// **And not at the next OPEN either** (P3c whole-branch fix wave, I2):
+    /// `DocumentStore.open` walks the silent admission directly, and it must
+    /// give the mid-session answer — one question, one answer, whichever event
+    /// comes first. Pinned through the real open.
+    func test_aRememberedRetiredRecordIsNotSilentlyAdmittedAtOpen() async throws {
+        let store = try await DocumentStore.open(url: projectURL)
+        Document.loadAdmissionMemory.remember(
+            ren.author.fingerprint, label: "Ren", ownName: "Ren’s old Mac")
+        try await rensRetiredRecordArrives(at: store)
+
+        _ = try await DocumentStore.open(url: projectURL)
+
+        let registry = try TrustResolution.resolveVerified(
+            projectURL: projectURL, identities: Document.loadIdentities,
+            cache: Document.loadRegistryCache).registry
+        XCTAssertNil(registry.person(ren.author.fingerprint),
+                     "the open let nobody in")
+    }
+
     /// **A machine this Mac has named before joins on its record's arrival,
     /// silently** — nothing of it is held, and no sheet is put up.
     func test_aRememberedMachinesRecordArrivingIsAdmittedWithNoSheet() async throws {

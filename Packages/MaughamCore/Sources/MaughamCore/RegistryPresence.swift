@@ -615,6 +615,16 @@ public enum RegistryPresence {
         // same twice.
         for device in registry.devices.sorted(by: { $0.device < $1.device })
         where registry.person(device.device) == nil {
+            // **A RETIRED device is never silently admitted** (P3c whole-branch
+            // fix wave, I2; controller ruling AB). The mid-session pre-check
+            // already filtered retirement out, so the same remembered machine
+            // was refused mid-session and admitted — as an author of the whole
+            // book — at the next open: one question, two answers, decided by
+            // which event came first. The rule lands HERE, where the write is
+            // (one of tripwire 41's three writers); the pre-check's filter is
+            // belt over this brace. A retired machine that wants back in asks
+            // through the sheet like any stranger.
+            guard device.retiredAt == nil else { continue }
             guard let remembered = memory.label(for: device.device),
                   !unreadable.contains(device.device) else { continue }
             admitted.append(try RegistryAdmission.admit(
