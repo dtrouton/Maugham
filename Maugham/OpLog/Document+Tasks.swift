@@ -242,6 +242,22 @@ extension Document {
         // side no-ops (setParagraph/applyRestore are already isClosed-guarded) —
         // a torn op log. Matches the text-side guards so both sides no-op together.
         if rejectMutationIfNotWritable("appendTaskOpInternal") { return }
+        // **The task door** (signed op log P3c Task 8): a task op this
+        // document's stamp refuses is never appended — a line the next read
+        // would set aside is not signed in the first place — and the refusal
+        // is SAID, whether it arrived as a stale press a frame after a
+        // demotion or as a ⌘Z registered while this Mac could still write.
+        // The load's own emissions and the rebalance are already asked the
+        // same question before they get here (`rebuildTasksCache`), so for
+        // them this never fires; the maugham-signed rebalance's
+        // `taskPriorityChange` gets the same answer under the author's key,
+        // because both keys take the person's row for a task.
+        guard localWritePermit.allows(.op(op.kind)) == .yes else {
+            documentLog.error(
+                "appendTaskOpInternal: \(op.kind.rawValue, privacy: .public) refused at the task door — nothing appended")
+            declineUndo(.taskNotPermitted)
+            return
+        }
         appendToMirror(op)
         invalidateTasksCache()
         // Annotation cache only invalidates for annotation ops — task ops
@@ -558,6 +574,20 @@ extension Document {
         // `_tasksCache`) so the pre-archive status the undo-inverse needs
         // is fresh even after an earlier mutation invalidated the cache.
         let archived = freshTaskSnapshot(id: id)
+
+        // **The task door, before anything is captured or spliced** (P3c
+        // Task 8). An inline archive is an op AND a manuscript edit (the
+        // anchor spliced out of the paragraph), so it is refused whole where
+        // either is refused — never an op refused and its splice landed.
+        let splicesText = Self.extractAnchorId(fromTaskId: id) != nil
+        guard localWritePermit.allows(.op(.taskArchive)) == .yes,
+              !splicesText || localWritePermit.allows(.op(.typingBurst)) == .yes
+        else {
+            documentLog.error(
+                "archiveTask: \(id, privacy: .public) refused at the task door — nothing archived")
+            declineUndo(.taskNotPermitted)
+            return
+        }
 
         // Branch: pane-created archive is a pure op-lifecycle change (the
         // op-side status inverse fully restores it). Inline archive ALSO

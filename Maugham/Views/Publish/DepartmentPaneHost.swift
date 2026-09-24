@@ -318,6 +318,11 @@ struct DepartmentPaneHost: View {
             title: store.manifest.title,
             languages: languages,
             unreadable: unreadable,
+            translationOffers: DepartmentTranslationOffers.decide(
+                target: target.docId, book: bookDocumentIds,
+                mayTranslate: {
+                    Self.postureOfTheTranslator(forPiece: $0, in: documentStore).allows(.translate)
+                }),
             proposedBriefs: Self.proposedLanguages(statementProposals),
             proposedWithoutRow: Self.proposedWithoutRow(statementProposals, rows: languages),
             design: designRow,
@@ -516,12 +521,65 @@ struct DepartmentPaneHost: View {
             return
         }
         guard let docId = runTarget.docId else { return }
-        if Self.needsTranslatorName(language: language, in: store.manifest) {
-            castPrompt = DepartmentCastPrompt(
-                ask: .nameForRun(language: language, docId: docId))
-            return
+        // **The translator's door, settled** (P3c Task 8; controller ruling
+        // I): a chapter this Mac's translator may not write is refused here,
+        // naming it, before a seven-leg round spends a session on words the
+        // pipeline would then refuse to write.
+        Task {
+            let refused = await refusedPieces([docId])
+            guard refused.isEmpty else {
+                notice = Self.notTranslatable(titles: refused.map(pieceTitle))
+                return
+            }
+            if Self.needsTranslatorName(language: language, in: store.manifest) {
+                castPrompt = DepartmentCastPrompt(
+                    ask: .nameForRun(language: language, docId: docId))
+                return
+            }
+            pipeline.run(docId: docId, language: language)
         }
-        pipeline.run(docId: docId, language: language)
+    }
+
+    // MARK: - The translator's posture (P3c Task 8)
+
+    /// **What this Mac's TRANSLATOR may write about a piece** — the drawing
+    /// door, asked as the actor that signs a translation's lines, never as the
+    /// writer's own hand (so the root's cooperative yield, which is about her
+    /// typing, does not reach it).
+    static func postureOfTheTranslator(
+        forPiece docId: String, in documentStore: DocumentStore
+    ) -> Posture {
+        documentStore.posture(forDocId: docId, as: .translator)
+    }
+
+    /// The pieces among `docIds` the translator's SETTLED posture refuses, in
+    /// order — the acting question (ruling I), asked before a round starts.
+    private func refusedPieces(_ docIds: [String]) async -> [String] {
+        var refused: [String] = []
+        for docId in docIds {
+            let posture = await documentStore.settledPosture(forDocId: docId, as: .translator)
+            if !posture.allows(.translate) { refused.append(docId) }
+        }
+        return refused
+    }
+
+    private func pieceTitle(_ docId: String) -> String {
+        TreeWalk.find(id: docId, in: store.manifest.structure)?.title ?? docId
+    }
+
+    /// **What the desk says about pieces its translator may not write**, by
+    /// title — one sentence for one piece or several.
+    static func notTranslatable(titles: [String]) -> String {
+        let quoted = titles.map { "\u{201C}\($0)\u{201D}" }
+        let named: String
+        switch quoted.count {
+        case 0: named = "that piece"
+        case 1: named = quoted[0]
+        case 2: named = quoted[0] + " and " + quoted[1]
+        default: named = quoted.dropLast().joined(separator: ", ") + " and " + quoted.last!
+        }
+        return "Your part in this book doesn\u{2019}t reach \(named), so "
+            + (quoted.count > 1 ? "they were" : "it was") + " not translated."
     }
 
     /// **One round on every chapter of this book, in the manifest's order**
@@ -548,17 +606,28 @@ struct DepartmentPaneHost: View {
             notice = DepartmentRunState.unusableTag(language: language)
             return
         }
-        let documents = bookDocumentIds
-        guard !documents.isEmpty else {
+        let book = bookDocumentIds
+        guard !book.isEmpty else {
             notice = DepartmentRunState.nothingInTheBook
             return
         }
-        if Self.needsTranslatorName(language: language, in: store.manifest) {
-            castPrompt = DepartmentCastPrompt(
-                ask: Self.bookAsk(language: language, documentIds: documents))
-            return
+        // **Per piece** (P3c Task 8): the chapters this Mac's translator may
+        // write are run, and the ones it may not are named and left out —
+        // never a round over a chapter whose words the pipeline would refuse.
+        Task {
+            let refused = await refusedPieces(book)
+            let documents = book.filter { !refused.contains($0) }
+            if !refused.isEmpty {
+                notice = Self.notTranslatable(titles: refused.map(pieceTitle))
+            }
+            guard !documents.isEmpty else { return }
+            if Self.needsTranslatorName(language: language, in: store.manifest) {
+                castPrompt = DepartmentCastPrompt(
+                    ask: Self.bookAsk(language: language, documentIds: documents))
+                return
+            }
+            pipeline.runBook(documentIds: documents, language: language)
         }
-        pipeline.runBook(documentIds: documents, language: language)
     }
 
     /// **The sheet a whole-book run stands behind**, with the queue it was
@@ -1244,5 +1313,42 @@ struct DepartmentPaneHost: View {
     ) -> [String] {
         let present = Set(rows.map { $0.language.lowercased() })
         return proposedLanguages(proposals).filter { !present.contains($0) }.sorted()
+    }
+}
+
+// MARK: - Whether the desk draws Run (P3c Task 8)
+
+/// **Whether the desk's Run and Run Whole Book are drawn**, from the
+/// TRANSLATOR actor's posture per piece — the key that signs a translation's
+/// lines, never the writer's hand. A translation's permission is the piece's,
+/// not the language's, so one answer holds for every language row.
+///
+/// - **Run** (a chapter) is drawn where the chapter in view may be translated;
+///   with no chapter in view it is drawn where ANY piece may be, so the desk's
+///   own "open a chapter" refusal still teaches a writer who can use it, and a
+///   reviewer — who may translate nothing — sees no Run at all.
+/// - **Run Whole Book** is drawn where any piece of the book may be; the run
+///   itself leaves out, and names, the ones that may not. (With no piece to
+///   judge, the book's own stream answers — see `decide`.)
+struct DepartmentTranslationOffers: Equatable {
+    let run: Bool
+    let runBook: Bool
+
+    /// The P1 desk — both verbs.
+    static let unrestricted = DepartmentTranslationOffers(run: true, runBook: true)
+
+    static func decide(
+        target: String?, book: [String], mayTranslate: (String) -> Bool
+    ) -> DepartmentTranslationOffers {
+        // With no piece to judge at all — an empty book, or one whose set has
+        // not been derived yet — the book's own stream answers: only an author
+        // of the whole book may translate there, so her desk keeps its Run
+        // (and its "open a chapter" refusal) and a reviewer's draws none.
+        let any = book.isEmpty
+            ? mayTranslate(DocumentClass.projectStreamDocId)
+            : book.contains(where: mayTranslate)
+        return DepartmentTranslationOffers(
+            run: target.map(mayTranslate) ?? any,
+            runBook: any)
     }
 }

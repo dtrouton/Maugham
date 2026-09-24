@@ -889,7 +889,10 @@ struct AnnotationsPane: View {
                 round: run?.round, stage: letter.draftStage),
             currentText: { document.paragraphs[$0] },
             onJump: { jump(toParagraph: $0) },
-            onAcceptExercise: { habit in
+            // Ruling U (P3c Task 8): filed only where THIS document's posture
+            // takes a task — hidden otherwise.
+            onAcceptExercise: !documentStore.posture(forDocId: document.docId)
+                .allows(.task) ? nil : { habit in
                 document.createPaneTask(
                     body: habit.exercise ?? habit.name,
                     parentTaskId: nil,

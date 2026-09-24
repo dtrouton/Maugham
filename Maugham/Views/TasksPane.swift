@@ -143,7 +143,8 @@ struct TasksPane: View {
             NewTaskSheet(
                 taskBody: $newTaskBody,
                 scope: $newTaskScope,
-                canPickDocumentScope: activeDoc() != nil,
+                canPickDocumentScope: creation.document,
+                canPickProjectScope: creation.project,
                 onCommit: { commitNewTask() },
                 onCancel: {
                     showCreateSheet = false
@@ -174,24 +175,32 @@ struct TasksPane: View {
 
             Spacer(minLength: 4)
 
-            Button {
-                presentCreateSheet()
-            } label: {
-                Image(systemName: "plus")
-            }
-            .help("New task")
-            .disabled(newTaskButtonDisabled)
-
-            Menu {
-                Button("Archive all done") {
-                    archiveAllDone(in: scope, undoManager: undoManager)
+            // **Hidden where the posture offers no task anywhere this pane
+            // could file one** (P3c Task 8) — never greyed for that reason;
+            // the pre-existing "no document for Doc scope" disable is a
+            // different fact and stays.
+            if creation.offersAny {
+                Button {
+                    presentCreateSheet()
+                } label: {
+                    Image(systemName: "plus")
                 }
-            } label: {
-                Image(systemName: "ellipsis.circle")
+                .help("New task")
+                .disabled(newTaskButtonDisabled)
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Bulk actions")
+
+            if mayArchiveInScope {
+                Menu {
+                    Button("Archive all done") {
+                        archiveAllDone(in: scope, undoManager: undoManager)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Bulk actions")
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -200,6 +209,43 @@ struct TasksPane: View {
     private var newTaskButtonDisabled: Bool {
         // Disabled only when doc-scope is selected and there's no active doc.
         scope == .document && activeDoc() == nil
+    }
+
+    // MARK: - What the posture allows (P3c Task 8)
+
+    /// The posture of the document a task belongs to — its anchor's, where the
+    /// project's own tasks are the project stream's (`__project__`). Asked of
+    /// the window's drawing door; every task is judged by ITS document, never
+    /// by the one the window happens to show.
+    private func posture(ofTaskDocument docId: String) -> Posture {
+        documentStore.posture(forDocId: docId)
+    }
+
+    /// The verbs one row may offer.
+    func verbs(for task: WriterTask) -> TaskRowVerbs {
+        TaskRowVerbs.decide(
+            kind: task.kind,
+            posture: posture(ofTaskDocument: task.anchor?.docId
+                             ?? ProjectStore.projectTasksDocId))
+    }
+
+    /// Where New task may file: the shown document, the project, both or
+    /// neither.
+    var creation: TaskCreationScopes {
+        TaskCreationScopes.decide(
+            document: activeDoc().map { posture(ofTaskDocument: $0.docId) },
+            project: posture(ofTaskDocument: ProjectStore.projectTasksDocId))
+    }
+
+    /// "Archive all done" is drawn where this scope's own tasks may be
+    /// archived; the batch itself then skips any task the posture refuses.
+    private var mayArchiveInScope: Bool {
+        switch scope {
+        case .document:
+            return activeDoc().map { posture(ofTaskDocument: $0.docId).allows(.task) } ?? false
+        case .project:
+            return creation.project || creation.document
+        }
     }
 
     // MARK: Content
@@ -236,8 +282,10 @@ struct TasksPane: View {
 
     @ViewBuilder
     private func row(for task: WriterTask) -> some View {
+        let offered = verbs(for: task)
         TaskRow(
             task: task,
+            verbs: offered,
             onToggle: { toggleStatus(task) },
             onJump:   { jumpToParagraph(task) },
             onArchive: { archive(task) },
@@ -251,6 +299,13 @@ struct TasksPane: View {
             }
             .dropDestination(for: String.self) { ids, location in
                 guard let draggedId = ids.first else { return false }
+                // A task the posture may not move is refused by the drop
+                // itself, not landed and bounced (P3c Task 8) — nor is a
+                // drop onto a row this Mac may not reorder around.
+                guard offered.move,
+                      let dragged = currentPool().first(where: { $0.id == draggedId }),
+                      verbs(for: dragged).move
+                else { return false }
                 // Row height varies with body length + theme; 28 is a
                 // sensible default close to the typical sidebar row.
                 let rowHeight: CGFloat = 28
@@ -311,6 +366,9 @@ struct TasksPane: View {
     // MARK: - Actions
 
     private func toggleStatus(_ task: WriterTask) {
+        // The row draws no toggle where this is false; a stale press (a
+        // demotion landing between frames) does nothing rather than write.
+        guard verbs(for: task).toggle else { return }
         let nextStatus: TaskStatus = task.status == .done ? .open : .done
         switch task.kind {
         case .paneCreated:
@@ -365,7 +423,7 @@ struct TasksPane: View {
     }
 
     private func archive(_ task: WriterTask) {
-        guard let doc = ownerDoc(of: task) else { return }
+        guard verbs(for: task).archive, let doc = ownerDoc(of: task) else { return }
         doc.archiveTask(id: task.id, undoManager: undoManager)
     }
 
@@ -373,7 +431,7 @@ struct TasksPane: View {
         // For pane-created tasks, "Delete" is the destructive end-state —
         // it's modeled as an archive op in this milestone (no separate
         // delete op kind), per spec §11 simplification.
-        guard task.kind == .paneCreated,
+        guard task.kind == .paneCreated, verbs(for: task).delete,
               let doc = ownerDoc(of: task) else { return }
         doc.archiveTask(id: task.id, undoManager: undoManager)
     }
@@ -412,6 +470,10 @@ struct TasksPane: View {
         var skippedCount = 0
         for task in allVisible {
             guard let anchor = task.anchor else { continue }
+            // Only what the posture lets this Mac archive (P3c Task 8): an
+            // author of some pieces archives her own pieces' and the
+            // project's done tasks, and leaves somebody else's.
+            guard verbs(for: task).archive else { continue }
             if anchor.docId == ProjectStore.projectTasksDocId {
                 projectTasks.append(task)
             } else if let doc = documentStore.document(forDocId: anchor.docId) {
@@ -554,7 +616,7 @@ struct TasksPane: View {
         guard let from = source.first,
               from >= 0, from < visible.count else { return }
         let dragged = visible[from]
-        guard let doc = ownerDoc(of: dragged) else { return }
+        guard verbs(for: dragged).move, let doc = ownerDoc(of: dragged) else { return }
 
         let intent: TaskDropIntent
         if destination == visible.count {
@@ -589,12 +651,15 @@ struct TasksPane: View {
     /// reorder of project-pane tasks is not shipped in this milestone (the
     /// project op log accepts task ops generally, but the doc-scope path
     /// covers the common case used by integration tests).
+    /// The tasks the pane is showing now.
+    private func currentPool() -> [WriterTask] {
+        visibleTasks(docVersion: activeDoc()?.tasksVersion ?? 0,
+                     projectVersion: store.projectTasksVersion)
+    }
+
     private func handleDrop(draggedId: String, intent: TaskDropIntent) {
         // Find the dragged task in the current visible list.
-        let docVersion = activeDoc()?.tasksVersion ?? 0
-        let projectVersion = store.projectTasksVersion
-        let pool = visibleTasks(
-            docVersion: docVersion, projectVersion: projectVersion)
+        let pool = currentPool()
         guard let dragged = pool.first(where: { $0.id == draggedId }) else {
             return
         }
@@ -688,7 +753,16 @@ struct TasksPane: View {
 
     private func presentCreateSheet() {
         newTaskBody = ""
-        newTaskScope = (activeDoc() == nil) ? .project : scope
+        // The pane's own scope where the posture takes a task there, else
+        // whichever scope it does.
+        let offered = creation
+        if scope == .document, offered.document {
+            newTaskScope = .document
+        } else if scope == .project, offered.project {
+            newTaskScope = .project
+        } else {
+            newTaskScope = offered.document ? .document : .project
+        }
         showCreateSheet = true
     }
 
@@ -700,19 +774,27 @@ struct TasksPane: View {
             newTaskBody = ""
             return
         }
+        // Filed only where the posture allows a task (P3c Task 8). The sheet
+        // offers no scope it refuses, so this is the stale-press arm: nothing
+        // is filed, and the sheet closes as a cancel would.
+        let offered = creation
         switch newTaskScope {
         case .document:
             if let doc = activeDoc() {
-                _ = doc.createPaneTask(body: trimmed, parentTaskId: nil,
-                                       undoManager: undoManager)
-            } else {
+                if offered.document {
+                    _ = doc.createPaneTask(body: trimmed, parentTaskId: nil,
+                                           undoManager: undoManager)
+                }
+            } else if offered.project {
                 // Defensive fallback: doc-scope but no active doc → project.
                 _ = store.createProjectPaneTask(body: trimmed,
                                                 undoManager: undoManager)
             }
         case .project:
-            _ = store.createProjectPaneTask(body: trimmed,
-                                            undoManager: undoManager)
+            if offered.project {
+                _ = store.createProjectPaneTask(body: trimmed,
+                                                undoManager: undoManager)
+            }
         }
         showCreateSheet = false
         newTaskBody = ""
@@ -787,6 +869,9 @@ private struct NewTaskSheet: View {
     @Binding var taskBody: String
     @Binding var scope: TasksPane.ScopeChoice
     let canPickDocumentScope: Bool
+    /// Whether the project's own stream takes a task from this Mac (P3c Task
+    /// 8) — false only for a posture that files no task there.
+    var canPickProjectScope: Bool = true
     let onCommit: () -> Void
     let onCancel: () -> Void
 
@@ -798,14 +883,17 @@ private struct NewTaskSheet: View {
                 .textFieldStyle(.roundedBorder)
             HStack {
                 Picker("Scope", selection: $scope) {
-                    Text("Document")
-                        .tag(TasksPane.ScopeChoice.document)
-                        .disabled(!canPickDocumentScope)
-                    Text("Project").tag(TasksPane.ScopeChoice.project)
+                    if canPickDocumentScope {
+                        Text("Document")
+                            .tag(TasksPane.ScopeChoice.document)
+                    }
+                    if canPickProjectScope {
+                        Text("Project").tag(TasksPane.ScopeChoice.project)
+                    }
                 }
                 .pickerStyle(.segmented)
                 .fixedSize()
-                .disabled(!canPickDocumentScope)
+                .disabled(!(canPickDocumentScope && canPickProjectScope))
                 Spacer()
                 Button("Cancel", role: .cancel, action: onCancel)
                 Button("Add", action: onCommit)
@@ -817,5 +905,59 @@ private struct NewTaskSheet: View {
         }
         .padding(20)
         .frame(width: 380)
+    }
+}
+
+// MARK: - What the posture lets the pane offer (P3c Task 8)
+
+/// **Which verbs one task row may offer** — a pure decision over the posture of
+/// the task's OWN document (a chapter's, or the project stream's for the
+/// project's own tasks), hidden rather than greyed where it refuses.
+///
+/// A task is `.task` — a task op on that document's stream. **A toggle or an
+/// archive of an INLINE task also moves the manuscript**: the toggle flips the
+/// `[ ]`/`[x]` bracket in the paragraph (`InlineToggleUndo`) and the archive
+/// splices the anchor out of it, so both also need `.writeText`. A pane-created
+/// task's toggle and archive are ops alone.
+struct TaskRowVerbs: Equatable {
+    let toggle: Bool
+    let archive: Bool
+    /// A pane-created task's Delete (modeled as an archive op).
+    let delete: Bool
+    let move: Bool
+
+    /// Every verb — the P1 row.
+    static let unrestricted = TaskRowVerbs(toggle: true, archive: true, delete: true, move: true)
+
+    static func decide(kind: TaskKind, posture: Posture) -> TaskRowVerbs {
+        let task = posture.allows(.task)
+        let editsText: Bool
+        switch kind {
+        case .paneCreated: editsText = false
+        case .inlineMarkdown, .fountainBoneyard: editsText = true
+        }
+        let textIfNeeded = !editsText || posture.allows(.writeText)
+        return TaskRowVerbs(
+            toggle: task && textIfNeeded,
+            archive: task && textIfNeeded,
+            delete: task,
+            move: task)
+    }
+}
+
+/// **Where New task may file one** — the shown document, the project's own
+/// stream, both or neither. An author of some pieces files on the project and
+/// in her own pieces; a reviewer files nowhere, and the + is not drawn.
+struct TaskCreationScopes: Equatable {
+    let document: Bool
+    let project: Bool
+
+    var offersAny: Bool { document || project }
+
+    /// `document` is nil where no document is shown.
+    static func decide(document: Posture?, project: Posture) -> TaskCreationScopes {
+        TaskCreationScopes(
+            document: document?.allows(.task) ?? false,
+            project: project.allows(.task))
     }
 }

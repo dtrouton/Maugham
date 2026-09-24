@@ -1189,7 +1189,7 @@ struct DiagnosticsPane: View {
                 // file. Anchoring a habit's exercise onto another chapter's
                 // document would be a task the writer cannot account for from
                 // anything on their screen.
-                onAcceptExercise: { habit in
+                onAcceptExercise: !Self.offersATask(posture) ? nil : { habit in
                     paneDocument?.createPaneTask(
                         body: habit.exercise ?? habit.name,
                         parentTaskId: nil,
@@ -1499,7 +1499,7 @@ struct DiagnosticsPane: View {
                 ClauseRow(row: row,
                           canAnswer: store != nil && offersDurableActions
                               && Self.offersAnAnswer(docId: docId, posture: posture),
-                          canPromote: offersDurableActions,
+                          canPromote: offersDurableActions && Self.offersATask(posture),
                           answering: answering, answerFailures: answerFailures,
                           onJump: { jump(toParagraph: $0) },
                           onPromote: { promote($0) },
@@ -1533,7 +1533,7 @@ struct DiagnosticsPane: View {
             diagnostic: diagnostic,
             canAnswer: store != nil && Self.offersAnAnswer(diagnostic) && offersDurableActions
                 && Self.offersAnAnswer(docId: docId, posture: posture),
-            canPromote: offersDurableActions,
+            canPromote: offersDurableActions && Self.offersATask(posture),
             isSubmitting: answering.contains(diagnostic.id),
             answerFailure: answerFailures[diagnostic.id],
             onJump: { jump(toParagraph: $0) },
@@ -1691,6 +1691,14 @@ struct DiagnosticsPane: View {
     /// the question, beside `offersAnAnswer(_:)`'s kind half. An answer files a
     /// ruling in this piece's own intent (`commitAnswer`), so it asks
     /// `.editStatement` of THAT statement: a piece statement follows its piece.
+    /// **Whether Promote to Task and the letter's Accept as task are drawn**
+    /// (P3c Task 8, controller ruling U) — `.task` of THIS document, where
+    /// both file the task (`createPaneTask`). Hidden, never disabled; the
+    /// `Document`'s task door refuses a press that arrives anyway.
+    static func offersATask(_ posture: DiagnosticsPostures) -> Bool {
+        posture.document.allows(.task)
+    }
+
     static func offersAnAnswer(docId: String, posture: DiagnosticsPostures) -> Bool {
         posture.statement(.intent, .document(docId)).allows(.editStatement)
     }

@@ -1129,6 +1129,7 @@ final class DepartmentPaneTests: XCTestCase {
             AnyView(DepartmentPane(title: "The Project",
                                    languages: rows,
                                    unreadable: unreadable,
+                                   translationOffers: .unrestricted,
                                    openEditionBrief: openEditionBrief,
                                    imprints: imprints,
                                    compileRun: compileRun)

@@ -71,6 +71,29 @@ final class PostureTests: XCTestCase {
         Row(name: "the translator in a translation",
             posture: Posture(permit(.bookAuthor, .translation(piece: "x"), actor: .translator)),
             offers: [.translate], reason: .reviewer),
+        // P3c Task 8: the translator under an author of some pieces — the
+        // TRANSLATOR's key narrows to translation records, and the person's
+        // scope decides which piece's. Both the class the reader constructs
+        // (`.translation(piece:)`) and the class the Mac's door resolves for
+        // the same id (`.piece`, since a translation stream's id IS its
+        // piece's) — they must answer alike.
+        Row(name: "the translator under a pieces author, in her piece's translation",
+            posture: Posture(permit(.author(.pieces(["a"])), .translation(piece: "a"),
+                                    actor: .translator)),
+            offers: [.translate], reason: .reviewer),
+        Row(name: "the translator under a pieces author, in her piece",
+            posture: Posture(permit(.author(.pieces(["a"])), .piece("a"), actor: .translator)),
+            offers: [.translate], reason: .reviewer),
+        Row(name: "the translator under a pieces author, outside her pieces (translation)",
+            posture: Posture(permit(.author(.pieces(["a"])), .translation(piece: "b"),
+                                    actor: .translator)),
+            offers: [], reason: .notYourPiece),
+        Row(name: "the translator under a pieces author, outside her pieces (piece)",
+            posture: Posture(permit(.author(.pieces(["a"])), .piece("b"), actor: .translator)),
+            offers: [], reason: .notYourPiece),
+        Row(name: "the translator under a reviewer",
+            posture: Posture(permit(.reviewer, .translation(piece: "a"), actor: .translator)),
+            offers: [], reason: .reviewer),
     ]
 
     /// Every verb × every posture, and the reason beside it.

@@ -55,7 +55,7 @@ struct TranslationRoundReportHost: View {
             round: round, chapterTitle: chapterTitle, sources: sources,
             queries: queries, queriesFailure: queriesFailure,
             translatorName: translatorName,
-            collatorName: collatorName, actions: actions,
+            collatorName: collatorName, verbs: verbs, actions: actions,
             onClose: onClose, onRoundChanged: onRoundChanged, onReveal: onReveal)
             // Keyed on the round's identity rather than the value: a verb's
             // write-back changes the value, and re-reading the whole document
@@ -68,6 +68,19 @@ struct TranslationRoundReportHost: View {
     }
 
     private var roundIdentity: String { "\(round.language)#\(round.number)" }
+
+    /// **The author's verbs, from the window's posture door** (P3c Task 8,
+    /// ruling Q): a disposition asks the round's DOCUMENT, a ruling asks the
+    /// edition's brief — the same two questions the verbs' own doors ask. No
+    /// window's door behind this host, the P1 surface.
+    private var verbs: TranslationAuthorVerbs {
+        guard let documentStore else { return .unrestricted }
+        return TranslationAuthorVerbs.decide(
+            document: documentStore.posture(forDocId: round.docId),
+            editionBrief: documentStore.posture(
+                ofStatement: .editionBrief(round.language), scope: .project,
+                statements: store.manifest.statements))
+    }
 
     private func load() async {
         translatorName = EditionStatus.translatorName(

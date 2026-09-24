@@ -54,6 +54,14 @@ struct DepartmentPane: View {
     /// F-D fixes is a surface that omitted this fact and read as an honest
     /// answer; a defaulted `[]` is that omission spelled as a convenience.
     var unreadable: [EditionStatus.UnreadableDocument]
+    /// **Whether this Mac's translator may run a round here at all** (P3c Task
+    /// 8) — the chapter's Run and the book's, decided by the host from the
+    /// TRANSLATOR actor's posture per piece (`DepartmentTranslationOffers`).
+    /// Hidden where it refuses, never greyed: a reviewer's desk draws no Run,
+    /// and an author of some pieces sees Run over her own chapter only.
+    /// **No default**, `unreadable`'s reason: a mount site must say what it
+    /// knows (`.unrestricted` is the P1 desk, by name).
+    var translationOffers: DepartmentTranslationOffers
     /// **Which languages have a proposed edition brief waiting** (translation
     /// pipeline P5) — the badge a language row carries when Claude has staged
     /// one, drawn beside the language's own name. Lowercased tags, matching
@@ -761,8 +769,10 @@ struct DepartmentPane: View {
             // the menu is up, so a keyboard, VoiceOver and every
             // accessibility-tree test find nothing here — and this is the
             // gesture a Mac writer reaches for first. Same call, same refusal.
-            Button(DepartmentRunState.runBookTitle) { runBook(row.language) }
-                .disabled(!run.canRunBook)
+            if translationOffers.runBook {
+                Button(DepartmentRunState.runBookTitle) { runBook(row.language) }
+                    .disabled(!run.canRunBook)
+            }
         }
     }
 
@@ -807,28 +817,32 @@ struct DepartmentPane: View {
     @ViewBuilder
     private func runControls(_ row: EditionStatus.LanguageRow,
                              run: DepartmentRunState) -> some View {
-        Button(DepartmentRunState.runTitle) { runTranslation(row.language) }
-            .controlSize(.small)
-            .fixedSize()
-            .disabled(!run.canRun)
-            .help(run.refusal
-                  ?? DepartmentRunState.runHelp(language: row.language,
-                                                target: runTarget))
+        if translationOffers.run {
+            Button(DepartmentRunState.runTitle) { runTranslation(row.language) }
+                .controlSize(.small)
+                .fixedSize()
+                .disabled(!run.canRun)
+                .help(run.refusal
+                      ?? DepartmentRunState.runHelp(language: row.language,
+                                                    target: runTarget))
+        }
         // **The desk's own scope, and it reads a refusal of its own.** A book
         // run needs no open chapter — the rows already sum every chapter — so
         // it is `bookRefusal` here and never `refusal`, or the one verb that
         // matches what this pane is about would be dead on exactly the subject
         // a writer opens the department on.
-        Button(DepartmentRunState.runBookTitle) { runBook(row.language) }
-            .controlSize(.small)
-            .fixedSize()
-            .disabled(!run.canRunBook)
-            .accessibilityLabel(
-                DepartmentRunState.runBookAccessibilityLabel(language: row.language))
-            .help(run.bookRefusal
-                  ?? DepartmentRunState.runBookHelp(language: row.language,
-                                                    count: run.bookDocumentCount,
-                                                    preflight: run.bookPreflight))
+        if translationOffers.runBook {
+            Button(DepartmentRunState.runBookTitle) { runBook(row.language) }
+                .controlSize(.small)
+                .fixedSize()
+                .disabled(!run.canRunBook)
+                .accessibilityLabel(
+                    DepartmentRunState.runBookAccessibilityLabel(language: row.language))
+                .help(run.bookRefusal
+                      ?? DepartmentRunState.runBookHelp(language: row.language,
+                                                        count: run.bookDocumentCount,
+                                                        preflight: run.bookPreflight))
+        }
         if run.isRunning {
             Button(DepartmentRunState.cancelTitle) { cancelRun() }
                 .controlSize(.small)

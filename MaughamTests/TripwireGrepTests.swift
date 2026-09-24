@@ -9104,6 +9104,10 @@ final class TripwireGrepTests: XCTestCase {
         // P3c Task 7 (controller ruling A): the ruling door's fallback for a
         // `ProjectStore` no window holds — the one builder, wrapped right there.
         "RulingPerformer.swift": ["localWritePermit", "Posture("],
+        // P3c Task 8 (ruling A): the translation pipeline is reached from MCP
+        // and the translator's ingest with no window — it asks the one builder
+        // as the TRANSLATOR actor, over the identities it signs with.
+        "TranslationWritePipeline.swift": ["localWritePermit", "Posture("],
     ]
 
     /// **The door's own acting accessor is an ASK, not a second table** (P3c

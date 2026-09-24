@@ -1671,6 +1671,7 @@ final class DepartmentRunTests: XCTestCase {
             AnyView(DepartmentPane(title: "The Project",
                                    languages: rows,
                                    unreadable: [],
+                                   translationOffers: .unrestricted,
                                    design: design,
                                    notice: notice,
                                    runTarget: target,
@@ -1700,6 +1701,7 @@ final class DepartmentRunTests: XCTestCase {
             AnyView(DepartmentPane(title: "The Project",
                                    languages: rows,
                                    unreadable: [],
+                                   translationOffers: .unrestricted,
                                    design: design,
                                    renameTranslator: renameTranslator,
                                    renameDesigner: renameDesigner)

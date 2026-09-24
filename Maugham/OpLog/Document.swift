@@ -408,6 +408,8 @@ public final class Document {
     /// the compensating op before it was written (`refusingLoudly`).
     internal enum UndoDecline: Hashable, CaseIterable {
         case annotationEdit, acceptNote, stet, triage, stetRestore, notPermitted
+        /// A task op this Mac's permit refuses (P3c Task 8's task door).
+        case taskNotPermitted
 
         /// One sentence for however many notes of this verb declined. A batch
         /// that ALSO undid some notes says nothing about them: the queue has
@@ -428,6 +430,8 @@ public final class Document {
                 "Couldn't put back \(count) notes' earlier resolutions — they're open again."
             case .notPermitted:
                 "Couldn't change \(count) notes — this Mac can no longer answer notes in this piece."
+            case .taskNotPermitted:
+                "Couldn't change \(count) tasks — this Mac can no longer file tasks in this piece."
             }
         }
 
@@ -445,6 +449,8 @@ public final class Document {
                 "Couldn't put back the note's earlier resolution — it's open again."
             case .notPermitted:
                 "Couldn't change that note — this Mac can no longer answer notes in this piece."
+            case .taskNotPermitted:
+                "Couldn't change that task — this Mac can no longer file tasks in this piece."
             }
         }
     }

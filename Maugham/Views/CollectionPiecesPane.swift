@@ -158,7 +158,13 @@ struct CollectionPiecesPane: View {
             // referenced piece, which keeps research in its own project,
             // bounces the drag rather than swallowing it.
             onDrop: { draggedId, position in
-                treeVerbs.routePieceRowDrop(
+                // A piece the posture may not move is refused by the drop
+                // itself (P3c Task 8) — `BinderView`'s rule.
+                if let dragged = store.manifest.structure.first(where: { $0.id == draggedId }),
+                   !structureVerbs(for: dragged).move {
+                    return false
+                }
+                return treeVerbs.routePieceRowDrop(
                     draggedId: draggedId, documentId: piece.id,
                     structureReorder: {
                         handleDrop(
@@ -177,18 +183,26 @@ struct CollectionPiecesPane: View {
                     target: .pieceRow(piece.id))
             })
             .contextMenu {
-                Button("Rename") {
-                    renamingItemId = piece.id
+                // Only what the posture allows (P3c Task 8) — `BinderView`'s
+                // `TreeStructureVerbs`, one decision for both trees. Promoting a
+                // piece out of the Collection is structure too.
+                let verbs = structureVerbs(for: piece)
+                if verbs.rename {
+                    Button("Rename") {
+                        renamingItemId = piece.id
+                    }
                 }
-                if piece.pieceKind == .loose {
+                if verbs.move, piece.pieceKind == .loose {
                     Button("Promote to Standalone Project…") {
                         MaughamEvent.post(.maughamPromotePiece, to: .keyWindow, payload: ["piece_id": piece.id])
                     }
                 }
-                Divider()
-                Button("Delete", role: .destructive) {
-                    Task {
-                        try? await store.deleteStructureItem(id: piece.id)
+                if verbs.delete {
+                    Divider()
+                    Button("Delete", role: .destructive) {
+                        Task {
+                            try? await store.deleteStructureItem(id: piece.id)
+                        }
                     }
                 }
             }
@@ -291,28 +305,49 @@ struct CollectionPiecesPane: View {
         }
     }
 
+    /// The pieces' structural verbs, from the window's posture door —
+    /// `BinderView.structureVerbs`' twin; no door, the P1 pane.
+    func structureVerbs(for piece: StructureItem) -> TreeStructureVerbs {
+        guard let documentStore = store.documentStore else { return .unrestricted }
+        return TreeStructureVerbs.decide(
+            for: piece, postureOf: { documentStore.posture(forDocId: $0) })
+    }
+
+    /// The header's + menu: every item in it starts (or links in) a piece.
+    var mayStartAPiece: Bool {
+        guard let documentStore = store.documentStore else { return true }
+        return TreeStructureVerbs.mayStartAPiece(
+            documentStore.posture(forDocId: DocumentClass.projectStreamDocId))
+    }
+
     private var header: some View {
         HStack {
             Text("Pieces").font(.headline)
             Spacer()
-            Menu {
-                Button("New Prose Story") {
-                    MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
-                }
-                Button("New Screenplay") {
-                    MaughamEvent.post(.maughamAddScreenplayPiece, to: .keyWindow)
-                }
-                Button("Link Existing Project…") {
-                    MaughamEvent.post(.maughamLinkProject, to: .keyWindow)
-                }
-            } label: {
-                Image(systemName: "plus.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Add a piece")
+            if mayStartAPiece { addMenu }
         }
         .padding(8)
+    }
+
+    /// New Prose Story / New Screenplay / Link Existing Project — each adds a
+    /// piece, so the menu is the book author's (ruling R3), hidden otherwise.
+    private var addMenu: some View {
+        Menu {
+            Button("New Prose Story") {
+                MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
+            }
+            Button("New Screenplay") {
+                MaughamEvent.post(.maughamAddScreenplayPiece, to: .keyWindow)
+            }
+            Button("Link Existing Project…") {
+                MaughamEvent.post(.maughamLinkProject, to: .keyWindow)
+            }
+        } label: {
+            Image(systemName: "plus.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Add a piece")
     }
 }

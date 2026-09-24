@@ -1243,4 +1243,417 @@ final class PostureSurfaceTests: XCTestCase {
             kind: .intent, forScope: .project, store: store).map(\.text), ["One winter."],
             "the undo restored nothing")
     }
+
+    // MARK: - P3c Task 8: the tree, tasks and translations
+
+    /// A posture table keyed by document id, for the pure decisions: the
+    /// project stream by its own id, every piece by its own.
+    private func postures(
+        _ permit: Permit, pieces: [String] = ["doc-a", "doc-b"]
+    ) -> (String) -> Posture {
+        { id in
+            let cls: DocumentClass = id == DocumentClass.projectStreamDocId
+                ? .projectStream : .piece(id)
+            return self.posture(permit, in: cls)
+        }
+    }
+
+    private var treeFixture: (a: StructureItem, b: StructureItem, groupA: StructureItem,
+                              groupAB: StructureItem, empty: StructureItem) {
+        let a = StructureItem(id: "doc-a", title: "A", type: .document, path: "manuscript/a.md")
+        let b = StructureItem(id: "doc-b", title: "B", type: .document, path: "manuscript/b.md")
+        var groupA = StructureItem(id: "grp-a", title: "Part A", type: .group, path: nil)
+        groupA.children = [a]
+        var nested = StructureItem(id: "grp-n", title: "Inner", type: .group, path: nil)
+        nested.children = [b]
+        var groupAB = StructureItem(id: "grp-ab", title: "Part AB", type: .group, path: nil)
+        groupAB.children = [a, nested]
+        var empty = StructureItem(id: "grp-e", title: "Empty", type: .group, path: nil)
+        empty.children = []
+        return (a, b, groupA, groupAB, empty)
+    }
+
+    /// **The tree offers structure only where the posture allows it, and a
+    /// group only where EVERY piece in it does** — both directions, pure.
+    func test_theTreesStructuralVerbsFollowEveryPieceTheRowIsAbout() {
+        let t = treeFixture
+        let none = TreeStructureVerbs(
+            newInside: false, duplicate: false, rename: false, delete: false,
+            move: false, linkResearch: false, tidy: false)
+
+        // A reviewer: no structural verb on any row, and no New at the root.
+        let reviewer = postures(.reviewer)
+        for item in [t.a, t.b, t.groupA, t.groupAB, t.empty] {
+            XCTAssertEqual(TreeStructureVerbs.decide(for: item, postureOf: reviewer), none,
+                           "a reviewer restructures nothing: \(item.id)")
+        }
+        XCTAssertFalse(TreeStructureVerbs.mayStartAPiece(
+            reviewer(DocumentClass.projectStreamDocId)))
+
+        // The whole-book author: every verb its row kind has.
+        let book = postures(.bookAuthor)
+        XCTAssertEqual(TreeStructureVerbs.decide(for: t.a, postureOf: book),
+                       TreeStructureVerbs(newInside: true, duplicate: true, rename: true,
+                                          delete: true, move: true, linkResearch: true,
+                                          tidy: false))
+        XCTAssertEqual(TreeStructureVerbs.decide(for: t.groupAB, postureOf: book),
+                       TreeStructureVerbs(newInside: true, duplicate: true, rename: true,
+                                          delete: true, move: true, linkResearch: false,
+                                          tidy: true))
+        XCTAssertTrue(TreeStructureVerbs.decide(for: t.empty, postureOf: book).delete,
+                      "an empty group is the book's own structure — hers")
+        XCTAssertTrue(TreeStructureVerbs.mayStartAPiece(book(DocumentClass.projectStreamDocId)))
+
+        // An author of A: A's row, and a group holding only A — never B's,
+        // never a group holding B however deep, never an empty group, and
+        // never a new piece (ruling R3) — so no Duplicate either.
+        let pieces = postures(.author(.pieces(["doc-a"])))
+        XCTAssertEqual(TreeStructureVerbs.decide(for: t.a, postureOf: pieces),
+                       TreeStructureVerbs(newInside: false, duplicate: false, rename: true,
+                                          delete: true, move: true, linkResearch: true,
+                                          tidy: false))
+        XCTAssertEqual(TreeStructureVerbs.decide(for: t.b, postureOf: pieces), none)
+        XCTAssertEqual(TreeStructureVerbs.decide(for: t.groupA, postureOf: pieces),
+                       TreeStructureVerbs(newInside: false, duplicate: false, rename: true,
+                                          delete: true, move: true, linkResearch: false,
+                                          tidy: true))
+        XCTAssertEqual(TreeStructureVerbs.decide(for: t.groupAB, postureOf: pieces), none,
+                       "a pieces-author may not delete a group holding somebody else's chapter")
+        XCTAssertEqual(TreeStructureVerbs.decide(for: t.empty, postureOf: pieces), none)
+        XCTAssertFalse(TreeStructureVerbs.mayStartAPiece(
+            pieces(DocumentClass.projectStreamDocId)), "ruling R3")
+
+        // Settling offers the reviewer row alone — no structure.
+        XCTAssertEqual(TreeStructureVerbs.decide(for: t.a, postureOf: { _ in .settling }), none)
+    }
+
+    /// **Both trees ask the window's door, and a permit change moves them in
+    /// both directions with no reopen** — BinderView's and the Collection
+    /// pane's own decisions, over a real register.
+    func test_theTreesAskTheWindowsDoorInBothDirections() async throws {
+        let h = try await makeStatementHarness()
+        let a = try XCTUnwrap(TreeWalk.find(id: "doc-a", in: h.store.manifest.structure))
+        let b = try XCTUnwrap(TreeWalk.find(id: "doc-b", in: h.store.manifest.structure))
+        let binder = BinderView(store: h.store, selectedSubject: .constant(nil),
+                                treeState: BinderTreeSectionsState())
+        let pieces = CollectionPiecesPane(store: h.store, selectedSubject: .constant(nil),
+                                          renamingItemId: .constant(nil),
+                                          treeState: BinderTreeSectionsState())
+
+        XCTAssertTrue(binder.structureVerbs(for: b).delete, "premise: the whole book is hers")
+        XCTAssertTrue(binder.mayStartAPiece)
+
+        try await become(.author(.pieces(["doc-a"])), h)
+        XCTAssertTrue(binder.structureVerbs(for: a).rename, "her piece: her row's verbs")
+        XCTAssertTrue(binder.structureVerbs(for: a).move)
+        XCTAssertFalse(binder.structureVerbs(for: b).rename, "not hers: no verbs")
+        XCTAssertFalse(binder.structureVerbs(for: b).move, "the drop refuses B")
+        XCTAssertFalse(binder.mayStartAPiece, "no New Document at the root (R3)")
+        XCTAssertFalse(pieces.structureVerbs(for: b).delete)
+        XCTAssertFalse(pieces.mayStartAPiece)
+
+        try await become(.reviewer, h)
+        XCTAssertFalse(binder.structureVerbs(for: a).offersAny, "a reviewer: nothing")
+        XCTAssertFalse(pieces.structureVerbs(for: a).offersAny)
+
+        try await become(.bookAuthor, h)
+        XCTAssertTrue(binder.structureVerbs(for: b).delete, "promotion: back, no reopen")
+        XCTAssertTrue(binder.mayStartAPiece)
+        XCTAssertTrue(pieces.mayStartAPiece)
+    }
+
+    /// **A task is judged by ITS document**: the project's tasks by the
+    /// project stream, a chapter's by the chapter — and an inline task's toggle
+    /// or archive, which edits the manuscript, needs the words as well.
+    func test_theTasksPaneOffersTaskVerbsByTheTasksOwnDocument() {
+        let none = TaskRowVerbs(toggle: false, archive: false, delete: false, move: false)
+        for kind in [TaskKind.paneCreated, .inlineMarkdown, .fountainBoneyard] {
+            XCTAssertEqual(TaskRowVerbs.decide(kind: kind, posture: reviewer), none,
+                           "a reviewer's tasks pane is read-only: \(kind)")
+            XCTAssertEqual(TaskRowVerbs.decide(kind: kind, posture: bookAuthor), .unrestricted)
+            XCTAssertEqual(TaskRowVerbs.decide(kind: kind, posture: piecesAuthorInA),
+                           .unrestricted, "her piece: \(kind)")
+            XCTAssertEqual(TaskRowVerbs.decide(kind: kind, posture: piecesAuthorInB), none,
+                           "not her piece: \(kind)")
+        }
+        // The project stream takes her tasks but not her words: a pane task
+        // is hers there, and anything that would edit text is not.
+        let projectStream = posture(.author(.pieces(["doc-a"])), in: .projectStream)
+        XCTAssertEqual(TaskRowVerbs.decide(kind: .paneCreated, posture: projectStream),
+                       .unrestricted, "task create on __project__ is allowed (R3's pair)")
+        XCTAssertEqual(TaskRowVerbs.decide(kind: .inlineMarkdown, posture: projectStream),
+                       TaskRowVerbs(toggle: false, archive: false, delete: true, move: true),
+                       "an inline toggle also needs .writeText")
+
+        XCTAssertEqual(TaskCreationScopes.decide(document: reviewer, project: reviewer),
+                       TaskCreationScopes(document: false, project: false))
+        XCTAssertEqual(TaskCreationScopes.decide(document: piecesAuthorInB, project: projectStream),
+                       TaskCreationScopes(document: false, project: true))
+        XCTAssertEqual(TaskCreationScopes.decide(document: piecesAuthorInA, project: projectStream),
+                       TaskCreationScopes(document: true, project: true))
+        XCTAssertEqual(TaskCreationScopes.decide(document: nil, project: bookAuthor),
+                       TaskCreationScopes(document: false, project: true))
+
+        // Ruling U: Promote to Task and Accept as task ask `.task` of THIS
+        // document.
+        let pane = { (doc: Posture) in DiagnosticsPostures(document: doc, statement: { _, _ in doc }) }
+        XCTAssertFalse(DiagnosticsPane.offersATask(pane(reviewer)))
+        XCTAssertFalse(DiagnosticsPane.offersATask(pane(piecesAuthorInB)))
+        XCTAssertTrue(DiagnosticsPane.offersATask(pane(piecesAuthorInA)))
+        XCTAssertTrue(DiagnosticsPane.offersATask(pane(bookAuthor)))
+    }
+
+    /// **The task door**: a task op the stamp refuses is never appended, and
+    /// the refusal is said — a pane task, a status change, and an inline
+    /// archive, which would otherwise splice the manuscript. Promotion opens it.
+    func test_aRefusedTaskIsNeverAppendedAndIsSaid() async throws {
+        let (dir, docURL) = try makeTestProject(
+            prefix: "PostureTaskDoor", initialMd: "Intro.\n\n- [ ] ring the printer\n")
+        roots.append(dir)
+        let doc = try await Document.load(
+            url: docURL, device: "test", session: "s", presenter: nil)
+        let inline = try XCTUnwrap(doc.tasks(filter: TaskFilter(
+            scope: .document(docId: doc.docId), statuses: [.open])).first,
+            "premise: the inline task derived and its anchor minted while she could write")
+        let pane = doc.createPaneTask(body: "a pane task", parentTaskId: nil)
+        beAReviewer(doc)
+
+        let ops = doc._opLogMirror.count
+        let text = doc.displayText
+        let said = await notices {
+            doc.createPaneTask(body: "refused", parentTaskId: nil)
+            doc.setTaskStatus(id: pane.id, status: .done)
+            doc.archiveTask(id: inline.id)
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(doc._opLogMirror.count, ops, "nothing appended")
+        XCTAssertEqual(doc.displayText, text, "the inline archive spliced nothing")
+        XCTAssertEqual(said, [
+            "Couldn't change 3 tasks — this Mac can no longer file tasks in this piece."])
+
+        doc.stamp(localWritePermit: .unrestricted)
+        doc.setTaskStatus(id: pane.id, status: .done)
+        XCTAssertEqual(doc._opLogMirror.count, ops + 1, "promotion: the door opens")
+    }
+
+    // MARK: Translations
+
+    private func translationBytes(_ docId: String, _ projectURL: URL) -> Int {
+        TranslationStore.fileURLs(forDocId: docId, language: "es", in: projectURL)
+            .map { (try? Data(contentsOf: $0).count) ?? 0 }  // adr-0018-ok: a test measuring translation-file bytes, not reading manuscript text
+            .reduce(0, +)
+    }
+
+    /// Open and close both chapters while this Mac writes the whole book, so
+    /// each has an op log (a bootstrap) a later permit's reads derive from.
+    private func bootstrapBothChapters(_ h: StatementHarness) async throws {
+        for path in ["manuscript/a.md", "manuscript/b.md"] {
+            let doc = try await Document.load(
+                url: h.projectURL.appendingPathComponent(path), actor: .author,
+                session: "s", presenter: nil)
+            await doc.close()
+        }
+    }
+
+    private func writeTranslation(
+        _ docId: String, _ h: StatementHarness, actor: DeviceActor = .translator
+    ) async throws {
+        let state = try currentParagraphState(
+            documentId: docId, store: h.store, documentStore: h.documentStore,
+            projectURL: h.projectURL)
+        let pid = try XCTUnwrap(state.sequence.first)
+        try await TranslationWritePipeline.perform(
+            entries: [.init(paragraphId: pid, text: "Capítulo.")],
+            language: "es", documentId: docId, state: state, actor: actor,
+            identities: h.identities,
+            deviceState: try XCTUnwrap(Document.deviceStateForTesting))
+    }
+
+    private func assertTranslationRefused(
+        _ label: String, _ docId: String, _ h: StatementHarness,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async {
+        let before = translationBytes(docId, h.projectURL)
+        do {
+            try await writeTranslation(docId, h)
+            XCTFail("\(label) was not refused", file: file, line: line)
+        } catch MCPError.toolError(let payload) {
+            XCTAssertEqual(payload.error, "translation_not_permitted", file: file, line: line)
+            XCTAssertEqual(payload.fields["document_id"], .string(docId),
+                           "the refusal names the piece", file: file, line: line)
+        } catch {
+            XCTFail("\(label) threw \(error)", file: file, line: line)
+        }
+        XCTAssertEqual(translationBytes(docId, h.projectURL), before,
+                       "\(label) appended nothing", file: file, line: line)
+    }
+
+    /// **`write_translation`'s pipeline refuses per piece, as the TRANSLATOR,
+    /// before any append** — an author of A translates A and not B; a
+    /// reviewer translates nothing; a promotion brings B back.
+    func test_theTranslationPipelineRefusesPerPieceBeforeAnyAppend() async throws {
+        let h = try await makeStatementHarness()
+        try await bootstrapBothChapters(h)
+
+        try await become(.author(.pieces(["doc-a"])), h)
+        let a0 = translationBytes("doc-a", h.projectURL)
+        try await writeTranslation("doc-a", h)
+        XCTAssertGreaterThan(translationBytes("doc-a", h.projectURL), a0, "her piece: written")
+        await assertTranslationRefused("a pieces-author's translation of B", "doc-b", h)
+
+        try await become(.reviewer, h)
+        await assertTranslationRefused("a reviewer's translation of A", "doc-a", h)
+
+        try await become(.bookAuthor, h)
+        let b0 = translationBytes("doc-b", h.projectURL)
+        try await writeTranslation("doc-b", h)
+        XCTAssertGreaterThan(translationBytes("doc-b", h.projectURL), b0, "promotion: written")
+    }
+
+    /// **Removing an orphan is the author's own translation write** and asks
+    /// the author's key the same door: refused, nothing appended.
+    func test_anOrphanPurgeIsRefusedWhereTheAuthorMayNotTranslate() async throws {
+        let h = try await makeStatementHarness()
+        try await bootstrapBothChapters(h)
+        try await writeTranslation("doc-b", h)  // an edition of B exists
+        try await become(.author(.pieces(["doc-a"])), h)
+        try await writeTranslation("doc-a", h)  // and of her own A
+        let before = translationBytes("doc-b", h.projectURL)
+        do {
+            try await TranslationReviewPaneLogic.purgeOrphans(
+                ["zz99"], docId: "doc-b", language: "es", identities: h.identities,
+                deviceState: try XCTUnwrap(Document.deviceStateForTesting),
+                projectURL: h.projectURL)
+            XCTFail("a purge of B was not refused")
+        } catch MCPError.toolError(let payload) {
+            XCTAssertEqual(payload.error, "translation_not_permitted")
+        }
+        XCTAssertEqual(translationBytes("doc-b", h.projectURL), before)
+        let aBefore = translationBytes("doc-a", h.projectURL)
+        try await TranslationReviewPaneLogic.purgeOrphans(
+            ["zz99"], docId: "doc-a", language: "es", identities: h.identities,
+            deviceState: try XCTUnwrap(Document.deviceStateForTesting),
+            projectURL: h.projectURL)
+        XCTAssertGreaterThan(translationBytes("doc-a", h.projectURL), aBefore,
+                             "her piece: the tombstone is written")
+    }
+
+    /// **The desk draws Run only where its translator may translate** — per
+    /// piece, the same answer for every language.
+    func test_theDeskDrawsRunOnlyWhereItsTranslatorMay() {
+        func offers(_ permit: Permit, target: String?, book: [String] = ["doc-a", "doc-b"])
+            -> DepartmentTranslationOffers {
+            let p = postures(permit)
+            return DepartmentTranslationOffers.decide(
+                target: target, book: book, mayTranslate: { p($0).allows(.translate) })
+        }
+        let none = DepartmentTranslationOffers(run: false, runBook: false)
+        XCTAssertEqual(offers(.reviewer, target: "doc-a"), none, "a reviewer: no Run at all")
+        XCTAssertEqual(offers(.reviewer, target: nil), none)
+        XCTAssertEqual(offers(.reviewer, target: nil, book: []), none)
+        XCTAssertEqual(offers(.bookAuthor, target: "doc-b"), .unrestricted)
+        XCTAssertEqual(offers(.bookAuthor, target: nil, book: []), .unrestricted,
+                       "nothing to judge: the book's own stream answers, and it is hers")
+        let pieces = Permit.author(.pieces(["doc-a"]))
+        XCTAssertEqual(offers(pieces, target: "doc-a"),
+                       DepartmentTranslationOffers(run: true, runBook: true))
+        XCTAssertEqual(offers(pieces, target: "doc-b"),
+                       DepartmentTranslationOffers(run: false, runBook: true),
+                       "B is not hers; the book run will leave B out and say so")
+        XCTAssertEqual(offers(pieces, target: nil, book: ["doc-b"]), none)
+        XCTAssertEqual(
+            DepartmentPaneHost.notTranslatable(titles: ["B"]),
+            "Your part in this book doesn\u{2019}t reach \u{201C}B\u{201D}, so it was not translated.")
+        XCTAssertEqual(
+            DepartmentPaneHost.notTranslatable(titles: ["B", "C"]),
+            "Your part in this book doesn\u{2019}t reach \u{201C}B\u{201D} and \u{201C}C\u{201D}, "
+                + "so they were not translated.")
+    }
+
+    /// **Translation is judged as the TRANSLATOR, never the writer's hand** —
+    /// and on the root's own Mac the two differ: the root yielding to Sam on
+    /// Sam's piece has lowered HER HAND there (cooperatively), not her
+    /// translator's. The desk asks the translator, so its Run stays.
+    ///
+    /// Also the translation half of controller ruling H, pinned as it is BUILT:
+    /// no document id resolves to `.translation` — a translation stream's id IS
+    /// its piece's (`PermitJudge.translation`) — so the translation surfaces
+    /// ask the piece's id, and the writer's-hand posture on that id yields
+    /// with the piece by construction; the translator's never does.
+    func test_translationIsJudgedAsTheTranslatorNotTheYieldedHand() async throws {
+        let projectURL = try makeTwoPieceProject()
+        let identities = beASigningMac(projectURL)
+        _ = identities
+        let store = try await DocumentStore.open(url: projectURL)  // this Mac roots the book
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(
+            device: sam.author.fingerprint, label: "Sam", ownName: "Sam\u{2019}s Mac",
+            permit: .author(.pieces(["doc-a"])))
+        await store.postureSettled()
+
+        XCTAssertEqual(DocumentClass.resolve(docId: "doc-a", statements: []), .piece("doc-a"),
+                       "a translation's document id resolves to its piece, never .translation")
+        let hand = store.posture(forDocId: "doc-a")
+        XCTAssertEqual(hand.yieldingTo, "Sam", "premise: the root yields on Sam's piece")
+        XCTAssertFalse(hand.allows(.translate),
+                       "ruling H: the writer's hand yields on the piece's translation too")
+
+        let translator = DepartmentPaneHost.postureOfTheTranslator(forPiece: "doc-a", in: store)
+        XCTAssertNil(translator.yieldingTo)
+        XCTAssertTrue(translator.allows(.translate), "the translator is not yielded")
+        XCTAssertEqual(
+            DepartmentTranslationOffers.decide(
+                target: "doc-a", book: ["doc-a", "doc-b"],
+                mayTranslate: {
+                    DepartmentPaneHost.postureOfTheTranslator(forPiece: $0, in: store)
+                        .allows(.translate)
+                }),
+            .unrestricted, "the root's desk keeps Run over Sam's chapter")
+    }
+
+    /// **A reply to a translator's query that the door refuses is SAID**, not
+    /// swallowed with the sheet closing as if it worked (ruling Q) — and the
+    /// verbs themselves follow the document's and the edition brief's postures.
+    func test_aRefusedTranslatorReplyIsSaidAndTheVerbsFollowThePosture() async throws {
+        let h = try await makeHarness(prefix: "PostureTranslationReply")
+        let query = try await h.doc.addAnnotation(
+            kind: .query, paragraphId: h.pid, body: "¿tú o usted?")
+        beAReviewer(h.doc)
+        var returned: String?
+        let said = await notices {
+            returned = await TranslationReviewPaneLogic.reply(
+                to: query, with: "usted", in: h.doc, undoManager: nil)
+        }
+        let sentence = try XCTUnwrap(returned, "the refusal comes back")
+        XCTAssertEqual(said, [sentence], "and is said to the window")
+        XCTAssertEqual(annotation(h.doc, query)?.status, .open, "the query still stands")
+
+        h.doc.stamp(localWritePermit: .unrestricted)
+        let accepted = await TranslationReviewPaneLogic.reply(
+            to: query, with: "usted", in: h.doc, undoManager: nil)
+        XCTAssertNil(accepted, "promotion: the reply files")
+        XCTAssertEqual(annotation(h.doc, query)?.status, .accepted)
+
+        // The verbs, pure: a reviewer answers nothing; an author of A answers
+        // A's translator but files no edition-brief ruling (a project
+        // statement); the book author does everything.
+        let none = TranslationAuthorVerbs.decide(document: reviewer, editionBrief: reviewer)
+        XCTAssertFalse(none.answer)
+        XCTAssertFalse(none.answerAsRuling)
+        XCTAssertFalse(none.rule)
+        XCTAssertFalse(none.sideWithTheNote(hasQuery: false))
+        let pieces = TranslationAuthorVerbs.decide(
+            document: piecesAuthorInA, editionBrief: piecesAuthorOnTheLedger)
+        XCTAssertTrue(pieces.answer)
+        XCTAssertFalse(pieces.answerAsRuling)
+        XCTAssertFalse(pieces.rule)
+        XCTAssertFalse(pieces.sideWithTheNote(hasQuery: true))
+        XCTAssertEqual(TranslationAuthorVerbs.decide(document: bookAuthor, editionBrief: bookAuthor),
+                       .unrestricted)
+        let ruleOnly = TranslationAuthorVerbs.decide(
+            document: piecesAuthorInB, editionBrief: bookAuthor)
+        XCTAssertTrue(ruleOnly.sideWithTheNote(hasQuery: false), "a ruling with no reply to file")
+        XCTAssertFalse(ruleOnly.sideWithTheNote(hasQuery: true),
+                       "never a ruling whose reply the door would then refuse")
+    }
 }
