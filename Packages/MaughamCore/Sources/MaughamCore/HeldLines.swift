@@ -287,12 +287,17 @@ public enum HeldLines {
     /// **Prose is counted by PARAGRAPH**, not by op: a writer typing one
     /// paragraph in three bursts wrote one paragraph, and *3 paragraphs* would
     /// be a number they cannot find. `prose` keeps the op count, and a prose op
-    /// that names no paragraph at all is said as a change.
+    /// that names no paragraph at all is said as a change — counted in
+    /// `anonymousProse`, so it is said even beside prose that does name one.
     public struct Waiting: Equatable, Sendable {
         /// Every paragraph a held prose op touched.
         public var paragraphIds: Set<String>
         /// Held op lines that would move the manuscript's words.
         public var prose: Int
+        /// The held prose op lines among `prose` that named NO paragraph — a
+        /// line from a later build, or one with no changes. No paragraph can
+        /// count them, so the phrase says each as a change.
+        public var anonymousProse: Int
         /// Held annotation-layer op lines — comments, suggestions, queries,
         /// craft notes, and edits and dispositions of them.
         public var notes: Int
@@ -304,11 +309,12 @@ public enum HeldLines {
         public var peek: String?
 
         public init(
-            paragraphIds: Set<String> = [], prose: Int = 0, notes: Int = 0,
-            other: Int = 0, peek: String? = nil
+            paragraphIds: Set<String> = [], prose: Int = 0, anonymousProse: Int = 0,
+            notes: Int = 0, other: Int = 0, peek: String? = nil
         ) {
             self.paragraphIds = paragraphIds
             self.prose = prose
+            self.anonymousProse = anonymousProse
             self.notes = notes
             self.other = other
             self.peek = peek
@@ -327,7 +333,9 @@ public enum HeldLines {
         public func merged(with more: Waiting) -> Waiting {
             Waiting(
                 paragraphIds: paragraphIds.union(more.paragraphIds),
-                prose: prose + more.prose, notes: notes + more.notes,
+                prose: prose + more.prose,
+                anonymousProse: anonymousProse + more.anonymousProse,
+                notes: notes + more.notes,
                 other: other + more.other, peek: peek ?? more.peek)
         }
 
@@ -339,8 +347,11 @@ public enum HeldLines {
             if paragraphs > 0 { parts.append((paragraphs, "paragraph", "paragraphs")) }
             if notes > 0 { parts.append((notes, "note", "notes")) }
             // A prose op that named no paragraph is still something held, and
-            // a sentence that counted nothing would say less than is true.
-            let changes = other + (paragraphs == 0 ? prose : 0)
+            // a sentence that counted nothing would say less than is true —
+            // whether or not other prose ops named one (whole-branch review
+            // M5). With no paragraph named at all, every prose op is one of
+            // them, which also covers a description built by hand from `prose`.
+            let changes = other + (paragraphs == 0 ? prose : anonymousProse)
             if changes > 0 { parts.append((changes, "change", "changes")) }
             guard !parts.isEmpty else { return nil }
             let words = parts.map { "\($0.0) \($0.0 == 1 ? $0.1 : $0.2)" }
@@ -378,6 +389,7 @@ public enum HeldLines {
                 switch Permit.group(of: kind) {
                 case .manuscriptText:
                     waiting.prose += 1
+                    if (op?.changes ?? []).isEmpty { waiting.anonymousProse += 1 }
                 case .annotationCreation, .ownAnnotation, .disposition:
                     waiting.notes += 1
                     continue
