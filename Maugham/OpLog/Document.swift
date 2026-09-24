@@ -95,6 +95,13 @@ public final class Document {
     /// moved on.
     public internal(set) var provenance: OpLogProvenance?
 
+    /// **How many lines of THIS device's own files are kept in History** — set
+    /// aside or held (P3c Task 3, controller ruling K). Stamped beside
+    /// `provenance` from the same load (`OpLogProvenance.ownLinesKeptInHistory`,
+    /// whose own-stream slugs the load enumerated), so the editor's standing
+    /// line reads a stored Int and never walks the files or the identities.
+    public internal(set) var ownLinesKeptInHistory: Int = 0
+
     /// **Who, among the holders `provenance` is counting, opened THIS piece**
     /// (P3b Task 7, spec §4.5).
     ///

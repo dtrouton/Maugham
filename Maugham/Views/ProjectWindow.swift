@@ -412,17 +412,14 @@ struct ProjectWindow: View {
                             Task { @MainActor in
                                 let activeDoc = activeDocument(in: store, documentStore: documentStore)
                                 try? await activeDoc?.flushBurstNow()
-                                await CheckpointFlashDecision.run(projectURL: projectURL) {
-                                    _ = try await CheckpointCapture.run(
-                                        projectURL: projectURL,
-                                        activeDocId: activeDocId,
-                                        allDocIds: allDocIds,
-                                        device: _checkpointDeviceId,
-                                        session: _checkpointSessionId,
-                                        label: label,
-                                        activeDocument: activeDoc,
-                                        posture: { await documentStore.settledPosture(forDocId: $0) })
-                                }
+                                await CheckpointFlashDecision.labelled(
+                                    label, projectURL: projectURL,
+                                    activeDocId: activeDocId, allDocIds: allDocIds,
+                                    device: _checkpointDeviceId,
+                                    session: _checkpointSessionId,
+                                    activeDocument: activeDoc,
+                                    posture: { await documentStore.settledPosture(forDocId: $0) },
+                                    flash: { showSaveFlash() })
                             }
                         },
                         onCancel: { showingCheckpointLabelSheet = false }
@@ -829,7 +826,9 @@ struct ProjectWindow: View {
               let item = TreeWalk.find(id: id, in: store.manifest.structure)
         else { return nil }
         return PostureStandingLine.line(
-            for: documentStore.posture(forDocId: id), title: item.title, docId: id)
+            for: documentStore.posture(forDocId: id), title: item.title, docId: id,
+            ownLinesKeptInHistory:
+                documentStore.document(forDocId: id)?.ownLinesKeptInHistory ?? 0)
     }
 
     /// The typography the editor actually uses — manifest override else user
@@ -4266,6 +4265,35 @@ enum CheckpointFlashDecision {
             MaughamEvent.postNotice(
                 "Couldn’t save a checkpoint — \(error.localizedDescription)",
                 projectURL: projectURL)
+        }
+    }
+}
+
+extension CheckpointFlashDecision {
+    /// **⇧⌘S's Confirm** — the labelled checkpoint, through the same honest
+    /// decision ⌘S takes, and flashing as ⌘S does (P3c Task 3 fix round 1).
+    /// The sheet only opens where the posture allowed a checkpoint; a demotion
+    /// arriving between opening it and Confirm reaches the capture's door,
+    /// which writes NOTHING, and the flash still fires — ⌘S always flashes.
+    /// Any other error posts its notice and does not flash. A free function so
+    /// the Confirm path is pinned without mounting the sheet (tripwire 33).
+    @MainActor
+    static func labelled(
+        _ label: String, projectURL: URL, activeDocId: String, allDocIds: [String],
+        device: String, session: String, activeDocument: Document?,
+        posture: @escaping @MainActor (String) async -> Posture,
+        flash: () -> Void
+    ) async {
+        await run(projectURL: projectURL, onSuccess: flash) {
+            _ = try await CheckpointCapture.run(
+                projectURL: projectURL,
+                activeDocId: activeDocId,
+                allDocIds: allDocIds,
+                device: device,
+                session: session,
+                label: label,
+                activeDocument: activeDocument,
+                posture: posture)
         }
     }
 }

@@ -33,20 +33,29 @@ enum PostureStandingLine {
             case cannotJudge
         }
 
-        let kind: Kind
+        /// Why the words are not hers, or nil where they are and the line is
+        /// here only for `keptInHistory`.
+        let kind: Kind?
         /// The document the line is about — what Edit Anyway lifts.
         let docId: String
+        /// **Some of what she wrote here is kept in History** (controller
+        /// ruling K): this document holds set-aside or held lines in this
+        /// device's OWN files. Decided from the count and never from the
+        /// reason — a reviewer's own earlier prose, and a promoted author's
+        /// lines from while she was demoted, are both still there.
+        var keptInHistory: Bool = false
 
         /// Only the root's cooperative yield can be lifted from here; every
         /// other reason is a permit, and a permit is the root's to change.
         var offersEditAnyway: Bool {
-            if case .yielding = kind { return true }
+            if case .yielding? = kind { return true }
             return false
         }
 
         /// The sentence. `root` is the label of the root this Mac is on, when
         /// it has been read; the reviewer's sentence names it.
-        func sentence(root: String?) -> String {
+        func sentence(root: String?) -> String? {
+            guard let kind else { return nil }
             switch kind {
             case .reviewer:
                 let whom = root ?? "the book’s author"
@@ -64,18 +73,29 @@ enum PostureStandingLine {
     }
 
     /// The line for `posture` over the document `docId` titled `title`, or nil
-    /// where the posture names no reason.
-    static func line(for posture: Posture, title: String, docId: String) -> Line? {
-        guard let reason = posture.reason else { return nil }
-        let kind: Line.Kind
-        switch reason {
+    /// where the posture names no reason AND none of this device's own lines
+    /// is kept in History. `ownLinesKeptInHistory` is the document's stored
+    /// count (`Document.ownLinesKeptInHistory`), zero where it is not open.
+    static func line(
+        for posture: Posture, title: String, docId: String,
+        ownLinesKeptInHistory: Int = 0
+    ) -> Line? {
+        let kind: Line.Kind?
+        switch posture.reason {
+        case nil: kind = nil
         case .reviewer: kind = .reviewer
         case .notYourPiece: kind = .notYourPiece(title: title)
         case .yielding(let name): kind = .yielding(to: name)
         case .cannotJudge: kind = .cannotJudge
         }
-        return Line(kind: kind, docId: docId)
+        let kept = ownLinesKeptInHistory > 0
+        guard kind != nil || kept else { return nil }
+        return Line(kind: kind, docId: docId, keptInHistory: kept)
     }
+
+    /// The clause for `Line.keptInHistory`; the view pairs it with a History
+    /// link.
+    static let keptInHistoryClause = "Some of what you wrote here is kept in History."
 
     /// **⇧⌘S over text this Mac may not change** (plan ruling R5): said in
     /// place of the label sheet. ⌘S itself says nothing — it flashes, and
@@ -115,9 +135,19 @@ struct PostureStandingLineView: View {
             // No `fixedSize(vertical:)`: this is a top inset on the writing
             // column, and an unbreakable height there grows the split view
             // (`ViewOnlyShareNotice`'s measured reason).
-            Text(line.sentence(root: rootLabel))
-                .lineLimit(2)
-                .truncationMode(.middle)
+            if let sentence = line.sentence(root: rootLabel) {
+                Text(sentence)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+            }
+            if line.keptInHistory {
+                Text(PostureStandingLine.keptInHistoryClause)
+                    .lineLimit(2)
+                Button("History") {
+                    MaughamEvent.postDetailSegment(.history)
+                }
+                .buttonStyle(.link)
+            }
             if line.offersEditAnyway {
                 Button("Edit Anyway") {
                     documentStore.overrideYield(docId: line.docId)
@@ -134,14 +164,14 @@ struct PostureStandingLineView: View {
         .background(.thinMaterial)
         .accessibilityElement(children: .contain)
         .task(id: RootReadKey(kind: line.kind, epoch: documentStore.postureEpoch)) {
-            guard case .reviewer = line.kind else { return }
+            guard case .reviewer? = line.kind else { return }
             rootLabel = await PostureStandingLine.rootLabel(
                 projectURL: documentStore.projectURL)
         }
     }
 
     private struct RootReadKey: Equatable {
-        let kind: PostureStandingLine.Line.Kind
+        let kind: PostureStandingLine.Line.Kind?
         let epoch: Int
     }
 }
