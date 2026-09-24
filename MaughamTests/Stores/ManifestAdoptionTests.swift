@@ -378,8 +378,13 @@ final class ManifestAdoptionTests: XCTestCase {
         }
 
         XCTAssertEqual(seen, [DocumentStore.removedElsewhereNotice(title: item.title)])
-        XCTAssertFalse(seen.first?.contains("restored") ?? true,
-                       "nothing promises a way back the window does not offer")
+        XCTAssertFalse(seen.first?.contains("restored from Trash") ?? true,
+                       "the notice must not send the writer to an empty Trash")
+        // The way back it names is real (Denver's ruling, 2026-09-24): the
+        // adoption archived the outline that held it, so the list has it.
+        XCTAssertTrue(seen.first?.contains("Removed Elsewhere") ?? false)
+        await store.refreshRemovedElsewhere()
+        XCTAssertEqual(store.removedElsewhere.map(\.id), [item.id])
         XCTAssertTrue(wordsInOpLog(item.id, store).contains("Typed here, then dropped elsewhere."))
     }
 
