@@ -15,19 +15,22 @@ final class EditorHostReloadPredicateTests: XCTestCase {
     func test_nothingLoaded_needsReload() {
         XCTAssertTrue(EditorHost.needsReload(
             itemId: "ch-1", path: "manuscript/01-a.md",
-            loadedItemId: nil, loadedPath: nil))
+            loadedItemId: nil, loadedPath: nil,
+            loadedIsClosed: false))
     }
 
     func test_differentItem_needsReload() {
         XCTAssertTrue(EditorHost.needsReload(
             itemId: "ch-2", path: "manuscript/02-b.md",
-            loadedItemId: "ch-1", loadedPath: "manuscript/01-a.md"))
+            loadedItemId: "ch-1", loadedPath: "manuscript/01-a.md",
+            loadedIsClosed: false))
     }
 
     func test_sameItemSamePath_noReload() {
         XCTAssertFalse(EditorHost.needsReload(
             itemId: "ch-1", path: "manuscript/01-a.md",
-            loadedItemId: "ch-1", loadedPath: "manuscript/01-a.md"))
+            loadedItemId: "ch-1", loadedPath: "manuscript/01-a.md",
+            loadedIsClosed: false))
     }
 
     func test_sameItem_pathChanged_needsReload() {
@@ -35,7 +38,22 @@ final class EditorHostReloadPredicateTests: XCTestCase {
         // Document at the old path was closed by the typed mover.
         XCTAssertTrue(EditorHost.needsReload(
             itemId: "ch-1", path: "manuscript/01-real-title.md",
-            loadedItemId: "ch-1", loadedPath: "manuscript/01-new-document.md"))
+            loadedItemId: "ch-1", loadedPath: "manuscript/01-new-document.md",
+            loadedIsClosed: false))
+    }
+
+    /// **F7 final round, C1.** A Document the store closed out from under
+    /// the host — another device removed the piece, or this Mac trashed it —
+    /// stays in the host's `document` with the markers unchanged. When the piece
+    /// comes back at the SAME path (Restore from Trash, Removed Elsewhere's
+    /// Restore, another Mac re-adding it) nothing about the id or the path says
+    /// "reload", and binding the husk eats every keystroke. A closed document
+    /// is never the one to keep.
+    func test_sameItemSamePath_heldDocumentClosed_needsReload() {
+        XCTAssertTrue(EditorHost.needsReload(
+            itemId: "ch-1", path: "manuscript/01-a.md",
+            loadedItemId: "ch-1", loadedPath: "manuscript/01-a.md",
+            loadedIsClosed: true))
     }
 
     func test_sameItem_priorLoadFailed_retries() {
@@ -43,7 +61,8 @@ final class EditorHostReloadPredicateTests: XCTestCase {
         // the next trigger must retry rather than stay stuck on "Loading…".
         XCTAssertTrue(EditorHost.needsReload(
             itemId: "ch-1", path: "manuscript/01-a.md",
-            loadedItemId: "ch-1", loadedPath: nil))
+            loadedItemId: "ch-1", loadedPath: nil,
+            loadedIsClosed: false))
     }
 }
 

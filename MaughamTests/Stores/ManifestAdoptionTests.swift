@@ -300,7 +300,8 @@ final class ManifestAdoptionTests: XCTestCase {
 
         XCTAssertEqual(TreeWalk.find(id: item.id, in: store.manifest.structure)?.path, newPath)
         XCTAssertTrue(EditorHost.needsReload(
-            itemId: item.id, path: newPath, loadedItemId: item.id, loadedPath: oldPath),
+            itemId: item.id, path: newPath, loadedItemId: item.id, loadedPath: oldPath,
+            loadedIsClosed: true),
             "the editor re-binds at the new path")
         XCTAssertTrue(doc.isClosed)
         XCTAssertNil(ds.document(for: oldPath))
