@@ -201,7 +201,17 @@ public final class Document {
     /// Derived from the stamped permit rather than remembered separately, so
     /// the condition that declined the read and the condition that declines the
     /// write are the same expression and cannot drift apart.
-    internal var mayWriteThePendingFile: Bool {
+    internal var mayWriteThePendingFile: Bool { mayWriteItsText }
+
+    /// **May this device's own hand write this document's text?** (P3c
+    /// whole-branch fix wave, C1) — the one question every out-of-editor
+    /// manuscript writer (project Replace, the rename's wiki-link sweep) asks
+    /// of a `Document` it holds before `setFullText`. A burst's EMISSION is
+    /// deliberately not permit-guarded — the editor's membrane is in front of
+    /// the keystroke — so a writer that reaches `setFullText` from outside the
+    /// editor must ask first, or it signs text every read then sets aside.
+    /// The stamp is the answer the load made and every trust change re-stamps.
+    internal var mayWriteItsText: Bool {
         localWritePermit.allows(.op(.typingBurst)) == .yes
     }
 
@@ -410,6 +420,9 @@ public final class Document {
         case annotationEdit, acceptNote, stet, triage, stetRestore, notPermitted
         /// A task op this Mac's permit refuses (P3c Task 8's task door).
         case taskNotPermitted
+        /// A restore this Mac's permit refuses (P3c whole-branch fix wave,
+        /// C1's restore door) — a History restore's ⌘Z or ⇧⌘Z after a demotion.
+        case restoreNotPermitted
 
         /// One sentence for however many notes of this verb declined. A batch
         /// that ALSO undid some notes says nothing about them: the queue has
@@ -432,6 +445,8 @@ public final class Document {
                 "Couldn't change \(count) notes — this Mac can no longer answer notes in this piece."
             case .taskNotPermitted:
                 "Couldn't change \(count) tasks — this Mac can no longer file tasks in this piece."
+            case .restoreNotPermitted:
+                "Couldn't undo \(count) restores — this Mac can no longer change this piece's text."
             }
         }
 
@@ -451,6 +466,8 @@ public final class Document {
                 "Couldn't change that note — this Mac can no longer answer notes in this piece."
             case .taskNotPermitted:
                 "Couldn't change that task — this Mac can no longer file tasks in this piece."
+            case .restoreNotPermitted:
+                "Couldn't undo the restore — this Mac can no longer change this piece's text."
             }
         }
     }

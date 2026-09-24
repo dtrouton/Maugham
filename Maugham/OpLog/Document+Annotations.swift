@@ -1349,9 +1349,12 @@ extension Document {
     /// the writer's own presses.
     internal struct PostureRefusal: LocalizedError, Equatable {
         let kind: OpKind
+        /// What the sentence says was left alone — the note, for a disposition;
+        /// the text, for a restore (P3c whole-branch fix wave, C1).
+        var leftAsItWas: String = "the note"
         var errorDescription: String? {
             "this Mac may not write \(kind.rawValue) in this piece, "
-                + "so the note was left as it was"
+                + "so \(leftAsItWas) was left as it was"
         }
     }
 

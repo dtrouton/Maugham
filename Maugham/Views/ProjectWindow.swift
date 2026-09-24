@@ -4562,10 +4562,22 @@ private struct RewindModifier: ViewModifier {
                             // reports what the restore actually did, and a
                             // `.nearest` resolution carries Revert right in the
                             // notice (RULING-27, the clause Denver added).
-                            guard let result = try? await documentStore
-                                .document(forDocId: docId)?
-                                .restoreToOpUndoable(opId: opId, undoManager: um)
-                            else { return }
+                            let result: RewindRestoreResult
+                            do {
+                                guard let restored = try await documentStore
+                                    .document(forDocId: docId)?
+                                    .restoreToOpUndoable(opId: opId, undoManager: um)
+                                else { return }
+                                result = restored
+                            } catch is Document.PostureRefusal {
+                                // The restore door refused (C1): a sheet drawn
+                                // before a demotion landed. Said, not swallowed.
+                                restoreToast = RewindWindow.refusedRestoreSentence
+                                restoreToastOffersRevert = false
+                                return
+                            } catch {
+                                return
+                            }
                             restoreToast = RewindImpact.toast(for: result)
                             // Revert is the surfaced undo — offered only when
                             // the restore actually registered one. A .nearest

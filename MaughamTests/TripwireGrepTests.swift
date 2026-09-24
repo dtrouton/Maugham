@@ -9101,6 +9101,9 @@ final class TripwireGrepTests: XCTestCase {
         "Document+Waiting.swift": ["localWritePermit"],
         "Document+Tasks.swift": ["localWritePermit"],
         "Document+Annotations.swift": ["localWritePermit"],
+        // P3c whole-branch fix wave (C1): the restore door,
+        // `requireRestorePermitted`, asks the stamp like its siblings.
+        "Document+Rewind.swift": ["localWritePermit"],
         // P3c Task 7 (controller ruling A): the ruling door's fallback for a
         // `ProjectStore` no window holds — the one builder, wrapped right there.
         "RulingPerformer.swift": ["localWritePermit", "Posture("],
@@ -9250,6 +9253,147 @@ final class TripwireGrepTests: XCTestCase {
             "Self-check: the door is admitted every ask spelling. Caught:\n"
             + asTheDoor.ask.joined(separator: "\n"))
         XCTAssertEqual(asTheDoor.componentA.count, 4)
+    }
+
+    // MARK: - Every manuscript writer outside the editor asks first (P3c whole-branch fix wave, C1)
+
+    /// **The spellings that write a document's TEXT from outside the editor's
+    /// membrane.** A burst's emission (`setFullText`) is deliberately not
+    /// permit-guarded — the editor's `shouldChangeTextIn` is in front of the
+    /// keystroke — so every OTHER caller must ask the posture (or the
+    /// Document's stamp) before it reaches one of these, or it signs text in
+    /// the writer's name that every read then sets aside. A restore
+    /// (`applyRestore`/`restoreToOp`/`restoreToOpUndoable`/
+    /// `Restore.buildRestoreOp`) rewrites every paragraph that differs; the
+    /// replace verbs reach `setFullText` for a whole book. The whole-branch
+    /// review found two such doors with neither a surface gate nor a storage
+    /// door — the third time in P3 a "which paths write X" list was enumerated
+    /// from the plan rather than from the code — so the population is a grep.
+    static let manuscriptWriterPatterns = [
+        "setFullText(", "applyRestore(", "restoreToOp(", "restoreToOpUndoable(",
+        "buildRestoreOp(", "replaceAll(", "replaceMatch(", "replaceInManuscript(",
+    ]
+
+    /// **Every production call site, by file and by count** — count the array,
+    /// never a number in prose. Each entry says where its posture question is
+    /// asked, or why it need not be:
+    ///
+    /// - `EditorHost.swift` × 1 — the editor's binding. Its gate is the
+    ///   membrane (`EditorEditPolicy` via `shouldChangeTextIn`), fed by the
+    ///   drawing posture; the one entry whose door is in front of the keystroke.
+    /// - `StatementEditorHost.swift` × 2 — the statement editor's binding and
+    ///   its merge; the same membrane, locked by `statementPosture`.
+    /// - `ProjectStore+Statements.swift` × 1 — `mutateStatementText`, every
+    ///   statement writer's one door: it refuses where the statement Document's
+    ///   stamp refuses its text (`StatementWriteRefused`), before the write.
+    /// - `ProjectStore+Structure.swift` × 2 — the rename's wiki-link sweep,
+    ///   pieces and statements: `sweepMayWrite` (the settled posture) before any
+    ///   load and the Document's stamp before the write; skipped and NAMED
+    ///   (ruling AH).
+    /// - `ProjectStore+Search.swift` × 3 — `replaceMatch`/`replaceAll` →
+    ///   `replaceInManuscript` → `setFullText`: the settled posture before any
+    ///   load and the Document's stamp before the write; Replace All skips and
+    ///   names (ruling AI).
+    /// - `ProjectSearchView.swift` × 2 — the two presses; per-match Replace and
+    ///   Replace All are drawn only where the match's own document allows
+    ///   `.writeText` (`ProjectSearchView.mayReplace`).
+    /// - `Document+Rewind.swift` × 2 — `restoreToOp`'s `applyRestore`, and
+    ///   `applyRestore`'s `buildRestoreOp`; each function refuses first
+    ///   (`requireRestorePermitted`).
+    /// - `Document+RewindUndo.swift` × 4 — the undoable wrapper (its own door
+    ///   before the stack clear) and its undo/redo; each reaches the doored
+    ///   `restoreToOp`, and a refusal there is said (`declineUndo(.notPermitted)`).
+    /// - `Document+Tasks.swift` × 1 — the inline-archive undo's
+    ///   `applyRestore`, doored; its refusal is said the same way.
+    /// - `ProjectWindow.swift` × 1 — *Restore here…*'s receiver; the button is
+    ///   drawn only where `.writeText` is allowed (`RewindWindow.offersRestore`)
+    ///   and a refusal from the door is SAID in the restore toast.
+    /// - `PartialRestorePicker.swift` × 1 — *Revert here…*'s checkpoint
+    ///   restore, which appends through its own store: the settled posture per
+    ///   document before the build; the rows and the History button are drawn
+    ///   only for documents this Mac may write, and what the door left alone is
+    ///   named in the sheet.
+    /// - `TestEditTool.swift` × 1 — `test_apply_edit`, compiled only into the
+    ///   dev build (`MAUGHAM_DEV_BUILD`): the smoke rig's typing surrogate,
+    ///   deliberately NOT gated, because it stands in for a keystroke and is
+    ///   how a rig drives a burst the read side must then set aside.
+    static let manuscriptWriterCallSites: [String: Int] = [
+        "EditorHost.swift": 1,
+        "StatementEditorHost.swift": 2,
+        "ProjectStore+Statements.swift": 1,
+        "ProjectStore+Structure.swift": 2,
+        "ProjectStore+Search.swift": 3,
+        "ProjectSearchView.swift": 2,
+        "Document+Rewind.swift": 2,
+        "Document+RewindUndo.swift": 4,
+        "Document+Tasks.swift": 1,
+        "ProjectWindow.swift": 1,
+        "PartialRestorePicker.swift": 1,
+        "TestEditTool.swift": 1,
+    ]
+
+    /// A comment, or a declaration of one of the verbs, is not a call site.
+    static func manuscriptWriterExcludeLine(_ line: String) -> Bool {
+        admissionExcludeLine(line) || line.contains("func ")
+    }
+
+    /// Call sites per file under `roots`, every pattern pooled.
+    private func manuscriptWriterCallCounts(in roots: [URL]) throws -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for root in roots {
+            let hits = try grepSwift(
+                in: root,
+                patterns: Self.manuscriptWriterPatterns,
+                allowed: [],
+                excludeLine: Self.manuscriptWriterExcludeLine)
+            for hit in hits {
+                counts[String(hit.prefix(while: { $0 != ":" })), default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    func test_everyManuscriptWriterOutsideTheEditorIsANamedSite() throws {
+        let found = try manuscriptWriterCallCounts(in: admissionRoots)
+        XCTAssertEqual(found, Self.manuscriptWriterCallSites,
+            "A path that writes a document's text from outside the editor moved. "
+            + "Every such site asks the posture (or the Document's stamp) before "
+            + "it writes, or is listed with why it need not. A NEW site is a verb "
+            + "that can sign text every read then sets aside — gate it and add it "
+            + "to `manuscriptWriterCallSites` with its reason in the same commit. "
+            + "Found: \(found.sorted(by: { $0.key < $1.key }))")
+    }
+
+    /// The census's control: it counts a planted call of each spelling, not the
+    /// comment and not the declaration, and a file off the list fails it.
+    func test_theManuscriptWriterCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-writers-selfcheck-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may name setFullText( and restoreToOp( without being one.
+        public func setFullText(_ text: String) {}
+        doc.setFullText(rewritten)
+        _ = try await doc.applyRestore(target: t, sourceCheckpoint: c, synthesisSource: .rewind)
+        _ = try await doc.restoreToOp(opId: id)
+        _ = try await doc.restoreToOpUndoable(opId: id, undoManager: um)
+        let op = Restore.buildRestoreOp(current: a, target: b, scope: .document,
+        try await store.replaceAll(in: results, with: text)
+        try await store.replaceMatch(match, with: text)
+        try await replaceInManuscript(path: p, title: t, query: q,
+        """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let planted = try manuscriptWriterCallCounts(in: [tmp])
+        XCTAssertEqual(planted, ["ASixthWayToWriteText.swift": 8],
+            "Self-check: each of the eight spellings is counted once, the comment "
+            + "and the declaration are not. Counted: \(planted)")
+        XCTAssertNotEqual(planted, Self.manuscriptWriterCallSites,
+            "and a file that is not on the list fails the census it feeds")
     }
 
     // MARK: - author_collaborator_id is decoded and never written (P3c Task 4)

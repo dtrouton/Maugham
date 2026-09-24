@@ -20,6 +20,9 @@ struct BinderView: View {
     var onOpenPaletteWall: () -> Void = {}
     @State private var renamingItemId: String?
     @State private var pendingError: String?
+    /// What a rename could not rewrite (controller ruling AH) — said, since
+    /// those `[[links]]` now dangle for the whole book.
+    @State private var renameNotice: String?
     @State private var pendingTidyParentId: String?
     @State private var showingTidyConfirmation: Bool = false
 
@@ -103,6 +106,15 @@ struct BinderView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(pendingError ?? "")
+            }
+            .alert("Renamed",
+                   isPresented: Binding(
+                    get: { renameNotice != nil },
+                    set: { if !$0 { renameNotice = nil } }
+                   )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(renameNotice ?? "")
             }
             .alert("Renumber filenames?",
                    isPresented: $showingTidyConfirmation,
@@ -445,7 +457,8 @@ struct BinderView: View {
 
     private func rename(id: String, to newTitle: String) async {
         do {
-            try await store.renameStructureItem(id: id, newTitle: newTitle)
+            let outcome = try await store.renameStructureItem(id: id, newTitle: newTitle)
+            renameNotice = outcome.sentence
         } catch {
             pendingError = error.localizedDescription
         }

@@ -216,6 +216,14 @@ extension DocumentStore {
         return assemble(permit, forDocId: docId, as: actor)
     }
 
+    /// The acting answer for the document the window names by PATH — the
+    /// same id resolution as `posture(forPath:)`, then `settledPosture(forDocId:)`.
+    func settledPosture(
+        forPath path: String, as actor: DeviceActor = .author
+    ) async -> Posture {
+        await settledPosture(forDocId: postureDocId(forPath: path), as: actor)
+    }
+
     private static var settleAttempts: Int { 3 }
 
     /// Wait until no posture refresh is in flight.

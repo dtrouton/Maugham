@@ -789,6 +789,11 @@ extension Document {
                         target: preState,
                         sourceCheckpoint: preTip,
                         synthesisSource: .undoRewind)
+                } catch is PostureRefusal {
+                    // The restore door (C1) refused: said, like every other
+                    // task undo a demotion has overtaken (Task 8's rule).
+                    doc.declineUndo(.taskNotPermitted)
+                    return
                 } catch {
                     documentLog.error("archiveTask compound undo: \(id, privacy: .public) — text restore failed (\(error.localizedDescription, privacy: .public)); declining before status flip")
                     return

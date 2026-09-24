@@ -24,6 +24,10 @@ struct PartialRestorePicker: View {
 
     @State private var scope: ScopeChoice?
     @State private var isRestoring: Bool = false
+    /// Set when the restore door left documents alone (P3c whole-branch fix
+    /// wave, C1): the sheet stays up and says which, rather than closing over
+    /// a revert that did less than it was asked.
+    @State private var leftAloneSentence: String?
 
     /// What `_scope` **actually holds** before the sheet is installed on a
     /// view — the value the picker opens with.
@@ -109,14 +113,88 @@ struct PartialRestorePicker: View {
     }
 
     var body: some View {
+        let mayWrite = Self.mayWrite(through: documentStore)
         RestorePickerContent(
             checkpoint: checkpoint,
-            allDocIds: allDocIds,
+            allDocIds: Self.offeredDocIds(allDocIds, mayWrite: mayWrite),
+            offersWholeProject: Self.offersWholeProject(allDocIds, mayWrite: mayWrite),
             scope: $scope,
+            // A seeded scope this Mac may not write selects no row and arms
+            // nothing — the same shape as the seed that names no document.
+            scopeIsOffered: Self.offered(
+                scope, allDocIds: allDocIds, mayWrite: mayWrite) != nil,
             isRestoring: isRestoring,
+            leftAloneSentence: leftAloneSentence,
             onCancel: onCancel,
-            onRevert: { Task { await performRestore() } }
+            onRevert: { Task { await performRestore() } },
+            onDone: onComplete
         )
+    }
+
+    // MARK: - Posture (P3c whole-branch fix wave, C1)
+
+    /// The drawing answer for one document: may this Mac write its text? No
+    /// door behind the host fails CLOSED.
+    static func mayWrite(through documentStore: DocumentStore?) -> (String) -> Bool {
+        { docId in documentStore?.posture(forDocId: docId).allows(.writeText) ?? false }
+    }
+
+    /// **The documents the picker lists** — the ones this Mac may write. A
+    /// revert rewrites a document's text, so a reviewer is offered none (and
+    /// History draws no *Revert here…* to open the sheet at all).
+    static func offeredDocIds(
+        _ allDocIds: [String], mayWrite: (String) -> Bool
+    ) -> [String] {
+        allDocIds.filter(mayWrite)
+    }
+
+    /// *Whole project* only where every document is this Mac's to write — a
+    /// whole-project revert that skipped some would not be what it says.
+    static func offersWholeProject(
+        _ allDocIds: [String], mayWrite: (String) -> Bool
+    ) -> Bool {
+        allDocIds.allSatisfy(mayWrite)
+    }
+
+    /// A scope, kept only where the picker offers it.
+    static func offered(
+        _ seeded: ScopeChoice?, allDocIds: [String], mayWrite: (String) -> Bool
+    ) -> ScopeChoice? {
+        switch seeded {
+        case .wholeProject?:
+            return offersWholeProject(allDocIds, mayWrite: mayWrite) ? .wholeProject : nil
+        case .document(let id)?:
+            return mayWrite(id) ? .document(id) : nil
+        case nil:
+            return nil
+        }
+    }
+
+    /// **The door** (P3c whole-branch fix wave, C1): a revert appends a
+    /// `.checkpointRestore`, which the table classes as manuscript text, so
+    /// each document is asked the ACTING answer (controller ruling I) before
+    /// anything is built. No `DocumentStore` behind the sheet fails closed.
+    static func splitByTheDoor(
+        _ docIds: [String], documentStore: DocumentStore?
+    ) async -> (writable: [String], leftAlone: [String]) {
+        var writable: [String] = []
+        var leftAlone: [String] = []
+        for docId in docIds {
+            if let documentStore,
+               await documentStore.settledPosture(forDocId: docId).allows(.writeText) {
+                writable.append(docId)
+            } else {
+                leftAlone.append(docId)
+            }
+        }
+        return (writable, leftAlone)
+    }
+
+    /// What the sheet says when the door left documents alone.
+    static func leftAloneSentence(for docIds: [String]) -> String? {
+        guard !docIds.isEmpty else { return nil }
+        return "Left as it was — this Mac may not change the text of "
+            + docIds.joined(separator: ", ") + "."
     }
 
     // MARK: - Restore logic
@@ -135,7 +213,8 @@ struct PartialRestorePicker: View {
         case .document(let id):
             docs = [id]
         }
-        for docId in docs {
+        let (writable, leftAlone) = await Self.splitByTheDoor(docs, documentStore: documentStore)
+        for docId in writable {
             let allOps = (try? await opStore.load(docId: docId)) ?? []
             let current = Deriver.derive(ops: allOps)
             let targetOpId = checkpoint.docPointers[docId]
@@ -174,6 +253,10 @@ struct PartialRestorePicker: View {
             }
         }
         isRestoring = false
+        if let sentence = Self.leftAloneSentence(for: leftAlone) {
+            leftAloneSentence = sentence
+            return
+        }
         onComplete()
     }
 
@@ -210,10 +293,14 @@ struct PartialRestorePicker: View {
 private struct RestorePickerContent: View {
     let checkpoint: Checkpoint
     let allDocIds: [String]
+    let offersWholeProject: Bool
     @Binding var scope: PartialRestorePicker.ScopeChoice?
+    let scopeIsOffered: Bool
     let isRestoring: Bool
+    let leftAloneSentence: String?
     let onCancel: () -> Void
     let onRevert: () -> Void
+    let onDone: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -223,24 +310,37 @@ private struct RestorePickerContent: View {
             // tag against a `Binding<ScopeChoice?>` matches nothing, and the
             // radio group would render with no row ever selectable.
             Picker("Scope", selection: $scope) {
-                Text("Whole project")
-                    .tag(PartialRestorePicker.ScopeChoice?.some(.wholeProject))
+                if offersWholeProject {
+                    Text("Whole project")
+                        .tag(PartialRestorePicker.ScopeChoice?.some(.wholeProject))
+                }
                 ForEach(allDocIds, id: \.self) { docId in
                     Text("Document: \(docId)")
                         .tag(PartialRestorePicker.ScopeChoice?.some(.document(docId)))
                 }
             }
             .pickerStyle(.radioGroup)
+            if let leftAloneSentence {
+                Text(leftAloneSentence)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { onCancel() }
-                    .disabled(isRestoring)
-                // Disabled until a scope is chosen. `.defaultAction` means
-                // Return fires this button, and for a checkpoint that names no
-                // document there is nothing the writer has asked for yet.
-                Button("Revert") { onRevert() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(isRestoring || scope == nil)
+                if leftAloneSentence != nil {
+                    Button("Done") { onDone() }
+                        .keyboardShortcut(.defaultAction)
+                } else {
+                    Button("Cancel", role: .cancel) { onCancel() }
+                        .disabled(isRestoring)
+                    // Disabled until a scope is chosen. `.defaultAction` means
+                    // Return fires this button, and for a checkpoint that names
+                    // no document there is nothing the writer has asked for yet.
+                    Button("Revert") { onRevert() }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(isRestoring || scope == nil || !scopeIsOffered)
+                }
             }
         }
         .padding(20)

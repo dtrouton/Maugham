@@ -566,7 +566,27 @@ extension ProjectStore {
         transform: (String) throws -> String
     ) async throws {
         try await withStatementDocument(statement, session: session) { document in
+            // **The door every statement writer passes** (P3c whole-branch fix
+            // wave, C1): rulings, proposals, promotion's appends and the
+            // picture ingest all reach `setFullText` through here, and a burst's
+            // emission is not permit-guarded. The Document's own stamp is the
+            // answer — the load's, re-stamped on every trust change, the open
+            // statement editors' included (I1). The ruling and proposal doors
+            // ask the settled posture first and say it in their own words; this
+            // is what stands behind every caller, including the ones that do not.
+            guard document.mayWriteItsText else {
+                throw StatementWriteRefused(kind: statement.kind)
+            }
             document.setFullText(try transform(document.displayText))
+        }
+    }
+
+    /// A statement write this device's hand may not make — thrown by
+    /// `mutateStatementText` before anything is written.
+    struct StatementWriteRefused: LocalizedError, Equatable {
+        let kind: Statement.Kind
+        var errorDescription: String? {
+            "This Mac may not change that statement's text, so it was left as it was."
         }
     }
 
