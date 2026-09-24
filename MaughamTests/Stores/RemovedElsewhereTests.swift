@@ -271,7 +271,7 @@ final class RemovedElsewhereTests: XCTestCase {
         XCTAssertEqual(store.removedElsewhere.map(\.id), [second.id], "premise: listed")
 
         let other = DeviceSlug.unsafeForTesting("other-mac")
-        try LetGoRecord.record(ids: [second.id], in: url, device: other)
+        try await LetGoRecord.record(ids: [second.id], in: url, device: other)
         ds.presenterDidChangeSubitem(at: LetGoRecord.fileURL(for: other, in: url))
         await ds.flushLetGoRefreshForTesting()
 
