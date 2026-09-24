@@ -22,7 +22,7 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 - `Permit.swift` / `PermitEvent.swift` / `PermitMark.swift` / `PermitTimeline.swift` / `DocumentClass.swift` / `PermitPartition.swift` / `AnnotationOwnership.swift` / `LocalWritePermit.swift` / `OpLogPermitContext.swift` (MaughamCore) — P3a's permit layer: what a person may write, the event that changes it, the chain positions an event is marked at, the timeline the check reads, which kind of stream a file is, the line-by-line partition, the same-person rule for annotation amendments, and the write-side answer. See *The permit* below.
 - `RegistryCache.swift` (MaughamCore) — this device's memory of the last verified registry, and the root it joined. Restores a record something deleted or tampered with, byte-faithfully, and reports it.
 - `TrustTable.swift` / `TrustResolution.swift` (MaughamCore) — `TrustVerdict`'s six answers to *who is this seal's key to me*, as a pure function of the registry (`TrustTable`) and the impure half that reads the folder, reconciles the cache and records the join (`TrustResolution`). `keyless(mine:)` is P1's behaviour exactly.
-- `RegistryPresence.swift` (MaughamCore) — what a device says about itself at open, and the first Mac's root. `Maugham/Stores/DocumentStore.swift` calls it; the phone's `PhoneDeviceRecord` is its other caller.
+- `RegistryPresence.swift` (MaughamCore) — what a device says about itself at open, and the first Mac's root. `Maugham/Stores/DocumentStore.swift` calls it; the phone's `PhoneDeviceRecord` is its other caller; and `OpLogStore.append`/`TranslationStore.appendBatch` ask its `declareActor` before a key minted after the open signs its first line (F6).
 - `ISO8601Fast.swift` (MaughamCore) — the byte-level parser for the two ISO-8601 spellings the app writes (no fraction, or exactly three digits), tried before `ISO8601DateFormatter` on the op log's decode path. Equivalence by construction rather than by replicating Foundation's undocumented truncation: every other shape falls through to the formatter chain untouched. See "Where the time goes" item 4.
 - `OpLogProvenance.swift` (MaughamCore) — `FileProvenance` per file and `OpLogProvenance` over a document, the load's own account of what its history is made of. What `HistoryPane`'s unsigned-history sentence reads.
 - `Bootstrap.swift` — mints `¶id` anchors on first-open of a document. **Must be called from any production load path *that may write the piece*.** Wired into `Document.load` since `milestone-document-first-class` (2026-05-19); `BootstrapWiringTests` enforces the contract. Any new manuscript-load path must route through `Document.load`. The qualifier is P3a Task 8's — see *The load seam* below.
@@ -763,6 +763,49 @@ run in `DocumentStore.open`, after the presenter is wired and before the seal
 sweep; on the phone `PhoneDeviceRecord.ensure` runs at the first write inside
 the writers' existing main-actor hop, because the phone has no open. An unsigned
 device writes nothing and says so once per process.
+
+**A key named AFTER the open reaches the record before its first line does**
+(P3b smoke find F6). `LocalIdentities` is lazy, so the assistant's key is minted
+by the first MCP write of a session, the translator's by the pipeline's first
+run, Maugham's by the first rebalance — all after `DocumentStore.open` declared
+this device. Until the fix those lines were signed by a key the record did not
+name, and every other Mac held them as a stranger's until this one relaunched.
+`RegistryPresence.declareActor` re-signs the record by editing the FILE's
+object (`RegistryWriter.resign`, rename's door), changing `actors` alone — so a
+later build's fields and any actor this build has no word for survive, and the
+name is still decided only at open. The two write paths that sign as a
+non-author actor — `OpLogStore.append` and `TranslationStore.appendBatch` —
+reach it through `declareActorOnce` BEFORE the line is written, on their own
+(main) actor and only when `declarationIsDue` — a check that reads no record —
+says so (a detached hop was measured to reorder what `append`'s callers observe
+and was withdrawn): one attempt per store per actor, and across stores one
+attempt per registry state (the memo holds the registry's `TrustResolution.signature`
+after the last attempt, per project and actor key, for the process's life), so
+a registry that REFUSES costs one verified read and one write attempt, not one
+per line. It never declares a device the book has no record of, never names the
+author (the author is the device, declared at open, and the keystroke path pays
+nothing), never mints a key it only enumerated, leaves a retired record alone,
+and never costs a line: a refusal is logged and the line goes on, held elsewhere
+until the registry changes or the next open catches the record up. The phone
+signs as the author only, so it never reaches the re-signing.
+
+**And a record that arrives AFTER its line re-judges it** (P3b review,
+Important #1). *Before the line* is ordering on the writing Mac's disk only —
+iCloud may still deliver the line first. The receiving Mac's presenter routes
+every registry folder as `MaughamSidecarPath.registry` (folders asked of
+`RegistryWriter.directoryURL`, tripwire 40), and `DocumentStore.registryChanged`
+— debounced, off the typing path — takes `admit`'s third act: forget every
+table, re-read every open document, post the admission-settled event. It does
+NOT fire for this Mac's own writes: `invalidateTrust` (which every registry
+verb here calls) records the register as settled, and a change touching nothing
+but this device's own DEVICE record — F6's mid-session re-sign — is an echo
+(`DocumentStore.registryChangeIsAnEcho`; this Mac's keys read as its own
+whatever that record says). Pinned by `RegistryArrivalTests`.
+
+**Stated limit.** The open's own `ensureDeviceRecord` still writes a fresh `DeviceRecord`
+rather than re-signing the file's object, so a later build's fields on this
+device's record are dropped at open (tripwire 42's rule honoured by the
+mid-session door only).
 
 **What History says.** `HistoryPane.pendingNotice` is the one line in that pane
 with a control — *14 notes from iPhone are waiting for admission* — and its

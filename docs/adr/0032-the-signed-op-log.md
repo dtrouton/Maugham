@@ -421,7 +421,13 @@ tampered with, and a registry deleted wholesale with it. `TrustTable`/
 `TrustResolution` answer the verdicts (count `TrustVerdict`'s cases, not a
 sentence); `RegistryPresence` writes this
 device's record at `DocumentStore.open` (and, on the phone, at the first write),
-with the first Mac in an empty book writing the root. History says what is held
+with the first Mac in an empty book writing the root — and re-signs it, before
+the first line, when a key the lazy `LocalIdentities` minted after the open is
+about to sign one (`declareActor`, P3b smoke find F6; without it a Mac's first
+Claude write of a session was held on every other Mac until it relaunched). *Before
+the line* is ordering on the writing Mac's disk only, so the receiving Mac also
+re-judges when a record lands after its line: its presenter routes the registry
+folders and re-reads what is open, and ignores an echo of its own writes. History says what is held
 and whose chain this Mac joined.
 
 **The root order, and the rule that a device never switches chains** — the one
@@ -820,6 +826,20 @@ and this Mac can actually write the registry folder. The last is a probe and not
 a promise, which is why the claim still throws and the sheet still carries a
 refusal; what it buys is not asking a question this Mac could not act on.
 
+**Amended 2026-09-23, from the P3b smoke (find F3; Denver's ruling C): nobody is
+asked.** The three conditions describe an invited collaborator's Mac exactly as
+well as the writer's restored one — every Mac declares its own device record at
+open, and a restored Mac holds a new key — so the open put *is this book yours?*
+to the collaborator, and *Claim* would have made her a second root. No predicate
+over the folder tells the two apart (a narrower one, *this Mac holds history of
+its own nobody can attribute*, was considered and is unreachable in practice: a signing
+Mac's lines are attributable through the device record it writes at open, and a
+Mac that cannot sign cannot claim). So the claim is a VERB, not a question: *This Book Is Mine…* in People &
+Devices, offered where the three conditions hold AND this Mac can sign, confirmed
+on the same sheet (*Claim* / *Cancel*), performed by the same
+`DocumentStore.claim(adopting:)`. The open presents nothing, and the claim sheet
+is built in `ProjectSettingsSheet` alone (`ClaimDecisionTests`' census).
+
 **Claiming is two writes and the order is the contract**: this device's own
 self-signed root record FIRST, then the `ClaimRecord` naming the roots it
 adopts. A claim written alone is malformed and adopts nobody. **A claim adopts
@@ -830,7 +850,8 @@ answering it by halves is not something the writer was offered.
 call made on each Mac. Afterwards each answers `.admitted` for the other's
 devices, `adoptedRoots` holds the other on each side, and **`joinedRoot` is nil
 on both** — a merge widens whose history a device verifies and moves nobody's
-root. *Not mine* writes nothing and leaves B3 exactly as it was.
+root. *Not mine* (since F3, the confirmation's *Cancel*) writes nothing and
+leaves B3 exactly as it was.
 
 **A Mac already on somebody else's chain cannot merge.** It has no root record
 of its own to sign a claim with, and a non-root signs no claim any reader takes,

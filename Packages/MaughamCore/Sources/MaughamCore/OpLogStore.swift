@@ -345,6 +345,51 @@ public final class OpLogStore {
     /// the access surface; not part of the public API.
     var appendFailureForTesting: Error?
 
+    /// Test-only observation seam: called in `append` after the actor's key is
+    /// declared and before the line is written, so a test can see the order.
+    var beforeChainedAppendForTesting: (() -> Void)?
+
+    /// The actors this store has asked about — ONCE per store per actor,
+    /// whatever the answer was, because a registry read per line would be a
+    /// folder read and a P256 verify per record on every append (and a failing
+    /// registry would pay a write attempt too). A later store asks
+    /// `RegistryPresence.declarationIsDue`, which answers yes again only if the
+    /// registry has changed since the last attempt.
+    private var declaredActors: Set<DeviceActor> = []
+    var declaredActorsForTesting: Set<DeviceActor> { declaredActors }
+
+    /// `RegistryPresence.declareActorOnce`, BEFORE the line is written — and
+    /// never at the cost of the line: a declaration that fails is logged and
+    /// the append goes on. The line is then held on other Macs until the
+    /// record catches up — the behaviour before F6, and no worse.
+    ///
+    /// **Synchronous, on this actor, and deliberately so.** A detached hop
+    /// would take the registry read off the main thread, but it is a
+    /// suspension point on the append path, and that was measured to reorder
+    /// what callers observe: three `CompilerRunCommandTests` lost a minted
+    /// note to it. So the cheap question — is a declaration due at all? — is
+    /// asked first without reading a record, and the verified read runs on
+    /// this actor only when the answer is yes: at most once per actor per
+    /// registry state per process.
+    private func declareBeforeFirstLine(as actor: DeviceActor) {
+        guard declaredActors.insert(actor).inserted,
+              RegistryPresence.declarationIsDue(
+                actor, in: projectURL, identities: identities)
+        else { return }
+        do {
+            try RegistryPresence.declareActorOnce(
+                actor, in: projectURL, identities: identities, presenter: presenter)
+        } catch {
+            opLogLoadLog.error("""
+                Could not put this device's \(actor.rawValue, privacy: .public) \
+                key on its record in \
+                \(self.projectURL.lastPathComponent, privacy: .public): \
+                \(String(describing: error), privacy: .public). The line is \
+                written; other devices hold it until the record catches up.
+                """)
+        }
+    }
+
     private var opsDir: URL { projectURL.appendingPathComponent(".maugham/ops") }
 
     /// Glob every file for `docId` (legacy `<docId>.jsonl` + per-device
@@ -2397,6 +2442,15 @@ public final class OpLogStore {
         // prefix: another Mac's author carries `author-` too, and adopting one
         // would have this device chain and seal a file it does not own.
         let signer = identities.identity(forDeviceId: op.device)
+        // A key this device named after the book was opened goes on its record
+        // BEFORE the first line it signs, or every other Mac holds that line as
+        // a stranger's until this one reopens the book (P3b smoke find F6).
+        // The AUTHOR is the device and was declared at open, so the writer's
+        // own lines ask nothing at all.
+        if let signer, signer.actor != .author {
+            declareBeforeFirstLine(as: signer.actor)
+        }
+        beforeChainedAppendForTesting?()
         try await store(
             forDocId: op.docId, deviceSlug: slug, signer: signer
         ).append(op)
