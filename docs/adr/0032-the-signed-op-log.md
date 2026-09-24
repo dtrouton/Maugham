@@ -1673,11 +1673,25 @@ rulings B and I). Which accessor a caller uses is the rule:
 
 **Fresh on every trust change.** `invalidateTrust` and manifest adoption bump
 the epoch, and the refresh that follows re-stamps every open `Document`'s
-`localWritePermit` from the same builder. A demotion arriving mid-session
-therefore stops the next keystroke's burst, a promotion restores it, and
-neither needs a reopen. The re-stamp keeps the actor the stamp was made for,
-which is the author's, because the load's own emissions are (tripwire 38;
-ruling J).
+`localWritePermit` from the same builder — **in the same main-actor turn as the
+epoch bump that re-renders the editor** (ruling AG), so the Document's own
+writes and the editor's lock flip together and no turn sees one without the
+other (`DocumentStorePostureTests.test_theRestampAndTheBumpAreOneTurn` samples
+every turn). Once the refresh lands, a demotion stops her writes and locks her
+editor, a promotion restores both, and neither needs a reopen. The re-stamp
+keeps the actor the stamp was made for, which is the author's, because the
+load's own emissions are (tripwire 38; ruling J).
+
+**The lock trails the change; it does not precede it** (ruling AG's stated
+limit). Between a registry change landing in the folder and its refresh
+completing — the presenter's debounce, the off-main resolve, the pre-warm —
+surfaces draw the last answer they had (the drawing accessor's provisional
+rule), and the open Document still answers under its old stamp. A burst typed
+in that window under a permit just withdrawn is signed and then set aside in
+her name, kept in History, not lost. `settling` fails closed only about a
+document never answered; about one already answered, the last answer is what
+is drawn until the refresh lands. Every verb's own door asks `settledPosture`,
+which waits the refresh out.
 
 `TripwireGrepTests.test_postureIsAskedOfThePermitInOnePlace` (CLAUDE.md tripwire
 51) keeps every other file from asking a permit a question or building a
@@ -1835,18 +1849,30 @@ Each miss cost about 0.84 ms:
 That breached tripwire 3 on every registry arrival for any queue showing about
 twenty documents.
 
-**The fix changes no answer:**
+**The fix (rulings AD and AG):**
 - **The class comes from the window's live manifest** where the store holds
   one, through `DocumentClass.resolve(docId:statements:)`, which is what the
   disk path computes over the statements it decodes. The builder is unchanged
   (tripwire 46), and manifest adoption already bumps the epoch.
 - **The refresh warms every `(docId, actor)` the window has asked about**, off
-  the table it just warmed. It works in chunks that yield the main actor, and
-  checks the folder's signature once per chunk rather than once per key.
+  the table it just warmed, OVERWRITING whatever the cache held — a refresh no
+  clearing bump preceded (one a drawing miss scheduled before the debounced
+  invalidation) must not keep an answer off the table it replaces. It works in
+  chunks that yield the main actor, and checks the folder's signature once per
+  chunk rather than once per key.
+- **The warm comes FIRST; the Documents' re-stamp and the epoch bump follow
+  together in one turn** (ruling AG). The first version re-stamped before the
+  warm, which put the warm's yields between a Document's stamp and the editor's
+  mirror; the task's review caught it and the ordering test pins it.
 - **Its epoch bump keeps the warmed cache.** The yields' second bump never
   clears it, because a permit does not depend on who is yielded to.
 - **A folder that moves mid-warm abandons it** and falls back to the clearing
   bump, as before.
+- **Pinned in the ordinary gate**, not only measured:
+  `test_theRedrawAfterATrustChangeIsAllHitsAndEveryHitIsFresh` counts the
+  builder's calls across the redraw (none) and compares every warmed answer
+  with a fresh build; `test_aRefreshNoInvalidationPrecededStillReanswersACachedKey`
+  pins the overwrite.
 
 **After:**
 
@@ -1856,7 +1882,7 @@ twenty documents.
 | 50 | **0.023 ms** | 2.95 ms | 18.2 ms |
 | 200 | 0.083 ms | — | — |
 
-`DocumentStorePostureTests` passed unchanged. A queue of documents this window
+The pre-existing `DocumentStorePostureTests` passed unchanged. A queue of documents this window
 has never asked about still costs about 0.36 ms a row. That is the folder
 signature and the register check, each taken once by the door and once again
 inside the builder. The door's own check is what keeps a registry resolution
@@ -1891,7 +1917,18 @@ off the main actor, so it stays per miss; see the limits.
   AC).
 - **A never-asked document still costs a door check and a builder check on the
   main actor** (about 0.36 ms a row). Only the redraw after a trust change was
-  made cheap.
+  made cheap; the drawing path's per-miss signature check stays (ruling AE),
+  because memoising it could put a registry resolution on the main actor.
+- **What the window has asked about is remembered for the session**
+  (`PostureBook.asked`), including a document since deleted or renamed away,
+  and every refresh re-warms all of it. It is bounded by the documents this
+  window has shown, and a refresh's warm yields the main actor every chunk
+  (about 3 ms of work each), so a long session on a large book pays a longer
+  warm spread across turns, never a longer stall. Pruning keys whose document
+  no longer resolves was not built: whether an id still names something is a
+  class question with statement, translation and project-stream arms, and a
+  wrong prune only costs a miss.
+- **The lock trails a trust change** — see *Fresh on every trust change* above.
 - **The phone draws none of this.** Its banner is gone with Component A, and its
   posture (dispositions per piece, `AnnotationOwnership`, ruling P's reopen
   change) is plan 2's.

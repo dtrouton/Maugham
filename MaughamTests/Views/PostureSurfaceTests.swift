@@ -1725,4 +1725,59 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertTrue(admitted)
         XCTAssertEqual(saidAfter, [])
     }
+
+    // MARK: - Task 10 fix round (controller ruling AF)
+
+    /// **A departure row's Keep mine and Make it a rule follow the posture**
+    /// (ruling AF) — hidden, never disabled, decided with nothing mounted.
+    /// Make it a rule files in the edition's brief (a project statement);
+    /// Keep mine files in the piece's intent OR that brief, so it is offered
+    /// where either may be written, and its sheet opens on one that may.
+    func test_aDeparturesVerbsFollowThePosture() {
+        let reviewer = posture(.reviewer, in: .piece("doc-a"))
+        let reviewerOnTheBrief = posture(.reviewer, in: .projectStatement)
+        let piecesAuthorInA = posture(.author(.pieces(["doc-a"])), in: .piece("doc-a"))
+        let piecesAuthorOnAsIntent = posture(
+            .author(.pieces(["doc-a"])), in: .pieceStatement(piece: "doc-a"))
+        let piecesAuthorOnTheBrief = posture(.author(.pieces(["doc-a"])), in: .projectStatement)
+
+        let none = TranslationAuthorVerbs.decide(
+            document: reviewer, editionBrief: reviewerOnTheBrief,
+            pieceIntent: posture(.reviewer, in: .pieceStatement(piece: "doc-a")))
+        XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: none), [],
+                       "a reviewer is offered neither")
+
+        let pieces = TranslationAuthorVerbs.decide(
+            document: piecesAuthorInA, editionBrief: piecesAuthorOnTheBrief,
+            pieceIntent: piecesAuthorOnAsIntent)
+        XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: pieces), [.keepMine],
+                       "her own piece's intent may take the note; the brief may not take a rule")
+        XCTAssertEqual(pieces.keepMineHome(language: "es"), .everyEdition,
+                       "the sheet opens on the home she may write")
+
+        let unsaid = TranslationAuthorVerbs.decide(
+            document: piecesAuthorInA, editionBrief: piecesAuthorOnTheBrief)
+        XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: unsaid), [],
+                       "a host that names no intent posture gets the narrower answer")
+
+        let all = TranslationAuthorVerbs.decide(
+            document: bookAuthor, editionBrief: bookAuthor, pieceIntent: bookAuthor)
+        XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: all),
+                       [.keepMine, .makeRule], "the promotion back offers both")
+        XCTAssertEqual(all.keepMineHome(language: "es"), .edition("es"))
+        XCTAssertEqual(DepartureRowView.offers(isSettled: true, verbs: all), [],
+                       "a settled row offers neither again")
+    }
+
+    /// **The Collection's empty state says what she can do** (ruling AF):
+    /// the + only where it is drawn.
+    func test_theCollectionsEmptyStateNamesTheButtonOnlyWhereItIsDrawn() {
+        let may = CollectionPiecesPane.emptyDescription(mayStartAPiece: true)
+        let mayNot = CollectionPiecesPane.emptyDescription(mayStartAPiece: false)
+        XCTAssertTrue(may.contains("+ button"))
+        XCTAssertFalse(mayNot.contains("+"), "no pointing at a button that is not there")
+        XCTAssertTrue(mayNot.contains("leave notes"), "and it says what she can do")
+        XCTAssertEqual(TreeStructureVerbs.mayStartAPiece(posture(.reviewer, in: .projectStream)),
+                       false, "the pane's own answer for a reviewer is the one this reads")
+    }
 }

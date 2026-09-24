@@ -236,6 +236,7 @@ struct TranslationRoundReportView: View {
                         row: row,
                         isExpanded: expanded.contains(row.id),
                         isSettled: settled.contains(row.id),
+                        verbs: verbs,
                         onFine: { run { await actions.dismiss(round, row.id) } },
                         onKeepMine: {
                             sheet = .keepMine(rowId: row.id, paragraphId: row.paragraphId,
@@ -550,7 +551,7 @@ struct TranslationRoundReportView: View {
                 },
                 onCancel: { self.sheet = nil },
                 seed: seed,
-                defaultHome: .edition(round.language))
+                defaultHome: verbs.keepMineHome(language: round.language))
         case .makeRule(let id, let seed):
             RoundRuleSheet(
                 seed: seed, language: round.language,

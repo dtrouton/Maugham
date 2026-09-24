@@ -1281,10 +1281,13 @@ door's. Controller ruling P moves own-note reopen onto the ownership path, in
 `stamp(localWritePermit:)`: the load calls it, and so does the posture door's
 refresh (`DocumentStore+Posture.swift`) for every open document after every
 trust change and manifest adoption, from the same builder, over the table the
-refresh just warmed. So every door on this page — the disposition guard,
-`mayWriteThePendingFile`, the task door below — reads the permit as it stands
-NOW: a demotion arriving while she types stops the next burst being signed, and
-a promotion gives the keyboard back, with no reopen. **The re-stamp keeps the
+refresh just warmed — in the same main-actor turn as the epoch bump that
+re-renders the editor (controller ruling AG), so the stamp and the editor's
+lock never disagree for a turn. So every door on this page — the disposition
+guard, `mayWriteThePendingFile`, the task door below — reads the permit as the
+last landed refresh left it: once a demotion's refresh lands her next burst is
+not signed, and a promotion gives the keyboard back, with no reopen. Until it
+lands the stamp is the old one; the ADR's P3c limits state that window. **The re-stamp keeps the
 stamp's own actor** (controller ruling J): the load stamps the AUTHOR's permit
 whoever opened the file, because what it emits on its own account is the
 author's (tripwire 38), so re-stamping as the loading actor would change what

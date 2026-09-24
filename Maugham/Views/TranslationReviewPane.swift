@@ -265,6 +265,9 @@ struct TranslationReviewPane: View {
             document: documentStore.posture(forDocId: document.docId),
             editionBrief: documentStore.posture(
                 ofStatement: .editionBrief(language), scope: .project,
+                statements: store.manifest.statements),
+            pieceIntent: documentStore.posture(
+                ofStatement: .intent, scope: .document(document.docId),
                 statements: store.manifest.statements))
     }
 
@@ -483,6 +486,7 @@ struct TranslationReviewPane: View {
                         row: row,
                         isExpanded: false,
                         isSettled: settledSpotCheckDepartures.contains(row.id),
+                        verbs: authorVerbs,
                         onFine: { dismissedDepartures.insert(row.id) },
                         onKeepMine: {
                             spotCheckSheet = .keepMine(
@@ -649,7 +653,7 @@ struct TranslationReviewPane: View {
                 },
                 onCancel: { spotCheckSheet = nil },
                 seed: seed,
-                defaultHome: .edition(language))
+                defaultHome: authorVerbs.keepMineHome(language: language))
         case .makeRule(let id, let seed):
             RoundRuleSheet(
                 seed: seed, language: language,

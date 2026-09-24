@@ -526,16 +526,20 @@ next plan needs. UNMERGED and UNRELEASED: P3 ships whole.
 - **The drawing door's cost, measured and fixed** (ruling AD):
   `PostureMissCostTests` (kept, env-gated). A 50-row queue's first redraw after
   a trust change went from 42 ms to 0.02 ms. The class is now read from the
-  live manifest, and the refresh warms every asked key before its non-clearing
-  epoch bump.
+  live manifest, and the refresh warms (overwriting) every asked key FIRST, then
+  re-stamps the open Documents and bumps the epoch without clearing, in one
+  main-actor turn (ruling AG). Gated by `DocumentStorePostureTests`' ordering,
+  overwrite and all-hits tests.
 - **Docs**:
   - ADR 0032's P3c addendum and limits, and the struck §7.1 limit.
   - The constitution's must-not #1 storage-layer sentence and violation
     condition, and *roles guard the words, not the binder* in *Not for: Teams*.
   - The guide's *What their Mac shows them* and F10.
   - The WF1 spec header, and P3 spec §7.1/§8 annotated in place.
-  - CLAUDE.md (tripwire 51; the Views, Editor and OpLog cells), the four
-    AREA.md files, and the roadmap.
+  - CLAUDE.md (tripwire 51; the Views, Editor and OpLog cells); the AREA.md
+    files of `Maugham/Views/`, `Maugham/Editor/`, `Maugham/OpLog/` and
+    `Maugham/Stores/`; the roadmap, `product.md`, `problem-map.md` and the
+    annotations guide.
 
 ## The rulings, with their costs
 
@@ -598,6 +602,19 @@ Controller rulings made on Denver's behalf (confirm):
 - **AC** — unverified `retiredAt` in the pre-check. *Cost:* a forged value hides
   a stranger until the next verified read.
 - **AD** — the drawing door's miss cost is fixed in plan 1, not deferred.
+  *Cost if wrong:* a stall on every registry arrival with a long queue.
+- **AE** — the drawing path's per-miss registry signature check stays
+  unmemoised (memoising could put a registry read on the main actor). *Cost:*
+  about 0.1 ms per first-ask miss.
+- **AF** — departure rows' *Keep mine / Make it a rule* are hidden where the
+  posture refuses, and the Collection's empty state stops pointing at a hidden
+  +, saying what she can do instead — fixed in Task 10, not carried. *Cost:*
+  none.
+- **AG** — the Documents' re-stamp and the epoch bump are one main-actor turn
+  AFTER the pre-warm; the pre-warm overwrites every asked key; the docs state
+  the honest limit (between a registry change landing and its refresh
+  completing, surfaces draw the last known answer). *Cost:* the pre-existing
+  sub-second window stays, now stated.
 
 ## For the release notes (with P3a's and P3b's)
 
@@ -665,18 +682,20 @@ Controller rulings made on Denver's behalf (confirm):
     - `TasksPane`'s `.project` arm proxies through the active document.
     - `CollectionPieceModifier` computes the start-a-piece answer on
       non-Collection projects.
-    - The Collection empty state says *Use the + button* when the + is hidden.
-    - Departure rows' *Keep mine / Make it a rule* are not gated (the doors
-      refuse them loudly).
+    - `PostureBook.asked` is remembered for the session, deleted ids included
+      (a stated ADR limit); prune it if a long session on a large book ever
+      shows a slow warm.
+    - Keep mine's sheet still offers both homes when only one may be written
+      (it opens on the one that may; the door refuses the other in words).
     - `AnnotationInverse`'s doc comment overstates *stamped with whoever pressed
       ⌘Z*.
     - Ruling H's translation half is pinned at the desk (Task 8), but the
       `.translation` arm of the door's yield lookup is unreachable
       (`DocumentClass.resolve` never yields `.translation`): delete it, or give
       a translation stream a class.
-  - **Verified:** QueryRuling / FirstReaderRuling / QueueLedgerVerbs
-    dispositions are gated through Task 5's row verbs (the whole-branch reviewer
-    should confirm).
+  - **UNVERIFIED (ledger, Task 7):** that QueryRuling / FirstReaderRuling /
+    QueueLedgerVerbs dispositions are gated through Task 5's row verbs — the
+    whole-branch reviewer should confirm.
 
 ## Open for Denver
 

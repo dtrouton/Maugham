@@ -69,6 +69,9 @@ final class PostureBook {
     /// Test-observable: how many refreshes have run to the end.
     @ObservationIgnored fileprivate(set) var refreshesLanded = 0
 
+    /// Test-observable: how many times the door has asked the builder.
+    @ObservationIgnored fileprivate(set) var builderCalls = 0
+
     init() {}
 }
 
@@ -97,15 +100,21 @@ final class PostureBook {
 /// PROVISIONALLY and caches nothing: the last answer it gave for that
 /// document and actor, else that document's own stamp (same actor), else —
 /// in a book that has a register — `Posture.settling`, which offers the
-/// reviewer row alone. **It never fails open**: a verb appearing a frame late
-/// is fine; a verb appearing that must not is not. A book with no register is
-/// always warm and answers `.author` reading nothing.
+/// reviewer row alone. **About a document it has never answered, it never
+/// fails open.** About one it HAS answered, the last answer is exactly what
+/// it draws until the refresh lands — so between a registry change landing
+/// and its refresh completing, a surface can still offer a verb the new
+/// permit refuses (controller ruling AG's stated limit). The verb's own door
+/// asks `settledPosture` and refuses it. A book with no register is always
+/// warm and answers `.author` reading nothing.
 ///
 /// **Fresh on every trust change.** `invalidateTrust` and manifest adoption
 /// bump the epoch and clear the cache; the refresh that follows re-stamps every
-/// open `Document`'s `localWritePermit` from the same builder, so a demotion
-/// arriving mid-session stops the document's own writes at the next keystroke
-/// and a promotion restores them, with no reopen.
+/// open `Document`'s `localWritePermit` from the same builder IN THE SAME TURN
+/// as the epoch bump that re-renders the editor, so once the refresh lands a
+/// demotion stops the document's own writes and locks its editor together, and
+/// a promotion restores both, with no reopen. Until it lands, both still
+/// answer as before the change.
 ///
 /// **The root's cooperative yield** (spec §2/§8, plan ruling R2). Where this
 /// device is the book's root and `PieceWriters` names somebody on a piece — a
@@ -313,6 +322,7 @@ extension DocumentStore {
     ) -> LocalWritePermit {
         let projectURL = self.projectURL
         let statements = projectStore?.manifest.statements
+        postureBook.builderCalls += 1
         return postureOpStore.localWritePermit(as: actor) {
             if let statements {
                 return DocumentClass.resolve(docId: docId, statements: statements)
@@ -340,20 +350,26 @@ extension DocumentStore {
     private static var prewarmChunk: Int { 16 }
 
     /// **Warm every key this window has asked about, off the table just
-    /// warmed** (Task 10, ruling AD) — the same builder over the same inputs,
-    /// so no answer differs from the one a miss would have built. The folder's
-    /// signature is checked once per chunk rather than once per key; a chunk
-    /// that finds the folder moved (or a newer refresh) abandons the warm and
-    /// answers false, and the caller falls back to the clearing bump. Keys a
-    /// view asked meanwhile keep what the view's own miss built.
+    /// warmed** (Task 10, rulings AD and AG) — the same builder over the same
+    /// inputs a miss would use, overwriting whatever the cache held. The
+    /// folder's signature is checked once per chunk rather than once per key;
+    /// a chunk that finds the folder moved (or a newer refresh) abandons the
+    /// warm and answers false, and the caller falls back to the clearing bump.
+    ///
+    /// It yields the main actor between chunks, so it runs BEFORE the
+    /// documents are re-stamped: the re-stamp and the epoch bump must share
+    /// one turn (see `runPostureRefresh`).
     private func prewarmPostureCache(generation: Int) async -> Bool {
         let book = postureBook
         let keys = Array(book.asked)
         var index = 0
         while index < keys.count {
             guard book.generation == generation, postureTableIsWarm() else { return false }
-            for key in keys[index..<min(index + Self.prewarmChunk, keys.count)]
-            where book.permits[key] == nil {
+            // EVERY key, cached or not (controller ruling AG): a refresh that
+            // no clearing bump preceded — the one a drawing miss schedules when
+            // the folder moved before the debounced invalidation — must not
+            // keep an answer taken off the table it is replacing.
+            for key in keys[index..<min(index + Self.prewarmChunk, keys.count)] {
                 let permit = permitFromTheBuilder(forDocId: key.docId, as: key.actor)
                 book.permits[key] = permit
                 book.lastKnown[key] = permit
@@ -392,6 +408,23 @@ extension DocumentStore {
         guard book.generation == generation else { return }
         book.readySignature = signature
 
+        // The pre-warm first: it yields the main actor between chunks, so it
+        // must finish before anything this refresh changes becomes visible.
+        var warmed = false
+        if postureTableIsWarm() {
+            warmed = await prewarmPostureCache(generation: generation)
+            guard book.generation == generation else { return }
+        }
+
+        // **The re-stamp and the epoch bump are ONE main-actor turn** —
+        // controller ruling AG, and no `await` may come between them. The
+        // Document's stamp decides whether its own writes are made; the epoch
+        // is what re-renders the editor's membrane. Between the two a keystroke
+        // would reach an editor still drawn unlocked over a Document already
+        // refusing (or the reverse), and a burst could be signed in her name
+        // only to be set aside. `DocumentStorePostureTests
+        // .test_theRestampAndTheBumpAreOneTurn` samples every turn to pin it.
+        //
         // The re-stamp: every open document, from the one builder, over the
         // table just warmed, for the SAME actor its stamp was made for (the
         // load stamps the author's, because what it emits on its own account
@@ -400,20 +433,18 @@ extension DocumentStore {
         // that table still describes the folder — otherwise the builder would
         // resolve here, and the next refresh (the presenter's own
         // invalidation) re-stamps anyway.
-        var warmed = false
-        if postureTableIsWarm() {
+        let stillWarm = postureTableIsWarm()
+        if stillWarm {
             for document in allOpenDocuments() {
                 document.stamp(localWritePermit: permitFromTheBuilder(
                     forDocId: document.docId, as: document.localWritePermit.actor))
             }
-            warmed = await prewarmPostureCache(generation: generation)
-            guard book.generation == generation else { return }
         }
         // Warmed: the cache already holds this table's answers, so the bump
         // re-renders without forgetting them. Not warmed (the folder moved
         // mid-resolve): forget, as before — the presenter's own invalidation
         // refreshes again.
-        bumpPostureEpoch(clearing: !warmed)
+        bumpPostureEpoch(clearing: !(warmed && stillWarm))
 
         let yields = await resolvePostureYields()
         guard book.generation == generation else { return }
@@ -494,4 +525,8 @@ extension DocumentStore {
 
     /// How many posture refreshes have landed in full.
     var postureRefreshesLandedForTesting: Int { postureBook.refreshesLanded }
+
+    /// How many times the door has asked the one builder — a cache hit asks it
+    /// nothing, so a redraw that moves this is a redraw of misses.
+    var postureBuilderCallsForTesting: Int { postureBook.builderCalls }
 }

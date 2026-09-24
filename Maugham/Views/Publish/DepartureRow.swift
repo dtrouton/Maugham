@@ -28,6 +28,11 @@ struct DepartureRowView: View {
     /// because it writes straight to `row.isDismissed` rather than filing a
     /// second ruling on a second press.
     var isSettled: Bool = false
+    /// **Which of the author's verbs this Mac may draw** (P3c, controller
+    /// ruling AF) — `TranslationAuthorVerbs`, decided by the host from the
+    /// window's posture door. Required, so no host draws Keep mine or Make it
+    /// a rule by forgetting to say.
+    let verbs: TranslationAuthorVerbs
     var onFine: () -> Void = { }
     var onKeepMine: () -> Void = { }
     var onMakeRule: () -> Void = { }
@@ -55,7 +60,7 @@ struct DepartureRowView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             if row.before != nil || row.after != nil { disclosure }
-            if !row.isDismissed { verbs }
+            if !row.isDismissed { verbRow }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -131,8 +136,19 @@ struct DepartureRowView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var verbs: some View {
-        HStack(spacing: 8) {
+    /// The row's own verbs, beyond Fine — a pure decision so it is pinned with
+    /// nothing mounted. Hidden, never disabled: each writes a statement, and
+    /// its door (`RulingPerformer`) refuses a press that arrives anyway.
+    enum Offer: Equatable { case keepMine, makeRule }
+
+    static func offers(isSettled: Bool, verbs: TranslationAuthorVerbs) -> [Offer] {
+        guard !isSettled else { return [] }
+        return (verbs.keepMine ? [.keepMine] : []) + (verbs.rule ? [.makeRule] : [])
+    }
+
+    private var verbRow: some View {
+        let offers = Self.offers(isSettled: isSettled, verbs: verbs)
+        return HStack(spacing: 8) {
             Spacer(minLength: 0)
             if isSettled {
                 Text(TranslationRoundReport.ruledOutcomeLine)
@@ -143,11 +159,13 @@ struct DepartureRowView: View {
                 .controlSize(.small)
                 .accessibilityLabel(TranslationRoundReport.fineLabel(id: row.id))
                 .help(DepartureRowCopy.fineHelp)
-            if !isSettled {
+            if offers.contains(.keepMine) {
                 Button(TranslationRoundReport.keepMineTitle, action: onKeepMine)
                     .controlSize(.small)
                     .accessibilityLabel(TranslationRoundReport.keepMineLabel(id: row.id))
                     .help(DepartureRowCopy.keepMineHelp)
+            }
+            if offers.contains(.makeRule) {
                 Button(TranslationRoundReport.makeRuleTitle, action: onMakeRule)
                     .controlSize(.small)
                     .accessibilityLabel(TranslationRoundReport.makeRuleLabel(id: row.id))

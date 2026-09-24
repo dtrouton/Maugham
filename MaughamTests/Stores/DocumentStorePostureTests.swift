@@ -209,6 +209,138 @@ final class DocumentStorePostureTests: XCTestCase {
                       "the keystrokes reached disk — in the op log or the pending file")
     }
 
+    // MARK: - The refresh's ordering and its pre-warm (P3c Task 10, rulings AD and AG)
+
+    /// The root's demotion WRITTEN to the folder and not delivered — the state
+    /// between a record landing and the presenter's debounced invalidation.
+    private func rootWritesMyPermitWithoutTelling(
+        to permit: Permit, root: DeviceIdentity
+    ) throws {
+        let mark = try OpLogStore.appliedPositions(
+            ofDeviceIds: Set(identities.all.map(\.deviceId)),
+            in: projectURL,
+            trust: try TrustResolution.resolve(
+                projectURL: projectURL, identities: identities))
+        let rootCache = RegistryCache(
+            fileURL: projectURL.appendingPathComponent("root-cache.json"),
+            identity: root.fingerprint)
+        _ = try RegistryAdmission.changePermit(
+            person: identities.author.fingerprint,
+            role: permit.wireRole, scope: permit.wireScope, pieces: permit.wirePieces,
+            mark: mark,
+            unsigned: permit.narrows ? .nothingApplied : nil,
+            in: projectURL, by: root, cache: rootCache)
+    }
+
+    /// The same builder the door asks, over the same inputs — what a miss
+    /// would build right now. A test is outside the posture census.
+    private func freshPosture(_ docId: String) -> Posture {
+        let url = projectURL!
+        return Posture(Document.makeLoadOpStore(projectURL: url, presenter: nil)
+            .localWritePermit(as: .author) { Document.documentClass(forDocId: docId, in: url) })
+    }
+
+    /// Every main-actor turn during a refresh, seen from outside.
+    @MainActor private final class TurnLog {
+        struct Sample: Hashable { let epoch: Int; let locked: Bool }
+        var samples: [Sample] = []
+        var running = true
+    }
+
+    /// **The re-stamp and the epoch bump are ONE main-actor turn** (ruling
+    /// AG). The Document's stamp decides whether its own writes are made; the
+    /// epoch re-renders the editor's membrane. If any turn sees one moved and
+    /// not the other, a keystroke in that turn reaches an editor drawn one way
+    /// over a Document answering the other.
+    ///
+    /// **How ordering is observed with no window:** a sampler task on the main
+    /// actor records `(postureEpoch, !mayWriteThePendingFile)` and yields,
+    /// over and over, for the whole of the demotion's delivery and refresh.
+    /// Every `await` the refresh makes — the off-main warm, each pre-warm
+    /// chunk — lets the sampler run, so any turn boundary between the
+    /// re-stamp and the bump is SEEN as a sample. The invariant: no epoch is
+    /// ever observed with the document both unlocked and locked. Enough keys
+    /// are asked first that the pre-warm yields several times.
+    func test_theRestampAndTheBumpAreOneTurn() async throws {
+        beASigningMac()
+        let root = try makeForeignRoot()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument(in: store)
+        await store.postureSettled()
+        for i in 0..<48 { _ = store.posture(forDocId: "doc-queue-\(i)") }
+        _ = store.posture(forDocId: Self.docId)
+        XCTAssertTrue(doc.mayWriteThePendingFile, "precondition: an author of the whole book")
+
+        let log = TurnLog()
+        let sampler = Task { @MainActor in
+            while log.running {
+                log.samples.append(.init(
+                    epoch: store.postureEpoch, locked: !doc.mayWriteThePendingFile))
+                await Task.yield()
+            }
+        }
+        try await rootChangesMyPermit(to: .reviewer, root: root, store: store)
+        log.running = false
+        await sampler.value
+        log.samples.append(.init(epoch: store.postureEpoch, locked: !doc.mayWriteThePendingFile))
+
+        XCTAssertTrue(log.samples.contains { !$0.locked }, "the sampler saw the unlocked state")
+        XCTAssertTrue(log.samples.contains { $0.locked }, "and the demotion land")
+        let unlockedEpochs = Set(log.samples.filter { !$0.locked }.map(\.epoch))
+        let lockedEpochs = Set(log.samples.filter { $0.locked }.map(\.epoch))
+        XCTAssertTrue(unlockedEpochs.isDisjoint(with: lockedEpochs),
+            "a turn saw the Document's stamp and the epoch disagree — the re-stamp "
+            + "and the bump were split across turns. Unlocked at \(unlockedEpochs.sorted()), "
+            + "locked at \(lockedEpochs.sorted()), over \(log.samples.count) samples")
+        await doc.close()
+    }
+
+    /// **The pre-warm re-answers every asked key, cached or not** (ruling AG).
+    /// A drawing miss after a record landed, but before the debounced
+    /// invalidation, schedules a refresh that no clearing bump preceded; a
+    /// cached answer taken off the table it replaces must not survive it.
+    func test_aRefreshNoInvalidationPrecededStillReanswersACachedKey() async throws {
+        beASigningMac()
+        let root = try makeForeignRoot()
+        let store = try await DocumentStore.open(url: projectURL)
+        await store.postureSettled()
+        XCTAssertTrue(store.posture(forDocId: Self.docId).allows(.writeText),
+                      "precondition: cached as an author of the whole book")
+
+        try rootWritesMyPermitWithoutTelling(to: .reviewer, root: root)
+        // A miss about a document never asked finds the folder moved and
+        // schedules the refresh; the cached key is not touched by it.
+        _ = store.posture(forDocId: "doc-never-asked")
+        await store.postureSettled()
+
+        XCTAssertFalse(store.posture(forDocId: Self.docId).allows(.writeText),
+            "the refresh re-answered the cached key off the table it warmed")
+        XCTAssertEqual(store.posture(forDocId: Self.docId), freshPosture(Self.docId))
+    }
+
+    /// **After a trust change, the redraw of what the window asked is all
+    /// cache hits, and every pre-warmed answer is the one a fresh build gives**
+    /// (ruling AD's pre-warm, gated — `PostureMissCostTests` only measures it).
+    func test_theRedrawAfterATrustChangeIsAllHitsAndEveryHitIsFresh() async throws {
+        beASigningMac()
+        let root = try makeForeignRoot()
+        let store = try await DocumentStore.open(url: projectURL)
+        await store.postureSettled()
+        let ids = [Self.docId] + (0..<40).map { "doc-queue-\($0)" }
+        for id in ids { _ = store.posture(forDocId: id) }
+
+        try await rootChangesMyPermit(to: .reviewer, root: root, store: store)
+
+        let before = store.postureBuilderCallsForTesting
+        let redrawn = ids.map { store.posture(forDocId: $0) }
+        XCTAssertEqual(store.postureBuilderCallsForTesting, before,
+                       "the redraw after the refresh asked the builder nothing")
+        for (id, answer) in zip(ids, redrawn) {
+            XCTAssertEqual(answer, freshPosture(id), "\(id)'s pre-warmed answer is fresh")
+            XCTAssertFalse(answer.allows(.writeText))
+        }
+    }
+
     // MARK: - The root's cooperative yield
 
     func test_theRootYieldsOnAPieceNamedForSomebodyElseUntilItOverrides() async throws {

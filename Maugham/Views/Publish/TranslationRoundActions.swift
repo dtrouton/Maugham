@@ -106,6 +106,14 @@ struct TranslationAuthorVerbs: Equatable {
     let answerAsRuling: Bool
     /// Make it a rule / Adopt — a ruling in the edition brief.
     let rule: Bool
+    /// Keep mine — a translator's note, filed either in the piece's own intent
+    /// (every edition) or in the edition's brief (`TranslatorsNote.destination`),
+    /// so it is offered where EITHER home may be written (controller ruling
+    /// AF). The sheet opens on a home that may (`keepMineHome`).
+    let keepMine: Bool
+    /// Where Keep mine's sheet opens: the edition's brief where a ruling may be
+    /// filed there, else the piece's intent.
+    let keepMineOpensOnTheEdition: Bool
     /// Reader's (or Collator's) right: a ruling, and — where the note minted a
     /// query — the reply that settles it. Decided per row by `sideWithTheNote`.
     private let replies: Bool
@@ -113,13 +121,27 @@ struct TranslationAuthorVerbs: Equatable {
     /// The P1 surface — every verb. For an unwired surface and a host with no
     /// window's door behind it.
     static let unrestricted = TranslationAuthorVerbs(
-        answer: true, answerAsRuling: true, rule: true, replies: true)
+        answer: true, answerAsRuling: true, rule: true, keepMine: true,
+        keepMineOpensOnTheEdition: true, replies: true)
 
-    static func decide(document: Posture, editionBrief: Posture) -> TranslationAuthorVerbs {
+    /// `pieceIntent` is the posture of the round's piece's own intent
+    /// statement — Keep mine's other home. Nil (a host that did not say)
+    /// offers Keep mine only where the edition's brief may be written: the
+    /// narrower answer, never the wider.
+    static func decide(
+        document: Posture, editionBrief: Posture, pieceIntent: Posture? = nil
+    ) -> TranslationAuthorVerbs {
         let answer = document.allows(.acceptOrReject)
         let rule = editionBrief.allows(.editStatement)
+        let intent = pieceIntent?.allows(.editStatement) ?? false
         return TranslationAuthorVerbs(
-            answer: answer, answerAsRuling: answer && rule, rule: rule, replies: answer)
+            answer: answer, answerAsRuling: answer && rule, rule: rule,
+            keepMine: rule || intent, keepMineOpensOnTheEdition: rule, replies: answer)
+    }
+
+    /// Keep mine's opening home for `language` (see `keepMineOpensOnTheEdition`).
+    func keepMineHome(language: String) -> TranslatorsNote.Home {
+        keepMineOpensOnTheEdition ? .edition(language) : .everyEdition
     }
 
     /// Reader's/Collator's right on a row: the ruling always, the reply only

@@ -270,9 +270,20 @@ struct CollectionPiecesPane: View {
         ContentUnavailableView {
             Label("No pieces yet", systemImage: "doc.text")
         } description: {
-            Text("Add your first piece. Use the + button.")
+            Text(Self.emptyDescription(mayStartAPiece: mayStartAPiece))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// **What the empty state tells her she can do** (P3c, controller ruling
+    /// AF). The + is drawn only where she may start a piece; pointing at a
+    /// button that is not there is the help describing what does not ship.
+    /// Where she may not, the pane says where pieces will come from.
+    nonisolated static func emptyDescription(mayStartAPiece: Bool) -> String {
+        mayStartAPiece
+            ? "Add your first piece. Use the + button."
+            : "Pieces appear here when the book\u{2019}s author adds them. "
+                + "You can read and leave notes on each one."
     }
 
     // MARK: - Drag-reorder

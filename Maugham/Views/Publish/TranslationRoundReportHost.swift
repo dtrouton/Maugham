@@ -79,6 +79,9 @@ struct TranslationRoundReportHost: View {
             document: documentStore.posture(forDocId: round.docId),
             editionBrief: documentStore.posture(
                 ofStatement: .editionBrief(round.language), scope: .project,
+                statements: store.manifest.statements),
+            pieceIntent: documentStore.posture(
+                ofStatement: .intent, scope: .document(round.docId),
                 statements: store.manifest.statements))
     }
 

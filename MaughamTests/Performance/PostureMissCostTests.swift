@@ -110,7 +110,7 @@ final class PostureMissCostTests: XCTestCase {
                     .joined() + "\n"
         }
 
-        // **Where a miss goes.** The three things a miss does that a hit does
+        // **Where a miss goes.** What a miss does that a hit does
         // not, each asked once per row of the largest queue on its own: the
         // is-there-a-register question (the drawing accessor asks it on every
         // miss, the provisional ones included), the folder signature (asked
@@ -119,24 +119,26 @@ final class PostureMissCostTests: XCTestCase {
         let queue = Array(ids.prefix(most))
         let url = book.url
         let cache = Document.loadRegistryCache
-        let parts: [(String, () -> Void)] = [
+        // Each part timed as `most` calls of itself, per call.
+        let perRow: [(String, () -> Void)] = [
             ("hasAnythingToResolve", { _ = TrustResolution.hasAnythingToResolve(in: url, cache: cache) }),
             ("signature(of:)", { _ = TrustResolution.signature(of: url) }),
-            ("documentClass", { for id in queue { _ = Document.documentClass(forDocId: id, in: url) } }),
         ]
         table += "\nper row, x\(most) (medians of \(Self.cycles), ms per call):\n"
-        for (name, body) in parts {
-            var samples: [Double] = []
-            for _ in 0..<Self.cycles {
-                samples.append(time {
-                    if name == "documentClass" { body() } else {
-                        for _ in 0..<most { body() }
-                    }
-                } / Double(most))
-            }
+        func row(_ name: String, _ samples: [Double]) {
             table += name.padding(toLength: 24, withPad: " ", startingAt: 0)
                 + String(format: "%.3f", median(samples)) + "\n"
         }
+        for (name, call) in perRow {
+            row(name, (0..<Self.cycles).map { _ in
+                time { for _ in 0..<most { call() } } / Double(most)
+            })
+        }
+        // The class: one call per document in the queue.
+        row("documentClass", (0..<Self.cycles).map { _ in
+            time { for id in queue { _ = Document.documentClass(forDocId: id, in: url) } }
+                / Double(most)
+        })
 
         let attachment = XCTAttachment(string: table)
         attachment.name = "posture-miss-cost.txt"
