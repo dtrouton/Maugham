@@ -35,6 +35,9 @@ final class DocumentCloseSingleFlightTests: XCTestCase {
         // A pending burst: typed, not yet flushed.
         doc.setFullText(doc.displayText + "\n\nWritten once, closed twice.")
 
+        // Hold the first close open across a real suspension, so the second
+        // caller arrives while it is in flight — the remote-rename shape.
+        doc.closeBodyWillRun = { try? await Task.sleep(for: .milliseconds(100)) }
         async let first: Void = doc.close()
         async let second: Void = doc.close()
         _ = await (first, second)

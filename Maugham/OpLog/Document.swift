@@ -1458,26 +1458,41 @@ public final class Document {
     /// run the whole close twice: the pending burst appended twice, the chain
     /// sealed twice, the tail rotated twice. The first caller starts the close;
     /// every later caller awaits that same close and returns when it is done.
+    ///
+    /// **The first caller runs the close inline**, as it always has, rather
+    /// than in a `Task` of its own: callers rely on its synchronous prefix
+    /// running before they next suspend, and a close deferred behind whatever
+    /// the main actor had queued broke a statement pane's scope change
+    /// (`StatementEditorMountTests.test_changingScopeFlushesTheOutgoingStatement`).
     public func close() async {
         guard !isClosed else { return }
-        if let running = closing {
-            await running.value
+        if closeWaiters != nil {
+            await withCheckedContinuation { closeWaiters?.append($0) }
             return
         }
-        let task = Task { @MainActor in await self.performClose() }
-        closing = task
-        await task.value
+        closeWaiters = []
+        await performClose()
+        let waiting = closeWaiters ?? []
+        closeWaiters = nil
+        for waiter in waiting { waiter.resume() }
     }
 
-    /// The close in progress, if one is. See `close()`.
-    @ObservationIgnored private var closing: Task<Void, Never>?
+    /// Non-nil while a close is running: the callers waiting for it. See
+    /// `close()`.
+    @ObservationIgnored private var closeWaiters: [CheckedContinuation<Void, Never>]?
 
     /// How many times the body of a close has run. Test-observable: a single-
     /// flight close runs it once however many callers arrive.
     @ObservationIgnored internal private(set) var closeBodyRuns = 0
 
+    /// Test seam: awaited at the top of the close body, so a test can hold a
+    /// close open across a real suspension while a second caller arrives. Nil
+    /// in production.
+    @ObservationIgnored internal var closeBodyWillRun: (@MainActor () async -> Void)?
+
     private func performClose() async {
         closeBodyRuns += 1
+        await closeBodyWillRun?()
         // Idempotent: a closed doc is already husked and its disk truth written,
         // so a second close (DocumentStore drain + EditorHost belt, or
         // appWillTerminate racing onDisappear) returns immediately rather than
