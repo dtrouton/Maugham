@@ -352,9 +352,45 @@ final class ManifestAdoptionTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathComponent(path).path),
                        "nothing was rendered back where the piece used to be")
         XCTAssertTrue(wordsInOpLog(item.id, store).contains("Typed here before the trash."))
-        XCTAssertEqual(seen, [DocumentStore.trashedElsewhereNotice(title: item.title)])
-        XCTAssertTrue(seen.first?.contains("another device") ?? false)
+        // **Named** (F7 final round, M1 — Denver: "a notice naming who moved
+        // it to Trash"). The Mac that trashed it recorded itself on the entry.
+        let who = await DocumentStore.trashedByLabel(in: url)
+        XCTAssertEqual(store.trashEntries.first?.trashedBy, who,
+                       "the trashing Mac records who it is on the entry")
+        XCTAssertEqual(seen, [DocumentStore.trashedElsewhereNotice(title: item.title, by: who)])
+        XCTAssertTrue(seen.first?.contains("moved to Trash by \(who)") ?? false,
+                      "the notice names who moved it")
         XCTAssertFalse(store.trashEntries.isEmpty, "the Trash the notice names lists the piece")
+    }
+
+    /// An entry an OLDER build wrote names nobody, and the notice says
+    /// "another device" rather than inventing a name. No migration: the field
+    /// is simply absent from its `meta.json`.
+    func test_aRemoteTrashByAnOlderBuildSaysAnotherDevice() async throws {
+        let (url, store, ds) = try await openWindow()
+        let item = store.manifest.structure[0]
+        let path = try XCTUnwrap(item.path)
+        let doc = try await openAndType(path, in: url, ds: ds, text: "Typed here first.")
+        let other = try await ProjectStore.load(from: url)
+        try await other.deleteStructureItem(id: item.id)
+        // What an older build's entry looks like: no `trashedBy` key at all.
+        let entry = try XCTUnwrap(other.trashEntries.first)
+        let metaURL = url.appendingPathComponent(".trash/\(entry.id)/meta.json")
+        var meta = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: metaURL)) as? [String: Any])
+        XCTAssertNotNil(meta.removeValue(forKey: "trashedBy"), "premise: this build records it")
+        try JSONSerialization.data(withJSONObject: meta).write(to: metaURL, options: .atomic)
+
+        let seen = await notices {
+            ds.presenterDidChangeSubitem(at: manifestURL(url))
+            await waitUntil { doc.isClosed && !store.trashEntries.isEmpty }
+            for _ in 0..<5 { await Task.yield() }
+        }
+
+        XCTAssertNil(store.trashEntries.first?.trashedBy)
+        XCTAssertEqual(seen, [DocumentStore.trashedElsewhereNotice(title: item.title, by: nil)])
+        XCTAssertTrue(seen.first?.contains("on another device") ?? false)
+        XCTAssertFalse(seen.first?.contains("Trash by") ?? true, "no name is invented")
     }
 
     /// **Absence is not trash** (second fix round, I-B). A piece can leave the

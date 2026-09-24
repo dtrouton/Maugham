@@ -538,6 +538,23 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         await open.close()
     }
 
+    // MARK: - Who moved it to Trash (F7 final round, M1)
+
+    /// A trash entry names this Mac in the words this book's register uses for
+    /// it — the writer's label and the machine's own name — so another Mac's
+    /// notice reads what People & Devices would show.
+    func test_aTrashEntryNamesThisMacAsTheRegisterDoes() async throws {
+        let identities = beThisMac()
+        _ = try await DocumentStore.open(url: projectURL)
+        let me = try XCTUnwrap(try registry().person(identities.author.fingerprint),
+                               "premise: the open wrote this Mac's root record")
+
+        let label = await DocumentStore.trashedByLabel(in: projectURL)
+
+        XCTAssertEqual(label, me.ownName == me.label || me.ownName.isEmpty
+                           ? me.label : "\(me.label) (\(me.ownName))")
+    }
+
     // MARK: - Another person's words and this writer's session (F7 final round, I1)
 
     /// The window's two stores, wired both ways as `ProjectWindow` wires them,

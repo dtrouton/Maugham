@@ -109,7 +109,8 @@ public struct TrashStore {
                 originalParentId: meta.originalParentId,
                 originalIndex: meta.originalIndex,
                 subject: meta.subject,
-                carriesFile: meta.carriesFile ?? true))
+                carriesFile: meta.carriesFile ?? true,
+                trashedBy: meta.trashedBy))
         }
         return entries.sorted { $0.trashedAt > $1.trashedAt }
     }
@@ -347,7 +348,8 @@ public struct TrashStore {
         originalParentId: String?,
         originalIndex: Int,
         displayTitle: String,
-        subject: TrashSubject
+        subject: TrashSubject,
+        trashedBy: String? = nil
     ) async throws -> TrashEntry {
         let fm = FileManager.default
         let now = Date()
@@ -374,7 +376,8 @@ public struct TrashStore {
                 originalParentId: originalParentId,
                 originalIndex: originalIndex,
                 subject: subject,
-                carriesFile: true),
+                carriesFile: true,
+                trashedBy: trashedBy),
             to: entryFolder)
 
         return TrashEntry(
@@ -384,7 +387,8 @@ public struct TrashStore {
             displayTitle: displayTitle,
             itemMetadata: itemMetadata,
             subject: subject,
-            carriesFile: true)
+            carriesFile: true,
+            trashedBy: trashedBy)
     }
 
     /// Record a trash entry whose contents are handed over as TEXT rather than
@@ -526,8 +530,8 @@ public struct TrashStore {
     }
 
     /// Internal metadata persisted in each trash folder's meta.json.
-    /// `subject` and `carriesFile` are additive-optional (ADR 0015): an entry
-    /// written before they existed decodes with both nil.
+    /// `subject`, `carriesFile` and `trashedBy` are additive-optional (ADR
+    /// 0015): an entry written before they existed decodes with them nil.
     struct TrashMeta: Codable {
         let originalRelativePath: String
         let displayTitle: String
@@ -536,6 +540,8 @@ public struct TrashStore {
         let originalIndex: Int
         var subject: TrashSubject?
         var carriesFile: Bool?
+        /// Who moved it to Trash — a display string (F7 final round, M1).
+        var trashedBy: String?
 
         init(
             originalRelativePath: String,
@@ -544,7 +550,8 @@ public struct TrashStore {
             originalParentId: String?,
             originalIndex: Int,
             subject: TrashSubject? = nil,
-            carriesFile: Bool? = nil
+            carriesFile: Bool? = nil,
+            trashedBy: String? = nil
         ) {
             self.originalRelativePath = originalRelativePath
             self.displayTitle = displayTitle
@@ -553,6 +560,7 @@ public struct TrashStore {
             self.originalIndex = originalIndex
             self.subject = subject
             self.carriesFile = carriesFile
+            self.trashedBy = trashedBy
         }
 
         /// A `subject` this build does not know decodes as nil rather than
@@ -569,6 +577,7 @@ public struct TrashStore {
             subject = try c.decodeIfPresent(String.self, forKey: .subject)
                 .flatMap { TrashSubject(rawValue: $0) }
             carriesFile = try c.decodeIfPresent(Bool.self, forKey: .carriesFile)
+            trashedBy = try c.decodeIfPresent(String.self, forKey: .trashedBy)
         }
     }
 
