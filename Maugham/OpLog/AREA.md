@@ -1449,11 +1449,12 @@ surface put *notes* after a held count, so Kit's paragraph of prose was *1 note
 waiting* on the admission sheet and on History's §4.5 banner. The load now
 counts, beside `pendingByDevice` and from the same classified lines,
 `FileProvenance.pendingWaitingByDevice`: prose by distinct PARAGRAPH (a
-paragraph typed in three bursts is one), every other op as a note, and the
-first held paragraph's last words as a peek. It ASKS
-`Deriver.appliesToManuscript` which ops move the words (tripwire 44 —
-`HeldLines.swift` is in `manuscriptClassifierCallers`) and decodes only held
-prose lines. `HeldLines.sentence(_:notes:what:)` says the phrase where it has
+paragraph typed in three bursts is one), the annotation layer as notes,
+everything else (tasks, bookmarks, a later build's kinds) as changes, and the
+first held paragraph's last words, task anchors stripped, as a peek. The kinds
+are ASKED of `Permit.group(of:)`, the one exhaustive switch over `OpKind`
+(which asks `Deriver.appliesToManuscript` for prose — tripwire 44), and each
+held op line is decoded once. `HeldLines.sentence(_:notes:what:)` says the phrase where it has
 one and the old count where it has none (the capture stream holds no ops).
 
 **`OpLogDeviceState.acknowledgeLoss` — the escape.** A remembered stream that

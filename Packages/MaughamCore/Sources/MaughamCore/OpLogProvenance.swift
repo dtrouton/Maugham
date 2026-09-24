@@ -146,6 +146,17 @@ public struct OpLogProvenance: Equatable, Sendable {
         }
     }
 
+    /// **What each holder's held lines are, across every file** (F2) — the
+    /// same union `pendingByDevice` is, of the descriptions rather than the
+    /// counts.
+    public var pendingWaitingByDevice: [String: HeldLines.Waiting] {
+        files.reduce(into: [:]) { total, file in
+            for (key, waiting) in file.pendingWaitingByDevice {
+                total[key] = total[key].map { $0.merged(with: waiting) } ?? waiting
+            }
+        }
+    }
+
     /// **Which STREAMS each held holder was held in**, by device slug (P3b
     /// Task 4).
     ///
@@ -160,17 +171,6 @@ public struct OpLogProvenance: Equatable, Sendable {
     /// have an empty set and that reads as *nothing here says* — the same
     /// answer P2b gave, which is what keeps the narrowing from ever refusing an
     /// honest stranger.
-    /// **What each holder's held lines are, across every file** (F2) — the
-    /// same union `pendingByDevice` is, of the descriptions rather than the
-    /// counts.
-    public var pendingWaitingByDevice: [String: HeldLines.Waiting] {
-        files.reduce(into: [:]) { total, file in
-            for (key, waiting) in file.pendingWaitingByDevice {
-                total[key] = total[key].map { $0.merged(with: waiting) } ?? waiting
-            }
-        }
-    }
-
     public var pendingStreamsByDevice: [String: Set<String>] {
         files.reduce(into: [:]) { streams, file in
             guard let slug = file.deviceSlug else { return }

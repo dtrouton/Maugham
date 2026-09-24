@@ -67,6 +67,39 @@ final class HeldLinesWaitingTests: XCTestCase {
         XCTAssertEqual(waiting?.phrase?.isPlural, true)
     }
 
+    /// Only the annotation layer is a note. A task's life and a later build's
+    /// kind are CHANGES (review Minor 4) — calling a task breadcrumb a note is
+    /// the F2 defect in the other direction.
+    func test_tasksAndUnknownKindsAreChangesNotNotes() throws {
+        var unknown = try line(.claudeComment, heldBy: kit)
+        let json = String(decoding: unknown.bytes, as: UTF8.self)
+            .replacingOccurrences(of: "\"claude_comment\"", with: "\"from_the_future\"")
+        unknown = OpLogChain.Line(
+            bytes: Data(json.utf8), kind: .op, state: .pending(device: kit))
+        let waiting = HeldLines.Waiting.byDevice(of: [
+            try line(.taskCreate, heldBy: kit),
+            try line(.checkpoint, heldBy: kit),
+            unknown,
+            try line(.claudeComment, heldBy: kit),
+            try line(.annotationStet, heldBy: kit),
+            try line(.typingBurst, [("p1ab", "Words.")], heldBy: kit),
+        ])[kit]
+
+        XCTAssertEqual(waiting?.notes, 2, "a comment and a disposition of one")
+        XCTAssertEqual(waiting?.other, 3, "a task, a bookmark and an unknown kind")
+        XCTAssertEqual(waiting?.phrase?.text, "1 paragraph, 2 notes and 3 changes")
+    }
+
+    /// The peek never shows a raw task anchor (review Minor 2).
+    func test_thePeekTakesTaskAnchorsOut() throws {
+        let waiting = HeldLines.Waiting.byDevice(of: [
+            try line(.typingBurst, [("p1ab", "Fix the ending <!--t-a2b3c4--> tonight.")],
+                     heldBy: kit),
+        ])[kit]
+
+        XCTAssertEqual(waiting?.peek, "Fix the ending tonight.")
+    }
+
     func test_onlyHeldOpLinesAreCountedAndEachUnderItsOwnHolder() throws {
         var applied = try line(.typingBurst, [("p9zz", "Applied.")], heldBy: kit)
         applied = OpLogChain.Line(bytes: applied.bytes, kind: .op, state: .verified)

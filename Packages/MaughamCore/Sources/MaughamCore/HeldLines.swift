@@ -258,40 +258,49 @@ public enum HeldLines {
     // MARK: - What is waiting (P3b smoke find F2)
 
     /// **What a holder's held lines ARE, in the writer's terms** — paragraphs
-    /// of prose, and notes — with a few of the words.
+    /// of prose, notes, and other changes — with a few of the words.
     ///
     /// Every surface that counted held lines put *notes* after the number,
     /// whatever the lines were: the admission sheet said *1 note waiting* and
     /// History said *1 note is waiting in a piece no one has claimed yet* about
-    /// a paragraph of prose (smoke find F2). The kinds are counted here, from
-    /// the held lines themselves, by ASKING `Deriver.appliesToManuscript` which
-    /// ops move the words (tripwire 44) rather than restating it: an op that
-    /// would become words is prose, and every other op is a note.
+    /// a paragraph of prose (smoke find F2). The kinds are ASKED of
+    /// `Permit.group(of:)` — the one exhaustive switch over `OpKind`, which
+    /// itself asks `Deriver.appliesToManuscript` for prose (tripwire 44) —
+    /// never restated here:
+    ///
+    /// - **prose** — the group that becomes words;
+    /// - **notes** — the annotation layer: making a note, amending one, or
+    ///   settling one;
+    /// - **changes** — everything else: a task's life, a bookmark, a kind from
+    ///   a later build.
     ///
     /// **Prose is counted by PARAGRAPH**, not by op: a writer typing one
     /// paragraph in three bursts wrote one paragraph, and *3 paragraphs* would
-    /// be a number they cannot find. `prose` keeps the op count for the rare
-    /// prose op that names no paragraph at all.
+    /// be a number they cannot find. `prose` keeps the op count, and a prose op
+    /// that names no paragraph at all is said as a change.
     public struct Waiting: Equatable, Sendable {
         /// Every paragraph a held prose op touched.
         public var paragraphIds: Set<String>
         /// Held op lines that would move the manuscript's words.
         public var prose: Int
-        /// Every other held op line — comments, suggestions, queries and the
-        /// rest of the annotation layer, and the task breadcrumbs beside them.
+        /// Held annotation-layer op lines — comments, suggestions, queries,
+        /// craft notes, and edits and dispositions of them.
         public var notes: Int
+        /// Every other held op line: tasks, bookmarks, unknown kinds.
+        public var other: Int
         /// The words of the first held paragraph, as it last read in the held
-        /// span — for a peek, never for applying. At most `peekLimit`
-        /// characters; the surface shortens it further for its own line.
+        /// span, with task anchors taken out — for a peek, never for applying.
+        /// At most `peekLimit` characters; a surface shortens it further.
         public var peek: String?
 
         public init(
             paragraphIds: Set<String> = [], prose: Int = 0, notes: Int = 0,
-            peek: String? = nil
+            other: Int = 0, peek: String? = nil
         ) {
             self.paragraphIds = paragraphIds
             self.prose = prose
             self.notes = notes
+            self.other = other
             self.peek = peek
         }
 
@@ -301,38 +310,34 @@ public enum HeldLines {
         public static let peekLimit = 280
 
         public var paragraphs: Int { paragraphIds.count }
-        public var isEmpty: Bool { prose == 0 && notes == 0 }
+        public var isEmpty: Bool { prose == 0 && notes == 0 && other == 0 }
 
         /// Two files' (or two documents') worth, as one. The first peek stands:
         /// it is the first words the writer will be shown either way.
-        public func merged(with other: Waiting) -> Waiting {
+        public func merged(with more: Waiting) -> Waiting {
             Waiting(
-                paragraphIds: paragraphIds.union(other.paragraphIds),
-                prose: prose + other.prose, notes: notes + other.notes,
-                peek: peek ?? other.peek)
+                paragraphIds: paragraphIds.union(more.paragraphIds),
+                prose: prose + more.prose, notes: notes + more.notes,
+                other: other + more.other, peek: peek ?? more.peek)
         }
 
         /// **The noun phrase** — *1 paragraph*, *2 paragraphs and 1 note*,
-        /// *3 notes* — and whether a verb after it is plural. Nil when nothing
-        /// is waiting.
-        ///
-        /// A prose op that named no paragraph is said as a *change* rather than
-        /// silently dropped: there is something held, and a sentence that
-        /// counted nothing would be a pane saying less than is true.
+        /// *1 paragraph, 2 notes and 1 change* — and whether a verb after it is
+        /// plural. Nil when nothing is waiting.
         public var phrase: (text: String, isPlural: Bool)? {
-            var parts: [(Int, String)] = []
-            if paragraphs > 0 {
-                parts.append((paragraphs, paragraphs == 1 ? "paragraph" : "paragraphs"))
-            } else if prose > 0 {
-                parts.append((prose, prose == 1 ? "change" : "changes"))
-            }
-            if notes > 0 {
-                parts.append((notes, notes == 1 ? "note" : "notes"))
-            }
+            var parts: [(Int, String, String)] = []
+            if paragraphs > 0 { parts.append((paragraphs, "paragraph", "paragraphs")) }
+            if notes > 0 { parts.append((notes, "note", "notes")) }
+            // A prose op that named no paragraph is still something held, and
+            // a sentence that counted nothing would say less than is true.
+            let changes = other + (paragraphs == 0 ? prose : 0)
+            if changes > 0 { parts.append((changes, "change", "changes")) }
             guard !parts.isEmpty else { return nil }
-            let text = parts.map { "\($0.0) \($0.1)" }.joined(separator: " and ")
-            let isPlural = parts.count > 1 || parts[0].0 != 1
-            return (text, isPlural)
+            let words = parts.map { "\($0.0) \($0.0 == 1 ? $0.1 : $0.2)" }
+            let text = words.count == 1
+                ? words[0]
+                : words.dropLast().joined(separator: ", ") + " and " + words.last!
+            return (text, parts.count > 1 || parts[0].0 != 1)
         }
 
         /// **Counted from the lines a walk classified**, keyed the way
@@ -340,7 +345,9 @@ public enum HeldLines {
         /// held under — and over OP lines only, for that function's reason:
         /// a seal is neither a paragraph nor a note.
         ///
-        /// Decodes only the held PROSE lines, and only for their changes; a
+        /// Each held op line is decoded ONCE, as an `Op`; only a line that will
+        /// not decode is read again for its bare `kind` (`Op.kind(ofLine:)`),
+        /// so a later build's shape is still counted rather than dropped. A
         /// load pays nothing here for a file that holds nothing.
         public static func byDevice(
             of lines: [OpLogChain.Line]
@@ -353,18 +360,25 @@ public enum HeldLines {
                 guard let device = line.state.pendingDevice else { continue }
                 var waiting = answer[device] ?? Waiting()
                 defer { answer[device] = waiting }
-                guard let kind = Op.kind(ofLine: line.bytes),
-                      Deriver.appliesToManuscript(kind)
-                else {
-                    waiting.notes += 1
+                let op = try? decoder.decode(Op.self, from: line.bytes)
+                guard let kind = op?.kind ?? Op.kind(ofLine: line.bytes) else {
+                    waiting.other += 1
                     continue
                 }
-                waiting.prose += 1
-                guard let op = try? decoder.decode(Op.self, from: line.bytes)
-                else { continue }
-                for change in op.changes {
+                switch Permit.group(of: kind) {
+                case .manuscriptText:
+                    waiting.prose += 1
+                case .annotationCreation, .ownAnnotation, .disposition:
+                    waiting.notes += 1
+                    continue
+                case .checkpoint, .task, .translationRecord, .inboxRow, .unreadable:
+                    waiting.other += 1
+                    continue
+                }
+                for change in op?.changes ?? [] {
                     waiting.paragraphIds.insert(change.paragraphId)
-                    let text = change.next.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let text = MarkdownDisplayFilter.stripTaskAnchorsInline(change.next)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !text.isEmpty else { continue }
                     // The FIRST paragraph held, as it LAST reads: a paragraph
                     // typed in three bursts peeks at its third.
