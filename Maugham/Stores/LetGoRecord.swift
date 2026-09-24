@@ -41,40 +41,30 @@ enum LetGoRecord {
         DeviceSlug.make(from: DeviceIdentity.author.deviceId)
     }
 
-    /// Append `ids` to `device`'s file. Nothing to write for an empty set.
+    /// Append `ids` to `device`'s file, in ONE write. Nothing to write for an
+    /// empty set.
+    ///
+    /// **Through `JSONLAppendStore`, unchained** — the house append for a
+    /// per-device JSONL sidecar (the publication log's shape): the write is
+    /// under `NSFileCoordinator`, like every other append to a file iCloud
+    /// syncs, and the line format (sorted keys, the store's date strategy) is
+    /// the one every other sidecar uses (review N4).
     static func record(
         ids: Set<String>, in projectURL: URL,
         device: DeviceSlug = LetGoRecord.thisDevice, at date: Date = Date()
-    ) throws {
+    ) async throws {
         guard !ids.isEmpty else { return }
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        var bytes = Data()
-        for id in ids.sorted() {
-            bytes.append(try encoder.encode(Line(id: id, at: date)))
-            bytes.append(0x0A)
-        }
-        let file = fileURL(for: device, in: projectURL)
-        try FileManager.default.createDirectory(
-            at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if !FileManager.default.fileExists(atPath: file.path) {
-            try bytes.write(to: file, options: .atomic)
-            return
-        }
-        let handle = try FileHandle(forWritingTo: file)
-        defer { try? handle.close() }
-        try handle.seekToEnd()
-        try handle.write(contentsOf: bytes)
+        try await JSONLAppendStore<Line>(fileURL: fileURL(for: device, in: projectURL))
+            .appendBatch(ids.sorted().map { Line(id: $0, at: date) })
     }
 
     /// Record what `entryFolder` accounts for, logging rather than throwing:
     /// the deletion it follows has already happened, and a missing record
     /// costs only a row under Removed Elsewhere, from which Trash is the way
     /// back out.
-    static func recordLettingGo(of ids: Set<String>, in projectURL: URL) {
+    static func recordLettingGo(of ids: Set<String>, in projectURL: URL) async {
         do {
-            try record(ids: ids, in: projectURL)
+            try await record(ids: ids, in: projectURL)
         } catch {
             projectStoreLog.error(
                 "Could not record \(ids.count) let-go id(s) in \(projectURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -84,19 +74,21 @@ enum LetGoRecord {
     /// Every id any device let go of — the union of every `let-go.*.jsonl`.
     /// Hidden-flag safe: lists with no options (never `.skipsHiddenFiles`,
     /// which also honours the UF_HIDDEN flag a daemon may set), and skips only
-    /// dotfiles by name. A line this build cannot read is skipped.
+    /// dotfiles by name. A line this build cannot read is skipped. Each file
+    /// is read under a coordinated read, the write's counterpart; synchronous,
+    /// because `RemovedElsewhere.scan` runs it off the main actor.
     static func ids(in projectURL: URL) -> Set<String> {
         let files = (try? FileManager.default.contentsOfDirectory(
             at: directory(in: projectURL), includingPropertiesForKeys: nil,
             options: [])) ?? []
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = JSONLAppendStore<Line>.dateDecoding
         var ids = Set<String>()
         for file in files
         where !DotfileScan.isDotfile(file)
             && file.lastPathComponent.hasPrefix("let-go.")
             && file.pathExtension == "jsonl" {
-            guard let data = try? Data(contentsOf: file) else { continue }  // adr-0018-ok: derived let-go sidecar, not manuscript
+            guard let data = coordinatedRead(file) else { continue }
             for line in data.split(separator: 0x0A) where !line.isEmpty {
                 if let parsed = try? decoder.decode(Line.self, from: Data(line)) {
                     ids.insert(parsed.id)
@@ -104,6 +96,17 @@ enum LetGoRecord {
             }
         }
         return ids
+    }
+
+    private static func coordinatedRead(_ file: URL) -> Data? {
+        var data: Data?
+        var coordErr: NSError?
+        NSFileCoordinator(filePresenter: nil).coordinate(
+            readingItemAt: file, options: [], error: &coordErr
+        ) { url in
+            data = try? Data(contentsOf: url)  // adr-0018-ok: derived let-go sidecar, not manuscript
+        }
+        return coordErr == nil ? data : nil
     }
 
     /// The structure ids a Trash entry folder accounts for, read before the

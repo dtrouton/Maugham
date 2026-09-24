@@ -184,7 +184,7 @@ public struct TrashStore {
                 if (try? fm.removeItem(at: folder)) != nil { lettingGo.formUnion(held) }
             }
         }
-        LetGoRecord.recordLettingGo(of: lettingGo, in: projectURL)
+        await LetGoRecord.recordLettingGo(of: lettingGo, in: projectURL)
     }
 
     /// When an entry folder was trashed: its name's timestamp, else the
@@ -212,7 +212,7 @@ public struct TrashStore {
         let entryFolder = trashRoot.appendingPathComponent(trashId)
         let lettingGo = LetGoRecord.ids(inTrashEntryFolder: entryFolder)
         try FileManager.default.removeItem(at: entryFolder)
-        LetGoRecord.recordLettingGo(of: lettingGo, in: projectURL)
+        await LetGoRecord.recordLettingGo(of: lettingGo, in: projectURL)
     }
 
     /// Restore a trashed entry: move its file back, delete the trash folder,
