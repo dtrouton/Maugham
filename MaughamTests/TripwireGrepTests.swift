@@ -9067,4 +9067,134 @@ final class TripwireGrepTests: XCTestCase {
             ["OpLogDeviceState.swift": 1],
             "the counter sees the planted call")
     }
+
+    // MARK: - Posture is asked of the permit in one place (P3c Task 1; tripwire 51)
+
+    /// The spellings of asking the permit table a question directly. A surface
+    /// asks `posture.allows(.someVerb)` instead; `Posture(` is construction,
+    /// which is the Mac's one door's (`DocumentStore+Posture.swift`) alone.
+    static let postureAskPatterns = [
+        "LocalWritePermit", "localWritePermit", ".allows(.op(",
+        ".allows(.translationRecord", "Posture(",
+    ]
+
+    /// File AND spelling. The door names all five; the five `Document` files
+    /// are P3a's load-seam and membrane sites and keep exactly the spellings
+    /// they already have. `Document+Load.swift` asks through a local
+    /// `writePermit`, so it carries `.allows(.op(` as well; every other line
+    /// there is admitted by `localWritePermit` on the same line.
+    static let postureAskAllowed: [String: Set<String>] = [
+        "DocumentStore+Posture.swift": Set(postureAskPatterns),
+        "Document.swift": ["localWritePermit"],
+        "Document+Load.swift": ["localWritePermit", ".allows(.op("],
+        "Document+Waiting.swift": ["localWritePermit"],
+        "Document+Tasks.swift": ["localWritePermit"],
+        "Document+Annotations.swift": ["localWritePermit"],
+    ]
+
+    /// Component A — the sharing-role posture P3c retires. Allowed nowhere.
+    static let componentAPatterns = [
+        "CollaborationRole", "ReviewPosturePolicy", "ShareIdentityMapper", "effectivePosture",
+    ]
+
+    private var postureAskRoots: [URL] {
+        [sourceDir, repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)]
+    }
+
+    /// **Every Mac surface asks `Posture`; nothing else asks the permit.**
+    ///
+    /// The distinction most likely to be re-spelled per surface: a queue that
+    /// decides whether to draw Accept by asking `localWritePermit` itself, or
+    /// by building a `Posture` of its own from some other permit, is a second
+    /// answer that drifts from the door's the first time either changes.
+    func test_postureIsAskedOfThePermitInOnePlace() throws {
+        let askers = try grepSwift(
+            in: postureAskRoots,
+            patterns: Self.postureAskPatterns,
+            allowedSpellings: Self.postureAskAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(askers.isEmpty,
+            "A file outside the posture door asks the permit table directly or "
+            + "builds a Posture of its own. Ask `posture.allows(.someVerb)` of "
+            + "`DocumentStore.posture(forDocId:)`. Offenders:\n"
+            + askers.joined(separator: "\n"))
+
+        let componentA = try grepSwift(
+            in: admissionRoots,
+            patterns: Self.componentAPatterns,
+            allowedSpellings: [:],
+            excludeLine: Self.admissionExcludeLine)
+        XCTExpectFailure("Component A still exists until P3c Task 4 deletes it; "
+                         + "Task 4 removes this expectation.") {
+            XCTAssertTrue(componentA.isEmpty,
+                "The sharing-role posture survives. A role is the permit's, "
+                + "asked through `Posture`. Offenders:\n"
+                + componentA.joined(separator: "\n"))
+        }
+    }
+
+    /// The census's control: it fires on a planted file carrying one of each
+    /// spelling, lets the comment through, and — moved to an allow-listed
+    /// NAME — admits only that name's own spellings.
+    func test_thePostureCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-posture-selfcheck-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may name LocalWritePermit, Posture( and CollaborationRole.
+        let built = LocalWritePermit.unrestricted
+        let asked = store.localWritePermit { cls }
+        let text = permit.allows(.op(.typingBurst)) == .yes
+        let rendering = permit.allows(.translationRecord) == .yes
+        let mine = Posture(permit)
+        let role: CollaborationRole = .reviewer
+        let policy = ReviewPosturePolicy.resolve(role)
+        let mapped = ShareIdentityMapper.map(share)
+        let effective = effectivePosture.isReviewMode
+        let fine = posture.allows(.writeText)
+        """.write(to: tmp.appendingPathComponent("ASecondPostureTable.swift"),
+                  atomically: true, encoding: .utf8)
+
+        func hits() throws -> (ask: [String], componentA: [String]) {
+            (try grepSwift(in: [tmp], patterns: Self.postureAskPatterns,
+                           allowedSpellings: Self.postureAskAllowed,
+                           excludeLine: Self.admissionExcludeLine),
+             try grepSwift(in: [tmp], patterns: Self.componentAPatterns,
+                           allowedSpellings: [:],
+                           excludeLine: Self.admissionExcludeLine))
+        }
+
+        let planted = try hits()
+        XCTAssertEqual(planted.ask.count, 5,
+            "Self-check: each of the five ask spellings is caught, and neither "
+            + "the comment nor the posture's own `allows`. Caught:\n"
+            + planted.ask.joined(separator: "\n"))
+        XCTAssertFalse(planted.ask.contains(where: { $0.contains("let fine") }))
+        XCTAssertEqual(planted.componentA.count, 4,
+            "Self-check: each Component A spelling is caught. Caught:\n"
+            + planted.componentA.joined(separator: "\n"))
+
+        // A P3a site may keep `localWritePermit` and nothing else.
+        try fm.moveItem(at: tmp.appendingPathComponent("ASecondPostureTable.swift"),
+                        to: tmp.appendingPathComponent("Document+Waiting.swift"))
+        let asASite = try hits()
+        XCTAssertEqual(asASite.ask.count, 4,
+            "Self-check: Document+Waiting.swift is admitted `localWritePermit` "
+            + "alone. Caught:\n" + asASite.ask.joined(separator: "\n"))
+        XCTAssertFalse(asASite.ask.contains(where: { $0.contains("let asked") }))
+        XCTAssertEqual(asASite.componentA.count, 4)
+
+        // The door may ask all five, and is still caught naming Component A.
+        try fm.moveItem(at: tmp.appendingPathComponent("Document+Waiting.swift"),
+                        to: tmp.appendingPathComponent("DocumentStore+Posture.swift"))
+        let asTheDoor = try hits()
+        XCTAssertTrue(asTheDoor.ask.isEmpty,
+            "Self-check: the door is admitted every ask spelling. Caught:\n"
+            + asTheDoor.ask.joined(separator: "\n"))
+        XCTAssertEqual(asTheDoor.componentA.count, 4)
+    }
 }
