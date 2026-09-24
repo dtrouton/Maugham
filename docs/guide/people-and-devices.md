@@ -260,7 +260,11 @@ comments, suggestions and questions work as they do for you. What isn't drawn:
 Accept, Reject, Stet and the other ways of settling a note; setting a review
 pass's state; Run for a review round (a check still runs — it only leaves
 notes); editing an intent or any other statement; new documents, renaming,
-moving and deleting in the tree; tasks; and translating. **⌘S** still flashes,
+moving and deleting in the tree; tasks; translating; History's **Rewind to
+before this…**, the rewind window's **Restore here…** and **Snapshot here…**,
+and a checkpoint's **Revert here…** (History itself is all there to read); and
+Find in Project's **Replace** and **Replace All** for chapters that aren't
+yours (a research note's matches still replace). **⌘S** still flashes,
 because your fingers expect it, but writes nothing — a checkpoint of text you
 can't change would mark nothing of yours — and **⇧⌘S** says so instead of
 asking for a label. The File menu's **New Prose Story**, **New Screenplay**
@@ -269,15 +273,21 @@ and **Link Existing Project…** are greyed.
 An **author of some pieces** has all of that in their own chapters. Everywhere
 else they are a reviewer, and the line says *"Chapter 3" isn't one of your
 pieces — you can leave notes.* Adding a new piece to the book is still the
-whole-book author's.
+whole-book author's. **Replace All** replaces in their chapters and tells them
+which chapters it left as they were. **Renaming** one of their own chapters
+renames it, but links to it inside chapters that aren't theirs keep the old
+title — Maugham says which, and those links point nowhere until someone who
+can write there updates them.
 
 If something they wrote before their permission changed is being held or set
 aside, the line adds *Some of what you wrote here is kept in History.*, with a
 button that opens it.
 
-A change of permission reaches an open window at once: a chapter somebody is
-typing in stops taking keystrokes the moment the change arrives, and widening
-it gives the keyboard back, with nothing to reopen.
+A change of permission reaches an open window without a reopen: a chapter
+somebody is typing in stops taking keystrokes as soon as this Mac has read the
+change — a moment after it lands, not before — and widening it gives the
+keyboard back the same way. Anything typed in that moment is kept in History,
+not lost.
 
 **On your own Mac**, opening a chapter that belongs to somebody else — an author
 of some pieces you gave it to — shows the same line in your words: *This is

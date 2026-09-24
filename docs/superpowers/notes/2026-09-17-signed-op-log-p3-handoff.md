@@ -493,9 +493,10 @@ next plan needs. UNMERGED and UNRELEASED: P3 ships whole.
 - **The Mac's one door**, `DocumentStore+Posture.swift`:
   - `posture(forDocId:as:)` DRAWS and `settledPosture(forDocId:as:)` is what a
     verb's door ACTS on (ruling I).
-  - It is fresh on every trust change, and every open `Document` is re-stamped
-    (`stamp(localWritePermit:)`), so a demotion stops the next burst with no
-    reopen.
+  - It is fresh on every trust change, and every open `Document` — the
+    manuscript registry's and every open statement editor's (fix wave I1) — is
+    re-stamped (`stamp(localWritePermit:)`), so a demotion stops the next burst
+    with no reopen.
   - The root yields cooperatively on somebody else's piece, with **Edit
     Anyway** per window, per piece, per session (R2, rulings H, T).
 - **Door plus surface for every verb**:
@@ -506,6 +507,9 @@ next plan needs. UNMERGED and UNRELEASED: P3 ships whole.
   - tasks (with a task door)
   - translations and the desk (as the translator)
   - ⌘S / ⇧⌘S (the flash always, no op and no entry where refused)
+  - History's rewind and restore, a checkpoint's revert, project Replace /
+    Replace All, the rename's wiki-link sweep, and every statement write —
+    the whole-branch fix wave's C1 (below)
   - the File menu's piece items (disabled)
   - the editor's standing line, including ruling K's *kept in History* clause.
 - **Component A retired**:
@@ -526,10 +530,12 @@ next plan needs. UNMERGED and UNRELEASED: P3 ships whole.
 - **The drawing door's cost, measured and fixed** (ruling AD):
   `PostureMissCostTests` (kept, env-gated). A 50-row queue's first redraw after
   a trust change went from 42 ms to 0.02 ms. The class is now read from the
-  live manifest, and the refresh warms (overwriting) every asked key FIRST, then
-  re-stamps the open Documents and bumps the epoch without clearing, in one
-  main-actor turn (ruling AG). Gated by `DocumentStorePostureTests`' ordering,
-  overwrite and all-hits tests.
+  live manifest, and the refresh warms (overwriting) every asked key FIRST —
+  into a staging dictionary since the fix wave's Minor 1 — then publishes the
+  table and the staged answers, re-stamps the open Documents and bumps the
+  epoch without clearing, in one main-actor turn (ruling AG). Gated by
+  `DocumentStorePostureTests`' ordering (which now samples the drawn answer
+  beside the stamp), overwrite and all-hits tests.
 - **Docs**:
   - ADR 0032's P3c addendum and limits, and the struck §7.1 limit.
   - The constitution's must-not #1 storage-layer sentence and violation
@@ -540,6 +546,44 @@ next plan needs. UNMERGED and UNRELEASED: P3 ships whole.
     files of `Maugham/Views/`, `Maugham/Editor/`, `Maugham/OpLog/` and
     `Maugham/Stores/`; the roadmap, `product.md`, `problem-map.md` and the
     annotations guide.
+
+## The whole-branch fix wave (2026-09-24)
+
+The whole-branch review was NOT READY: one Critical, two Importants, seven
+minors. The report is
+`.superpowers/sdd/2026-09-24-signed-op-log-p3c-posture-and-component-a/fix-wave-report.md`.
+
+- **C1 — the manuscript writers outside the editor.** History's *Rewind to
+  before this…* / the rewind window's *Restore here…* (and *Snapshot here…*,
+  R5), a checkpoint's *Revert here…*, project *Replace* / *Replace All* and the
+  rename's wiki-link sweep reached the manuscript with no gate; each now has a
+  surface (hidden where refused) and a door (the restore door
+  `Document.requireRestorePermitted`; `replaceInManuscript`'s settled posture
+  plus the Document's stamp; the sweep's likewise; `PartialRestorePicker`'s
+  per-document settled check). Replace All skips and names (ruling AI); the
+  rename sweep skips and says which links were left (ruling AH). While in the
+  population the wave also found `ProjectStore.mutateStatementText` had no door
+  of its own — promotion's appends and the picture ingest reached statements
+  behind no posture question — and gave it one (`StatementWriteRefused`). **The
+  population is a grep**: `TripwireGrepTests.manuscriptWriterCallSites`
+  (+ its planted-offender control). ADR 0032's *Every verb has a door and a
+  surface* no longer claims a list.
+- **I1** — open statement Documents are re-stamped with the rest.
+- **I2** — `RegistryPresence.admitRemembered` never silently admits a RETIRED
+  device, so project-open agrees with the mid-session pre-check (Core).
+- **Minor 1** — staging pre-warm, published in the one turn.
+- **Minor 2** — no door behind a host fails closed (tree, Collection pane,
+  `StartAPieceDoor`, the translation surfaces).
+- **Minor 3** — a round whose window closed while it asked says nothing
+  (`mayRunRound` answers `Bool?`).
+- **Minors 4, 5** — the prose count in `RulingPerformer`; `Reason.reviewer`
+  names the translator.
+- **Minor 6** — verified NOT a defect: `Document` is `@Observable`, so the
+  standing line's History clause IS observed; pinned by a test.
+- **Minor 7** — carried to plan 2 (ruling AJ).
+- **CLAUDE.md was not edited by the fix wave** (an agent may not edit it on an
+  agent's instruction): the census wants its own tripwire row (52) — the text
+  is in the fix-wave report for whoever lands it.
 
 ## The rulings, with their costs
 
@@ -615,6 +659,15 @@ Controller rulings made on Denver's behalf (confirm):
   the honest limit (between a registry change landing and its refresh
   completing, surfaces draw the last known answer). *Cost:* the pre-existing
   sub-second window stays, now stated.
+- **AH** — a rename by a device that may not write every linking piece renames
+  what it may, skips the wiki-link rewrite in pieces it may not write, and says
+  so. *Cost:* dangling `[[links]]` in collaborators' chapters until they fix
+  them.
+- **AI** — project Replace All skips (and names) refused documents; a single
+  Replace is hidden for such a match. *Cost:* a reviewer sees matches she
+  cannot replace (read-only find stays).
+- **AJ** — the root's Edit Anyway from the project-scope queue is carried to
+  plan 2. *Cost:* the root opens the piece to press it.
 
 ## For the release notes (with P3a's and P3b's)
 
@@ -653,6 +706,11 @@ Controller rulings made on Denver's behalf (confirm):
   - what a Mac on no chain is SHOWN
   - `announcePendingHistory` narrowed to strangers
   - I1, I2 and I4 stay filed as future enhancements, per Denver's ruling.
+- **The whole-branch review's Minor 7 (ruling AJ):** the root, in the
+  project-scope queue, sees a yielded piece's rows with no verbs and no *Edit
+  Anyway*; the override lives only over the editor. A one-line hint on the
+  row's disabled reason, or the override in the queue's header for a yielded
+  document.
 - **Deferred minors from this plan worth doing**:
   - **Plan 1's own limits:**
     - Project-stream tasks have no door (`ProjectStore.createProjectPaneTask`
@@ -660,13 +718,12 @@ Controller rulings made on Denver's behalf (confirm):
     - A capture arriving while an F10 sheet is up does not refresh it.
     - A corrupt `people/<fp>.json` hides a record-only stranger from the
       pre-check.
-    - Project-OPEN's direct `admitRemembered` still silently admits a
-      remembered RETIRED device.
     - A non-root Mac pays one resolve per settle before answering empty.
   - **Cost:**
     - A never-asked queue still pays about 0.36 ms a row (door check plus
       builder check).
-    - An unreadable registry re-resolves on the main actor per miss (m2).
+    - An unreadable registry re-resolves on the main actor per miss (m2) —
+      now stated in the ADR's limits.
     - `posture(forPath:)` decodes the manifest per call for an unknown path
       (m4).
   - **Tests and code hygiene:**
@@ -693,9 +750,14 @@ Controller rulings made on Denver's behalf (confirm):
       `.translation` arm of the door's yield lookup is unreachable
       (`DocumentClass.resolve` never yields `.translation`): delete it, or give
       a translation stream a class.
-  - **UNVERIFIED (ledger, Task 7):** that QueryRuling / FirstReaderRuling /
-    QueueLedgerVerbs dispositions are gated through Task 5's row verbs — the
-    whole-branch reviewer should confirm.
+  - ~~UNVERIFIED (ledger, Task 7)~~ — the whole-branch reviewer confirmed
+    QueryRuling / FirstReaderRuling / QueueLedgerVerbs dispositions are gated
+    through Task 5's row verbs.
+  - The dev build's `test_apply_edit` is deliberately ungated (the smoke rig's
+    typing surrogate); the census names it.
+  - `BinderView.structureVerbs`/`CollectionPiecesPane.structureVerbs`' fail-
+    closed arms are pinned through `TreeStructureVerbs.none` and
+    `StartAPieceDoor`, not through a mounted tree.
 
 ## Open for Denver
 

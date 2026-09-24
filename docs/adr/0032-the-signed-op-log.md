@@ -1672,12 +1672,18 @@ rulings B and I). Which accessor a caller uses is the rule:
   provisional or `settling` answer.
 
 **Fresh on every trust change.** `invalidateTrust` and manifest adoption bump
-the epoch, and the refresh that follows re-stamps every open `Document`'s
-`localWritePermit` from the same builder — **in the same main-actor turn as the
-epoch bump that re-renders the editor** (ruling AG), so the Document's own
-writes and the editor's lock flip together and no turn sees one without the
-other (`DocumentStorePostureTests.test_theRestampAndTheBumpAreOneTurn` samples
-every turn). Once the refresh lands, a demotion stops her writes and locks her
+the epoch, and the refresh that follows warms the new answers into a STAGING
+dictionary, then — **in one main-actor turn** (ruling AG; the whole-branch fix
+wave's Minor 1) — publishes them to the drawing cache, re-stamps every open
+`Document`'s `localWritePermit` from the same builder (the manuscript
+registry's AND every open statement editor's, which is deliberately in no
+`DocumentStore` registry — fix wave I1), and bumps the epoch that re-renders
+the editor. Until that turn the new table is not published, so a redraw during
+the warm's yields draws the last answer rather than the new one. The
+Document's own writes, what a surface draws and the editor's lock therefore
+flip together, and no turn sees one without the others
+(`DocumentStorePostureTests.test_theRestampAndTheBumpAreOneTurn` samples every
+turn, the stamp AND the drawn answer). Once the refresh lands, a demotion stops her writes and locks her
 editor, a promotion restores both, and neither needs a reopen. The re-stamp
 keeps the actor the stamp was made for, which is the author's, because the
 load's own emissions are (tripwire 38; ruling J).
@@ -1699,6 +1705,20 @@ which waits the refresh out.
 `MaughamPhone/`, with a planted-offender control.
 
 ### Every verb has a door and a surface
+
+This heading claimed completeness for a list enumerated from the plan. The
+whole-branch review found three manuscript writers outside the editor's
+membrane that were on neither list — History's restore, project Replace /
+Replace All, and the rename's wiki-link sweep — and the fix wave gave each a
+door and a surface. **The population is now a grep, not a list**:
+`TripwireGrepTests.test_everyManuscriptWriterOutsideTheEditorIsANamedSite`
+counts every production call of `setFullText(`, `applyRestore(`,
+`restoreToOp(`, `restoreToOpUndoable(`, `Restore.buildRestoreOp(` and the
+replace verbs, by file, against a named array whose every entry says where its
+posture is asked or why it need not be (count the array,
+`manuscriptWriterCallSites`, never this paragraph). A burst's EMISSION is
+deliberately not permit-guarded — the editor's membrane is in front of the
+keystroke — so any other caller that reaches one must ask first.
 
 The shape is the same everywhere. **The surface hides** a verb the posture
 forbids — a greyed Accept reads as broken, so nothing is disabled. **The verb's
@@ -1725,6 +1745,31 @@ ask the one door.
 - **A translation** refuses in `TranslationWritePipeline`, and at the desk's
   Run. Both are judged as the TRANSLATOR actor.
 - **The Collection's start-a-piece commands** refuse at `StartAPieceDoor`.
+- **A History restore** refuses in `Document.requireRestorePermitted` — at the
+  top of `restoreToOpUndoable` (before its undo-stack clear), of `restoreToOp`
+  (before the burst flush) and of `applyRestore` (for the inline-task archive
+  undo) — so nothing is flushed or appended. A registered ⌘Z/⇧⌘Z it refuses
+  is said (`UndoDecline.restoreNotPermitted`). History draws *Rewind to before
+  this…* and the rewind window draws *Restore here…* only where the document
+  allows `.writeText`; *Snapshot here…* follows `.checkpoint` (R5).
+- **A checkpoint revert** (*Revert here…*, `PartialRestorePicker`) asks the
+  settled posture per document before it builds a restore; the picker lists
+  only documents this Mac may write, offers *Whole project* only where every
+  one may be, and names in the sheet what its door left alone.
+- **Project Replace / Replace All** refuse in `ProjectStore.replaceInManuscript`
+  — the settled posture before any load (so the root's yield holds), then the
+  loaded Document's own stamp before `setFullText`. Replace All SKIPS and NAMES
+  a refused document and replaces the rest (ruling AI); a single Replace on
+  one throws `ManuscriptReplaceRefused`. Find draws the per-match Replace only
+  for a match whose own document allows `.writeText`, and Replace All only
+  where one match does; research notes keep their verbs.
+- **The rename's wiki-link sweep** skips a piece or statement this Mac may not
+  write (the settled posture, then the stamp) and the tree says which links
+  were left (ruling AH); the rename itself is not refused.
+- **Every statement write** passes `ProjectStore.mutateStatementText`, which
+  refuses where the statement Document's stamp refuses its text
+  (`StatementWriteRefused`) — behind the ruling and proposal doors, and the one
+  door for promotion's appends and the picture ingest.
 
 **Where the posture comes from for each kind of document.** A statement's
 posture is its piece's (a piece statement) or the book's (a project statement).
@@ -1929,6 +1974,19 @@ off the main actor, so it stays per miss; see the limits.
   class question with statement, translation and project-stream arms, and a
   wrong prune only costs a miss.
 - **The lock trails a trust change** — see *Fresh on every trust change* above.
+  The pre-warm widens that trailing window by its own duration (about 0.36 ms
+  per asked key, spread across turns); what it no longer does is publish an
+  answer ahead of the re-stamp.
+- **A rename leaves links it may not rewrite** (ruling AH). A piece-author
+  renaming her own chapter renames it, and the `[[old title]]` in pieces this
+  Mac may not write is left — dangling on EVERY Mac until somebody who may
+  write there fixes it. The tree says which pieces, once, at the rename.
+- **An unreadable registry re-resolves on the main actor per settled miss.**
+  `settledPosture` gives up re-warming after a bounded number of attempts and
+  asks the builder directly, which resolves on the main actor — the price of a
+  correct answer in a state that should not persist.
+- **The dev build's `test_apply_edit` is ungated by design.** It is the smoke
+  rig's typing surrogate and stands in for a keystroke; the census names it.
 - **The phone draws none of this.** Its banner is gone with Component A, and its
   posture (dispositions per piece, `AnnotationOwnership`, ruling P's reopen
   change) is plan 2's.

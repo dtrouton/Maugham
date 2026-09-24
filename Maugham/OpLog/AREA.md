@@ -1279,11 +1279,14 @@ door's. Controller ruling P moves own-note reopen onto the ownership path, in
 **The stamp is LIVE, not a load-time snapshot** (P3c plan 1, Task 2).
 `Document.localWritePermit` is `internal private(set)`, and its one setter is
 `stamp(localWritePermit:)`: the load calls it, and so does the posture door's
-refresh (`DocumentStore+Posture.swift`) for every open document after every
+refresh (`DocumentStore+Posture.swift`) for every open document — the
+manuscript registry's AND every open statement editor's (whole-branch fix wave
+I1; a statement's `Document` is in no `DocumentStore` registry) — after every
 trust change and manifest adoption, from the same builder, over the table the
-refresh just warmed — in the same main-actor turn as the epoch bump that
-re-renders the editor (controller ruling AG), so the stamp and the editor's
-lock never disagree for a turn. So every door on this page — the disposition
+refresh just warmed — in the same main-actor turn as the publication of the
+staged drawing answers and the epoch bump that re-renders the editor
+(controller ruling AG; fix wave Minor 1), so the stamp, the drawn answer and
+the editor's lock never disagree for a turn. So every door on this page — the disposition
 guard, `mayWriteThePendingFile`, the task door below — reads the permit as the
 last landed refresh left it: once a demotion's refresh lands her next burst is
 not signed, and a promotion gives the keyboard back, with no reopen. Until it
@@ -1302,6 +1305,21 @@ anchors and the rebalance were already gated on the same question. The
 PROJECT stream's task verbs (`ProjectStore.createProjectPaneTask`/
 `archiveProjectTask`) have no door — surface-only, a stated limit in ADR 0032's
 P3c addendum.
+
+**Every manuscript writer outside the editor has a door** (P3c whole-branch fix
+wave, C1). A burst's EMISSION is deliberately not permit-guarded — the
+editor's membrane is in front of the keystroke — so every other path that
+reaches `setFullText` or a restore asks first. **A restore**
+(`restoreToOpUndoable`, `restoreToOp`, `applyRestore`) refuses in
+`requireRestorePermitted` before its undo-stack clear, before the burst flush
+and before any op, throwing `PostureRefusal`; a registered ⌘Z/⇧⌘Z it refuses is
+said (`UndoDecline.restoreNotPermitted`; the inline-archive undo's restore says
+`taskNotPermitted`). **Project Replace, the rename's wiki-link sweep and every
+statement write** ask the loaded Document's stamp (`Document.mayWriteItsText`)
+beside the store's settled posture — see `Maugham/Stores/AREA.md`. The
+population is a grep: `TripwireGrepTests.manuscriptWriterCallSites` counts
+every production call of the writing spellings by file, each entry naming its
+gate or why it needs none.
 
 **`author_collaborator_id` is decoded and never written** (P3c Task 4, spec §8,
 claim M5-AN-012). Attribution is the signing device through the registry, so
