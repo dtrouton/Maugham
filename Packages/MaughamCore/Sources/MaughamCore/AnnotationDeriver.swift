@@ -6,8 +6,10 @@ public enum AnnotationDeriver {
     /// Pure function: same inputs → same output.
     ///
     /// `amendments` is P3a Task 6's *whose annotation is it* rule, and its
-    /// default is the pre-P3a behaviour — every edit and every withdrawal
-    /// stands. A caller holding a verified trust table passes
+    /// default is the pre-P3a behaviour — every edit, every withdrawal and
+    /// every reopen stands. A reopen is judged twice (ruling P): by ownership
+    /// where it undoes a withdrawal, by author rights where it undoes a
+    /// disposition. A caller holding a verified trust table passes
     /// `AnnotationAmendments.judged`; a caller with none (the phone, a rewind
     /// projection, a test) does not, and gets exactly what it always got.
     public static func derive(
@@ -17,9 +19,18 @@ public enum AnnotationDeriver {
     ) -> [Annotation] {
         let creations = creationOps(in: ops)
         // 1. Index lifecycle ops by sourceAnnotationId; latest wins.
+        //
+        // **A reopen is judged here as a DISPOSITION** (ruling P): in this
+        // fold it cancels an archive, a rejection or a stet, which only author
+        // rights may undo — never the same-person arm, so her own note the
+        // root archived stays archived when she reopens it. The table lets a
+        // reopen through on the reviewer row (`Permit.group`), because the
+        // partition cannot see what it undoes; this is where that is decided.
         var latestLifecycle: [String: Op] = [:]
         for op in ops where isLifecycleKind(op.kind) {
             guard let src = op.provenance?.sourceAnnotationId else { continue }
+            if op.kind == .annotationReopen,
+               !amendments.honoursAsDisposition(op) { continue }
             if let prior = latestLifecycle[src] {
                 if op.opId > prior.opId { latestLifecycle[src] = op }
             } else {
@@ -66,11 +77,13 @@ public enum AnnotationDeriver {
         for op in ops {
             guard op.kind == .annotationWithdraw || op.kind == .annotationReopen,
                   let src = op.provenance?.sourceAnnotationId else { continue }
-            // Only the WITHDRAW is an amendment. A reopen is a disposition —
-            // `Permit.group` puts it with accept, reject and stet — so it is
-            // the per-line partition's to judge and not this rule's.
-            if op.kind == .annotationWithdraw,
-               !honours(op, src, creations, amendments) { continue }
+            // Both are judged by the OWNERSHIP rule here (ruling P): a reopen
+            // in this pass undoes a withdrawal, which is the note's own
+            // writer's act — so she may restore what she deleted, and nobody
+            // without author rights may restore what somebody else deleted.
+            // The same op's other meaning is judged in the lifecycle fold
+            // above, by the disposition rule.
+            if !honours(op, src, creations, amendments) { continue }
             if let prior = withdrawState[src] {
                 if op.opId > prior.opId { withdrawState[src] = op }
             } else {
@@ -132,9 +145,7 @@ public enum AnnotationDeriver {
             // Author + span anchor are carried on the op's provenance; the span
             // is re-resolved against the live paragraph on every derive.
             let prov = op.provenance
-            let author = prov?.authorSourceKind
-                .flatMap { AnnotationAuthor.SourceKind(rawValue: $0) }
-                .map { AnnotationAuthor(sourceKind: $0, displayName: prov?.authorDisplayName ?? "", collaboratorId: prov?.authorCollaboratorId) }
+            let author = Self.author(of: op)
             let span = prov?.spanQuote.map {
                 SpanAnchor(quote: $0, prefix: prov?.spanPrefix ?? "", suffix: prov?.spanSuffix ?? "", posHint: prov?.spanPosHint ?? 0)
             }
@@ -235,6 +246,10 @@ public enum AnnotationDeriver {
         public let kind: AnnotationKind
         public let body: String
         public let withdrawnAt: Date
+        /// Who made the note, as its creation op stamped it — so the Deleted
+        /// view can offer Restore on the writer's OWN deleted note (ruling P;
+        /// `AnnotationOwnership.isOwn(author:localName:)`).
+        public let author: AnnotationAuthor?
     }
 
     /// The annotations whose latest withdraw/reopen op is a WITHDRAW — the
@@ -256,6 +271,8 @@ public enum AnnotationDeriver {
                 guard honours(op, src, creations, amendments) else { break }
                 if withdrawState[src].map({ op.opId > $0.opId }) ?? true { withdrawState[src] = op }
             case .annotationReopen:
+                // The withdraw pass's ownership rule (ruling P), as `derive`.
+                guard honours(op, src, creations, amendments) else { break }
                 if withdrawState[src].map({ op.opId > $0.opId }) ?? true { withdrawState[src] = op }
             default:
                 break
@@ -269,7 +286,8 @@ public enum AnnotationDeriver {
             let body = latestEdit[op.opId]?.provenance?.annotationBody
                 ?? op.provenance?.annotationBody ?? ""
             result.append(WithdrawnAnnotation(
-                id: op.opId, kind: kind, body: body, withdrawnAt: latest.at))
+                id: op.opId, kind: kind, body: body, withdrawnAt: latest.at,
+                author: author(of: op)))
         }
         result.sort { $0.withdrawnAt > $1.withdrawnAt }
         return result
@@ -289,14 +307,24 @@ public enum AnnotationDeriver {
         for op in ops {
             guard op.kind == .annotationWithdraw || op.kind == .annotationReopen,
                   op.provenance?.sourceAnnotationId == annotationId else { continue }
-            if op.kind == .annotationWithdraw, let creation,
-               !amendments.honours(op, creation: creation) { continue }
+            // Withdraw AND reopen, under the ownership rule (ruling P) — the
+            // same judgement `derive`'s withdraw pass makes.
+            if let creation, !amendments.honours(op, creation: creation) { continue }
             if latest.map({ op.opId > $0.opId }) ?? true { latest = op }
         }
         return latest?.kind == .annotationWithdraw
     }
 
     // MARK: - Helpers
+
+    /// The author a creation op stamped — one reading for the live projection
+    /// and the Deleted view alike.
+    private static func author(of creation: Op) -> AnnotationAuthor? {
+        let prov = creation.provenance
+        return prov?.authorSourceKind
+            .flatMap { AnnotationAuthor.SourceKind(rawValue: $0) }
+            .map { AnnotationAuthor(sourceKind: $0, displayName: prov?.authorDisplayName ?? "", collaboratorId: prov?.authorCollaboratorId) }
+    }
 
     /// Every annotation-CREATION op, by its own opId — which is the id an
     /// amendment names in `sourceAnnotationId`.

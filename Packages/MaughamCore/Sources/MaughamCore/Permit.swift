@@ -405,10 +405,12 @@ extension Permit {
         case manuscriptText
         /// Making a comment, a query, a suggestion or a craft note.
         case annotationCreation
-        /// Editing or withdrawing an annotation. *Whose* annotation is a
-        /// same-person rule and not a per-file one (spec §4.2): the table lets
-        /// these through on the reviewer row, and `AnnotationDeriver` is what
-        /// honours one only from the person who created the note.
+        /// Editing, withdrawing or reopening an annotation. *Whose* annotation
+        /// is a same-person rule and not a per-file one (spec §4.2): the table
+        /// lets these through on the reviewer row, and `AnnotationDeriver` is
+        /// what honours one only from the person who created the note — or,
+        /// for a reopen that undoes a disposition, only from author rights
+        /// (ruling P).
         case ownAnnotation
         /// Settling a note — the writer's act, never a reviewer's.
         case disposition
@@ -462,9 +464,17 @@ extension Permit {
             // mints exactly these four for every annotation anybody makes, from
             // the review toolbar, from MCP and from the phone alike.
             return .annotationCreation
-        case .annotationEdit, .annotationWithdraw:
+        case .annotationEdit, .annotationWithdraw, .annotationReopen:
+            // A reopen is here and not with the dispositions (ruling P): it
+            // undoes a withdrawal as well as an archive, a rejection or a
+            // stet, and this switch sees only the kind. So the table lets it
+            // through on the reviewer row and `AnnotationDeriver` judges it
+            // twice — by ownership where it undoes a withdrawal, by author
+            // rights (`AnnotationOwnership.mayDispose`) where it undoes a
+            // disposition. A reviewer's reopen of somebody else's archive is
+            // therefore not set aside here; it is simply not honoured.
             return .ownAnnotation
-        case .claudeArchive, .annotationReopen, .annotationStet, .annotationTriage:
+        case .claudeArchive, .annotationStet, .annotationTriage:
             return .disposition
         case .checkpoint:
             return .checkpoint

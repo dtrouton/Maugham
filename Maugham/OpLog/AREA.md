@@ -1269,12 +1269,23 @@ door is what stops a stale row, a margin card drawn before a demotion, or a ⌘Z
 registered while this Mac could still write. An undo or redo refused this way
 says so (`refusingLoudly` → `UndoDecline.notPermitted`) rather than falling
 silent. Annotation creation and the writer's own note's edit and withdraw are
-not doors here: they are the reviewer row. **Known edge**: the table files
-`annotationReopen` under dispositions whatever it undoes, so a reviewer's ⌘Z of
-her OWN Delete (a reopen) is refused and said — a table question, not this
-door's. Controller ruling P moves own-note reopen onto the ownership path, in
-`Permit.swift` and `AnnotationOwnership` on both surfaces together (tripwire
-19), in P3c plan 2.
+not doors here: they are the reviewer row. **A reopen is judged by what it
+undoes** (ruling P, P3c plan 2). The table files `annotationReopen` with edit
+and withdraw (`.ownAnnotation`), because the partition sees only the kind, and
+`AnnotationDeriver` judges it twice through ONE Core policy
+(`AnnotationAmendments`): in the withdraw pass by ownership
+(`AnnotationOwnership.mayAmend` — her own Delete is hers to undo), in the
+lifecycle fold as a disposition (`AnnotationOwnership.mayDispose` — author
+rights alone, never the same-person arm, so her own note the root archived stays
+archived). The Mac's door branches the same way: `reopenAnnotation` asks
+`requireAmendmentHonoured` (the deriver's own policy) where it undoes a
+withdrawal and `requireDispositionPermitted` otherwise, which probes a reopen
+as a stet (`dispositionProbe`) — asked about itself, a reopen would answer the
+reviewer row. The Deleted view's Restore follows ownership
+(`AnnotationRowVerbs.restoresDeleted`). The stated cost (RP-1): a reviewer's
+reopen of somebody else's archive is no longer set aside as a `.lines` record;
+it passes the partition and is simply not honoured, so History records
+nothing.
 
 **The stamp is LIVE, not a load-time snapshot** (P3c plan 1, Task 2).
 `Document.localWritePermit` is `internal private(set)`, and its one setter is

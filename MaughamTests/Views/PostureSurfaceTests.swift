@@ -77,6 +77,21 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertFalse(notHers.ownNote, "…and only of her own")
     }
 
+    /// **A deleted note's Restore follows ownership** (ruling P): it undoes a
+    /// withdrawal, so her own is hers to restore whatever her rung, and
+    /// somebody else's only where she may settle notes.
+    func test_aDeletedNotesRestoreFollowsOwnership() {
+        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: reviewer, isOwn: true),
+                      "her own deleted note")
+        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(posture: reviewer, isOwn: false),
+                       "somebody else's")
+        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: bookAuthor, isOwn: false),
+                      "the book author restores anybody's")
+        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(posture: piecesAuthorInB, isOwn: false),
+                       "outside her pieces, only her own")
+        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: .settling, isOwn: true))
+    }
+
     func test_aBookAuthorsRowOffersEveryVerb() {
         let verbs = AnnotationRowVerbs.decide(
             posture: bookAuthor, isOwn: false,

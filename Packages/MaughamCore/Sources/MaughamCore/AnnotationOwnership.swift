@@ -11,7 +11,13 @@ import Foundation
 /// human collaborator's) are never editable/withdrawable here.
 public enum AnnotationOwnership {
     public static func isOwn(_ annotation: Annotation, localName: String) -> Bool {
-        guard let author = annotation.author else { return false }
+        isOwn(author: annotation.author, localName: localName)
+    }
+
+    /// The same rule over a bare author — a withdrawn note is not in the
+    /// projection to be passed whole (the Deleted view's Restore, ruling P).
+    public static func isOwn(author: AnnotationAuthor?, localName: String) -> Bool {
+        guard let author else { return false }
         return author.sourceKind == .human && author.displayName == localName
     }
 
@@ -108,15 +114,60 @@ public enum AnnotationOwnership {
                 insideTheUnsignedSnapshot: insideTheUnsignedSnapshot)
         }
         guard signer.isOwned else { return false }
-        // Settling a note and amending one are the same authority, so the
-        // question is put to the table in the vocabulary the table already has.
-        if signerPermit.allows(
-            .op(.claudeArchive), in: documentClass, actor: signerActor) == .yes {
+        if hasAuthorRights(signerPermit, signerActor, in: documentClass) {
             return true
         }
         guard let creator = trust.deviceKey(forDeviceId: creatorDevice),
               creator.isOwned else { return false }
         return trust.sameWriter(signer.key, creator.key)
+    }
+
+    /// **May the device that signed this reopen SETTLE a note here?** — the
+    /// disposition half of `mayAmend`, and never its same-person arm (P3c
+    /// plan 2, ruling P).
+    ///
+    /// One op kind, two meanings. `annotationReopen` undoes a WITHDRAW — the
+    /// writer's own act on her own note, which is `mayAmend`'s question — and
+    /// it also undoes an ARCHIVE, a REJECT or a STET, which settled somebody's
+    /// note and was the writer's act, never a reviewer's. The partition sees
+    /// only the kind, never what the op undoes, so the table files a reopen
+    /// with edit and withdraw (`Permit.group`) and lets it through on the
+    /// reviewer row; `AnnotationDeriver` then asks the right question in each
+    /// pass. This is the question its lifecycle fold asks: a reviewer's reopen
+    /// of her OWN note that the root archived is not honoured, because the
+    /// archive was the root's disposition and being the note's author gives
+    /// her no say over it.
+    ///
+    /// The unplaced arm is `mayAmend`'s exactly (`unplaced(_:trust:)`): what
+    /// P1 applied unjudged stays applied, and a production-shaped id nobody
+    /// holds in a narrowed book is not waved through.
+    public static func mayDispose(
+        signerDevice: String,
+        signerPermit: Permit,
+        signerActor: DeviceActor?,
+        in documentClass: DocumentClass,
+        trust: TrustTable,
+        insideTheUnsignedSnapshot: Bool = false
+    ) -> Bool {
+        guard let signer = trust.deviceKey(forDeviceId: signerDevice)
+        else {
+            return unplaced(
+                signerDevice, trust: trust,
+                insideTheUnsignedSnapshot: insideTheUnsignedSnapshot)
+        }
+        guard signer.isOwned else { return false }
+        return hasAuthorRights(signerPermit, signerActor, in: documentClass)
+    }
+
+    /// **Author rights over this document's notes** — the arm `mayAmend` and
+    /// `mayDispose` share. Settling a note and amending one are the same
+    /// authority, so the question is put to the table in the vocabulary the
+    /// table already has: may this permit, narrowed by this actor, write a
+    /// disposition here?
+    private static func hasAuthorRights(
+        _ permit: Permit, _ actor: DeviceActor?, in documentClass: DocumentClass
+    ) -> Bool {
+        permit.allows(.op(.claudeArchive), in: documentClass, actor: actor) == .yes
     }
 
     /// **What an id this register cannot place at all means** — the one
@@ -192,20 +243,44 @@ public enum AnnotationOwnership {
 /// half-supplied policy is a check that silently decides nothing.
 public struct AnnotationAmendments: Sendable {
 
-    /// `(amendment, creation) -> honoured`.
+    /// `(amendment, creation) -> honoured` — the OWNERSHIP rule: an edit, a
+    /// withdrawal, and a reopen as the undoing of a withdrawal.
     private let rule: @Sendable (Op, Op) -> Bool
 
-    public init(honours rule: @escaping @Sendable (Op, Op) -> Bool) {
+    /// `(reopen) -> honoured` — the DISPOSITION rule (ruling P): a reopen as
+    /// the undoing of an archive, a rejection or a stet. Author rights alone;
+    /// never the same-person arm.
+    private let disposition: @Sendable (Op) -> Bool
+
+    /// `disposing` defaults to honouring every reopen, which is what the
+    /// deriver did with one before ruling P — the partition judged reopens
+    /// then, and a caller building a policy of its own (a test) keeps that
+    /// unless it says otherwise.
+    public init(
+        honours rule: @escaping @Sendable (Op, Op) -> Bool,
+        disposing: @escaping @Sendable (Op) -> Bool = { _ in true }
+    ) {
         self.rule = rule
+        self.disposition = disposing
     }
 
-    /// Every edit and every withdrawal stands — the pre-P3a rule, and the one
-    /// a caller with no register has any business applying.
+    /// Every edit, every withdrawal and every reopen stands — the pre-P3a
+    /// rule, and the one a caller with no register has any business applying.
     public static let honourEverything = AnnotationAmendments { _, _ in true }
 
-    /// Whether this amendment op stands against the note its `creation` op made.
+    /// Whether this amendment op stands against the note its `creation` op
+    /// made. Asked of edits and withdrawals, and of a reopen where it undoes a
+    /// withdrawal (`AnnotationDeriver`'s withdraw pass).
     public func honours(_ amendment: Op, creation: Op) -> Bool {
         rule(amendment, creation)
+    }
+
+    /// Whether this reopen stands as the undoing of a DISPOSITION — an
+    /// archive, a rejection or a stet (`AnnotationDeriver`'s lifecycle fold).
+    /// Her own note gives her no say here: the root's archive of it stays the
+    /// root's.
+    public func honoursAsDisposition(_ reopen: Op) -> Bool {
+        disposition(reopen)
     }
 
     /// **The production policy**, built by a caller that already holds a
@@ -245,28 +320,56 @@ public struct AnnotationAmendments: Sendable {
         class documentClass: @escaping @Sendable () -> DocumentClass
     ) -> AnnotationAmendments {
         let memo = PermitMemo<DocumentClass>()
-        return AnnotationAmendments { amendment, creation in
-            let inside = insideTheUnsignedSnapshot.contains(amendment.opId)
-            guard let signer = trust.deviceKey(forDeviceId: amendment.device)
-            else {
-                return AnnotationOwnership.unplaced(
-                    amendment.device, trust: trust,
-                    insideTheUnsignedSnapshot: inside)
-            }
-            let permit = permits[amendment.opId]
-                ?? trust.timeline(forSealKey: signer.key).current
-            // The same skip the partition makes, and for the same reason: a
-            // permit that can refuse nothing cannot refuse this either, so the
-            // manifest is never read for it.
-            if permit.allowsEverything(actor: signer.actor) { return true }
-            return AnnotationOwnership.mayAmend(
-                signerDevice: amendment.device,
-                creatorDevice: creation.device,
-                signerPermit: permit,
-                signerActor: signer.actor,
-                in: memo { documentClass() },
-                trust: trust,
-                insideTheUnsignedSnapshot: inside)
+        return AnnotationAmendments(
+            honours: { amendment, creation in
+                asOfTheLine(
+                    amendment, trust: trust, permits: permits,
+                    insideTheUnsignedSnapshot: insideTheUnsignedSnapshot
+                ) { permit, actor, inside in
+                    AnnotationOwnership.mayAmend(
+                        signerDevice: amendment.device,
+                        creatorDevice: creation.device,
+                        signerPermit: permit,
+                        signerActor: actor,
+                        in: memo { documentClass() },
+                        trust: trust,
+                        insideTheUnsignedSnapshot: inside)
+                }
+            },
+            disposing: { reopen in
+                asOfTheLine(
+                    reopen, trust: trust, permits: permits,
+                    insideTheUnsignedSnapshot: insideTheUnsignedSnapshot
+                ) { permit, actor, inside in
+                    AnnotationOwnership.mayDispose(
+                        signerDevice: reopen.device,
+                        signerPermit: permit,
+                        signerActor: actor,
+                        in: memo { documentClass() },
+                        trust: trust,
+                        insideTheUnsignedSnapshot: inside)
+                }
+            })
+    }
+
+    /// The part of both judgements that is not a rule: place the signer,
+    /// resolve its permit AS OF THE LINE, and skip a permit that can refuse
+    /// nothing — the same skip the partition makes, for the same reason, so
+    /// the manifest is never read for it. `decide` is `mayAmend` or
+    /// `mayDispose`, and is asked only where the answer turns on it.
+    private static func asOfTheLine(
+        _ op: Op, trust: TrustTable, permits: [String: Permit],
+        insideTheUnsignedSnapshot: Set<String>,
+        _ decide: (Permit, DeviceActor?, Bool) -> Bool
+    ) -> Bool {
+        let inside = insideTheUnsignedSnapshot.contains(op.opId)
+        guard let signer = trust.deviceKey(forDeviceId: op.device) else {
+            return AnnotationOwnership.unplaced(
+                op.device, trust: trust, insideTheUnsignedSnapshot: inside)
         }
+        let permit = permits[op.opId]
+            ?? trust.timeline(forSealKey: signer.key).current
+        if permit.allowsEverything(actor: signer.actor) { return true }
+        return decide(permit, signer.actor, inside)
     }
 }

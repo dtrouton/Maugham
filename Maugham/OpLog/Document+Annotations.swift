@@ -452,15 +452,24 @@ extension Document {
             undoManager, actionName: "Withdraw Annotation", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
-                // Refused at the posture door (P3c Task 5): a reopen is a
-                // disposition in the table, so a reviewer's ⌘Z of her own
-                // Delete is refused — said, and nothing after it is tried.
+                // The reopen that undoes a withdrawal follows OWNERSHIP
+                // (ruling P, P3c plan 2): her own Delete is hers to undo
+                // whatever her rung. What can still refuse it is the ownership
+                // rule itself — a note that turned out not to be hers — and
+                // then the refusal is said and nothing after it is tried.
                 do {
                     try await doc.reopenAnnotation(id: id)
                 } catch is PostureRefusal {
                     doc.declineUndo(.notPermitted)
                     return
                 } catch {}
+                // Where the reopen left the prior resolution standing — a
+                // reviewer's reopen is not honoured against the root's archive
+                // (the lifecycle fold judges it as a disposition) — there is
+                // nothing to put back, and asking would be refused.
+                let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
+                    .first { $0.id == id }?.status
+                if live == priorStatus { return }
                 switch priorStatus {
                 case .archived, .rejected, .accepted, .stetted:
                     // The reopen may itself have declined (a peer already
@@ -1144,7 +1153,6 @@ extension Document {
         // reopen op-side while the paired text restore no-ops (isClosed-guarded).
         // Sibling of the `appendTaskOpInternal` guard.
         if rejectMutationIfNotWritable("reopenAnnotation") { return }
-        try requireDispositionPermitted(.annotationReopen)
         let current = annotations(filter: AnnotationFilter(statuses: nil))
             .first { $0.id == id }
         let undoneKind: OpKind
@@ -1169,11 +1177,22 @@ extension Document {
             documentLog.error("reopenAnnotation: \(id, privacy: .public) status drifted (\(String(describing: current?.status), privacy: .public)) — ignoring")
             return
         }
+        // **The door, by what this reopen undoes** (ruling P, P3c plan 2).
+        // Undoing a disposition — an archive, a rejection, a stet — settles
+        // the note again, which is the writer's act: the stamp is asked, as
+        // for every disposition. Undoing a withdrawal is the ownership rule's,
+        // asked below of the op itself once it exists.
+        if undoneKind != .annotationWithdraw {
+            try requireDispositionPermitted(.annotationReopen)
+        }
         guard case .op(let op) = AnnotationInverse.reopenOp(
             undoing: undoneKind, annotationId: id, currentStatus: current?.status,
             docId: docId, device: device, session: session) else {
             documentLog.error("reopenAnnotation: factory declined for \(id, privacy: .public) — ignoring")
             return
+        }
+        if undoneKind == .annotationWithdraw {
+            try requireAmendmentHonoured(op)
         }
         try await appendAnnotationOpInternal(op)
     }
@@ -1364,8 +1383,37 @@ extension Document {
     /// change by the posture door (P3c Task 2), so a demotion arriving
     /// mid-session closes it at the next press and a promotion reopens it.
     internal func requireDispositionPermitted(_ kind: OpKind) throws {
-        guard localWritePermit.allows(.op(kind)) == .yes else {
+        guard localWritePermit.allows(.op(Self.dispositionProbe(kind))) == .yes else {
             throw PostureRefusal(kind: kind)
+        }
+    }
+
+    /// **The line a disposition door asks the stamp about** — the kind
+    /// itself, except a reopen (ruling P, P3c plan 2). The table files
+    /// `annotationReopen` with edit and withdraw, because the partition cannot
+    /// see what a reopen undoes; asked about itself it would answer the
+    /// reviewer row, and a reviewer could reopen the root's archive through a
+    /// door that looked shut. Every caller of a DISPOSITION door with a reopen
+    /// is undoing a disposition (a withdrawal's undo asks
+    /// `requireAmendmentHonoured` instead), so it is asked as the stet it is
+    /// the sibling of — `Posture.dispose`'s own probe.
+    private static func dispositionProbe(_ kind: OpKind) -> OpKind {
+        kind == .annotationReopen ? .annotationStet : kind
+    }
+
+    /// **The ownership door** (ruling P): throw `PostureRefusal` unless the
+    /// deriver would honour this amendment — asked of the deriver's own policy
+    /// (`annotationAmendments`, `AnnotationOwnership.mayAmend`), never
+    /// restated here. A reopen that undoes a withdrawal is her own act on her
+    /// own note, so her own is allowed whatever her rung, and a note somebody
+    /// else deleted is not hers to restore. A creation this stream does not
+    /// hold decides nothing, exactly as in the deriver.
+    internal func requireAmendmentHonoured(_ amendment: Op) throws {
+        guard let src = amendment.provenance?.sourceAnnotationId,
+              let creation = _opLogMirror.first(where: { $0.opId == src })
+        else { return }
+        guard annotationAmendments.honours(amendment, creation: creation) else {
+            throw PostureRefusal(kind: amendment.kind)
         }
     }
 
@@ -1426,7 +1474,7 @@ extension Document {
         // accept (reject, archive, stet, the restores ⌘Z puts back), so the
         // one question is asked here for all of them. The automations keep
         // their own error, which both of their callers catch by type.
-        if localWritePermit.allows(.op(kind)) != .yes {
+        if localWritePermit.allows(.op(Self.dispositionProbe(kind))) != .yes {
             if automation { throw AutomationNotPermitted(kind: kind) }
             throw PostureRefusal(kind: kind)
         }

@@ -1154,8 +1154,7 @@ struct AnnotationsPane: View {
         } else {
             ScrollView {
                 let livePids = Set(document.sequence)
-                let mayDispose = documentStore.posture(forDocId: document.docId)
-                    .allows(.dispose)
+                let posture = documentStore.posture(forDocId: document.docId)
                 let selection = effectiveSelection(in: rows)
                 // One read for the whole pass, for `ledgerText`'s reason.
                 let ledger = ledgerText
@@ -1182,9 +1181,15 @@ struct AnnotationsPane: View {
                                     .font(.callout).foregroundStyle(.secondary)
                                     .lineLimit(2)
                                 Spacer()
-                                // A restore is a reopen — a disposition in the
-                                // table (P3c Task 5): hidden where refused.
-                                if mayDispose {
+                                // A restore undoes a WITHDRAWAL, so it follows
+                                // ownership (ruling P): her own deleted note is
+                                // hers to restore whatever her rung. Hidden
+                                // where the door would refuse it.
+                                if AnnotationRowVerbs.restoresDeleted(
+                                    posture: posture,
+                                    isOwn: AnnotationOwnership.isOwn(
+                                        author: note.author,
+                                        localName: userPreferences.collaboratorDisplayName)) {
                                     Button("Restore") { reopen(document, id: note.id) }
                                         .buttonStyle(.bordered).controlSize(.small)
                                 }
@@ -2098,7 +2103,8 @@ struct AnnotationRowVerbs: Equatable {
     /// Accept, Got it, Reply…, Reject…, Revert — they move the words or settle
     /// the note with the writer's answer.
     let acceptOrReject: Bool
-    /// Stet, Archive, the triage menu, Reopen, and a deleted note's Restore.
+    /// Stet, Archive, the triage menu and Reopen. (A deleted note's Restore
+    /// is `restoresDeleted`: it undoes a withdrawal, not a disposition.)
     let dispose: Bool
     /// *Answer as ruling…* — a reply AND a dated ruling in the statement it
     /// files under, so both halves have to be this Mac's to write.
@@ -2131,6 +2137,18 @@ struct AnnotationRowVerbs: Equatable {
             makeChoice: dispose && ledger,
             keepAsLesson: ledger,
             ownNote: isOwn)
+    }
+
+    /// **Restore on a deleted note** (P3c plan 2, ruling P). A restore is a
+    /// reopen that undoes a WITHDRAWAL, and the deriver judges that by the
+    /// ownership rule (`AnnotationOwnership.mayAmend`): the writer's OWN
+    /// deleted note is hers to restore whatever her rung — the reviewer row —
+    /// and anybody's is a posture that may settle notes here, which is the
+    /// rule's author-rights arm. Hidden otherwise; the door behind it is
+    /// `Document.reopenAnnotation`'s ownership check, which asks the deriver's
+    /// own policy.
+    static func restoresDeleted(posture: Posture, isOwn: Bool) -> Bool {
+        isOwn || posture.allows(.dispose)
     }
 
     /// **The P1 surface, by name** — every verb its kind has. For a row built

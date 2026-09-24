@@ -601,4 +601,119 @@ final class AnnotationOwnershipTests: XCTestCase {
         XCTAssertTrue(AnnotationDeriver.isWithdrawn(annotationId: "01", in: ops),
                       "and the neutral default is unchanged")
     }
+
+    // MARK: - Ruling P: a reopen is judged per pass (P3c plan 2, Task 2)
+
+    private func reopen(_ opId: String, of target: String, by identity: DeviceIdentity) -> Op {
+        Op(opId: opId, docId: docId, at: Date(timeIntervalSince1970: 300),
+           device: identity.deviceId, session: "s", kind: .annotationReopen,
+           changes: [], provenance: .init(sourceAnnotationId: target))
+    }
+
+    private func archive(_ opId: String, of target: String, by identity: DeviceIdentity) -> Op {
+        Op(opId: opId, docId: docId, at: Date(timeIntervalSince1970: 250),
+           device: identity.deviceId, session: "s", kind: .claudeArchive,
+           changes: [], provenance: .init(sourceAnnotationId: target))
+    }
+
+    /// Sam a reviewer, Kim a reviewer, the root a book author.
+    private func twoReviewers() throws {
+        try writeRoot()
+        try admit(sam, label: "Sam")
+        try admit(kim, label: "Kim")
+        try event("01", subject: sam.author.fingerprint, role: Permit.reviewerRole)
+        try event("01", subject: kim.author.fingerprint, role: Permit.reviewerRole)
+    }
+
+    /// **Her own delete, undone, is hers** — the withdraw pass judges her
+    /// reopen by ownership.
+    func test_aReviewerRestoresHerOwnDeletedNote() throws {
+        try twoReviewers()
+        let ops = [creation("01", by: sam.author),
+                   withdraw("02", of: "01", by: sam.author),
+                   reopen("03", of: "01", by: sam.author)]
+        let policy = try amendments()
+        XCTAssertEqual(derived(ops, policy).map(\.id), ["01"])
+        XCTAssertEqual(derived(ops, policy).first?.status, .open)
+        XCTAssertTrue(AnnotationDeriver.deriveWithdrawn(ops: ops, amendments: policy).isEmpty)
+        XCTAssertFalse(AnnotationDeriver.isWithdrawn(
+            annotationId: "01", in: ops, amendments: policy))
+    }
+
+    /// **Her own note the ROOT archived stays archived** — the lifecycle fold
+    /// judges her reopen as a disposition, and being the note's author is not
+    /// author rights.
+    func test_herOwnNoteTheRootArchivedStaysArchivedWhenSheReopensIt() throws {
+        try twoReviewers()
+        let ops = [creation("01", by: sam.author),
+                   archive("02", of: "01", by: root.author),
+                   reopen("03", of: "01", by: sam.author)]
+        XCTAssertEqual(derived(ops, try amendments()).first?.status, .archived,
+                       "the root's disposition is the root's")
+    }
+
+    /// Somebody else's archive, and somebody else's delete: neither is hers
+    /// to undo.
+    func test_aReviewersReopenOfSomebodyElsesNoteIsNotHonoured() throws {
+        try twoReviewers()
+        let archived = [creation("01", by: kim.author),
+                        archive("02", of: "01", by: root.author),
+                        reopen("03", of: "01", by: sam.author)]
+        XCTAssertEqual(derived(archived, try amendments()).first?.status, .archived)
+
+        let deleted = [creation("01", by: kim.author),
+                       withdraw("02", of: "01", by: kim.author),
+                       reopen("03", of: "01", by: sam.author)]
+        XCTAssertTrue(derived(deleted, try amendments()).isEmpty,
+                      "Kim deleted it; it is not Sam's to restore")
+        XCTAssertEqual(
+            AnnotationDeriver.deriveWithdrawn(
+                ops: deleted, amendments: try amendments()).map(\.id), ["01"])
+        XCTAssertTrue(AnnotationDeriver.isWithdrawn(
+            annotationId: "01", in: deleted, amendments: try amendments()))
+    }
+
+    /// The other direction: a book author's reopen is honoured in both passes.
+    func test_aBookAuthorsReopenIsHonouredInBothPasses() throws {
+        try twoReviewers()
+        let archived = [creation("01", by: kim.author),
+                        archive("02", of: "01", by: root.author),
+                        reopen("03", of: "01", by: root.author)]
+        XCTAssertEqual(derived(archived, try amendments()).first?.status, .open)
+
+        let deleted = [creation("01", by: kim.author),
+                       withdraw("02", of: "01", by: kim.author),
+                       reopen("03", of: "01", by: root.author)]
+        XCTAssertEqual(derived(deleted, try amendments()).map(\.id), ["01"])
+    }
+
+    /// A book with no permit events: every reopen stands, as it always did.
+    func test_aBookWithNoEventsHonoursEveryReopen() throws {
+        try writeRoot()
+        try admit(sam, label: "Sam")
+        try admit(kim, label: "Kim")
+        let ops = [creation("01", by: kim.author),
+                   archive("02", of: "01", by: root.author),
+                   reopen("03", of: "01", by: sam.author)]
+        XCTAssertEqual(derived(ops, try amendments()).first?.status, .open)
+    }
+
+    /// `mayDispose` never takes the same-person arm, and `mayAmend` does —
+    /// the two questions asked directly.
+    func test_mayDisposeHasNoSamePersonArm() throws {
+        try twoReviewers()
+        let judged = try table()
+        XCTAssertTrue(AnnotationOwnership.mayAmend(
+            signerDevice: sam.author.deviceId, creatorDevice: sam.author.deviceId,
+            signerPermit: .reviewer, signerActor: .author,
+            in: .piece(docId), trust: judged))
+        XCTAssertFalse(AnnotationOwnership.mayDispose(
+            signerDevice: sam.author.deviceId,
+            signerPermit: .reviewer, signerActor: .author,
+            in: .piece(docId), trust: judged))
+        XCTAssertTrue(AnnotationOwnership.mayDispose(
+            signerDevice: root.author.deviceId,
+            signerPermit: .author(.book), signerActor: .author,
+            in: .piece(docId), trust: judged))
+    }
 }

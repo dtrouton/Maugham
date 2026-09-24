@@ -228,9 +228,11 @@ final class PermitTableTests: XCTestCase {
 
         .annotationEdit: .ownAnnotation,
         .annotationWithdraw: .ownAnnotation,
+        // Ruling P (P3c plan 2): the partition cannot see what a reopen
+        // undoes, so the deriver judges it per pass.
+        .annotationReopen: .ownAnnotation,
 
         .claudeArchive: .disposition,
-        .annotationReopen: .disposition,
         .annotationStet: .disposition,
         .annotationTriage: .disposition,
 
