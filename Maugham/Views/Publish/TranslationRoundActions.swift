@@ -124,6 +124,12 @@ struct TranslationAuthorVerbs: Equatable {
         answer: true, answerAsRuling: true, rule: true, keepMine: true,
         keepMineOpensOnTheEdition: true, replies: true)
 
+    /// No verb — a host with no window's door behind it (fails closed;
+    /// whole-branch fix wave, Minor 2).
+    static let none = TranslationAuthorVerbs(
+        answer: false, answerAsRuling: false, rule: false, keepMine: false,
+        keepMineOpensOnTheEdition: false, replies: false)
+
     /// `pieceIntent` is the posture of the round's piece's own intent
     /// statement — Keep mine's other home. Nil (a host that did not say)
     /// offers Keep mine only where the edition's brief may be written: the

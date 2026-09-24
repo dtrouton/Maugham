@@ -231,9 +231,10 @@ extension CompilerOrchestrator.Environment {
             // I), so never the drawing door's provisional one, which in the
             // frames after a demotion is still the answer it gave before it
             // (`PostureSurfaceTests.test_theRoundDoorRefusesADemotionBefore…`).
-            // A closed window answers no: there is nothing to run a round in.
+            // A closed window answers nil: there is nothing to run a round in,
+            // and *not your piece* would be the wrong thing to say about it.
             mayRunRound: { [weak documentStore] docId in
-                guard let documentStore else { return false }
+                guard let documentStore else { return nil }
                 return await documentStore.settledPosture(forDocId: docId)
                     .allows(.runRound)
             },

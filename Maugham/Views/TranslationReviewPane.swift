@@ -256,11 +256,12 @@ struct TranslationReviewPane: View {
     /// **The author's verbs here, from the window's posture door** (P3c Task
     /// 8, ruling Q) — `TranslationAuthorVerbs`, the round report's own
     /// decision, so the two surfaces answer a translator alike. With no
-    /// window's door behind the pane (a probe mount), the P1 surface.
+    /// window's door behind the pane, NO verb (fails closed; whole-branch fix
+    /// wave, Minor 2). With no translation language, the pane shows no
+    /// translation and these verbs are asked of nothing.
     private var authorVerbs: TranslationAuthorVerbs {
-        guard let documentStore, let language = control.translationLanguage else {
-            return .unrestricted
-        }
+        guard let documentStore else { return .none }
+        guard let language = control.translationLanguage else { return .unrestricted }
         return TranslationAuthorVerbs.decide(
             document: documentStore.posture(forDocId: document.docId),
             editionBrief: documentStore.posture(

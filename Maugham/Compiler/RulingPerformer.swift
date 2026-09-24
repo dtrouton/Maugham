@@ -320,10 +320,11 @@ enum RulingPerformer {
     /// **Refuse, before any mint and any op, a ruling this device may not
     /// write** — `RulingRefusal.notYours`.
     ///
-    /// Asked in each verb rather than at its callers: thirteen call sites
-    /// file rulings (a run's letter, a queue answer, a translator's directive,
-    /// a proposal's glossary…), and a check at each would be thirteen chances
-    /// to forget one. Here, the number of callers stops mattering.
+    /// Asked in each verb rather than at its callers: many call sites file
+    /// rulings (a run's letter, a queue answer, a translator's directive, a
+    /// proposal's glossary…), and a check at each would be one more chance
+    /// per caller to forget it. Here, every caller is covered and the number
+    /// of them stops mattering.
     ///
     /// **The question is `.editStatement` of the statement's own document**,
     /// asked of the ONE door (`DocumentStore.settledPosture`, controller

@@ -323,19 +323,21 @@ struct BinderView: View {
     // MARK: - What the posture allows here (P3c Task 8)
 
     /// **Which structural verbs this row may offer** — asked of the window's
-    /// posture door, per the pieces the row is about. A tree mounted with no
-    /// window behind it (a fixture with no `DocumentStore`) has no door to ask
-    /// and draws the P1 tree; every production window adopts its
-    /// `DocumentStore` before the tree is drawn (`ProjectWindow.load`).
+    /// posture door, per the pieces the row is about. A tree with no door
+    /// behind it offers NOTHING (whole-branch fix wave, Minor 2): every
+    /// production window adopts its `DocumentStore` before the tree is drawn
+    /// (`ProjectWindow.load`), but `ProjectStore.documentStore` is weak and
+    /// the window nils its store a frame before the tree goes, so the absence
+    /// fails CLOSED — as `postureDrawn(forDocId:)` does — never open.
     func structureVerbs(for item: StructureItem) -> TreeStructureVerbs {
-        guard let documentStore = store.documentStore else { return .unrestricted }
+        guard let documentStore = store.documentStore else { return .none }
         return TreeStructureVerbs.decide(
             for: item, postureOf: { documentStore.posture(forDocId: $0) })
     }
 
     /// New Document / New Group at the root, and the empty state's buttons.
     var mayStartAPiece: Bool {
-        guard let documentStore = store.documentStore else { return true }
+        guard let documentStore = store.documentStore else { return false }
         return TreeStructureVerbs.mayStartAPiece(
             documentStore.posture(forDocId: DocumentClass.projectStreamDocId))
     }
@@ -576,10 +578,16 @@ struct TreeStructureVerbs: Equatable {
     let linkResearch: Bool
     let tidy: Bool
 
-    /// The P1 tree — every verb. For a tree no window's door stands behind.
+    /// The P1 tree — every verb. What a book-author's posture decides.
     static let unrestricted = TreeStructureVerbs(
         newInside: true, duplicate: true, rename: true, delete: true,
         move: true, linkResearch: true, tidy: true)
+
+    /// No verb — the answer where no window's door stands behind the tree
+    /// (fails closed; whole-branch fix wave, Minor 2).
+    static let none = TreeStructureVerbs(
+        newInside: false, duplicate: false, rename: false, delete: false,
+        move: false, linkResearch: false, tidy: false)
 
     /// Whether any verb at all is offered — a row with none draws no menu.
     var offersAny: Bool {

@@ -317,16 +317,16 @@ struct CollectionPiecesPane: View {
     }
 
     /// The pieces' structural verbs, from the window's posture door —
-    /// `BinderView.structureVerbs`' twin; no door, the P1 pane.
+    /// `BinderView.structureVerbs`' twin; no door, no verb (fails closed).
     func structureVerbs(for piece: StructureItem) -> TreeStructureVerbs {
-        guard let documentStore = store.documentStore else { return .unrestricted }
+        guard let documentStore = store.documentStore else { return .none }
         return TreeStructureVerbs.decide(
             for: piece, postureOf: { documentStore.posture(forDocId: $0) })
     }
 
     /// The header's + menu: every item in it starts (or links in) a piece.
     var mayStartAPiece: Bool {
-        guard let documentStore = store.documentStore else { return true }
+        guard let documentStore = store.documentStore else { return false }
         return TreeStructureVerbs.mayStartAPiece(
             documentStore.posture(forDocId: DocumentClass.projectStreamDocId))
     }
@@ -379,10 +379,14 @@ enum StartAPieceDoor {
     }
 
     /// What the window publishes for the menu — the drawing door's answer.
-    /// No window's door behind the store: the P1 menu.
+    /// No project store: nil (no window says anything). A store with no door
+    /// behind it — the frame between the window dropping its `DocumentStore`
+    /// and its `ProjectStore` — says FALSE (fails closed; whole-branch fix
+    /// wave, Minor 2).
     @MainActor
     static func drawn(store: ProjectStore?) -> Bool? {
-        guard let documentStore = store?.documentStore else { return nil }
+        guard let store else { return nil }
+        guard let documentStore = store.documentStore else { return false }
         return TreeStructureVerbs.mayStartAPiece(
             documentStore.posture(forDocId: DocumentClass.projectStreamDocId))
     }
@@ -397,7 +401,8 @@ enum StartAPieceDoor {
     /// reaching the receiver is refused in words, never silently.
     @MainActor
     static func admits(store: ProjectStore) async -> Bool {
-        guard let documentStore = store.documentStore else { return true }
+        // No door behind the store: nothing is started (fails closed).
+        guard let documentStore = store.documentStore else { return false }
         let posture = await documentStore.settledPosture(
             forDocId: DocumentClass.projectStreamDocId)
         guard TreeStructureVerbs.mayStartAPiece(posture) else {

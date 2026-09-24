@@ -72,9 +72,10 @@ struct TranslationRoundReportHost: View {
     /// **The author's verbs, from the window's posture door** (P3c Task 8,
     /// ruling Q): a disposition asks the round's DOCUMENT, a ruling asks the
     /// edition's brief — the same two questions the verbs' own doors ask. No
-    /// window's door behind this host, the P1 surface.
+    /// window's door behind this host: no verb (fails closed; whole-branch fix
+    /// wave, Minor 2).
     private var verbs: TranslationAuthorVerbs {
-        guard let documentStore else { return .unrestricted }
+        guard let documentStore else { return .none }
         return TranslationAuthorVerbs.decide(
             document: documentStore.posture(forDocId: round.docId),
             editionBrief: documentStore.posture(

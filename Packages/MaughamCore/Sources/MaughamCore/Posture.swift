@@ -113,7 +113,9 @@ public struct Posture: Equatable, Sendable {
     public enum Reason: Equatable, Sendable {
         /// A reviewer: notes, never the manuscript. Also the answer where the
         /// ACTOR key narrows a permit that would otherwise write here — the
-        /// assistant is the reviewer row on every device.
+        /// assistant is the reviewer row on every device, and the translator
+        /// reads `.reviewer` for the manuscript too (controller ruling F): its
+        /// own words are the translation, never the piece's text.
         case reviewer
         /// An author of some pieces, and this is not one of them.
         case notYourPiece

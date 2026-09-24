@@ -741,22 +741,22 @@ final class PostureSurfaceTests: XCTestCase {
 
         let asBookAuthorA = await environment.mayRunRound("doc-a")
         let asBookAuthorB = await environment.mayRunRound("doc-b")
-        XCTAssertTrue(asBookAuthorA, "a whole-book author may run any round")
-        XCTAssertTrue(asBookAuthorB)
+        XCTAssertEqual(asBookAuthorA, true, "a whole-book author may run any round")
+        XCTAssertEqual(asBookAuthorB, true)
 
         try await rootChangesMyPermit(
             to: .author(.pieces(["doc-a"])), root: root, identities: identities,
             projectURL: projectURL, store: documentStore)
         let piecesA = await environment.mayRunRound("doc-a")
         let piecesB = await environment.mayRunRound("doc-b")
-        XCTAssertTrue(piecesA, "her piece: her round")
-        XCTAssertFalse(piecesB, "somebody else's piece: not her round")
+        XCTAssertEqual(piecesA, true, "her piece: her round")
+        XCTAssertEqual(piecesB, false, "somebody else's piece: not her round")
 
         try await rootChangesMyPermit(
             to: .reviewer, root: root, identities: identities,
             projectURL: projectURL, store: documentStore)
         let reviewerA = await environment.mayRunRound("doc-a")
-        XCTAssertFalse(reviewerA, "a reviewer runs no round, on any piece")
+        XCTAssertEqual(reviewerA, false, "a reviewer runs no round, on any piece")
     }
 
     /// **The settled door, not the drawing one** (controller ruling I): a
@@ -799,7 +799,7 @@ final class PostureSurfaceTests: XCTestCase {
         await documentStore.flushRegistryChangeForTesting()
 
         let mayRun = await environment.mayRunRound("doc-b")
-        XCTAssertFalse(mayRun, "the round's door waits for the settled answer")
+        XCTAssertEqual(mayRun, false, "the round's door waits for the settled answer")
     }
 
     /// **The cockpit's Run follows the SHOWN piece's posture**: an author of

@@ -341,7 +341,11 @@ final class CompilerOrchestrator {
         /// **May this Mac run a ROUND on this piece?** (P3c Task 6, plan
         /// ruling R4) — asked once per round press, after `roundEditor` and
         /// before anything starts; `false` flashes `.notYourPiece` and the
-        /// press does nothing else. **Never asked of a check.**
+        /// press does nothing else; `nil` — no window's door behind the run
+        /// any more (the window closed while the press was in flight) —
+        /// starts nothing and SAYS nothing, because *not your piece* would be
+        /// the wrong sentence (whole-branch fix wave, Minor 3). **Never asked
+        /// of a check.**
         ///
         /// **Async on purpose, because it is an ACTING door** (controller
         /// ruling I): production answers it with `DocumentStore
@@ -355,7 +359,7 @@ final class CompilerOrchestrator {
         /// built before the permit reached this loop still compiles and still
         /// runs; the production wiring (`CompilerEnvironment+Project`) always
         /// supplies it, and `PostureSurfaceTests` pins that it does.
-        var mayRunRound: @MainActor (String) async -> Bool = { _ in true }
+        var mayRunRound: @MainActor (String) async -> Bool? = { _ in true }
         /// **The project's own type**, for the letter's scene position (spec
         /// §3.4, editorial letter P1 Task 3). A screenplay moves by scenes in
         /// the strong sense by its form; everything else reads as prose until
@@ -740,6 +744,7 @@ final class CompilerOrchestrator {
                 guard let self, self.runGeneration == generation,
                       let environment = self.environment else { return }
                 self.isPreparingRun = false
+                guard let mayRun else { return }  // no window: nothing to say
                 guard mayRun else {
                     environment.onRunAcknowledged(.notYourPiece)
                     return

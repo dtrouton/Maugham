@@ -359,7 +359,7 @@ final class CompilerRunCommandTests: XCTestCase {
         /// answer, which production asks of the settled posture. Yes by
         /// default, which is every test written before the permit reached the
         /// round loop.
-        mayRunRound: @escaping @MainActor (String) async -> Bool = { _ in true },
+        mayRunRound: @escaping @MainActor (String) async -> Bool? = { _ in true },
         liveParagraphText: @escaping (String, String) -> String? = { _, _ in "The fog came." },
         pinnedListing: @escaping (String) -> [String] = { _ in [] },
         paletteListing: @escaping () -> [String] = { [] },
@@ -3437,6 +3437,26 @@ final class CompilerRunCommandTests: XCTestCase {
         settle(turns: 4)
         XCTAssertEqual(harness.flashesSaid, [.notYourPiece, .notYourPiece])
         XCTAssertTrue(runner.sends.isEmpty)
+    }
+
+    /// **A round whose window closed while it asked is refused SILENTLY**
+    /// (whole-branch fix wave, Minor 3): `nil` is *no door behind the run*,
+    /// and *not your piece* would be the wrong sentence. It still starts
+    /// nothing and releases the in-flight gate.
+    func test_aRoundWhoseWindowClosedWhileItAskedSaysNothingAndStartsNothing() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(oneQuestion("Whose coat?", about: "a1b2"))
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), stage: "line",
+            mayRunRound: { _ in nil })
+
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        settle(turns: 4)
+
+        XCTAssertEqual(harness.flashesSaid, [], "nothing is said about a closed window")
+        XCTAssertTrue(runner.sends.isEmpty, "and nothing is asked of any session")
+        XCTAssertFalse(harness.orchestrator.isRunning)
+        XCTAssertEqual(harness.orchestrator.runState, .idle)
     }
 
     /// **The other direction**: the same piece, the same stage, a Mac that may
