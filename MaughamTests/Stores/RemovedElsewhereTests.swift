@@ -1,5 +1,5 @@
 import XCTest
-import MaughamCore
+@testable import MaughamCore
 @testable import Maugham
 
 /// **Pieces removed elsewhere, and Restore** (Denver's ruling, 2026-09-24).
@@ -37,8 +37,42 @@ final class RemovedElsewhereTests: XCTestCase {
         let live = [group("g", [doc("doc-live")])]
         let found = RemovedElsewhere.candidates(
             opLogDocIds: ["doc-live", "doc-gone", "stmt-1", "doc-trashed"],
-            live: live, statementIds: ["stmt-1"], trashedIds: ["doc-trashed"])
+            live: live, statementIds: ["stmt-1"], trashedIds: ["doc-trashed"],
+            letGoIds: [])
         XCTAssertEqual(found, ["doc-gone"])
+    }
+
+    /// **Emptying Trash records the let-go** (Denver, 2026-09-24): an id any
+    /// device let go of is accounted for, like a live row or a Trash entry.
+    func test_anIdSomeDeviceLetGoOfIsNotACandidate() {
+        let found = RemovedElsewhere.candidates(
+            opLogDocIds: ["doc-gone", "doc-letgo"], live: [], statementIds: [],
+            trashedIds: [], letGoIds: ["doc-letgo"])
+        XCTAssertEqual(found, ["doc-gone"])
+    }
+
+    /// The record is per device (tripwire 17) and read as the UNION of every
+    /// device's file; a line this build cannot read is skipped, not fatal.
+    func test_theLetGoRecordIsReadAsTheUnionOfEveryDevicesFile() throws {
+        let url = temp.url.appendingPathComponent("letgo-union")
+        try LetGoRecord.record(ids: ["doc-aaaa", "doc-bbbb"], in: url,
+                               device: DeviceSlug.unsafeForTesting("thismac"))
+        try LetGoRecord.record(ids: ["doc-cccc"], in: url,
+                               device: DeviceSlug.unsafeForTesting("othermac"))
+        let other = LetGoRecord.fileURL(for: DeviceSlug.unsafeForTesting("othermac"), in: url)
+        let handle = try FileHandle(forWritingTo: other)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("not json\n".utf8))
+        try handle.close()
+
+        XCTAssertEqual(LetGoRecord.ids(in: url), ["doc-aaaa", "doc-bbbb", "doc-cccc"])
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                atPath: LetGoRecord.directory(in: url).path).sorted(),
+            ["let-go.othermac.jsonl", "let-go.thismac.jsonl"],
+            "one file per device, never one shared file")
+        XCTAssertEqual(LetGoRecord.ids(in: temp.url.appendingPathComponent("nothing")), [],
+                       "no record at all is nothing let go")
     }
 
     func test_theRowComesFromTheNewestArchiveThatHeldIt() {
@@ -62,7 +96,7 @@ final class RemovedElsewhereTests: XCTestCase {
         XCTAssertEqual(pieces[0].removedAt, Date(timeIntervalSince1970: 200))
     }
 
-    /// Leg 3: an op log that no archive ever held is NOT listed. This is what
+    /// Leg 4: an op log that no archive ever held is NOT listed. This is what
     /// keeps a chapter the writer trashed and emptied — whose op log Trash
     /// leaves behind — from being offered back as something another device did.
     func test_anIdNoArchiveHeldIsNotListed() {
@@ -117,9 +151,9 @@ final class RemovedElsewhereTests: XCTestCase {
 
     func test_theCaptionSaysWhen() {
         let now = Date()
-        XCTAssertEqual(RemovedElsewhereDisclosure.caption(for: now, now: now), "Removed today")
+        XCTAssertEqual(RemovedElsewhereDisclosure.caption(for: now, now: now), "Left the binder today")
         XCTAssertEqual(RemovedElsewhereDisclosure.caption(
-            for: now.addingTimeInterval(-86_400), now: now), "Removed yesterday")
+            for: now.addingTimeInterval(-86_400), now: now), "Left the binder yesterday")
     }
 
     // MARK: - Against a book on disk
@@ -300,6 +334,129 @@ final class RemovedElsewhereTests: XCTestCase {
 
         await store.refreshRemovedElsewhere()
         XCTAssertEqual(store.removedElsewhere, [])
+        await ds.close()
+    }
+
+    // MARK: - The let-go (Denver, 2026-09-24)
+
+    /// Writes this window's outline as an archive — the state after any
+    /// adoption while the piece was live, which is what the old Limit 2 was
+    /// about.
+    private func archiveHolding(_ store: ProjectStore, url: URL) throws {
+        let conflicts = url.appendingPathComponent(".maugham/conflicts")
+        try FileManager.default.createDirectory(at: conflicts, withIntermediateDirectories: true)
+        try ProjectManifest.makeEncoder().encode(store.manifest).write(
+            to: conflicts.appendingPathComponent(ManifestConflictArchive.fileName(for: Date())),
+            options: [.atomic])
+    }
+
+    /// A chapter with words, held by an archive, then trashed.
+    private func trashedChapter() async throws -> (URL, ProjectStore, DocumentStore, StructureItem) {
+        let (url, store, ds) = try await openWindow()
+        let piece = try await store.addStructureItem(
+            parentId: nil, title: "Chapter 2", kind: .document(extension: "md"))
+        try await write("Let go of.", at: try XCTUnwrap(piece.path), in: url)
+        try archiveHolding(store, url: url)
+        try await store.deleteStructureItem(id: piece.id)
+        return (url, store, ds, piece)
+    }
+
+    /// **The reviewer's missing case**: an archive held the piece, the writer
+    /// trashed it and emptied Trash. Before the let-go record this was listed
+    /// as removed elsewhere (the old Limit 2).
+    func test_aPieceAnArchiveHeldThatWasTrashedAndEmptiedIsNotListed() async throws {
+        let (url, store, ds, piece) = try await trashedChapter()
+        try await store.emptyTrash()
+
+        XCTAssertTrue(LetGoRecord.ids(in: url).contains(piece.id), "the emptying is recorded")
+        await store.refreshRemovedElsewhere()
+        XCTAssertEqual(store.removedElsewhere, [])
+        XCTAssertFalse(OpLogStore.opLogFileURLs(forDocId: piece.id, in: url).isEmpty,
+                       "and its history is still on disk, as before")
+        await ds.close()
+    }
+
+    /// The same through Delete Permanently on one entry.
+    func test_aPieceDeletedPermanentlyFromTrashIsNotListed() async throws {
+        let (url, store, ds, piece) = try await trashedChapter()
+        let entry = try XCTUnwrap(store.trashEntries.first)
+        try await store.permanentlyDeleteTrashEntry(id: entry.id)
+
+        XCTAssertTrue(LetGoRecord.ids(in: url).contains(piece.id))
+        await store.refreshRemovedElsewhere()
+        XCTAssertEqual(store.removedElsewhere, [])
+        await ds.close()
+    }
+
+    /// The same through the 30-day sweep.
+    func test_aPieceTheRetentionSweepRemovedIsNotListed() async throws {
+        let (url, store, ds, piece) = try await trashedChapter()
+        let entry = try XCTUnwrap(store.trashEntries.first)
+        // Age the entry past the retention window by its folder name's stamp.
+        let trashRoot = url.appendingPathComponent(".trash")
+        let aged = TrashStore.timestampPrefix(for: Date().addingTimeInterval(-40 * 86_400))
+            + "-" + piece.id
+        try FileManager.default.moveItem(
+            at: trashRoot.appendingPathComponent(entry.id),
+            to: trashRoot.appendingPathComponent(aged))
+        try await store.trashStore.sweep()
+
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: trashRoot.appendingPathComponent(aged).path), "precondition: swept")
+        XCTAssertTrue(LetGoRecord.ids(in: url).contains(piece.id))
+        await store.refreshRemovedElsewhere()
+        XCTAssertEqual(store.removedElsewhere, [])
+        await ds.close()
+    }
+
+    /// A trashed GROUP's emptying lets go of every piece under it.
+    func test_emptyingATrashedGroupLetsGoOfItsChildren() async throws {
+        let (url, store, ds) = try await openWindow()
+        let part = try await store.addStructureItem(parentId: nil, title: "Part", kind: .group)
+        let inner = try await store.addStructureItem(
+            parentId: part.id, title: "Inside", kind: .document(extension: "md"))
+        try await write("Inside.", at: try XCTUnwrap(inner.path), in: url)
+        try archiveHolding(store, url: url)
+        try await store.deleteStructureItem(id: part.id)
+        try await store.emptyTrash()
+
+        XCTAssertTrue(LetGoRecord.ids(in: url).isSuperset(of: [part.id, inner.id]))
+        await store.refreshRemovedElsewhere()
+        XCTAssertEqual(store.removedElsewhere, [])
+        await ds.close()
+    }
+
+    /// **Another device let it go**: once that device's record has synced
+    /// here, the piece its stale outline dropped is not offered back either.
+    func test_aPieceAnotherDeviceLetGoOfIsNotListed() async throws {
+        let (url, store, ds) = try await openWindow()
+        let second = try await store.addStructureItem(
+            parentId: nil, title: "Chapter 2", kind: .document(extension: "md"))
+        try await write("Theirs to let go.", at: try XCTUnwrap(second.path), in: url)
+        try anotherMacDrops(second.id, url: url, store: store, ds: ds)
+        await store.refreshRemovedElsewhere()
+        XCTAssertEqual(store.removedElsewhere.map(\.id), [second.id],
+                       "precondition: listed while nothing records a let-go")
+
+        try LetGoRecord.record(ids: [second.id], in: url,
+                               device: DeviceSlug.unsafeForTesting("othermac"))
+        await store.refreshRemovedElsewhere()
+        XCTAssertEqual(store.removedElsewhere, [])
+        await ds.close()
+    }
+
+    /// Nothing else changes: a restore from Trash records nothing, so a piece
+    /// that went to Trash and came back is still offered if a stale outline
+    /// later drops it.
+    func test_aRestoreFromTrashRecordsNoLetGo() async throws {
+        let (url, store, ds, piece) = try await trashedChapter()
+        let entry = try XCTUnwrap(store.trashEntries.first)
+        try await store.restoreTrashEntry(id: entry.id)
+
+        XCTAssertEqual(LetGoRecord.ids(in: url), [])
+        try anotherMacDrops(piece.id, url: url, store: store, ds: ds)
+        await store.refreshRemovedElsewhere()
+        XCTAssertEqual(store.removedElsewhere.map(\.id), [piece.id])
         await ds.close()
     }
 }

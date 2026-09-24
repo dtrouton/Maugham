@@ -314,6 +314,72 @@ final class MidSessionActorTests: XCTestCase {
                        ren.assistant.fingerprint, "and this time it lands")
     }
 
+    /// **Whole-branch review M2: a store that asked once asks again when the
+    /// registry changes.** The store remembered an actor BEFORE asking whether
+    /// a declaration was due, so a long-lived store — an open document's —
+    /// whose first assistant line met a refusing registry never asked again for
+    /// its life, however the registry changed. It now forgets what it asked
+    /// whenever it is told the registry changed (`invalidateTrust`, which
+    /// `DocumentStore` sends every open document on a registry arrival) or
+    /// sees it change itself (a read that re-resolves the trust table).
+    func test_aStoreThatAskedOnceAsksAgainAfterTheRegistryChanges() async throws {
+        try openedAndAdmitted()
+        let devices = RegistryWriter.directoryURL(.devices, in: projectURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o555], ofItemAtPath: devices.path)
+        let attempts = attemptCounter()
+        let rensStore = OpLogStore(
+            projectURL: projectURL, identities: ren, state: renState)
+        try await rensStore.append(note("01", by: ren.assistant))
+        XCTAssertEqual(attempts.count, 1, "precondition: the refused attempt")
+
+        // The registry changes: writable again, and a record moves.
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: devices.path)
+        try RegistryWriter.write(
+            PersonRecord(
+                person: ren.author.fingerprint, label: "Ren again", ownName: "Ren’s Mac",
+                admittedAt: Date(timeIntervalSince1970: 21),
+                admittedBy: root.author.fingerprint),
+            signedBy: root.author, in: projectURL)
+        rensStore.invalidateTrust()
+        try await rensStore.append(note("02", by: ren.assistant))
+
+        XCTAssertEqual(attempts.count, 2, "the SAME store asks the changed registry")
+        XCTAssertEqual(try renRecord().actors[DeviceActor.assistant.rawValue],
+                       ren.assistant.fingerprint, "and this time it lands")
+
+        // And unchanged, it asks nothing more.
+        try await rensStore.append(note("03", by: ren.assistant))
+        XCTAssertEqual(attempts.count, 2)
+    }
+
+    /// The same store, told nothing, notices the change through its own read.
+    func test_aStoreThatReadsAChangedRegistryAsksAgain() async throws {
+        try openedAndAdmitted()
+        let devices = RegistryWriter.directoryURL(.devices, in: projectURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o555], ofItemAtPath: devices.path)
+        let attempts = attemptCounter()
+        let rensStore = OpLogStore(
+            projectURL: projectURL, identities: ren, state: renState)
+        try await rensStore.append(note("01", by: ren.assistant))
+        _ = try await rensStore.loadDiagnosed(docId: docId)
+
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: devices.path)
+        try RegistryWriter.write(
+            PersonRecord(
+                person: ren.author.fingerprint, label: "Ren again", ownName: "Ren’s Mac",
+                admittedAt: Date(timeIntervalSince1970: 21),
+                admittedBy: root.author.fingerprint),
+            signedBy: root.author, in: projectURL)
+        _ = try await rensStore.loadDiagnosed(docId: docId)
+        try await rensStore.append(note("02", by: ren.assistant))
+
+        XCTAssertEqual(attempts.count, 2, "a read that saw the change re-opens the question")
+    }
+
     /// The translator's batch goes through the same memo.
     func test_theTranslatorsSecondBatchAsksNothing() async throws {
         try openedAndAdmitted()

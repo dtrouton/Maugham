@@ -778,11 +778,17 @@ non-author actor — `OpLogStore.append` and `TranslationStore.appendBatch` —
 reach it through `declareActorOnce` BEFORE the line is written, on their own
 (main) actor and only when `declarationIsDue` — a check that reads no record —
 says so (a detached hop was measured to reorder what `append`'s callers observe
-and was withdrawn): one attempt per store per actor, and across stores one
-attempt per registry state (the memo holds the registry's `TrustResolution.signature`
-after the last attempt, per project and actor key, for the process's life), so
-a registry that REFUSES costs one verified read and one write attempt, not one
-per line. It never declares a device the book has no record of, never names the
+and was withdrawn). A store ASKS once per actor until it learns the registry
+changed — `invalidateTrust()` (which `DocumentStore` sends every open document
+on a registry arrival and after its own registry writes) or its own
+`trust()`/`trustOnThisActor()` re-resolving over a new signature both make it
+forget, so an open document's store asks again (whole-branch review M2; before
+that the store memoised the actor before the due check and never re-asked for
+its life). Across stores there is one ATTEMPT per registry state (the memo holds
+the registry's `TrustResolution.signature` after the last attempt, per project
+and actor key, for the process's life), so a registry that REFUSES costs one
+verified read and one write attempt, not one per line. The author's typing path
+is untouched: an author line asks nothing, one enum compare. It never declares a device the book has no record of, never names the
 author (the author is the device, declared at open, and the keystroke path pays
 nothing), never mints a key it only enumerated, leaves a retired record alone,
 and never costs a line: a refusal is logged and the line goes on, held elsewhere

@@ -170,6 +170,9 @@ public final class OpLogStore {
         let projectURL = self.projectURL
         let identities = self.identities
         let cache = self.registryCache
+        // The registry is not what this store last saw: any actor it asked
+        // about may be due again (whole-branch review M2).
+        declaredActors.removeAll()
         let table = try await Task.detached(priority: .userInitiated) {
             try TrustResolution.resolve(
                 projectURL: projectURL, identities: identities, cache: cache)
@@ -204,6 +207,7 @@ public final class OpLogStore {
         if let resolvedTrust, resolvedTrust.signature == signature {
             return resolvedTrust.table
         }
+        declaredActors.removeAll()
         let table = try TrustResolution.resolve(
             projectURL: projectURL, identities: identities, cache: registryCache)
         resolvedTrust = (signature, table)
@@ -216,7 +220,14 @@ public final class OpLogStore {
     /// caller that JUST changed it — the admission sheet writing a person
     /// record — should say so rather than hope a modification time moved far
     /// enough to be seen.
-    public func invalidateTrust() { resolvedTrust = nil }
+    ///
+    /// It also forgets which actors this store has asked about declaring
+    /// (`declaredActors`): a changed registry is exactly the state in which an
+    /// answer of *not due* — or a refused attempt — may have stopped being true.
+    public func invalidateTrust() {
+        resolvedTrust = nil
+        declaredActors.removeAll()
+    }
 
     /// **May this device's own hand write here, and what?** — the ONE question
     /// asked before a line exists (P3a Task 8).
@@ -349,12 +360,19 @@ public final class OpLogStore {
     /// declared and before the line is written, so a test can see the order.
     var beforeChainedAppendForTesting: (() -> Void)?
 
-    /// The actors this store has asked about — ONCE per store per actor,
-    /// whatever the answer was, because a registry read per line would be a
-    /// folder read and a P256 verify per record on every append (and a failing
-    /// registry would pay a write attempt too). A later store asks
-    /// `RegistryPresence.declarationIsDue`, which answers yes again only if the
-    /// registry has changed since the last attempt.
+    /// The actors this store has asked about since it last saw the registry
+    /// change — whatever the answer was, because asking per line would be a
+    /// folder listing on every append (and a failing registry would pay a write
+    /// attempt too). Asking is `RegistryPresence.declarationIsDue`, which
+    /// answers yes again only if the registry has changed since the last
+    /// attempt ANY store made.
+    ///
+    /// **Forgotten whenever this store learns the registry changed** (whole-
+    /// branch review M2): `invalidateTrust()`, which `DocumentStore` sends every
+    /// open document on a registry arrival and after its own registry writes,
+    /// and `trust()`/`trustOnThisActor()` re-resolving over a new signature.
+    /// Before that, an open document's store whose first non-author line met a
+    /// *not due* or a refusal never asked again for its life.
     private var declaredActors: Set<DeviceActor> = []
     var declaredActorsForTesting: Set<DeviceActor> { declaredActors }
 

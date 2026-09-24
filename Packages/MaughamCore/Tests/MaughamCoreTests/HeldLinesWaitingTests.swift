@@ -124,6 +124,29 @@ final class HeldLinesWaitingTests: XCTestCase {
         XCTAssertNil(HeldLines.Waiting().phrase)
     }
 
+    /// **Whole-branch review M5**: prose ops that name no paragraph are
+    /// counted even when OTHER prose ops do. The phrase used to fall back to
+    /// *changes* only when every prose op was anonymous, so one named
+    /// paragraph beside two anonymous bursts read *1 paragraph* — two held
+    /// lines the sentence said nothing about.
+    func test_anonymousProseBesideANamedParagraphIsStillCounted() throws {
+        let waiting = try XCTUnwrap(HeldLines.Waiting.byDevice(of: [
+            try line(.typingBurst, [("p1ab", "The rain came in sideways.")], heldBy: kit),
+            try line(.typingBurst, heldBy: kit),
+            try line(.typingBurst, heldBy: kit),
+        ])[kit])
+
+        XCTAssertEqual(waiting.paragraphs, 1)
+        XCTAssertEqual(waiting.prose, 3)
+        XCTAssertEqual(waiting.phrase?.text, "1 paragraph and 2 changes")
+        XCTAssertEqual(waiting.phrase?.isPlural, true)
+
+        // And they survive a merge with another file's description.
+        let merged = waiting.merged(with: HeldLines.Waiting(
+            paragraphIds: ["p2cd"], prose: 2, anonymousProse: 1))
+        XCTAssertEqual(merged.phrase?.text, "2 paragraphs and 3 changes")
+    }
+
     func test_twoFilesMergeIntoOneDescription() {
         let a = HeldLines.Waiting(paragraphIds: ["p1ab"], prose: 1, notes: 1, peek: "First")
         let b = HeldLines.Waiting(paragraphIds: ["p1ab", "p2cd"], prose: 2, peek: "Later")
