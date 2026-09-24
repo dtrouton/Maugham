@@ -257,6 +257,29 @@ final class RemovedElsewhereTests: XCTestCase {
         await ds.close()
     }
 
+    /// **Another Mac's let-go arriving re-derives the list** (final round).
+    /// Its record lands in `.maugham/let-go/`; the presenter's arm for that
+    /// folder refreshes Removed Elsewhere, so a piece that Mac emptied from its
+    /// Trash stops being offered here without waiting for a structure change.
+    func test_anotherMacsLetGoArrivingTakesThePieceOffTheList() async throws {
+        let (url, store, ds) = try await openWindow()
+        let second = try await store.addStructureItem(
+            parentId: nil, title: "Chapter 2", kind: .document(extension: "md"))
+        try await write("Words another Mac let go of.", at: try XCTUnwrap(second.path), in: url)
+        try anotherMacDrops(second.id, url: url, store: store, ds: ds)
+        await store.refreshRemovedElsewhere()
+        XCTAssertEqual(store.removedElsewhere.map(\.id), [second.id], "premise: listed")
+
+        let other = DeviceSlug.unsafeForTesting("other-mac")
+        try LetGoRecord.record(ids: [second.id], in: url, device: other)
+        ds.presenterDidChangeSubitem(at: LetGoRecord.fileURL(for: other, in: url))
+        await ds.flushLetGoRefreshForTesting()
+
+        XCTAssertEqual(store.removedElsewhere, [],
+                       "the let-go another Mac recorded is honoured on arrival")
+        await ds.close()
+    }
+
     /// A stale `.md` at the path is never trusted: the render replaces it, and
     /// the load keeps its bytes in `.maugham/conflicts/` first.
     func test_aStaleFileAtThePathIsReplacedByTheRender() async throws {

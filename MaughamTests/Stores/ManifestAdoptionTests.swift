@@ -420,6 +420,14 @@ final class ManifestAdoptionTests: XCTestCase {
         // The way back it names is real (Denver's ruling, 2026-09-24): the
         // adoption archived the outline that held it, so the list has it.
         XCTAssertTrue(seen.first?.contains("Removed Elsewhere") ?? false)
+        // It says what happened to the BINDER, as Removed Elsewhere does
+        // (review M6): the archive cannot tell another device's stale outline
+        // from an addition that lost a last-writer-wins race, so the notice
+        // names no device and no act of one.
+        XCTAssertTrue(seen.first?.contains("left the binder when two devices\u{2019} outlines crossed") ?? false,
+                      "\(seen)")
+        XCTAssertFalse(seen.first?.contains("another device") ?? true,
+                       "the notice claims a device removed it, which the archive cannot say")
         await store.refreshRemovedElsewhere()
         XCTAssertEqual(store.removedElsewhere.map(\.id), [item.id])
         XCTAssertTrue(wordsInOpLog(item.id, store).contains("Typed here, then dropped elsewhere."))
