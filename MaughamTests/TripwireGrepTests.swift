@@ -9089,8 +9089,8 @@ final class TripwireGrepTests: XCTestCase {
         "Posture.settling",
     ]
 
-    /// File AND spelling. The door names all nine; the five `Document` files
-    /// are P3a's load-seam and membrane sites and keep exactly the spellings
+    /// File AND spelling. The door names every ask spelling; the `Document`
+    /// files are P3a's load-seam and membrane sites and keep exactly the spellings
     /// they already have. `Document+Load.swift` asks through a local
     /// `writePermit`, so it carries `.allows(.op(` as well; every other line
     /// there is admitted by `localWritePermit` on the same line.
@@ -9106,8 +9106,11 @@ final class TripwireGrepTests: XCTestCase {
         "RulingPerformer.swift": ["localWritePermit", "Posture("],
         // P3c Task 8 (ruling A): the translation pipeline is reached from MCP
         // and the translator's ingest with no window — it asks the one builder
-        // as the TRANSLATOR actor, over the identities it signs with.
-        "TranslationWritePipeline.swift": ["localWritePermit", "Posture("],
+        // as the TRANSLATOR actor, over the identities it signs with. Its one
+        // `Posture(` wraps that builder on the SAME line, so `localWritePermit`
+        // admits it; the file is admitted nothing more (Task 10's census check —
+        // a second `Posture(` there, built from anything else, is caught).
+        "TranslationWritePipeline.swift": ["localWritePermit"],
     ]
 
     /// **The door's own acting accessor is an ASK, not a second table** (P3c
@@ -9227,8 +9230,20 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertFalse(asASite.ask.contains(where: { $0.contains("let asked") }))
         XCTAssertEqual(asASite.componentA.count, 4)
 
-        // The door may ask all five, and is still caught naming Component A.
+        // The translation pipeline is a P3a site's equal (Task 10's census
+        // check): its wrapping `Posture(` rides on the `localWritePermit` line,
+        // so it is admitted that spelling alone.
         try fm.moveItem(at: tmp.appendingPathComponent("Document+Waiting.swift"),
+                        to: tmp.appendingPathComponent("TranslationWritePipeline.swift"))
+        let asThePipeline = try hits()
+        XCTAssertEqual(asThePipeline.ask.count, 9,
+            "Self-check: TranslationWritePipeline.swift is admitted "
+            + "`localWritePermit` alone. Caught:\n" + asThePipeline.ask.joined(separator: "\n"))
+        XCTAssertTrue(asThePipeline.ask.contains(where: { $0.contains("let mine") }),
+            "a bare Posture( in the pipeline is caught")
+
+        // The door may ask every spelling, and is still caught naming Component A.
+        try fm.moveItem(at: tmp.appendingPathComponent("TranslationWritePipeline.swift"),
                         to: tmp.appendingPathComponent("DocumentStore+Posture.swift"))
         let asTheDoor = try hits()
         XCTAssertTrue(asTheDoor.ask.isEmpty,
