@@ -69,6 +69,18 @@ final class HeldLineNoticeTests: XCTestCase {
         XCTAssertFalse(notice.localizedCaseInsensitiveContains("newer"))
     }
 
+    /// **History's banner tells the truth after a deliberate removal** (Q1):
+    /// the walk said the piece had been taken from her, so the notice says so
+    /// rather than *nobody has claimed it*.
+    func test_aPieceTakenFromHerGetsTheTruthfulSentence() throws {
+        let notice = try XCTUnwrap(HistoryPane.heldLineRows(
+            provenance: provenance(counts: [sam: 2], strangers: []),
+            startedAPiece: [sam], takenFrom: [sam],
+            names: [sam: "Sam"]).first?.sentence)
+        XCTAssertTrue(notice.contains("taken from them"))
+        XCTAssertFalse(notice.localizedCaseInsensitiveContains("nobody has claimed"))
+    }
+
     /// An unsigned stream is named by its stream and points at the Inbox,
     /// because there is no device to admit and no permit to widen.
     func test_anUnsignedStreamPointsAtTheInbox() throws {

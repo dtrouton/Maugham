@@ -188,6 +188,24 @@ public struct PermitEvent: RegistryRecordProtocol {
     /// Strings and collections of strings, like every other field here
     /// (tripwire 42) — it is the same `StreamMark` the mark is made of.
     public let unsigned: [String: StreamMark]?
+    /// **The pieces this event said were the subject's in answer to §4.5's
+    /// question** — *X started this piece; is it theirs?* — or nil for every
+    /// other event (P3b smoke find F9).
+    ///
+    /// **It is the answer, and it is load-bearing** (Denver's ruling of
+    /// 2026-09-23: *Theirs* re-judges BY REASON, not by position). The mark is
+    /// the ordinary seen mark and carries no cut; `PermitTimeline` reads this
+    /// field and judges every EARLIER entry of the subject as having held
+    /// these pieces (`Entry.judging`), so a line of hers in one of them that
+    /// was refused only because the piece was not hers comes in wherever it
+    /// sits. A piece counts only where the permit this event installs really
+    /// authors it (`Entry.settles`). History reads the same `Entry.settles`
+    /// for its sentence. The permit this event installs is still
+    /// `role`/`scope`/`pieces` as for any other.
+    ///
+    /// **Omitted while nil**, `unsigned`'s rule, so every other event's bytes
+    /// and digest are untouched.
+    public let settled: [String]?
     public let at: Date
     /// Who signed it. A root of the subject's chain, or — for `.retired` — the
     /// subject itself.
@@ -199,6 +217,7 @@ public struct PermitEvent: RegistryRecordProtocol {
         role: String = "author", scope: String = "book", pieces: [String] = [],
         mark: [String: StreamMark] = [:],
         unsigned: [String: StreamMark]? = nil,
+        settled: [String]? = nil,
         at: Date, by: String, sig: OpLogChain.Credentials? = nil
     ) {
         self.event = event
@@ -209,6 +228,7 @@ public struct PermitEvent: RegistryRecordProtocol {
         self.pieces = pieces
         self.mark = mark
         self.unsigned = unsigned
+        self.settled = settled
         self.at = at
         self.by = by
         self.sig = sig
