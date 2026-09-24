@@ -36,6 +36,11 @@ final class PlanTreeStructureCreationTests: XCTestCase {
 
     private var temp: TempDirectory!
     private var windows: [NSWindow] = []
+    /// The window's door, held here because `ProjectStore.documentStore` is
+    /// weak. Every production window adopts one before its tree is drawn, and
+    /// since the P3c whole-branch fix wave (Minor 2) a tree with NO door
+    /// behind it offers nothing — so the probe, like the window, has one.
+    private var doors: [DocumentStore] = []
 
     override func setUp() async throws {
         temp = TempDirectory()
@@ -45,6 +50,7 @@ final class PlanTreeStructureCreationTests: XCTestCase {
         for window in windows { window.contentView = NSView(frame: .zero) }
         pump(0.05)
         windows.removeAll()
+        doors.removeAll()
         temp.cleanup()
         temp = nil
     }
@@ -211,6 +217,10 @@ final class PlanTreeStructureCreationTests: XCTestCase {
         for item in store.manifest.structure {
             try? await store.deleteStructureItem(id: item.id)
         }
+        let door = try await DocumentStore.open(url: url)
+        store.documentStore = door
+        door.projectStore = store
+        doors.append(door)
         return store
     }
 
