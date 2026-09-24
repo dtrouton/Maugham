@@ -538,6 +538,104 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         await open.close()
     }
 
+    // MARK: - Another person's words and this writer's session (F7 final round, I1)
+
+    /// The window's two stores, wired both ways as `ProjectWindow` wires them,
+    /// with the load-time count settled.
+    private func openWindow() async throws -> (ProjectStore, DocumentStore) {
+        let project = try await ProjectStore.load(from: projectURL)
+        await project.wordCountPopulationTask?.value
+        let store = try await DocumentStore.open(url: projectURL)
+        store.projectStore = project
+        project.documentStore = store
+        return (project, store)
+    }
+
+    /// **Words that arrive in, or leave, an OPEN chapter by a trust change are
+    /// never this writer's.** An admission lets their held paragraph into the
+    /// draft on screen and a revocation takes it out again — both through
+    /// `handleExternalLogChange`, which touched neither the count nor the
+    /// session, so the next keystroke's `recordEditorTextWrite` counted the
+    /// whole text and the session gained (then lost) their five words.
+    func test_wordsArrivingOrLeavingAnOpenChapterNeverEnterTheSession() async throws {
+        beThisMac()
+        let (project, store) = try await openWindow()
+        let open = try await openDocument()
+        store.register(document: open, for: "manuscript/c1.md")
+        let docId = open.docId
+        let mode = WritingModeFactory.mode(for: "manuscript/c1.md")
+        // The writer's session is under way.
+        store.recordSessionActivity(
+            documentId: docId, projectWordCount: project.projectWordCount)
+        XCTAssertEqual(store.liveSessionWordsNet, 0)
+        try await writeStrangerParagraph(docId: docId, after: open.sequence)
+
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Denver", ownName: "Denver’s iPhone")
+        XCTAssertTrue(open.displayText.contains(Self.theirWords), "premise: they arrived")
+        XCTAssertEqual(project.cachedWordCount(for: docId), mode.wordCount(open.displayText),
+                       "the chapter shows its true count")
+
+        func type(_ word: String) {
+            let typed = open.displayText + "\n\n" + word
+            open.setFullText(typed)
+            store.recordEditorTextWrite(
+                documentId: docId, newText: typed, mode: mode, store: project)
+        }
+        type("Seven")
+        XCTAssertEqual(store.liveSessionWordsNet, 1,
+                       "one word typed; their five arrived and are not the writer's")
+
+        _ = try await store.revoke(person: stranger.fingerprint, keeping: .nothing)
+        XCTAssertFalse(open.displayText.contains(Self.theirWords), "premise: they left")
+        XCTAssertEqual(project.cachedWordCount(for: docId), mode.wordCount(open.displayText))
+        type("Eight")
+        XCTAssertEqual(store.liveSessionWordsNet, 2,
+                       "two words typed; their five leaving takes nothing from the writer")
+        await open.close()
+    }
+
+    /// **And a CLOSED chapter's count follows a trust change.** The derived
+    /// cache keys on op-log file mtimes and an admission moves no file, so the
+    /// cached derive — which held their paragraph back — was served again and
+    /// the outline kept the old count until something wrote to that log.
+    func test_aClosedChaptersCountFollowsATrustChangeAndNotTheSession() async throws {
+        beThisMac()
+        let (project, store) = try await openWindow()
+        let item = try XCTUnwrap(project.manifest.structure.first)
+        let doc = try await openDocument()
+        let docId = doc.docId
+        XCTAssertEqual(docId, item.id, "premise: the chapter and its row agree")
+        let mine = doc.sequence
+        await doc.close()
+        try await writeStrangerParagraph(docId: docId, after: mine)
+        // Something reads the closed chapter while their paragraph is held —
+        // an outline, a search — and the cache holds that derive.
+        // Judged as THIS Mac judges (the suite's injected keys), as the
+        // recount does — a bare derive resolves `.current`, which no record
+        // here names, and would apply their unsigned-looking lines outright.
+        let asThisMac = try TrustResolution.resolve(
+            projectURL: projectURL, identities: Document.loadIdentities,
+            cache: Document.loadRegistryCache)
+        let held = try XCTUnwrap(project.derivedWordCount(of: item, trust: asThisMac))
+        XCTAssertFalse(try project.derivedCache.displayText(forDocId: docId, in: projectURL)
+                        .contains(Self.theirWords), "premise: their paragraph is held")
+        project.recordWordCount(forDocumentId: docId, wordCount: held)
+        store.recordSessionActivity(
+            documentId: docId, projectWordCount: project.projectWordCount)
+
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Denver", ownName: "Denver’s iPhone")
+        await project.opLogRecountTask?.value
+
+        let theirs = WritingModeFactory.mode(for: "manuscript/c1.md").wordCount(Self.theirWords)
+        XCTAssertEqual(project.cachedWordCount(for: docId), held + theirs,
+                       "the closed chapter shows the words the book now applies")
+        store.recordSessionActivity(
+            documentId: docId, projectWordCount: project.projectWordCount)
+        XCTAssertEqual(store.liveSessionWordsNet, 0, "and none of them are the writer's")
+    }
+
     /// The revoked device's own paragraph, APPENDED to this document rather
     /// than replacing it: an op declares the whole sequence, so a fixture whose
     /// sequence names only its own paragraph would drop the writer's by

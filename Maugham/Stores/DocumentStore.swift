@@ -895,6 +895,32 @@ public final class DocumentStore {
         sessionTracker.shiftBaseline(by: delta)
     }
 
+    /// **Re-read an open Document after its op log changed outside this
+    /// writer's hand** (F7 final round, I1) — a co-author's burst syncing in, a
+    /// record arriving that lets a held span through or refuses one, *Theirs*,
+    /// an admission, a revocation. The ONE way this store calls
+    /// `handleExternalLogChange`: the words that arrive or leave that way were
+    /// not typed here, so the piece's count moves to what it now holds and the
+    /// session's baseline moves with it (`excludeForeignWords`). Without this
+    /// the next keystroke's `recordEditorTextWrite` counted the whole text and
+    /// the session gained — or lost — another person's words.
+    ///
+    /// The counts run only when the text CHANGED: this is also the route of
+    /// every echo of this Mac's own appends, where `handleExternalLogChange`
+    /// returns without touching `displayText`, and an unchanged String compares
+    /// equal on its storage without walking it.
+    func reReadAfterExternalChange(_ document: Document) async throws {
+        let path = openDocuments.first { $0.value === document }?.key
+        let before = document.displayText
+        try await document.handleExternalLogChange()
+        let after = document.displayText
+        guard after != before, let path, let store = projectStore else { return }
+        let mode = WritingModeFactory.mode(for: path)
+        let now = mode.wordCount(after)
+        store.recordWordCount(forDocumentId: document.docId, wordCount: now)
+        excludeForeignWords(now - mode.wordCount(before))
+    }
+
     /// Called from app-quit hook. Finalises any active session immediately
     /// using the most recently observed project word count and appends it
     /// to the log. Best-effort — quit may interrupt the write.
@@ -1273,7 +1299,7 @@ public final class DocumentStore {
         registrySettlesForTesting += 1
         invalidateTrust()
         for document in openDocuments.values {
-            do { try await document.handleExternalLogChange() }
+            do { try await reReadAfterExternalChange(document) }
             catch {
                 documentStoreLog.error(
                     "re-read after a registry change failed for \(document.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -1510,7 +1536,7 @@ public final class DocumentStore {
 
         invalidateTrust()
         for document in openDocuments.values {
-            do { try await document.handleExternalLogChange() }
+            do { try await reReadAfterExternalChange(document) }
             catch {
                 documentStoreLog.error(
                     "re-read after admitting \(DeviceCode.short(fingerprint), privacy: .public) failed for \(document.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -1532,6 +1558,17 @@ public final class DocumentStore {
     func invalidateTrust() {
         noteRegistrySettled()
         for document in openDocuments.values { document.opStore.invalidateTrust() }
+        // **And the closed pieces' words** (F7 final round, I1). The derived
+        // cache keys on op-log file mtimes, and a trust change moves no file:
+        // after *Theirs*, an admission or a revocation the same log derives to
+        // different words, so the cache is dropped and every closed piece is
+        // recounted — off this call, one table for the pass, none of it in the
+        // writer's session (`recountFromOpLogs`). Open pieces are counted by
+        // the re-read that follows every call of this verb.
+        if let store = projectStore {
+            store.derivedCache.invalidateAll()
+            store.recountFromOpLogs(ProjectStore.collectDocuments(in: store.manifest.structure))
+        }
         // Only when one already exists: this is also called from `open`, where
         // building an inbox store to tell it to forget nothing would be a
         // whole subsystem started by a no-op.
@@ -1567,7 +1604,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
                     // past its echo guard: this callback also fires on our OWN
                     // appends, and announcing here would put a project-wide
                     // walk on every typing burst (M3 P2 Task 9).
-                    try? await doc.handleExternalLogChange()
+                    try? await self.reReadAfterExternalChange(doc)
                     // **A stranger's file arriving through sync** (spec §4.1's
                     // second trigger). The re-read above is what discovers it,
                     // and the same predicate guards the post as at register

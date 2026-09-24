@@ -681,7 +681,7 @@ extension DocumentStore {
     private func settle(after verb: String, _ subject: String) async {
         invalidateTrust()
         for document in allOpenDocuments() {
-            do { try await document.handleExternalLogChange() }
+            do { try await reReadAfterExternalChange(document) }
             catch {
                 registryVerbLog.error(
                     "re-read after \(verb, privacy: .public) \(subject, privacy: .public) failed for \(document.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
