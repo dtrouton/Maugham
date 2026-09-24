@@ -612,6 +612,19 @@ on ⌘⇧R the dedupe is the whole of it.
   as revoke's inverse — it stamps today's date and appends at the end, so
   undoing the revocation of a March decision would hand it back re-dated. An
   undo that rewrites the record is worse than no undo.
+  **Every verb asks WHO before it writes** (signed op log P3c Task 7):
+  `RulingPerformer.refuseUnlessTheStatementIsYours` throws
+  `RulingRefusal.notYours(statement:)` before any mint or op unless this
+  device may `.editStatement` the statement — asked of
+  `DocumentStore.settledPosture` at `StatementEditorHost.postureDocId`, or,
+  for a `ProjectStore` no window holds, of the one builder wrapped right there
+  (the posture census's `RulingPerformer.swift` entry). A project statement is
+  the book author's alone; a piece statement follows its piece. The door is in
+  the verbs so the number of callers stops mattering
+  (`RulingPerformerTests.test_everyVerbAsksTheDoorBeforeItWrites`), and
+  `StatementProposalGate.adopt` asks it FIRST, since its essay write precedes
+  its glossary rulings. Surfaces hide what the door would refuse, asking
+  `DocumentStore.posture(ofStatement:scope:statements:)`.
   `StatementProposalGate` (P5) is the second and last writer-facing door into
   a statement's ESSAY: Adopt, a click on a staged proposal, through
   `mutateStatementText`; its glossary lines still go through

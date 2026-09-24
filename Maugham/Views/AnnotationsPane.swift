@@ -936,6 +936,7 @@ struct AnnotationsPane: View {
         return LessonOffer.handlers(
             letter: letter, run: run, store: store, world: world,
             voice: letterVoice(run),
+            postureOf: postureOfAnyStatement(_:_:),
             onFiled: { letterLedgerRevision += 1 },
             onFailure: { letterLedgerFailure = $0 })
     }
@@ -969,6 +970,7 @@ struct AnnotationsPane: View {
             letter: letter, run: run, docId: docId, store: store, world: world,
             voice: letterVoice(run),
             filedRunId: turnClauseFiledForRun,
+            postureOf: postureOfAnyStatement(_:_:),
             onFiled: { turnClauseFiledForRun = $0 },
             onFailure: { letterOfferFailure = $0 })
     }
@@ -1408,6 +1410,15 @@ struct AnnotationsPane: View {
             isOwn: isOwn,
             rulingStatement: rulingKind.map(postureOfStatement(_:)),
             lessons: postureOfStatement(.lessons))
+    }
+
+    /// The posture of any `(kind, scope)` statement the letter's offers file
+    /// into (P3c Task 7) — the drawing door, at the ruling door's own id.
+    private func postureOfAnyStatement(
+        _ kind: Statement.Kind, _ scope: Statement.Scope
+    ) -> Posture {
+        documentStore.posture(
+            ofStatement: kind, scope: scope, statements: store.manifest.statements)
     }
 
     /// The posture of a PROJECT statement (every statement a queue verb files

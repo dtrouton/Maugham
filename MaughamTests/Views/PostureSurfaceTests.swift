@@ -863,4 +863,384 @@ final class PostureSurfaceTests: XCTestCase {
 
         for doc in docs { await doc.close() }
     }
+
+    // MARK: - Statements: the ruling door and its surfaces (P3c Task 7)
+
+    private var reviewerOnAPieceStatement: Posture {
+        posture(.reviewer, in: .pieceStatement(piece: "doc-a"))
+    }
+    private var piecesAuthorOnHerPieceStatement: Posture {
+        posture(.author(.pieces(["doc-a"])), in: .pieceStatement(piece: "doc-a"))
+    }
+    private var piecesAuthorOnAnotherPieceStatement: Posture {
+        posture(.author(.pieces(["doc-a"])), in: .pieceStatement(piece: "doc-b"))
+    }
+
+    /// **Every statement surface asks one rule** — `.editStatement` of the
+    /// statement itself — in both directions: the reviewer and the author of
+    /// some pieces outside hers are offered nothing, her own piece's statement
+    /// and a whole-book author's every statement are offered everything, and
+    /// the project's statements are the book author's alone.
+    func test_theStatementVerbsFollowTheStatementsOwnPosture() {
+        let refused = [reviewer, reviewerOnAPieceStatement,
+                       piecesAuthorOnAnotherPieceStatement, piecesAuthorOnTheLedger,
+                       Posture.settling]
+        let offered = [bookAuthor, piecesAuthorOnHerPieceStatement]
+        for (posture, expected) in refused.map({ ($0, false) }) + offered.map({ ($0, true) }) {
+            XCTAssertEqual(RulingsStratumView.offersVerbs(posture), expected, "\(posture)")
+            XCTAssertEqual(StatementProposalBanner.offersVerbs(posture), expected, "\(posture)")
+            XCTAssertEqual(BibleStratumView.offersGraduation(posture), expected, "\(posture)")
+        }
+    }
+
+    /// **The letter's statement-writing offers ask the DESTINATION** — the
+    /// intent the clause would land in and the project's ledger — never the
+    /// piece the letter is about.
+    func test_theLettersOffersAskTheStatementTheyWouldWrite() {
+        func table(_ piece: Posture, _ project: Posture)
+            -> (Statement.Kind, Statement.Scope) -> Posture {
+            { _, scope in
+                if case .document = scope { return piece }
+                return project
+            }
+        }
+        let piecesAuthor = table(piecesAuthorOnHerPieceStatement, piecesAuthorOnTheLedger)
+        XCTAssertTrue(TurnClauseOffer.mayFile(at: .document("doc-a"), piecesAuthor),
+                      "her piece's own intent is hers")
+        XCTAssertFalse(TurnClauseOffer.mayFile(at: .project, piecesAuthor),
+                       "the book's intent is not, though the letter is about her piece")
+        XCTAssertFalse(LessonOffer.mayWriteTheLedger(piecesAuthor),
+                       "the ledger is a project statement")
+        let reviewers = table(reviewerOnAPieceStatement, reviewer)
+        XCTAssertFalse(TurnClauseOffer.mayFile(at: .document("doc-a"), reviewers))
+        XCTAssertFalse(LessonOffer.mayWriteTheLedger(reviewers))
+        let author = table(bookAuthor, bookAuthor)
+        XCTAssertTrue(TurnClauseOffer.mayFile(at: .project, author))
+        XCTAssertTrue(LessonOffer.mayWriteTheLedger(author))
+    }
+
+    /// **Author's Diagnostics pane (controller ruling Q)**: Got it / Not this
+    /// follow the piece's `.acceptOrReject`, Answer the piece intent's
+    /// `.editStatement`, both directions.
+    func test_theDiagnosticsPanesVerbsFollowThePosture() {
+        func pane(_ document: Posture, _ statement: Posture) -> DiagnosticsPostures {
+            DiagnosticsPostures(document: document, statement: { _, _ in statement })
+        }
+        let theReviewer = pane(reviewer, reviewerOnAPieceStatement)
+        XCTAssertFalse(DiagnosticsPane.offersDisposal(theReviewer))
+        XCTAssertFalse(DiagnosticsPane.offersAnAnswer(docId: "doc-a", posture: theReviewer))
+        let herPiece = pane(piecesAuthorInA, piecesAuthorOnHerPieceStatement)
+        XCTAssertTrue(DiagnosticsPane.offersDisposal(herPiece))
+        XCTAssertTrue(DiagnosticsPane.offersAnAnswer(docId: "doc-a", posture: herPiece))
+        let theirPiece = pane(piecesAuthorInB, piecesAuthorOnAnotherPieceStatement)
+        XCTAssertFalse(DiagnosticsPane.offersDisposal(theirPiece))
+        XCTAssertFalse(DiagnosticsPane.offersAnAnswer(docId: "doc-b", posture: theirPiece))
+        let author = pane(bookAuthor, bookAuthor)
+        XCTAssertTrue(DiagnosticsPane.offersDisposal(author))
+        XCTAssertTrue(DiagnosticsPane.offersAnAnswer(docId: "doc-a", posture: author))
+
+        // The answer asks the statement it WRITES — `.document(docId)`'s
+        // intent — and nothing else.
+        var asked: [String] = []
+        let recording = DiagnosticsPostures(document: bookAuthor, statement: { kind, scope in
+            asked.append("\(kind.rawValue)|\(scope.rawValue)")
+            return self.bookAuthor
+        })
+        _ = DiagnosticsPane.offersAnAnswer(docId: "doc-a", posture: recording)
+        XCTAssertEqual(asked, ["intent|\(Statement.Scope.document("doc-a").rawValue)"])
+    }
+
+    /// **The rulings are drawn for a reviewer; their verbs are not** — drawn
+    /// or absent, never pressed (tripwire 33).
+    func test_theRulingsStratumDrawsItsRowsAndHidesItsVerbs() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "posture-rulings")
+        defer { fixture.tearDown() }
+        let rulings = [Ruling(id: "r1", text: "No flashbacks.", ruledOn: nil,
+                              provenance: nil)]
+        func mount(_ posture: Posture) -> NSWindow {
+            let window = TestWindow.mount(
+                AnyView(RulingsStratumView(
+                    rulings: rulings, kind: .intent, scope: .project,
+                    store: fixture.store, world: nil, posture: posture)),
+                size: CGSize(width: 420, height: 200))
+            windows.append(window)
+            pump()
+            return window
+        }
+        let writer = mount(bookAuthor)
+        XCTAssertEqual(try waitForButtons(labelled: "Revoke", count: 1, in: writer), 1,
+                       "control: the writer's row draws Revoke")
+        XCTAssertEqual(try buttons(labelled: "Edit", in: writer), 1)
+        let reader = mount(reviewer)
+        XCTAssertGreaterThan(try mountedCount(role: "AXStaticText", in: reader) {
+            (self.axAttribute($0, "accessibilityLabel") as? String) == "No flashbacks."
+                || (self.axAttribute($0, "accessibilityValue") as? String) == "No flashbacks."
+        }, 0, "the reviewer still reads the ruling")
+        XCTAssertEqual(try buttons(labelled: "Revoke", in: reader), 0)
+        XCTAssertEqual(try buttons(labelled: "Edit", in: reader), 0)
+    }
+
+    /// **A reviewer reads a proposal; Adopt and Discard are not hers.**
+    func test_theProposalBannerDrawsForAReviewerWithoutItsVerbs() throws {
+        let proposal = StatementProposalStore.Proposal(
+            kind: .editionBrief("es"), markdown: "Register: usted.",
+            rationale: "the doctor is formal", proposedAt: Date(), author: "the assistant")
+        func mount(_ posture: Posture) -> NSWindow {
+            let window = TestWindow.mount(
+                AnyView(StatementProposalBanner(
+                    proposal: proposal, current: "Register: tú.", statementExists: true,
+                    now: Date(), notice: nil, busy: false, posture: posture,
+                    onAdopt: {}, onDiscard: {})),
+                size: CGSize(width: 480, height: 320))
+            windows.append(window)
+            pump()
+            return window
+        }
+        let writer = mount(bookAuthor)
+        XCTAssertEqual(
+            try waitForButtons(
+                labelled: StatementProposalCopy.adoptAccessibilityLabel(.editionBrief("es")),
+                count: 1, in: writer), 1,
+            "control: the writer is offered Adopt")
+        let reader = mount(reviewer)
+        XCTAssertGreaterThan(try mountedCount(role: "AXStaticText", in: reader), 0,
+                             "the banner still draws")
+        XCTAssertEqual(try buttons(
+            labelled: StatementProposalCopy.adoptAccessibilityLabel(.editionBrief("es")),
+            in: reader), 0)
+        XCTAssertEqual(try buttons(
+            labelled: StatementProposalCopy.discardAccessibilityLabel(.editionBrief("es")),
+            in: reader), 0)
+    }
+
+    // MARK: The door itself, over a real register
+
+    private struct StatementHarness {
+        let projectURL: URL
+        let identities: LocalIdentities
+        let root: DeviceIdentity
+        let documentStore: DocumentStore
+        let store: ProjectStore
+    }
+
+    private func makeStatementHarness() async throws -> StatementHarness {
+        let projectURL = try makeTwoPieceProject()
+        let identities = beASigningMac(projectURL)
+        let root = try makeForeignRoot(projectURL, identities: identities)
+        let documentStore = try await DocumentStore.open(url: projectURL)
+        let store = try await ProjectStore.load(from: projectURL)
+        store.documentStore = documentStore
+        await documentStore.postureSettled()
+        return StatementHarness(projectURL: projectURL, identities: identities, root: root,
+                                documentStore: documentStore, store: store)
+    }
+
+    private func become(_ permit: Permit, _ h: StatementHarness) async throws {
+        try await rootChangesMyPermit(
+            to: permit, root: h.root, identities: h.identities,
+            projectURL: h.projectURL, store: h.documentStore)
+    }
+
+    /// Every byte of a statement's op log, so "appended nothing" is measured
+    /// on disk rather than inferred from the text.
+    private func opLogBytes(_ kind: Statement.Kind, _ scope: Statement.Scope,
+                            _ store: ProjectStore) -> Int {
+        guard let statement = store.statement(kind: kind, scope: scope) else { return 0 }
+        return OpLogStore.opLogFileURLs(forDocId: statement.id, in: store.url)
+            .map { (try? Data(contentsOf: $0).count) ?? 0 }  // adr-0018-ok: a test measuring op-log bytes, not reading manuscript text
+            .reduce(0, +)
+    }
+
+    private func text(_ kind: Statement.Kind, _ scope: Statement.Scope,
+                      _ store: ProjectStore) -> String? {
+        store.statement(kind: kind, scope: scope).flatMap { try? store.statementText(of: $0) }
+    }
+
+    /// Assert the act is refused as NOT YOURS and leaves the statement exactly
+    /// as it was — no op, no mint, no moved word.
+    private func assertNotYours(
+        _ label: String, _ kind: Statement.Kind, _ scope: Statement.Scope,
+        _ store: ProjectStore, _ act: () async throws -> Void,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async {
+        let existed = store.statement(kind: kind, scope: scope) != nil
+        let bytes = opLogBytes(kind, scope, store)
+        let before = text(kind, scope, store)
+        do {
+            try await act()
+            XCTFail("\(label) was not refused", file: file, line: line)
+        } catch let refusal as RulingRefusal {
+            XCTAssertEqual(refusal, .notYours(statement: kind), file: file, line: line)
+        } catch {
+            XCTFail("\(label) threw \(error), not RulingRefusal", file: file, line: line)
+        }
+        XCTAssertEqual(store.statement(kind: kind, scope: scope) != nil, existed,
+                       "\(label) minted nothing", file: file, line: line)
+        XCTAssertEqual(opLogBytes(kind, scope, store), bytes,
+                       "\(label) appended nothing", file: file, line: line)
+        XCTAssertEqual(text(kind, scope, store), before,
+                       "\(label) moved no words", file: file, line: line)
+    }
+
+    private func rule(_ words: String, _ kind: Statement.Kind, _ scope: Statement.Scope,
+                      _ store: ProjectStore) async throws {
+        try await RulingPerformer.rule(
+            words, provenance: "a test", kind: kind, forScope: scope,
+            store: store, world: nil)
+    }
+
+    /// **All four verbs, refused at `RulingPerformer`'s own door**, across the
+    /// ladder and back: the whole book rules anywhere; an author of `doc-a`
+    /// rules on her piece's statement and on neither the book's intent nor
+    /// `doc-b`'s; a reviewer rules on nothing; a promotion reopens it all with
+    /// no reopen of anything.
+    func test_aRulingIsMadeOnlyByWhoeverMayWriteTheStatement() async throws {
+        let h = try await makeStatementHarness()
+        let store = h.store
+        let pieceA = Statement.Scope.document("doc-a")
+        let pieceB = Statement.Scope.document("doc-b")
+
+        // The whole book: every statement.
+        try await rule("The book holds to one winter.", .intent, .project, store)
+        try await rule("A stays in the kitchen.", .intent, pieceA, store)
+        XCTAssertEqual(RulingsStratum.currentRows(
+            kind: .intent, forScope: .project, store: store).count, 1)
+
+        // An author of doc-a: her piece's statement, and nothing of the book's.
+        try await become(.author(.pieces(["doc-a"])), h)
+        try await rule("A ends at dawn.", .intent, pieceA, store)
+        XCTAssertEqual(RulingsStratum.currentRows(
+            kind: .intent, forScope: pieceA, store: store).count, 2,
+            "her own piece's statement is hers to rule on")
+        await assertNotYours("rule on the book's intent", .intent, .project, store) {
+            try await self.rule("Two winters.", .intent, .project, store)
+        }
+        await assertNotYours("rule on doc-b (minting it)", .intent, pieceB, store) {
+            try await self.rule("B is somebody else's.", .intent, pieceB, store)
+        }
+        await assertNotYours("rule on the lessons ledger", .lessons, .project, store) {
+            try await self.rule("Cut adverbs.", .lessons, .project, store)
+        }
+        let bookRuling = try XCTUnwrap(RulingsStratum.currentRows(
+            kind: .intent, forScope: .project, store: store).first)
+        await assertNotYours("revoke on the book's intent", .intent, .project, store) {
+            try await RulingPerformer.revoke(
+                rulingId: bookRuling.id, kind: .intent, forScope: .project,
+                store: store, world: nil)
+        }
+        await assertNotYours("edit on the book's intent", .intent, .project, store) {
+            try await RulingPerformer.edit(
+                rulingId: bookRuling.id, newText: "Two winters.", kind: .intent,
+                forScope: .project, store: store, world: nil)
+        }
+        await assertNotYours("restore on the book's intent", .intent, .project, store) {
+            try await RulingPerformer.restore(
+                bookRuling, at: 0, kind: .intent, forScope: .project,
+                store: store, world: nil)
+        }
+
+        // A reviewer: nothing, anywhere — though she still reads it all.
+        try await become(.reviewer, h)
+        let pieceRuling = try XCTUnwrap(RulingsStratum.currentRows(
+            kind: .intent, forScope: pieceA, store: store).first)
+        await assertNotYours("a reviewer's rule", .intent, pieceA, store) {
+            try await self.rule("A is mine now.", .intent, pieceA, store)
+        }
+        await assertNotYours("a reviewer's revoke", .intent, pieceA, store) {
+            try await RulingPerformer.revoke(
+                rulingId: pieceRuling.id, kind: .intent, forScope: pieceA,
+                store: store, world: nil)
+        }
+        await assertNotYours("a reviewer's edit", .intent, pieceA, store) {
+            try await RulingPerformer.edit(
+                rulingId: pieceRuling.id, newText: "Changed.", kind: .intent,
+                forScope: pieceA, store: store, world: nil)
+        }
+        await assertNotYours("a reviewer's restore", .intent, pieceA, store) {
+            try await RulingPerformer.restore(
+                pieceRuling, at: 0, kind: .intent, forScope: pieceA,
+                store: store, world: nil)
+        }
+        XCTAssertEqual(RulingsStratum.currentRows(
+            kind: .intent, forScope: pieceA, store: store).count, 2,
+            "the reviewer still reads every ruling")
+
+        // A promotion back: every verb again, with nothing reopened.
+        try await become(.bookAuthor, h)
+        try await RulingPerformer.revoke(
+            rulingId: bookRuling.id, kind: .intent, forScope: .project,
+            store: store, world: nil)
+        XCTAssertTrue(RulingsStratum.currentRows(
+            kind: .intent, forScope: .project, store: store).isEmpty)
+        try await rule("Two winters.", .intent, .project, store)
+    }
+
+    /// **The door does not depend on a window**: a `ProjectStore` no window
+    /// holds builds the posture from the one builder and refuses the same.
+    func test_theRulingDoorRefusesWithoutAWindowToAsk() async throws {
+        let h = try await makeStatementHarness()
+        try await become(.reviewer, h)
+        let headless = try await ProjectStore.load(from: h.projectURL)
+        XCTAssertNil(headless.documentStore, "premise: no window adopted this store")
+        await assertNotYours("a windowless reviewer's rule", .intent, .project, headless) {
+            try await self.rule("Two winters.", .intent, .project, headless)
+        }
+    }
+
+    /// **A refused Adopt writes nothing** — not the essay-then-rollback the
+    /// glossary's own door would have left, and no minted brief.
+    func test_aProposalIsAdoptedOnlyByWhoeverMayWriteTheStatement() async throws {
+        let h = try await makeStatementHarness()
+        let proposal = try StatementProposalStore(projectURL: h.projectURL).stage(
+            StatementProposalStore.Proposal(
+                kind: .editionBrief("es"),
+                markdown: "Register: usted.\n\n## Rulings\n\n- «October» → «Octubre»\n",
+                rationale: nil, proposedAt: Date(), author: "the assistant"))
+        try await become(.author(.pieces(["doc-a"])), h)
+        await assertNotYours("a pieces-author's Adopt", .editionBrief("es"), .project, h.store) {
+            _ = try await StatementProposalGate.adopt(
+                proposal, store: h.store, world: nil, undoManager: nil,
+                workTaskSink: { _ in })
+        }
+        XCTAssertNotNil(StatementProposalStore(projectURL: h.projectURL)
+            .pending(for: .editionBrief("es")), "the proposal still stands")
+
+        try await become(.bookAuthor, h)
+        let adoption = try await StatementProposalGate.adopt(
+            proposal, store: h.store, world: nil, undoManager: nil, workTaskSink: { _ in })
+        XCTAssertEqual(adoption.glossaryAppended, 1, "the book author adopts it whole")
+    }
+
+    /// **A refused revoke from the row is SAID** — and its ⌘Z, registered while
+    /// she could, is refused and said too, rather than doing nothing.
+    func test_aRefusedRowVerbAndItsUndoAreSaid() async throws {
+        let h = try await makeStatementHarness()
+        let store = h.store
+        try await rule("Keep it spare.", .intent, .project, store)
+        try await rule("One winter.", .intent, .project, store)
+        let rows = RulingsStratum.currentRows(kind: .intent, forScope: .project, store: store)
+        let um = UndoManager()
+        var work: [Task<Void, Never>] = []
+        await RulingsStratum.revoke(
+            rows[0], at: 0, kind: .intent, forScope: .project, store: store,
+            world: nil, undoManager: um, workTaskSink: { work.append($0) })
+        XCTAssertTrue(um.canUndo, "premise: the writer's revoke registered its ⌘Z")
+
+        try await become(.reviewer, h)
+        let refusal = RulingRefusal.notYours(statement: .intent).localizedDescription
+        let saidOnPress = await notices {
+            await RulingsStratum.revoke(
+                rows[1], at: 0, kind: .intent, forScope: .project, store: store,
+                world: nil, undoManager: um, workTaskSink: { work.append($0) })
+        }
+        XCTAssertEqual(saidOnPress, [refusal], "the refused press is said")
+        let saidOnUndo = await notices {
+            um.undo()
+            for task in work { await task.value }
+        }
+        XCTAssertEqual(saidOnUndo, [refusal], "the refused undo is said")
+        XCTAssertEqual(RulingsStratum.currentRows(
+            kind: .intent, forScope: .project, store: store).map(\.text), ["One winter."],
+            "the undo restored nothing")
+    }
 }

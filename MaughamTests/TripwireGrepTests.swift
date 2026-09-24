@@ -9101,6 +9101,9 @@ final class TripwireGrepTests: XCTestCase {
         "Document+Waiting.swift": ["localWritePermit"],
         "Document+Tasks.swift": ["localWritePermit"],
         "Document+Annotations.swift": ["localWritePermit"],
+        // P3c Task 7 (controller ruling A): the ruling door's fallback for a
+        // `ProjectStore` no window holds — the one builder, wrapped right there.
+        "RulingPerformer.swift": ["localWritePermit", "Posture("],
     ]
 
     /// **The door's own acting accessor is an ASK, not a second table** (P3c

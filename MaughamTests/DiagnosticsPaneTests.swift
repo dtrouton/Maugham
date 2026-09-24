@@ -140,6 +140,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         currentText: @escaping (String) -> String? = { _ in nil }
     ) -> AnyView {
         AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: diagnostics, docId: docId,
             currentText: currentText, compilerModel: .standard, store: store, world: world,
             reader: reader))
@@ -356,6 +357,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(),
             diagnostics: store,
             docId: docId,
@@ -411,6 +413,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         let anchor = Diagnostic.Anchor(paragraphId: "p1", anchorText: "Body one.")
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(),
             diagnostics: store,
             docId: docId,
@@ -504,6 +507,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(),
             diagnostics: store,
             docId: docId,
@@ -742,6 +746,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(docId: docId), 1)
 
         _ = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard)))
         pump(0.2)
@@ -922,6 +927,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             diagnostics: diagnostics)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: orchestrator, diagnostics: diagnostics, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard,
             activeDocument: { document })))
@@ -946,6 +952,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: diagnostics, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard,
             activeDocument: { document })))
@@ -966,6 +973,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         diagnostics.replace(run: makeRun(), diagnostics: [], docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: diagnostics, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard,
             activeDocument: { document })))
@@ -993,6 +1001,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             diagnostics: [], docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard)))
         pump(0.2)
@@ -1072,6 +1081,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: diagnosticsStore, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard,
             reader: .coach(ReviewPass.coachPreset))))
@@ -1092,6 +1102,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: diagnosticsStore, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard)))
         pump(0.2)
@@ -1200,6 +1211,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
             docId: "doc-no-project", currentText: { _ in nil }, compilerModel: .standard,
             reader: .coach(ReviewPass.coachPreset))))
@@ -1346,6 +1358,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: diagnosticsStore, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard,
             reader: .coach(ReviewPass.coachPreset))))
@@ -1398,6 +1411,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                 projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac")))
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: orchestrator,
             diagnostics: DiagnosticsStore(
                 projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac")),
@@ -1444,6 +1458,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
 
         let idle = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: orchestrator, diagnostics: diagnostics, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard)))
         let idleButton = try button(labelled: DiagnosticsPane.rereadTitle, in: idle)
@@ -1457,6 +1472,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         await awaitSends(1, on: runner)
 
         let busy = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: orchestrator, diagnostics: diagnostics, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard)))
         let busyButton = try button(labelled: DiagnosticsPane.rereadTitle, in: busy)
@@ -1566,6 +1582,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         }
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard)))
         pump(0.3)
@@ -1605,6 +1622,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         }
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard)))
         pump(0.3)
@@ -1683,6 +1701,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                       diagnostics: [checkStrain], docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
             currentText: { _ in "The fog came." }, compilerModel: .standard)))
         pump(0.3)
@@ -1732,6 +1751,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                       diagnostics: [strain], docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
             currentText: { _ in "The fog came." }, compilerModel: .standard)))
         pump(0.3)
@@ -1880,6 +1900,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             diagnostics: [], docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard)))
         pump(0.3)
@@ -1925,6 +1946,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard)))
         pump(0.3)
@@ -1967,6 +1989,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard)))
         pump(0.3)
@@ -1995,6 +2018,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         store.replace(run: makeRun(mintedNotes: 3), diagnostics: [], docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard)))
         pump(0.3)
@@ -2168,6 +2192,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
             // The anchored note's paragraph still reads as it did, so the
             // strain is live and its chip is on screen to be walked.
@@ -2209,6 +2234,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: store, docId: docId,
             currentText: { _ in nil }, compilerModel: .standard)))
         pump(0.3)
@@ -2646,6 +2672,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             diagnostics: diagnostics)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: orchestrator, diagnostics: diagnostics, docId: chapter.id,
             currentText: { _ in "The fog came." }, compilerModel: .standard,
             store: store)))
@@ -2697,6 +2724,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             docId: chapter.id)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: orchestrator, diagnostics: diagnostics, docId: chapter.id,
             currentText: { _ in "The fog came." }, compilerModel: .standard,
             store: store)))
@@ -2829,6 +2857,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         orchestrator: CompilerOrchestrator? = nil
     ) -> AnyView {
         AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: orchestrator ?? CompilerOrchestrator(), diagnostics: store,
             docId: docId ?? document.docId,
             // The pane's own staleness closure is where the jump chip's words
@@ -3665,6 +3694,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             run: makeRun(letter: makeLetter()), diagnostics: [], docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
             docId: docId, currentText: { _ in nil }, compilerModel: .standard)))
 
@@ -3688,6 +3718,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             diagnostics: [], docId: docId)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
             docId: docId, currentText: { _ in nil }, compilerModel: .standard)))
 
@@ -3718,6 +3749,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             diagnostics.replace(
                 run: makeRun(letter: letter), diagnostics: [], docId: docId)
             let window = mount(AnyView(DiagnosticsPane(
+                posture: .everyVerbForTesting,
                 orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
                 docId: docId, currentText: { _ in nil }, compilerModel: .standard)))
             let texts = try axTexts(in: window)
@@ -3733,6 +3765,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         diagnostics.replace(
             run: makeRun(letter: makeLetter()), diagnostics: [], docId: docId)
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
             docId: docId, currentText: { _ in nil }, compilerModel: .standard)))
         XCTAssertTrue(try axTexts(in: window).contains(LetterSection.title))
@@ -3978,6 +4011,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         diagnostics.replace(
             run: makeRun(round: 3, letter: makeLetter()), diagnostics: [], docId: docId)
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
             docId: docId, currentText: { _ in nil }, compilerModel: .standard,
             reader: .coach(ReviewPass.coachPreset))))
@@ -4007,6 +4041,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             run: makeRun(round: 3, letter: makeLetter(), readerName: "Le Guin"),
             diagnostics: [], docId: docId)
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
             docId: docId, currentText: { _ in nil }, compilerModel: .standard,
             reader: .nobody)))
@@ -4491,6 +4526,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             diagnostics: diagnostics)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: orchestrator, diagnostics: diagnostics, docId: chapter.id,
             currentText: { _ in nil }, compilerModel: .standard, store: store)))
         // The `WindowAccessor` resolves on the next main-queue turn, and the
@@ -4539,6 +4575,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             diagnostics: diagnostics)
 
         let window = mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: orchestrator, diagnostics: diagnostics, docId: chapter.id,
             currentText: { _ in nil }, compilerModel: .standard, store: store)))
         pump(0.4)
@@ -4734,6 +4771,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                          letter: letter, readerName: readerName),
             diagnostics: [], docId: docId)
         return mount(AnyView(DiagnosticsPane(
+            posture: .everyVerbForTesting,
             orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
             docId: docId, currentText: { _ in nil }, compilerModel: .standard,
             store: store, reader: reader)))
@@ -5116,5 +5154,13 @@ struct AskFieldProbe: View {
             note: { text, doc in
                 AskField.note(text, docId: doc, kind: .check, diagnostics: diagnostics)
             }))
+    }
+}
+
+/// **Every verb, by name** (P3c Task 7) — the P1 surface, for a mount that is
+/// not about the posture. The pane requires one so a host cannot forget it.
+extension DiagnosticsPostures {
+    static var everyVerbForTesting: DiagnosticsPostures {
+        DiagnosticsPostures(document: .author, statement: { _, _ in .author })
     }
 }

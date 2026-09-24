@@ -72,6 +72,11 @@ import MaughamCore
 /// document — the writer says no once, not every time they open the pane.
 @MainActor
 struct DiagnosticsPane: View {
+    /// **What this window may offer on this pane** (P3c Task 7, controller
+    /// ruling Q). First and required, like `AnnotationRow.verbs`: a host that
+    /// forgot it would otherwise draw every verb, so every host — a test's
+    /// included — says what it means.
+    let posture: DiagnosticsPostures
     let orchestrator: CompilerOrchestrator
     @Bindable var diagnostics: DiagnosticsStore
     let docId: String
@@ -1245,6 +1250,7 @@ struct DiagnosticsPane: View {
             // The provenance of a filed lesson is whoever wrote the letter it
             // came out of — the run's own byline, not today's reader.
             voice: run.readerName ?? reader.editorName,
+            postureOf: posture.statement,
             onFiled: { ledgerRevision += 1 },
             onFailure: { ledgerFailure = $0 })
     }
@@ -1263,6 +1269,7 @@ struct DiagnosticsPane: View {
             // it.
             voice: run.readerName ?? reader.editorName,
             filedRunId: turnClauseFiledForRun,
+            postureOf: posture.statement,
             onFiled: { turnClauseFiledForRun = $0 },
             onFailure: { answerFailures[Self.turnClauseFailureKey] = $0 })
     }
@@ -1363,7 +1370,7 @@ struct DiagnosticsPane: View {
                 CompilerNoteRow(
                     annotation: note,
                     excerpt: Self.jumpExcerpt(for: note, currentText: currentText),
-                    canDispose: offersDurableActions,
+                    canDispose: offersDurableActions && Self.offersDisposal(posture),
                     failure: answerFailures[note.id],
                     onJump: { jump(toParagraph: $0) },
                     onGotIt: { gotIt(note) },
@@ -1489,7 +1496,9 @@ struct DiagnosticsPane: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(paired.rows) { row in
-                ClauseRow(row: row, canAnswer: store != nil && offersDurableActions,
+                ClauseRow(row: row,
+                          canAnswer: store != nil && offersDurableActions
+                              && Self.offersAnAnswer(docId: docId, posture: posture),
                           canPromote: offersDurableActions,
                           answering: answering, answerFailures: answerFailures,
                           onJump: { jump(toParagraph: $0) },
@@ -1522,7 +1531,8 @@ struct DiagnosticsPane: View {
     private func noteRow(_ diagnostic: Diagnostic) -> some View {
         DiagnosticRow(
             diagnostic: diagnostic,
-            canAnswer: store != nil && Self.offersAnAnswer(diagnostic) && offersDurableActions,
+            canAnswer: store != nil && Self.offersAnAnswer(diagnostic) && offersDurableActions
+                && Self.offersAnAnswer(docId: docId, posture: posture),
             canPromote: offersDurableActions,
             isSubmitting: answering.contains(diagnostic.id),
             answerFailure: answerFailures[diagnostic.id],
@@ -1668,6 +1678,23 @@ struct DiagnosticsPane: View {
     /// "I stopped believing her here" has no answer to rule on, and a reply
     /// field under one would invite the writer to argue with a reader, which
     /// is not a decision that belongs in the declared world.
+    /// **Whether Got it and Not this are drawn** (P3c Task 7, controller
+    /// ruling Q) — `.acceptOrReject` of THIS document, the verb the queue
+    /// row asks for the same two acts (`AnnotationRowVerbs.decide`). Hidden,
+    /// never disabled; the `Document`'s own door refuses a press that arrives
+    /// anyway (`Document.PostureRefusal`).
+    static func offersDisposal(_ posture: DiagnosticsPostures) -> Bool {
+        posture.document.allows(.acceptOrReject)
+    }
+
+    /// **Whether Answer is drawn, by WHO** (P3c Task 7) — the posture half of
+    /// the question, beside `offersAnAnswer(_:)`'s kind half. An answer files a
+    /// ruling in this piece's own intent (`commitAnswer`), so it asks
+    /// `.editStatement` of THAT statement: a piece statement follows its piece.
+    static func offersAnAnswer(docId: String, posture: DiagnosticsPostures) -> Bool {
+        posture.statement(.intent, .document(docId)).allows(.editStatement)
+    }
+
     static func offersAnAnswer(_ diagnostic: Diagnostic) -> Bool {
         switch diagnostic.kind {
         case .conformanceStrain: return true
@@ -1927,6 +1954,20 @@ struct DiagnosticsPane: View {
             .maughamNavigateToParagraph, to: .keyWindow,
             payload: ["paragraph_id": pid])
     }
+}
+
+// MARK: - The posture (P3c Task 7)
+
+/// **What a window may offer on Author's Diagnostics pane** — two questions,
+/// because the pane's verbs write to two places. `document` is the checked
+/// piece's own posture (Got it / Not this settle its notes); `statement`
+/// answers for whichever statement a verb would file a ruling in (an Answer,
+/// the letter's *Add to intent*, the ledger's presses), at the ruling door's
+/// own id (`DocumentStore.posture(ofStatement:scope:statements:)`), so the verb
+/// the pane hides and the ruling `RulingPerformer` refuses are one question.
+struct DiagnosticsPostures {
+    let document: Posture
+    let statement: (Statement.Kind, Statement.Scope) -> Posture
 }
 
 // MARK: - Sections

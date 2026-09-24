@@ -1065,6 +1065,32 @@ final class RulingPerformerTests: XCTestCase {
             .sorted()
     }
 
+    /// **Every verb asks whose statement it is, before it writes or mints**
+    /// (signed op log P3c Task 7). The behaviour is pinned over a real register
+    /// in `PostureSurfaceTests.test_aRulingIsMadeOnlyByWhoeverMayWriteTheStatement`;
+    /// this census is what keeps a FIFTH verb from arriving without the door,
+    /// since a verb added later would pass every existing behaviour test.
+    func test_everyVerbAsksTheDoorBeforeItWrites() throws {
+        let source = try readSource("Maugham/Compiler/RulingPerformer.swift")
+        for verb in ["rule", "revoke", "edit", "restore"] {
+            let start = try XCTUnwrap(
+                source.range(of: "static func \(verb)(")?.upperBound,
+                "the census must see \(verb)")
+            let rest = source[start...]
+            let end = rest.range(of: "\n    }\n")?.lowerBound ?? rest.endIndex
+            let body = String(rest[..<end])
+            let door = try XCTUnwrap(
+                body.range(of: "refuseUnlessTheStatementIsYours(")?.lowerBound,
+                "\(verb) must ask the door")
+            for write in ["createStatement(", "mutateStatementText(", "mutate("] {
+                if let at = body.range(of: write)?.lowerBound {
+                    XCTAssertLessThan(door, at,
+                        "\(verb) asks the door before \(write)")
+                }
+            }
+        }
+    }
+
     private func readSource(_ relativePath: String) throws -> String {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

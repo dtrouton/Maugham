@@ -610,6 +610,13 @@ struct DetailPaneToggle<Inspector: View>: View {
            let diagnosticsStore,
            activeDocId != BinderSubject.noDocumentSubject {
             DiagnosticsPane(
+                // The DRAWING door (controller ruling I), read here in `body`
+                // so a demotion re-draws the pane (P3c Task 7).
+                posture: DiagnosticsPostures(
+                    document: ds.posture(forDocId: activeDocId),
+                    statement: { [statements = store.manifest.statements] kind, scope in
+                        ds.posture(ofStatement: kind, scope: scope, statements: statements)
+                    }),
                 orchestrator: compilerOrchestrator,
                 diagnostics: diagnosticsStore,
                 docId: activeDocId,

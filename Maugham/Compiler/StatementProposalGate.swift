@@ -105,6 +105,14 @@ enum StatementProposalGate {
         }
         let kind = proposal.kind.statementKind
         let glossary = glossaryEntries(in: proposal)
+        // **Whose statement it is, before anything is minted or written** (P3c
+        // Task 7). The glossary goes through `RulingPerformer.rule`, whose own
+        // door would refuse it — but only AFTER the essay below had landed and
+        // then been rolled back, a write and its undo in the op log of a
+        // statement this device may not change. Asked here, first, through the
+        // same door, so a refused Adopt writes nothing at all.
+        try await RulingPerformer.refuseUnlessTheStatementIsYours(
+            kind, .project, store: store)
 
         let created = store.statement(kind: kind, scope: .project) == nil
         let statement = try await store.createStatement(kind: kind, scope: .project)
@@ -151,6 +159,11 @@ enum StatementProposalGate {
         }
     }
 
+    /// Clears the slot. **Not behind the ruling door**: a proposal is the
+    /// assistant's staging file under `.maugham/`, not the statement — nothing
+    /// the writer wrote moves. The banner draws Discard only where Adopt would
+    /// be drawn (`StatementProposalBanner.offersVerbs`), because deciding what
+    /// becomes of a proposal to a statement is the statement's writer's call.
     static func discard(_ kind: ProposableStatement, store: ProjectStore) throws {
         try StatementProposalStore(projectURL: store.url).discard(kind)
         MaughamEvent.postStatementProposalsChanged(projectURL: store.url)

@@ -305,6 +305,7 @@ final class DiagnosticsPaneColumnHeightTests: XCTestCase {
 
         let (window, split, table) = try await mount(store: store, detailWidth: 280) {
             DiagnosticsPane(
+                posture: .everyVerbForTesting,
                 orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
                 docId: document.docId, currentText: { _ in nil },
                 compilerModel: .standard, activeDocument: { document })
