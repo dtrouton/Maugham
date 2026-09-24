@@ -239,6 +239,14 @@ public enum PermitPartition {
                         // the `Written` — is gone by the time a surface asks.
                         // See `AmendmentPermits.recordStartedAPiece`.
                         amendments?.recordStartedAPiece(holder)
+                        // **And whether she STARTED it at all** (Q1): the
+                        // permit layer's one answer, so the question can be
+                        // put truthfully after a deliberate removal.
+                        if let piece = documentClass.piece,
+                           trust.timeline(forSealKey: key)
+                            .wasTakenFromThem(piece: piece) {
+                            amendments?.recordKeptWritingInATakenPiece(holder)
+                        }
                         continue
                     }
                 }

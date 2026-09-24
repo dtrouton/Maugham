@@ -173,6 +173,16 @@ public enum TrustEventSentence {
     nonisolated static func consequence(of event: TrustEvent) -> String {
         guard let permit = event.permit, let previous = event.previousPermit
         else { return "" }
+        if !event.returnedPieces.isEmpty {
+            // **Given BACK, not started** (Q1, ruled 2026-09-24): the piece
+            // had been taken from them and they kept writing in it.
+            let pieces = event.returnedPieces.count == 1
+                ? "the piece"
+                : "the \(event.returnedPieces.count) pieces"
+            return " They had kept writing in \(pieces) after it was taken from "
+                + "them; it is theirs again, and what they wrote there counts as "
+                + "theirs. Anything set aside for any other reason stays set aside."
+        }
         if !event.settledPieces.isEmpty {
             let pieces = event.settledPieces.count == 1
                 ? "the piece they started"

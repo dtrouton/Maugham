@@ -1484,7 +1484,15 @@ too). The partition asks `entry.judging` and nothing else — one judgment, the
 load and every sweep alike. The mark being the ordinary one, the answer takes
 the ordinary loss check: a segment this Mac APPLIED that is missing now refuses
 it (`streamMissingFromSweep`); one it never applied is honest late sync and is
-judged by reason when it arrives. The positional machinery that preceded this
+judged by reason when it arrives. *Another person's line* means one another
+person SIGNED — her own accepts, rejects and archives of other people's notes in
+the piece, refused only for scope, come in too. **After a deliberate removal**
+(Q1, ruled 2026-09-24) the question is still put and *Theirs* still brings it
+all in, but the partition records that the piece was TAKEN from her
+(`PermitTimeline.wasTakenFromThem` → `AmendmentPermits
+.whoKeptWritingInATakenPiece` → `Document.keptWritingInATakenPiece`), so the
+sheet, People & Devices' waiting row, History's banner and History's entry for
+the answer all say she kept writing in it after it was taken. The positional machinery that preceded this
 (`markLine`, the settling cut, `settlingOrder`) is gone.
 
 ## Sealed segments (ADR 0016, M2)

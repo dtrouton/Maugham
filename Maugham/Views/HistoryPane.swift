@@ -590,6 +590,7 @@ struct HistoryPane: View {
     /// because the pane and its suite have always called it that.
     nonisolated static func heldLineRows(
         provenance: OpLogProvenance?, startedAPiece: Set<String>,
+        takenFrom: Set<String> = [],
         names: [String: String], words: [String: Int] = [:],
         sent: [String: Set<String>] = [:], docId: String = ""
     ) -> [SetAsideDoor.HeldRow] {
@@ -603,7 +604,8 @@ struct HistoryPane: View {
             guard case .stranger = who else {
                 guard let sentence = HeldLines.sentence(
                     who, notes: provenance.pendingByDevice[holder] ?? 0,
-                    named: names[holder])
+                    named: names[holder],
+                    pieceWasTakenFromThem: takenFrom.contains(holder))
                 else { return nil }
                 // **The door is the unsigned arm's alone.** An admitted
                 // person's held line is let in by a later build or by the
@@ -1300,6 +1302,8 @@ struct HistoryPane: View {
             provenance: documentProvenance,
             startedAPiece: documentStore?
                 .document(forDocId: activeDocId)?.startedAPiece ?? [],
+            takenFrom: documentStore?
+                .document(forDocId: activeDocId)?.keptWritingInATakenPiece ?? [],
             names: chainDeviceNames, words: heldWordCounts,
             sent: documentStore?.uiState.sentRecoveredOpIds ?? [:],
             docId: activeDocId)

@@ -192,13 +192,16 @@ public struct PermitEvent: RegistryRecordProtocol {
     /// question** — *X started this piece; is it theirs?* — or nil for every
     /// other event (P3b smoke find F9).
     ///
-    /// The mark already carries the answer's cut; this carries what the act
-    /// WAS, which the mark cannot say by itself. History needs it because the
-    /// ordinary sentence for a widening — *anything set aside before then
-    /// stays set aside* — is the opposite of what *Theirs* is for: her held
-    /// words in that piece come in. Read by History alone; no reader judges a
-    /// line by it, and the permit this event installs is `role`/`scope`/
-    /// `pieces` as for any other.
+    /// **It is the answer, and it is load-bearing** (Denver's ruling of
+    /// 2026-09-23: *Theirs* re-judges BY REASON, not by position). The mark is
+    /// the ordinary seen mark and carries no cut; `PermitTimeline` reads this
+    /// field and judges every EARLIER entry of the subject as having held
+    /// these pieces (`Entry.judging`), so a line of hers in one of them that
+    /// was refused only because the piece was not hers comes in wherever it
+    /// sits. A piece counts only where the permit this event installs really
+    /// authors it (`Entry.settles`). History reads the same `Entry.settles`
+    /// for its sentence. The permit this event installs is still
+    /// `role`/`scope`/`pieces` as for any other.
     ///
     /// **Omitted while nil**, `unsigned`'s rule, so every other event's bytes
     /// and digest are untouched.

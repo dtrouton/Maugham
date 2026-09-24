@@ -1970,7 +1970,7 @@ final class PermitLoadTests: XCTestCase {
             TrustEvents.derive(
                 registry: try RegistryReader.load(projectURL: projectURL),
                 cache: cache, mine: root, for: projectURL)
-                .last { $0.kind == .scopeChanged && $0.subject == samPerson })
+                .first { $0.kind == .scopeChanged && $0.subject == samPerson })
         XCTAssertEqual(answer.settledPieces, [docId])
         XCTAssertTrue(
             TrustEventSentence.sentence(for: answer, labels: [:])
@@ -2353,7 +2353,7 @@ final class PermitLoadTests: XCTestCase {
             TrustEvents.derive(
                 registry: try RegistryReader.load(projectURL: projectURL),
                 cache: cache, mine: root, for: projectURL)
-                .last { $0.kind == .scopeChanged && $0.subject == samPerson })
+                .first { $0.kind == .scopeChanged && $0.subject == samPerson })
         XCTAssertEqual(latest.settledPieces, [], "and History does not say it did")
     }
 
@@ -2399,6 +2399,123 @@ final class PermitLoadTests: XCTestCase {
         XCTAssertFalse(
             String(decoding: bytes, as: UTF8.self).contains("\"settled\""),
             "no key at all, so the canonical bytes are the pre-F9 bytes")
+    }
+
+    // MARK: After a DELIBERATE removal (Q1, Denver's ruling of 2026-09-24)
+
+    /// **She kept writing in a piece that was TAKEN from her.** The question
+    /// is still put and *Theirs* still brings everything in — Denver's ruling
+    /// keeps both — but the walk records that it was taken, so every surface
+    /// can ask truthfully, and History says the piece went back to her.
+    func test_aPieceTakenFromHerIsSaidSoAndTheirsBringsEverythingIn() async throws {
+        try writeRootRecord()
+        try declareSam()
+        try await admit(.author(.pieces(["doc-hers", docId])))
+        try samsFile([op("whileItWasHers", by: sam.author)])
+        let narrowed = Permit.author(.pieces(["doc-hers"]))
+        _ = try RegistryAdmission.changePermit(
+            person: samPerson, role: narrowed.wireRole,
+            scope: narrowed.wireScope, pieces: narrowed.wirePieces,
+            mark: PermitMark(try await seenMark()),
+            unsigned: try await unsignedSnapshotMark(),
+            in: projectURL, by: root.author, cache: cache,
+            now: { Date(timeIntervalSince1970: 65) })
+        try appendToSamsFile([op("afterItWasTaken", by: sam.author)])
+
+        let carrier = AmendmentPermits()
+        let before = try await reader().loadDiagnosed(
+            docId: docId, amendmentPermits: carrier)
+        XCTAssertEqual(before.ops.map(\.opId), ["whileItWasHers"])
+        XCTAssertEqual(carrier.whoStartedAPiece, [samPerson], "the question is put")
+        XCTAssertEqual(
+            carrier.whoKeptWritingInATakenPiece, [samPerson],
+            "and it is not *she started it*")
+
+        try await answerTheirs(["doc-hers", docId])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["afterItWasTaken", "whileItWasHers"])
+        let answer = try XCTUnwrap(
+            TrustEvents.derive(
+                registry: try RegistryReader.load(projectURL: projectURL),
+                cache: cache, mine: root, for: projectURL)
+                .first { $0.kind == .scopeChanged && $0.subject == samPerson })
+        XCTAssertEqual(answer.returnedPieces, [docId])
+        XCTAssertTrue(
+            TrustEventSentence.sentence(for: answer, labels: [:])
+                .contains("after it was taken from them"))
+    }
+
+    /// The other direction: a piece she STARTED is never said to have been
+    /// taken, by the walk or by History.
+    func test_aPieceSheStartedIsNeverSaidToHaveBeenTaken() async throws {
+        try writeRootRecord()
+        try declareSam()
+        try samsFile([op("herOpening", by: sam.author)])
+        try await admit(.author(.pieces(["doc-hers"])))
+
+        let carrier = AmendmentPermits()
+        _ = try await reader().loadDiagnosed(docId: docId, amendmentPermits: carrier)
+        XCTAssertEqual(carrier.whoStartedAPiece, [samPerson])
+        XCTAssertTrue(carrier.whoKeptWritingInATakenPiece.isEmpty)
+
+        try await answerTheirs(["doc-hers", docId])
+        let answer = try XCTUnwrap(
+            TrustEvents.derive(
+                registry: try RegistryReader.load(projectURL: projectURL),
+                cache: cache, mine: root, for: projectURL)
+                .first { $0.kind == .scopeChanged && $0.subject == samPerson })
+        XCTAssertEqual(answer.returnedPieces, [])
+        XCTAssertFalse(
+            TrustEventSentence.sentence(for: answer, labels: [:])
+                .contains("taken from them"))
+    }
+
+    // MARK: Co-written, deliberately (Denver's case-2 ruling)
+
+    /// **Theirs over a piece a book author has already written in brings her
+    /// text in beside it.** The root's text made her line a refusal and the
+    /// load stopped asking; answering from People & Devices anyway is the
+    /// writer's deliberate act, and the piece is co-written. No guard.
+    func test_theirsOverAPieceABookAuthorWroteInBringsHerTextInAlongside()
+        async throws
+    {
+        try writeRootRecord()
+        try declareSam()
+        try samsFile([op("herOpening", by: sam.author)])
+        try await admit(.author(.pieces(["doc-hers"])))
+        try writeFile(by: root.author, ops: [op("rootsText", by: root.author)])
+        let before = try await appliedOpIds()
+        XCTAssertEqual(before, ["rootsText"], "hers is refused, not held")
+
+        try await answerTheirs(["doc-hers", docId])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["herOpening", "rootsText"])
+    }
+
+    // MARK: Her own acts on OTHER people's notes (Denver, 2026-09-24)
+
+    /// **Her accept, reject and archive of somebody else's notes in the
+    /// settled piece, refused only for scope, take effect.** They are her own
+    /// acts; *another person's line stays set aside* is about lines another
+    /// person SIGNED, not about notes another person wrote.
+    func test_herDispositionsOfOthersNotesInTheSettledPieceTakeEffect() async throws {
+        try writeRootRecord()
+        try declareSam()
+        try samsFile([
+            op("herArchive", by: sam.author, kind: .claudeArchive),
+            op("herReject", by: sam.author, kind: .claudeReject),
+            op("herAccept", by: sam.author, kind: .claudeAccept),
+        ])
+        try await admit(.author(.pieces(["doc-hers"])))
+        let before = try await appliedOpIds()
+        XCTAssertEqual(before, [], "none of them is hers to make here yet")
+
+        try await answerTheirs(["doc-hers", docId])
+
+        let applied = try await appliedOpIds()
+        XCTAssertEqual(applied, ["herAccept", "herArchive", "herReject"])
     }
 }
 

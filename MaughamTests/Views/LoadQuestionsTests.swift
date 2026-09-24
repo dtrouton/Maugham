@@ -87,6 +87,46 @@ final class LoadQuestionsTests: XCTestCase {
         XCTAssertTrue(question.question.contains("The Orchard"))
     }
 
+    /// **After a DELIBERATE removal the question tells the truth** (P3b smoke
+    /// F9, Q1, Denver's ruling of 2026-09-24). The piece was hers and was
+    /// taken; she kept writing in it. The question is still put, and *Theirs*
+    /// still brings it all in — only the words change, and they are the sheet's
+    /// and People & Devices' alike because both draw this value.
+    func test_aPieceTakenFromHerIsAskedAsGivingItBack() throws {
+        let admitted = PermitEvent(
+            event: "\(sam).01", kind: .admitted, subject: sam,
+            role: Permit.authorRole, scope: Permit.piecesScope,
+            pieces: ["doc-hers", "ch-2"],
+            at: Date(timeIntervalSince1970: 20), by: root)
+        let narrowed = PermitEvent(
+            event: "\(sam).02", kind: .scopeChanged, subject: sam,
+            role: Permit.authorRole, scope: Permit.piecesScope,
+            pieces: ["doc-hers"],
+            at: Date(timeIntervalSince1970: 30), by: root)
+        let book = Registry(
+            devices: [],
+            people: [person(root, label: "Denver", admittedBy: root),
+                     person(sam, label: "Sam", admittedBy: root)],
+            events: [admitted, narrowed])
+
+        let taken = try XCTUnwrap(LoadQuestions.newPieces(
+            held: union(counts: [sam: 2], startedAPiece: [sam: ["ch-2"]]),
+            registry: book, titles: ["ch-2": "Chapter 3"],
+            declined: [], me: root).first)
+        XCTAssertEqual(
+            taken.question,
+            "Sam kept writing in \u{201C}Chapter 3\u{201D} after you took it "
+                + "from them. Give it back and bring those words in?")
+        XCTAssertFalse(taken.question.contains("started"))
+
+        // The other direction: a piece she never had is still *started*.
+        let started = try XCTUnwrap(LoadQuestions.newPieces(
+            held: union(counts: [sam: 2], startedAPiece: [sam: ["ch-9"]]),
+            registry: book, titles: ["ch-9": "Chapter 9"],
+            declined: [], me: root).first)
+        XCTAssertTrue(started.question.contains("started"))
+    }
+
     /// **Two buttons and no third**, and neither of them is *yours*. There is
     /// no verb that applies her text as the opening of the root's own piece —
     /// the root claims a piece by WRITING in it, which refuses her lines rather

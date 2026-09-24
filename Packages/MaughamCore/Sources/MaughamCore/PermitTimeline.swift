@@ -254,6 +254,29 @@ public struct PermitTimeline: Equatable, Hashable, Sendable {
     /// Anything judging LINES asks `permits(forFile:lineCount:)` instead.
     public var current: Permit { entries.last?.permit ?? .bookAuthor }
 
+    /// **Was this piece TAKEN from them?** — an earlier permit of theirs
+    /// authored it and the one in force now does not (P3b smoke F9, Q1,
+    /// Denver's ruling of 2026-09-24).
+    ///
+    /// §4.5's question assumes she STARTED the piece. After a deliberate
+    /// removal that premise is false — she kept writing in something the
+    /// writer took from her — and the question, the waiting row and History
+    /// must say which. The answer is the same act either way (*Theirs* brings
+    /// it all in, ruled); only the sentence differs. Asked of the installed
+    /// permits, never of `judging`, because what was TAKEN is what an event
+    /// said, not what a later answer read back into it. Surfaces ask this and
+    /// compare no rung (tripwire 47).
+    public func wasTakenFromThem(piece: String) -> Bool {
+        !current.authors(.piece(piece)) && authored(piece: piece, before: entries.count)
+    }
+
+    /// Did any entry before `index` install a permit that authors this piece?
+    /// `wasTakenFromThem`'s one spelling, and what History asks about the
+    /// entry an answer installed.
+    public func authored(piece: String, before index: Int) -> Bool {
+        entries.prefix(max(0, index)).contains { $0.permit.authors(.piece(piece)) }
+    }
+
     /// Has anything ever happened to this permit? False is the P2-era book.
     public var hasEvents: Bool { entries.count > 1 }
 

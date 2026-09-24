@@ -476,6 +476,39 @@ final class PermitTimelineTests: XCTestCase {
         XCTAssertEqual(timeline.current, .author(.pieces(["d-one"])))
     }
 
+    // MARK: - Was the piece TAKEN from them? (P3b smoke F9, Q1, ruled 2026-09-24)
+
+    /// **The one answer to *did an earlier entry of theirs author this piece
+    /// that the current one does not*** — what makes §4.5's question truthful
+    /// after a deliberate removal. Both directions, and the case in between.
+    func test_aPieceTakenFromThemIsToldApartFromOneTheyStarted() {
+        let admitted = event(
+            "a", kind: .admitted, scope: Permit.piecesScope, pieces: ["d-one", "d-p"])
+        let narrowed = event(
+            "b", kind: .scopeChanged, scope: Permit.piecesScope,
+            pieces: ["d-one"], mark: mark(after: 1))
+        XCTAssertTrue(
+            PermitTimeline(events: [admitted, narrowed]).wasTakenFromThem(piece: "d-p"),
+            "she had it, and it was taken")
+        XCTAssertFalse(
+            PermitTimeline(events: [admitted, narrowed]).wasTakenFromThem(piece: "d-new"),
+            "she never had this one — she started it")
+        XCTAssertFalse(
+            PermitTimeline(events: [admitted]).wasTakenFromThem(piece: "d-p"),
+            "she still has it")
+        XCTAssertFalse(
+            PermitTimeline.bookAuthor.wasTakenFromThem(piece: "d-p"),
+            "a book author holds every piece")
+        XCTAssertTrue(
+            PermitTimeline(events: [admitted, narrowed])
+                .authored(piece: "d-p", before: 2),
+            "the before-an-entry form History asks")
+        XCTAssertFalse(
+            PermitTimeline(events: [admitted, narrowed])
+                .authored(piece: "d-p", before: 0),
+            "nothing is before the opening entry")
+    }
+
     /// **A `settled` over a permit that does not author the piece settles
     /// nothing** — read here, so it holds whoever wrote the event.
     func test_aSettledPieceTheEventDoesNotGiveSettlesNothing() {

@@ -208,9 +208,14 @@ public enum HeldLines {
     ///
     /// Nil for a count of nothing, so a surface drawing this never has to
     /// decide whether zero is worth a sentence.
+    ///
+    /// `pieceWasTakenFromThem` is the walk's own answer
+    /// (`AmendmentPermits.whoKeptWritingInATakenPiece`): §4.5's line after a
+    /// deliberate removal, where *nobody has claimed* would be false (Q1,
+    /// ruled 2026-09-24). It reaches only the piece-start arm.
     public static func sentence(
         _ holder: Holder, notes count: Int, named name: String? = nil,
-        wayBackIn: WayBackIn = .theInboxDoor
+        wayBackIn: WayBackIn = .theInboxDoor, pieceWasTakenFromThem: Bool = false
     ) -> String? {
         guard count > 0 else { return nil }
         let noun = count == 1 ? "note" : "notes"
@@ -229,6 +234,11 @@ public enum HeldLines {
             // reads her line perfectly well, and telling the writer to wait
             // for a newer Maugham would be telling them to wait for nothing.
             guard !startedAPiece else {
+                if pieceWasTakenFromThem {
+                    return "\(count) \(noun) from \(who) \(verb) waiting in a "
+                        + "piece that was taken from them — they kept writing "
+                        + "in it. Say whether to give it back in People & Devices."
+                }
                 return "\(count) \(noun) from \(who) \(verb) waiting in a piece "
                     + "nobody has claimed yet. Say whether the piece is theirs "
                     + "in People & Devices."

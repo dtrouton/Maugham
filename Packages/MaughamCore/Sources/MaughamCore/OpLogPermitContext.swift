@@ -114,8 +114,27 @@ public final class AmendmentPermits: @unchecked Sendable {
     private var byOpId: [String: Permit] = [:]
     private var insideTheUnsignedSnapshot: Set<String> = []
     private var startedAPiece: Set<String> = []
+    private var keptWritingInATakenPiece: Set<String> = []
 
     public init() {}
+
+    /// **This piece-start was really a piece TAKEN from them** (P3b smoke
+    /// F9, Q1). Recorded beside `recordStartedAPiece` by the same arm, from
+    /// `PermitTimeline.wasTakenFromThem`, so the surfaces that tell the writer
+    /// about a held line can say the truth without re-reading a registry.
+    func recordKeptWritingInATakenPiece(_ holder: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        keptWritingInATakenPiece.insert(holder)
+    }
+
+    /// The holders among `whoStartedAPiece` whose piece had been taken from
+    /// them — a subset of it, never a second list of who is waiting.
+    public var whoKeptWritingInATakenPiece: Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+        return keptWritingInATakenPiece
+    }
 
     // MARK: - Who started a piece nobody has claimed (P3b Task 7)
 

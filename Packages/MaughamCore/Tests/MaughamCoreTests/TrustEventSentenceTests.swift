@@ -375,6 +375,23 @@ final class TrustEventSentenceTests: XCTestCase {
                 + "stays set aside.")
     }
 
+    /// **Given back, not started** (Q1, ruled 2026-09-24).
+    func test_answeringAfterADeliberateRemovalSaysThePieceWentBack() {
+        let answer = TrustEvent(
+            date: Date(timeIntervalSince1970: 30), kind: .scopeChanged,
+            subject: phone, label: "Sam", by: root,
+            permit: .author(.pieces(["d-one", "d-two"])),
+            previousPermit: .author(.pieces(["d-one"])),
+            settledPieces: ["d-two"], returnedPieces: ["d-two"],
+            event: "\(phone).a")
+        XCTAssertEqual(
+            TrustEventSentence.sentence(for: answer, labels: [root: "Denver"]),
+            "Sam became an author of 2 pieces. They had kept writing in the "
+                + "piece after it was taken from them; it is theirs again, and "
+                + "what they wrote there counts as theirs. Anything set aside "
+                + "for any other reason stays set aside.")
+    }
+
     /// A change that is neither wider nor narrower — two disjoint lists — gets
     /// the conservative half, because the one thing true of every such change
     /// is that the mark does not reach backwards.

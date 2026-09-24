@@ -1473,7 +1473,13 @@ list and nothing else). `Entry.permit` stays what was installed, so History and
 load and every sweep. Because only the piece list moves, every other refusal
 is answered by something the widening does not touch: the actor rows, a
 reviewer's rung, `.cannotJudge`, and every VERDICT (revoked, retired, a broken
-chain), which is decided before the partition runs. An entry after the answer
+chain), which is decided before the partition runs. *Another person's line*
+means a line another person SIGNED: her own accepts, rejects and archives of
+other people's notes in the settled piece, refused only for scope, are her
+acts and come in too (Denver, 2026-09-24). After a deliberate REMOVAL the
+question is still put and the effect is the same, but every surface says she
+kept writing in a piece that was taken from her (`PermitTimeline
+.wasTakenFromThem`, ruled 2026-09-24). An entry after the answer
 is not widened, and `settled` over a permit that does not author the piece
 settles nothing. The ordinary mark takes the ordinary loss check, so an answer
 over a stream missing a segment this Mac applied refuses, as every marking verb

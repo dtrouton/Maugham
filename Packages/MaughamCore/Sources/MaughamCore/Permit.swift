@@ -292,7 +292,8 @@ public enum Permit: Equatable, Hashable, Sendable {
 
     /// **Does this permit allow everything `other` allows?**
     ///
-    /// Asked by History alone, to say which way a change went: a NARROWING
+    /// Asked by History, to say which way a change went — and by
+    /// `DocumentStore.pieceIsTheirs`, to be sure its answer only widens: a NARROWING
     /// (*What they wrote before then stays in the book*) and a WIDENING
     /// (*Anything set aside before then stays set aside*) are the two halves of
     /// spec §5 and a surface that stated one of them over both would be telling
