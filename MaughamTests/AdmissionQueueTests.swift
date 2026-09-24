@@ -32,15 +32,67 @@ final class AdmissionQueueTests: XCTestCase {
 
     // MARK: - Admit brings up the next
 
-    func test_admittingTheFirstBringsUpTheSecond() {
+    func test_admittingTheFirstBringsUpTheSecondOnceTheBookHasSettled() {
         var queue = twoWaiting()
 
         queue.admitted(sam.fingerprint)
         XCTAssertNil(queue.presented, "Sam's sheet comes down first")
         let dismissal = queue.sheetClosed()
-
         XCTAssertFalse(dismissal, "an answered sheet is not a Not now")
-        XCTAssertEqual(queue.presented, ren, "and Ren's goes up once it has")
+        XCTAssertNil(queue.presented,
+                     "nothing goes up from a queue the admission has overtaken")
+
+        queue.rederived([ren])
+        XCTAssertEqual(queue.presented, ren, "and Ren's goes up from the settled answer")
+    }
+
+    /// **The review's Important 1**: F1's merge-by-default returning through
+    /// F4's path. Two new Macs both called "MacBook Air", no such label yet:
+    /// both propose it. Sam is admitted AS "MacBook Air"; the continuation
+    /// lands first, the sheet closes, and only then the settlement arrives —
+    /// with Ren's proposal withdrawn because it is now a merge.
+    func test_theNextSheetIsDrawnFromTheSettledQueueNotTheOneTheAdmissionOvertook() {
+        func mac(_ fingerprint: String, proposing label: String, sharesWith: String?)
+            -> AdmissionRequest
+        {
+            AdmissionRequest(
+                fingerprint: fingerprint, ownName: "MacBook Air",
+                code: DeviceCode.short(fingerprint), waitingCount: 1,
+                proposedLabel: label,
+                knownLabels: sharesWith.map { [$0] } ?? [],
+                sharesItsNameWith: sharesWith)
+        }
+        let samBefore = mac(sam.fingerprint, proposing: "MacBook Air", sharesWith: nil)
+        let renBefore = mac(ren.fingerprint, proposing: "MacBook Air", sharesWith: nil)
+        let renAfter = mac(ren.fingerprint, proposing: "", sharesWith: "MacBook Air")
+        var queue = AdmissionQueue()
+        queue.rederived([samBefore, renBefore])
+
+        queue.admitted(sam.fingerprint)   // the continuation
+        queue.sheetClosed()               // the close
+        XCTAssertNil(queue.presented,
+                     "Ren's pre-admission request, pre-filled with a merge, never goes up")
+
+        queue.rederived([renAfter])       // the settlement
+        let up = try? XCTUnwrap(queue.presented)
+        XCTAssertEqual(up, renAfter)
+        XCTAssertEqual(up.map { AdmissionDecision.outcome(for: $0, typedLabel: $0.proposedLabel) },
+                       .notNow, "the field starts on nothing, not on a merge")
+    }
+
+    /// Review Minor 3: a close SwiftUI never reports must not block every
+    /// later sheet until the writer presses Admit… or reopens the book.
+    func test_aCloseThatNeverReportsIsGivenUpAfterTwoDerivations() {
+        var queue = twoWaiting()
+        queue.rederived([ren])          // Sam let in elsewhere: her sheet comes down…
+        XCTAssertTrue(queue.isClosing)  // …and its close is never reported.
+
+        queue.rederived([ren])
+        XCTAssertNil(queue.presented, "one derivation is still a close in flight")
+        queue.rederived([ren])
+
+        XCTAssertEqual(queue.presented, ren, "two is a report that is not coming")
+        XCTAssertFalse(queue.dismissed.contains(ren.fingerprint))
     }
 
     /// **F4 itself.** The settlement the admission announced re-derives the

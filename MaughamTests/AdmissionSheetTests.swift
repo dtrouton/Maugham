@@ -281,6 +281,30 @@ final class AdmissionSheetTests: XCTestCase {
             "and a device whose name nobody has is told nothing")
     }
 
+    /// **Review Important 1, the sheet's half**: the same stranger arrives
+    /// freshly derived, and the proposal it was seeded with has become a
+    /// merge. An untouched field follows; a typed one is the writer's.
+    func test_aFreshRequestWhoseProposalChangedNeverLeavesAMergeInTheField() {
+        let before = AdmissionRequest(
+            fingerprint: phone, ownName: "MacBook Air", code: DeviceCode.short(phone),
+            waitingCount: 1, proposedLabel: "MacBook Air", knownLabels: [])
+        let after = AdmissionRequest(
+            fingerprint: phone, ownName: "MacBook Air", code: DeviceCode.short(phone),
+            waitingCount: 1, proposedLabel: "", knownLabels: ["MacBook Air"],
+            sharesItsNameWith: "MacBook Air")
+
+        let untouched = AdmissionSheet.reseeded(typed: "MacBook Air", from: before, to: after)
+        XCTAssertEqual(untouched, "")
+        XCTAssertEqual(AdmissionDecision.outcome(for: after, typedLabel: untouched), .notNow,
+                       "the field left behind is not a merge")
+
+        XCTAssertEqual(AdmissionSheet.reseeded(typed: "Ren", from: before, to: after), "Ren",
+                       "what the writer typed is never replaced")
+        XCTAssertEqual(
+            AdmissionSheet.reseeded(typed: "", from: after, to: before), "MacBook Air",
+            "and an untouched field follows a proposal that returns")
+    }
+
     func test_theSheetDrawsTheSharedNameNoticeOverAnEmptyField() throws {
         let window = mount(sharedNameRequest())
 

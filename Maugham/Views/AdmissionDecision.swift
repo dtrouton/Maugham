@@ -35,7 +35,9 @@ struct AdmissionRequest: Identifiable, Equatable {
     /// of Admit made a stranger the root, with the root's permit. A merge is
     /// only ever the writer's deliberate act, through *this is also…* or a
     /// label they typed; never the default. `sharesItsNameWith` says why the
-    /// field is empty.
+    /// field is empty. This holds for the request as DERIVED; keeping a stale
+    /// derivation out of the field is `AdmissionQueue.awaitingSettlement`'s and
+    /// `AdmissionSheet.reseeded`'s.
     let proposedLabel: String
     /// Every label this book already knows, so *this is also…* can offer them
     /// rather than making the writer re-spell one. Sorted, and deduplicated

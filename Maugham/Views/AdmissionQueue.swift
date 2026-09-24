@@ -35,6 +35,23 @@ struct AdmissionQueue: Equatable {
     /// Fingerprints the writer said *Not now* to in this window. Spec §4.1:
     /// until the next open — or until the writer asks, which `forgetDismissals` is.
     private(set) var dismissed: Set<String> = []
+    /// **Every request still queued was derived BEFORE an admission this
+    /// window just made** (F1/F4 review, Important 1).
+    ///
+    /// A registry change can change what the others should be asked: two new
+    /// Macs both called "MacBook Air" each propose that name, and once the
+    /// first is admitted under it the second's proposal is a MERGE. The
+    /// settlement's re-derivation says so (`proposedLabel` empty,
+    /// `sharesItsNameWith` set) — but it lands after the first sheet closes,
+    /// and a close that put the next request up from the old queue drew the
+    /// merge-valued field the fresh request no longer proposes. So nothing
+    /// goes up from a queue an admission has overtaken; the next `rederived`
+    /// clears this and puts the head up from the fresh answer.
+    private(set) var awaitingSettlement = false
+    /// A close with no report behind it has now been seen by one derivation
+    /// (review Minor 3). The second derivation that still sees it gives up on
+    /// the report and treats the sheet as closed.
+    private var unreportedCloseSeen = false
 
     /// **Whether a sheet is closing** — taken down (by an answer, by a
     /// re-derivation, or by Escape) with its `sheetClosed` still to come.
@@ -64,6 +81,24 @@ struct AdmissionQueue: Equatable {
     /// up, the head goes up.
     mutating func rederived(_ requests: [AdmissionRequest]) {
         queue = requests.filter { !dismissed.contains($0.fingerprint) }
+        awaitingSettlement = false
+        // **A close SwiftUI never reported** (review Minor 3) — `onDismiss`
+        // for a presentation it never started. Two derivations in a row that
+        // find a sheet closing with no report is not a dismissal animation (a
+        // derivation is a registry read, far slower than one); it is a report
+        // that is not coming, and waiting for it would block every later sheet
+        // until the writer pressed Admit… or reopened the book. No timer: the
+        // book's own next announcement is the clock.
+        if isClosing {
+            if unreportedCloseSeen {
+                shown = nil
+                unreportedCloseSeen = false
+            } else {
+                unreportedCloseSeen = true
+            }
+        } else {
+            unreportedCloseSeen = false
+        }
         if let shown, !queue.contains(where: { $0.fingerprint == shown.fingerprint }),
            presented?.fingerprint == shown.fingerprint {
             presented = nil
@@ -82,7 +117,14 @@ struct AdmissionQueue: Equatable {
 
     /// **This request was admitted.** Off the queue, and its sheet down — ITS
     /// sheet, and only if it is still the one up (F4).
+    ///
+    /// Where the queue still held it, no re-derivation has seen this admission
+    /// yet, so every other request in it is from before — and nothing more
+    /// goes up until one has (`awaitingSettlement`).
     mutating func admitted(_ fingerprint: String) {
+        if queue.contains(where: { $0.fingerprint == fingerprint }) {
+            awaitingSettlement = true
+        }
         queue.removeAll { $0.fingerprint == fingerprint }
         takeDown(fingerprint)
     }
@@ -115,6 +157,13 @@ struct AdmissionQueue: Equatable {
             queue.removeAll { $0.fingerprint == finished.fingerprint }
             wasDismissal = true
         }
+        unreportedCloseSeen = false
+        guard !awaitingSettlement else {
+            // Closed, and nothing up until the settlement re-derives.
+            shown = nil
+            presented = nil
+            return wasDismissal
+        }
         shown = queue.first
         presented = shown
         return wasDismissal
@@ -126,7 +175,8 @@ struct AdmissionQueue: Equatable {
     }
 
     private mutating func presentHeadIfIdle() {
-        guard presented == nil, !isClosing, let head = queue.first else { return }
+        guard presented == nil, !isClosing, !awaitingSettlement,
+              let head = queue.first else { return }
         shown = head
         presented = head
     }

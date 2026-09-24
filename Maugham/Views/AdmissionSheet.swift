@@ -149,6 +149,21 @@ struct AdmissionSheet: View {
             + "\u{201C}\(existing)\u{201D} from \u{201C}\(knownLabelsTitle)\u{201D}."
     }
 
+    /// **What the field holds when the same stranger arrives freshly derived**
+    /// (F1/F4 review, Important 1).
+    ///
+    /// The field is `@State`, seeded once, and a re-derivation swaps the
+    /// request under a sheet that keeps its identity — so a proposal the
+    /// registry has since withdrawn (a name that became somebody's label a
+    /// moment ago) would sit in the field as a merge. Where the writer has not
+    /// touched it — it still holds the OLD proposal — it follows the new one;
+    /// anything they typed or chose is theirs and is never replaced.
+    static func reseeded(
+        typed: String, from old: AdmissionRequest, to new: AdmissionRequest
+    ) -> String {
+        typed == old.proposedLabel ? new.proposedLabel : typed
+    }
+
     /// Drawn while the writer has not yet chosen a label — once they type one
     /// or choose one, the merge notice (or nothing) says what Admit will do.
     static func sharedNameNotice(
@@ -311,6 +326,9 @@ struct AdmissionSheet: View {
         }
         .padding(20)
         .frame(minWidth: 420)
+        .onChange(of: request) { old, new in
+            typedLabel = Self.reseeded(typed: typedLabel, from: old, to: new)
+        }
         // Asked when the choice starts narrowing, and never before: the answer
         // is a walk of the project's whole op log, and an ordinary admission
         // owes it nothing.
