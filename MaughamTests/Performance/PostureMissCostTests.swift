@@ -14,12 +14,16 @@ import XCTest
 /// each on a document of its own (the worst case: a real queue repeats
 /// documents, and a repeat is a hit).
 ///
-/// Three passes per cycle, each timed over the whole queue:
+/// Four passes per cycle, each timed over the whole queue:
 /// - **during** — asked right after `invalidateTrust`, before the refresh
 ///   lands: the provisional answer (last known, never cached);
-/// - **first after** — asked right after the refresh lands: every row a miss,
-///   the pass m1 is about;
-/// - **hits** — the same queue again: the control.
+/// - **first after** — asked right after the refresh lands: the pass m1 is
+///   about. Before ruling AD every row was a miss (42 ms at 50 rows); since,
+///   the refresh warms every key the window has asked about before its epoch
+///   bump, so this is a pass of hits;
+/// - **hits** — the same queue again: the control;
+/// - **unasked misses** — a queue of documents the window has never asked
+///   about, with the table warm: the miss path itself.
 ///
 /// **Env-gated and kept**, `NarrowedBookCostTests`' rule and for its reason. It
 /// asserts nothing about a duration; it prints and attaches. Run it with:
@@ -63,6 +67,9 @@ final class PostureMissCostTests: XCTestCase {
             ids.append(item.id)
         }
         let documentStore = book.documentStore
+        // The production wiring (`ProjectWindow` sets it): the door reads the
+        // window's live manifest rather than the file.
+        documentStore.projectStore = book.store
         documentStore.invalidateTrust()
         await documentStore.postureSettled()
 
@@ -70,7 +77,7 @@ final class PostureMissCostTests: XCTestCase {
             + "change (medians of \(Self.cycles), ms per whole queue; "
             + "one document per row) ===\n"
         table += "rows".padding(toLength: 8, withPad: " ", startingAt: 0)
-            + ["during refresh", "first after", "per miss", "hits"]
+            + ["during refresh", "first after", "hits", "unasked misses", "per miss"]
                 .map { $0.padding(toLength: 18, withPad: " ", startingAt: 0) }
                 .joined() + "\n"
 
@@ -81,16 +88,23 @@ final class PostureMissCostTests: XCTestCase {
             for id in queue { _ = documentStore.posture(forDocId: id) }
 
             var during: [Double] = [], after: [Double] = [], hits: [Double] = []
-            for _ in 0..<Self.cycles {
+            var misses: [Double] = []
+            for cycle in 0..<Self.cycles {
                 documentStore.invalidateTrust()
                 during.append(time { for id in queue { _ = documentStore.posture(forDocId: id) } })
                 await documentStore.postureSettled()
                 after.append(time { for id in queue { _ = documentStore.posture(forDocId: id) } })
                 hits.append(time { for id in queue { _ = documentStore.posture(forDocId: id) } })
+                // A queue of documents this window has never asked about: the
+                // miss path itself, with the table warm. An id the manifest
+                // does not hold is a piece, and costs the builder exactly
+                // what a real one does.
+                let unasked = (0..<rows).map { "unasked-\(rows)-\(cycle)-\($0)" }
+                misses.append(time { for id in unasked { _ = documentStore.posture(forDocId: id) } })
             }
-            let firstAfter = median(after)
+            let unasked = median(misses)
             table += "\(rows)".padding(toLength: 8, withPad: " ", startingAt: 0)
-                + [median(during), firstAfter, firstAfter / Double(rows), median(hits)]
+                + [median(during), median(after), median(hits), unasked, unasked / Double(rows)]
                     .map { String(format: "%.3f", $0)
                         .padding(toLength: 18, withPad: " ", startingAt: 0) }
                     .joined() + "\n"

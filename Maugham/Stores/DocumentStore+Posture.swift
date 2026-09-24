@@ -39,6 +39,12 @@ final class PostureBook {
     /// answer while a refresh is in flight, never a cache hit.
     @ObservationIgnored fileprivate var lastKnown: [Key: LocalWritePermit] = [:]
 
+    /// Every `(docId, actor)` this window has asked about, in any epoch — what
+    /// a refresh warms ahead of its epoch bump (Task 10, ruling AD), so the
+    /// redraw the bump causes is answered from the cache rather than by one
+    /// builder call per row on the main actor.
+    @ObservationIgnored fileprivate var asked: Set<Key> = []
+
     /// docId → the writers this device, as the root, yields to on that piece.
     /// Empty until the off-main `PieceWriters` read lands: until then nobody is
     /// yielded to, because a lock the writer did not earn is the worse error.
@@ -191,6 +197,7 @@ extension DocumentStore {
             await postureSettled()
         }
         let key = PostureBook.Key(docId: docId, actor: actor)
+        book.asked.insert(key)
         let permit = book.permits[key] ?? {
             let built = permitFromTheBuilder(forDocId: docId, as: actor)
             if postureTableIsWarm() { book.permits[key] = built }
@@ -264,6 +271,7 @@ extension DocumentStore {
         let book = postureBook
         let key = PostureBook.Key(docId: docId, actor: actor)
         if let hit = book.permits[key] { return hit }
+        book.asked.insert(key)
         if postureTableIsWarm() {
             let permit = permitFromTheBuilder(forDocId: docId, as: actor)
             book.permits[key] = permit
@@ -292,19 +300,68 @@ extension DocumentStore {
         return ready == TrustResolution.signature(of: projectURL)
     }
 
+    /// The ONE builder (tripwire 46); only where the document's CLASS comes
+    /// from is this door's choice. The window's live manifest where the store
+    /// holds one — `DocumentClass.resolve(docId:statements:)`, pure and free,
+    /// which is what `OpLogStore.documentClass(forDocId:in:)` asks of the
+    /// statements it decodes — else that disk read (a headless store). A
+    /// manifest adoption bumps the epoch, so the live manifest is never
+    /// older than an answer cached from it (Task 10, ruling AD: the disk read
+    /// was 0.47 ms of every 0.84 ms miss).
     private func permitFromTheBuilder(
         forDocId docId: String, as actor: DeviceActor
     ) -> LocalWritePermit {
         let projectURL = self.projectURL
+        let statements = projectStore?.manifest.statements
         return postureOpStore.localWritePermit(as: actor) {
-            Document.documentClass(forDocId: docId, in: projectURL)
+            if let statements {
+                return DocumentClass.resolve(docId: docId, statements: statements)
+            }
+            return Document.documentClass(forDocId: docId, in: projectURL)
         }
     }
 
-    private func bumpPostureEpoch() {
+    /// A new epoch: every view that asked re-renders. `clearing` forgets the
+    /// cached answers too — a trust change or a manifest adoption, whose
+    /// answers were taken off a table or a manifest being replaced. A refresh
+    /// that has just WARMED the cache from the table it warmed bumps without
+    /// clearing, so the redraw it causes is all hits.
+    private func bumpPostureEpoch(clearing: Bool = true) {
         postureBook.epoch += 1
+        guard clearing else { return }
         postureBook.permits.removeAll()
         postureBook.pieceOf.removeAll()
+    }
+
+    /// How many keys a refresh warms between yields of the main actor. The
+    /// builder costs a fraction of a millisecond a key (its own
+    /// is-there-a-register question and folder signature), so a chunk holds
+    /// the actor for a few milliseconds and a redraw can land between chunks.
+    private static var prewarmChunk: Int { 16 }
+
+    /// **Warm every key this window has asked about, off the table just
+    /// warmed** (Task 10, ruling AD) — the same builder over the same inputs,
+    /// so no answer differs from the one a miss would have built. The folder's
+    /// signature is checked once per chunk rather than once per key; a chunk
+    /// that finds the folder moved (or a newer refresh) abandons the warm and
+    /// answers false, and the caller falls back to the clearing bump. Keys a
+    /// view asked meanwhile keep what the view's own miss built.
+    private func prewarmPostureCache(generation: Int) async -> Bool {
+        let book = postureBook
+        let keys = Array(book.asked)
+        var index = 0
+        while index < keys.count {
+            guard book.generation == generation, postureTableIsWarm() else { return false }
+            for key in keys[index..<min(index + Self.prewarmChunk, keys.count)]
+            where book.permits[key] == nil {
+                let permit = permitFromTheBuilder(forDocId: key.docId, as: key.actor)
+                book.permits[key] = permit
+                book.lastKnown[key] = permit
+            }
+            index += Self.prewarmChunk
+            if index < keys.count { await Task.yield() }
+        }
+        return book.generation == generation
     }
 
     /// Warm the table, re-stamp the open documents, bump; then read who writes
@@ -343,18 +400,27 @@ extension DocumentStore {
         // that table still describes the folder — otherwise the builder would
         // resolve here, and the next refresh (the presenter's own
         // invalidation) re-stamps anyway.
+        var warmed = false
         if postureTableIsWarm() {
             for document in allOpenDocuments() {
                 document.stamp(localWritePermit: permitFromTheBuilder(
                     forDocId: document.docId, as: document.localWritePermit.actor))
             }
+            warmed = await prewarmPostureCache(generation: generation)
+            guard book.generation == generation else { return }
         }
-        bumpPostureEpoch()
+        // Warmed: the cache already holds this table's answers, so the bump
+        // re-renders without forgetting them. Not warmed (the folder moved
+        // mid-resolve): forget, as before — the presenter's own invalidation
+        // refreshes again.
+        bumpPostureEpoch(clearing: !warmed)
 
         let yields = await resolvePostureYields()
         guard book.generation == generation else { return }
         book.yields = yields
-        bumpPostureEpoch()
+        // A permit does not depend on who is yielded to (`assemble` applies
+        // the yield at the question), so the second bump keeps the cache.
+        bumpPostureEpoch(clearing: false)
         book.refreshesLanded += 1
     }
 
