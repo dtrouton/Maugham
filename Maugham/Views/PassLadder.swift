@@ -27,7 +27,13 @@ struct PassLadder: View {
     let passes: [ReviewPass]
     /// `(passId, state)` — `nil` means untouched, and the store verb removes
     /// the key rather than storing a fourth state.
-    let onSet: (String, PassState?) -> Void
+    ///
+    /// **Absent where this Mac may not rule on the piece's passes** (P3c Task
+    /// 6, plan ruling R3): the host asks its posture and hands `nil`, and the
+    /// ladder draws each pass's state as a plain row instead of a menu — the
+    /// reviewer still sees where the piece stands; she is offered no way to
+    /// move it. Hidden rather than disabled: a greyed menu reads as broken.
+    let onSet: ((String, PassState?) -> Void)?
 
     /// The row titles. `.skipped` reads as "Skip" because the writer is making
     /// a decision, not describing a past one — it is an adjudication ("this
@@ -57,6 +63,16 @@ struct PassLadder: View {
         "passLadder.\(passId)"
     }
 
+    /// **May this Mac rule on a piece's passes?** (P3c Task 6, plan ruling
+    /// R3: a pass state is probed as *may you write this piece's text*.) The
+    /// ONE spelling every pass-state surface asks — both inspectors' ladders,
+    /// the board's chip menu and the queue's pass-order nudge — so the four
+    /// cannot disagree about who may move a lane. Cooperative: the store verb
+    /// itself stays unguarded, because roles guard the words, not the binder.
+    static func offersRulings(under posture: Posture) -> Bool {
+        posture.allows(.setPassState)
+    }
+
     var derivedStatus: ReviewStatus {
         ReviewStatus.derived(
             passStates: item.passStates,
@@ -75,29 +91,45 @@ struct PassLadder: View {
             }
         }
         ForEach(passes) { pass in
-            Picker(pass.name, selection: binding(for: pass)) {
-                Text(Self.untouchedTitle).tag(PassState?.none)
-                Text(Self.inProgressTitle).tag(PassState?.some(.inProgress))
-                Text(Self.doneTitle).tag(PassState?.some(.done))
-                Text(Self.skipTitle).tag(PassState?.some(.skipped))
-                // A state written by a NEWER build gets a row of its own,
-                // showing its raw value, so the menu can render the selection
-                // it actually holds. Without it no tag matches, the popup
-                // shows blank, and the writer's next choice looks like a
-                // correction of nothing — the lossless round-trip `PassState`
-                // guarantees on disk would be honest and invisible.
-                if case .unknown(let raw) = item.passStates?[pass.id] {
-                    Text(raw).tag(PassState?.some(.unknown(raw)))
+            if let onSet {
+                picker(for: pass, onSet: onSet)
+            } else {
+                LabeledContent(pass.name) {
+                    // The board chip's own spelling of a state — one spelling.
+                    Text(ReviewBoardChip.stateTitle(for: item.passStates?[pass.id]))
+                        .foregroundStyle(.secondary)
                 }
+                .accessibilityIdentifier(Self.identifier(forPass: pass.id))
             }
-            .pickerStyle(.menu)
-            .accessibilityIdentifier(Self.identifier(forPass: pass.id))
         }
+    }
+
+    @ViewBuilder
+    private func picker(for pass: ReviewPass,
+                        onSet: @escaping (String, PassState?) -> Void) -> some View {
+        Picker(pass.name, selection: binding(for: pass, onSet: onSet)) {
+            Text(Self.untouchedTitle).tag(PassState?.none)
+            Text(Self.inProgressTitle).tag(PassState?.some(.inProgress))
+            Text(Self.doneTitle).tag(PassState?.some(.done))
+            Text(Self.skipTitle).tag(PassState?.some(.skipped))
+            // A state written by a NEWER build gets a row of its own,
+            // showing its raw value, so the menu can render the selection
+            // it actually holds. Without it no tag matches, the popup
+            // shows blank, and the writer's next choice looks like a
+            // correction of nothing — the lossless round-trip `PassState`
+            // guarantees on disk would be honest and invisible.
+            if case .unknown(let raw) = item.passStates?[pass.id] {
+                Text(raw).tag(PassState?.some(.unknown(raw)))
+            }
+        }
+        .pickerStyle(.menu)
+        .accessibilityIdentifier(Self.identifier(forPass: pass.id))
     }
 
     /// A setter that only ever forwards — no store call, no derivation, nothing
     /// that can suspend (tripwire 3). The host decides what a write means.
-    private func binding(for pass: ReviewPass) -> Binding<PassState?> {
+    private func binding(for pass: ReviewPass,
+                         onSet: @escaping (String, PassState?) -> Void) -> Binding<PassState?> {
         Binding(
             get: { item.passStates?[pass.id] },
             set: { onSet(pass.id, $0) })

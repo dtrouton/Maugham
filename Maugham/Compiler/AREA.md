@@ -341,6 +341,20 @@ record, `runState` still `.idle`. A **retired** pass id refuses the same way;
 under the old single resolution it fell to the coach and quietly filed a round
 in her lane.
 
+**A round is also the piece-writer's** (signed op log P3c Task 6, plan ruling
+R4). Below the `noEditor` refusal, a round asks `Environment.mayRunRound(docId)`
+— production answers it with `DocumentStore.settledPosture(forDocId:)
+.allows(.runRound)`, the ACTING door, so the closure is `async` — and a `false`
+flashes `Acknowledgment.notYourPiece` and starts nothing, in `noEditor`'s exact
+shape. While it asks, the press holds the in-flight gate (a second press is
+"still checking") and the `.started` flash waits for the answer. A CHECK is
+never asked: it writes unstamped notes, which is the reviewer row. The cockpit's
+Run/Fresh Eyes, the board chip's *Run round*, and every pass-state ruling (both
+inspectors' ladders, the chip menu, the pass-order nudge — one spelling,
+`PassLadder.offersRulings(under:)`) are not drawn where the posture refuses;
+the board's chips themselves always draw. `setPassState` stays unguarded at
+storage — roles guard the words, not the binder.
+
 Two censuses keep the two inputs apart, each with a planted offender:
 `TripwireGrepTests.test_theCheckReaderNeverReadsTheBoardsMemory` (no
 `activePassMemory` in `AuthorReader.swift`, and exactly one read in the

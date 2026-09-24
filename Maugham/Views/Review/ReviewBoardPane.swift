@@ -108,6 +108,13 @@ struct ReviewBoardPane: View {
     /// `ProjectWindow.manuscriptEditor`, which is the only place that holds a
     /// `DocumentStore` and a `CompilerOrchestrator`.
     let onRunRound: (String, String) -> Void
+    /// **What this Mac may offer on each piece** (P3c Task 6), asked per ROW
+    /// — every chip on the board is a different piece, so the window's own
+    /// document's posture would be the wrong question. The chips always DRAW:
+    /// the board is how a reviewer sees where the book stands. What a posture
+    /// withholds is the menu's four rulings and its *Run round*
+    /// (`ReviewBoardChipVerbs.chipMenu`).
+    let posture: (String) -> Posture
 
     /// The menu behind every chip, over this pane's own closures. Built per
     /// access like `BinderView.treeVerbs`: it is closures in a wrapper and
@@ -361,9 +368,17 @@ struct ReviewBoardPane: View {
             // census in `ReviewBoardPaneTests` is what keeps the drawn menu
             // equal to the truth table its tests drive (see the type doc
             // below: `.contextMenu` itself is headless-unreachable).
-            let menu = verbs.chipMenu(for: item.id, pass: pass, current: state)
-            Button(menu.run.title) { menu.run.perform() }
-            Divider()
+            //
+            // **And asked of THIS row's posture** (P3c Task 6): a verb the
+            // permit would not let this Mac write is absent, never greyed.
+            let menu = verbs.chipMenu(for: item.id, pass: pass, current: state,
+                                      posture: posture(item.id))
+            if let run = menu.run {
+                Button(run.title) { run.perform() }
+            }
+            if menu.run != nil, !menu.states.isEmpty {
+                Divider()
+            }
             ForEach(menu.states) { verb in
                 Button {
                     verb.perform()
@@ -442,7 +457,9 @@ struct ReviewBoardChipVerbs {
     /// **One cell's whole menu**: the round it can start, and the four things
     /// the reviewer can say about it.
     struct ChipMenu {
-        let run: RunVerb
+        /// `nil` where the posture does not offer a round on this piece.
+        let run: RunVerb?
+        /// Empty where the posture does not offer a ruling on its passes.
         let states: [ChipVerb]
     }
 
@@ -462,14 +479,26 @@ struct ReviewBoardChipVerbs {
     /// It is named for the EDITOR rather than the pass — `effectiveEditorName`,
     /// never the raw field — through `RoundNarrative.runRoundTitle`, the one
     /// spelling Review's empty queue also reads.
+    ///
+    /// **Both halves follow `posture` — the posture of `piece`, never the
+    /// window's** (P3c Task 6, plan rulings R3/R4). The round is offered where
+    /// it allows `.runRound`, the four rulings where it allows
+    /// `.setPassState`; each is ABSENT otherwise, because a greyed verb reads
+    /// as broken. Neither is a storage guard — a pass state is a manifest
+    /// field, and roles guard the words, not the binder — but the round's own
+    /// door refuses too (`CompilerOrchestrator.Environment.mayRunRound`).
     func chipMenu(for piece: String, pass: ReviewPass,
-                  current: PassState?) -> ChipMenu {
+                  current: PassState?, posture: Posture) -> ChipMenu {
         ChipMenu(
-            run: RunVerb(
-                title: RoundNarrative.runRoundTitle(
-                    editorName: pass.effectiveEditorName),
-                perform: { onRunRound(piece, pass.id) }),
-            states: chipMenuItems(for: piece, passId: pass.id, current: current))
+            run: posture.allows(.runRound)
+                ? RunVerb(
+                    title: RoundNarrative.runRoundTitle(
+                        editorName: pass.effectiveEditorName),
+                    perform: { onRunRound(piece, pass.id) })
+                : nil,
+            states: PassLadder.offersRulings(under: posture)
+                ? chipMenuItems(for: piece, passId: pass.id, current: current)
+                : [])
     }
 
     /// The menu for the cell `(piece, passId)`, currently standing at `current`.

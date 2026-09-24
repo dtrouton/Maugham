@@ -813,6 +813,17 @@ struct ProjectWindow: View {
         selectedManuscriptDocId.flatMap { id in documentStore?.posture(forDocId: id) }
     }
 
+    /// **The drawing posture of any document this window names** (P3c Task
+    /// 6) — for a surface that is about a piece other than the editor's: the
+    /// inspectors' pass ladders, the board's chips. The drawing door, so it
+    /// observes `postureEpoch`. `settling` — the reviewer row alone — where
+    /// there is no store yet or no document: nothing is offered that must not
+    /// be, and the ladder draws read-only for a frame at worst.
+    private func postureDrawn(forDocId docId: String?) -> Posture {
+        guard let docId, let documentStore else { return .settling }
+        return documentStore.posture(forDocId: docId)
+    }
+
     /// The standing line over the editor, when there is a reason to name
     /// (`PostureStandingLine.line`), for the document the centre column is
     /// actually showing — never over the canvas, the altitude view, a research
@@ -2212,7 +2223,11 @@ struct ProjectWindow: View {
                         recordActivePass(forPiece: pieceId, passId: passId)
                         selectedSubject = .item(pieceId)
                         runRoundWhenPieceOpens(pieceId: pieceId)
-                    })
+                    },
+                    // **Each chip asks its own piece** (P3c Task 6): the
+                    // drawing door, per row, so a demotion re-renders the
+                    // board with no reopen.
+                    posture: { postureDrawn(forDocId: $0) })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color(nsColor: .windowBackgroundColor))
                     // The counts are read HERE and never in the board's body:
@@ -3298,7 +3313,8 @@ struct ProjectWindow: View {
                     store: store,
                     selectedItemId: activeItemID,
                     metrics: metrics,
-                    onOpenProjectSettings: openProjectSettings)
+                    onOpenProjectSettings: openProjectSettings,
+                    posture: postureDrawn(forDocId: activeItemID))
             }
         }
     }
@@ -3328,9 +3344,11 @@ struct ProjectWindow: View {
                 ReferencePieceInspector(store: store, pieceId: id)
             case .loose, .none:
                 if let path = piece.path, path.hasSuffix(".fountain") {
-                    PieceInspector(store: store, pieceId: id, kind: .screenplay)
+                    PieceInspector(store: store, pieceId: id, kind: .screenplay,
+                                   posture: postureDrawn(forDocId: id))
                 } else {
-                    PieceInspector(store: store, pieceId: id, kind: .prose)
+                    PieceInspector(store: store, pieceId: id, kind: .prose,
+                                   posture: postureDrawn(forDocId: id))
                 }
             }
         } else {

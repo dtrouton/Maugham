@@ -551,4 +551,316 @@ final class PostureSurfaceTests: XCTestCase {
 
         for doc in docs { await doc.close() }
     }
+
+    // MARK: - Pass state and the round (P3c Task 6)
+
+    private let boardPass = ReviewPass(id: "line", name: "Line")
+
+    private func boardVerbs(_ writes: Box<Int>) -> ReviewBoardChipVerbs {
+        ReviewBoardChipVerbs(
+            onSetState: { _, _, _ in writes.value += 1 },
+            onRunRound: { _, _ in writes.value += 1 })
+    }
+
+    private final class Box<T> {
+        var value: T
+        init(_ value: T) { self.value = value }
+    }
+
+    /// **The chip menu, as a pure function of the cell's posture.** A reviewer
+    /// is offered neither the round nor a ruling; a book author both; a
+    /// pieces-author both on her piece and neither on somebody else's.
+    func test_theChipMenuFollowsTheCellsPosture() {
+        let verbs = boardVerbs(Box(0))
+        func menu(_ posture: Posture) -> ReviewBoardChipVerbs.ChipMenu {
+            verbs.chipMenu(for: "doc-a", pass: boardPass, current: .inProgress,
+                           posture: posture)
+        }
+        XCTAssertNil(menu(reviewer).run, "a reviewer is offered no round")
+        XCTAssertTrue(menu(reviewer).states.isEmpty, "…and no ruling on a pass")
+        XCTAssertNotNil(menu(bookAuthor).run)
+        XCTAssertEqual(menu(bookAuthor).states.map(\.state),
+                       ReviewBoardChipVerbs.offeredStates)
+        XCTAssertNotNil(menu(piecesAuthorInA).run, "her piece: the round")
+        XCTAssertEqual(menu(piecesAuthorInA).states.count, 4, "…and the rulings")
+        XCTAssertNil(menu(piecesAuthorInB).run, "somebody else's: no round")
+        XCTAssertTrue(menu(piecesAuthorInB).states.isEmpty, "…and no ruling")
+        XCTAssertNil(menu(.settling).run, "nothing is offered before it is decided")
+        XCTAssertTrue(menu(.settling).states.isEmpty)
+    }
+
+    /// **The ladder's write is withheld where the posture forbids a ruling**,
+    /// in both inspector arms — `nil` is what draws the ladder read-only.
+    func test_theInspectorsLadderWriteFollowsThePosture() async throws {
+        let projectURL = try makeTwoPieceProject()
+        let store = try await ProjectStore.load(from: projectURL)
+        let metrics = EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
+        for (posture, offered, why) in [
+            (reviewer, false, "a reviewer"),
+            (piecesAuthorInB, false, "a pieces-author outside her piece"),
+            (Posture.settling, false, "an undecided posture"),
+            (piecesAuthorInA, true, "a pieces-author in her piece"),
+            (bookAuthor, true, "a book author"),
+        ] {
+            let document = InspectorView(
+                store: store, selectedItemId: "doc-a", metrics: metrics,
+                onOpenProjectSettings: {}, posture: posture)
+            let piece = PieceInspector(
+                store: store, pieceId: "doc-a", kind: .prose, posture: posture)
+            XCTAssertEqual(document.passLadderWrite(on: "doc-a") != nil, offered,
+                           "InspectorView, \(why)")
+            XCTAssertEqual(piece.passLadderWrite(on: "doc-a") != nil, offered,
+                           "PieceInspector, \(why)")
+        }
+    }
+
+    private func controls(role: String, in window: NSWindow) throws -> [AnyObject] {
+        var probe: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(
+            AXUIElementCreateApplication(getpid()), kAXRoleAttribute as CFString, &probe)
+        guard error == .success, probe != nil else {
+            throw XCTSkip("no assistive client could be attached to this process, so "
+                + "SwiftUI never built the tree this test reads")
+        }
+        return axElements(under: try XCTUnwrap(window.contentView)).filter {
+            (axAttribute($0, "accessibilityRole") as? String) == role
+        }
+    }
+
+    private func mountedCount(
+        role: String, in window: NSWindow, where match: (AnyObject) -> Bool = { _ in true }
+    ) throws -> Int {
+        var seen = 0
+        let deadline = Date().addingTimeInterval(2)
+        repeat {
+            seen = try controls(role: role, in: window).filter(match).count
+            if seen > 0 { return seen }
+            pump(0.05)
+        } while Date() < deadline
+        return seen
+    }
+
+    /// **The ladder draws its state, and no menu, without a write** — the
+    /// reviewer still sees where the piece stands. Drawn/absent only (tripwire
+    /// 33): nothing is pressed.
+    func test_aLadderWithNoWriteDrawsNoMenus() throws {
+        let item = StructureItem(id: "doc-a", title: "A", type: .document,
+                                 path: "manuscript/a.md",
+                                 passStates: ["line": .done])
+        let passes = [ReviewPass(id: "structural", name: "Structural"), boardPass]
+        func mount(_ onSet: ((String, PassState?) -> Void)?) -> NSWindow {
+            let window = TestWindow.mount(
+                AnyView(Form { PassLadder(item: item, passes: passes, onSet: onSet) }),
+                size: CGSize(width: 360, height: 300))
+            windows.append(window)
+            pump()
+            return window
+        }
+        let live = mount({ _, _ in })
+        XCTAssertEqual(try mountedCount(role: "AXPopUpButton", in: live), 2,
+                       "control: a ladder with a write draws one menu per pass")
+        let readOnly = mount(nil)
+        _ = try mountedCount(role: "AXStaticText", in: readOnly)
+        XCTAssertEqual(try controls(role: "AXPopUpButton", in: readOnly).count, 0,
+                       "without a write, no pass is a menu")
+        XCTAssertTrue(
+            try controls(role: "AXStaticText", in: readOnly).contains {
+                (axAttribute($0, "accessibilityLabel") as? String) == PassLadder.doneTitle
+                    || (axAttribute($0, "accessibilityValue") as? String) == PassLadder.doneTitle
+            },
+            "…and the state is still drawn: the reviewer sees where it stands")
+    }
+
+    /// **The nudge's verbs follow the posture; its caption does not.**
+    func test_theNudgeDrawsItsVerbsOnlyWhereAPassMayBeRuled() throws {
+        XCTAssertFalse(PassLadder.offersRulings(under: reviewer))
+        XCTAssertFalse(PassLadder.offersRulings(under: piecesAuthorInB))
+        XCTAssertFalse(PassLadder.offersRulings(under: .settling))
+        XCTAssertTrue(PassLadder.offersRulings(under: piecesAuthorInA))
+        XCTAssertTrue(PassLadder.offersRulings(under: bookAuthor))
+
+        func mount(_ verbs: Bool) -> NSWindow {
+            let window = TestWindow.mount(AnyView(PassOrderNudgeRow(
+                pass: ReviewPass(id: "structural", name: "Structural"),
+                onMarkDone: verbs ? {} : nil, onSkip: verbs ? {} : nil)),
+                size: CGSize(width: 360, height: 80))
+            windows.append(window)
+            pump()
+            return window
+        }
+        let offered = mount(true)
+        XCTAssertEqual(try waitForButtons(labelled: "Mark done", count: 1, in: offered), 1,
+                       "control: the verbs draw where they are offered")
+        let withheld = mount(false)
+        _ = try mountedCount(role: "AXStaticText", in: withheld)
+        XCTAssertEqual(try buttons(labelled: "Mark done", in: withheld), 0)
+        XCTAssertEqual(try buttons(labelled: "Skip", in: withheld), 0)
+    }
+
+    /// **The board's chips DRAW for a reviewer** — the board is how she sees
+    /// where the book stands. Only the menu is hers to be refused.
+    func test_theBoardsChipsDrawForAReviewer() throws {
+        let structure = [
+            StructureItem(id: "doc-a", title: "A", type: .document, path: "manuscript/a.md"),
+        ]
+        let window = TestWindow.mount(AnyView(ReviewBoardPane(
+            title: "T", structure: structure, passes: [boardPass],
+            openNotes: [:], unreadableDocIds: [],
+            onOpenNotes: { _ in }, onNavigate: { _, _ in },
+            onSetState: { _, _, _ in }, onRunRound: { _, _ in },
+            posture: { _ in self.reviewer })),
+            size: CGSize(width: 700, height: 300))
+        windows.append(window)
+        pump()
+        let label = ReviewBoardChip.label(piece: "A", pass: boardPass, state: nil)
+        XCTAssertEqual(try waitForButtons(labelled: label, count: 1, in: window), 1,
+                       "the reviewer's board still draws the chip")
+    }
+
+    /// **The production round door, asked of the SETTLED posture, per piece.**
+    /// An author of A may run A's round and not B's; a check is not asked at
+    /// all (`CompilerRunCommandTests`). And the answer is the settled one: a
+    /// demotion whose refresh has not landed is already refused, where the
+    /// drawing door may still be giving its last answer.
+    func test_theProductionRoundDoorFollowsTheSettledPosturePerPiece() async throws {
+        let projectURL = try makeTwoPieceProject()
+        let identities = beASigningMac(projectURL)
+        let root = try makeForeignRoot(projectURL, identities: identities)
+        let documentStore = try await DocumentStore.open(url: projectURL)
+        let store = try await ProjectStore.load(from: projectURL)
+        store.documentStore = documentStore
+        let device = DeviceSlug.make(from: "test-mac")
+        let environment = CompilerOrchestrator.Environment.production(
+            store: store, documentStore: documentStore, projectURL: projectURL,
+            declaredWorld: DeclaredWorldStore(projectRoot: projectURL, device: device),
+            bible: BibleStore(projectRoot: projectURL, device: device),
+            preferences: UserPreferences(
+                defaults: UserDefaults(suiteName: "PostureSurface-\(UUID())")!),
+            onRunAcknowledged: { _ in })
+        await documentStore.postureSettled()
+
+        let asBookAuthorA = await environment.mayRunRound("doc-a")
+        let asBookAuthorB = await environment.mayRunRound("doc-b")
+        XCTAssertTrue(asBookAuthorA, "a whole-book author may run any round")
+        XCTAssertTrue(asBookAuthorB)
+
+        try await rootChangesMyPermit(
+            to: .author(.pieces(["doc-a"])), root: root, identities: identities,
+            projectURL: projectURL, store: documentStore)
+        let piecesA = await environment.mayRunRound("doc-a")
+        let piecesB = await environment.mayRunRound("doc-b")
+        XCTAssertTrue(piecesA, "her piece: her round")
+        XCTAssertFalse(piecesB, "somebody else's piece: not her round")
+
+        try await rootChangesMyPermit(
+            to: .reviewer, root: root, identities: identities,
+            projectURL: projectURL, store: documentStore)
+        let reviewerA = await environment.mayRunRound("doc-a")
+        XCTAssertFalse(reviewerA, "a reviewer runs no round, on any piece")
+    }
+
+    /// **The settled door, not the drawing one** (controller ruling I): a
+    /// demotion delivered and not yet refreshed is refused at once.
+    func test_theRoundDoorRefusesADemotionBeforeItsRefreshLands() async throws {
+        let projectURL = try makeTwoPieceProject()
+        let identities = beASigningMac(projectURL)
+        let root = try makeForeignRoot(projectURL, identities: identities)
+        let documentStore = try await DocumentStore.open(url: projectURL)
+        let store = try await ProjectStore.load(from: projectURL)
+        store.documentStore = documentStore
+        let device = DeviceSlug.make(from: "test-mac")
+        let environment = CompilerOrchestrator.Environment.production(
+            store: store, documentStore: documentStore, projectURL: projectURL,
+            declaredWorld: DeclaredWorldStore(projectRoot: projectURL, device: device),
+            bible: BibleStore(projectRoot: projectURL, device: device),
+            preferences: UserPreferences(
+                defaults: UserDefaults(suiteName: "PostureSurface-\(UUID())")!),
+            onRunAcknowledged: { _ in })
+        await documentStore.postureSettled()
+        XCTAssertTrue(documentStore.posture(forDocId: "doc-b").allows(.runRound),
+                      "premise: the drawing door has answered yes on B")
+
+        // The demotion, delivered, with NO wait for the posture refresh.
+        let mark = try OpLogStore.appliedPositions(
+            ofDeviceIds: Set(identities.all.map(\.deviceId)), in: projectURL,
+            trust: try TrustResolution.resolve(projectURL: projectURL, identities: identities))
+        let rootCache = RegistryCache(
+            fileURL: projectURL.appendingPathComponent("root-cache.json"),
+            identity: root.fingerprint)
+        let permit = Permit.reviewer
+        _ = try RegistryAdmission.changePermit(
+            person: identities.author.fingerprint,
+            role: permit.wireRole, scope: permit.wireScope, pieces: permit.wirePieces,
+            mark: mark, unsigned: permit.narrows ? .nothingApplied : nil,
+            in: projectURL, by: root, cache: rootCache)
+        store.documentStore = documentStore
+        documentStore.presenterDidChangeSubitem(at: RegistryWriter.url(
+            .people, fingerprint: identities.author.fingerprint, in: projectURL))
+        await documentStore.flushRegistryChangeForTesting()
+
+        let mayRun = await environment.mayRunRound("doc-b")
+        XCTAssertFalse(mayRun, "the round's door waits for the settled answer")
+    }
+
+    /// **The cockpit's Run follows the SHOWN piece's posture**: an author of
+    /// A sees Run on A's cockpit and none on B's — absent, not greyed — and a
+    /// promotion brings B's back with no reopen. Drawn/absent only.
+    func test_theCockpitDrawsRunOnlyWhereARoundMayBeRun() async throws {
+        let projectURL = try makeTwoPieceProject()
+        let identities = beASigningMac(projectURL)
+        let root = try makeForeignRoot(projectURL, identities: identities)
+        let documentStore = try await DocumentStore.open(url: projectURL)
+        let store = try await ProjectStore.load(from: projectURL)
+        store.documentStore = documentStore
+        var docs: [Document] = []
+        for (id, path) in [("doc-a", "manuscript/a.md"), ("doc-b", "manuscript/b.md")] {
+            let doc = try await Document.load(
+                url: projectURL.appendingPathComponent(path), actor: .author,
+                session: "s", presenter: nil,
+                burstIdle: .seconds(3600), burstMax: .seconds(3600))
+            documentStore.register(document: doc, for: path)
+            docs.append(doc)
+            XCTAssertEqual(doc.docId, id, "premise: the manifest's ids")
+        }
+        await documentStore.postureSettled()
+        try await rootChangesMyPermit(
+            to: .author(.pieces(["doc-a"])), root: root, identities: identities,
+            projectURL: projectURL, store: documentStore)
+
+        let diagnostics = DiagnosticsStore(
+            projectRoot: projectURL, device: DeviceSlug.make(from: "test-mac"))
+        func mount(_ doc: Document) -> NSWindow {
+            let view = AnnotationsPane(
+                document: doc, store: store, documentStore: documentStore,
+                scope: .constant(.document),
+                onTravel: { _ in }, orchestrator: CompilerOrchestrator(),
+                diagnostics: diagnostics,
+                onSetActivePass: { _, _ in }, onSetPassState: { _, _, _ in })
+                .environment(UserPreferences(
+                    defaults: UserDefaults(suiteName: "PostureSurface-\(UUID())")!))
+            let window = TestWindow.mount(AnyView(view), size: CGSize(width: 360, height: 700))
+            windows.append(window)
+            pump()
+            return window
+        }
+        let hers = mount(docs[0])
+        XCTAssertEqual(
+            try waitForButtons(labelled: ReviewRoundCockpit.runTitle, count: 1, in: hers), 1,
+            "control: her piece's cockpit draws Run")
+        let theirs = mount(docs[1])
+        XCTAssertEqual(
+            try waitForButtons(labelled: ReviewRoundCockpit.freshEyesTitle, count: 0,
+                               in: theirs), 0)
+        XCTAssertEqual(try buttons(labelled: ReviewRoundCockpit.runTitle, in: theirs), 0,
+                       "somebody else's piece: no Run, not a greyed one")
+
+        try await rootChangesMyPermit(
+            to: .bookAuthor, root: root, identities: identities,
+            projectURL: projectURL, store: documentStore)
+        XCTAssertEqual(
+            try waitForButtons(labelled: ReviewRoundCockpit.runTitle, count: 1, in: theirs), 1,
+            "a promotion draws it with no reopen")
+
+        for doc in docs { await doc.close() }
+    }
 }

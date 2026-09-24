@@ -733,10 +733,17 @@ struct AnnotationsPane: View {
                 // Review. Said literally rather than minted from a persona,
                 // because the only persona it could read is the one it is
                 // already standing in.
-                onRun: { freshEyes in
-                    orchestrator.runRequested(
-                        docId: document.docId, kind: .round, freshEyes: freshEyes)
-                },
+                //
+                // **Not drawn where this Mac may not run a round on the piece**
+                // (P3c Task 6, plan ruling R4) — the piece's own drawing
+                // posture; the orchestrator's door asks the settled one.
+                onRun: documentStore.posture(forDocId: document.docId)
+                    .allows(.runRound)
+                    ? { freshEyes in
+                        orchestrator.runRequested(
+                            docId: document.docId, kind: .round, freshEyes: freshEyes)
+                    }
+                    : nil,
                 onSetActivePass: { passId in
                     onSetActivePass(document.docId, passId)
                 },
@@ -1043,10 +1050,18 @@ struct AnnotationsPane: View {
            let earlier = PassOrderAdvice.advice(
                 forPiece: docId, memory: activePassMemory,
                 passes: reviewPasses, passStates: piecePassStates) {
+            // **The verbs follow the piece's posture; the advice does not**
+            // (P3c Task 6, plan ruling R3): a reviewer working a lane is still
+            // told the earlier pass is open — she simply is not offered the
+            // ruling that closes it.
+            let offersVerbs = PassLadder.offersRulings(
+                under: documentStore.posture(forDocId: docId))
             PassOrderNudgeRow(
                 pass: earlier,
-                onMarkDone: { onSetPassState(docId, earlier.id, .done) },
-                onSkip: { onSetPassState(docId, earlier.id, .skipped) })
+                onMarkDone: offersVerbs
+                    ? { onSetPassState(docId, earlier.id, .done) } : nil,
+                onSkip: offersVerbs
+                    ? { onSetPassState(docId, earlier.id, .skipped) } : nil)
             Divider()
         }
     }
@@ -2012,8 +2027,10 @@ private struct RowDisabledReason: ViewModifier {
 /// word is load-bearing.
 struct PassOrderNudgeRow: View {
     let pass: ReviewPass
-    let onMarkDone: () -> Void
-    let onSkip: () -> Void
+    /// `nil` where this Mac may not rule on the piece's passes
+    /// (`PassLadder.offersRulings(under:)`): the caption draws alone.
+    let onMarkDone: (() -> Void)?
+    let onSkip: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
@@ -2022,12 +2039,16 @@ struct PassOrderNudgeRow: View {
                 .font(.caption2)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 4)
-            Button("Mark done", action: onMarkDone)
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
-            Button("Skip", action: onSkip)
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
+            if let onMarkDone {
+                Button("Mark done", action: onMarkDone)
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+            }
+            if let onSkip {
+                Button("Skip", action: onSkip)
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+            }
         }
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)

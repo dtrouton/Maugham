@@ -131,12 +131,12 @@ final class InspectorViewTests: XCTestCase {
             store: book.store,
             selectedItemId: book.pieceIDs[0],
             metrics: EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0),
-            onOpenProjectSettings: {})))
+            onOpenProjectSettings: {}, posture: .author)))
     }
 
     private func hostPieceInspector(_ book: PieceWriterFixture.Book) -> NSWindow {
         mount(AnyView(PieceInspector(
-            store: book.store, pieceId: book.pieceIDs[0], kind: .prose)))
+            store: book.store, pieceId: book.pieceIDs[0], kind: .prose, posture: .author)))
     }
 
     /// Did the row ever appear? A bounded poll because the read is a `.task`
@@ -222,7 +222,7 @@ final class InspectorViewTests: XCTestCase {
         let window = mount(AnyView(InspectorView(
             store: book.store, selectedItemId: other.id,
             metrics: EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0),
-            onOpenProjectSettings: {})))
+            onOpenProjectSettings: {}, posture: .author)))
         await waitOut(1.0)
 
         XCTAssertFalse(
@@ -286,7 +286,7 @@ final class InspectorViewTests: XCTestCase {
                     store: store, selectedItemId: pieceId,
                     metrics: EditorMetrics(wordCount: 0, characterCount: 0,
                                            readingMinutes: 0),
-                    onOpenProjectSettings: {})
+                    onOpenProjectSettings: {}, posture: .author)
             }
             inspector = made.1
         }
@@ -322,7 +322,7 @@ final class InspectorViewTests: XCTestCase {
                     store: store, selectedItemId: pieceId,
                     metrics: EditorMetrics(wordCount: 0, characterCount: 0,
                                            readingMinutes: 0),
-                    onOpenProjectSettings: {})
+                    onOpenProjectSettings: {}, posture: .author)
             }
             ladder = made.0
             inspector = made.1
@@ -348,7 +348,7 @@ final class InspectorViewTests: XCTestCase {
         var ladder: Ladder!
         do {
             let made = try await makeLadder(named: "C15b") { store, pieceId in
-                PieceInspector(store: store, pieceId: pieceId, kind: .prose)
+                PieceInspector(store: store, pieceId: pieceId, kind: .prose, posture: .author)
             }
             ladder = made.0
             inspector = made.1

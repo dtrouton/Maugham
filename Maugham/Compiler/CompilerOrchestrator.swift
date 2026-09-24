@@ -101,6 +101,14 @@ final class CompilerOrchestrator {
         /// acknowledgment that reports a FAILURE rather than a start, and it
         /// says what to do next for the same reason `pieceWouldNotOpen` does.
         case noEditor
+        /// **A round asked for on a piece this Mac may not write** (P3c Task 6,
+        /// plan ruling R4). A round moves the piece's lane and stamps a pass —
+        /// writes a reviewer's posture does not offer — so it is refused
+        /// before anything starts, in the `noEditor` refusal's exact shape.
+        /// Never asked of a check: Author's ⌘R writes unstamped notes, which is
+        /// the reviewer row and every rung's. Nor is it a fallback to another
+        /// reader — the press simply does nothing but say why.
+        case notYourPiece
 
         /// The capsule's word. Kept beside the case rather than in the window
         /// that draws it, so all five sentences are assertable without a
@@ -113,6 +121,7 @@ final class CompilerOrchestrator {
             case .freshEyes: return "Reading whole\u{2026}"
             case .pieceWouldNotOpen: return "Couldn\u{2019}t open the piece \u{2014} try again."
             case .noEditor: return "Set a pass to run a round."
+            case .notYourPiece: return "Not your piece \u{2014} leave a note instead."
             }
         }
     }
@@ -329,6 +338,24 @@ final class CompilerOrchestrator {
         /// nowhere else, so the round's filing, the notes' authorship and the
         /// briefing cannot describe different passes.
         var roundEditor: @MainActor (String) -> ActivePass? = { _ in nil }
+        /// **May this Mac run a ROUND on this piece?** (P3c Task 6, plan
+        /// ruling R4) — asked once per round press, after `roundEditor` and
+        /// before anything starts; `false` flashes `.notYourPiece` and the
+        /// press does nothing else. **Never asked of a check.**
+        ///
+        /// **Async on purpose, because it is an ACTING door** (controller
+        /// ruling I): production answers it with `DocumentStore
+        /// .settledPosture(forDocId:)`, which waits out a trust refresh in
+        /// flight. A synchronous closure could only be answered by the
+        /// DRAWING door, whose answer in the frames after a demotion is the
+        /// last one it gave — a round would start on a piece this Mac had
+        /// just stopped being allowed to write.
+        ///
+        /// Defaulted to yes, on `roundEditor`'s rule, so every `Environment`
+        /// built before the permit reached this loop still compiles and still
+        /// runs; the production wiring (`CompilerEnvironment+Project`) always
+        /// supplies it, and `PostureSurfaceTests` pins that it does.
+        var mayRunRound: @MainActor (String) async -> Bool = { _ in true }
         /// **The project's own type**, for the letter's scene position (spec
         /// §3.4, editorial letter P1 Task 3). A screenplay moves by scenes in
         /// the strong sense by its form; everything else reads as prose until
@@ -694,9 +721,49 @@ final class CompilerOrchestrator {
             return
         }
 
+        // **A round is the piece-writer's, and the permit says whose that is**
+        // (P3c Task 6, plan ruling R4). Asked of the SETTLED posture, which is
+        // asynchronous — so the round holds the in-flight gate while it asks
+        // (a second press meanwhile is "still checking", never a second run)
+        // and the flash waits for the answer: a refusal is still the ONLY
+        // thing the press does — no `.started`, no session, no marker, no
+        // `runState` change. A check never reaches this: it is anyone's.
+        if kind == .round {
+            runGeneration &+= 1
+            let generation = runGeneration
+            isPreparingRun = true
+            Task { [weak self] in
+                let mayRun = await environment.mayRunRound(docId)
+                // Re-asked after the hop, as the burst's hop below re-asks: a
+                // window that closed, or a cancel, while the answer was on its
+                // way takes the press with it.
+                guard let self, self.runGeneration == generation,
+                      let environment = self.environment else { return }
+                self.isPreparingRun = false
+                guard mayRun else {
+                    environment.onRunAcknowledged(.notYourPiece)
+                    return
+                }
+                self.acknowledgeAndPrepare(
+                    docId: docId, kind: kind, freshEyes: freshEyes,
+                    environment: environment)
+            }
+            return
+        }
+        acknowledgeAndPrepare(docId: docId, kind: kind, freshEyes: freshEyes,
+                              environment: environment)
+    }
+
+    /// The press, past every refusal: the flash, then the burst, then the run.
+    private func acknowledgeAndPrepare(
+        docId: String, kind: RunKind, freshEyes: Bool, environment: Environment
+    ) {
         // Synchronous with the keystroke, and deliberately ahead of the hop
         // below: the flash is ⌘S's muscle-memory acknowledgment, not a progress
         // indicator, and one that waited on a disk write would be neither.
+        // (A ROUND's flash waits for one thing only — the settled answer to
+        // whether this Mac may run it — because flashing "Checking…" and then
+        // "not your piece" would be the key claiming a start it never made.)
         //
         // **Below the refusals on purpose, both of them.** A fresh-eyes press
         // that arrives mid-run must be answered "still checking" like any

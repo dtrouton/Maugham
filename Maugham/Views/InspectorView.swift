@@ -6,6 +6,10 @@ struct InspectorView: View {
     let selectedItemId: String?
     let metrics: EditorMetrics
     let onOpenProjectSettings: () -> Void
+    /// **What this Mac may offer for the selected document** (P3c Task 6) —
+    /// the window's drawing door, asked by the host. Required: a host that
+    /// forgot it would draw the ladder's menus for a reviewer.
+    let posture: Posture
 
     @State private var draftSynopsis: String = ""
     @State private var draftTags: [String] = []
@@ -54,9 +58,7 @@ struct InspectorView: View {
                     PassLadder(
                         item: item,
                         passes: store.manifest.effectiveReviewPasses,
-                        onSet: { passId, state in
-                            setPass(passId, to: state, on: item.id)
-                        })
+                        onSet: passLadderWrite(on: item.id))
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Synopsis")
@@ -208,6 +210,16 @@ struct InspectorView: View {
         Task { [store] in
             try? await store.setPassState(id: itemId, passId: passId, state)
         }
+    }
+
+    /// **The ladder's write, where this Mac may rule on the piece's passes —
+    /// else none** (P3c Task 6, plan ruling R3: a pass state is probed as *may
+    /// you write this piece's text*). `nil` draws the ladder read-only. The
+    /// write itself stays unguarded at storage — roles guard the words, not
+    /// the binder — so this is the whole of the gate, and it is cooperative.
+    func passLadderWrite(on itemId: String) -> ((String, PassState?) -> Void)? {
+        guard PassLadder.offersRulings(under: posture) else { return nil }
+        return { passId, state in setPass(passId, to: state, on: itemId) }
     }
 
     private func scheduleSave() {
