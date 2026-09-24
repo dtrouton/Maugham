@@ -409,9 +409,62 @@ final class ManifestAdoptionTests: XCTestCase {
         let added = try await anotherMacWritesAChapter(url, words: "one two three four five")
 
         ds.presenterDidChangeSubitem(at: manifestURL(url))
+        await store.opLogRecountTask?.value
 
         XCTAssertEqual(store.cachedWordCount(for: added.id), 5)
         XCTAssertEqual(store.projectWordCount, before + 5)
+        await ds.close()
+    }
+
+    /// **I2 (final round): the adoption itself derives nothing.** Counting an
+    /// arrived piece is a verified registry read plus a full derive; inside the
+    /// presenter callback — or inside `readManifest()` under a permit verb's
+    /// gate — that was main-actor work per piece. The adoption hands the pieces
+    /// over and returns; the counting pass resolves ONE trust table for all of
+    /// them, and the counts still converge.
+    func test_theAdoptionDerivesNothingAndTheCountsStillConverge() async throws {
+        let (url, store, ds) = try await openWindow()
+        let before = store.projectWordCount
+        let first = try await anotherMacWritesAChapter(url, words: "one two three")
+        let second = try await anotherMacWritesAChapter(url, words: "four five")
+        let derivesBefore = store.derivedCache.deriveCount
+        let resolutionsBefore = store.recountTrustResolutions
+
+        ds.presenterDidChangeSubitem(at: manifestURL(url))
+
+        XCTAssertNotNil(TreeWalk.find(id: second.id, in: store.manifest.structure),
+                        "premise: the manifest was adopted")
+        XCTAssertEqual(store.derivedCache.deriveCount, derivesBefore,
+                       "the adoption derived a piece inside the presenter callback")
+        XCTAssertNil(store.cachedWordCount(for: first.id),
+                     "nothing is counted until the pass runs")
+
+        await store.opLogRecountTask?.value
+
+        XCTAssertEqual(store.cachedWordCount(for: first.id), 3)
+        XCTAssertEqual(store.cachedWordCount(for: second.id), 2)
+        XCTAssertEqual(store.projectWordCount, before + 5)
+        XCTAssertEqual(store.recountTrustResolutions, resolutionsBefore + 1,
+                       "one trust table for the pass, not one per piece")
+        await ds.close()
+    }
+
+    /// And the pass never revives a piece that left before it was counted: the
+    /// other Mac adds a chapter and removes it again before this window's
+    /// counting pass reaches it.
+    func test_aLateCountDoesNotReviveAPieceThatHasLeft() async throws {
+        let (url, store, ds) = try await openWindow()
+        let added = try await anotherMacWritesAChapter(url, words: "one two three")
+        ds.presenterDidChangeSubitem(at: manifestURL(url))
+        var external = store.manifest
+        external.structure.removeAll { $0.id == added.id }
+        try ProjectManifest.makeEncoder().encode(external)
+            .write(to: manifestURL(url), options: [.atomic])
+        ds.presenterDidChangeSubitem(at: manifestURL(url))
+
+        await store.opLogRecountTask?.value
+
+        XCTAssertNil(store.cachedWordCount(for: added.id))
         await ds.close()
     }
 
@@ -420,6 +473,7 @@ final class ManifestAdoptionTests: XCTestCase {
         let (url, store, ds) = try await openWindow()
         let added = try await anotherMacWritesAChapter(url, words: "one two three")
         ds.presenterDidChangeSubitem(at: manifestURL(url))
+        await store.opLogRecountTask?.value
         XCTAssertEqual(store.cachedWordCount(for: added.id), 3)
         var external = store.manifest
         external.structure.removeAll { $0.id == added.id }
@@ -445,6 +499,7 @@ final class ManifestAdoptionTests: XCTestCase {
 
         _ = try await anotherMacWritesAChapter(url, words: "one two three four five six seven")
         ds.presenterDidChangeSubitem(at: manifestURL(url))
+        await store.opLogRecountTask?.value
 
         XCTAssertEqual(ds.liveSessionWordsNet, 0, "their seven words are not this session's")
         // The writer's next keystroke reports the project total, which now
@@ -540,6 +595,7 @@ final class ManifestAdoptionTests: XCTestCase {
             projectWordCount: store.projectWordCount)
         let added = try await anotherMacAddsAChapter(url, title: "Late Words")
         ds.presenterDidChangeSubitem(at: manifestURL(url))
+        await store.opLogRecountTask?.value
         let path = try XCTUnwrap(added.path)
         // Their words arrive afterwards.
         let theirs = try await Document.load(
@@ -572,6 +628,7 @@ final class ManifestAdoptionTests: XCTestCase {
         let (url, store, ds) = try await openWindow()
         let added = try await anotherMacWritesAChapter(url, words: "one two three four")
         ds.presenterDidChangeSubitem(at: manifestURL(url))
+        await store.opLogRecountTask?.value
         let withIt = store.manifest
         ds.recordSessionActivity(
             documentId: store.manifest.structure[0].id,

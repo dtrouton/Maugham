@@ -17,9 +17,10 @@ struct ManifestAdoption {
     /// disk (a verb whose save threw). It is archived like any other loser;
     /// this only lets the log say so.
     let overUnsavedChange: Bool
-    /// How far the project's word total moved because pieces came or went.
-    /// Those words are someone else's, so the session subtracts them
-    /// (Denver's ruling, 2026-09-23).
+    /// How far the project's word total moved because pieces LEFT. Those words
+    /// are someone else's business, so the session subtracts them (Denver's
+    /// ruling, 2026-09-23). Pieces that arrived are counted afterwards by
+    /// `recountFromOpLogs`, which moves the session's baseline itself.
     let wordCountDelta: Int
 
     /// A document whose path this adoption changed: renamed or moved by
@@ -124,9 +125,14 @@ extension ProjectStore {
     }
 
     /// **Every piece shows its true count** (Denver, 2026-09-23). A piece that
-    /// arrived is counted from its op log; a piece that left is dropped from
-    /// the cache. A piece that only moved keeps its id, so its count stays.
-    /// Returns how far the project total moved.
+    /// left is dropped from the cache here; a piece that only moved keeps its
+    /// id, so its count stays. A piece that ARRIVED is handed to
+    /// `recountFromOpLogs` and counted there, off this call (F7 final round,
+    /// I2): deriving it here was a verified registry read and a full derive per
+    /// piece on the main actor, inside the presenter callback — or inside
+    /// `readManifest()` under a permit verb's gate. That pass moves the
+    /// session's baseline itself as each count lands.
+    /// Returns how far the project total moved NOW — the removals.
     private func refreshWordCounts(
         from old: [StructureItem], to new: [StructureItem]
     ) -> Int {
@@ -137,11 +143,7 @@ extension ProjectStore {
         for id in oldIds.subtracting(newIds) {
             forgetWordCount(forDocumentId: id)
         }
-        for item in newDocs where !oldIds.contains(item.id) {
-            if let count = derivedWordCount(of: item) {
-                recordWordCount(forDocumentId: item.id, wordCount: count)
-            }
-        }
+        recountFromOpLogs(newDocs.filter { !oldIds.contains($0.id) })
         return projectWordCount - before
     }
 
