@@ -895,6 +895,32 @@ public final class DocumentStore {
         sessionTracker.shiftBaseline(by: delta)
     }
 
+    /// **Re-read an open Document after its op log changed outside this
+    /// writer's hand** (F7 final round, I1) — a co-author's burst syncing in, a
+    /// record arriving that lets a held span through or refuses one, *Theirs*,
+    /// an admission, a revocation. The ONE way this store calls
+    /// `handleExternalLogChange`: the words that arrive or leave that way were
+    /// not typed here, so the piece's count moves to what it now holds and the
+    /// session's baseline moves with it (`excludeForeignWords`). Without this
+    /// the next keystroke's `recordEditorTextWrite` counted the whole text and
+    /// the session gained — or lost — another person's words.
+    ///
+    /// The counts run only when the text CHANGED: this is also the route of
+    /// every echo of this Mac's own appends, where `handleExternalLogChange`
+    /// returns without touching `displayText`, and an unchanged String compares
+    /// equal on its storage without walking it.
+    func reReadAfterExternalChange(_ document: Document) async throws {
+        let path = openDocuments.first { $0.value === document }?.key
+        let before = document.displayText
+        try await document.handleExternalLogChange()
+        let after = document.displayText
+        guard after != before, let path, let store = projectStore else { return }
+        let mode = WritingModeFactory.mode(for: path)
+        let now = mode.wordCount(after)
+        store.recordWordCount(forDocumentId: document.docId, wordCount: now)
+        excludeForeignWords(now - mode.wordCount(before))
+    }
+
     /// Called from app-quit hook. Finalises any active session immediately
     /// using the most recently observed project word count and appends it
     /// to the log. Best-effort — quit may interrupt the write.
@@ -1044,7 +1070,34 @@ public final class DocumentStore {
             originalParentId: originalParentId,
             originalIndex: originalIndex,
             displayTitle: displayTitle,
-            subject: subject)
+            subject: subject,
+            trashedBy: await Self.trashedByLabel(in: projectURL))
+    }
+
+    /// **Who this Mac is, in the words a trash entry records** (F7 final
+    /// round, M1 — Denver's ruling that a piece trashed on another device
+    /// closes with a notice naming who moved it).
+    ///
+    /// The name this book's register gives this Mac's writer — the label, and
+    /// the machine's own name beside it when the two differ — so another Mac
+    /// reads the same words People & Devices shows it. A book with no record
+    /// of this Mac (keyless, or not yet written) falls back to the machine's
+    /// own name. A DISPLAY string, never an identity (tripwire 35): nothing
+    /// reads it back to decide anything. The register is read off the main
+    /// actor; a read that fails costs the label, never the trash.
+    static func trashedByLabel(in projectURL: URL) async -> String {
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        let machine = thisMacsName
+        let named: String? = await Task.detached(priority: .userInitiated) {
+            guard let registry = try? TrustResolution.resolveVerified(
+                projectURL: projectURL, identities: identities, cache: cache).registry,
+                  let me = registry.person(identities.author.fingerprint)
+            else { return nil }
+            return me.ownName.isEmpty || me.ownName == me.label
+                ? me.label : "\(me.label) (\(me.ownName))"
+        }.value
+        return named ?? machine
     }
 
     /// The shared close-before-FS-surgery primitive. For each affected
@@ -1273,7 +1326,7 @@ public final class DocumentStore {
         registrySettlesForTesting += 1
         invalidateTrust()
         for document in openDocuments.values {
-            do { try await document.handleExternalLogChange() }
+            do { try await reReadAfterExternalChange(document) }
             catch {
                 documentStoreLog.error(
                     "re-read after a registry change failed for \(document.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -1510,7 +1563,7 @@ public final class DocumentStore {
 
         invalidateTrust()
         for document in openDocuments.values {
-            do { try await document.handleExternalLogChange() }
+            do { try await reReadAfterExternalChange(document) }
             catch {
                 documentStoreLog.error(
                     "re-read after admitting \(DeviceCode.short(fingerprint), privacy: .public) failed for \(document.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -1532,6 +1585,17 @@ public final class DocumentStore {
     func invalidateTrust() {
         noteRegistrySettled()
         for document in openDocuments.values { document.opStore.invalidateTrust() }
+        // **And the closed pieces' words** (F7 final round, I1). The derived
+        // cache keys on op-log file mtimes, and a trust change moves no file:
+        // after *Theirs*, an admission or a revocation the same log derives to
+        // different words, so the cache is dropped and every closed piece is
+        // recounted — off this call, one table for the pass, none of it in the
+        // writer's session (`recountFromOpLogs`). Open pieces are counted by
+        // the re-read that follows every call of this verb.
+        if let store = projectStore {
+            store.derivedCache.invalidateAll()
+            store.recountFromOpLogs(ProjectStore.collectDocuments(in: store.manifest.structure))
+        }
         // Only when one already exists: this is also called from `open`, where
         // building an inbox store to tell it to forget nothing would be a
         // whole subsystem started by a no-op.
@@ -1567,7 +1631,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
                     // past its echo guard: this callback also fires on our OWN
                     // appends, and announcing here would put a project-wide
                     // walk on every typing burst (M3 P2 Task 9).
-                    try? await doc.handleExternalLogChange()
+                    try? await self.reReadAfterExternalChange(doc)
                     // **A stranger's file arriving through sync** (spec §4.1's
                     // second trigger). The re-read above is what discovers it,
                     // and the same predicate guards the post as at register
@@ -1817,8 +1881,9 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
     ///   changed that path.
     /// - **Gone from the structure:** the editor has no item to show and takes
     ///   no more keystrokes, and the writer is told. Trash is named only when
-    ///   Trash holds the piece; the trash record names no device, so either
-    ///   sentence says "another device".
+    ///   Trash holds the piece, and then so is WHO moved it there — the
+    ///   entry's `trashedBy`, which this build records when it trashes (F7
+    ///   final round, M1); an entry without one says "another device".
     private func letGoOfPiecesMovedElsewhere(
         _ adoption: ManifestAdoption, store: ProjectStore
     ) {
@@ -1853,11 +1918,11 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
                 store.trashEntries = entries
             }
             for removed in trashedOpen {
-                let inTrash = entries.contains { Self.entry($0, holds: removed.id) }
+                let trashed = entries.first { Self.entry($0, holds: removed.id) }
                 MaughamEvent.postNotice(
-                    inTrash
-                        ? Self.trashedElsewhereNotice(title: removed.title)
-                        : Self.removedElsewhereNotice(title: removed.title),
+                    trashed.map {
+                        Self.trashedElsewhereNotice(title: removed.title, by: $0.trashedBy)
+                    } ?? Self.removedElsewhereNotice(title: removed.title),
                     projectURL: projectURL)
             }
         }
@@ -1871,9 +1936,14 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
     }
 
     /// The sentence the writer reads when a piece they had open was moved to
-    /// Trash on another device. Static so a test can read the words.
-    static func trashedElsewhereNotice(title: String) -> String {
-        "“\(title)” was moved to Trash on another device, so it has been closed here. It can be restored from Trash."
+    /// Trash on another device. It names who moved it when the trash record
+    /// says (`TrashEntry.trashedBy`), and "another device" when it does not —
+    /// an entry an older build wrote. Static so a test can read the words.
+    static func trashedElsewhereNotice(title: String, by who: String?) -> String {
+        guard let who, !who.isEmpty else {
+            return "“\(title)” was moved to Trash on another device, so it has been closed here. It can be restored from Trash."
+        }
+        return "“\(title)” was moved to Trash by \(who) on another device, so it has been closed here. It can be restored from Trash."
     }
 
     /// The sentence for a piece that left this book on another device WITHOUT

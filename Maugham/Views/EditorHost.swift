@@ -203,8 +203,15 @@ struct EditorHost: View {
             // loadDocumentIfNeeded re-loads from the new path, `document` is a
             // closed husk whose setFullText rejects mutations — binding it
             // would silently eat keystrokes. Show "Loading…" instead.
+            //
+            // `!doc.isClosed` gates out the other husk (F7 final round, C1): a
+            // Document the STORE closed out from under this host — another
+            // device removed the piece, or this Mac trashed it — while the
+            // markers still name its item and path. A closed Document takes no
+            // keystroke (`rejectMutationIfNotWritable`), so it is never bound.
             if let item = currentItem, item.type == .document, let path = item.path,
-               let doc = document, loadedItemId == item.id, priorLoadedPath == path {
+               let doc = document, !doc.isClosed,
+               loadedItemId == item.id, priorLoadedPath == path {
                 EditorSurface(
                     // The setter writes via Document.setFullText, then routes the
                     // project-level side-effects through DocumentStore. See
@@ -958,13 +965,19 @@ struct EditorHost: View {
     /// (rename/tidy moved the file; the typed mover closed the open Document,
     /// so the husk must be replaced by a fresh load from the new path). Also
     /// true when a prior load failed (`loadedPath` nil), so the next trigger
-    /// retries instead of sticking on "Loading…". Static + pure for
+    /// retries instead of sticking on "Loading…". And true when the held
+    /// Document is CLOSED (F7 final round, C1): the store closes a registered
+    /// Document out from under this host when another device removes the piece
+    /// or this Mac trashes it, and when the piece comes back at the same path
+    /// with the same id nothing else here asks for a reload — the husk would be
+    /// bound and every keystroke dropped. Static + pure for
     /// `EditorHostReloadPredicateTests`.
     static func needsReload(
         itemId: String, path: String,
-        loadedItemId: String?, loadedPath: String?
+        loadedItemId: String?, loadedPath: String?,
+        loadedIsClosed: Bool
     ) -> Bool {
-        loadedItemId != itemId || loadedPath != path
+        loadedIsClosed || loadedItemId != itemId || loadedPath != path
     }
 
     /// Whether a recovery action minted against `minted` may still act.
@@ -1080,7 +1093,8 @@ struct EditorHost: View {
               let path = item.path,
               Self.needsReload(
                   itemId: item.id, path: path,
-                  loadedItemId: loadedItemId, loadedPath: priorLoadedPath)
+                  loadedItemId: loadedItemId, loadedPath: priorLoadedPath,
+                  loadedIsClosed: document?.isClosed ?? false)
         else { return }
         // Claimed BEFORE the first suspension: everything from here on may be
         // superseded, and only the newest claim may write the markers below.

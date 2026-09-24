@@ -983,7 +983,8 @@ extension ProjectStore {
                 originalParentId: parentId,
                 originalIndex: index,
                 displayTitle: item.title,
-                subject: .manuscriptItem)
+                subject: .manuscriptItem,
+                trashedBy: await DocumentStore.trashedByLabel(in: url))
         }
 
         removeFromStructure(id: id)

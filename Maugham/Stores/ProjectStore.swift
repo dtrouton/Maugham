@@ -259,9 +259,12 @@ public final class ProjectStore {
     /// the shared `derivedCache`. Nil when the log cannot be read — a piece
     /// whose ops have not synced yet, or an unreadable file. The load-time
     /// population and an adoption's refresh both count through here.
-    func derivedWordCount(of item: StructureItem) -> Int? {
+    ///
+    /// `trust` is a table already resolved for a walk over several pieces
+    /// (`recountFromOpLogs`); nil resolves one per piece.
+    func derivedWordCount(of item: StructureItem, trust: TrustTable? = nil) -> Int? {
         guard let path = item.path,
-              let state = try? derivedCache.state(forDocId: item.id, in: url)
+              let state = try? derivedCache.state(forDocId: item.id, in: url, trust: trust)
         else { return nil }
         let text = state.paragraphs.values.joined(separator: " ")
         return WritingModeFactory.mode(for: path).wordCount(text)
@@ -276,6 +279,14 @@ public final class ProjectStore {
     /// and so it's cancelled if the store is torn down mid-sweep.
     /// `@ObservationIgnored`: internal lifecycle handle, not observed.
     @ObservationIgnored public internal(set) var wordCountPopulationTask: Task<Void, Never>?
+
+    /// The tail of `recountFromOpLogs`' chain, so a test can await the counts
+    /// an adoption or a trust change handed over.
+    @ObservationIgnored internal private(set) var opLogRecountTask: Task<Void, Never>?
+
+    /// How many trust tables `recountFromOpLogs` has resolved — one per pass,
+    /// however many pieces it counts. Test-observable.
+    @ObservationIgnored internal private(set) var recountTrustResolutions = 0
 
     static let manifestFilename = ProjectManifest.fileName
 
@@ -578,6 +589,79 @@ public final class ProjectStore {
                     self.recordWordCount(forDocumentId: item.id, wordCount: count)
                     // Counting what is already on disk is not the writer
                     // typing: a session already under way does not gain it.
+                    self.documentStore?.excludeForeignWords(count - prior)
+                    return true
+                }()
+                guard storeIsStillHere else { return }
+                await Task.yield()
+            }
+        }
+    }
+
+    /// **Count pieces from their op logs, off the path that learned they
+    /// changed** (F7 final round, I2 and I1's closed half).
+    ///
+    /// Two callers learn that a CLOSED piece's words are not what the cache
+    /// says without anyone typing: an adoption (another device's pieces
+    /// arrived) and a trust change (an admission, a revocation, *Theirs*, a
+    /// record syncing in — the same op log now derives to different words).
+    /// Deriving inside either would be a verified registry read plus a full
+    /// derive per piece on the main actor, inside a presenter callback or a
+    /// permit verb's gate. So the caller hands the pieces over and returns; the
+    /// counting runs here, in the open-time population's yielding shape:
+    ///
+    /// - ONE trust table for the whole pass, resolved off the main actor —
+    ///   not one per piece;
+    /// - a `Task.yield()` between pieces;
+    /// - a piece that has left the structure since it was handed over is not
+    ///   revived by a late count (F7's guard), and an OPEN piece is skipped —
+    ///   its live `Document` is fresher than the op log, and `register` and
+    ///   `DocumentStore.reReadAfterExternalChange` count it;
+    /// - none of it reaches the writer's session: the baseline moves with the
+    ///   count (`excludeForeignWords`).
+    ///
+    /// Passes are chained rather than cancelled, so pieces handed over by two
+    /// adoptions in a row are all counted. `opLogRecountTask` is the tail of
+    /// the chain, for a test to await.
+    func recountFromOpLogs(_ items: [StructureItem]) {
+        let wanted = items.filter { $0.type == .document && $0.path != nil }
+        guard !wanted.isEmpty else { return }
+        let previous = opLogRecountTask
+        let projectURL = url
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        opLogRecountTask = Task { @MainActor [weak self] in
+            await previous?.value
+            let trust: TrustTable
+            do {
+                trust = try await Task.detached(priority: .utility) {
+                    try TrustResolution.resolve(
+                        projectURL: projectURL, identities: identities, cache: cache)
+                }.value
+            } catch {
+                projectStoreLog.error(
+                    "word counts for \(wanted.count, privacy: .public) piece(s) in \(projectURL.lastPathComponent, privacy: .public) were not refreshed: the registry would not read: \(error.localizedDescription, privacy: .public)")
+                return
+            }
+            // `self` is bound only inside scopes that end before a suspension,
+            // for `beginWordCountPopulation`'s reason: a pass parked on a yield
+            // must not hold the project alive.
+            let stillHere: Bool = {
+                guard let self else { return false }
+                self.recountTrustResolutions += 1
+                return true
+            }()
+            guard stillHere else { return }
+            for item in wanted {
+                if Task.isCancelled { return }
+                let storeIsStillHere: Bool = {
+                    guard let self else { return false }
+                    guard TreeWalk.contains(id: item.id, in: self.manifest.structure),
+                          self.documentStore?.document(forDocId: item.id) == nil,
+                          let count = self.derivedWordCount(of: item, trust: trust)
+                    else { return true }
+                    let prior = self.cachedWordCount(for: item.id) ?? 0
+                    self.recordWordCount(forDocumentId: item.id, wordCount: count)
                     self.documentStore?.excludeForeignWords(count - prior)
                     return true
                 }()

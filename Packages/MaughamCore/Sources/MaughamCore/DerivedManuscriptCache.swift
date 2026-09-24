@@ -57,12 +57,20 @@ public final class DerivedManuscriptCache {
     /// Derived `paragraphs` + `sequence` for a CLOSED doc — cached when the
     /// op-log file set is unchanged since the last derive, else derived fresh
     /// (via `DerivedManuscript.derivedState`) and stored.
-    public func state(forDocId docId: String, in projectURL: URL) throws -> Deriver.DerivedState {
+    ///
+    /// `trust` is handed to the derive on a miss (see
+    /// `DerivedManuscript.derivedState`). The token does not cover it: a caller
+    /// whose trust CHANGED — an admission, a revocation, a record syncing in —
+    /// must `invalidateAll()`, because no op-log file moved.
+    public func state(
+        forDocId docId: String, in projectURL: URL, trust: TrustTable? = nil
+    ) throws -> Deriver.DerivedState {
         let token = Self.token(forDocId: docId, in: projectURL)
         if let line = lines[docId], line.token == token {
             return line.state
         }
-        let state = try DerivedManuscript.derivedState(forDocId: docId, in: projectURL)
+        let state = try DerivedManuscript.derivedState(
+            forDocId: docId, in: projectURL, trust: trust)
         deriveCount &+= 1
         lines[docId] = Line(token: token, state: state)
         return state
