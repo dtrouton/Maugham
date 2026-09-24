@@ -229,6 +229,28 @@ public final class OpLogStore {
         declaredActors.removeAll()
     }
 
+    /// **Resolve the table OFF this actor, ahead of a question asked on it**
+    /// (P3c Task 2).
+    ///
+    /// `localWritePermit` is synchronous, and where the table is cold it
+    /// resolves it right here (`trustOnThisActor`) — the right shape inside
+    /// `Document.load`, whose suspension points are part of its contract, and
+    /// the wrong one for the Mac's posture door, which a view asks from its
+    /// `body`. The door warms the table through this first: `trust()`'s
+    /// detached hop, stored under the same signature, so the permit question
+    /// that follows costs a few stats and no verification.
+    ///
+    /// A project with no register asks nothing, exactly as `localWritePermit`
+    /// does. Answers whether a table is now in hand; a registry record that is
+    /// present and unreadable answers false, and the caller's own permit
+    /// question then meets `localWritePermit`'s never-throwing fallback.
+    @discardableResult
+    public func prepareTrust() async -> Bool {
+        guard TrustResolution.hasAnythingToResolve(
+            in: projectURL, cache: registryCache) else { return true }
+        return (try? await trust()) != nil
+    }
+
     /// **May this device's own hand write here, and what?** — the ONE question
     /// asked before a line exists (P3a Task 8).
     ///
@@ -452,9 +474,9 @@ public final class OpLogStore {
         // One watch for the whole document: a stream is a run of segments plus
         // a tail, and whether its remembered line is still anywhere in it can
         // only be asked once every file has been seen (P3a Task 9).
+        let mine = ForeignStreamWatch.slugs(of: identities)
         let foreign = ForeignStreamWatch(
-            projectURL: projectURL, state: deviceState,
-            mine: ForeignStreamWatch.slugs(of: identities))
+            projectURL: projectURL, state: deviceState, mine: mine)
         for url in urls {
             let result = try await Self.loadFileDiagnosed(
                 url: url, presenter: presenter,
@@ -467,7 +489,7 @@ public final class OpLogStore {
         foreign.settle()
         return (Self.mergeSortedDedup(merged),
                 ParseDiagnostics(skipped: skipped),
-                OpLogProvenance(files: files))
+                OpLogProvenance(files: files, ownStreams: mine))
     }
 
     /// **The lines one holder is waiting under, as the walk itself answers
@@ -626,7 +648,8 @@ public final class OpLogStore {
             ops: Self.mergeSortedDedup(all),
             diagnostics: ParseDiagnostics(skipped: skipped),
             unreadableFiles: unreadable.sorted { $0.name < $1.name },
-            provenance: OpLogProvenance(files: files))
+            provenance: OpLogProvenance(
+                files: files, ownStreams: ForeignStreamWatch.slugs(of: identities)))
     }
 
     /// Load + parse ONE op-log file — plain `.jsonl` tail or sealed `.mzseg`

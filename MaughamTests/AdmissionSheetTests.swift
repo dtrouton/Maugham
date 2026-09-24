@@ -236,6 +236,30 @@ final class AdmissionSheetTests: XCTestCase {
         XCTAssertEqual(AdmissionSheet.waitingLine(count: 2), "2 notes waiting")
     }
 
+    /// **Nothing is not a count** (P3b smoke F10): a stranger asked about for
+    /// the record alone is told as the sentence the ruling gives, and the
+    /// title is the one every request has.
+    func test_aRecordOnlyRequestSaysNothingHasReachedThisMacYet() {
+        let recordOnly = request(ownName: "Sam’s Mac", waiting: 0)
+
+        XCTAssertEqual(AdmissionSheet.waitingLine(for: recordOnly),
+                       "Nothing from it has reached this Mac yet.")
+        XCTAssertEqual(AdmissionSheet.waitingLine(count: 0),
+                       "Nothing from it has reached this Mac yet.",
+                       "never *0 notes waiting*")
+        XCTAssertEqual(AdmissionSheet.title(request: recordOnly, projectTitle: "Playlist"),
+                       "Sam’s Mac wants to write in Playlist")
+    }
+
+    func test_theSheetDrawsTheRecordOnlyLine() throws {
+        let window = mount(request(ownName: "Sam’s Mac", waiting: 0))
+        let texts = try axTexts(in: window)
+
+        XCTAssertTrue(texts.contains { $0.contains("Nothing from it has reached this Mac yet.") },
+                      "the line reaches the screen: \(texts)")
+        XCTAssertFalse(texts.contains { $0.contains("0 notes") }, "\(texts)")
+    }
+
     // MARK: - Who and what (P3b smoke F2)
 
     func test_theSheetSaysWhatIsWaitingWhereAndPeeksAtTheWords() throws {

@@ -100,6 +100,16 @@ enum TurnClauseOffer {
         return LetterSection.addToIntentTitle
     }
 
+    /// **Whether the clause may be filed at `destination`** — `.editStatement`
+    /// of that intent statement, the one rule (P3c Task 7). Pure, so the
+    /// offer's posture half is asked without a letter or a run.
+    static func mayFile(
+        at destination: Statement.Scope,
+        _ postureOf: (Statement.Kind, Statement.Scope) -> Posture
+    ) -> Bool {
+        postureOf(.intent, destination).allows(.editStatement)
+    }
+
     /// What the ruling's line says about where it came from. The voice is the
     /// piece's reader (`AuthorReader.editorName`, or the round's own stage),
     /// so a writer reading their
@@ -119,6 +129,7 @@ enum TurnClauseOffer {
         letter: Letter, run: CompilerRun?, docId: String,
         store: ProjectStore?, world: DeclaredWorldStore?,
         voice: String, filedRunId: String?,
+        postureOf: (Statement.Kind, Statement.Scope) -> Posture,
         onFiled: @escaping (String) -> Void,
         onFailure: @escaping (String?) -> Void
     ) -> (() -> Void)? {
@@ -129,6 +140,12 @@ enum TurnClauseOffer {
         // ruling's destination are the same answer rather than two reads that
         // could straddle a statement minted in between.
         let destination = scope(store: store, docId: docId)
+        // **Not offered where this device may not write that intent** (P3c
+        // Task 7) — asked of the DESTINATION's posture, which is the book's
+        // intent whenever the piece has none of its own, so an author of some
+        // pieces is not offered a clause that would land in the book's.
+        // `RulingPerformer`'s door refuses a press that arrives anyway.
+        guard mayFile(at: destination, postureOf) else { return nil }
         let title = buttonTitle(for: destination)
         return {
             onFailure(nil)

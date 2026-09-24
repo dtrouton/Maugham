@@ -8239,9 +8239,10 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
-    /// A permit compared to a literal rung. Unlike `.reviewer` — which is also
-    /// `CollaborationRole.reviewer`, the sharing role, in half a dozen views —
-    /// these three spellings can only be this milestone's `Permit`.
+    /// A permit compared to a literal rung. Unlike a bare `.reviewer` — also
+    /// `Posture.Reason.reviewer` and `PostureStandingLine`'s own kind, the
+    /// display values surfaces are MEANT to switch on — these three spellings
+    /// can only be this milestone's `Permit`.
     static let permitLiteralPatterns = [
         "Permit.bookAuthor", ".author(.book)", "Permit.reviewer",
     ]
@@ -9066,5 +9067,479 @@ final class TripwireGrepTests: XCTestCase {
             try occurrences(of: "expectedStreams(", in: [dir]),
             ["OpLogDeviceState.swift": 1],
             "the counter sees the planted call")
+    }
+
+    // MARK: - Posture is asked of the permit in one place (P3c Task 1; tripwire 51)
+
+    /// The spellings of asking the permit table a question directly. A surface
+    /// asks `posture.allows(.someVerb)` instead; `Posture(` is construction,
+    /// which is the Mac's one door's (`DocumentStore+Posture.swift`) alone.
+    ///
+    /// Task 2 tightened it by three: the table asked by its qualified name
+    /// (`Permit.allows(`), the inbox row asked of a permit (`.allows(.inboxRow`),
+    /// and `Posture.author` — a fallback that walks round the door by
+    /// answering *the whole book* without asking anyone. Fix round 1 adds
+    /// `Posture.settling`, the door's own not-yet answer, for the same reason
+    /// from the other side: a surface that spelled it would be deciding when
+    /// the door has not answered.
+    static let postureAskPatterns = [
+        "LocalWritePermit", "localWritePermit", ".allows(.op(",
+        ".allows(.translationRecord", "Posture(",
+        "Permit.allows(", ".allows(.inboxRow", "Posture.author",
+        "Posture.settling",
+    ]
+
+    /// File AND spelling. The door names every ask spelling; the `Document`
+    /// files are P3a's load-seam and membrane sites and keep exactly the spellings
+    /// they already have. `Document+Load.swift` asks through a local
+    /// `writePermit`, so it carries `.allows(.op(` as well; every other line
+    /// there is admitted by `localWritePermit` on the same line.
+    static let postureAskAllowed: [String: Set<String>] = [
+        "DocumentStore+Posture.swift": Set(postureAskPatterns),
+        "Document.swift": ["localWritePermit"],
+        "Document+Load.swift": ["localWritePermit", ".allows(.op("],
+        "Document+Waiting.swift": ["localWritePermit"],
+        "Document+Tasks.swift": ["localWritePermit"],
+        "Document+Annotations.swift": ["localWritePermit"],
+        // P3c whole-branch fix wave (C1): the restore door,
+        // `requireRestorePermitted`, asks the stamp like its siblings.
+        "Document+Rewind.swift": ["localWritePermit"],
+        // P3c Task 7 (controller ruling A): the ruling door's fallback for a
+        // `ProjectStore` no window holds — the one builder, wrapped right there.
+        "RulingPerformer.swift": ["localWritePermit", "Posture("],
+        // P3c Task 8 (ruling A): the translation pipeline is reached from MCP
+        // and the translator's ingest with no window — it asks the one builder
+        // as the TRANSLATOR actor, over the identities it signs with. Its one
+        // `Posture(` wraps that builder on the SAME line, so `localWritePermit`
+        // admits it; the file is admitted nothing more (Task 10's census check —
+        // a second `Posture(` there, built from anything else, is caught).
+        "TranslationWritePipeline.swift": ["localWritePermit"],
+    ]
+
+    /// **The door's own acting accessor is an ASK, not a second table** (P3c
+    /// Task 3). `settledPosture(forDocId:as:)` is what every door that ACTS
+    /// calls (controller ruling I), and its name ends in `Posture(` — which the
+    /// substring match reads as building one. A line is admitted only where
+    /// removing every `settledPosture(` leaves no ask spelling behind, so a
+    /// real offender on the same line is still caught.
+    static func postureAskExcludeLine(_ line: String) -> Bool {
+        if admissionExcludeLine(line) { return true }
+        guard line.contains("settledPosture(") else { return false }
+        let rest = line.replacingOccurrences(of: "settledPosture(", with: "")
+        return !postureAskPatterns.contains(where: { rest.contains($0) })
+    }
+
+    /// Component A — the sharing-role posture P3c retires. Allowed nowhere.
+    static let componentAPatterns = [
+        "CollaborationRole", "ReviewPosturePolicy", "ShareIdentityMapper", "effectivePosture",
+    ]
+
+    private var postureAskRoots: [URL] {
+        [sourceDir, repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true)]
+    }
+
+    /// **Every Mac surface asks `Posture`; nothing else asks the permit.**
+    ///
+    /// The distinction most likely to be re-spelled per surface: a queue that
+    /// decides whether to draw Accept by asking `localWritePermit` itself, or
+    /// by building a `Posture` of its own from some other permit, is a second
+    /// answer that drifts from the door's the first time either changes.
+    func test_postureIsAskedOfThePermitInOnePlace() throws {
+        let askers = try grepSwift(
+            in: postureAskRoots,
+            patterns: Self.postureAskPatterns,
+            allowedSpellings: Self.postureAskAllowed,
+            excludeLine: Self.postureAskExcludeLine)
+        XCTAssertTrue(askers.isEmpty,
+            "A file outside the posture door asks the permit table directly or "
+            + "builds a Posture of its own. Ask `posture.allows(.someVerb)` of "
+            + "`DocumentStore.posture(forDocId:)`. Offenders:\n"
+            + askers.joined(separator: "\n"))
+
+        let componentA = try grepSwift(
+            in: admissionRoots,
+            patterns: Self.componentAPatterns,
+            allowedSpellings: [:],
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(componentA.isEmpty,
+            "The sharing-role posture survives. A role is the permit's, "
+            + "asked through `Posture`. Offenders:\n"
+            + componentA.joined(separator: "\n"))
+    }
+
+    /// The census's control: it fires on a planted file carrying one of each
+    /// spelling, lets the comment through, and — moved to an allow-listed
+    /// NAME — admits only that name's own spellings.
+    func test_thePostureCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-posture-selfcheck-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may name LocalWritePermit, Posture( and CollaborationRole.
+        let built = LocalWritePermit.unrestricted
+        let asked = store.localWritePermit { cls }
+        let text = permit.allows(.op(.typingBurst)) == .yes
+        let rendering = permit.allows(.translationRecord) == .yes
+        let mine = Posture(permit)
+        let direct = Permit.allows(written, in: cls, actor: actor)
+        let row = permit.allows(.inboxRow) == .yes
+        let fallback = Posture.author
+        let undecided = Posture.settling
+        let role: CollaborationRole = .reviewer
+        let policy = ReviewPosturePolicy.resolve(role)
+        let mapped = ShareIdentityMapper.map(share)
+        let effective = effectivePosture.isReviewMode
+        let fine = posture.allows(.writeText)
+        let acted = await store.settledPosture(forDocId: id)
+        let smuggled = await store.settledPosture(forDocId: id) ?? Posture(permit)
+        """.write(to: tmp.appendingPathComponent("ASecondPostureTable.swift"),
+                  atomically: true, encoding: .utf8)
+
+        func hits() throws -> (ask: [String], componentA: [String]) {
+            (try grepSwift(in: [tmp], patterns: Self.postureAskPatterns,
+                           allowedSpellings: Self.postureAskAllowed,
+                           excludeLine: Self.postureAskExcludeLine),
+             try grepSwift(in: [tmp], patterns: Self.componentAPatterns,
+                           allowedSpellings: [:],
+                           excludeLine: Self.admissionExcludeLine))
+        }
+
+        let planted = try hits()
+        XCTAssertEqual(planted.ask.count, 10,
+            "Self-check: each of the nine ask spellings is caught, plus a real "
+            + "one beside the door's acting accessor, and neither the comment, "
+            + "the posture's own `allows` nor `settledPosture(` alone. Caught:\n"
+            + planted.ask.joined(separator: "\n"))
+        XCTAssertFalse(planted.ask.contains(where: { $0.contains("let fine") }))
+        XCTAssertFalse(planted.ask.contains(where: { $0.contains("let acted") }),
+            "the acting door is an ask (P3c Task 3)")
+        XCTAssertTrue(planted.ask.contains(where: { $0.contains("let smuggled") }),
+            "a Posture( built beside it is still caught")
+        XCTAssertEqual(planted.componentA.count, 4,
+            "Self-check: each Component A spelling is caught. Caught:\n"
+            + planted.componentA.joined(separator: "\n"))
+
+        // A P3a site may keep `localWritePermit` and nothing else.
+        try fm.moveItem(at: tmp.appendingPathComponent("ASecondPostureTable.swift"),
+                        to: tmp.appendingPathComponent("Document+Waiting.swift"))
+        let asASite = try hits()
+        XCTAssertEqual(asASite.ask.count, 9,
+            "Self-check: Document+Waiting.swift is admitted `localWritePermit` "
+            + "alone. Caught:\n" + asASite.ask.joined(separator: "\n"))
+        XCTAssertFalse(asASite.ask.contains(where: { $0.contains("let asked") }))
+        XCTAssertEqual(asASite.componentA.count, 4)
+
+        // The translation pipeline is a P3a site's equal (Task 10's census
+        // check): its wrapping `Posture(` rides on the `localWritePermit` line,
+        // so it is admitted that spelling alone.
+        try fm.moveItem(at: tmp.appendingPathComponent("Document+Waiting.swift"),
+                        to: tmp.appendingPathComponent("TranslationWritePipeline.swift"))
+        let asThePipeline = try hits()
+        XCTAssertEqual(asThePipeline.ask.count, 9,
+            "Self-check: TranslationWritePipeline.swift is admitted "
+            + "`localWritePermit` alone. Caught:\n" + asThePipeline.ask.joined(separator: "\n"))
+        XCTAssertTrue(asThePipeline.ask.contains(where: { $0.contains("let mine") }),
+            "a bare Posture( in the pipeline is caught")
+
+        // The door may ask every spelling, and is still caught naming Component A.
+        try fm.moveItem(at: tmp.appendingPathComponent("TranslationWritePipeline.swift"),
+                        to: tmp.appendingPathComponent("DocumentStore+Posture.swift"))
+        let asTheDoor = try hits()
+        XCTAssertTrue(asTheDoor.ask.isEmpty,
+            "Self-check: the door is admitted every ask spelling. Caught:\n"
+            + asTheDoor.ask.joined(separator: "\n"))
+        XCTAssertEqual(asTheDoor.componentA.count, 4)
+    }
+
+    // MARK: - Every manuscript writer outside the editor asks first (P3c whole-branch fix wave, C1)
+
+    /// **The spellings that write a document's TEXT from outside the editor's
+    /// membrane.** A burst's emission (`setFullText`) is deliberately not
+    /// permit-guarded — the editor's `shouldChangeTextIn` is in front of the
+    /// keystroke — so every OTHER caller must ask the posture (or the
+    /// Document's stamp) before it reaches one of these, or it signs text in
+    /// the writer's name that every read then sets aside. A restore
+    /// (`applyRestore`/`restoreToOp`/`restoreToOpUndoable`/
+    /// `Restore.buildRestoreOp`) rewrites every paragraph that differs; the
+    /// replace verbs reach `setFullText` for a whole book. The whole-branch
+    /// review found two such doors with neither a surface gate nor a storage
+    /// door — the third time in P3 a "which paths write X" list was enumerated
+    /// from the plan rather than from the code — so the population is a grep.
+    ///
+    /// **The re-review grew it** by the paragraph primitives — `setParagraph(`,
+    /// `insertParagraph(`, `deleteParagraph(` and `Document.reorder(sequence:` —
+    /// which write a burst exactly as `setFullText` does and which the first
+    /// list missed (History's recovered-orphans Append and the inline
+    /// checkbox's ⌘Z). So the list is no longer trusted on its own:
+    /// `test_everyGuardedDocumentMutatorIsClassified` derives the population
+    /// from `Document`'s own `rejectMutationIfNotWritable`/`requireWritable`
+    /// sites and fails on a new one nobody classified.
+    static let manuscriptWriterPatterns = [
+        "setFullText(", "applyRestore(", "restoreToOp(", "restoreToOpUndoable(",
+        "buildRestoreOp(", "replaceAll(", "replaceMatch(", "replaceInManuscript(",
+        "setParagraph(", "insertParagraph(", "deleteParagraph(", "reorder(sequence:",
+    ]
+
+    /// **Every production call site, by file and by count** — count the array,
+    /// never a number in prose. Each entry says where its posture question is
+    /// asked, or why it need not be:
+    ///
+    /// - `EditorHost.swift` × 1 — the editor's binding. Its gate is the
+    ///   membrane (`EditorEditPolicy` via `shouldChangeTextIn`), fed by the
+    ///   drawing posture; the one entry whose door is in front of the keystroke.
+    /// - `StatementEditorHost.swift` × 2 — the statement editor's binding and
+    ///   its merge; the same membrane, locked by `statementPosture`.
+    /// - `ProjectStore+Statements.swift` × 1 — `mutateStatementText`, every
+    ///   statement writer's one door: it refuses where the statement Document's
+    ///   stamp refuses its text (`StatementWriteRefused`), before the write.
+    /// - `ProjectStore+Structure.swift` × 2 — the rename's wiki-link sweep,
+    ///   pieces and statements: `sweepMayWrite` (the settled posture) before any
+    ///   load and the Document's stamp before the write; skipped and NAMED
+    ///   (ruling AH).
+    /// - `ProjectStore+Search.swift` × 3 — `replaceMatch`/`replaceAll` →
+    ///   `replaceInManuscript` → `setFullText`: the settled posture before any
+    ///   load and the Document's stamp before the write; Replace All skips and
+    ///   names (ruling AI).
+    /// - `ProjectSearchView.swift` × 2 — the two presses; per-match Replace and
+    ///   Replace All are drawn only where the match's own document allows
+    ///   `.writeText` (`ProjectSearchView.mayReplace`).
+    /// - `Document+Rewind.swift` × 2 — `restoreToOp`'s `applyRestore`, and
+    ///   `applyRestore`'s `buildRestoreOp`; each function refuses first
+    ///   (`requireRestorePermitted`).
+    /// - `Document+RewindUndo.swift` × 4 — the undoable wrapper (its own door
+    ///   before the stack clear) and its undo/redo; each reaches the doored
+    ///   `restoreToOp`, and a refusal there is said (`declineUndo(.notPermitted)`).
+    /// - `Document+Tasks.swift` × 3 — the inline-archive undo's
+    ///   `applyRestore`, doored, its refusal said the same way; and
+    ///   `archiveTask`'s own splice (`deleteParagraph`/`setParagraph`), behind
+    ///   the task door that refuses the archive whole where the splice is
+    ///   refused.
+    /// - `OpUndoRegistrar.swift` × 2 — `InlineToggleUndo`'s checkbox flip and
+    ///   its undo: each asks `mayWriteItsText` first and a refusal is said
+    ///   (`declineUndo(.taskNotPermitted)`); the press is hidden by
+    ///   `TaskRowVerbs` on the drawing posture.
+    /// - `RecoveredHistorySheet.swift` × 1 — *Append to End* / *Append All*:
+    ///   drawn only where `.writeText` is allowed (`mayAppend`), the door
+    ///   `RecoveredHistorySheet.mayAppend(to:)` on the stamp, a refusal said
+    ///   in the sheet.
+    ///
+    /// And beneath all four paragraph primitives, whatever the caller:
+    /// `Document.rejectTextWriteIfNotPermitted` refuses inside
+    /// `setParagraph`/`insertParagraph`/`deleteParagraph`/`reorder`, so a future
+    /// caller that forgets to ask writes nothing (silently — which is why each
+    /// listed caller asks first and says it).
+    /// - `ProjectWindow.swift` × 1 — *Restore here…*'s receiver; the button is
+    ///   drawn only where `.writeText` is allowed (`RewindWindow.offersRestore`)
+    ///   and a refusal from the door is SAID in the restore toast.
+    /// - `PartialRestorePicker.swift` × 1 — *Revert here…*'s checkpoint
+    ///   restore, which appends through its own store: the settled posture per
+    ///   document before the build; the rows and the History button are drawn
+    ///   only for documents this Mac may write, and what the door left alone is
+    ///   named in the sheet.
+    /// - `TestEditTool.swift` × 1 — `test_apply_edit`, compiled only into the
+    ///   dev build (`MAUGHAM_DEV_BUILD`): the smoke rig's typing surrogate,
+    ///   deliberately NOT gated, because it stands in for a keystroke and is
+    ///   how a rig drives a burst the read side must then set aside.
+    static let manuscriptWriterCallSites: [String: Int] = [
+        "EditorHost.swift": 1,
+        "StatementEditorHost.swift": 2,
+        "ProjectStore+Statements.swift": 1,
+        "ProjectStore+Structure.swift": 2,
+        "ProjectStore+Search.swift": 3,
+        "ProjectSearchView.swift": 2,
+        "Document+Rewind.swift": 2,
+        "Document+RewindUndo.swift": 4,
+        "Document+Tasks.swift": 3,
+        "OpUndoRegistrar.swift": 2,
+        "RecoveredHistorySheet.swift": 1,
+        "ProjectWindow.swift": 1,
+        "PartialRestorePicker.swift": 1,
+        "TestEditTool.swift": 1,
+    ]
+
+    /// A comment, or a declaration of one of the verbs, is not a call site.
+    static func manuscriptWriterExcludeLine(_ line: String) -> Bool {
+        admissionExcludeLine(line) || line.contains("func ")
+    }
+
+    /// Call sites per file under `roots`, every pattern pooled.
+    private func manuscriptWriterCallCounts(in roots: [URL]) throws -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for root in roots {
+            let hits = try grepSwift(
+                in: root,
+                patterns: Self.manuscriptWriterPatterns,
+                allowed: [],
+                excludeLine: Self.manuscriptWriterExcludeLine)
+            for hit in hits {
+                counts[String(hit.prefix(while: { $0 != ":" })), default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    func test_everyManuscriptWriterOutsideTheEditorIsANamedSite() throws {
+        let found = try manuscriptWriterCallCounts(in: admissionRoots)
+        XCTAssertEqual(found, Self.manuscriptWriterCallSites,
+            "A path that writes a document's text from outside the editor moved. "
+            + "Every such site asks the posture (or the Document's stamp) before "
+            + "it writes, or is listed with why it need not. A NEW site is a verb "
+            + "that can sign text every read then sets aside — gate it and add it "
+            + "to `manuscriptWriterCallSites` with its reason in the same commit. "
+            + "Found: \(found.sorted(by: { $0.key < $1.key }))")
+    }
+
+    /// **Every guarded `Document` mutator, classified** — the population the
+    /// spelling list is checked against, DERIVED from the code (the re-review's
+    /// ask: the first list was enumerated and missed two primitives). Each name
+    /// that `Maugham/` guards with `rejectMutationIfNotWritable("…")` or
+    /// `requireWritable("…")` is here, as a TEXT WRITER (its spelling must be
+    /// in `manuscriptWriterPatterns`) or with why it is not one.
+    static let guardedDocumentMutators: [String: String] = [
+        // Text writers — each spelled in `manuscriptWriterPatterns`.
+        "setFullText": "text", "setParagraph": "text", "insertParagraph": "text",
+        "deleteParagraph": "text", "reorder": "text", "applyRestore": "text",
+        "restoreToOp": "text",
+        // Not text writers, and where their own door is.
+        "appendMirrored": "⌘S's checkpoint op — CheckpointCapture's door",
+        "performAutosave": "writes the DERIVED .md of ops already judged",
+        "flushBurstNow": "emits what setFullText/the primitives already wrote",
+        "handleExternalDiskChange": "a read — another device's lines, judged by the partition",
+        "handleExternalLogChange": "a read — another device's lines, judged by the partition",
+        "acceptAnnotation": "a disposition — requireDispositionPermitted",
+        "revertAcceptedAnnotation": "a disposition — requireDispositionPermitted",
+        "reopenAnnotation": "a disposition — requireDispositionPermitted",
+        "reopenAcceptedTextlessAnnotation": "a disposition — requireDispositionPermitted",
+        "appendTaskOpInternal": "a task op — the task door",
+        "appendTaskRewindCloser": "reached only after the doored restoreToOp",
+        "applyMintedAnchors": "the load's own emission, the author's (tripwire 38), gated on mayAnchor",
+    ]
+
+    func test_everyGuardedDocumentMutatorIsClassified() throws {
+        let hits = try grepSwift(
+            in: sourceDir,
+            patterns: ["rejectMutationIfNotWritable(\"", "requireWritable(\""],
+            allowed: [],
+            excludeLine: Self.admissionExcludeLine)
+        var names: Set<String> = []
+        let regex = try NSRegularExpression(
+            pattern: #"(?:rejectMutationIfNotWritable|requireWritable)\("([A-Za-z]+)"\)"#)
+        for hit in hits {
+            let range = NSRange(hit.startIndex..., in: hit)
+            regex.enumerateMatches(in: hit, range: range) { m, _, _ in
+                if let m, let r = Range(m.range(at: 1), in: hit) { names.insert(String(hit[r])) }
+            }
+        }
+        XCTAssertFalse(names.isEmpty, "precondition: the guarded mutators were found")
+        XCTAssertEqual(names, Set(Self.guardedDocumentMutators.keys),
+            "A guarded Document mutator appeared or disappeared. Classify it in "
+            + "`guardedDocumentMutators`: a TEXT writer's spelling joins "
+            + "`manuscriptWriterPatterns` and its callers `manuscriptWriterCallSites`. "
+            + "Found: \(names.sorted())")
+        for (name, kind) in Self.guardedDocumentMutators where kind == "text" {
+            XCTAssertTrue(
+                Self.manuscriptWriterPatterns.contains { $0.hasPrefix(name + "(") },
+                "\(name) writes text and is not in manuscriptWriterPatterns")
+        }
+    }
+
+    /// The census's control: it counts a planted call of each spelling, not the
+    /// comment and not the declaration, and a file off the list fails it.
+    func test_theManuscriptWriterCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-writers-selfcheck-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may name setFullText( and restoreToOp( without being one.
+        public func setFullText(_ text: String) {}
+        doc.setFullText(rewritten)
+        _ = try await doc.applyRestore(target: t, sourceCheckpoint: c, synthesisSource: .rewind)
+        _ = try await doc.restoreToOp(opId: id)
+        _ = try await doc.restoreToOpUndoable(opId: id, undoManager: um)
+        let op = Restore.buildRestoreOp(current: a, target: b, scope: .document,
+        try await store.replaceAll(in: results, with: text)
+        try await store.replaceMatch(match, with: text)
+        try await replaceInManuscript(path: p, title: t, query: q,
+        doc.setParagraph(id: pid, text: flipped)
+        _ = doc.insertParagraph(after: last, text: orphan)
+        doc.deleteParagraph(id: pid)
+        doc.reorder(sequence: ids)
+        """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let planted = try manuscriptWriterCallCounts(in: [tmp])
+        XCTAssertEqual(planted, ["ASixthWayToWriteText.swift": Self.manuscriptWriterPatterns.count],
+            "Self-check: each spelling is counted once, the comment and the "
+            + "declaration are not. Counted: \(planted)")
+        XCTAssertNotEqual(planted, Self.manuscriptWriterCallSites,
+            "and a file that is not on the list fails the census it feeds")
+    }
+
+    // MARK: - author_collaborator_id is decoded and never written (P3c Task 4)
+
+    /// The argument label that WRITES the retired field into an op. Reading it
+    /// (`prov?.authorCollaboratorId`, `AnnotationDeriver`) carries no colon.
+    static let collaboratorIdWritePatterns = ["authorCollaboratorId:"]
+
+    /// `Op.swift` declares the field, its init parameter and its decode — old
+    /// logs carry it — and nothing else may name the label.
+    static let collaboratorIdWriteAllowed: [String: Set<String>] = [
+        "Op.swift": ["authorCollaboratorId:"],
+    ]
+
+    /// **`author_collaborator_id` is decoded and never written** (signed op
+    /// log P3 spec §8, Denver's ruling 2026-09-19 — attribution is the signing
+    /// device through the registry; claim M5-AN-012). The WF1 share-role
+    /// system stamped a collaborator id on reviewer annotations; a second
+    /// writer would be a second attribution beside the signature, one nothing
+    /// verifies.
+    func test_theCollaboratorIdIsDecodedAndNeverWritten() throws {
+        let writers = try grepSwift(
+            in: admissionRoots,
+            patterns: Self.collaboratorIdWritePatterns,
+            allowedSpellings: Self.collaboratorIdWriteAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(writers.isEmpty,
+            "A file writes `authorCollaboratorId` into an op. It is decoded "
+            + "from old logs and never written — attribution is the signing "
+            + "device. Offenders:\n" + writers.joined(separator: "\n"))
+    }
+
+    /// The control: a planted writer is caught, the comment and a read are
+    /// not, and the same file named `Op.swift` is admitted.
+    func test_theCollaboratorIdCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-collabid-selfcheck-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try """
+        // A comment may name authorCollaboratorId: freely.
+        let read = AnnotationAuthor(sourceKind: .human, displayName: "", collaboratorId: prov?.authorCollaboratorId)
+        let prov = Op.Provenance(authorDisplayName: name, authorCollaboratorId: id)
+        """.write(to: tmp.appendingPathComponent("SecondAttribution.swift"),
+                  atomically: true, encoding: .utf8)
+        func hits() throws -> [String] {
+            try grepSwift(in: [tmp], patterns: Self.collaboratorIdWritePatterns,
+                          allowedSpellings: Self.collaboratorIdWriteAllowed,
+                          excludeLine: Self.admissionExcludeLine)
+        }
+        let planted = try hits()
+        XCTAssertEqual(planted.count, 1, "Self-check: the one writer is caught. Caught:\n"
+                       + planted.joined(separator: "\n"))
+        XCTAssertTrue(planted.first?.contains("let prov") == true)
+
+        try fm.moveItem(at: tmp.appendingPathComponent("SecondAttribution.swift"),
+                        to: tmp.appendingPathComponent("Op.swift"))
+        XCTAssertTrue(try hits().isEmpty, "Self-check: Op.swift is admitted")
     }
 }

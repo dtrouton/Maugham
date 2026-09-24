@@ -95,6 +95,13 @@ public final class Document {
     /// moved on.
     public internal(set) var provenance: OpLogProvenance?
 
+    /// **How many lines of THIS device's own files are kept in History** — set
+    /// aside or held (P3c Task 3, controller ruling K). Stamped beside
+    /// `provenance` from the same load (`OpLogProvenance.ownLinesKeptInHistory`,
+    /// whose own-stream slugs the load enumerated), so the editor's standing
+    /// line reads a stored Int and never walks the files or the identities.
+    public internal(set) var ownLinesKeptInHistory: Int = 0
+
     /// **Who, among the holders `provenance` is counting, opened THIS piece**
     /// (P3b Task 7, spec §4.5).
     ///
@@ -157,7 +164,18 @@ public final class Document {
     /// other way — the read-only recovery view, a direct construction in a test
     /// — carries `.unrestricted`, which is the whole book, from the start, and
     /// is exactly what every project on disk before P3 means.
-    internal var localWritePermit: LocalWritePermit = .unrestricted
+    internal private(set) var localWritePermit: LocalWritePermit = .unrestricted
+
+    /// **The one setter for the stamp** (P3c Task 2). The load stamps it once;
+    /// the posture door (`DocumentStore+Posture.swift`) re-stamps every open
+    /// document on each trust change, so a demotion arriving mid-session stops
+    /// `mayWriteThePendingFile`, the task anchors, the rebalance and the
+    /// automation guard at the next keystroke — and a promotion restores them
+    /// — with no reopen. Both callers take the value from
+    /// `OpLogStore.localWritePermit`, the one builder (tripwire 46).
+    internal func stamp(localWritePermit permit: LocalWritePermit) {
+        self.localWritePermit = permit
+    }
 
     /// **Whose annotation it is** (P3a Task 6, spec §4.2) — resolved once by
     /// `Document.load`, beside `localWritePermit` and for its reason.
@@ -183,7 +201,17 @@ public final class Document {
     /// Derived from the stamped permit rather than remembered separately, so
     /// the condition that declined the read and the condition that declines the
     /// write are the same expression and cannot drift apart.
-    internal var mayWriteThePendingFile: Bool {
+    internal var mayWriteThePendingFile: Bool { mayWriteItsText }
+
+    /// **May this device's own hand write this document's text?** (P3c
+    /// whole-branch fix wave, C1) — the one question every out-of-editor
+    /// manuscript writer (project Replace, the rename's wiki-link sweep) asks
+    /// of a `Document` it holds before `setFullText`. A burst's EMISSION is
+    /// deliberately not permit-guarded — the editor's membrane is in front of
+    /// the keystroke — so a writer that reaches `setFullText` from outside the
+    /// editor must ask first, or it signs text every read then sets aside.
+    /// The stamp is the answer the load made and every trust change re-stamps.
+    internal var mayWriteItsText: Bool {
         localWritePermit.allows(.op(.typingBurst)) == .yes
     }
 
@@ -383,8 +411,18 @@ public final class Document {
     /// from the queue exactly like the pre-A2 defect, and a defect the writer
     /// cannot tell from a bug is one they will report as a bug — so it says so
     /// rather than reaching `documentLog` alone.
+    ///
+    /// `notPermitted` (P3c Task 5) is a refusal of the other kind: nothing
+    /// drifted, but this Mac may no longer write that act in this piece — a
+    /// demotion landed between the press and its ⌘Z or ⇧⌘Z. The door refused
+    /// the compensating op before it was written (`refusingLoudly`).
     internal enum UndoDecline: Hashable, CaseIterable {
-        case annotationEdit, acceptNote, stet, triage, stetRestore
+        case annotationEdit, acceptNote, stet, triage, stetRestore, notPermitted
+        /// A task op this Mac's permit refuses (P3c Task 8's task door).
+        case taskNotPermitted
+        /// A restore this Mac's permit refuses (P3c whole-branch fix wave,
+        /// C1's restore door) — a History restore's ⌘Z or ⇧⌘Z after a demotion.
+        case restoreNotPermitted
 
         /// One sentence for however many notes of this verb declined. A batch
         /// that ALSO undid some notes says nothing about them: the queue has
@@ -403,6 +441,12 @@ public final class Document {
                 "Couldn't undo \(count) triage marks — they changed on another device."
             case .stetRestore:
                 "Couldn't put back \(count) notes' earlier resolutions — they're open again."
+            case .notPermitted:
+                "Couldn't change \(count) notes — this Mac can no longer answer notes in this piece."
+            case .taskNotPermitted:
+                "Couldn't change \(count) tasks — this Mac can no longer file tasks in this piece."
+            case .restoreNotPermitted:
+                "Couldn't undo \(count) restores — this Mac can no longer change this piece's text."
             }
         }
 
@@ -418,6 +462,12 @@ public final class Document {
                 "Couldn't undo the triage mark — it changed on another device."
             case .stetRestore:
                 "Couldn't put back the note's earlier resolution — it's open again."
+            case .notPermitted:
+                "Couldn't change that note — this Mac can no longer answer notes in this piece."
+            case .taskNotPermitted:
+                "Couldn't change that task — this Mac can no longer file tasks in this piece."
+            case .restoreNotPermitted:
+                "Couldn't undo the restore — this Mac can no longer change this piece's text."
             }
         }
     }
@@ -1149,6 +1199,7 @@ public final class Document {
 
     public func setParagraph(id: String, text: String) {
         if rejectMutationIfNotWritable("setParagraph") { return }
+        if rejectTextWriteIfNotPermitted("setParagraph") { return }
         let prior = paragraphs[id]
         guard prior != text else { return }
         pending.recordChange(paragraphId: id, prior: prior, next: text)
@@ -1171,6 +1222,7 @@ public final class Document {
 
     public func insertParagraph(after: String?, text: String) -> String {
         if rejectMutationIfNotWritable("insertParagraph") { return "" }
+        if rejectTextWriteIfNotPermitted("insertParagraph") { return "" }
         // Unique against the doc's live id population (birthday hazard over
         // the ~1.05M id space — see ParagraphID.mintUnique).
         let newId = ParagraphID.mintUnique(
@@ -1195,6 +1247,7 @@ public final class Document {
 
     public func deleteParagraph(id: String) {
         if rejectMutationIfNotWritable("deleteParagraph") { return }
+        if rejectTextWriteIfNotPermitted("deleteParagraph") { return }
         guard paragraphs[id] != nil else { return }
         let priorText = paragraphs[id]
         paragraphs.removeValue(forKey: id)
@@ -1218,6 +1271,7 @@ public final class Document {
 
     public func reorder(sequence: [String]) {
         if rejectMutationIfNotWritable("reorder") { return }
+        if rejectTextWriteIfNotPermitted("reorder") { return }
         self.sequence = sequence
         _orderingDirty = true
         _orderingChangedSinceLoad = true
@@ -1698,6 +1752,29 @@ public final class Document {
     /// misuse, a scheduler tail) must no-op rather than operate on husked state
     /// or resurrect it. Data safety is unaffected — the disk truth was written
     /// before husking.
+    /// **The floor under the paragraph primitives** (P3c whole-branch fix wave,
+    /// re-review item 1): `setParagraph`, `insertParagraph`, `deleteParagraph`
+    /// and `reorder` write a typing burst, and nothing but the editor's
+    /// membrane stood in front of a burst — so a caller outside the editor
+    /// (History's recovered-orphans Append, the inline checkbox's ⌘Z) signed
+    /// text every read then set aside. Guarded INSIDE, so a future caller
+    /// cannot skip it. The load path emits through none of these (its
+    /// bootstrap, pending fold and anchor splice are the author's by tripwire
+    /// 38 and go through their own emitters), and the editor's typing is
+    /// `setFullText`, which stays unguarded on purpose: a keystroke that beat
+    /// a demotion's refresh is kept in History, never dropped.
+    ///
+    /// Silent here by necessity (these return nothing to say it with), so
+    /// every production caller ASKS `mayWriteItsText` first and says the
+    /// refusal in its own words; this is what stands behind a caller that
+    /// forgets.
+    internal func rejectTextWriteIfNotPermitted(_ site: StaticString) -> Bool {
+        guard !mayWriteItsText else { return false }
+        documentLog.error(
+            "\(site, privacy: .public) refused on \(self.docId, privacy: .public): this device may not write this piece's text; no-op")
+        return true
+    }
+
     internal func rejectMutationIfNotWritable(_ site: StaticString) -> Bool {
         if isClosed {
             documentLog.error(

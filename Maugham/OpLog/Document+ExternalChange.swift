@@ -109,6 +109,8 @@ extension Document {
             docId: docId, amendmentPermits: amendmentPermits)
         let ops = loaded.ops
         if provenance != loaded.provenance { provenance = loaded.provenance }
+        let kept = loaded.provenance.ownLinesKeptInHistory
+        if ownLinesKeptInHistory != kept { ownLinesKeptInHistory = kept }
         // P3b Task 7, for the same reason and with the same guard: her opening
         // of a new chapter ARRIVES through sync and produces no applied op.
         let started = amendmentPermits.whoStartedAPiece

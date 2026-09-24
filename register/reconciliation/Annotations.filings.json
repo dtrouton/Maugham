@@ -62,7 +62,13 @@
  {
   "claim_id": "M5-AN-012",
   "outcome": "NO_RULING_REACHES",
-  "reason": "Provenance stamping. The product question it serves — telling Claude's notes from a person's — is answered once, by this field."
+  "reason": "Provenance stamping. No RULING-n reaches it; the product question — who wrote a note — is answered by the signing device through the registry (P3 spec §8, Denver 2026-09-19), and the collaborator id survives only as a decoded field of old logs. Telling Claude's notes from a person's is still answered by sourceKind.",
+  "amendment": {
+   "commit": "cfaadc3a",
+   "date": "2026-09-24",
+   "authorised_by": "P3 spec §8 (Denver, 2026-09-19) via controller Ruling O, P3c plan 1 Task 4 — the claim's statement moved from 'stamps … collaborator id' to 'decoded and never written'; the outcome is unchanged because the authority is a spec ruling, not a register RULING-n",
+   "pinned_by": "MaughamTests/Claims/AnnotationsCharacterization.test_authorProvenance"
+  }
  },
  {
   "claim_id": "M5-AN-013",

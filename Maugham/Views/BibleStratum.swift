@@ -198,12 +198,13 @@ enum BibleStratum {
     /// a candidate matching either is not news (`BibleStore.markGraduated`).
     /// For a bless the two calls are one key and the second is a no-op.
     ///
-    /// A refusal is swallowed here rather than surfaced, on the pane's own
-    /// terms: `RulingPerformer`'s refusals are all structural (a scope naming no
-    /// document, a statement whose bytes will not decode) and the fact staying
-    /// put IS the visible answer — the writer presses again, or opens the piece.
-    /// A sentence would want a place to live, and the pane's own place for one
-    /// is Stage 2's.
+    /// **A refusal is said, and the fact stays put** (P3c Task 7). This used to
+    /// swallow it on the argument that every `RulingPerformer` refusal was
+    /// structural and the unmoved fact was answer enough. The permit made that
+    /// false — `RulingRefusal.notYours` is about WHO, and a Bless that did
+    /// nothing after a demotion would read as a broken button — so the
+    /// sentence goes to the window's notice channel, the one the rulings
+    /// stratum uses (`RulingsStratum.say`).
     private static func graduate(_ words: String, provenance: String, fact: BibleFact,
                                  forScope scope: Statement.Scope, store: ProjectStore,
                                  bible: BibleStore, world: DeclaredWorldStore?) async {
@@ -212,6 +213,7 @@ enum BibleStratum {
                 words, provenance: provenance, kind: .intent, forScope: scope,
                 store: store, world: world)
         } catch {
+            RulingsStratum.say(error, in: store)
             return
         }
         bible.markGraduated(subject: fact.subject, fact: fact.fact)
@@ -228,6 +230,17 @@ struct BibleStratumView: View {
     @Bindable var store: ProjectStore
     let bible: BibleStore
     let world: DeclaredWorldStore?
+    /// The posture of the intent statement a Bless or a Correct would write
+    /// (P3c Task 7). Both graduate a reading into a RULING through
+    /// `RulingPerformer.rule`, so both follow `.editStatement`; Dismiss takes
+    /// a reading off this device's own pane and writes nothing of the
+    /// writer's, so it stays for everyone who can see the readings.
+    let posture: Posture
+
+    /// **Whether Bless and Correct are drawn** — hidden, never disabled.
+    static func offersGraduation(_ posture: Posture) -> Bool {
+        posture.allows(.editStatement)
+    }
 
     /// Which row's correction field is open, by fact id. A `BibleFact.id` is a
     /// ULID the store minted and does not move with its text, so it is a stable
@@ -253,7 +266,7 @@ struct BibleStratumView: View {
     @ViewBuilder
     private func row(_ fact: BibleFact) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            if correctingId == fact.id {
+            if correctingId == fact.id, Self.offersGraduation(posture) {
                 StratumEditField(
                     seed: fact.fact,
                     isOpen: Binding(get: { correctingId == fact.id },
@@ -274,10 +287,12 @@ struct BibleStratumView: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
             HStack(spacing: 12) {
-                Button("Bless") { bless(fact) }
-                    .buttonStyle(.plain)
-                Button("Correct") { correctingId = fact.id }
-                    .buttonStyle(.plain)
+                if Self.offersGraduation(posture) {
+                    Button("Bless") { bless(fact) }
+                        .buttonStyle(.plain)
+                    Button("Correct") { correctingId = fact.id }
+                        .buttonStyle(.plain)
+                }
                 Button("Dismiss") { BibleStratum.dismiss(fact, bible: bible) }
                     .buttonStyle(.plain)
             }

@@ -163,7 +163,7 @@ final class InspectorIntentAffordanceTests: XCTestCase {
             store: store,
             selectedItemId: nil,
             metrics: EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0),
-            onOpenProjectSettings: {})))
+            onOpenProjectSettings: {}, posture: .author)))
 
         let notes = await notesPosted(pressing: try button(labelled: IntentAffordanceRow.openTitle, in: window))
         assertAsksForTheIntentPane(notes)
@@ -246,7 +246,7 @@ final class InspectorIntentAffordanceTests: XCTestCase {
             + "sat under this piece's heading")
 
         let window = mount(AnyView(PieceInspector(
-            store: store, pieceId: piece.id, kind: .prose)))
+            store: store, pieceId: piece.id, kind: .prose, posture: .author)))
 
         assertAsksForTheIntentPane(
             await notesPosted(pressing: try button(labelled: IntentAffordanceRow.openTitle, in: window)))

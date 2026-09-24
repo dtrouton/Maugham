@@ -105,6 +105,14 @@ enum StatementProposalGate {
         }
         let kind = proposal.kind.statementKind
         let glossary = glossaryEntries(in: proposal)
+        // **Whose statement it is, before anything is minted or written** (P3c
+        // Task 7). The glossary goes through `RulingPerformer.rule`, whose own
+        // door would refuse it — but only AFTER the essay below had landed and
+        // then been rolled back, a write and its undo in the op log of a
+        // statement this device may not change. Asked here, first, through the
+        // same door, so a refused Adopt writes nothing at all.
+        try await RulingPerformer.refuseUnlessTheStatementIsYours(
+            kind, .project, store: store)
 
         let created = store.statement(kind: kind, scope: .project) == nil
         let statement = try await store.createStatement(kind: kind, scope: .project)
@@ -151,6 +159,11 @@ enum StatementProposalGate {
         }
     }
 
+    /// Clears the slot. **Not behind the ruling door**: a proposal is the
+    /// assistant's staging file under `.maugham/`, not the statement — nothing
+    /// the writer wrote moves. The banner draws Discard only where Adopt would
+    /// be drawn (`StatementProposalBanner.offersVerbs`), because deciding what
+    /// becomes of a proposal to a statement is the statement's writer's call.
     static func discard(_ kind: ProposableStatement, store: ProjectStore) throws {
         try StatementProposalStore(projectURL: store.url).discard(kind)
         MaughamEvent.postStatementProposalsChanged(projectURL: store.url)
@@ -207,11 +220,33 @@ enum StatementProposalGate {
             undoManager, actionName: StatementProposalCopy.undoActionName, target: store,
             workTaskSink: workTaskSink,
             undo: { s in
-                try? await s.mutateStatementText(of: statement, session: session) { _ in before }
+                await sayingARefusal(s) {
+                    try await s.mutateStatementText(of: statement, session: session) { _ in before }
+                }
             },
             redo: { s in
-                try? await s.mutateStatementText(of: statement, session: session) { _ in after }
+                await sayingARefusal(s) {
+                    try await s.mutateStatementText(of: statement, session: session) { _ in after }
+                }
             })
+    }
+
+    /// **An adopt's ⌘Z/⇧⌘Z after a demotion is SAID** (P3c whole-branch fix
+    /// wave, re-review item 2): `mutateStatementText` refuses with
+    /// `StatementWriteRefused` where this Mac may no longer write the
+    /// statement, and the old `try?` swallowed it — the Edit menu named the
+    /// act and nothing happened. Said in the window's notice channel; any
+    /// other error keeps the silence it had.
+    static func sayingARefusal(
+        _ store: ProjectStore, _ work: () async throws -> Void
+    ) async {
+        do {
+            try await work()
+        } catch let refused as ProjectStore.StatementWriteRefused {
+            MaughamEvent.postNotice(
+                refused.errorDescription ?? StatementProposalCopy.undoRefused,
+                projectURL: store.url)
+        } catch {}
     }
 
     private static let session = "proposal-\(UUID().uuidString)"
@@ -219,6 +254,10 @@ enum StatementProposalGate {
 
 /// Every sentence the gate says, as statics — assertable with nothing mounted.
 enum StatementProposalCopy {
+    /// Fallback for a refused undo of an adoption (the refusal's own sentence
+    /// is what is said).
+    static let undoRefused =
+        "This Mac may not change that statement's text, so it was left as it was."
     static let adoptTitle = "Adopt"
     static let discardTitle = "Discard"
     static let rationaleHeading = "Why"

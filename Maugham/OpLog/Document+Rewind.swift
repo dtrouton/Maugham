@@ -40,6 +40,11 @@ extension Document {
         // — and a recovery view is exactly where a rewind would be most
         // damaging, since its target state is derived from a partial history.
         try requireWritable("restoreToOp")
+        // 0. The permit door (P3c whole-branch fix wave, C1), BEFORE the flush
+        //    and before any op: a restore rewrites every paragraph that
+        //    differs, and a line this device's hand may not write here is one
+        //    every read sets aside — a whole chapter snapping back.
+        try requireRestorePermitted()
         // 1. Flush any pending burst so the rewind boundary is clean.
         try await flushBurstNow()
 
@@ -341,6 +346,21 @@ extension Document {
             targetResolution: resolution)
     }
 
+    /// **The restore door** (P3c whole-branch fix wave, C1): throw
+    /// `PostureRefusal` unless this device's own hand may write a
+    /// `.checkpointRestore` here. `Permit.group(of:)` classes a restore as
+    /// manuscript text, so a reviewer, an author of other pieces and the
+    /// assistant are all refused — the same stamp every other door reads,
+    /// re-stamped on every trust change. History and the rewind window HIDE the
+    /// verbs that reach this (`RewindWindow.offersRestore`); this is what stands
+    /// behind them for a stale sheet, a registered ⌘Z, or a demotion that
+    /// landed while the sheet was open.
+    internal func requireRestorePermitted() throws {
+        guard localWritePermit.allows(.op(.checkpointRestore)) == .yes else {
+            throw PostureRefusal(kind: .checkpointRestore, leftAsItWas: "the text")
+        }
+    }
+
     /// Resolve a requested restore target against the log (RULING-27): the
     /// requested id itself when present; otherwise the NEAREST SURVIVING
     /// MOMENT — the greatest opId at-or-before the request (ULID order is the
@@ -418,6 +438,10 @@ extension Document {
         // archive undo. `nil` already means "no restore op was written", so
         // that is the honest refusal here — no new failure mode for callers.
         if rejectMutationIfNotWritable("applyRestore") { return nil }
+        // The permit door again, for the caller that does not come through
+        // `restoreToOp` (the inline-task archive undo): nothing is built or
+        // appended where the table refuses a restore here.
+        try requireRestorePermitted()
         let currentState = Deriver.derive(ops: _opLogMirror)
 
         let buildResult = Restore.buildRestoreOp(

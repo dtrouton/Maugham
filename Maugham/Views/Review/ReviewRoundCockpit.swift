@@ -83,7 +83,15 @@ struct ReviewRoundCockpit: View {
     /// passes its timing beside the line.
     var reportTiming: RunTiming? = nil
     /// Ask for a round. `true` is the cold read (⌘⇧R).
-    let onRun: (_ freshEyes: Bool) -> Void
+    ///
+    /// **`nil` where this Mac may not run a round on the piece** (P3c Task 6,
+    /// plan ruling R4): Run and Fresh Eyes are then not drawn at all — absent
+    /// rather than greyed, because nothing the writer could set in the strip
+    /// would make them pressable (unlike a missing pass, whose remedy is the
+    /// picker one row up and which therefore stays a disabled, explained
+    /// button). The host asks the piece's posture; the orchestrator's own door
+    /// (`Environment.mayRunRound`) refuses the keystroke as well.
+    let onRun: ((_ freshEyes: Bool) -> Void)?
     /// Record which pass this piece is being reviewed through. The write
     /// itself is `ProjectWindow.recordActivePass` — the ONE writer of
     /// `UIState.activePassMemory` — reached through the mount, never spelled
@@ -482,7 +490,7 @@ struct ReviewRoundCockpit: View {
 
     func setPass(_ passId: String) { onSetActivePass(passId) }
 
-    func run(freshEyes: Bool) { onRun(freshEyes) }
+    func run(freshEyes: Bool) { onRun?(freshEyes) }
 
     /// **`setPass`'s own substitution, for the gear menu embedded in
     /// `lanePicker`.** `CompilerModelMenu`'s `onChange` closure IS
@@ -763,15 +771,19 @@ struct ReviewRoundCockpit: View {
     @ViewBuilder
     private var runRow: some View {
         HStack(spacing: 6) {
-            Button(Self.runTitle) { run(freshEyes: false) }
-                .buttonStyle(.borderedProminent)
-                .disabled(isRunning || activePass == nil)
-                .help(runButtonHelp(
-                    offer: Self.runHelp(pass: activePass, round: round)))
-            Button(Self.freshEyesTitle) { run(freshEyes: true) }
-                .buttonStyle(.bordered)
-                .disabled(isRunning || activePass == nil)
-                .help(runButtonHelp(offer: Self.freshEyesHelp))
+            if onRun != nil {
+                Button(Self.runTitle) { run(freshEyes: false) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isRunning || activePass == nil)
+                    .help(runButtonHelp(
+                        offer: Self.runHelp(pass: activePass, round: round)))
+                Button(Self.freshEyesTitle) { run(freshEyes: true) }
+                    .buttonStyle(.bordered)
+                    .disabled(isRunning || activePass == nil)
+                    .help(runButtonHelp(offer: Self.freshEyesHelp))
+            }
+            // Cancel is not the posture's: a round already in flight when a
+            // demotion lands is still the writer's to stop.
             if isRunning {
                 Button(Self.cancelTitle) { onCancel() }
                     .buttonStyle(.bordered)

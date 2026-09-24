@@ -1370,7 +1370,8 @@ struct ReviewCentreProbeView: View {
                 documentStore.updateUIState {
                     $0.activePassMemory.record(piece: pieceId, passId: passId)
                 }
-            })
+            },
+            posture: { _ in .author })
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .windowBackgroundColor))
     }

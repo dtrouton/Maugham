@@ -290,7 +290,7 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
     func test_theRowsVerbsFitTheColumn() {
         let row = AnnotationRow(
             annotation: Self.suggestion,
-            isOwn: true,
+            verbs: .unrestricted(isOwn: true),
             onAccept: {}, onReject: {}, onArchive: {}, onReply: {},
             onJumpToParagraph: {}, manifest: nil)
         for width in Self.columnWidths {
@@ -319,7 +319,7 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
         let columnFloor = CGFloat(UIState.detailColumnWidthRange.lowerBound)
         let row = AnnotationRow(
             annotation: Self.suggestion,
-            isOwn: true,
+            verbs: .unrestricted(isOwn: true),
             onAccept: {}, onReject: {}, onArchive: {}, onReply: {},
             onJumpToParagraph: {}, manifest: nil)
         let rowFloor = Self.width(of: row, proposing: 1)
@@ -636,6 +636,7 @@ final class AnnotationsQueueToolbarWidthTests: XCTestCase {
     func test_theDiffCardWrapsInsteadOfRunningPastTheEdge() {
         let row = AnnotationRow(
             annotation: Self.suggestion,
+            verbs: .unrestricted(isOwn: false),
             onAccept: {}, onReject: {}, onArchive: {}, onReply: {},
             onJumpToParagraph: {}, manifest: nil)
         for width in Self.columnWidths {

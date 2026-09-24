@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// A non-dismissable banner shown at the top of the editor when the current
-/// user is an iCloud reviewer on a READ-ONLY share. On such a share the reviewer
-/// cannot append annotation ops (comments / queries / suggestions) at all, so
+/// A non-dismissable banner shown at the top of the editor when iCloud grants
+/// the current user READ-ONLY access to the share (`ProjectWindow
+/// .shareIsReadOnly` — an OS-level lock that claims no role, P3c Task 4). On
+/// such a share the user cannot append annotation ops (comments / queries /
+/// suggestions) at all, so
 /// rather than letting a comment attempt fail silently we say so plainly and
 /// point them at the fix: ask the owner for edit access.
 ///

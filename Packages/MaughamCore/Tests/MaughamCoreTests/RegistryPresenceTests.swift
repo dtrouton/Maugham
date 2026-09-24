@@ -428,6 +428,37 @@ final class RegistryPresenceTests: XCTestCase {
         XCTAssertTrue(try registry().malformed.isEmpty)
     }
 
+    /// **A RETIRED machine this Mac remembers is not silently admitted at
+    /// open** (P3c whole-branch fix wave, I2; controller ruling AB). The
+    /// mid-session pre-check already refused it; the open's own walk must give
+    /// the same answer. The live machine beside it is still admitted — the
+    /// other direction, in the same walk.
+    func test_aRememberedRetiredMachineIsNotAdmittedAtOpen() throws {
+        try rootHere()
+        let retired = try declarePhone(named: "Denver's old iPhone")
+        let live = try declarePhone(named: "Denver's iPhone")
+        let scratch = projectURL.appendingPathComponent("retiring", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let record = try RegistryAdmission.retire(
+            device: retired.author.fingerprint, in: projectURL, by: retired.author,
+            cache: RegistryCache(
+                fileURL: scratch.appendingPathComponent("cache.json"), identity: "old"))
+        XCTAssertNotNil(record.retiredAt, "precondition: the record says it retired")
+        let memory = rememberingMemory()
+        memory.remember(retired.author.fingerprint, label: "Denver",
+                        ownName: "Denver's old iPhone")
+        memory.remember(live.author.fingerprint, label: "Denver",
+                        ownName: "Denver's iPhone")
+
+        let admitted = try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: presenceCache(), memory: memory)
+
+        XCTAssertEqual(admitted.map(\.person), [live.author.fingerprint],
+                       "the live machine joins; the retired one does not")
+        XCTAssertNil(try registry().person(retired.author.fingerprint),
+                     "a retired machine asks through the sheet like any stranger")
+    }
+
     func test_silentAdmissionDoesNotRestampTheWritersDecision() throws {
         try rootHere()
         let phone = try declarePhone()

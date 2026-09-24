@@ -1041,6 +1041,13 @@ struct HistoryPane: View {
                     // never per row (tripwire 4: no per-row computation in
                     // list rows without caching).
                     let predecessors = Self.predecessorIndex(ops: ops)
+                    // What this Mac may do FROM history, asked once per body
+                    // pass (P3c whole-branch fix wave, C1): a reviewer reads
+                    // every row and is offered no rewind and no revert.
+                    let offersRewind = Self.offersRewind(
+                        documentStore?.posture(forDocId: activeDocId))
+                    let offersRevert = Self.offersRevert(
+                        allDocIds.map { documentStore?.posture(forDocId: $0) })
                     // The book's own entries lead the document's (ruling C).
                     // They are FEW — an admission, a revocation, a claim — and
                     // they are the context every entry below them is written
@@ -1079,6 +1086,8 @@ struct HistoryPane: View {
                                             showingRestorePicker = true
                                         }
                                     },
+                                    offersRewind: offersRewind,
+                                    offersRevert: offersRevert,
                                     projectURL: projectURL)
                                 Divider()
                             }
@@ -1146,6 +1155,10 @@ struct HistoryPane: View {
                 RecoveredHistorySheet(
                     report: report,
                     document: documentStore?.document(forDocId: activeDocId),
+                    // Drawn only where this Mac may write the text (re-review
+                    // item 1); no door behind the pane fails closed.
+                    mayAppend: Self.offersRewind(
+                        documentStore?.posture(forDocId: activeDocId)),
                     onDismiss: { showingRecoveredHistorySheet = false })
             }
         }
@@ -1636,6 +1649,12 @@ private struct HistoryRow: View {
     let onToggle: () -> Void
     let onJump: () -> Void
     let onRevert: () -> Void
+    /// Whether *Rewind to before this…* is drawn — only where this Mac may
+    /// write the document's text (P3c whole-branch fix wave, C1).
+    let offersRewind: Bool
+    /// Whether a checkpoint row's *Revert here…* is drawn — only where the
+    /// picker would offer at least one document this Mac may write.
+    let offersRevert: Bool
     /// Names the project scope the per-row Rewind button posts
     /// `.maughamOpenRewind` to (ADR 0021), so multi-window setups dispatch the
     /// modal only on the window on that project.
@@ -1678,13 +1697,13 @@ private struct HistoryRow: View {
             } else {
                 collapsedPreview
             }
-            if case .checkpoint = entry {
+            if case .checkpoint = entry, offersRevert {
                 Button("Revert here…", action: onRevert)
                     .controlSize(.small)
                     .buttonStyle(.bordered)
                     .simultaneousGesture(TapGesture().onEnded { })
             } else if case .op(let op) = entry, mutatesManuscript(op.kind),
-                      let before = rewindTarget {
+                      offersRewind, let before = rewindTarget {
                 Button {
                     MaughamEvent.post(
                         .maughamOpenRewind, to: .project(for: projectURL),
@@ -2204,5 +2223,25 @@ struct SetAsideRecordsDisclosure: View {
         }
         .font(.caption)
         .frame(idealWidth: Self.idealWidth, maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+
+// MARK: - What history offers (P3c whole-branch fix wave, C1)
+
+extension HistoryPane {
+    /// **Whether a row offers *Rewind to before this…*** — the door onto a
+    /// restore that rewrites every paragraph that differs, so only where this
+    /// Mac may write the document's text. `nil` (no door behind the host)
+    /// fails CLOSED. The rows themselves always draw: a reviewer reads history.
+    static func offersRewind(_ posture: Posture?) -> Bool {
+        posture?.allows(.writeText) ?? false
+    }
+
+    /// **Whether a checkpoint row offers *Revert here…*** — only where the
+    /// picker it opens would list at least one document this Mac may write
+    /// (`PartialRestorePicker.offeredDocIds`). Every `nil` fails closed.
+    static func offersRevert(_ postures: [Posture?]) -> Bool {
+        postures.contains { $0?.allows(.writeText) ?? false }
     }
 }

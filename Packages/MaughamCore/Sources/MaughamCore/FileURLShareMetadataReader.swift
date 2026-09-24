@@ -2,7 +2,10 @@ import Foundation
 
 /// Shared `ShareMetadataReading` backed by the OS's iCloud-Drive share resource
 /// keys. Reads the documented `URLResourceKey`s on a project folder URL and
-/// folds them into a platform-agnostic `ShareMetadata` for `ShareIdentityMapper`.
+/// folds them into a platform-agnostic `ShareMetadata` — an indicator of the
+/// share (the Mac's sharing pill, `ProjectShareEligibility`, and the read-only
+/// share lock behind `ViewOnlyShareNotice`), never a role: what a device may
+/// write is its permit's, asked through `Posture` (signed op log P3c).
 ///
 /// The `URLResourceKey` family used here is available on BOTH macOS and iOS, so
 /// this single implementation is the source of truth for share-metadata reading
@@ -20,12 +23,12 @@ import Foundation
 /// nil-vs-not-shared rule:
 ///   - Resource read throws, or the keys are simply absent (a plain local /
 ///     non-iCloud path) → `ShareMetadata(isShared: false, …)`. A non-shared
-///     item is a *known* answer (the writer's own copy), so the mapper yields
-///     `.author`, NOT `.unknown`.
-///   - We only return `nil` (→ mapper `.unknown`, "still resolving") when the
-///     item reports itself shared (`isShared == true`) but the per-user role
-///     key hasn't been populated yet. That is the genuine "I can't tell yet"
-///     case that should read as "Checking…" in the UI.
+///     item is a *known* answer (the writer's own copy), not "still
+///     resolving".
+///   - We only return `nil` ("still resolving") when the item reports itself
+///     shared (`isShared == true`) but the per-user role key hasn't been
+///     populated yet — the genuine "I can't tell yet" case, over which the
+///     sharing pill draws nothing.
 ///
 /// This reader is intentionally read-only and side-effect-free: it does a
 /// single `resourceValues(forKeys:)`. Callers must NOT poll it per-render —
@@ -70,7 +73,7 @@ public struct FileURLShareMetadataReader: ShareMetadataReading {
         switch values.ubiquitousSharedItemCurrentUserPermissions {
         case .some(.readWrite): canWrite = true
         case .some(.readOnly):  canWrite = false
-        default:                canWrite = nil   // unresolved → mapper defaults to true
+        default:                canWrite = nil   // unresolved → not read-only; only an explicit false locks
         }
 
         // `ownerNameComponents` is nil when the current user IS the owner, so it

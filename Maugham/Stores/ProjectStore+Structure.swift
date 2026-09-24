@@ -320,9 +320,16 @@ extension ProjectStore {
     /// Rename an item: updates manifest title and moves the file or folder
     /// to a new slug while preserving the NN prefix. For groups, recursively
     /// updates child paths.
+    ///
+    /// **Returns the pieces whose `[[links]]` were left on the old title**
+    /// (controller ruling AH): a rename by a device that may not write every
+    /// linking piece renames what it may, skips the wiki-link rewrite in the
+    /// pieces it may not write, and the caller SAYS which — those links now
+    /// dangle, on every Mac, until somebody who may write there fixes them.
+    @discardableResult
     public func renameStructureItem(
         id: String, newTitle: String
-    ) async throws {
+    ) async throws -> RenameOutcome {
         beginStructuralVerb(); defer { endStructuralVerb() }
         guard let item = findItem(id: id, in: manifest.structure),
               let oldPath = item.path else {
@@ -404,10 +411,41 @@ extension ProjectStore {
         // form, and the resolver's case-insensitive title match handles
         // those naturally on the next render.
         if oldTitle != newTitle, item.type == .document {
-            await propagateWikiLinkRename(
+            let left = await propagateWikiLinkRename(
                 excludeId: id, oldTitle: oldTitle, newTitle: newTitle)
+            return RenameOutcome(linksLeftIn: left)
+        }
+        return RenameOutcome(linksLeftIn: [])
+    }
+
+    /// What a rename could not do (controller ruling AH).
+    public struct RenameOutcome: Equatable {
+        /// Titles of the pieces (and statements) whose `[[old title]]` links
+        /// were left, because this Mac may not write their text.
+        public let linksLeftIn: [String]
+
+        /// The sentence the tree says, or nil when every link was rewritten.
+        public var sentence: String? {
+            guard !linksLeftIn.isEmpty else { return nil }
+            return "Links to the old title were left in "
+                + linksLeftIn.joined(separator: ", ")
+                + " — this Mac may not change their text, so those links no "
+                + "longer point anywhere until someone who may fixes them."
         }
     }
+
+    /// The sweep's door (C1, ruling AH): the ACTING answer for one document
+    /// — never the drawn one (controller ruling I). No `DocumentStore` behind
+    /// this store answers yes here; the loaded Document's own stamp is then
+    /// the door (`Document.mayWriteItsText`).
+    private func sweepMayWrite(docId: String, verb: Posture.Verb) async -> Bool {
+        guard let documentStore else { return true }
+        return await documentStore.settledPosture(forDocId: docId).allows(verb)
+    }
+
+    /// Thrown inside the statement dance when the loaded statement's stamp
+    /// refuses its text; caught below and named.
+    private struct SweepRefused: Error {}
 
     /// Walk every other manuscript document; if its body references
     /// `[[oldTitle]]`, rewrite to `[[newTitle]]` THROUGH THE OP LOG.
@@ -425,9 +463,11 @@ extension ProjectStore {
     /// `projectStoreLog` and skipped — one bad doc must not abort propagation
     /// to the rest — never swallowed by a bare `try?`. The method stays
     /// non-throwing so a single I/O hiccup can't unwind the whole rename.
+    @discardableResult
     func propagateWikiLinkRename(
         excludeId: String, oldTitle: String, newTitle: String
-    ) async {
+    ) async -> [String] {
+        var linksLeftIn: [String] = []
         // One rename moves more than one title. The document's own is the
         // obvious one; the other is the COMPOSED title of every statement
         // scoped to it — `ArtifactIndex.statementTitle` names a statement after
@@ -471,6 +511,21 @@ extension ProjectStore {
             let openDoc = documentStore?.document(for: path)
             let isTransient = (openDoc == nil)
 
+            // **The door, before any load** (ruling AH): a piece this Mac may
+            // not write keeps its link, and is NAMED when it is known to hold
+            // one — the open text, or a non-empty derived body with a match.
+            // An empty derived body proves nothing either way; on a Mac that
+            // may not write the piece the load would refuse anyway.
+            if !(await sweepMayWrite(docId: doc.id, verb: .writeText)) {
+                let known: String? = openDoc?.displayText
+                    ?? (try? derivedCache.materialize(forDocId: doc.id, in: url))
+                if let known, !known.isEmpty,
+                   WikiLinkRewriter.rewriteAll(body: known, pairs: docPairs) != nil {
+                    linksLeftIn.append(doc.title)
+                }
+                continue
+            }
+
             let resolved: Document
             if let openDoc {
                 resolved = openDoc
@@ -512,6 +567,14 @@ extension ProjectStore {
             // Close a transiently-loaded doc on this early-out path too.
             guard let rewritten = WikiLinkRewriter.rewriteAll(
                 body: resolved.displayText, pairs: docPairs) else {
+                if isTransient { await resolved.close() }
+                continue
+            }
+
+            // The Document's own stamp — the door where no `DocumentStore`
+            // stands behind this store, and the answer the load just made.
+            guard resolved.mayWriteItsText else {
+                linksLeftIn.append(doc.title)
                 if isTransient { await resolved.close() }
                 continue
             }
@@ -569,6 +632,15 @@ extension ProjectStore {
             } else if WikiLinkRewriter.rewriteAll(body: preview, pairs: pairs) == nil {
                 continue
             }
+            let statementTitle = ArtifactIndex.statementTitle(
+                statement,
+                documentTitle: { findItem(id: $0, in: manifest.structure)?.title })
+            // The door (ruling AH), as for a piece: a statement this Mac may
+            // not edit keeps its link, named where the preview shows one.
+            if !(await sweepMayWrite(docId: statement.id, verb: .editStatement)) {
+                if !preview.isEmpty { linksLeftIn.append(statementTitle) }
+                continue
+            }
             do {
                 try await withStatementDocument(
                     statement,
@@ -579,9 +651,12 @@ extension ProjectStore {
                     // can have bound while we queued on the gate.
                     if let rewritten = WikiLinkRewriter.rewriteAll(
                         body: document.displayText, pairs: pairs) {
+                        guard document.mayWriteItsText else { throw SweepRefused() }
                         document.setFullText(rewritten)
                     }
                 }
+            } catch is SweepRefused {
+                linksLeftIn.append(statementTitle)
             } catch {
                 projectStoreLog.error(
                     "Wiki-rename: statement \(statement.id, privacy: .public) skipped: \(error.localizedDescription, privacy: .public)")
@@ -640,6 +715,7 @@ extension ProjectStore {
                     "Wiki-rename: research note \(path, privacy: .public) skipped: \(error.localizedDescription, privacy: .public)")
             }
         }
+        return linksLeftIn
     }
 
     /// Whether a statement's file holds any bytes at all — a `stat`, never a

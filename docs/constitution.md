@@ -23,7 +23,7 @@ This is not AI-skepticism. It is a division of labor. The tools that will matter
 **Not for:**
 
 - Writers who want AI to draft, co-write, or generate prose. Many tools compete to do this. Maugham is constitutionally unable to, and that's the pitch, not a gap.
-- Teams. Maugham is single-writer today; a collaborator layer is designed but unbuilt, and even that design admits reviewers, not co-authors.
+- Teams. Maugham is one writer's book. Other people can be let in — a reviewer who leaves notes, an author of named pieces — but only the writer who holds the book admits them, and **roles guard the words, not the binder**: the signed op log decides whose lines count in the manuscript, while creating, renaming, reordering and trashing documents go through an unsigned manifest that nothing at storage refuses. The surfaces hide those verbs from somebody whose permit does not reach them, cooperatively; a team that needs the book's *structure* locked needs a different tool ([ADR 0032](adr/0032-the-signed-op-log.md)'s limits).
 - Anyone needing Windows, Linux, or the web. Maugham is Mac-native by conviction, not by resource constraint.
 - Content production at volume — blogs, copy, SEO. Wrong tool, on purpose.
 
@@ -81,9 +81,9 @@ The affirmative half of the thesis. Claude should keep getting deeper access to 
 
 No AI system may originate manuscript text autonomously. The precise line: Claude may read, comment, query, and *propose* — including proposing concrete replacement text. The writer may apply a proposal through a deliberate, per-suggestion, writer-initiated action; that is the writer wielding a suggestion, and it is fine. What is forbidden, permanently: AI editing the manuscript autonomously, bulk-applying its own suggestions, or any path where AI words enter the manuscript without a specific human decision about those specific words.
 
-**Rationale:** the whole product is a bet on the writer's own voice. The moment AI text can flow into the manuscript unmediated, the manuscript's authorship becomes ambiguous, and ambiguity of authorship is fatal to the kind of writer Maugham serves. The architecture enforces this — the MCP layer has no manuscript-mutation tools at all, by construction, not by policy.
+**Rationale:** the whole product is a bet on the writer's own voice. The moment AI text can flow into the manuscript unmediated, the manuscript's authorship becomes ambiguous, and ambiguity of authorship is fatal to the kind of writer Maugham serves. The architecture enforces this — the MCP layer has no manuscript-mutation tools at all, by construction, not by policy. And the storage layer enforces it a second time, independently of what any tool offers: everything that arrives through MCP is signed by the device's `assistant` key, and the one permission table gives that key the reviewer row in every book, whoever holds the device — so a line it signed that would move manuscript text is set aside on every Mac and phone that reads it ([ADR 0032](adr/0032-the-signed-op-log.md)).
 
-**Violated if:** any tool, feature, or "accept all" affordance lets AI-originated text reach the manuscript without a per-instance writer decision; any background process modifies manuscript text; any future MCP tool mutates a manuscript file.
+**Violated if:** any tool, feature, or "accept all" affordance lets AI-originated text reach the manuscript without a per-instance writer decision; any background process modifies manuscript text; any future MCP tool mutates a manuscript file; any device applies a manuscript-moving line signed by an `assistant` key — the table's `assistant` row granting more than the reviewer row is this rule failing at the storage layer, whatever the tools above it offer.
 
 **We'd know this was wrong if:** nothing would. Identity. A Maugham where AI writes is a different product with the same name.
 

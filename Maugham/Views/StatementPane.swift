@@ -166,6 +166,18 @@ struct StatementPane: View {
             structure: store.manifest.structure)
     }
 
+    /// **What this window may offer over the statement on screen** — asked of
+    /// the DRAWING door (controller ruling I) at the id the pane's own rule
+    /// names (`StatementEditorHost.postureDocId`). Reading it in `body`
+    /// observes `postureEpoch`, so a demotion or a promotion re-draws the
+    /// editor's lock (P3c Task 3), the rulings' and readings' verbs and the
+    /// proposal's Adopt/Discard (Task 7) together, from ONE answer — three
+    /// reads could straddle a refresh and disagree for a frame.
+    private var statementPosture: Posture {
+        documentStore.posture(forDocId: StatementEditorHost.postureDocId(
+            kind: kind, scope: scope, statements: store.manifest.statements))
+    }
+
     /// Which paragraph ids are currently live in this statement's scope — fed
     /// to `RulingsStratumView` so it can tell an orphaned directive from a
     /// live one. `nil` until the first resolve; see
@@ -189,7 +201,11 @@ struct StatementPane: View {
             // itself, sequentially — see `StatementEditorHost.reconcile`.
             StatementEditorHost(
                 store: store, documentStore: documentStore,
-                kind: kind, scope: scope)
+                kind: kind, scope: scope,
+                // The DRAWING door (controller ruling I); reading it here
+                // observes `postureEpoch`, so a demotion or a promotion locks
+                // or unlocks the open statement with no remount (P3c Task 3).
+                posture: statementPosture)
                 // **The one `.id()` the paragraph above allows, and it is a
                 // different case entirely.** `hostGeneration` never moves for a
                 // scope change; it moves only when an Adopt CREATED the
@@ -414,6 +430,10 @@ struct StatementPane: View {
                 now: Date(),
                 notice: proposalNotice,
                 busy: proposalBusy,
+                // The proposal is always for the PROJECT statement of its
+                // kind; the pane shows that statement whenever it shows a
+                // proposal (`proposalSlot` answers only for project scope).
+                posture: statementPosture,
                 onAdopt: { adopt(proposal) },
                 onDiscard: { discard(proposal) })
             Divider()
@@ -526,12 +546,13 @@ struct StatementPane: View {
                     if !rulings.isEmpty {
                         RulingsStratumView(
                             rulings: rulings, kind: kind, scope: scope, store: store,
-                            world: world, liveParagraphIds: liveParagraphIds)
+                            world: world, posture: statementPosture,
+                            liveParagraphIds: liveParagraphIds)
                     }
                     if let bible, !bibleFacts.isEmpty {
                         BibleStratumView(
                             facts: bibleFacts, scope: scope, store: store,
-                            bible: bible, world: world)
+                            bible: bible, world: world, posture: statementPosture)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

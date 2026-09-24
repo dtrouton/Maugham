@@ -100,21 +100,26 @@ enum RulingsStratum {
                 rulingId: ruling.id, kind: kind, forScope: scope, store: store,
                 world: world)
         } catch {
+            say(error, in: store)
             return
         }
         OpUndoRegistrar.register(
             undoManager, actionName: "Revoke Ruling", target: store,
             workTaskSink: workTaskSink,
             undo: { s in
-                try? await RulingPerformer.restore(
-                    ruling, at: index, kind: kind, forScope: scope, store: s,
-                    world: world)
+                await refusingLoudly(in: s) {
+                    try await RulingPerformer.restore(
+                        ruling, at: index, kind: kind, forScope: scope, store: s,
+                        world: world)
+                }
             },
             redo: { s in
                 guard let id = currentId(at: index, kind: kind, forScope: scope, store: s)
                 else { return }
-                try? await RulingPerformer.revoke(
-                    rulingId: id, kind: kind, forScope: scope, store: s, world: world)
+                await refusingLoudly(in: s) {
+                    try await RulingPerformer.revoke(
+                        rulingId: id, kind: kind, forScope: scope, store: s, world: world)
+                }
             })
     }
 
@@ -138,6 +143,7 @@ enum RulingsStratum {
                 rulingId: id, newText: newText, kind: kind, forScope: scope,
                 store: store, world: world)
         } catch {
+            say(error, in: store)
             return
         }
         OpUndoRegistrar.register(
@@ -146,17 +152,52 @@ enum RulingsStratum {
             undo: { s in
                 guard let now = currentId(at: index, kind: kind, forScope: scope, store: s)
                 else { return }
-                try? await RulingPerformer.edit(
-                    rulingId: now, newText: priorText, kind: kind, forScope: scope,
-                    store: s, world: world)
+                await refusingLoudly(in: s) {
+                    try await RulingPerformer.edit(
+                        rulingId: now, newText: priorText, kind: kind, forScope: scope,
+                        store: s, world: world)
+                }
             },
             redo: { s in
                 guard let now = currentId(at: index, kind: kind, forScope: scope, store: s)
                 else { return }
-                try? await RulingPerformer.edit(
-                    rulingId: now, newText: newText, kind: kind, forScope: scope,
-                    store: s, world: world)
+                await refusingLoudly(in: s) {
+                    try await RulingPerformer.edit(
+                        rulingId: now, newText: newText, kind: kind, forScope: scope,
+                        store: s, world: world)
+                }
             })
+    }
+
+    // MARK: - Saying a refusal (P3c Task 7)
+
+    /// **A refused row verb is SAID, not swallowed.** Until P3c every refusal
+    /// here was structural (a line gone under a re-parse, an unreadable file)
+    /// and the row simply stayed put. A permit refusal is not structural: the
+    /// writer pressed Revoke on a statement a demotion has just put out of her
+    /// reach, and a row that did nothing would read as a control that is
+    /// broken. The sentence is the error's own, through the window's notice
+    /// channel (`MaughamEvent.postNotice`, scoped to this project).
+    static func say(_ error: Error, in store: ProjectStore) {
+        MaughamEvent.postNotice(error.localizedDescription, projectURL: store.url)
+    }
+
+    /// **⌘Z and ⇧⌘Z over a ruling, refused loudly where the permit refuses**
+    /// (P3c Task 7) — `Document.refusingLoudly`'s shape. A ⌘Z registered while
+    /// this Mac could write the statement can fire after it no longer may; the
+    /// Edit menu named the act and the writer pressed it, so the refusal is
+    /// said. Every other failure keeps the silence the `try?` it replaced had
+    /// (a line gone under a re-parse is nothing to announce over an undo).
+    static func refusingLoudly(
+        in store: ProjectStore, _ work: @MainActor () async throws -> Void
+    ) async {
+        do {
+            try await work()
+        } catch let refusal as RulingRefusal {
+            say(refusal, in: store)
+        } catch {
+            // The `try?` this replaced, kept for everything but the permit.
+        }
     }
 
     // MARK: - The current file, asked at the moment of the write
@@ -256,6 +297,11 @@ struct RulingsStratumView: View {
     let scope: Statement.Scope
     @Bindable var store: ProjectStore
     let world: DeclaredWorldStore?
+    /// What this window may offer over THIS statement (P3c Task 7), asked by
+    /// the pane of the drawing door. Required, so a host cannot forget it and
+    /// draw every verb. The rows always draw — a reviewer reads every ruling;
+    /// only Edit, Revoke and Remove follow it (`offersVerbs`).
+    let posture: Posture
     /// Which paragraph ids are currently live in this statement's scope, so a
     /// directive whose anchor no longer exists draws as an orphan rather than
     /// an ordinary row. `nil` (the default) is "not yet known" — see
@@ -277,6 +323,14 @@ struct RulingsStratumView: View {
     /// the essay above them is a preamble — so calling them rulings there names
     /// the mechanism instead of the thing. Static and pure so the whole product
     /// of kinds can be asked of it.
+    /// **Whether a row's verbs are drawn** — Edit, Revoke, and an orphan's
+    /// Remove (P3c Task 7). The one rule: `.editStatement` of the statement
+    /// these rows belong to. Hidden, never disabled; `RulingPerformer`'s own
+    /// door refuses a press that arrives anyway.
+    static func offersVerbs(_ posture: Posture) -> Bool {
+        posture.allows(.editStatement)
+    }
+
     static func title(for kind: Statement.Kind) -> String {
         if case .lessons = kind { return "Ledger" }
         // **"Instructions" under the first reader.** Her rows are not decisions
@@ -338,10 +392,12 @@ struct RulingsStratumView: View {
                             Text(parsed.note ?? "")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Button("Revoke") { revoke(ruling, at: index(of: ruling)) }
-                                .buttonStyle(.plain)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                            if Self.offersVerbs(posture) {
+                                Button("Revoke") { revoke(ruling, at: index(of: ruling)) }
+                                    .buttonStyle(.plain)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -367,10 +423,12 @@ struct RulingsStratumView: View {
             Text(RulingsStratum.orphanCaption)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
-            Button(RulingsStratum.removeTitle) { revoke(ruling, at: index) }
-                .buttonStyle(.plain)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            if Self.offersVerbs(posture) {
+                Button(RulingsStratum.removeTitle) { revoke(ruling, at: index) }
+                    .buttonStyle(.plain)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 8)
@@ -380,7 +438,10 @@ struct RulingsStratumView: View {
     @ViewBuilder
     private func row(_ ruling: Ruling, at index: Int) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            if editingIndex == index {
+            // The field is the Edit verb opened: a demotion arriving while it
+            // is open closes it with the verbs, rather than leaving a live
+            // field whose Return would be refused.
+            if editingIndex == index, Self.offersVerbs(posture) {
                 StratumEditField(
                     seed: ruling.text,
                     isOpen: Binding(get: { editingIndex == index },
@@ -399,15 +460,17 @@ struct RulingsStratumView: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
-            HStack(spacing: 12) {
-                // `Button(.plain)` and never `.onTapGesture` (tripwire 9).
-                Button("Edit") { editingIndex = index }
-                    .buttonStyle(.plain)
-                Button("Revoke") { revoke(ruling, at: index) }
-                    .buttonStyle(.plain)
+            if Self.offersVerbs(posture) {
+                HStack(spacing: 12) {
+                    // `Button(.plain)` and never `.onTapGesture` (tripwire 9).
+                    Button("Edit") { editingIndex = index }
+                        .buttonStyle(.plain)
+                    Button("Revoke") { revoke(ruling, at: index) }
+                        .buttonStyle(.plain)
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 8)

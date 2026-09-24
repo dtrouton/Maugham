@@ -19,6 +19,14 @@ final class EditorControl {
     // Posture (membrane).
     var isReviewMode: Bool = false
     var lockEditing: Bool = false
+    /// **What this window may offer for the document in the editor** (P3c Task
+    /// 5) — mirrored from the drawing posture door with the membrane above, so
+    /// the margin card's dispositions follow a demotion or a promotion with no
+    /// reopen (`ReviewCardActions.actions(for:isOwn:posture:)`). Nil: no
+    /// manuscript posture known (a research note, a surface predating P3c) —
+    /// the card draws every verb its kind has, and the Document's own door is
+    /// what refuses.
+    var posture: Posture? = nil
 
     /// Selected translation language, or nil when the editor shows the source
     /// manuscript (Task 11). Non-nil ⇒ the editor is in read-only translation

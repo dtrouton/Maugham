@@ -132,6 +132,13 @@ public final class DocumentStore {
     /// disk either way.
     weak var projectStore: ProjectStore?
 
+    /// **What this window may offer, per document** — the posture door's
+    /// state (P3c Task 2). Everything about it lives in
+    /// `DocumentStore+Posture.swift`; this is only the one stored property an
+    /// extension cannot declare. Per STORE, so per window: the root's *Edit
+    /// Anyway* (plan ruling R2) lifts the posture in this window alone.
+    let postureBook = PostureBook()
+
     /// Tracks the active writing session in-memory. Driven by
     /// `recordSessionActivity(...)` and the idle timer below; flushed on
     /// app quit via `flushSessionOnQuit()`.
@@ -324,6 +331,9 @@ public final class DocumentStore {
         // the baseline a registry change arriving later is compared against,
         // so the callbacks for this open's OWN writes above settle nothing.
         store.noteRegistrySettled()
+        // The posture door's first table, off the main actor and awaited, so
+        // the first view that asks finds it warm (P3c Task 2).
+        await store.postureOpened()
 
         // Project-open seal maintenance (ADR 0016 / growth spec §5.2): rotate
         // any of THIS Mac's oversized per-doc tails (e.g. grown while another
@@ -1614,6 +1624,9 @@ public final class DocumentStore {
     /// a device that now has a name.
     func invalidateTrust() {
         noteRegistrySettled()
+        // Every posture this window holds was answered off the table being
+        // forgotten here (P3c Task 2).
+        postureTrustChanged()
         for document in openDocuments.values { document.opStore.invalidateTrust() }
         // **And the closed pieces' words** (F7 final round, I1). The derived
         // cache keys on op-log file mtimes, and a trust change moves no file:
@@ -1825,6 +1838,9 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             excludeForeignWords(adoption.wordCountDelta)
             letGoOfPiecesMovedElsewhere(adoption, store: live)
         }
+        // A piece that moved or a statement that arrived is a document whose
+        // CLASS may have changed, and whose writers may have (P3c Task 2).
+        postureManifestAdopted()
 
         // **A manifest that arrived from somewhere else is the other half of
         // the gate's problem** (P3b fix round 1, ruling 2). This is the path an

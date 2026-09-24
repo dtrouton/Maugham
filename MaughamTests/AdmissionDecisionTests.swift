@@ -373,6 +373,9 @@ final class AdmissionDecisionTests: XCTestCase {
         var acts: [String] = []
         var registry: Registry
         var held: [String: Int]
+        /// Captures on disk the counts have not caught up with yet — what an
+        /// awaited inbox refresh would add (F10's race).
+        var uncounted: [String: Int] = [:]
 
         init(registry: Registry, held: [String: Int]) {
             self.registry = registry
@@ -389,10 +392,31 @@ final class AdmissionDecisionTests: XCTestCase {
         _ log: RefreshLog,
         admits: PersonRecord? = nil,
         memory: [String: AdmissionMemory.Label] = [:],
-        resolves: Bool = true
+        resolves: Bool = true,
+        listsTheFolder: Bool = false,
+        thisDevice: String? = nil,
+        cause: AdmissionDecision.RefreshCause = .settle
     ) async -> [AdmissionRequest]? {
         await AdmissionDecision.refreshedRequests(
+            cause: cause,
             heldLines: { log.held },
+            // F10's pre-check, modelled on what the folder holds: a device
+            // record with no person record beside it, this Mac's own left out.
+            // Off unless a test asks, so every test above it reads the book
+            // exactly as it did before a record could raise the question.
+            arrivedDevices: {
+                guard listsTheFolder else { return [] }
+                log.acts.append("list")
+                let people = Set(log.registry.people.map(\.person))
+                return Set(log.registry.devices.map(\.device))
+                    .subtracting(people).subtracting([thisDevice].compactMap { $0 })
+            },
+            recountCaptures: {
+                log.acts.append("recount")
+                log.held.merge(log.uncounted) { $0 + $1 }
+                log.uncounted = [:]
+            },
+            thisDevice: thisDevice,
             memory: memory,
             admitRemembered: {
                 log.acts.append("admit")
@@ -505,6 +529,283 @@ final class AdmissionDecisionTests: XCTestCase {
         let requests = await refresh(log, resolves: false)
 
         XCTAssertNil(requests)
+    }
+
+    // MARK: - F10: a stranger's device record raises the question on arrival
+
+    private func retired(_ fingerprint: String, name: String) -> DeviceRecord {
+        DeviceRecord(
+            device: fingerprint, name: name, kind: .mac,
+            actors: [DeviceActor.author.rawValue: fingerprint],
+            madeAt: Date(timeIntervalSince1970: 5),
+            retiredAt: Date(timeIntervalSince1970: 50))
+    }
+
+    /// **The ruling itself** (Denver, 2026-09-24): a collaborator whose record
+    /// has arrived and none of whose writing has — because she wrote only in
+    /// chapters this Mac has not opened, or has not written yet — is asked
+    /// about. Before F10 nothing asked: the sheet was raised by lines.
+    func test_aStrangersRecordWithNothingHeldIsAskedAbout() throws {
+        let registry = rootedRegistry(devices: [device(phone, name: "Sam’s Mac", kind: .mac)])
+
+        let request = try XCTUnwrap(AdmissionDecision.requests(
+            pending: [:], registry: registry, memory: [:], myRoot: root).first)
+
+        XCTAssertEqual(request.fingerprint, phone)
+        XCTAssertEqual(request.waitingCount, 0)
+        XCTAssertNil(request.described, "nothing held, so nothing to describe")
+        XCTAssertEqual(request.proposedLabel, "Sam’s Mac",
+                       "the record carries its own name, so the field starts on it")
+        XCTAssertEqual(AdmissionSheet.title(request: request, projectTitle: "Playlist"),
+                       "Sam’s Mac wants to write in Playlist", "the title stays")
+        XCTAssertEqual(AdmissionSheet.waitingLine(for: request),
+                       "Nothing from it has reached this Mac yet.",
+                       "and never *0 notes waiting*")
+    }
+
+    /// The other direction: the same stranger WITH lines held is one request,
+    /// carrying the count — never a second, record-only request beside it.
+    func test_aStrangerWithARecordAndLinesIsOneRequestWithItsCount() {
+        let registry = rootedRegistry(devices: [device(phone, name: "Sam’s Mac", kind: .mac)])
+
+        let requests = AdmissionDecision.requests(
+            pending: [phone: 5], registry: registry, memory: [:], myRoot: root)
+
+        XCTAssertEqual(requests.map(\.fingerprint), [phone])
+        XCTAssertEqual(requests.first?.waitingCount, 5)
+        XCTAssertEqual(requests.first.map(AdmissionSheet.waitingLine(for:)), "5 notes waiting")
+    }
+
+    /// Held-line strangers first, whatever their fingerprints: the writer is
+    /// asked first about the one whose words are already here.
+    func test_strangersHoldingLinesAreAskedAboutBeforeRecordOnlyOnes() {
+        // `other` sorts before `phone`; the held one is still first.
+        let registry = rootedRegistry(devices: [
+            device(other, name: "Rosa’s iPad"), device(phone, name: "Sam’s Mac")])
+
+        let requests = AdmissionDecision.requests(
+            pending: [phone: 2], registry: registry, memory: [:], myRoot: root)
+
+        XCTAssertEqual(requests.map(\.fingerprint), [phone, other])
+        XCTAssertEqual(requests.map(\.waitingCount), [2, 0])
+    }
+
+    /// An admitted person's second machine, merged under her label: its person
+    /// record is there, so it is not a stranger and nothing is asked.
+    func test_anAdmittedPersonsSecondDeviceRecordIsNotAsked() {
+        let registry = rootedRegistry(
+            devices: [device(other, name: "Sam’s Mac"), device(phone, name: "Sam’s iPhone")],
+            people: [person(other, label: "Sam", admittedBy: root),
+                     person(phone, label: "Sam", admittedBy: root)])
+
+        XCTAssertEqual(AdmissionDecision.requests(
+            pending: [:], registry: registry, memory: [:], myRoot: root), [])
+    }
+
+    /// A retired machine is not asking to write anything.
+    func test_aRetiredRecordRaisesNoRequest() {
+        let registry = rootedRegistry(devices: [retired(phone, name: "Old Mac")])
+
+        XCTAssertEqual(AdmissionDecision.requests(
+            pending: [:], registry: registry, memory: [:], myRoot: root), [])
+    }
+
+    /// A device under ANOTHER root's chain, with its person record there, is
+    /// that root's — a claimant at a surface, never a sheet here.
+    func test_aRecordUnderAnotherRootsChainRaisesNoRequest() {
+        let registry = rootedRegistry(
+            devices: [device(phone, name: "Their iPhone")],
+            people: [person(other, label: "Someone", admittedBy: other),
+                     person(phone, label: "Theirs", admittedBy: other)])
+
+        XCTAssertEqual(AdmissionDecision.requests(
+            pending: [:], registry: registry, memory: [:], myRoot: root), [])
+    }
+
+    /// This Mac's own record is never a request, even where its person record
+    /// has not arrived (a Mac joined to a root whose admission of it is still
+    /// syncing has exactly this shape).
+    func test_thisMacsOwnRecordIsNeverARequest() {
+        let registry = rootedRegistry(devices: [device(phone, name: "This Mac", kind: .mac)])
+
+        XCTAssertEqual(AdmissionDecision.requests(
+            pending: [:], registry: registry, memory: [:], myRoot: root,
+            thisDevice: phone), [])
+        XCTAssertEqual(AdmissionDecision.requests(
+            pending: [:], registry: registry, memory: [:], myRoot: root).map(\.fingerprint),
+            [phone], "the control: the same record from anybody else's Mac is asked about")
+    }
+
+    /// An unsigned holder has no key to admit, whether its lines are held or a
+    /// record names its string.
+    func test_anUnsignedHolderIsNeverARequest() {
+        let unsigned = HeldLines.unsignedHolder(forStreamKey: "c1", deviceSlug: "author-maca")
+        let registry = rootedRegistry(devices: [device(unsigned, name: "No key")])
+
+        XCTAssertEqual(AdmissionDecision.requests(
+            pending: [unsigned: 3], registry: registry, memory: [:], myRoot: root), [])
+    }
+
+    /// With no root of its own this Mac asks nobody, records or lines (B3).
+    func test_aRecordOnlyStrangerIsNotAskedWithoutARoot() {
+        XCTAssertEqual(AdmissionDecision.requests(
+            pending: [:], registry: Registry(devices: [device(phone, name: "Sam’s Mac")]),
+            memory: [:], myRoot: nil), [])
+    }
+
+    // MARK: F10 through the refresh
+
+    /// **The arrival path**: nothing held anywhere, a stranger's record in the
+    /// folder — the refresh looks, resolves, and asks.
+    @MainActor
+    func test_aRecordArrivingWithNothingHeldRaisesTheQuestion() async {
+        let log = RefreshLog(
+            registry: rootedRegistry(devices: [device(phone, name: "Sam’s Mac")]),
+            held: [:])
+
+        let requests = await refresh(log, listsTheFolder: true, thisDevice: root)
+
+        XCTAssertEqual(requests?.map(\.fingerprint), [phone])
+        XCTAssertEqual(requests?.first?.waitingCount, 0)
+        XCTAssertEqual(log.acts, ["list", "recount", "resolve"])
+    }
+
+    /// **The race the settle leaves** (F10): the inbox refresh a registry
+    /// settle starts is awaited by nobody, so captures that synced in beside
+    /// the record may not be counted yet. A device asked about for its record
+    /// alone is recounted first, and the sheet says what IS there.
+    @MainActor
+    func test_aRecordOnlyDeviceIsRecountedSoItsCapturesAreNotReadAsNothing() async {
+        let log = RefreshLog(
+            registry: rootedRegistry(devices: [device(phone, name: "Sam’s iPhone")]),
+            held: [:])
+        log.uncounted = [phone: 3]
+
+        let requests = await refresh(log, listsTheFolder: true, thisDevice: root)
+
+        XCTAssertEqual(requests?.map(\.waitingCount), [3],
+                       "three captures waiting, never *nothing has reached this Mac*")
+    }
+
+    /// A device with lines already counted is not recounted: the inbox is
+    /// re-read only where a record-only request could be wrong about it.
+    @MainActor
+    func test_aDeviceWithItsLinesCountedIsNotRecounted() async {
+        let log = RefreshLog(
+            registry: rootedRegistry(devices: [device(phone, name: "Sam’s Mac")]),
+            held: [phone: 2])
+
+        _ = await refresh(log, listsTheFolder: true, thisDevice: root)
+
+        XCTAssertEqual(log.acts, ["list", "resolve"])
+    }
+
+    /// **A known machine joins on its record's arrival, silently.** Nothing of
+    /// it is held, so the P2 gate (a held count) would never have let the
+    /// silent admission run; its record alone is enough.
+    @MainActor
+    func test_aRememberedMachinesRecordIsAdmittedSilentlyWithNoSheet() async {
+        let log = RefreshLog(
+            registry: rootedRegistry(devices: [device(phone, name: "Denver’s iPhone")]),
+            held: [:])
+        let memory = [phone: AdmissionMemory.Label(
+            label: "Denver", ownName: "Denver’s iPhone",
+            labelledAt: Date(timeIntervalSince1970: 1))]
+
+        let requests = await refresh(
+            log, admits: person(phone, label: "Denver", admittedBy: root),
+            memory: memory, listsTheFolder: true, thisDevice: root)
+
+        XCTAssertEqual(requests, [], "no sheet")
+        XCTAssertEqual(log.registry.person(phone)?.label, "Denver", "it was let in")
+        XCTAssertEqual(log.acts, ["list", "recount", "admit", "list"],
+                       "and with nobody left to look for, no verified read is paid for")
+    }
+
+    /// **A book of admitted people pays for no verified read** on a settle or
+    /// an open: every device file has a person file beside it, nothing is
+    /// held, and the listing is the whole of the cost.
+    @MainActor
+    func test_aBookOfAdmittedPeopleResolvesNothing() async {
+        let log = RefreshLog(
+            registry: rootedRegistry(
+                devices: [device(root, name: "Denver’s Mac", kind: .mac),
+                          device(phone, name: "Denver’s iPhone")],
+                people: [person(phone, label: "Denver", admittedBy: root)]),
+            held: [:])
+
+        let requests = await refresh(log, listsTheFolder: true, thisDevice: root)
+
+        XCTAssertEqual(requests, [])
+        XCTAssertEqual(log.acts, ["list"], "zero resolves")
+    }
+
+    // MARK: Ruling AA — the sheet is a ROOT's question
+
+    /// Sam's Mac is this Mac's `other`; the root `root` admitted it. The book
+    /// as Sam's Mac reads it: a stranger's record, and the same stranger's
+    /// lines, both waiting.
+    private func admittedNonRootBook() -> Registry {
+        rootedRegistry(
+            devices: [device(phone, name: "A stranger’s iPhone")],
+            people: [person(other, label: "Sam", admittedBy: root)])
+    }
+
+    func test_onlyAMacHoldingItsOwnRootRecordIsAnAskingRoot() {
+        let registry = admittedNonRootBook()
+
+        XCTAssertEqual(AdmissionDecision.askingRoot(in: registry, thisDevice: root), root)
+        XCTAssertNil(AdmissionDecision.askingRoot(in: registry, thisDevice: other),
+                     "admitted, with a root to judge by, and no root record of its own")
+        XCTAssertNil(AdmissionDecision.askingRoot(in: registry, thisDevice: "cccc4444"),
+                     "and a Mac no record names is no root either")
+    }
+
+    /// **Both directions, record-only and held lines**: the root is asked
+    /// about the stranger; an admitted Mac reading the same folder is not —
+    /// its only possible answer would be Admit → `.notARoot`.
+    func test_theRootIsAskedAndAnAdmittedMacIsNotForARecordOrForLines() {
+        let registry = admittedNonRootBook()
+        for pending in [[:], [phone: 3]] as [[String: Int]] {
+            XCTAssertEqual(
+                AdmissionDecision.requests(
+                    pending: pending, registry: registry, memory: [:],
+                    myRoot: AdmissionDecision.askingRoot(in: registry, thisDevice: root),
+                    thisDevice: root).map(\.fingerprint),
+                [phone], "the root is asked (held: \(pending))")
+            XCTAssertEqual(
+                AdmissionDecision.requests(
+                    pending: pending, registry: registry, memory: [:],
+                    myRoot: AdmissionDecision.askingRoot(in: registry, thisDevice: other),
+                    thisDevice: other),
+                [], "an admitted Mac is not (held: \(pending))")
+        }
+    }
+
+    // MARK: Ruling AB — the recount is the settle's alone
+
+    @MainActor
+    func test_theCaptureRecountIsPaidOnASettleAndNeverOnAnOpenOrAnAnnouncement() async {
+        for cause in [AdmissionDecision.RefreshCause.open, .announcement, .writersPress, .settle] {
+            let log = RefreshLog(
+                registry: rootedRegistry(devices: [device(phone, name: "Sam’s iPhone")]),
+                held: [:])
+            _ = await refresh(log, listsTheFolder: true, thisDevice: root, cause: cause)
+            let recounts = log.acts.filter { $0 == "recount" }.count
+            XCTAssertEqual(recounts, cause == .settle ? 1 : 0, "\(cause)")
+        }
+    }
+
+    func test_anArrivedDeviceThisMacHasNamedIsRemembered() {
+        let memory = [phone: AdmissionMemory.Label(
+            label: "Denver", ownName: "Denver’s iPhone",
+            labelledAt: Date(timeIntervalSince1970: 1))]
+
+        XCTAssertTrue(AdmissionDecision.anyRemembered(
+            pending: [:], arrived: [phone], memory: memory))
+        XCTAssertFalse(AdmissionDecision.anyRemembered(
+            pending: [:], arrived: [other], memory: memory),
+            "a record nobody here has named is the sheet's")
     }
 
     /// Anything that is NOT an admission refusal still says what it was. The

@@ -44,6 +44,40 @@ enum RulingFailure: LocalizedError, Equatable {
     }
 }
 
+/// **Why a ruling was refused before anything was written** (signed op log
+/// P3c Task 7): this device's permit does not reach the statement.
+///
+/// A separate type from `RulingFailure` because it is a different question.
+/// Those four are about the words and the file — nothing to say, a line that
+/// is not there, bytes that will not decode. This one is about WHO: a reviewer
+/// reads every statement and writes none; an author of some pieces writes her
+/// pieces' own statements and none of the book's. The sentence says the words
+/// are safe and what is still hers to do, because a refusal that named only the
+/// mechanism would read as a fault.
+enum RulingRefusal: LocalizedError, Equatable {
+    case notYours(statement: Statement.Kind)
+
+    var errorDescription: String? {
+        switch self {
+        case .notYours(let kind):
+            return "Your part in this book doesn\u{2019}t reach \(Self.noun(kind)), "
+                + "so nothing was written. You can still read it and leave notes."
+        }
+    }
+
+    /// The statement, in the writer's words.
+    private static func noun(_ kind: Statement.Kind) -> String {
+        switch kind {
+        case .intent: return "this intent"
+        case .visualLanguage: return "the book\u{2019}s visual language"
+        case .editionBrief: return "this edition brief"
+        case .lessons: return "the lessons ledger"
+        case .firstReader: return "the first reader\u{2019}s statement"
+        case .unknown: return "this statement"
+        }
+    }
+}
+
 /// **The only door into the writer-owned layer** (second-draft spec §3.4).
 ///
 /// Three verbs — *rule*, *revoke*, *edit* — each taking the writer's words as a
@@ -152,6 +186,9 @@ enum RulingPerformer {
                      store: ProjectStore, world: DeclaredWorldStore?) async throws {
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty else { throw RulingFailure.emptyRuling }
+        // Asked BEFORE the mint as well as before the op: a refused ruling
+        // leaves no statement behind either (P3c Task 7).
+        try await refuseUnlessTheStatementIsYours(kind, scope, store: store)
 
         // Validated BEFORE the mint, which is what makes a refusal cost
         // nothing: an existing statement is the only thing that can be
@@ -183,6 +220,7 @@ enum RulingPerformer {
     static func revoke(rulingId: String, kind: Statement.Kind,
                        forScope scope: Statement.Scope,
                        store: ProjectStore, world: DeclaredWorldStore?) async throws {
+        try await refuseUnlessTheStatementIsYours(kind, scope, store: store)
         try await mutate(kind, scope, store: store, world: world) { markdown in
             guard RulingsSection.parse(markdown).rulings
                 .contains(where: { $0.id == rulingId }) else {
@@ -224,6 +262,7 @@ enum RulingPerformer {
         // and silently performing one would delete a line the writer meant to
         // correct.
         guard !words.isEmpty else { throw RulingFailure.emptyRuling }
+        try await refuseUnlessTheStatementIsYours(kind, scope, store: store)
 
         try await mutate(kind, scope, store: store, world: world) { markdown in
             let (essay, rulings) = RulingsSection.parse(markdown)
@@ -267,12 +306,69 @@ enum RulingPerformer {
     static func restore(_ ruling: Ruling, at index: Int, kind: Statement.Kind,
                         forScope scope: Statement.Scope,
                         store: ProjectStore, world: DeclaredWorldStore?) async throws {
+        try await refuseUnlessTheStatementIsYours(kind, scope, store: store)
         try await mutate(kind, scope, store: store, world: world) { markdown in
             let (essay, rulings) = RulingsSection.parse(markdown)
             var updated = rulings
             updated.insert(ruling, at: min(max(index, 0), rulings.count))
             return RulingsSection.render(essay: essay, rulings: updated)
         }
+    }
+
+    // MARK: - Whose statement it is (P3c Task 7)
+
+    /// **Refuse, before any mint and any op, a ruling this device may not
+    /// write** — `RulingRefusal.notYours`.
+    ///
+    /// Asked in each verb rather than at its callers: many call sites file
+    /// rulings (a run's letter, a queue answer, a translator's directive, a
+    /// proposal's glossary…), and a check at each would be one more chance
+    /// per caller to forget it. Here, every caller is covered and the number
+    /// of them stops mattering.
+    ///
+    /// **The question is `.editStatement` of the statement's own document**,
+    /// asked of the ONE door (`DocumentStore.settledPosture`, controller
+    /// ruling I — the acting answer, never the drawing one, so a demotion
+    /// whose refresh has not landed is already refused). The id is the one
+    /// the pane asks about (`StatementEditorHost.postureDocId`): the
+    /// statement's own where it exists; where it does not yet, what it WOULD
+    /// be about — a piece statement asks its piece, a project statement the
+    /// project stream, which only an author of the whole book writes. So a
+    /// project statement is the book author's alone and a piece statement
+    /// follows its piece (spec §2), including the root's cooperative yield on
+    /// somebody else's piece, lifted by Edit Anyway in the same window.
+    ///
+    /// **With no `DocumentStore` to ask** — a headless `ProjectStore`, which no
+    /// window has adopted — the posture is built right here from the one
+    /// builder (`OpLogStore.localWritePermit`, tripwire 46), over the loads'
+    /// own identities and memory. Never an answer of *yes* for want of a
+    /// door: a store with no window is exactly where a missing check would
+    /// go unnoticed.
+    static func refuseUnlessTheStatementIsYours(
+        _ kind: Statement.Kind, _ scope: Statement.Scope, store: ProjectStore
+    ) async throws {
+        let docId = StatementEditorHost.postureDocId(
+            kind: kind, scope: scope, statements: store.manifest.statements)
+        let posture: Posture
+        if let documentStore = store.documentStore {
+            posture = await documentStore.settledPosture(forDocId: docId)
+        } else {
+            posture = windowlessPosture(forDocId: docId, projectURL: store.url)
+        }
+        guard posture.allows(.editStatement) else {
+            throw RulingRefusal.notYours(statement: kind)
+        }
+    }
+
+    /// The builder, asked directly, for a store no window holds. A registry
+    /// read on this actor — the price of a correct answer on a path no
+    /// production window takes.
+    private static func windowlessPosture(forDocId docId: String, projectURL: URL) -> Posture {
+        let permit = Document.makeLoadOpStore(projectURL: projectURL, presenter: nil)
+            .localWritePermit(as: .author) {
+                Document.documentClass(forDocId: docId, in: projectURL)
+            }
+        return Posture(permit)
     }
 
     // MARK: - The shared half of revoke and edit
@@ -360,4 +456,23 @@ enum RulingPerformer {
     /// open. Stable for the launch, like every other session stamp
     /// (`PromotionPerformer.promotionSession`).
     private static let session = "ruling-\(UUID().uuidString)"
+}
+
+// MARK: - The drawing question, for a surface (P3c Task 7)
+
+extension DocumentStore {
+
+    /// **What this window may offer over the `(kind, scope)` statement** — the
+    /// DRAWING door (`posture(forDocId:)`), at the one id `RulingPerformer`'s
+    /// own door asks about (`StatementEditorHost.postureDocId`). A surface that
+    /// draws a verb which would file a ruling asks this, so the verb it hides
+    /// and the ruling the door refuses are the same question about the same
+    /// document — never the row's, never the window's selection.
+    func posture(
+        ofStatement kind: Statement.Kind, scope: Statement.Scope,
+        statements: [Statement]
+    ) -> Posture {
+        posture(forDocId: StatementEditorHost.postureDocId(
+            kind: kind, scope: scope, statements: statements))
+    }
 }

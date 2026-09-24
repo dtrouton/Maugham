@@ -99,6 +99,14 @@ enum InlineToggleUndo {
     static func perform(on doc: Document, paragraphId: String,
                         prior: String, flipped: String,
                         undoManager: UndoManager?) {
+        // The permit, before the stack clear and before the write (P3c
+        // whole-branch fix wave, re-review item 1): a press or a redo that
+        // reaches here after a demotion is refused and SAID, never a burst
+        // the next read sets aside.
+        guard doc.mayWriteItsText else {
+            doc.declineUndo(.taskNotPermitted)
+            return
+        }
         // D1: drop stale native typing actions BEFORE the mutation so
         // clear→mutate→register is contiguous (accept's exact ordering — a
         // keystroke landing between clear and register would otherwise leave
@@ -121,6 +129,12 @@ enum InlineToggleUndo {
                 // no-op (an intervening edit would otherwise be clobbered).
                 guard d.paragraph(id: paragraphId) == flipped else {
                     documentLog.error("InlineToggleUndo undo: \(paragraphId, privacy: .public) drifted since toggle — ignoring")
+                    return
+                }
+                // Registered while this Mac could write here; a demotion may
+                // have landed since. Said, not swallowed (Task 5's rule).
+                guard d.mayWriteItsText else {
+                    d.declineUndo(.taskNotPermitted)
                     return
                 }
                 d._undoCoherentApplyPending = true

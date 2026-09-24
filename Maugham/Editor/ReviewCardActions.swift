@@ -74,8 +74,22 @@ enum ReviewCardAction: Equatable {
 /// a pass across many notes, and the margin card is one note beside the sentence
 /// it is about, with no pile to sort. Stet, by contrast, is a resolution like
 /// the other three, so it reaches the card wherever Archive does.
+///
+/// **The posture (P3c Task 5).** Every disposition follows it — Accept, Reject
+/// and Reply are `.acceptOrReject`, Stet and Archive `.dispose` — and is left
+/// out, not greyed, where it is refused. Edit and Delete of the local writer's
+/// OWN note are the reviewer row, which every rung holds, so they follow
+/// ownership alone. `posture` is the editor's document's, mirrored into
+/// `EditorControl.posture` from the window's drawing door; nil — no posture
+/// known, which is every surface that predates P3c — is the P1 card, every
+/// verb its kind has. The parameter is REQUIRED, nil included: a caller that
+/// forgot the posture would otherwise draw every verb, so each one says what it
+/// means. The Document refuses at its own door either way
+/// (`Document.requireDispositionPermitted`).
 enum ReviewCardActions {
-    static func actions(for kind: AnnotationKind, isOwn: Bool) -> [ReviewCardAction] {
+    static func actions(
+        for kind: AnnotationKind, isOwn: Bool, posture: Posture?
+    ) -> [ReviewCardAction] {
         var actions: [ReviewCardAction]
         switch kind {
         case .comment:
@@ -85,10 +99,23 @@ enum ReviewCardActions {
         case .query:
             actions = [.reply, .stet, .archive]
         }
+        if let posture {
+            actions.removeAll { !offers($0, under: posture) }
+        }
         if isOwn {
             actions.append(.edit)
             actions.append(.delete)
         }
         return actions
+    }
+
+    /// Which verb of the posture a disposition asks. Exhaustive, so a new card
+    /// action has to say which one it is.
+    private static func offers(_ action: ReviewCardAction, under posture: Posture) -> Bool {
+        switch action {
+        case .accept, .reject, .reply: return posture.allows(.acceptOrReject)
+        case .stet, .archive: return posture.allows(.dispose)
+        case .edit, .delete: return true
+        }
     }
 }

@@ -29,6 +29,10 @@ extension Document {
     public func restoreToOpUndoable(
         opId targetOpId: String, undoManager: UndoManager?
     ) async throws -> RewindRestoreResult {
+        // The permit door FIRST (P3c whole-branch fix wave, C1): a refused
+        // restore must cost the writer nothing, and the stack clear below
+        // runs before `restoreToOp`'s own door would throw.
+        try requireRestorePermitted()
         // — capture BEFORE the restore —
         // The pre-restore tip: undoing the rewind restores forward to here.
         let preTip = currentFoldBasis
@@ -157,6 +161,11 @@ extension Document {
                 do {
                     compensating = try await doc.restoreToOp(
                         opId: preTip, synthesisSource: .undoRewind)
+                } catch is PostureRefusal {
+                    // Registered while this Mac could write here; a demotion
+                    // has landed since. Said, never swallowed (Task 5's rule).
+                    doc.declineUndo(.restoreNotPermitted)
+                    return
                 } catch {
                     documentLog.error("restoreToOpUndoable undo: compensating restore failed (\(error.localizedDescription, privacy: .public)) — declining before any lifecycle re-accept")
                     return
@@ -209,8 +218,14 @@ extension Document {
                 // Re-arm through the forward path, forwarding the LIVE manager
                 // so ⌘Z/⇧⌘Z cycles indefinitely (never nil — the T3 dead-cycle
                 // regression). A fresh restore, never a replay.
-                _ = try? await doc.restoreToOpUndoable(
-                    opId: targetOpId, undoManager: undoManager)
+                do {
+                    _ = try await doc.restoreToOpUndoable(
+                        opId: targetOpId, undoManager: undoManager)
+                } catch is PostureRefusal {
+                    doc.declineUndo(.restoreNotPermitted)
+                } catch {
+                    documentLog.error("restoreToOpUndoable redo failed: \(error.localizedDescription, privacy: .public)")
+                }
             })
         return result
     }

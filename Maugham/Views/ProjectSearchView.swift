@@ -1,4 +1,5 @@
 import SwiftUI
+import MaughamCore
 
 /// Find in Project — **an overlay of the tree** since shell-finish stage 2b.
 ///
@@ -16,6 +17,8 @@ struct ProjectSearchView: View {
     @State private var options: SearchOptions = SearchOptions()
     @State private var showReplace: Bool = false
     @State private var pendingError: String?
+    /// What a Replace All left alone (ruling AI) — a notice, not an error.
+    @State private var leftAloneNotice: String?
     @State private var showingReplaceAllConfirm: Bool = false
     @FocusState private var queryFocused: Bool
 
@@ -55,7 +58,8 @@ struct ProjectSearchView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("\(store.currentSearch?.matchCount ?? 0) matches will be replaced.")
+            Text(Self.replaceAllMessage(
+                store.currentSearch.map { Self.replaceability($0, mayReplace: mayReplace) }))
         }
         .alert("Search error",
                isPresented: Binding(
@@ -64,6 +68,14 @@ struct ProjectSearchView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(pendingError ?? "")
+        }
+        .alert("Some pieces were left as they were",
+               isPresented: Binding(
+                get: { leftAloneNotice != nil },
+                set: { if !$0 { leftAloneNotice = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(leftAloneNotice ?? "")
         }
     }
 
@@ -95,10 +107,15 @@ struct ProjectSearchView: View {
                 HStack {
                     TextField("Replace with", text: $replacement)
                         .textFieldStyle(.roundedBorder)
-                    Button("Replace All") {
-                        showingReplaceAllConfirm = true
+                    // Drawn only where at least one match is this Mac's to
+                    // replace (C1, ruling AI): a reviewer whose results are all
+                    // manuscript sees none; research notes keep their verbs.
+                    if Self.offersReplaceAll(
+                        store.currentSearch.map { Self.replaceability($0, mayReplace: mayReplace) }) {
+                        Button("Replace All") {
+                            showingReplaceAllConfirm = true
+                        }
                     }
-                    .disabled((store.currentSearch?.matchCount ?? 0) == 0)
                 }
             }
             HStack(spacing: 16) {
@@ -187,7 +204,7 @@ struct ProjectSearchView: View {
                     .font(.callout)
                     .lineLimit(2)
                 Spacer(minLength: 4)
-                if showReplace {
+                if showReplace, mayReplace(match) {
                     Button {
                         Task { await runReplaceMatch(match) }
                     } label: {
@@ -248,10 +265,66 @@ struct ProjectSearchView: View {
     private func runReplaceAll() async {
         guard let r = store.currentSearch else { return }
         do {
-            try await store.replaceAll(in: r, with: replacement)
+            let outcome = try await store.replaceAll(in: r, with: replacement)
             await store.performSearch(query: query, options: options)
+            // What was left is SAID (ruling AI), never a silent partial pass.
+            leftAloneNotice = ProjectStore.leftAloneSentence(outcome.leftAlone)
         } catch {
             pendingError = error.localizedDescription
         }
+    }
+
+    // MARK: - What this Mac may replace (P3c whole-branch fix wave, C1)
+
+    /// The drawing answer for one match: a research note is outside the
+    /// permit (roles guard the words, not the binder); a manuscript match is
+    /// its OWN document's posture — the queue's per-row shape, so an author of
+    /// some pieces replaces in hers. No door behind the host fails CLOSED.
+    private func mayReplace(_ match: SearchMatch) -> Bool {
+        Self.mayReplace(match, posture: store.documentStore?.posture(forPath: match.documentPath))
+    }
+
+    static func mayReplace(_ match: SearchMatch, posture: Posture?) -> Bool {
+        switch match.documentSource {
+        case .research: return true
+        case .manuscript: return posture?.allows(.writeText) ?? false
+        }
+    }
+
+    /// How a result set divides: the matches this Mac may replace, and the
+    /// titles of the manuscript documents it would leave alone.
+    struct Replaceability: Equatable {
+        let replaceable: Int
+        let leftAlone: [String]
+    }
+
+    static func replaceability(
+        _ results: SearchResults, mayReplace: (SearchMatch) -> Bool
+    ) -> Replaceability {
+        var replaceable = 0
+        var leftAlone: [String] = []
+        for match in results.matches {
+            if mayReplace(match) {
+                replaceable += 1
+            } else if !leftAlone.contains(match.documentTitle) {
+                leftAlone.append(match.documentTitle)
+            }
+        }
+        return Replaceability(replaceable: replaceable, leftAlone: leftAlone)
+    }
+
+    static func offersReplaceAll(_ split: Replaceability?) -> Bool {
+        (split?.replaceable ?? 0) > 0
+    }
+
+    /// The confirm's message: how many will be replaced, and — before the
+    /// press, not after — which pieces will be left alone.
+    static func replaceAllMessage(_ split: Replaceability?) -> String {
+        let count = split?.replaceable ?? 0
+        let head = "\(count) match\(count == 1 ? "" : "es") will be replaced."
+        guard let split, let left = ProjectStore.leftAloneSentence(split.leftAlone) else {
+            return head
+        }
+        return head + " " + left
     }
 }

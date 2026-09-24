@@ -38,8 +38,22 @@ struct StatementProposalBanner: View {
     let now: Date
     let notice: String?
     let busy: Bool
+    /// What this window may offer over the statement the proposal is FOR
+    /// (P3c Task 7) — asked by the pane of the drawing door. Without
+    /// `.editStatement` the banner still draws: a reviewer reads the proposal,
+    /// its reason and its diff; only Adopt and Discard are not hers.
+    let posture: Posture
     let onAdopt: () -> Void
     let onDiscard: () -> Void
+
+    /// **Whether Adopt and Discard are drawn** — the one rule, asked of the
+    /// posture of the statement the proposal would change. Hidden, not
+    /// disabled: a greyed Adopt reads as broken. Discard follows Adopt,
+    /// because what becomes of a proposal to a statement is that statement's
+    /// writer's decision (`StatementProposalGate.discard`'s own note).
+    static func offersVerbs(_ posture: Posture) -> Bool {
+        posture.allows(.editStatement)
+    }
 
     private var model: Model {
         Self.model(proposal: proposal, current: current, statementExists: statementExists, now: now)
@@ -52,17 +66,7 @@ struct StatementProposalBanner: View {
                 Text(model.title).font(.callout.weight(.medium))
                 Text(model.when).font(.caption).foregroundStyle(.secondary)
                 Spacer(minLength: 6)
-                Button(StatementProposalCopy.discardTitle, action: onDiscard)
-                    .controlSize(.small)
-                    .disabled(busy)
-                    .help(StatementProposalCopy.discardHelp)
-                    .accessibilityLabel(StatementProposalCopy.discardAccessibilityLabel(proposal.kind))
-                Button(StatementProposalCopy.adoptTitle, action: onAdopt)
-                    .controlSize(.small)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(busy)
-                    .help(StatementProposalCopy.adoptHelp(proposal.kind))
-                    .accessibilityLabel(StatementProposalCopy.adoptAccessibilityLabel(proposal.kind))
+                if Self.offersVerbs(posture) { verbs }
             }
             if let rationale = model.rationale {
                 Text(StatementProposalCopy.rationaleHeading).font(.caption).foregroundStyle(.secondary)
@@ -98,6 +102,22 @@ struct StatementProposalBanner: View {
         .background(Color.accentColor.opacity(0.08))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(model.title)
+    }
+
+    /// Discard and Adopt, drawn only where `offersVerbs` says so.
+    @ViewBuilder
+    private var verbs: some View {
+        Button(StatementProposalCopy.discardTitle, action: onDiscard)
+            .controlSize(.small)
+            .disabled(busy)
+            .help(StatementProposalCopy.discardHelp)
+            .accessibilityLabel(StatementProposalCopy.discardAccessibilityLabel(proposal.kind))
+        Button(StatementProposalCopy.adoptTitle, action: onAdopt)
+            .controlSize(.small)
+            .buttonStyle(.borderedProminent)
+            .disabled(busy)
+            .help(StatementProposalCopy.adoptHelp(proposal.kind))
+            .accessibilityLabel(StatementProposalCopy.adoptAccessibilityLabel(proposal.kind))
     }
 
     /// The diff scrolls past this rather than pushing the editor off the pane.

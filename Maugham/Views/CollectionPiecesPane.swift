@@ -158,7 +158,13 @@ struct CollectionPiecesPane: View {
             // referenced piece, which keeps research in its own project,
             // bounces the drag rather than swallowing it.
             onDrop: { draggedId, position in
-                treeVerbs.routePieceRowDrop(
+                // A piece the posture may not move is refused by the drop
+                // itself (P3c Task 8) — `BinderView`'s rule.
+                if let dragged = store.manifest.structure.first(where: { $0.id == draggedId }),
+                   !structureVerbs(for: dragged).move {
+                    return false
+                }
+                return treeVerbs.routePieceRowDrop(
                     draggedId: draggedId, documentId: piece.id,
                     structureReorder: {
                         handleDrop(
@@ -177,18 +183,26 @@ struct CollectionPiecesPane: View {
                     target: .pieceRow(piece.id))
             })
             .contextMenu {
-                Button("Rename") {
-                    renamingItemId = piece.id
+                // Only what the posture allows (P3c Task 8) — `BinderView`'s
+                // `TreeStructureVerbs`, one decision for both trees. Promoting a
+                // piece out of the Collection is structure too.
+                let verbs = structureVerbs(for: piece)
+                if verbs.rename {
+                    Button("Rename") {
+                        renamingItemId = piece.id
+                    }
                 }
-                if piece.pieceKind == .loose {
+                if verbs.move, piece.pieceKind == .loose {
                     Button("Promote to Standalone Project…") {
                         MaughamEvent.post(.maughamPromotePiece, to: .keyWindow, payload: ["piece_id": piece.id])
                     }
                 }
-                Divider()
-                Button("Delete", role: .destructive) {
-                    Task {
-                        try? await store.deleteStructureItem(id: piece.id)
+                if verbs.delete {
+                    Divider()
+                    Button("Delete", role: .destructive) {
+                        Task {
+                            try? await store.deleteStructureItem(id: piece.id)
+                        }
                     }
                 }
             }
@@ -256,9 +270,20 @@ struct CollectionPiecesPane: View {
         ContentUnavailableView {
             Label("No pieces yet", systemImage: "doc.text")
         } description: {
-            Text("Add your first piece. Use the + button.")
+            Text(Self.emptyDescription(mayStartAPiece: mayStartAPiece))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// **What the empty state tells her she can do** (P3c, controller ruling
+    /// AF). The + is drawn only where she may start a piece; pointing at a
+    /// button that is not there is the help describing what does not ship.
+    /// Where she may not, the pane says where pieces will come from.
+    nonisolated static func emptyDescription(mayStartAPiece: Bool) -> String {
+        mayStartAPiece
+            ? "Add your first piece. Use the + button."
+            : "Pieces appear here when the book\u{2019}s author adds them. "
+                + "You can read and leave notes on each one."
     }
 
     // MARK: - Drag-reorder
@@ -291,28 +316,99 @@ struct CollectionPiecesPane: View {
         }
     }
 
+    /// The pieces' structural verbs, from the window's posture door —
+    /// `BinderView.structureVerbs`' twin; no door, no verb (fails closed).
+    func structureVerbs(for piece: StructureItem) -> TreeStructureVerbs {
+        guard let documentStore = store.documentStore else { return .none }
+        return TreeStructureVerbs.decide(
+            for: piece, postureOf: { documentStore.posture(forDocId: $0) })
+    }
+
+    /// The header's + menu: every item in it starts (or links in) a piece.
+    var mayStartAPiece: Bool {
+        guard let documentStore = store.documentStore else { return false }
+        return TreeStructureVerbs.mayStartAPiece(
+            documentStore.posture(forDocId: DocumentClass.projectStreamDocId))
+    }
+
     private var header: some View {
         HStack {
             Text("Pieces").font(.headline)
             Spacer()
-            Menu {
-                Button("New Prose Story") {
-                    MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
-                }
-                Button("New Screenplay") {
-                    MaughamEvent.post(.maughamAddScreenplayPiece, to: .keyWindow)
-                }
-                Button("Link Existing Project…") {
-                    MaughamEvent.post(.maughamLinkProject, to: .keyWindow)
-                }
-            } label: {
-                Image(systemName: "plus.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Add a piece")
+            if mayStartAPiece { addMenu }
         }
         .padding(8)
+    }
+
+    /// New Prose Story / New Screenplay / Link Existing Project — each adds a
+    /// piece, so the menu is the book author's (ruling R3), hidden otherwise.
+    private var addMenu: some View {
+        Menu {
+            Button("New Prose Story") {
+                MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
+            }
+            Button("New Screenplay") {
+                MaughamEvent.post(.maughamAddScreenplayPiece, to: .keyWindow)
+            }
+            Button("Link Existing Project…") {
+                MaughamEvent.post(.maughamLinkProject, to: .keyWindow)
+            }
+        } label: {
+            Image(systemName: "plus.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Add a piece")
+    }
+}
+
+// MARK: - Starting a piece from the menu bar (P3c Task 8, ruling X)
+
+/// **The File menu's three piece-adding items and their receiver**, asked the
+/// same `.startAPiece` question as the tree's own + (`TreeStructureVerbs`).
+enum StartAPieceDoor {
+
+    /// The menu item's enabled state. nil — no project window in front — keeps
+    /// the item enabled as it always was: the receiver is already a no-op
+    /// there, and greying it would read as broken while a sheet holds focus
+    /// (`FocusedRunButtons`' reasoning). Only a window that SAYS it may not
+    /// start a piece disables it.
+    static func menuIsEnabled(mayStartAPiece: Bool?) -> Bool {
+        mayStartAPiece != false
+    }
+
+    /// What the window publishes for the menu — the drawing door's answer.
+    /// No project store: nil (no window says anything). A store with no door
+    /// behind it — the frame between the window dropping its `DocumentStore`
+    /// and its `ProjectStore` — says FALSE (fails closed; whole-branch fix
+    /// wave, Minor 2).
+    @MainActor
+    static func drawn(store: ProjectStore?) -> Bool? {
+        guard let store else { return nil }
+        guard let documentStore = store.documentStore else { return false }
+        return TreeStructureVerbs.mayStartAPiece(
+            documentStore.posture(forDocId: DocumentClass.projectStreamDocId))
+    }
+
+    /// The sentence a refused post is told in.
+    static let refusal = "Your part in this book doesn\u{2019}t reach starting a piece "
+        + "\u{2014} only an author of the whole book can add one."
+
+    /// **The receiver's door** (ruling I — the SETTLED answer): true where the
+    /// piece may be started; otherwise the refusal is posted to the window's
+    /// notice channel and false comes back. A stale menu or a keyboard route
+    /// reaching the receiver is refused in words, never silently.
+    @MainActor
+    static func admits(store: ProjectStore) async -> Bool {
+        // No door behind the store: nothing is started (fails closed).
+        guard let documentStore = store.documentStore else { return false }
+        let posture = await documentStore.settledPosture(
+            forDocId: DocumentClass.projectStreamDocId)
+        guard TreeStructureVerbs.mayStartAPiece(posture) else {
+            MaughamEvent.postNotice(refusal, projectURL: store.url)
+            return false
+        }
+        return true
     }
 }

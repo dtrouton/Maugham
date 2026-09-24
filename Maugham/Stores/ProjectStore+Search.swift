@@ -72,6 +72,34 @@ extension ProjectStore {
     // stale-match guard (re-find count < requested index) throws so the caller
     // re-runs the search.
 
+    // MARK: - What this Mac may replace (P3c whole-branch fix wave, C1)
+
+    /// **A manuscript replace this Mac may not make** — thrown by
+    /// `replaceMatch` and collected by `replaceAll` (controller ruling AI). A
+    /// replace writes a typing burst, and a burst's emission is deliberately
+    /// not permit-guarded (the editor's membrane is in front of the keystroke),
+    /// so the replace verbs ask before they reach `setFullText`: otherwise the
+    /// text lands signed in the writer's name and every read sets it aside.
+    public struct ManuscriptReplaceRefused: LocalizedError, Equatable {
+        public let titles: [String]
+        public var errorDescription: String? {
+            ProjectStore.leftAloneSentence(titles) ?? "Nothing was replaced."
+        }
+    }
+
+    /// What `replaceAll` did not do: the manuscript documents it left alone
+    /// because this Mac may not write their text (ruling AI), by title.
+    public struct ReplaceAllOutcome: Equatable {
+        public let leftAlone: [String]
+    }
+
+    /// The one sentence naming the pieces a replace left alone.
+    nonisolated static func leftAloneSentence(_ titles: [String]) -> String? {
+        guard !titles.isEmpty else { return nil }
+        return "Left as it was — this Mac may not change the text of "
+            + titles.joined(separator: ", ") + "."
+    }
+
     /// Replace a single search match with the given replacement text.
     ///
     /// Manuscript matches route through the op log: the target occurrence is
@@ -104,7 +132,8 @@ extension ProjectStore {
                     "No active search query for replaceMatch")
             }
             try await replaceInManuscript(
-                path: match.documentPath, query: query, options: options,
+                path: match.documentPath, title: match.documentTitle,
+                query: query, options: options,
                 replacement: replacement, occurrenceIndices: [ordinal])
 
         case .research:
@@ -127,18 +156,30 @@ extension ProjectStore {
     /// Groups by document. Manuscript documents re-find every occurrence of the
     /// query in display form and replace them via the op log. Research notes
     /// splice their stored-form ranges right-to-left and write atomically.
+    ///
+    /// **A manuscript document this Mac may not write is SKIPPED and named**
+    /// (controller ruling AI), never replaced and never a part-way failure:
+    /// the rest of the book is replaced, and the outcome lists what was left.
+    @discardableResult
     public func replaceAll(
         in results: SearchResults, with replacement: String
-    ) async throws {
+    ) async throws -> ReplaceAllOutcome {
         let grouped = Dictionary(grouping: results.matches, by: \.documentPath)
-        for (path, matches) in grouped {
-            guard let source = matches.first?.documentSource else { continue }
+        var leftAlone: [String] = []
+        for path in grouped.keys.sorted() {
+            guard let matches = grouped[path],
+                  let source = matches.first?.documentSource else { continue }
             switch source {
             case .manuscript:
                 // Replace ALL occurrences (occurrenceIndices: nil).
-                try await replaceInManuscript(
-                    path: path, query: results.query, options: results.options,
-                    replacement: replacement, occurrenceIndices: nil)
+                do {
+                    try await replaceInManuscript(
+                        path: path, title: matches[0].documentTitle,
+                        query: results.query, options: results.options,
+                        replacement: replacement, occurrenceIndices: nil)
+                } catch let refused as ManuscriptReplaceRefused {
+                    leftAlone.append(contentsOf: refused.titles)
+                }
 
             case .research:
                 let url = self.url.appendingPathComponent(path)
@@ -161,6 +202,7 @@ extension ProjectStore {
                     to: url, atomically: true, encoding: .utf8)
             }
         }
+        return ReplaceAllOutcome(leftAlone: leftAlone)
     }
 
     /// Apply a query→replacement edit to a manuscript document through the op
@@ -171,11 +213,20 @@ extension ProjectStore {
     /// `setFullText`; persists + closes a transiently-loaded doc.
     private func replaceInManuscript(
         path: String,
+        title: String,
         query: String,
         options: SearchOptions,
         replacement: String,
         occurrenceIndices: [Int]?
     ) async throws {
+        let refused = ManuscriptReplaceRefused(titles: [title])
+        // **The door, before any load** (C1, ruling AI): the acting answer —
+        // never the drawn one (controller ruling I) — so the root's yield is
+        // honoured here as it is by the hidden per-match button.
+        if let documentStore,
+           !(await documentStore.settledPosture(forPath: path).allows(.writeText)) {
+            throw refused
+        }
         // Obtain the Document — open one from the registry, else transient-load.
         let docURL = self.url.appendingPathComponent(path)
         let openDoc = documentStore?.document(for: path)
@@ -188,12 +239,24 @@ extension ProjectStore {
             // Search-and-replace is an automation of the writer's hand, so it
             // signs as the writer (constraint 6): the ops it lands are the
             // writer's own edits, made in one sweep instead of one at a time.
-            doc = try await Document.load(
-                url: docURL,
-                actor: .author,
-                session: "find-replace-\(UUID().uuidString.prefix(8))",
-                presenter: documentStore?.presenter)
+            do {
+                doc = try await Document.load(
+                    url: docURL,
+                    actor: .author,
+                    session: "find-replace-\(UUID().uuidString.prefix(8))",
+                    presenter: documentStore?.presenter)
+            } catch DocumentLoadError.waitingForPiece {
+                // A piece this device may not write whose history has not
+                // arrived: left alone and named, not a part-way failure.
+                throw refused
+            }
             isTransient = true
+        }
+        // **And the Document's own stamp** — the answer the load made, and
+        // the only one where no `DocumentStore` stands behind this store.
+        guard doc.mayWriteItsText else {
+            if isTransient { await doc.close() }
+            throw refused
         }
 
         // Apply the edit, then close a transiently-loaded doc on EVERY exit

@@ -20,6 +20,9 @@ struct BinderView: View {
     var onOpenPaletteWall: () -> Void = {}
     @State private var renamingItemId: String?
     @State private var pendingError: String?
+    /// What a rename could not rewrite (controller ruling AH) — said, since
+    /// those `[[links]]` now dangle for the whole book.
+    @State private var renameNotice: String?
     @State private var pendingTidyParentId: String?
     @State private var showingTidyConfirmation: Bool = false
 
@@ -83,12 +86,16 @@ struct BinderView: View {
             // available even when the structure is empty (right-clicking
             // a row gives the per-row menu instead, no overlap).
             .contextMenu {
-                let ext = store.manifest.type == .screenplay ? "fountain" : "md"
-                Button("New Document") {
-                    Task { await addItem(parent: nil, kind: .document(extension: ext)) }
-                }
-                Button("New Group") {
-                    Task { await addItem(parent: nil, kind: .group) }
+                // **Starting a piece is the book author's** (P3c Task 8,
+                // ruling R3): hidden, never greyed, where the posture refuses.
+                if mayStartAPiece {
+                    let ext = store.manifest.type == .screenplay ? "fountain" : "md"
+                    Button("New Document") {
+                        Task { await addItem(parent: nil, kind: .document(extension: ext)) }
+                    }
+                    Button("New Group") {
+                        Task { await addItem(parent: nil, kind: .group) }
+                    }
                 }
             }
             .alert("Couldn't update project",
@@ -99,6 +106,15 @@ struct BinderView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(pendingError ?? "")
+            }
+            .alert("Renamed",
+                   isPresented: Binding(
+                    get: { renameNotice != nil },
+                    set: { if !$0 { renameNotice = nil } }
+                   )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(renameNotice ?? "")
             }
             .alert("Renumber filenames?",
                    isPresented: $showingTidyConfirmation,
@@ -248,7 +264,15 @@ struct BinderView: View {
             // `TreeDropIntent`'s to say. The row returns whichever answer
             // comes back, so a chapter that cannot take a note bounces it.
             onDrop: { draggedId, position in
-                treeVerbs.routePieceRowDrop(
+                // **A structure row the posture may not move is refused by the
+                // drop itself** (P3c Task 8) — the drag bounces home rather
+                // than landing and being undone. Research dragged here is not
+                // structure and is `TreeDropIntent`'s, untouched.
+                if let dragged = TreeWalk.find(id: draggedId, in: store.manifest.structure),
+                   !structureVerbs(for: dragged).move {
+                    return false
+                }
+                return treeVerbs.routePieceRowDrop(
                     draggedId: draggedId, documentId: item.id,
                     structureReorder: {
                         Task { await handleDrop(draggedId: draggedId,
@@ -267,26 +291,38 @@ struct BinderView: View {
             }
         )
         .contextMenu {
-            Button("New Document") {
-                let ext = store.manifest.type == .screenplay ? "fountain" : "md"
-                Task { await addItem(parent: item, kind: .document(extension: ext)) }
+            // **Only what the posture allows, hidden rather than greyed** (P3c
+            // Task 8). Cooperative: the store's structural verbs carry no
+            // guard of their own — roles guard the words, not the binder.
+            let verbs = structureVerbs(for: item)
+            if verbs.newInside {
+                Button("New Document") {
+                    let ext = store.manifest.type == .screenplay ? "fountain" : "md"
+                    Task { await addItem(parent: item, kind: .document(extension: ext)) }
+                }
+                Button("New Group") {
+                    Task { await addItem(parent: item, kind: .group) }
+                }
+                Divider()
             }
-            Button("New Group") {
-                Task { await addItem(parent: item, kind: .group) }
+            if verbs.duplicate {
+                Button("Duplicate") {
+                    Task { await duplicate(id: item.id) }
+                }
             }
-            Divider()
-            Button("Duplicate") {
-                Task { await duplicate(id: item.id) }
+            if verbs.rename {
+                Button("Rename") { renamingItemId = item.id }
             }
-            Button("Rename") { renamingItemId = item.id }
-            Button("Delete", role: .destructive) {
-                Task { await deleteItem(id: item.id) }
+            if verbs.delete {
+                Button("Delete", role: .destructive) {
+                    Task { await deleteItem(id: item.id) }
+                }
             }
-            if let openLinkPicker = linkResearchVerb(for: item) {
+            if verbs.linkResearch, let openLinkPicker = linkResearchVerb(for: item) {
                 Divider()
                 Button("Link Research…", action: openLinkPicker)
             }
-            if item.type == .group {
+            if verbs.tidy, item.type == .group {
                 Divider()
                 Button("Tidy Filenames") {
                     pendingTidyParentId = item.id
@@ -294,6 +330,28 @@ struct BinderView: View {
                 }
             }
         }
+    }
+
+    // MARK: - What the posture allows here (P3c Task 8)
+
+    /// **Which structural verbs this row may offer** — asked of the window's
+    /// posture door, per the pieces the row is about. A tree with no door
+    /// behind it offers NOTHING (whole-branch fix wave, Minor 2): every
+    /// production window adopts its `DocumentStore` before the tree is drawn
+    /// (`ProjectWindow.load`), but `ProjectStore.documentStore` is weak and
+    /// the window nils its store a frame before the tree goes, so the absence
+    /// fails CLOSED — as `postureDrawn(forDocId:)` does — never open.
+    func structureVerbs(for item: StructureItem) -> TreeStructureVerbs {
+        guard let documentStore = store.documentStore else { return .none }
+        return TreeStructureVerbs.decide(
+            for: item, postureOf: { documentStore.posture(forDocId: $0) })
+    }
+
+    /// New Document / New Group at the root, and the empty state's buttons.
+    var mayStartAPiece: Bool {
+        guard let documentStore = store.documentStore else { return false }
+        return TreeStructureVerbs.mayStartAPiece(
+            documentStore.posture(forDocId: DocumentClass.projectStreamDocId))
     }
 
     /// Whether `item`'s row offers **"Link Research…"** (shell-finish
@@ -372,24 +430,26 @@ struct BinderView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             let ext = store.manifest.type == .screenplay ? "fountain" : "md"
-            HStack(spacing: 8) {
-                Button {
-                    Task {
-                        await addItem(
-                            parent: nil, kind: .document(extension: ext))
+            if mayStartAPiece {
+                HStack(spacing: 8) {
+                    Button {
+                        Task {
+                            await addItem(
+                                parent: nil, kind: .document(extension: ext))
+                        }
+                    } label: {
+                        Label("New Document", systemImage: "doc.badge.plus")
                     }
-                } label: {
-                    Label("New Document", systemImage: "doc.badge.plus")
+                    .buttonStyle(.borderedProminent)
+                    Button {
+                        Task { await addItem(parent: nil, kind: .group) }
+                    } label: {
+                        Label("New Group", systemImage: "folder.badge.plus")
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.borderedProminent)
-                Button {
-                    Task { await addItem(parent: nil, kind: .group) }
-                } label: {
-                    Label("New Group", systemImage: "folder.badge.plus")
-                }
-                .buttonStyle(.bordered)
+                .padding(.top, 4)
             }
-            .padding(.top, 4)
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -397,7 +457,8 @@ struct BinderView: View {
 
     private func rename(id: String, to newTitle: String) async {
         do {
-            try await store.renameStructureItem(id: id, newTitle: newTitle)
+            let outcome = try await store.renameStructureItem(id: id, newTitle: newTitle)
+            renameNotice = outcome.sentence
         } catch {
             pendingError = error.localizedDescription
         }
@@ -495,5 +556,88 @@ struct BinderView: View {
             }
         }
         return nil
+    }
+}
+
+// MARK: - The tree's structural verbs, by posture (P3c Task 8)
+
+/// **Which structural verbs a manuscript row may offer** — a pure decision over
+/// the posture of every piece the row is about, so the tree's menus, its drop
+/// delegate and `CollectionPiecesPane` ask one question.
+///
+/// **Cooperative, and only that** (ADR 0032's limits; plan ruling R3): the
+/// store's structural verbs carry no guard, and nothing at storage refuses a
+/// reviewer's manifest write. A verb hidden here is hidden because the writer
+/// whose piece it is would not want it offered, not because anything would
+/// refuse it — roles guard the words, not the binder.
+///
+/// - **A document** asks its own posture's `.restructure` — *may you write this
+///   piece's text* (ruling R3).
+/// - **A group** asks it of EVERY piece it contains, at any depth: renaming,
+///   moving, tidying or deleting a group moves every chapter in it, so an
+///   author of some pieces may not delete a group holding somebody else's
+///   chapter. A group holding no piece is the book's own structure and asks the
+///   project stream, which only an author of the whole book writes.
+/// - **Starting a piece** — New Document / New Group, from a row or the root —
+///   is `.startAPiece`, the book author's until plan 2 (ruling R3). So is
+///   **Duplicate**: a copy is a NEW piece, whose id no author-of-some-pieces'
+///   list names, so it needs the start probe as well as the row's own.
+struct TreeStructureVerbs: Equatable {
+    let newInside: Bool
+    let duplicate: Bool
+    let rename: Bool
+    let delete: Bool
+    let move: Bool
+    let linkResearch: Bool
+    let tidy: Bool
+
+    /// The P1 tree — every verb. What a book-author's posture decides.
+    static let unrestricted = TreeStructureVerbs(
+        newInside: true, duplicate: true, rename: true, delete: true,
+        move: true, linkResearch: true, tidy: true)
+
+    /// No verb — the answer where no window's door stands behind the tree
+    /// (fails closed; whole-branch fix wave, Minor 2).
+    static let none = TreeStructureVerbs(
+        newInside: false, duplicate: false, rename: false, delete: false,
+        move: false, linkResearch: false, tidy: false)
+
+    /// Whether any verb at all is offered — a row with none draws no menu.
+    var offersAny: Bool {
+        newInside || duplicate || rename || delete || move || linkResearch || tidy
+    }
+
+    static func decide(
+        for item: StructureItem, postureOf: (String) -> Posture
+    ) -> TreeStructureVerbs {
+        let start = mayStartAPiece(postureOf(DocumentClass.projectStreamDocId))
+        let restructure = mayRestructure(item, postureOf: postureOf)
+        return TreeStructureVerbs(
+            newInside: start,
+            duplicate: restructure && start,
+            rename: restructure,
+            delete: restructure,
+            move: restructure,
+            linkResearch: restructure && item.type == .document,
+            tidy: restructure && item.type == .group)
+    }
+
+    /// New Document / New Group anywhere in the tree (ruling R3).
+    static func mayStartAPiece(_ project: Posture) -> Bool {
+        project.allows(.startAPiece)
+    }
+
+    /// `.restructure` on the row's piece, or on every piece a group contains.
+    static func mayRestructure(
+        _ item: StructureItem, postureOf: (String) -> Posture
+    ) -> Bool {
+        guard item.type == .group else {
+            return postureOf(item.id).allows(.restructure)
+        }
+        let pieces = TreeWalk.collect(in: item.children ?? []) { $0.type == .document }
+        guard !pieces.isEmpty else {
+            return postureOf(DocumentClass.projectStreamDocId).allows(.restructure)
+        }
+        return pieces.allSatisfy { postureOf($0.id).allows(.restructure) }
     }
 }

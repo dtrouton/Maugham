@@ -301,6 +301,11 @@ struct StatementEditorHost: View {
     let documentStore: DocumentStore
     let kind: Statement.Kind
     let scope: Statement.Scope
+    /// What this window may offer over this statement — asked by the pane of
+    /// the drawing door (`DocumentStore.posture(forDocId:)` at
+    /// `postureDocId(kind:scope:statements:)`), so a trust change re-renders
+    /// the pane and arrives here as a new value (P3c Task 3).
+    let posture: Posture
 
     @Environment(UserPreferences.self) private var userPreferences
 
@@ -314,11 +319,12 @@ struct StatementEditorHost: View {
     @State private var target: StatementTextTarget
 
     init(store: ProjectStore, documentStore: DocumentStore,
-         kind: Statement.Kind, scope: Statement.Scope) {
+         kind: Statement.Kind, scope: Statement.Scope, posture: Posture) {
         self.store = store
         self.documentStore = documentStore
         self.kind = kind
         self.scope = scope
+        self.posture = posture
         _target = State(initialValue: StatementTextTarget(
             splitsStrata: StatementEssay.carriesRulings(kind)))
     }
@@ -506,12 +512,16 @@ struct StatementEditorHost: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             if Self.showsPictureWell(
-                kind: kind, resolvedScope: resolvedScope, scopeKey: scopeKey) {
+                kind: kind, resolvedScope: resolvedScope, scopeKey: scopeKey),
+               !Self.locksEditing(posture) {
                 pictureWell
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear { seedControl() }
+        .onChange(of: posture) { _, posture in
+            editorControl.lockEditing = Self.locksEditing(posture)
+        }
         .onChange(of: userPreferences.theme) { _, theme in editorControl.theme = theme }
         .onChange(of: effectiveTypography) { _, typography in
             editorControl.typography = typography
@@ -592,12 +602,46 @@ struct StatementEditorHost: View {
             userDefault: userPreferences.typography)
     }
 
+    // MARK: - The posture (P3c Task 3)
+
+    /// **Is this statement's text locked?** The one rule, asked of the posture
+    /// and nothing else: `allows(.editStatement)`. Locked, the membrane refuses
+    /// every keystroke (selection and copy stay), the image paste handler is
+    /// nil and the picture well is not drawn — a picture is an edit to the
+    /// statement too (hide, don't disable).
+    static func locksEditing(_ posture: Posture) -> Bool {
+        !posture.allows(.editStatement)
+    }
+
+    /// **The document id the pane asks the posture door about.**
+    ///
+    /// The statement's own id where it exists — its class is the permit's
+    /// answer (a piece's statement follows the piece, a project statement is
+    /// the book author's). Where it has no file yet, the id of what it WOULD
+    /// be about: a document-scoped statement asks its piece (the scope test is
+    /// on the piece either way, and the root's yield keys on it too — ruling
+    /// H), and a project-scoped one asks the project stream, the other class
+    /// with no piece behind it, which only an author of the whole book writes
+    /// text in. A scope this build cannot read has no piece to name and asks
+    /// the project stream too — the stricter answer.
+    static func postureDocId(
+        kind: Statement.Kind, scope: Statement.Scope, statements: [Statement]
+    ) -> String {
+        if let statement = StatementLookup.statement(
+            in: statements, kind: kind, scope: scope) {
+            return statement.id
+        }
+        if case .document(let piece) = scope { return piece }
+        return DocumentClass.projectStreamDocId
+    }
+
     private func seedControl() {
         // `onChange` fires on transitions only, so seed from the current
         // sources here. The three off-switches below are constants for this
         // surface, not mirrors: a pane is not the writing surface (§4.2).
         editorControl.theme = userPreferences.theme
         editorControl.typography = effectiveTypography
+        editorControl.lockEditing = Self.locksEditing(posture)
         editorControl.typewriterScroll = false
         editorControl.sentenceFocus = false
         editorControl.paragraphFocus = false
@@ -1072,7 +1116,7 @@ struct StatementEditorHost: View {
     /// case that reaches it those are the same place — there is no statement, so
     /// there is nothing in the editor to be after.
     private func makeImagePasteHandler() -> ((NSImage) -> String?)? {
-        guard Self.takesPictures(kind) else { return nil }
+        guard Self.takesPictures(kind), !Self.locksEditing(posture) else { return nil }
         return { image in
             if let statement = store.statement(kind: kind, scope: scope) {
                 do {

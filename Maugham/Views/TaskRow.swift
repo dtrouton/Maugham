@@ -12,6 +12,10 @@ import SwiftUI
 @MainActor
 struct TaskRow: View {
     let task: WriterTask
+    /// **Which verbs this Mac may offer on this task** (P3c Task 8), asked of
+    /// the task's own document's posture by the pane (`TaskRowVerbs.decide`).
+    /// Required, so no host draws every verb by forgetting to say.
+    let verbs: TaskRowVerbs
     let onToggle: () -> Void
     let onJump: () -> Void
     let onArchive: () -> Void
@@ -19,19 +23,29 @@ struct TaskRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Toggle(
-                "",
-                isOn: Binding(
-                    get: { task.status == .done },
-                    set: { _ in onToggle() }))
-                .toggleStyle(.checkbox)
-                .labelsHidden()
+            if verbs.toggle {
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { task.status == .done },
+                        set: { _ in onToggle() }))
+                    .toggleStyle(.checkbox)
+                    .labelsHidden()
+            } else {
+                // Hidden, not greyed: the status still reads, as a glyph that
+                // is not a control.
+                Image(systemName: task.status == .done ? "checkmark.square" : "square")
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(task.status == .done ? "Done" : "Open")
+            }
 
             body_
 
             Spacer()
             sourceBadge
-            kebabMenu
+            if verbs.archive || (verbs.delete && task.kind == .paneCreated) {
+                kebabMenu
+            }
         }
         .contentShape(Rectangle())
         // No row-wide tap gesture. Earlier `.simultaneousGesture(TapGesture
@@ -93,8 +107,10 @@ struct TaskRow: View {
     @ViewBuilder
     private var kebabMenu: some View {
         Menu {
-            Button("Archive", action: onArchive)
-            if task.kind == .paneCreated {
+            if verbs.archive {
+                Button("Archive", action: onArchive)
+            }
+            if verbs.delete, task.kind == .paneCreated {
                 Divider()
                 Button("Delete", role: .destructive, action: onDelete)
             }

@@ -294,6 +294,7 @@ extension Document {
         // files that READ — an unreadable one is named in `unreadableFiles`,
         // which is a different fact and must not blur into "zero verified".
         doc.provenance = partial.provenance
+        doc.ownLinesKeptInHistory = partial.provenance.ownLinesKeptInHistory
         return doc
     }
 
@@ -652,7 +653,7 @@ extension Document {
         // breadcrumbs — can ask the same question the load asked, without a
         // registry read of their own on a path a plain `tasks(filter:)` READ
         // reaches.
-        doc.localWritePermit = writePermit
+        doc.stamp(localWritePermit: writePermit)
         // P3a Task 6: and the same for the OTHER direction — not what this
         // device may write, but which of the amendments already in the log this
         // derivation honours. Resolved here because the table `localWritePermit`
@@ -673,6 +674,7 @@ extension Document {
         // document; `EditorHost` is what tells the pane to look, once a window
         // exists for it to look in.
         doc.provenance = loaded.provenance
+        doc.ownLinesKeptInHistory = loaded.provenance.ownLinesKeptInHistory
         // P3b Task 7: and which of the holders it is counting opened a piece
         // nobody has claimed — the one held line the writer can answer today.
         doc.startedAPiece = amendmentPermits.whoStartedAPiece

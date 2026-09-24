@@ -84,6 +84,79 @@ struct TranslationRoundActions {
         = { _, _, _ in .refused(TranslationRoundReport.notWired) }
 }
 
+// MARK: - What the posture lets a translation surface offer (P3c Task 8)
+
+/// **Which of the author's verbs on a translation a surface may draw** — a pure
+/// decision over two postures (controller ruling Q): the round's DOCUMENT, where
+/// a disposition on a translator's query settles a note, and the edition's
+/// BRIEF, where a ruling is filed. Shared by the round report and the
+/// translation review pane, so the two surfaces cannot disagree about who may
+/// answer a translator. Hidden, never disabled: each verb's own door
+/// (`Document.PostureRefusal`, `RulingRefusal`) refuses a press that arrives
+/// anyway, in words.
+///
+/// These are the WRITER's acts on the writer's side of the table — a reply is
+/// her disposition, a ruling her statement — so both postures are the
+/// author's. Only the translation's own words are the translator's
+/// (`TranslationWritePipeline`), and nothing here writes one.
+struct TranslationAuthorVerbs: Equatable {
+    /// Reply / Translator's right — `.acceptOrReject` on the round's document.
+    let answer: Bool
+    /// Answer as ruling — a reply AND a ruling in the edition brief.
+    let answerAsRuling: Bool
+    /// Make it a rule / Adopt — a ruling in the edition brief.
+    let rule: Bool
+    /// Keep mine — a translator's note, filed either in the piece's own intent
+    /// (every edition) or in the edition's brief (`TranslatorsNote.destination`),
+    /// so it is offered where EITHER home may be written (controller ruling
+    /// AF). The sheet opens on a home that may (`keepMineHome`).
+    let keepMine: Bool
+    /// Where Keep mine's sheet opens: the edition's brief where a ruling may be
+    /// filed there, else the piece's intent.
+    let keepMineOpensOnTheEdition: Bool
+    /// Reader's (or Collator's) right: a ruling, and — where the note minted a
+    /// query — the reply that settles it. Decided per row by `sideWithTheNote`.
+    private let replies: Bool
+
+    /// The P1 surface — every verb. For an unwired surface and a host with no
+    /// window's door behind it.
+    static let unrestricted = TranslationAuthorVerbs(
+        answer: true, answerAsRuling: true, rule: true, keepMine: true,
+        keepMineOpensOnTheEdition: true, replies: true)
+
+    /// No verb — a host with no window's door behind it (fails closed;
+    /// whole-branch fix wave, Minor 2).
+    static let none = TranslationAuthorVerbs(
+        answer: false, answerAsRuling: false, rule: false, keepMine: false,
+        keepMineOpensOnTheEdition: false, replies: false)
+
+    /// `pieceIntent` is the posture of the round's piece's own intent
+    /// statement — Keep mine's other home. Nil (a host that did not say)
+    /// offers Keep mine only where the edition's brief may be written: the
+    /// narrower answer, never the wider.
+    static func decide(
+        document: Posture, editionBrief: Posture, pieceIntent: Posture? = nil
+    ) -> TranslationAuthorVerbs {
+        let answer = document.allows(.acceptOrReject)
+        let rule = editionBrief.allows(.editStatement)
+        let intent = pieceIntent?.allows(.editStatement) ?? false
+        return TranslationAuthorVerbs(
+            answer: answer, answerAsRuling: answer && rule, rule: rule,
+            keepMine: rule || intent, keepMineOpensOnTheEdition: rule, replies: answer)
+    }
+
+    /// Keep mine's opening home for `language` (see `keepMineOpensOnTheEdition`).
+    func keepMineHome(language: String) -> TranslatorsNote.Home {
+        keepMineOpensOnTheEdition ? .edition(language) : .everyEdition
+    }
+
+    /// Reader's/Collator's right on a row: the ruling always, the reply only
+    /// where there is a query to settle.
+    func sideWithTheNote(hasQuery: Bool) -> Bool {
+        rule && (!hasQuery || replies)
+    }
+}
+
 /// **The nine verbs, wired to a window** (translation pipeline P4 Task 4).
 ///
 /// `ProjectWindow.designGateActions`' shape one surface over: closures rather

@@ -363,7 +363,7 @@ public enum RegistryAdmission {
         now: () -> Date = { Date() },
         presenter: NSFilePresenter? = nil
     ) throws -> PersonRecord {
-        guard registry.roots.contains(where: { $0.person == root.fingerprint }) else {
+        guard registry.holdsARootRecord(root.fingerprint) else {
             throw RegistryAdmissionError.notARoot
         }
 

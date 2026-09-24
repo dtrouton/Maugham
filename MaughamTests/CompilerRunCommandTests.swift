@@ -355,6 +355,11 @@ final class CompilerRunCommandTests: XCTestCase {
         /// default, and every test written before the position existed — reads
         /// as prose, which is what those runs were.
         projectType: ProjectType? = nil,
+        /// **May this Mac run a round here** (P3c Task 6) — the permit's
+        /// answer, which production asks of the settled posture. Yes by
+        /// default, which is every test written before the permit reached the
+        /// round loop.
+        mayRunRound: @escaping @MainActor (String) async -> Bool? = { _ in true },
         liveParagraphText: @escaping (String, String) -> String? = { _, _ in "The fog came." },
         pinnedListing: @escaping (String) -> [String] = { _ in [] },
         paletteListing: @escaping () -> [String] = { [] },
@@ -408,6 +413,7 @@ final class CompilerRunCommandTests: XCTestCase {
                     guard id == self.docId else { return nil }
                     return Self.lane(pass.value)
                 },
+                mayRunRound: mayRunRound,
                 projectType: { _ in projectType },
                 cachedWorld: { _ in cachedWorld },
                 deriveWorld: { _, _ in
@@ -3395,6 +3401,111 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertEqual(harness.minted().first?.context.editorName, "Le Guin")
     }
 
+    // MARK: - A round is the piece-writer's (P3c Task 6, plan ruling R4)
+
+    /// **A reviewer's round is refused, and the refusal is the only thing the
+    /// press does** — the `noEditor` refusal's exact shape, with its own
+    /// sentence. The piece HAS a stage, so the lane is not what refuses it:
+    /// the permit is.
+    func test_aRoundThisMacMayNotRunIsRefusedAndStartsNothing() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(oneQuestion("Whose coat?", about: "a1b2"))
+        let asked = Box<[String]>([])
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), stage: "line",
+            mayRunRound: { id in asked.value.append(id); return false })
+
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        settle(turns: 4)
+
+        XCTAssertEqual(asked.value, [docId], "the round asked, once, about its own piece")
+        XCTAssertEqual(harness.flashesSaid, [.notYourPiece],
+                       "the press is answered once, and never with a start first")
+        XCTAssertTrue(runner.sends.isEmpty, "nothing was asked of any session")
+        XCTAssertEqual(harness.runnerSpawns(), 0, "and none was spawned")
+        XCTAssertFalse(harness.orchestrator.isRunning,
+                       "the in-flight gate the question held is released")
+        XCTAssertEqual(harness.orchestrator.runState, .idle)
+        XCTAssertNil(harness.diagnostics.lastRun(docId: docId),
+                     "nothing was recorded")
+        XCTAssertNil(harness.diagnostics.lastOpId(docId: docId),
+                     "and the check's marker did not move")
+        XCTAssertTrue(harness.minted().isEmpty, "and no note was minted")
+
+        // Fresh Eyes is a round too — the same door.
+        harness.orchestrator.runRequested(docId: docId, kind: .round, freshEyes: true)
+        settle(turns: 4)
+        XCTAssertEqual(harness.flashesSaid, [.notYourPiece, .notYourPiece])
+        XCTAssertTrue(runner.sends.isEmpty)
+    }
+
+    /// **A round whose window closed while it asked is refused SILENTLY**
+    /// (whole-branch fix wave, Minor 3): `nil` is *no door behind the run*,
+    /// and *not your piece* would be the wrong sentence. It still starts
+    /// nothing and releases the in-flight gate.
+    func test_aRoundWhoseWindowClosedWhileItAskedSaysNothingAndStartsNothing() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(oneQuestion("Whose coat?", about: "a1b2"))
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), stage: "line",
+            mayRunRound: { _ in nil })
+
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        settle(turns: 4)
+
+        XCTAssertEqual(harness.flashesSaid, [], "nothing is said about a closed window")
+        XCTAssertTrue(runner.sends.isEmpty, "and nothing is asked of any session")
+        XCTAssertFalse(harness.orchestrator.isRunning)
+        XCTAssertEqual(harness.orchestrator.runState, .idle)
+    }
+
+    /// **The other direction**: the same piece, the same stage, a Mac that may
+    /// run the round — it runs, and is asked the same question first.
+    func test_aRoundThisMacMayRunStarts() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(oneQuestion("Whose coat?", about: "a1b2"))
+        let asked = Box(0)
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), stage: "line",
+            mayRunRound: { _ in asked.value += 1; return true })
+
+        harness.orchestrator.runRequested(docId: docId, kind: .round)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertEqual(asked.value, 1)
+        XCTAssertEqual(harness.flashesSaid, [.started])
+        XCTAssertEqual(harness.minted().first?.context.editorName, "Lish",
+                       "the round is the stage's, exactly as before the permit")
+    }
+
+    /// **A check is anyone's, and is never asked** (plan ruling R4): Author's
+    /// ⌘R writes unstamped notes, which is the reviewer row. A door that asked
+    /// would refuse a reviewer the one run her permit gives her.
+    func test_aCheckIsNeverAskedAndRunsForAReviewer() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = .resultText(oneQuestion("Whose coat?", about: "a1b2"))
+        let asked = Box(0)
+        let harness = try makeHarness(
+            runner: runner, reading: standingReading(), stage: "line",
+            mayRunRound: { _ in asked.value += 1; return false })
+
+        harness.orchestrator.runRequested(docId: docId, kind: .check)
+        awaitSends(1, on: runner)
+        settle()
+
+        XCTAssertEqual(asked.value, 0, "a check never reaches the round's door")
+        XCTAssertEqual(harness.flashesSaid, [.started])
+        XCTAssertEqual(harness.minted().first?.context.editorName, "Le Guin",
+                       "and it is read by the check's own reader, not a fallback")
+    }
+
+    /// The refusal's sentence names the reason and offers the reviewer row.
+    func test_theNotYourPieceSentence() {
+        XCTAssertEqual(CompilerOrchestrator.Acknowledgment.notYourPiece.flashLabel,
+                       "Not your piece \u{2014} leave a note instead.")
+    }
+
     /// **A press arriving mid-run is still "still checking", whatever the
     /// piece's lane says.** The refusal sits below the `isRunning` guard, so a
     /// second press cannot report the wrong reason for doing nothing — and, as
@@ -3814,10 +3925,10 @@ final class CompilerRunCommandTests: XCTestCase {
 
         let menu = verbs.chipMenu(
             for: "ch-1", pass: ReviewPass(id: "copyedit", name: "Copyedit"),
-            current: nil)
-        XCTAssertEqual(menu.run.title, "Run Gould\u{2019}s round",
+            current: nil, posture: .author)
+        XCTAssertEqual(menu.run?.title, "Run Gould\u{2019}s round",
                        "premise: this is the verb a reviewer would press")
-        menu.run.perform()
+        try XCTUnwrap(menu.run).perform()
 
         XCTAssertEqual(
             fx.documentStore.uiState.activePassMemory.activePass(forPiece: "ch-1"),

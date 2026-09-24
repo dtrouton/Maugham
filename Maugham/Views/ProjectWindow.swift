@@ -242,13 +242,6 @@ struct ProjectWindow: View {
     @State private var showingCheckpointLabelSheet: Bool = false
     @State private var showingBootstrapNotice: Bool = false
     @State private var currentElement: String? = nil
-    /// Resolved iCloud collaboration identity for THIS project, resolved once on
-    /// open and again on a share-change (app re-activation), then cached. Drives
-    /// both the sharing pill and — via `ReviewPosturePolicy` — the editor review
-    /// posture. `nil` until the first resolve completes (treated as `.unknown`).
-    /// Single resolve, threaded down; the pill no longer reads on its own
-    /// (consolidation, per the WF1 task).
-    @State private var collaborator: Collaborator?
     /// Control-plane model for the editor (ADR 0017). ProjectWindow is its sole
     /// posture/appearance writer; EditorHost writes the annotation set (Task 5).
     /// Threaded down to the coordinator, which observes it.
@@ -314,9 +307,12 @@ struct ProjectWindow: View {
     /// that pane — is a function of it. It has no width; a studied reference
     /// takes `detailColumnWidth`, the right column's own (spec §3.2).
     @State private var assistant = AssistantColumnModel()
-    /// Raw share snapshot kept alongside `collaborator` for the pill's hover
-    /// diagnostics (the `.help()` tooltip), so the resolver stays the single
-    /// read path.
+    /// This project's iCloud share snapshot, read once on open and again on a
+    /// share-change (app re-activation), then cached — an INDICATOR, never a
+    /// role (P3c Task 4). It drives the sharing pill, the share sheet's
+    /// eligibility, and the read-only-share lock (`shareIsReadOnly`); the
+    /// editor's review posture is the permit's (`editorMembrane`, P3c Task 3).
+    /// `nil` until the first read completes. Single read, threaded down.
     @State private var shareSnapshot: ShareMetadata?
     /// What ⌘⌥Z has to say: the reason it refused a deletion it could not
     /// return whole (RULING-40), or what a restore could not give back
@@ -411,16 +407,14 @@ struct ProjectWindow: View {
                             Task { @MainActor in
                                 let activeDoc = activeDocument(in: store, documentStore: documentStore)
                                 try? await activeDoc?.flushBurstNow()
-                                await CheckpointFlashDecision.run(projectURL: projectURL) {
-                                    _ = try await CheckpointCapture.run(
-                                        projectURL: projectURL,
-                                        activeDocId: activeDocId,
-                                        allDocIds: allDocIds,
-                                        device: _checkpointDeviceId,
-                                        session: _checkpointSessionId,
-                                        label: label,
-                                        activeDocument: activeDoc)
-                                }
+                                await CheckpointFlashDecision.labelled(
+                                    label, projectURL: projectURL,
+                                    activeDocId: activeDocId, allDocIds: allDocIds,
+                                    device: _checkpointDeviceId,
+                                    session: _checkpointSessionId,
+                                    activeDocument: activeDoc,
+                                    posture: { await documentStore.settledPosture(forDocId: $0) },
+                                    flash: { showSaveFlash() })
                             }
                         },
                         onCancel: { showingCheckpointLabelSheet = false }
@@ -679,21 +673,22 @@ struct ProjectWindow: View {
         .sheet(isPresented: $showingSyntaxHelp) {
             SyntaxHelpSheet(mode: currentSyntaxHelpMode)
         }
-        // Resolve the iCloud collaboration role ONCE per project URL (and again
-        // on app re-activation — a pragmatic "the user may have just accepted a
+        // Read the iCloud share snapshot ONCE per project URL (and again on
+        // app re-activation — a pragmatic "the user may have just accepted a
         // share in Finder" trigger). Reads off the main actor's critical path;
         // the result is cached in @State and threaded one-way to the editor and
         // the pill. Never polled / per-render.
-        .task(id: url) { await resolveCollaborator() }
+        .task(id: url) { await readShareSnapshot() }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await resolveCollaborator() }
+            Task { await readShareSnapshot() }
         }
         // Mirror posture + appearance into the EditorControl model (ADR 0017).
         // Extracted into a ViewModifier to stay under ProjectWindow.body's
         // SwiftUI type-checker ceiling (the extracted-ViewModifier pattern).
         .modifier(EditorControlMirrorModifier(
-            effectivePosture: effectivePosture,
+            membrane: editorMembrane,
+            posture: editorPosture,
             effectiveTypography: effectiveTypography,
             editorControl: $editorControl))
         .modifier(TranslationReviewModifier(
@@ -778,27 +773,73 @@ struct ProjectWindow: View {
                           payload: [MaughamEvent.personaKey: next.rawValue])
     }
 
-    /// Reads the share metadata for this project off the main actor and folds it
-    /// into a cached `Collaborator`. Idempotent; safe to call repeatedly.
-    private func resolveCollaborator() async {
+    /// Reads the share metadata for this project off the main actor and caches
+    /// it. Idempotent; safe to call repeatedly.
+    private func readShareSnapshot() async {
         let target = url
         let reader = shareReader
         let meta = await Task.detached(priority: .utility) {
             reader.read(for: target)
         }.value
         shareSnapshot = meta
-        collaborator = ShareIdentityMapper.resolve(meta)
     }
 
-    /// The resolved role, defaulting to `.unknown` until the first resolve lands.
-    private var resolvedRole: CollaborationRole { collaborator?.role ?? .unknown }
+    /// The manuscript document the tree names, when it names one — the
+    /// document the editor is FOR. `nil` for the project, a group, research, or
+    /// nothing, none of which has text to lock.
+    private var selectedManuscriptDocId: String? {
+        guard let store, let id = activeItemID,
+              let item = TreeWalk.find(id: id, in: store.manifest.structure),
+              item.type == .document else { return nil }
+        return id
+    }
 
-    /// Effective review posture: combines the resolved role with the manual
-    /// ⌘⌥⇧R toggle. `lockEditing` is the hard floor — a reviewer/unknown is locked
-    /// regardless of the toggle, so the manual flag can never unlock the text.
-    private var effectivePosture: ReviewPosturePolicy.Effective {
-        ReviewPosturePolicy.effective(
-            role: resolvedRole, manualReview: isReviewModeOn)
+    /// **The editor's membrane, asked of the posture** (P3c Task 3). The
+    /// DRAWING accessor (controller ruling I): reading it observes
+    /// `postureEpoch`, so a demotion or a promotion arriving mid-session
+    /// re-mirrors with no reopen. The rule itself is
+    /// `EditorControlMirror.membrane`, pinned without a window.
+    private var editorMembrane: EditorControlMirror.Membrane {
+        EditorControlMirror.membrane(
+            posture: editorPosture,
+            manualReview: isReviewModeOn,
+            shareIsReadOnly: Self.shareIsReadOnly(shareSnapshot))
+    }
+
+    /// The drawing posture of the manuscript document in the editor, nil where
+    /// none is — the membrane's input, and (P3c Task 5) the margin card's,
+    /// mirrored to `EditorControl.posture`.
+    private var editorPosture: Posture? {
+        selectedManuscriptDocId.flatMap { id in documentStore?.posture(forDocId: id) }
+    }
+
+    /// **The drawing posture of any document this window names** (P3c Task
+    /// 6) — for a surface that is about a piece other than the editor's: the
+    /// inspectors' pass ladders, the board's chips. The drawing door, so it
+    /// observes `postureEpoch`. `settling` — the reviewer row alone — where
+    /// there is no store yet or no document: nothing is offered that must not
+    /// be, and the ladder draws read-only for a frame at worst.
+    private func postureDrawn(forDocId docId: String?) -> Posture {
+        guard let docId, let documentStore else { return .settling }
+        return documentStore.posture(forDocId: docId)
+    }
+
+    /// The standing line over the editor, when there is a reason to name
+    /// (`PostureStandingLine.line`), for the document the centre column is
+    /// actually showing — never over the canvas, the altitude view, a research
+    /// subject or the palette wall.
+    private var postureStandingLine: PostureStandingLine.Line? {
+        guard let store, let documentStore, let id = selectedManuscriptDocId,
+              Self.showsStatusFooter(
+                persona: persona, subject: selectedSubject,
+                showsPaletteWall: showsPaletteWall,
+                structure: store.manifest.structure),
+              let item = TreeWalk.find(id: id, in: store.manifest.structure)
+        else { return nil }
+        return PostureStandingLine.line(
+            for: documentStore.posture(forDocId: id), title: item.title, docId: id,
+            ownLinesKeptInHistory:
+                documentStore.document(forDocId: id)?.ownLinesKeptInHistory ?? 0)
     }
 
     /// The typography the editor actually uses — manifest override else user
@@ -811,12 +852,15 @@ struct ProjectWindow: View {
             userDefault: userPreferences.typography)
     }
 
-    /// True when the resolved identity is a reviewer on a READ-ONLY iCloud
-    /// share: they cannot append annotation ops, so the editor surfaces a clear
-    /// "ask the owner for edit access" notice rather than failing silently.
-    private var isViewOnlyReviewer: Bool {
-        guard let c = collaborator else { return false }
-        return c.role == .reviewer && c.canWrite == false
+    /// **True when iCloud grants this user READ-ONLY access to the share** —
+    /// an OS-level lock that claims no role (P3c Task 4). Such a user cannot
+    /// write into the folder at all, not even an annotation op, so the editor
+    /// locks and `ViewOnlyShareNotice` says "ask the owner for edit access"
+    /// rather than letting a comment fail silently. Only an explicit
+    /// `canWrite == false` locks: an unresolved grant (`nil`) or an unshared
+    /// project never does. Derived from the snapshot alone, never from a role.
+    nonisolated static func shareIsReadOnly(_ snapshot: ShareMetadata?) -> Bool {
+        snapshot?.isShared == true && snapshot?.canWrite == false
     }
 
     private var preferredColorScheme: ColorScheme? {
@@ -1194,9 +1238,13 @@ struct ProjectWindow: View {
 
         func body(content: Content) -> some View {
             content
+                // The File menu's enabled state (ruling X), published by the
+                // modifier that receives the three items.
+                .focusedSceneValue(\.mayStartAPiece, StartAPieceDoor.drawn(store: store))
                 .onKeyWindowCommand(.maughamAddLoosePiece, window: window) { _ in
                     guard let store, store.manifest.type == .collection else { return }
                     Task {
+                        guard await StartAPieceDoor.admits(store: store) else { return }
                         let piece = try? await store.addLoosePiece(
                             title: "Untitled Piece", mode: .prose)
                         if let piece {
@@ -1208,6 +1256,7 @@ struct ProjectWindow: View {
                 .onKeyWindowCommand(.maughamAddScreenplayPiece, window: window) { _ in
                     guard let store, store.manifest.type == .collection else { return }
                     Task {
+                        guard await StartAPieceDoor.admits(store: store) else { return }
                         let piece = try? await store.addLoosePiece(
                             title: "Untitled Screenplay", mode: .screenplay)
                         if let piece {
@@ -1218,16 +1267,19 @@ struct ProjectWindow: View {
                 }
                 .onKeyWindowCommand(.maughamLinkProject, window: window) { _ in
                     guard let store, store.manifest.type == .collection else { return }
-                    let panel = NSOpenPanel()
-                    panel.canChooseDirectories = true
-                    panel.canChooseFiles = false
-                    panel.allowsMultipleSelection = false
-                    panel.message = "Pick a Maugham project folder to link"
-                    panel.begin { response in
-                        guard response == .OK, let target = panel.url else { return }
-                        Task {
-                            let piece = try? await store.addProjectReference(targetURL: target)
-                            if let piece { selectedSubject = .item(piece.id) }
+                    Task {
+                        guard await StartAPieceDoor.admits(store: store) else { return }
+                        let panel = NSOpenPanel()
+                        panel.canChooseDirectories = true
+                        panel.canChooseFiles = false
+                        panel.allowsMultipleSelection = false
+                        panel.message = "Pick a Maugham project folder to link"
+                        panel.begin { response in
+                            guard response == .OK, let target = panel.url else { return }
+                            Task {
+                                let piece = try? await store.addProjectReference(targetURL: target)
+                                if let piece { selectedSubject = .item(piece.id) }
+                            }
                         }
                     }
                 }
@@ -1400,8 +1452,7 @@ struct ProjectWindow: View {
                             projectID: ProjectIdentifier.id(for: store.url),
                             projectURL: store.url)
                     }
-                    SharingStatusPill(
-                        collaborator: collaborator, snapshot: shareSnapshot)
+                    SharingStatusPill(snapshot: shareSnapshot)
                 }
                 .padding(.top, 8)
                 .padding(.trailing, 12)
@@ -1431,19 +1482,26 @@ struct ProjectWindow: View {
                 }
             }
             .safeAreaInset(edge: .top) {
-                // Reflect the EFFECTIVE posture, not just the manual toggle: a
-                // reviewer (or still-resolving unknown) always shows REVIEWING;
-                // an author shows it only when they manually entered review.
-                if effectivePosture.isReviewMode {
-                    ReviewModeIndicator(
-                        collaboratorName: userPreferences.collaboratorDisplayName)
+                // **Why the words are not hers** (P3c Task 3) — the posture's
+                // own reason, one sentence, over the editor. The manual ⌘⌥⇧R
+                // review keeps its own pill, which names no role: a role is the
+                // permit's, and the standing line is where it is said.
+                VStack(spacing: 0) {
+                    if let line = postureStandingLine {
+                        PostureStandingLineView(
+                            line: line, documentStore: documentStore)
+                    }
+                    if isReviewModeOn {
+                        ReviewModeIndicator(
+                            collaboratorName: userPreferences.collaboratorDisplayName)
+                    }
                 }
             }
             .safeAreaInset(edge: .top) {
-                // Read-only trap: an iCloud reviewer on a VIEW-ONLY share cannot
+                // Read-only trap: a user on a VIEW-ONLY iCloud share cannot
                 // append annotation ops at all. Surface that loudly rather than
                 // letting a comment attempt fail silently.
-                if isViewOnlyReviewer {
+                if Self.shareIsReadOnly(shareSnapshot) {
                     ViewOnlyShareNotice()
                 }
             }
@@ -2056,10 +2114,11 @@ struct ProjectWindow: View {
                 wikiLinkClickResolver: { title in
                     store.resolveDocumentId(forTitle: title)
                 },
-                // Role-driven posture flows entirely through the EditorControl
-                // model (ADR 0017): an author's manual ⌘⌥⇧R drives the render; a
-                // reviewer/unknown is FORCED into review render AND hard-locked
-                // (lockEditing) via `effectivePosture` mirrored into the control.
+                // Posture flows entirely through the EditorControl model (ADR
+                // 0017): an author's manual ⌘⌥⇧R drives the render; a document
+                // whose posture refuses the text is FORCED into review render
+                // AND hard-locked (lockEditing) via `editorMembrane` mirrored
+                // into the control (P3c Task 3).
                 control: editorControl,
                 // M3 P2 Task 8: a note written from the margin carries the pass
                 // this piece is being reviewed through.
@@ -2172,7 +2231,11 @@ struct ProjectWindow: View {
                         recordActivePass(forPiece: pieceId, passId: passId)
                         selectedSubject = .item(pieceId)
                         runRoundWhenPieceOpens(pieceId: pieceId)
-                    })
+                    },
+                    // **Each chip asks its own piece** (P3c Task 6): the
+                    // drawing door, per row, so a demotion re-renders the
+                    // board with no reopen.
+                    posture: { postureDrawn(forDocId: $0) })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color(nsColor: .windowBackgroundColor))
                     // The counts are read HERE and never in the board's body:
@@ -3258,7 +3321,8 @@ struct ProjectWindow: View {
                     store: store,
                     selectedItemId: activeItemID,
                     metrics: metrics,
-                    onOpenProjectSettings: openProjectSettings)
+                    onOpenProjectSettings: openProjectSettings,
+                    posture: postureDrawn(forDocId: activeItemID))
             }
         }
     }
@@ -3288,9 +3352,11 @@ struct ProjectWindow: View {
                 ReferencePieceInspector(store: store, pieceId: id)
             case .loose, .none:
                 if let path = piece.path, path.hasSuffix(".fountain") {
-                    PieceInspector(store: store, pieceId: id, kind: .screenplay)
+                    PieceInspector(store: store, pieceId: id, kind: .screenplay,
+                                   posture: postureDrawn(forDocId: id))
                 } else {
-                    PieceInspector(store: store, pieceId: id, kind: .prose)
+                    PieceInspector(store: store, pieceId: id, kind: .prose,
+                                   posture: postureDrawn(forDocId: id))
                 }
             }
         } else {
@@ -4218,10 +4284,44 @@ enum CheckpointFlashDecision {
         do {
             try await capture()
             onSuccess()
+        } catch CheckpointRefusal.notYourText {
+            // **⌘S always flashes** (P3c Task 3, plan ruling R5): the refusal
+            // wrote NOTHING — no op, no entry — by design, so it is not a
+            // failure to explain. Exactly this refusal and no other error.
+            onSuccess()
         } catch {
             MaughamEvent.postNotice(
                 "Couldn’t save a checkpoint — \(error.localizedDescription)",
                 projectURL: projectURL)
+        }
+    }
+}
+
+extension CheckpointFlashDecision {
+    /// **⇧⌘S's Confirm** — the labelled checkpoint, through the same honest
+    /// decision ⌘S takes, and flashing as ⌘S does (P3c Task 3 fix round 1).
+    /// The sheet only opens where the posture allowed a checkpoint; a demotion
+    /// arriving between opening it and Confirm reaches the capture's door,
+    /// which writes NOTHING, and the flash still fires — ⌘S always flashes.
+    /// Any other error posts its notice and does not flash. A free function so
+    /// the Confirm path is pinned without mounting the sheet (tripwire 33).
+    @MainActor
+    static func labelled(
+        _ label: String, projectURL: URL, activeDocId: String, allDocIds: [String],
+        device: String, session: String, activeDocument: Document?,
+        posture: @escaping @MainActor (String) async -> Posture,
+        flash: () -> Void
+    ) async {
+        await run(projectURL: projectURL, onSuccess: flash) {
+            _ = try await CheckpointCapture.run(
+                projectURL: projectURL,
+                activeDocId: activeDocId,
+                allDocIds: allDocIds,
+                device: device,
+                session: session,
+                label: label,
+                activeDocument: activeDocument,
+                posture: posture)
         }
     }
 }
@@ -4273,7 +4373,8 @@ private struct CheckpointModifier: ViewModifier {
                             device: _checkpointDeviceId,
                             session: _checkpointSessionId,
                             label: nil,
-                            activeDocument: activeDoc)
+                            activeDocument: activeDoc,
+                            posture: { await documentStore.settledPosture(forDocId: $0) })
                     }
                     // Runs regardless of whether the checkpoint above landed —
                     // CheckpointFlashDecision.run catches its own throw rather
@@ -4289,8 +4390,25 @@ private struct CheckpointModifier: ViewModifier {
                 }
             }
             .onKeyWindowCommand(.maughamNamedCheckpoint, window: window) { _ in
-                guard store != nil else { return }
-                showingCheckpointLabelSheet = true
+                guard let store, let documentStore else { return }
+                let allDocIds = ProjectWindow.documentIds(in: store.manifest.structure)
+                // **⇧⌘S over text this Mac may not change says why instead of
+                // opening** (plan ruling R5). An ACTING decision — the sheet is
+                // the first half of a write — so it asks the settled door.
+                guard let subject = CheckpointCapture.documentSubject(
+                    of: activeDocId, in: allDocIds) else {
+                    showingCheckpointLabelSheet = true
+                    return
+                }
+                Task { @MainActor in
+                    let posture = await documentStore.settledPosture(forDocId: subject)
+                    if posture.allows(.checkpoint) {
+                        showingCheckpointLabelSheet = true
+                    } else {
+                        MaughamEvent.postNotice(
+                            PostureStandingLine.checkpointRefusal, projectURL: store.url)
+                    }
+                }
             }
             .modifier(RewindModifier(
                 documentStore: documentStore,
@@ -4444,10 +4562,22 @@ private struct RewindModifier: ViewModifier {
                             // reports what the restore actually did, and a
                             // `.nearest` resolution carries Revert right in the
                             // notice (RULING-27, the clause Denver added).
-                            guard let result = try? await documentStore
-                                .document(forDocId: docId)?
-                                .restoreToOpUndoable(opId: opId, undoManager: um)
-                            else { return }
+                            let result: RewindRestoreResult
+                            do {
+                                guard let restored = try await documentStore
+                                    .document(forDocId: docId)?
+                                    .restoreToOpUndoable(opId: opId, undoManager: um)
+                                else { return }
+                                result = restored
+                            } catch is Document.PostureRefusal {
+                                // The restore door refused (C1): a sheet drawn
+                                // before a demotion landed. Said, not swallowed.
+                                restoreToast = RewindWindow.refusedRestoreSentence
+                                restoreToastOffersRevert = false
+                                return
+                            } catch {
+                                return
+                            }
                             restoreToast = RewindImpact.toast(for: result)
                             // Revert is the surfaced undo — offered only when
                             // the restore actually registered one. A .nearest
@@ -4838,21 +4968,60 @@ private struct ParagraphNavModifier: ViewModifier {
     }
 }
 
+/// **The editor's membrane, decided from the posture** (P3c Task 3) — pure, so
+/// both directions are pinned without a window (`ReviewModeMembraneTests`).
+///
+/// - `lockEditing` is the hard floor: the posture refuses `.writeText`, or the
+///   iCloud share is read-only (an OS-level lock that claims no role).
+/// - `isReviewMode` is the manual ⌘⌥⇧R toggle, or forced on where the posture
+///   refuses the text — a reviewer's Mac opens in review mode, so the
+///   selection toolbar offers annotation.
+///
+/// Keyed on `allows(.writeText)`, never on `isRestricted` (controller ruling
+/// E): an author of some pieces inside her own piece is restricted (she may
+/// not start a piece) and may type every word of it. `Posture.settling` —
+/// nothing decided yet — refuses `.writeText`, so it LOCKS: a verb appearing a
+/// frame late is fine, one appearing that must not is not. `nil` is no
+/// manuscript document in the editor: nothing to lock.
+enum EditorControlMirror {
+    struct Membrane: Equatable {
+        let lockEditing: Bool
+        let isReviewMode: Bool
+    }
+
+    static func membrane(
+        posture: Posture?, manualReview: Bool, shareIsReadOnly: Bool
+    ) -> Membrane {
+        let mayWrite = posture?.allows(.writeText) ?? true
+        return Membrane(
+            lockEditing: !mayWrite || shareIsReadOnly,
+            isReviewMode: manualReview || !mayWrite)
+    }
+}
+
 /// Mirrors posture + appearance changes from ProjectWindow-owned sources into
 /// the `EditorControl` model (ADR 0017). Extracted into a ViewModifier to stay
 /// under ProjectWindow.body's SwiftUI type-checker ceiling.
 private struct EditorControlMirrorModifier: ViewModifier {
-    let effectivePosture: ReviewPosturePolicy.Effective
+    /// Computed in `ProjectWindow`'s body from the drawing posture door, so a
+    /// selection change AND a `postureEpoch` bump both arrive here as a change
+    /// of this value.
+    let membrane: EditorControlMirror.Membrane
+    /// The same door's answer, whole, for the margin card's dispositions
+    /// (P3c Task 5) — mirrored beside the membrane rather than folded into it,
+    /// because the membrane is the pinned lock decision and nothing more.
+    let posture: Posture?
     let effectiveTypography: TypographySettings
     @Binding var editorControl: EditorControl
     @Environment(UserPreferences.self) private var userPreferences
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: effectivePosture) { _, posture in
-                editorControl.isReviewMode = posture.isReviewMode
-                editorControl.lockEditing = posture.lockEditing
+            .onChange(of: membrane) { _, membrane in
+                editorControl.isReviewMode = membrane.isReviewMode
+                editorControl.lockEditing = membrane.lockEditing
             }
+            .onChange(of: posture) { _, posture in editorControl.posture = posture }
             .onChange(of: userPreferences.theme) { _, t in editorControl.theme = t }
             .onChange(of: effectiveTypography) { _, t in editorControl.typography = t }
             .onChange(of: userPreferences.typewriterScroll) { _, v in
@@ -4867,8 +5036,9 @@ private struct EditorControlMirrorModifier: ViewModifier {
             .onAppear {
                 // Seed the model from current sources (onChange only fires on
                 // transitions, not on first render).
-                editorControl.isReviewMode = effectivePosture.isReviewMode
-                editorControl.lockEditing = effectivePosture.lockEditing
+                editorControl.isReviewMode = membrane.isReviewMode
+                editorControl.lockEditing = membrane.lockEditing
+                editorControl.posture = posture
                 editorControl.theme = userPreferences.theme
                 editorControl.typography = effectiveTypography
                 editorControl.typewriterScroll = userPreferences.typewriterScroll

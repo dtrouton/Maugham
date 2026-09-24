@@ -226,6 +226,18 @@ extension CompilerOrchestrator.Environment {
                     editorName: stage.effectiveEditorName,
                     brief: stage.effectiveBrief)
             },
+            // **May this Mac run a round here** (P3c Task 6, plan ruling R4):
+            // the SETTLED posture's answer — an acting door (controller ruling
+            // I), so never the drawing door's provisional one, which in the
+            // frames after a demotion is still the answer it gave before it
+            // (`PostureSurfaceTests.test_theRoundDoorRefusesADemotionBefore…`).
+            // A closed window answers nil: there is nothing to run a round in,
+            // and *not your piece* would be the wrong thing to say about it.
+            mayRunRound: { [weak documentStore] docId in
+                guard let documentStore else { return nil }
+                return await documentStore.settledPosture(forDocId: docId)
+                    .allows(.runRound)
+            },
             // **The project's own type**, for the letter's scene position
             // (spec §3.4). `ProjectManifest.type` — the same field
             // `ResearchScope`'s routing asks of it — read weakly like every

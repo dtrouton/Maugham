@@ -267,13 +267,13 @@ final class ReviewBoardPaneTests: XCTestCase {
         // customized manifest stores: the title must still say "Gould", which
         // it can only do through `effectiveEditorName`.
         let stored = ReviewPass(id: "copyedit", name: "Copyedit")
-        let menu = verbs.chipMenu(for: "ch1", pass: stored, current: nil)
+        let menu = verbs.chipMenu(for: "ch1", pass: stored, current: nil, posture: .author)
 
-        XCTAssertEqual(menu.run.title, "Run Gould\u{2019}s round",
+        XCTAssertEqual(menu.run?.title, "Run Gould\u{2019}s round",
                        "the round is offered by the name of the editor who "
                        + "reads it \u{2014} `effectiveEditorName`, never the "
                        + "raw stored field")
-        XCTAssertEqual(menu.run.title,
+        XCTAssertEqual(menu.run?.title,
                        RoundNarrative.runRoundTitle(editorName: "Gould"),
                        "\u{2026}and through the ONE spelling the cockpit's "
                        + "empty state reads, so the two surfaces cannot drift")
@@ -284,17 +284,19 @@ final class ReviewBoardPaneTests: XCTestCase {
     /// "Run Beta Read's round" rather than naming a person who does not exist.
     func test_theRoundVerbNamesAWriterOwnPassByItsOwnName() {
         let menu = verbs.chipMenu(
-            for: "ch1", pass: ReviewPass(id: "beta", name: "Beta Read"), current: nil)
-        XCTAssertEqual(menu.run.title, "Run Beta Read\u{2019}s round")
+            for: "ch1", pass: ReviewPass(id: "beta", name: "Beta Read"), current: nil,
+            posture: .author)
+        XCTAssertEqual(menu.run?.title, "Run Beta Read\u{2019}s round")
     }
 
     /// **The round verb carries its own cell's two ids**, exactly as the four
     /// state verbs do — asked about the second piece's non-first pass so
     /// neither id could be the first of anything.
-    func test_theRoundVerbCarriesItsOwnCell() {
+    func test_theRoundVerbCarriesItsOwnCell() throws {
         let menu = verbs.chipMenu(
-            for: "ch2", pass: ReviewPass(id: "line", name: "Line"), current: .inProgress)
-        menu.run.perform()
+            for: "ch2", pass: ReviewPass(id: "line", name: "Line"), current: .inProgress,
+            posture: .author)
+        try XCTUnwrap(menu.run).perform()
 
         XCTAssertEqual(calls.runs, [BoardClick(piece: "ch2", pass: "line")],
                        "the round runs on the cell it was drawn in")
@@ -310,8 +312,9 @@ final class ReviewBoardPaneTests: XCTestCase {
     func test_everyStateStillOffersItsRound() {
         for current in ReviewBoardChipVerbs.offeredStates + [.unknown("hyphenated")] {
             let menu = verbs.chipMenu(
-                for: "ch1", pass: ReviewPass(id: "line", name: "Line"), current: current)
-            XCTAssertEqual(menu.run.title, "Run Lish\u{2019}s round",
+                for: "ch1", pass: ReviewPass(id: "line", name: "Line"), current: current,
+                posture: .author)
+            XCTAssertEqual(menu.run?.title, "Run Lish\u{2019}s round",
                            "\(String(describing: current)) must still offer its "
                            + "round")
         }
@@ -323,7 +326,7 @@ final class ReviewBoardPaneTests: XCTestCase {
     /// disagree with the one every other test in this section drives.
     func test_theRulingsBesideTheRoundAreTheSameFourVerbsAsEver() {
         let pass = ReviewPass(id: "line", name: "Line")
-        let menu = verbs.chipMenu(for: "ch1", pass: pass, current: .done)
+        let menu = verbs.chipMenu(for: "ch1", pass: pass, current: .done, posture: .author)
         let items = verbs.chipMenuItems(for: "ch1", passId: pass.id, current: .done)
 
         XCTAssertEqual(menu.states.map(\.title), items.map(\.title))
@@ -924,10 +927,15 @@ final class ReviewBoardPaneTests: XCTestCase {
             "the chip must still be a readable declaration for this census to "
             + "have a subject")
 
-        XCTAssertTrue(chip.contains("chipMenu(for: item.id, pass: pass, current: state)"),
+        XCTAssertTrue(chip.contains("chipMenu(for: item.id, pass: pass, current: state,"),
                       "the drawn menu must come from the factory the tests "
                       + "drive, asked about THIS cell. Got:\n\(chip)")
-        XCTAssertTrue(chip.contains("menu.run.perform()"),
+        // P3c Task 6: …and under THIS row's posture, never the window's.
+        XCTAssertTrue(chip.contains("posture: posture(item.id))"),
+                      "the drawn menu must be asked under the posture of the "
+                      + "cell's own piece. Got:\n\(chip)")
+        XCTAssertTrue(chip.contains("if let run = menu.run")
+                      && chip.contains("run.perform()"),
                       "\u{2026}and the first item must perform the run verb, or "
                       + "`test_theRoundVerbCarriesItsOwnCell` proves nothing "
                       + "about this control")
@@ -1026,7 +1034,8 @@ final class ReviewBoardPaneTests: XCTestCase {
                             },
                             onRunRound: { piece, pass in
                                 calls.runs.append(BoardClick(piece: piece, pass: pass))
-                            })
+                            },
+                            posture: { _ in .author })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)),
             size: CGSize(width: width, height: 600))
         windows.append(window)

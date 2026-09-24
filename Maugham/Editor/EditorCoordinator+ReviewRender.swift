@@ -192,6 +192,10 @@ extension EditorCoordinator {
     /// so the card list updates without a review toggle.
     func performReviewCardAction(_ action: ReviewCardAction, annotationId id: String) {
         guard let mark = resolvedReviewMarks.first(where: { $0.id == id }) else { return }
+        // Belt behind the hidden button (P3c Task 5): an action the card would
+        // not draw under the current posture does nothing here either. The
+        // Document's own door is the brace.
+        guard reviewCardActions(for: mark).contains(action) else { return }
         switch action {
         case .accept:
             runReviewAction { [weak self] in await self?.reviewAcceptHandler?(id) }
@@ -235,6 +239,23 @@ extension EditorCoordinator {
         case .delete:
             confirmDeleteCard(id: id, authorName: mark.authorName)
         }
+    }
+
+    /// **The card's verbs for this mark** (P3c Task 5): its kind and ownership,
+    /// filtered by the posture the window mirrored in. The one question the
+    /// rail draws from and `performReviewCardAction` checks against.
+    func reviewCardActions(for mark: ResolvedReviewMark) -> [ReviewCardAction] {
+        ReviewCardActions.actions(
+            for: mark.kind, isOwn: mark.isOwn, posture: reviewCardPosture)
+    }
+
+    /// A new posture redraws the selected card's actions row, so a demotion
+    /// takes its dispositions away — and a promotion gives them back — while
+    /// the card is open. Self-guarded (ADR 0017 D2).
+    func updateReviewCardVerbs(for posture: Posture?) {
+        guard posture != reviewCardPosture else { return }
+        reviewCardPosture = posture
+        marginRail?.reloadCardSelection()
     }
 
     /// Stet from the margin card with the proofreader's own acknowledgement.

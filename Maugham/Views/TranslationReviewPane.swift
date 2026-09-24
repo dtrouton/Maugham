@@ -119,6 +119,11 @@ enum TranslationReviewPaneLogic {
         projectURL: URL
     ) async throws {
         guard !ids.isEmpty else { return }
+        // The translation door (P3c Task 8), asked as the key that signs: the
+        // AUTHOR's. A refusal writes nothing.
+        try TranslationWritePipeline.refuseUnlessTranslatable(
+            documentId: docId, actor: .author, identities: identities,
+            deviceState: deviceState, projectURL: projectURL)
         let records = ids.map {
             TranslationRecord(paragraphId: $0, language: language, text: nil,
                               sourceHash: TranslationHash.hash(""))
@@ -127,6 +132,31 @@ enum TranslationReviewPaneLogic {
             records, forDocId: docId, language: language,
             identity: identities.author, identities: identities,
             state: deviceState, in: projectURL)
+    }
+
+    /// **A reply to a translator's query, whose refusal is SAID** (P3c Task 8,
+    /// controller ruling Q). The pane used to hand this to a bare `try?`, so a
+    /// reply the `Document`'s door refused (`PostureRefusal` — this Mac may no
+    /// longer answer notes in this piece) closed the sheet as if it had landed.
+    /// Now the refusal's own sentence goes to the window's notice channel and
+    /// comes back to the caller; nil means the reply was filed.
+    @MainActor
+    @discardableResult
+    static func reply(
+        to annotationId: String, with reply: String, in document: Document,
+        undoManager: UndoManager?
+    ) async -> String? {
+        do {
+            try await document.acceptAnnotation(
+                id: annotationId, userResponse: reply, undoManager: undoManager)
+            return nil
+        } catch {
+            let sentence = error.localizedDescription
+            translationPaneLog.warning(
+                "translator-query reply refused: \(sentence, privacy: .public)")
+            MaughamEvent.postNotice(sentence, projectURL: document.opStore.projectURL)
+            return sentence
+        }
     }
 }
 
@@ -223,6 +253,33 @@ struct TranslationReviewPane: View {
             all, language: control.translationLanguage)
     }
 
+    /// **The author's verbs here, from the window's posture door** (P3c Task
+    /// 8, ruling Q) — `TranslationAuthorVerbs`, the round report's own
+    /// decision, so the two surfaces answer a translator alike. With no
+    /// window's door behind the pane, NO verb (fails closed; whole-branch fix
+    /// wave, Minor 2). With no translation language, the pane shows no
+    /// translation and these verbs are asked of nothing.
+    private var authorVerbs: TranslationAuthorVerbs {
+        guard let documentStore else { return .none }
+        guard let language = control.translationLanguage else { return .unrestricted }
+        return TranslationAuthorVerbs.decide(
+            document: documentStore.posture(forDocId: document.docId),
+            editionBrief: documentStore.posture(
+                ofStatement: .editionBrief(language), scope: .project,
+                statements: store.manifest.statements),
+            pieceIntent: documentStore.posture(
+                ofStatement: .intent, scope: .document(document.docId),
+                statements: store.manifest.statements))
+    }
+
+    /// **Removing an orphan writes a translation record under the WRITER's key**
+    /// (`purgeOrphans` signs as the author — her decision, not the pipeline's),
+    /// so it asks the author's `.translate`: the same question the reader
+    /// asks of that line.
+    private var mayPurgeOrphans: Bool {
+        documentStore?.posture(forDocId: document.docId).allows(.translate) ?? true
+    }
+
     private var orphanRows: [TranslationReviewPaneLogic.OrphanRow] {
         TranslationReviewPaneLogic.orphanRows(from: control.translationBadges.orphans)
     }
@@ -267,8 +324,11 @@ struct TranslationReviewPane: View {
         .sheet(item: $spotCheckSheet) { sheet in spotCheckSheetBody(sheet) }
         .sheet(item: $querySheet) { ann in
             TranslationQueryReplySheet(annotation: ann) { reply in
-                Task { try? await document.acceptAnnotation(
-                    id: ann.id, userResponse: reply, undoManager: undoManager) }
+                // Refused loudly, never swallowed (P3c Task 8, ruling Q).
+                Task {
+                    await TranslationReviewPaneLogic.reply(
+                        to: ann.id, with: reply, in: document, undoManager: undoManager)
+                }
                 querySheet = nil
             } onCancel: { querySheet = nil }
         }
@@ -427,6 +487,7 @@ struct TranslationReviewPane: View {
                         row: row,
                         isExpanded: false,
                         isSettled: settledSpotCheckDepartures.contains(row.id),
+                        verbs: authorVerbs,
                         onFine: { dismissedDepartures.insert(row.id) },
                         onKeepMine: {
                             spotCheckSheet = .keepMine(
@@ -593,7 +654,7 @@ struct TranslationReviewPane: View {
                 },
                 onCancel: { spotCheckSheet = nil },
                 seed: seed,
-                defaultHome: .edition(language))
+                defaultHome: authorVerbs.keepMineHome(language: language))
         case .makeRule(let id, let seed):
             RoundRuleSheet(
                 seed: seed, language: language,
@@ -667,6 +728,7 @@ struct TranslationReviewPane: View {
                 ForEach(openQueries) { ann in
                     TranslationQueryRow(
                         annotation: ann,
+                        verbs: authorVerbs,
                         onReply: { querySheet = ann },
                         onAnswerAsRuling: { rulingSheet = ann })
                     Divider()
@@ -685,11 +747,15 @@ struct TranslationReviewPane: View {
                     .font(.caption.smallCaps())
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("Remove All") { purgeOrphans(orphanRows.map(\.id)) }
-                    .controlSize(.small)
+                // The rows still read for a Mac that may not remove them; only
+                // the verbs are hidden (P3c Task 8).
+                if mayPurgeOrphans {
+                    Button("Remove All") { purgeOrphans(orphanRows.map(\.id)) }
+                        .controlSize(.small)
+                }
             }
             ForEach(orphanRows) { row in
-                OrphanRowView(row: row) { purgeOrphans([row.id]) }
+                OrphanRowView(row: row, onRemove: mayPurgeOrphans ? { purgeOrphans([row.id]) } : nil)
                 Divider()
             }
         }
@@ -732,7 +798,8 @@ struct TranslationReviewPane: View {
 /// `TranslationReviewPane.purgeOrphans`).
 private struct OrphanRowView: View {
     let row: TranslationReviewPaneLogic.OrphanRow
-    let onRemove: () -> Void
+    /// nil hides Remove (P3c Task 8).
+    let onRemove: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -743,10 +810,12 @@ private struct OrphanRowView: View {
                 .font(.callout)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
-            HStack {
-                Spacer()
-                Button("Remove", action: onRemove)
-                    .controlSize(.small)
+            if let onRemove {
+                HStack {
+                    Spacer()
+                    Button("Remove", action: onRemove)
+                        .controlSize(.small)
+                }
             }
         }
     }
@@ -763,6 +832,8 @@ private struct OrphanRowView: View {
 /// an answer with nowhere to put it.
 private struct TranslationQueryRow: View {
     let annotation: Annotation
+    /// What this Mac may answer (P3c Task 8) — hidden, never greyed.
+    let verbs: TranslationAuthorVerbs
     let onReply: () -> Void
     let onAnswerAsRuling: () -> Void
 
@@ -774,13 +845,15 @@ private struct TranslationQueryRow: View {
                 .textSelection(.enabled)
             HStack {
                 Spacer()
-                if QueryRuling.offersARuling(annotation) {
+                if verbs.answerAsRuling, QueryRuling.offersARuling(annotation) {
                     Button("Answer as ruling\u{2026}", action: onAnswerAsRuling)
                         .controlSize(.small)
                         .help("A dated ruling in the edition brief, and your reply here")
                 }
-                Button("Reply", action: onReply)
-                    .controlSize(.small)
+                if verbs.answer {
+                    Button("Reply", action: onReply)
+                        .controlSize(.small)
+                }
             }
         }
     }

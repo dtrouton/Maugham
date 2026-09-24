@@ -57,7 +57,7 @@ private struct DetailColumnCensusHarness: View {
                 InspectorView(store: store, selectedItemId: probe.subject?.itemID,
                               metrics: EditorMetrics(wordCount: 0, characterCount: 0,
                                                    readingMinutes: 0),
-                              onOpenProjectSettings: {})
+                              onOpenProjectSettings: {}, posture: .author)
             }
             .navigationSplitViewColumnWidth(
                 ProjectWindow.effectiveDetailColumnWidth(

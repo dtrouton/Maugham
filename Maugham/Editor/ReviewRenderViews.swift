@@ -559,7 +559,8 @@ final class ReviewMarginRailView: NSView {
 
     /// Tear down + rebuild the actions row for the current selection. The row is
     /// a plain NSStackView of small NSButtons (NOT an NSPopover — tripwire 7),
-    /// one per `ReviewCardActions.actions(for:isOwn:)`, gated by kind + ownership.
+    /// one per `EditorCoordinator.reviewCardActions(for:)`, gated by kind,
+    /// ownership and the posture (P3c Task 5).
     private func rebuildActionsRow() {
         actionsRow?.removeFromSuperview()
         actionsRow = nil
@@ -568,7 +569,7 @@ final class ReviewMarginRailView: NSView {
               let mark = coordinator.resolvedReviewMarks.first(where: { $0.id == selectedId })
         else { return }
 
-        let actions = ReviewCardActions.actions(for: mark.kind, isOwn: mark.isOwn)
+        let actions = coordinator.reviewCardActions(for: mark)
         guard !actions.isEmpty else { return }
 
         let stack = NSStackView()

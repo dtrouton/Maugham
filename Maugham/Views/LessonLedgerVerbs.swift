@@ -369,6 +369,14 @@ struct LessonLedgerHandlers {
 
 extension LessonOffer {
 
+    /// **Whether the ledger's presses are offered at all** — `.editStatement`
+    /// of the project's lessons statement (P3c Task 7). Pure.
+    static func mayWriteTheLedger(
+        _ postureOf: (Statement.Kind, Statement.Scope) -> Posture
+    ) -> Bool {
+        postureOf(.lessons, .project).allows(.editStatement)
+    }
+
     /// **The three presses and the text they are judged against, for whichever
     /// host is drawing the letter** — `TurnClauseOffer.handler`'s shape, one
     /// verb per offer instead of one.
@@ -402,12 +410,19 @@ extension LessonOffer {
         letter: Letter, run: CompilerRun?,
         store: ProjectStore?, world: DeclaredWorldStore?,
         voice: String,
+        postureOf: (Statement.Kind, Statement.Scope) -> Posture,
         now: @escaping () -> Date = Date.init,
         onFiled: @escaping () -> Void,
         onFailure: @escaping (String?) -> Void
     ) -> LessonLedgerHandlers {
         let ledgerText = store.flatMap { LessonLedgerVerbs.ledgerText(store: $0) }
-        guard let run, let store else {
+        // **No press where this device may not write the ledger** (P3c Task
+        // 7): the ledger is a project statement, the book author's alone. The
+        // text still travels — the letter reads it to decide what it SAYS —
+        // but no Keep, no *These are all choices* and no Retire is drawn;
+        // `LetterSection` hides each on its nil. `RulingPerformer`'s door
+        // refuses a press that arrives anyway.
+        guard let run, let store, mayWriteTheLedger(postureOf) else {
             return LessonLedgerHandlers(
                 ledgerText: ledgerText, onKeepAsLesson: nil,
                 onAllChoices: nil, onRetire: nil)

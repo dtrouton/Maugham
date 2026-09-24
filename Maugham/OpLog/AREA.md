@@ -961,9 +961,9 @@ holds the fingerprint.
 ## The permit — what a person may write (P3a, [ADR 0032](../../docs/adr/0032-the-signed-op-log.md)'s P3a addendum)
 
 P2 answered *is this key somebody this book admits?* P3a answers **admitted to
-write WHAT**, and answers it where lines are read. **No surface** — nothing in
-Maugham can yet give anybody a permit (P3b), and the membrane and the phone are
-P3c's. It is **behaviour-neutral for every existing book**: no permit events ⇒
+write WHAT**, and answers it where lines are read. **No surface** in P3a —
+P3b gave the permit its controls and P3c plan 1 the Mac's posture (below); the
+phone's is P3c plan 2's. It is **behaviour-neutral for every existing book**: no permit events ⇒
 every admitted person is an author of the whole book from the start ⇒ the P2
 suite passes untouched.
 
@@ -1258,6 +1258,75 @@ name, with her live document diverging until she reloaded. Declining costs
 nothing: the piece's own author makes the same repair the next time she opens
 it, and a disagreement standing visibly is what the repair already does when a
 paragraph has drifted.
+
+**P3c Task 5 widened that guard from the automations to every caller.** Every
+disposition mutator — accept, revert, reject, stet, archive, triage, reopen —
+asks the stamp first (`requireDispositionPermitted`, or the same check inside
+`appendLifecycleOp`) and throws `Document.PostureRefusal` before it writes
+anything; the automations keep `AutomationNotPermitted`, which their two
+callers catch by type. The surfaces hide these verbs by the posture, so the
+door is what stops a stale row, a margin card drawn before a demotion, or a ⌘Z
+registered while this Mac could still write. An undo or redo refused this way
+says so (`refusingLoudly` → `UndoDecline.notPermitted`) rather than falling
+silent. Annotation creation and the writer's own note's edit and withdraw are
+not doors here: they are the reviewer row. **Known edge**: the table files
+`annotationReopen` under dispositions whatever it undoes, so a reviewer's ⌘Z of
+her OWN Delete (a reopen) is refused and said — a table question, not this
+door's. Controller ruling P moves own-note reopen onto the ownership path, in
+`Permit.swift` and `AnnotationOwnership` on both surfaces together (tripwire
+19), in P3c plan 2.
+
+**The stamp is LIVE, not a load-time snapshot** (P3c plan 1, Task 2).
+`Document.localWritePermit` is `internal private(set)`, and its one setter is
+`stamp(localWritePermit:)`: the load calls it, and so does the posture door's
+refresh (`DocumentStore+Posture.swift`) for every open document — the
+manuscript registry's AND every open statement editor's (whole-branch fix wave
+I1; a statement's `Document` is in no `DocumentStore` registry) — after every
+trust change and manifest adoption, from the same builder, over the table the
+refresh just warmed — in the same main-actor turn as the publication of the
+staged drawing answers and the epoch bump that re-renders the editor
+(controller ruling AG; fix wave Minor 1), so the stamp, the drawn answer and
+the editor's lock never disagree for a turn. So every door on this page — the disposition
+guard, `mayWriteThePendingFile`, the task door below — reads the permit as the
+last landed refresh left it: once a demotion's refresh lands her next burst is
+not signed, and a promotion gives the keyboard back, with no reopen. Until it
+lands the stamp is the old one; the ADR's P3c limits state that window. **The re-stamp keeps the
+stamp's own actor** (controller ruling J): the load stamps the AUTHOR's permit
+whoever opened the file, because what it emits on its own account is the
+author's (tripwire 38), so re-stamping as the loading actor would change what
+the stamp means.
+
+**Task ops have a door too** (P3c Task 8, `Document+Tasks.swift`).
+`appendTaskOpInternal` refuses any op whose kind the stamp refuses, and
+`archiveTask` refuses up front when either its op or — for an inline task —
+its text splice is refused, so an op is never refused while its splice lands.
+Both decline an undo out loud (`UndoDecline.taskNotPermitted`). The load's own
+anchors and the rebalance were already gated on the same question. The
+PROJECT stream's task verbs (`ProjectStore.createProjectPaneTask`/
+`archiveProjectTask`) have no door — surface-only, a stated limit in ADR 0032's
+P3c addendum.
+
+**Every manuscript writer outside the editor has a door** (P3c whole-branch fix
+wave, C1). A burst's EMISSION is deliberately not permit-guarded — the
+editor's membrane is in front of the keystroke — so every other path that
+reaches `setFullText` or a restore asks first. **A restore**
+(`restoreToOpUndoable`, `restoreToOp`, `applyRestore`) refuses in
+`requireRestorePermitted` before its undo-stack clear, before the burst flush
+and before any op, throwing `PostureRefusal`; a registered ⌘Z/⇧⌘Z it refuses is
+said (`UndoDecline.restoreNotPermitted`; the inline-archive undo's restore says
+`taskNotPermitted`). **Project Replace, the rename's wiki-link sweep and every
+statement write** ask the loaded Document's stamp (`Document.mayWriteItsText`)
+beside the store's settled posture — see `Maugham/Stores/AREA.md`. The
+population is a grep: `TripwireGrepTests.manuscriptWriterCallSites` counts
+every production call of the writing spellings by file, each entry naming its
+gate or why it needs none.
+
+**`author_collaborator_id` is decoded and never written** (P3c Task 4, spec §8,
+claim M5-AN-012). Attribution is the signing device through the registry, so
+the WF1 collaborator id on a reviewer's note is read from old logs
+(`AnnotationDeriver`) and nothing writes it: `addReviewerAnnotation` and its
+edit/withdraw siblings lost `authorId:`, and `AnnotationInverse.editRevertOp`
+lost its pass-through. See tripwire 23 below.
 
 **And what RELEASED builds wrote is judged as the author's, permanently**
 (final fix wave, W3(a)). The attribution rule above fixes what this build
@@ -1793,6 +1862,8 @@ Failure modes:
 21. **The unsigned door's decisions each have ONE home** (P3b). The narrowing predicate (`PermitTimeline.narrows`) and `UnsignedSnapshot` are spelled in the permit layer only; whether a file is unattributable AT ALL is decided in `OpLogChain` (the `unattributable:` label); the three `HeldLines.Holder` arms are BUILT in `HeldLines`; `AdmissionDecision.HeldKeyStanding` is the one *why is this held key not offered*; `Permit.permit(offering:)` is walked through by `PermitControl` alone; and `RegistryPresence` names no rung, because the admission that shows no sheet may only install the whole book. Every one fails silently and in the direction that moves words — a second answer to *is this book narrowed* holds a line here and applies it there, and a second opinion about *unattributable* keeps a file out of the photograph altogether. Censuses: `TripwireGrepTests.test_theNarrowingPredicateAndTheSnapshotAreInThePermitLayerOnly`, `test_whetherAFileIsUnattributableIsDecidedInOpLogChainOnly`, `test_theThreeHoldersAreBuiltInHeldLinesOnly`, `test_theHolderStandingClassifierIsOneFile`, `test_aSurfaceBuildsAPermitInOnePlace`, `test_theSilentAdmissionNarrowsNobody`, sharing `test_theP3bCensusesFireOnPlantedOffenders`. CLAUDE.md tripwire 49.
 
 22. **Six P3b call-site lists are ARRAYS, not numbers in prose** (P3b). `expectedStreams`, `acknowledgedLosses`, `absentStreams`, `gateOldBuildsOut`, the `currentSchemaVersion` assignments and the held-line door's one caller live in `TripwireGrepTests.countedLists` with a count per file. A builder of `expecting:` somewhere else is a sweep that does not take the acknowledgement, so a loss the writer has already put down refuses a marking verb for ever; a narrowing verb that stopped calling the gate lets a v0.40 Mac into a narrowed book. Census: `test_theP3bCountedListsAreExactlyTheNamedArrays`. CLAUDE.md tripwire 50.
+
+23. **`author_collaborator_id` is decoded and never written** (P3c Task 4). Only `Op.swift` names the `authorCollaboratorId:` label — the field, its init parameter and its decode; a read carries no colon. A second writer is a second attribution beside the signature, one nothing verifies. `TripwireGrepTests.test_theCollaboratorIdIsDecodedAndNeverWritten` + `test_theCollaboratorIdCensusFiresOnAPlantedOffender`, over `Maugham/`, `MaughamPhone/` and Core sources.
 
 - **Cross-surface contracts:** if you touch op-log/inbox filenames, ids, formats, or Fountain rendering, you may be in shared phone↔Mac territory — the reach-around tripwires will tell you. Registry: `docs/superpowers/notes/cross-surface-contracts.md`.
 

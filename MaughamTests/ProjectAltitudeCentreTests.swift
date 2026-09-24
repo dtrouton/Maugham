@@ -1274,7 +1274,8 @@ private struct AltitudeCentreProbeView: View {
             // The round (M4 P2 Task 4) is wired to the same subject: this
             // probe has no compiler, and the deferred run belongs to the
             // window's own mount.
-            onRunRound: { pieceId, _ in probe.subject = .item(pieceId) })
+            onRunRound: { pieceId, _ in probe.subject = .item(pieceId) },
+            posture: { _ in .author })
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .windowBackgroundColor))
     }

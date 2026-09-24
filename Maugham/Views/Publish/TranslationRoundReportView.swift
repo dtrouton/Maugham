@@ -55,6 +55,11 @@ struct TranslationRoundReportView: View {
     var queriesFailure: String? = nil
     let translatorName: String
     let collatorName: String
+    /// **Which of the author's verbs this Mac may draw** (P3c Task 8, controller
+    /// ruling Q), decided by the host from the round's document's and the
+    /// edition brief's postures. Required, so no host draws every verb by
+    /// forgetting to say (`.unrestricted` is the P1 surface, by name).
+    let verbs: TranslationAuthorVerbs
     var actions: TranslationRoundActions = TranslationRoundActions()
     var onClose: () -> Void = { }
     var onRoundChanged: (TranslationRound) -> Void = { _ in }
@@ -231,6 +236,7 @@ struct TranslationRoundReportView: View {
                         row: row,
                         isExpanded: expanded.contains(row.id),
                         isSettled: settled.contains(row.id),
+                        verbs: verbs,
                         onFine: { run { await actions.dismiss(round, row.id) } },
                         onKeepMine: {
                             sheet = .keepMine(rowId: row.id, paragraphId: row.paragraphId,
@@ -299,7 +305,7 @@ struct TranslationRoundReportView: View {
             }
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
-                if let annotationId = row.annotationId {
+                if let annotationId = row.annotationId, verbs.answer {
                     Button(TranslationRoundReport.translatorsRightTitle) {
                         run { await actions.translatorsRight(round, annotationId) }
                     }
@@ -319,29 +325,33 @@ struct TranslationRoundReportView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Button(row.rightVerbTitle) {
-                        run(settling: row.id) {
-                            // The row's own verb travels with the act: "Reader's
-                            // right" over a note, "Collator's right" over a
-                            // departure. It is what the settled thread records and
-                            // what the ruling's provenance names.
-                            await actions.readersRight(round, row.annotationId ?? "",
-                                                       row.paragraphId, row.text,
-                                                       row.rightVerbTitle)
+                    if verbs.sideWithTheNote(hasQuery: row.annotationId != nil) {
+                        Button(row.rightVerbTitle) {
+                            run(settling: row.id) {
+                                // The row's own verb travels with the act: "Reader's
+                                // right" over a note, "Collator's right" over a
+                                // departure. It is what the settled thread records and
+                                // what the ruling's provenance names.
+                                await actions.readersRight(round, row.annotationId ?? "",
+                                                           row.paragraphId, row.text,
+                                                           row.rightVerbTitle)
+                            }
                         }
+                        .controlSize(.small)
+                        .accessibilityLabel(
+                            TranslationRoundReport.rightLabel(id: row.id, verb: row.rightVerbTitle))
+                        .help("Side with the note. It becomes a directive on this "
+                              + "paragraph for every later round.")
                     }
-                    .controlSize(.small)
-                    .accessibilityLabel(
-                        TranslationRoundReport.rightLabel(id: row.id, verb: row.rightVerbTitle))
-                    .help("Side with the note. It becomes a directive on this "
-                          + "paragraph for every later round.")
-                    Button(TranslationRoundReport.makeRuleTitle) {
-                        sheet = .makeRule(id: row.id, seed: row.text)
+                    if verbs.rule {
+                        Button(TranslationRoundReport.makeRuleTitle) {
+                            sheet = .makeRule(id: row.id, seed: row.text)
+                        }
+                        .controlSize(.small)
+                        .accessibilityLabel(
+                            TranslationRoundReport.makeRuleLabel(disagreement: row.id))
+                        .help(DepartureRowCopy.makeRuleHelp)
                     }
-                    .controlSize(.small)
-                    .accessibilityLabel(
-                        TranslationRoundReport.makeRuleLabel(disagreement: row.id))
-                    .help(DepartureRowCopy.makeRuleHelp)
                 }
             }
         }
@@ -387,14 +397,16 @@ struct TranslationRoundReportView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
-                Button(TranslationRoundReport.answerTitle) { sheet = .answer(query) }
-                    .controlSize(.small)
-                    .accessibilityLabel(TranslationRoundReport.answerLabel(id: query.id))
-                    .help("Reply to the translator. The question leaves your queue.")
+                if verbs.answer {
+                    Button(TranslationRoundReport.answerTitle) { sheet = .answer(query) }
+                        .controlSize(.small)
+                        .accessibilityLabel(TranslationRoundReport.answerLabel(id: query.id))
+                        .help("Reply to the translator. The question leaves your queue.")
+                }
                 // The same predicate the queue and the translation pane ask, so
                 // the three surfaces cannot come to disagree about who is
                 // offered doctrine (`QueryRuling.offersARuling`).
-                if QueryRuling.offersARuling(query),
+                if verbs.answerAsRuling, QueryRuling.offersARuling(query),
                    let language = QueryRuling.language(of: query) {
                     Button(TranslationRoundReport.answerAsRulingTitle) {
                         sheet = .ruling(query, language: language)
@@ -446,13 +458,15 @@ struct TranslationRoundReportView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Button(TranslationRoundReport.adoptTitle) {
-                        run { await actions.adopt(round, row.id) }
+                    if verbs.rule {
+                        Button(TranslationRoundReport.adoptTitle) {
+                            run { await actions.adopt(round, row.id) }
+                        }
+                        .controlSize(.small)
+                        .accessibilityLabel(TranslationRoundReport.adoptLabel(index: row.id))
+                        .help("Fix this rendering for the rest of the book. Every "
+                              + "later round is briefed on it.")
                     }
-                    .controlSize(.small)
-                    .accessibilityLabel(TranslationRoundReport.adoptLabel(index: row.id))
-                    .help("Fix this rendering for the rest of the book. Every "
-                          + "later round is briefed on it.")
                     Button(TranslationRoundReport.skipTitle) {
                         run { await actions.skip(round, row.id) }
                     }
@@ -537,7 +551,7 @@ struct TranslationRoundReportView: View {
                 },
                 onCancel: { self.sheet = nil },
                 seed: seed,
-                defaultHome: .edition(round.language))
+                defaultHome: verbs.keepMineHome(language: round.language))
         case .makeRule(let id, let seed):
             RoundRuleSheet(
                 seed: seed, language: round.language,

@@ -485,7 +485,8 @@ final class StatementPaneStrataTests: XCTestCase {
         ]
         let window = TestWindow.mount(
             AnyView(RulingsStratumView(rulings: rulings, kind: .intent, scope: scope,
-                                       store: fixture.store, world: nil, liveParagraphIds: nil)),
+                                       store: fixture.store, world: nil, posture: .author,
+                                       liveParagraphIds: nil)),
             size: CGSize(width: 420, height: 300))
         bareWindows.append(window)
         pump()

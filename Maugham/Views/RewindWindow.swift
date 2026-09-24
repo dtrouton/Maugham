@@ -254,13 +254,22 @@ struct RewindWindow: View {
             }
             Spacer()
             Button("Cancel") { onComplete(.cancel) }
-            Button("Snapshot here…") { showingSnapshotPrompt = true }
-                .disabled(cursor == .now)
+            let posture = documentStore?.posture(forDocId: activeDocId)
+            if Self.offersSnapshot(posture) {
+                Button("Snapshot here…") { showingSnapshotPrompt = true }
+                    .disabled(cursor == .now)
+            }
             // RULING-37's view half: Restore is not offered when the restore
             // would change nothing — no text delta, no task window to move.
-            Button("Restore here…") { showingRestoreConfirm = true }
-                .buttonStyle(.borderedProminent)
-                .disabled(cursor == .now || !impactPreview.changesAnything)
+            // And not DRAWN where this Mac may not write the piece's text (P3c
+            // whole-branch fix wave, C1): a reviewer reads history, and the
+            // restore door (`Document.requireRestorePermitted`) stands behind
+            // this for a sheet drawn before a demotion landed.
+            if Self.offersRestore(posture) {
+                Button("Restore here…") { showingRestoreConfirm = true }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(cursor == .now || !impactPreview.changesAnything)
+            }
         }
         .padding(16)
     }
@@ -286,6 +295,26 @@ struct RewindWindow: View {
         .padding(20)
         .frame(minWidth: 380)
     }
+
+    // MARK: - Posture (P3c whole-branch fix wave, C1)
+
+    /// **Whether the window offers *Restore here…*** — only where this Mac may
+    /// write the piece's text. `nil` (no door behind the host) fails CLOSED.
+    static func offersRestore(_ posture: Posture?) -> Bool {
+        posture?.allows(.writeText) ?? false
+    }
+
+    /// **Whether it offers *Snapshot here…*** — a labelled checkpoint, which ⌘S
+    /// withholds on a piece this Mac may not write (plan ruling R5), so this
+    /// does too.
+    static func offersSnapshot(_ posture: Posture?) -> Bool {
+        posture?.allows(.checkpoint) ?? false
+    }
+
+    /// What the window says when the restore door refused a press the sheet
+    /// offered before a demotion reached it.
+    static let refusedRestoreSentence =
+        "This Mac may not change this piece's text, so it was left as it was."
 
     // MARK: - Logic
 

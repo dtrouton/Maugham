@@ -145,7 +145,11 @@ struct LetterSection: View {
     /// read (`chipRef(for:currentText:)`).
     let currentText: (String) -> String?
     let onJump: (String) -> Void
-    let onAcceptExercise: (Letter.Habit) -> Void
+    /// **`nil` hides Accept as task** (P3c Task 8, controller ruling U): the
+    /// host passes nil where this document's posture files no task. Hidden,
+    /// never disabled; `Document`'s task door refuses a press that arrives
+    /// anyway.
+    let onAcceptExercise: ((Letter.Habit) -> Void)?
     /// **`nil` hides the offer outright.** The host is what knows whether the
     /// run was in the strong form WITHOUT a clause of the writer's
     /// (`ScenePosition.strongDefault`) and whether there is anywhere to file
@@ -529,12 +533,12 @@ struct LetterSection: View {
     /// row draws nothing at all when neither stands.
     @ViewBuilder
     private func habitVerbs(_ habit: Letter.Habit, at index: Int) -> some View {
-        let exercise = habit.exercise ?? ""
+        let exercise = onAcceptExercise == nil ? "" : (habit.exercise ?? "")
         let keeps = onKeepAsLesson != nil
             && LessonOffer.keepIsOffered(habit, ledgerText: ledgerText)
         if !exercise.isEmpty || keeps {
             HStack(spacing: 8) {
-                if !exercise.isEmpty {
+                if !exercise.isEmpty, let onAcceptExercise {
                     Button(Self.acceptTitle) {
                         remember(index)
                         onAcceptExercise(habit)

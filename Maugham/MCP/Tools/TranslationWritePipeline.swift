@@ -86,6 +86,14 @@ public enum TranslationWritePipeline {
         // 1. Valid language tag.
         try validate(language: language)
 
+        // 1a. **May this device's `actor` write a translation of this piece at
+        // all?** (signed op log P3c Task 8.) Asked before anything is built or
+        // appended, so a refusal writes nothing — a line a reader would set
+        // aside is never signed in the first place.
+        try refuseUnlessTranslatable(
+            documentId: documentId, actor: actor, identities: identities,
+            deviceState: deviceState, projectURL: state.projectURL)
+
         // 2. Each entry supplies exactly one of `text` / `verbatim: true` /
         // `delete: true`.
         for e in entries {
@@ -164,5 +172,64 @@ public enum TranslationWritePipeline {
             state: deviceState, in: state.projectURL)
 
         return warnings
+    }
+
+    // MARK: - The permit (signed op log P3c Task 8)
+
+    /// **Refuse, before anything is written, a translation this device's
+    /// `actor` may not sign.**
+    ///
+    /// Judged as the ACTOR that signs the lines — `.translator` for
+    /// `write_translation` and the pipeline's ingest — never as the writer's
+    /// own hand: the actor is what the reader judges (`PermitJudge
+    /// .translation`), so a refusal here is exactly a line the next read would
+    /// have set aside. And in the class the reader CONSTRUCTS for a
+    /// translation stream — `.translation(piece:)`, whose id is the piece's
+    /// own — rather than one resolved from the manifest.
+    ///
+    /// **Built here, from the one builder** (`OpLogStore.localWritePermit`,
+    /// tripwire 46; controller ruling A): the pipeline is reached from MCP and
+    /// from the translator's ingest with a project URL and no window, and its
+    /// callers inject the identities and the device memory the lines are
+    /// signed with — the permit is asked over the SAME ones, so the key that
+    /// would sign and the key that was judged cannot come apart. A book with
+    /// no register asks nothing and answers yes.
+    static func refuseUnlessTranslatable(
+        documentId: String, actor: DeviceActor, identities: LocalIdentities,
+        deviceState: OpLogDeviceState, projectURL: URL
+    ) throws {
+        let store = OpLogStore(
+            projectURL: projectURL, presenter: nil, identities: identities,
+            state: deviceState, cache: Document.loadRegistryCache)
+        let posture = Posture(store.localWritePermit(as: actor) {
+            .translation(piece: documentId)
+        })
+        guard posture.allows(.translate) else {
+            let title = pieceTitle(documentId, in: projectURL)
+            throw MCPError.toolError(payload: .init(
+                error: "translation_not_permitted",
+                message: notPermittedSentence(title: title),
+                hint: "This Mac's part in the book does not reach that piece. "
+                    + "Nothing was written; the piece's author can translate it.",
+                fields: ["document_id": .string(documentId)]))
+        }
+    }
+
+    /// The sentence a refused translation is told in — the piece by its title
+    /// where the manifest names it, else by its id.
+    static func notPermittedSentence(title: String) -> String {
+        "This Mac may not translate \u{201C}\(title)\u{201D} \u{2014} your part in "
+            + "this book doesn\u{2019}t reach that piece, so nothing was written."
+    }
+
+    /// The piece's title from the manifest on disk, or its id.
+    private static func pieceTitle(_ documentId: String, in projectURL: URL) -> String {
+        let url = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        guard let data = try? Data(contentsOf: url),  // adr-0018-ok: project manifest JSON read for a title, not manuscript
+              let manifest = try? ProjectManifest.makeDecoder().decode(
+                ProjectManifest.self, from: data),
+              let item = TreeWalk.find(id: documentId, in: manifest.structure)
+        else { return documentId }
+        return item.title
     }
 }

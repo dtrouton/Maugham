@@ -201,7 +201,6 @@ extension Document {
                 annotationBody: body,
                 authorSourceKind: author?.sourceKind.rawValue,
                 authorDisplayName: author?.displayName,
-                authorCollaboratorId: author?.collaboratorId,
                 spanQuote: span?.quote,
                 spanPrefix: span?.prefix,
                 spanSuffix: span?.suffix,
@@ -261,8 +260,13 @@ extension Document {
 
     /// Create a human-authored annotation (review toolbar / collaborator
     /// review). Thin wrapper over `addAnnotation` that stamps the provenance
-    /// author as `.human` with the reviewer's display name + optional
-    /// collaborator id. Span-anchored to a sub-paragraph quote when supplied.
+    /// author as `.human` with the reviewer's display name. Span-anchored to a
+    /// sub-paragraph quote when supplied.
+    ///
+    /// **No collaborator id is written** (signed op log P3 spec §8, Denver's
+    /// ruling 2026-09-19): `author_collaborator_id` is decoded from old logs
+    /// and never written — attribution is the signing device through the
+    /// registry. Claim M5-AN-012.
     @discardableResult
     public func addReviewerAnnotation(
         kind: AnnotationKind,
@@ -271,7 +275,6 @@ extension Document {
         body: String,
         suggestedText: String? = nil,
         authorName: String,
-        authorId: String? = nil,
         /// See `addAnnotation`'s own parameter — this wrapper only carries it.
         reviewPassId: String? = nil
     ) async throws -> String {
@@ -283,8 +286,7 @@ extension Document {
             span: span,
             author: AnnotationAuthor(
                 sourceKind: .human,
-                displayName: authorName,
-                collaboratorId: authorId),
+                displayName: authorName),
             reviewPassId: reviewPassId)
     }
 
@@ -303,7 +305,6 @@ extension Document {
         newBody: String,
         newSuggestedText: String?,
         authorName: String,
-        authorId: String? = nil,
         undoManager: UndoManager? = nil
     ) async throws {
         // Snapshot the pre-edit derived state BEFORE appending, so ⌘Z can
@@ -350,8 +351,7 @@ extension Document {
                 annotationBody: newBody,
                 sourceAnnotationId: id,
                 authorSourceKind: AnnotationAuthor.SourceKind.human.rawValue,
-                authorDisplayName: authorName,
-                authorCollaboratorId: authorId))
+                authorDisplayName: authorName))
         try await appendAnnotationOpInternal(op)
 
         // ⌘Z: undo appends a compensating edit carrying the pre-edit body (and
@@ -393,14 +393,13 @@ extension Document {
                     priorSuggested: priorSuggested,
                     authorSourceKind: AnnotationAuthor.SourceKind.human.rawValue,
                     authorDisplayName: authorName,
-                    authorCollaboratorId: authorId,
                     docId: doc.docId, device: doc.device, session: doc.session)
                 try? await doc.appendAnnotationOpInternal(revert)
             },
             redo: { [weak undoManager] doc in
                 try? await doc.editReviewerAnnotation(
                     id: id, newBody: newBody, newSuggestedText: newSuggestedText,
-                    authorName: authorName, authorId: authorId,
+                    authorName: authorName,
                     undoManager: undoManager)
             })
     }
@@ -412,7 +411,6 @@ extension Document {
     public func withdrawReviewerAnnotation(
         id: String,
         authorName: String,
-        authorId: String? = nil,
         undoManager: UndoManager? = nil
     ) async throws {
         // RULING-22 / M5-AN-036: capture the status this annotation had BEFORE
@@ -439,8 +437,7 @@ extension Document {
                 sessionId: session,
                 sourceAnnotationId: id,
                 authorSourceKind: AnnotationAuthor.SourceKind.human.rawValue,
-                authorDisplayName: authorName,
-                authorCollaboratorId: authorId))
+                authorDisplayName: authorName))
         try await appendAnnotationOpInternal(op)
 
         // ⌘Z: undo reopens (annotationReopen restores it to the projection),
@@ -455,7 +452,15 @@ extension Document {
             undoManager, actionName: "Withdraw Annotation", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
-                try? await doc.reopenAnnotation(id: id)
+                // Refused at the posture door (P3c Task 5): a reopen is a
+                // disposition in the table, so a reviewer's ⌘Z of her own
+                // Delete is refused — said, and nothing after it is tried.
+                do {
+                    try await doc.reopenAnnotation(id: id)
+                } catch is PostureRefusal {
+                    doc.declineUndo(.notPermitted)
+                    return
+                } catch {}
                 switch priorStatus {
                 case .archived, .rejected, .accepted, .stetted:
                     // The reopen may itself have declined (a peer already
@@ -482,7 +487,7 @@ extension Document {
             },
             redo: { [weak undoManager] doc in
                 try? await doc.withdrawReviewerAnnotation(
-                    id: id, authorName: authorName, authorId: authorId,
+                    id: id, authorName: authorName,
                     undoManager: undoManager)
             })
     }
@@ -497,6 +502,8 @@ extension Document {
         // write. (It reaches `opStore.append` directly, so the funnel guards
         // below do not cover it.)
         if rejectMutationIfNotWritable("acceptAnnotation") { return }
+        // The posture door (P3c Task 5): refused before the splice and the op.
+        try requireDispositionPermitted(.claudeAccept)
         guard let creation = _opLogMirror.first(where: { $0.opId == id }),
               let kind = AnnotationKind.fromOpKind(creation.kind) else {
             return  // unknown id or non-annotation op — no-op
@@ -624,13 +631,17 @@ extension Document {
                         // reply after ⌘Z + ⇧⌘Z.
                         d2._lastUndoWorkTask = Task.detached { [weak d2] in
                             guard let d2 else { return }
-                            try? await d2.acceptAnnotation(
-                                id: id, userResponse: userResponse, undoManager: um)
+                            await d2.refusingLoudly {
+                                try await d2.acceptAnnotation(
+                                    id: id, userResponse: userResponse, undoManager: um)
+                            }
                         }
                     }
                     doc._lastUndoWorkTask = Task.detached { [weak doc] in
                         guard let doc else { return }
-                        try? await doc.revertAcceptedAnnotation(id: id, undoManager: nil)
+                        await doc.refusingLoudly {
+                            try await doc.revertAcceptedAnnotation(id: id, undoManager: nil)
+                        }
                     }
                 }
                 um.setActionName("Accept Suggestion")
@@ -672,11 +683,15 @@ extension Document {
                         doc.declineUndo(.acceptNote)
                         return
                     }
-                    try? await doc.reopenAcceptedTextlessAnnotation(id: id)
+                    await doc.refusingLoudly {
+                        try await doc.reopenAcceptedTextlessAnnotation(id: id)
+                    }
                 },
                 redo: { [weak undoManager] doc in
-                    try? await doc.acceptAnnotation(
-                        id: id, userResponse: userResponse, undoManager: undoManager)
+                    await doc.refusingLoudly {
+                        try await doc.acceptAnnotation(
+                            id: id, userResponse: userResponse, undoManager: undoManager)
+                    }
                 })
         }
 
@@ -726,6 +741,7 @@ extension Document {
         // The mirror of accept: restores the paragraph text and appends the
         // revert op. Same two writes, same refusal.
         if rejectMutationIfNotWritable("revertAcceptedAnnotation") { return }
+        try requireDispositionPermitted(.claudeAcceptRevert)
         guard let creation = _opLogMirror.first(where: { $0.opId == id }),
               AnnotationKind.fromOpKind(creation.kind) == .suggestedChange else {
             documentLog.error("revertAcceptedAnnotation: \(id, privacy: .public) is not a suggestion creation op — ignoring")
@@ -803,9 +819,11 @@ extension Document {
                 guard let um else { return }
                 doc._lastUndoWorkTask = Task.detached { [weak doc] in
                     guard let doc else { return }
-                    try? await doc.acceptAnnotation(
-                        id: id, userResponse: originalUserResponse,
-                        undoManager: um)
+                    await doc.refusingLoudly {
+                        try await doc.acceptAnnotation(
+                            id: id, userResponse: originalUserResponse,
+                            undoManager: um)
+                    }
                 }
             }
             um.setActionName("Revert Suggestion")
@@ -837,10 +855,14 @@ extension Document {
         OpUndoRegistrar.register(
             undoManager, actionName: "Reject Annotation", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
-            undo: { doc in try? await doc.reopenAnnotation(id: id) },
+            undo: { doc in
+                await doc.refusingLoudly { try await doc.reopenAnnotation(id: id) }
+            },
             redo: { [weak undoManager] doc in
-                try? await doc.rejectAnnotation(
-                    id: id, userResponse: userResponse, undoManager: undoManager)
+                await doc.refusingLoudly {
+                    try await doc.rejectAnnotation(
+                        id: id, userResponse: userResponse, undoManager: undoManager)
+                }
             })
     }
 
@@ -941,6 +963,13 @@ extension Document {
                 do {
                     try await doc.reopenAnnotation(id: id)
                 } catch {
+                    // Refused at the posture door (P3c Task 5): said, like any
+                    // other refused ⌘Z — and nothing moved, so nothing else is.
+                    if error is PostureRefusal {
+                        doc.declineUndo(.notPermitted)
+                        documentLog.error("stetAnnotation undo: the reopen for \(id, privacy: .public) was refused at the posture door — the note is still stetted, nothing is restored, and the writer is told why")
+                        return
+                    }
                     documentLog.error("stetAnnotation undo: the reopen for \(id, privacy: .public) failed: \(error.localizedDescription, privacy: .public) — the note is still stetted, so nothing is restored and nothing is said")
                     return
                 }
@@ -980,8 +1009,10 @@ extension Document {
                 }
             },
             redo: { [weak undoManager] doc in
-                try? await doc.stetAnnotation(
-                    id: id, userResponse: userResponse, undoManager: undoManager)
+                await doc.refusingLoudly {
+                    try await doc.stetAnnotation(
+                        id: id, userResponse: userResponse, undoManager: undoManager)
+                }
             })
     }
 
@@ -998,9 +1029,13 @@ extension Document {
         OpUndoRegistrar.register(
             undoManager, actionName: "Archive Annotation", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
-            undo: { doc in try? await doc.reopenAnnotation(id: id) },
+            undo: { doc in
+                await doc.refusingLoudly { try await doc.reopenAnnotation(id: id) }
+            },
             redo: { [weak undoManager] doc in
-                try? await doc.archiveAnnotation(id: id, undoManager: undoManager)
+                await doc.refusingLoudly {
+                    try await doc.archiveAnnotation(id: id, undoManager: undoManager)
+                }
             })
     }
 
@@ -1027,6 +1062,9 @@ extension Document {
     public func triageAnnotation(
         id: String, mark: TriageMark?, undoManager: UndoManager? = nil
     ) async throws {
+        // The posture door (P3c Task 5). A mark is not a resolution, but it is
+        // a disposition all the same: it settles what somebody's note is FOR.
+        try requireDispositionPermitted(.annotationTriage)
         // Unfiltered: `annotations()` defaults to `[.open]`, and a resolved
         // note is a legitimate target (M5-AN-002, the documented footgun).
         // This query is doing two jobs — the existence guard, and reading the
@@ -1081,11 +1119,16 @@ extension Document {
                 let revert = AnnotationInverse.triageRevertOp(
                     annotationId: id, priorMark: priorMark,
                     docId: doc.docId, device: doc.device, session: doc.session)
-                try? await doc.appendAnnotationOpInternal(revert)
+                await doc.refusingLoudly {
+                    try doc.requireDispositionPermitted(.annotationTriage)
+                    try await doc.appendAnnotationOpInternal(revert)
+                }
             },
             redo: { [weak undoManager] doc in
-                try? await doc.triageAnnotation(
-                    id: id, mark: mark, undoManager: undoManager)
+                await doc.refusingLoudly {
+                    try await doc.triageAnnotation(
+                        id: id, mark: mark, undoManager: undoManager)
+                }
             })
     }
 
@@ -1101,6 +1144,7 @@ extension Document {
         // reopen op-side while the paired text restore no-ops (isClosed-guarded).
         // Sibling of the `appendTaskOpInternal` guard.
         if rejectMutationIfNotWritable("reopenAnnotation") { return }
+        try requireDispositionPermitted(.annotationReopen)
         let current = annotations(filter: AnnotationFilter(statuses: nil))
             .first { $0.id == id }
         let undoneKind: OpKind
@@ -1164,6 +1208,7 @@ extension Document {
     internal func reopenAcceptedTextlessAnnotation(id: String) async throws {
         // The husk decline, atomically — `reopenAnnotation`'s sibling guard.
         if rejectMutationIfNotWritable("reopenAcceptedTextlessAnnotation") { return }
+        try requireDispositionPermitted(.annotationReopen)
         // The kind gate, ahead of everything: an unknown id, a non-annotation
         // op, or a suggestion all stop here. `acceptAnnotation` resolves the
         // kind exactly this way, from the CREATION op rather than from the
@@ -1215,19 +1260,23 @@ extension Document {
             undoManager, actionName: "Reopen Annotation", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
-                switch priorStatus {
-                case .rejected:
-                    try? await doc.rejectAnnotation(id: id, userResponse: priorResponse)
-                case .archived:
-                    try? await doc.archiveAnnotation(id: id)
-                case .stetted:
-                    try? await doc.stetAnnotation(id: id, userResponse: priorResponse)
-                default:
-                    break
+                await doc.refusingLoudly {
+                    switch priorStatus {
+                    case .rejected:
+                        try await doc.rejectAnnotation(id: id, userResponse: priorResponse)
+                    case .archived:
+                        try await doc.archiveAnnotation(id: id)
+                    case .stetted:
+                        try await doc.stetAnnotation(id: id, userResponse: priorResponse)
+                    default:
+                        break
+                    }
                 }
             },
             redo: { [weak undoManager] doc in
-                try? await doc.reopenAnnotation(id: id, undoManager: undoManager)
+                await doc.refusingLoudly {
+                    try await doc.reopenAnnotation(id: id, undoManager: undoManager)
+                }
             })
     }
 
@@ -1284,6 +1333,60 @@ extension Document {
         }
     }
 
+    /// **A disposition this device's own hand may not write here** (P3c Task
+    /// 5) — Accept, Reject, Revert, Stet, Archive, Triage or Reopen, asked of a
+    /// document whose stamp says this Mac is a reviewer here, or an author of
+    /// other pieces.
+    ///
+    /// The P3a automation guard (`AutomationNotPermitted`) widened from the
+    /// app's own repairs to every caller: the surfaces HIDE these verbs where
+    /// the posture forbids them, and this is the door behind them, so a stale
+    /// row, a margin card drawn before a demotion landed, or a ⌘Z registered
+    /// while this Mac could still write does not append a line every read then
+    /// sets aside. Thrown BEFORE any write — nothing reaches the op log, the
+    /// mirror or the manuscript. A separate type rather than that one, because
+    /// its sentence is about a repair the app declined to make, and these are
+    /// the writer's own presses.
+    internal struct PostureRefusal: LocalizedError, Equatable {
+        let kind: OpKind
+        /// What the sentence says was left alone — the note, for a disposition;
+        /// the text, for a restore (P3c whole-branch fix wave, C1).
+        var leftAsItWas: String = "the note"
+        var errorDescription: String? {
+            "this Mac may not write \(kind.rawValue) in this piece, "
+                + "so \(leftAsItWas) was left as it was"
+        }
+    }
+
+    /// **The door** (P3c Task 5): throw `PostureRefusal` unless this device's
+    /// own hand may write `kind` here. The stamp is the one answer — resolved
+    /// at load by `OpLogStore.localWritePermit` and re-stamped on every trust
+    /// change by the posture door (P3c Task 2), so a demotion arriving
+    /// mid-session closes it at the next press and a promotion reopens it.
+    internal func requireDispositionPermitted(_ kind: OpKind) throws {
+        guard localWritePermit.allows(.op(kind)) == .yes else {
+            throw PostureRefusal(kind: kind)
+        }
+    }
+
+    /// **⌘Z and ⇧⌘Z's half of the door** (P3c Task 5). An undo registered
+    /// while this Mac could write here can fire after it no longer may; the
+    /// compensating op is refused like any other press, and the refusal is
+    /// SAID (`declineUndo(.notPermitted)`) rather than swallowed — the Edit
+    /// menu named the act, the writer pressed it, and a silent no-op is the
+    /// control not doing what it says (RULING-22's shape). Every other error
+    /// keeps the `try?` it replaced: those closures' other failures were
+    /// already their own business.
+    internal func refusingLoudly(_ work: @MainActor () async throws -> Void) async {
+        do {
+            try await work()
+        } catch is PostureRefusal {
+            declineUndo(.notPermitted)
+        } catch {
+            documentLog.error("annotation undo/redo failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     internal func appendLifecycleOp(
         kind: OpKind,
         sourceAnnotationId: String,
@@ -1318,8 +1421,14 @@ extension Document {
         let signing = automation
             ? Document.authorEmissionDevice(loadedAs: device)
             : device
-        if automation, localWritePermit.allows(.op(kind)) != .yes {
-            throw AutomationNotPermitted(kind: kind)
+        // …and since P3c Task 5, not made by ANY caller where this device may
+        // not make them: every kind this funnel writes is a disposition or an
+        // accept (reject, archive, stet, the restores ⌘Z puts back), so the
+        // one question is asked here for all of them. The automations keep
+        // their own error, which both of their callers catch by type.
+        if localWritePermit.allows(.op(kind)) != .yes {
+            if automation { throw AutomationNotPermitted(kind: kind) }
+            throw PostureRefusal(kind: kind)
         }
         let op = Op(
             opId: ULID.generate(),

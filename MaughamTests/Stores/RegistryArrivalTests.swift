@@ -89,6 +89,287 @@ final class RegistryArrivalTests: XCTestCase {
         await doc.close()
     }
 
+    // MARK: - F10: a stranger's record raises the question on arrival
+
+    /// Verified reads the refresh below has paid for.
+    private var resolves = 0
+    /// Inbox recounts it has paid for.
+    private var recounts = 0
+
+    /// `AdmissionModifier.recompute`'s refresh, wired as it wires it — the
+    /// window's half cannot be mounted here, and the decision it makes is this
+    /// call over this store, the real folder listing, the real silent admission
+    /// and the real verified read. `resolves` counts the last.
+    private func refreshAfterTheSettle(_ store: DocumentStore) async -> [AdmissionRequest]? {
+        let url = projectURL!
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        let me = identities.author.fingerprint
+        return await AdmissionDecision.refreshedRequests(
+            cause: .settle,
+            heldLines: { store.heldLinesByDevice() },
+            heldStreams: { store.heldLines().streams },
+            arrivedDevices: {
+                AdmissionDecision.devicesWithNoPersonRecord(in: url, excluding: me)
+            },
+            recountCaptures: {
+                self.recounts += 1
+                await store.inboxStore.refresh()
+            },
+            thisDevice: me,
+            memory: Document.loadAdmissionMemory.remembered,
+            admitRemembered: { _ = await store.admitRemembered() },
+            resolve: {
+                self.resolves += 1
+                guard let verified = try? TrustResolution.resolveVerified(
+                    projectURL: url, identities: identities, cache: cache)
+                else { return nil }
+                return (verified.registry, AdmissionDecision.askingRoot(
+                    in: verified.registry, thisDevice: me))
+            })
+    }
+
+    /// Ren's sealed author lines in the open chapter, held because nothing in
+    /// this book names her key.
+    private func rensLinesArrive(in doc: Document, at store: DocumentStore) async throws {
+        let rens = OpLogStore(projectURL: projectURL, identities: ren, state: renState)
+        try await rens.append(Op(
+            opId: "ren01", docId: doc.docId, at: Date(timeIntervalSince1970: 0),
+            device: ren.author.deviceId, session: "s", kind: .typingBurst,
+            changes: [.init(paragraphId: "aaaa", prior: nil, next: "ren01")],
+            sequence: ["aaaa"]))
+        try await rens.sealChain(docId: doc.docId)
+        let opFile = OpLogStore.opLogFileURL(
+            forDocId: doc.docId, deviceSlug: ren.author.slug, in: projectURL)
+        store.presenterDidChangeSubitem(at: opFile)
+        try await doc.handleExternalLogChange()
+        XCTAssertGreaterThan(
+            store.heldLinesByDevice()[ren.author.fingerprint] ?? 0, 0,
+            "precondition: her lines are held in the open chapter")
+    }
+
+    /// Somebody else's book, with THIS Mac admitted into it: `theirs` is the
+    /// root, written before this Mac ever opens, so `ensureRootIfEmpty` finds
+    /// people and writes nothing.
+    private func beAdmittedIntoSomebodyElsesBook() throws {
+        let theirs = DeviceIdentity.softwareForTesting()
+        try RegistryWriter.write(
+            PersonRecord(
+                person: theirs.fingerprint, label: "Amelia", ownName: "Amelia’s Mac",
+                admittedAt: Date(timeIntervalSince1970: 10),
+                admittedBy: theirs.fingerprint),
+            signedBy: theirs, in: projectURL)
+        let scratch = projectURL.appendingPathComponent("theirs", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        _ = try RegistryAdmission.admit(
+            device: Document.loadIdentities.author.fingerprint,
+            label: "Denver", ownName: "Denver’s Mac",
+            in: projectURL, by: theirs,
+            cache: RegistryCache(
+                fileURL: scratch.appendingPathComponent("cache.json"), identity: "theirs"),
+            memory: AdmissionMemory(
+                fileURL: scratch.appendingPathComponent("memory.json"), identity: "theirs"))
+    }
+
+    private func rensRecordArrives(at store: DocumentStore) async throws {
+        let recordFile = try XCTUnwrap(try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: ren, name: "Ren’s Mac", kind: .mac))
+        store.presenterDidChangeSubitem(at: recordFile)
+        await store.flushRegistryChangeForTesting()
+    }
+
+    /// **The ruling, on disk** (Denver, 2026-09-24): Ren's Mac declares itself
+    /// in this book and nothing of hers has reached this Mac. The arrival
+    /// settles — the event the window's queue is re-derived on — and the
+    /// refresh that follows asks about her, with nothing waiting.
+    func test_aStrangersRecordArrivingWithNoLinesRaisesTheQuestion() async throws {
+        let store = try await DocumentStore.open(url: projectURL)
+        XCTAssertEqual(store.heldLinesByDevice(), [:], "precondition: nothing of hers is held")
+
+        try await rensRecordArrives(at: store)
+
+        XCTAssertEqual(store.registrySettlesForTesting, 1,
+                       "her record is not an echo, so it settles and the window re-derives")
+        let requests = await refreshAfterTheSettle(store)
+        XCTAssertEqual(requests?.map(\.fingerprint), [ren.author.fingerprint])
+        XCTAssertEqual(requests?.first?.ownName, "Ren’s Mac")
+        XCTAssertEqual(requests?.first?.waitingCount, 0)
+        XCTAssertEqual(requests?.first.map(AdmissionSheet.waitingLine(for:)),
+                       "Nothing from it has reached this Mac yet.")
+    }
+
+    // MARK: Ruling AA — only a root is asked, record-only or with lines
+
+    func test_theRootIsAskedAboutAStrangerWhoseLinesAreHeldInAnOpenChapter() async throws {
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await Document.load(
+            url: docURL, actor: .author, session: "s", presenter: nil)
+        store.register(document: doc, for: "manuscript/c1.md")
+
+        try await rensLinesArrive(in: doc, at: store)
+        let requests = await refreshAfterTheSettle(store)
+
+        XCTAssertEqual(requests?.map(\.fingerprint), [ren.author.fingerprint])
+        XCTAssertGreaterThan(requests?.first?.waitingCount ?? 0, 0)
+        await doc.close()
+    }
+
+    func test_anAdmittedMacIsNotAskedAboutARecordOnlyStranger() async throws {
+        try beAdmittedIntoSomebodyElsesBook()
+        let store = try await DocumentStore.open(url: projectURL)
+
+        try await rensRecordArrives(at: store)
+        let requests = await refreshAfterTheSettle(store)
+
+        XCTAssertEqual(requests, [],
+                       "this Mac was let in, holds no root record, and cannot let anybody in")
+        XCTAssertEqual(store.registrySettlesForTesting, 1,
+                       "the premise: her record arrived and settled here too")
+    }
+
+    func test_anAdmittedMacIsNotAskedAboutAStrangerWithLinesInAnOpenChapter() async throws {
+        try beAdmittedIntoSomebodyElsesBook()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await Document.load(
+            url: docURL, actor: .author, session: "s", presenter: nil)
+        store.register(document: doc, for: "manuscript/c1.md")
+
+        try await rensLinesArrive(in: doc, at: store)
+        let requests = await refreshAfterTheSettle(store)
+
+        XCTAssertEqual(requests, [])
+        await doc.close()
+    }
+
+    // MARK: Ruling AB — a retired record is not waiting
+
+    private func rensRetiredRecordArrives(at store: DocumentStore) async throws {
+        _ = try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: ren, name: "Ren’s old Mac", kind: .mac)
+        let scratch = projectURL.appendingPathComponent("ren", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let record = try RegistryAdmission.retire(
+            device: ren.author.fingerprint, in: projectURL, by: ren.author,
+            cache: RegistryCache(
+                fileURL: scratch.appendingPathComponent("cache.json"), identity: "ren"))
+        XCTAssertNotNil(record.retiredAt, "precondition: the record says it retired")
+        store.presenterDidChangeSubitem(
+            at: RegistryWriter.url(.devices, fingerprint: ren.author.fingerprint,
+                                   in: projectURL))
+        await store.flushRegistryChangeForTesting()
+    }
+
+    func test_aRetiredRecordIsNotWaitingInThePreCheck() async throws {
+        let store = try await DocumentStore.open(url: projectURL)
+        try await rensRetiredRecordArrives(at: store)
+
+        XCTAssertEqual(AdmissionDecision.devicesWithNoPersonRecord(
+            in: projectURL, excluding: Document.loadIdentities.author.fingerprint), [])
+        let requests = await refreshAfterTheSettle(store)
+        XCTAssertEqual(requests, [])
+        XCTAssertEqual(resolves, 0, "a retired machine costs no verified read")
+        XCTAssertEqual(recounts, 0)
+    }
+
+    /// And a retired machine this Mac once named is not let in mid-session by
+    /// its record's arrival — the record arm of the silent admission never
+    /// sees it.
+    func test_aRememberedRetiredRecordIsNotSilentlyAdmittedMidSession() async throws {
+        let store = try await DocumentStore.open(url: projectURL)
+        Document.loadAdmissionMemory.remember(
+            ren.author.fingerprint, label: "Ren", ownName: "Ren’s old Mac")
+        try await rensRetiredRecordArrives(at: store)
+
+        let requests = await refreshAfterTheSettle(store)
+
+        XCTAssertEqual(requests, [])
+        let registry = try TrustResolution.resolveVerified(
+            projectURL: projectURL, identities: Document.loadIdentities,
+            cache: Document.loadRegistryCache).registry
+        XCTAssertNil(registry.person(ren.author.fingerprint),
+                     "nobody was let in")
+    }
+
+    /// **And not at the next OPEN either** (P3c whole-branch fix wave, I2):
+    /// `DocumentStore.open` walks the silent admission directly, and it must
+    /// give the mid-session answer — one question, one answer, whichever event
+    /// comes first. Pinned through the real open.
+    func test_aRememberedRetiredRecordIsNotSilentlyAdmittedAtOpen() async throws {
+        let store = try await DocumentStore.open(url: projectURL)
+        Document.loadAdmissionMemory.remember(
+            ren.author.fingerprint, label: "Ren", ownName: "Ren’s old Mac")
+        try await rensRetiredRecordArrives(at: store)
+
+        _ = try await DocumentStore.open(url: projectURL)
+
+        let registry = try TrustResolution.resolveVerified(
+            projectURL: projectURL, identities: Document.loadIdentities,
+            cache: Document.loadRegistryCache).registry
+        XCTAssertNil(registry.person(ren.author.fingerprint),
+                     "the open let nobody in")
+    }
+
+    /// **A machine this Mac has named before joins on its record's arrival,
+    /// silently** — nothing of it is held, and no sheet is put up.
+    func test_aRememberedMachinesRecordArrivingIsAdmittedWithNoSheet() async throws {
+        let store = try await DocumentStore.open(url: projectURL)
+        Document.loadAdmissionMemory.remember(
+            ren.author.fingerprint, label: "Ren", ownName: "Ren’s Mac")
+
+        try await rensRecordArrives(at: store)
+        let requests = await refreshAfterTheSettle(store)
+
+        XCTAssertEqual(requests, [], "no sheet")
+        let registry = try TrustResolution.resolveVerified(
+            projectURL: projectURL, identities: Document.loadIdentities,
+            cache: Document.loadRegistryCache).registry
+        XCTAssertEqual(registry.person(ren.author.fingerprint)?.label, "Ren",
+                       "she was let in under the label this Mac gave her before")
+        XCTAssertEqual(resolves, 0,
+                       "and with nobody left to ask about, no verified read was paid for")
+    }
+
+    /// **A book of admitted people pays for no verified read** on a settle:
+    /// every device file has a person file beside it, and the folder listing
+    /// is the whole of the cost.
+    func test_aBookOfAdmittedPeopleResolvesNothingOnASettle() async throws {
+        let store = try await DocumentStore.open(url: projectURL)
+        _ = try await store.admit(
+            device: ren.author.fingerprint, label: "Ren", ownName: "Ren’s Mac")
+        try await rensRecordArrives(at: store)
+
+        let requests = await refreshAfterTheSettle(store)
+
+        XCTAssertEqual(requests, [])
+        XCTAssertEqual(resolves, 0, "zero verified resolves")
+    }
+
+    /// The pre-check reads NAMES: a device file with no person file beside it,
+    /// never this Mac's own, never a record's contents.
+    func test_thePreCheckListsDevicesWithNoPersonFileAndLeavesThisMacOut() async throws {
+        _ = try await DocumentStore.open(url: projectURL)
+        let me = Document.loadIdentities.author.fingerprint
+        XCTAssertEqual(AdmissionDecision.devicesWithNoPersonRecord(
+            in: projectURL, excluding: me), [],
+            "this Mac is the root: its device file has its person file beside it")
+
+        _ = try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: ren, name: "Ren’s Mac", kind: .mac)
+        XCTAssertEqual(AdmissionDecision.devicesWithNoPersonRecord(
+            in: projectURL, excluding: me), [ren.author.fingerprint])
+        XCTAssertEqual(AdmissionDecision.devicesWithNoPersonRecord(
+            in: projectURL, excluding: ren.author.fingerprint), [],
+            "a Mac's own record is never somebody to look for")
+
+        // Unverified on purpose: a file that is not a record at all is still
+        // a name, and the verified read — not this listing — refuses it.
+        let bogus = RegistryWriter.directoryURL(.devices, in: projectURL)
+            .appendingPathComponent("abcd1234.json")
+        try Data("not a record".utf8).write(to: bogus)
+        XCTAssertTrue(AdmissionDecision.devicesWithNoPersonRecord(
+            in: projectURL, excluding: me).contains("abcd1234"))
+    }
+
     // MARK: - Echoes
 
     /// **This Mac re-signing its own record re-judges nothing.** The mid-session

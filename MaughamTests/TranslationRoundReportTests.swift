@@ -266,7 +266,7 @@ final class TranslationRoundReportTests: XCTestCase {
                 round: round, chapterTitle: "Chapter 1",
                 sources: ["a1b2": "The fog came in.", "c3d4": "She closed the door."],
                 queries: [], translatorName: "Cortázar", collatorName: "Borges",
-                actions: actions, onClose: {}, onRoundChanged: { _ in }, onReveal: { _ in })
+                verbs: .unrestricted, actions: actions, onClose: {}, onRoundChanged: { _ in }, onReveal: { _ in })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)),
             size: CGSize(width: 900, height: 900))
         windows.append(window)

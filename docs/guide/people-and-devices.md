@@ -26,12 +26,23 @@ this feature: one list, and a small number of verbs.
 
 ## Being asked
 
-The first time a machine writes into a book that doesn't know it, Maugham puts
+The first time a machine turns up in a book that doesn't know it, Maugham puts
 up a small panel over the project window:
 
 > **A device is writing to Smoke**
 > iPhone · code **4F2K**
 > 14 notes are waiting.
+
+A machine announces itself with a small signed file of its own, and that file
+usually arrives before anything it has written. So the panel can appear before
+there is anything to wait for — it then says *Nothing from it has reached this
+Mac yet.* — and you can answer it then, rather than finding out later that a
+collaborator has been writing into a book that was holding every word.
+
+**Only the Mac that holds the book asks** — the one that started it, or claimed
+it. A second Mac of yours, or a collaborator's Mac, is never shown the panel:
+admitting is the book's owner's act, and asking somebody who cannot answer
+would only be noise.
 
 You type a name. **The name is yours, not the machine's** — it's how you'd refer
 to whoever is at that keyboard, which is usually just "Denver" or "me". The
@@ -235,6 +246,69 @@ as it is. What it writes from then on waits, and comes back through the Inbox
 rather than arriving on its own. The panel says so before you press anything,
 and People & Devices lists any such machine the book is holding.
 
+## What their Mac shows them
+
+Everything in *What someone may write* is enforced where the book is read — a
+change somebody's permission doesn't cover is set aside on every machine,
+whoever made it. Their own Mac is also polite about it: it doesn't offer what
+the book would refuse.
+
+On a **reviewer's** Mac the manuscript is readable, selectable and copyable,
+and simply doesn't take typing. A line above the text says why — *You're
+reviewing this book — your notes reach Denver; the text is theirs.* Notes,
+comments, suggestions and questions work as they do for you. What isn't drawn:
+Accept, Reject, Stet and the other ways of settling a note; setting a review
+pass's state; Run for a review round (a check still runs — it only leaves
+notes); editing an intent or any other statement; new documents, renaming,
+moving and deleting in the tree; tasks; translating; History's **Rewind to
+before this…**, the rewind window's **Restore here…** and **Snapshot here…**,
+and a checkpoint's **Revert here…** (History itself is all there to read); and
+Find in Project's **Replace** and **Replace All** for chapters that aren't
+yours (a research note's matches still replace). **⌘S** still flashes,
+because your fingers expect it, but writes nothing — a checkpoint of text you
+can't change would mark nothing of yours — and **⇧⌘S** says so instead of
+asking for a label. The File menu's **New Prose Story**, **New Screenplay**
+and **Link Existing Project…** are greyed.
+
+An **author of some pieces** has all of that in their own chapters. Everywhere
+else they are a reviewer, and the line says *"Chapter 3" isn't one of your
+pieces — you can leave notes.* Adding a new piece to the book is still the
+whole-book author's. **Replace All** replaces in their chapters and tells them
+which chapters it left as they were. **Renaming** one of their own chapters
+renames it, but links to it inside chapters that aren't theirs keep the old
+title — Maugham says which, and those links point nowhere until someone who
+can write there updates them.
+
+If something they wrote before their permission changed is being held or set
+aside, the line adds *Some of what you wrote here is kept in History.*, with a
+button that opens it.
+
+A change of permission reaches an open window without a reopen: a chapter
+somebody is typing in stops taking keystrokes as soon as this Mac has read the
+change — a moment after it lands, not before — and widening it gives the
+keyboard back the same way. Anything typed in that moment is kept in History,
+not lost.
+
+**On your own Mac**, opening a chapter that belongs to somebody else — an author
+of some pieces you gave it to — shows the same line in your words: *This is
+Sam's piece.* You stay the author of the whole book, so you can still write
+there; Maugham just doesn't offer it until you press **Edit Anyway**. That
+lasts for that chapter, in that window, until you close the window. Another window on
+the same book, or the next time you open it, asks again.
+
+What this is not:
+
+- **It doesn't lock the book's structure.** Keeping somebody out of the tree's
+  verbs is a courtesy their Mac pays, not something the book can enforce:
+  adding, renaming, moving and trashing documents aren't signed, so a
+  determined machine could still change the binder. Permissions guard the
+  *words*.
+- **It isn't the iCloud share.** If you share the folder read-only, the Mac on
+  the other end can't save to it at all; Maugham locks the editor there and
+  says so, whatever permission that person has in the book. Sharing read-write
+  locks nothing by itself — what somebody may write is the permission you gave
+  them here.
+
 ## What this book is missing
 
 History also shows what it can't find: a machine's history that has got shorter
@@ -288,9 +362,9 @@ something you do from a Mac.
 
 ## Things worth knowing
 
-- **Your own words are never at risk.** Nothing on this page can hold back or
-  refuse anything you wrote on the Mac you are sitting at. The whole feature is
-  about machines other than this one.
+- **Your own words are never at risk.** In a book that is yours, nothing on
+  this page can hold back or refuse anything you wrote on the Mac you are
+  sitting at. The whole feature is about machines other than this one.
 - **Held is not deleted.** Changes from a machine you haven't admitted sit in
   their own file, untouched, until you decide. No copy is made and nothing is
   rewritten.

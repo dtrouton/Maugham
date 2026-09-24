@@ -45,6 +45,10 @@ struct PieceInspector: View {
     @Bindable var store: ProjectStore
     let pieceId: String
     let kind: PieceInspectorKind
+    /// **What this Mac may offer for this piece** (P3c Task 6) — the window's
+    /// drawing door, asked by the host. Required, `InspectorView.posture`'s
+    /// reason.
+    let posture: Posture
 
     /// Who writes which piece — `InspectorView`'s own state, for its reason
     /// (P3b Task 9). A Collection is exactly where a per-piece permit is most
@@ -125,9 +129,7 @@ struct PieceInspector: View {
             PassLadder(
                 item: piece,
                 passes: store.manifest.effectiveReviewPasses,
-                onSet: { passId, state in
-                    setPass(passId, to: state, on: piece.id)
-                })
+                onSet: passLadderWrite(on: piece.id))
         }
     }
 
@@ -150,6 +152,13 @@ struct PieceInspector: View {
         Task { [store] in
             try? await store.setPassState(id: pieceId, passId: passId, state)
         }
+    }
+
+    /// The ladder's write where the posture allows one, else none —
+    /// `InspectorView.passLadderWrite`'s twin, for its reason.
+    func passLadderWrite(on pieceId: String) -> ((String, PassState?) -> Void)? {
+        guard PassLadder.offersRulings(under: posture) else { return nil }
+        return { passId, state in setPass(passId, to: state, on: pieceId) }
     }
 
     /// A loose piece is a `type: .document` structure item and `ProjectWindow`

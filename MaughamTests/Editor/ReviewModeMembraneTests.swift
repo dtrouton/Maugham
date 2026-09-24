@@ -377,3 +377,151 @@ final class ReviewModeMembraneTests: XCTestCase {
             "fallback must place a length-0 cursor at the paragraph start")
     }
 }
+
+/// **The membrane asked of the posture** (signed op log P3c Task 3): the
+/// window's mirror (`EditorControlMirror.membrane`) and the statement editor's
+/// lock (`StatementEditorHost.locksEditing`), each driven into a real
+/// coordinator's `shouldChangeTextIn` — the one mutation choke point — in both
+/// directions. No window; no press (tripwire 33).
+@MainActor
+final class PostureMembraneTests: XCTestCase {
+
+    private var fixture: PostureFixture!
+
+    override func setUp() async throws {
+        fixture = try PostureFixture()
+    }
+
+    override func tearDown() async throws {
+        fixture.tearDown()
+        fixture = nil
+    }
+
+    /// A coordinator over "Hello world", with `membrane` applied the way
+    /// `applyControl` applies the control model.
+    private func typingReaches(
+        lockEditing: Bool, isReviewMode: Bool
+    ) -> (accepted: Bool, textView: NSTextView) {
+        final class TextBox { var value = "Hello world" }
+        let box = TextBox()
+        let coordinator = EditorCoordinator(
+            text: Binding(get: { box.value }, set: { box.value = $0 }),
+            mode: ProseMode(),
+            theme: .light, typography: .defaults,
+            typewriterScroll: false,
+            sentenceFocus: false, paragraphFocus: false)
+        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        tv.string = box.value
+        tv.delegate = coordinator
+        coordinator.attach(to: tv)
+        coordinator.setLockEditing(lockEditing)
+        coordinator.setReviewMode(isReviewMode)
+        let accepted = coordinator.textView(
+            tv, shouldChangeTextIn: NSRange(location: 5, length: 0),
+            replacementString: "X")
+        return (accepted, tv)
+    }
+
+    // MARK: - The pure decision
+
+    func test_theMirrorsDecisionOverItsInputs() {
+        let author = Posture(.unrestricted)
+        let reviewer = Posture(LocalWritePermit(
+            permit: .reviewer, actor: .author, documentClass: .piece("d")))
+        let ownPiece = Posture(LocalWritePermit(
+            permit: .author(.pieces(["d"])), actor: .author, documentClass: .piece("d")))
+
+        func m(_ p: Posture?, manual: Bool = false, share: Bool = false)
+            -> EditorControlMirror.Membrane {
+            EditorControlMirror.membrane(posture: p, manualReview: manual, shareIsReadOnly: share)
+        }
+        XCTAssertEqual(m(author), .init(lockEditing: false, isReviewMode: false))
+        XCTAssertEqual(m(author, manual: true), .init(lockEditing: false, isReviewMode: true),
+                       "an author's ⌘⌥⇧R is the render, never the lock")
+        XCTAssertEqual(m(reviewer), .init(lockEditing: true, isReviewMode: true),
+                       "a reviewer's Mac opens locked, in review mode")
+        XCTAssertEqual(m(ownPiece), .init(lockEditing: false, isReviewMode: false),
+                       "restricted (may not start a piece) is not locked — ruling E")
+        XCTAssertEqual(m(author, share: true), .init(lockEditing: true, isReviewMode: false),
+                       "a read-only share is its own lock and claims no role")
+        XCTAssertEqual(m(nil), .init(lockEditing: false, isReviewMode: false),
+                       "no manuscript document: nothing to lock")
+        XCTAssertEqual(m(.settling), .init(lockEditing: true, isReviewMode: true),
+                       "undecided LOCKS: a verb appearing that must not is the worse error")
+    }
+
+    // MARK: - Both directions, mid-session, through the door
+
+    func test_aReviewerCannotTypeAndAPromotionLetsHerWithNoReopen() async throws {
+        let store = try await fixture.openAs(.reviewer)
+        let locked = EditorControlMirror.membrane(
+            posture: store.posture(forDocId: PostureFixture.docId),
+            manualReview: false, shareIsReadOnly: false)
+        let refused = typingReaches(
+            lockEditing: locked.lockEditing, isReviewMode: locked.isReviewMode)
+        XCTAssertFalse(refused.accepted, "a reviewer's keystroke is refused")
+        XCTAssertTrue(refused.textView.isEditable, "isEditable is never touched")
+        XCTAssertTrue(refused.textView.isSelectable, "selection and copy still work")
+        refused.textView.setSelectedRange(NSRange(location: 0, length: 5))
+        XCTAssertEqual(refused.textView.selectedRange(), NSRange(location: 0, length: 5))
+
+        try await fixture.changeMyPermit(to: .bookAuthor, store: store)
+        let open = EditorControlMirror.membrane(
+            posture: store.posture(forDocId: PostureFixture.docId),
+            manualReview: false, shareIsReadOnly: false)
+        XCTAssertNotEqual(open, locked, "the mirror sees the promotion as a change")
+        XCTAssertTrue(typingReaches(
+            lockEditing: open.lockEditing, isReviewMode: open.isReviewMode).accepted,
+            "promoted mid-session: her typing is accepted")
+    }
+
+    // MARK: - The statement editor
+
+    private func statementLock(
+        _ store: DocumentStore, _ kind: Statement.Kind, _ scope: Statement.Scope
+    ) throws -> Bool {
+        let manifestURL = fixture.projectURL.appendingPathComponent(ProjectManifest.fileName)
+        let manifest = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+        let docId = StatementEditorHost.postureDocId(
+            kind: kind, scope: scope, statements: manifest.statements)
+        return StatementEditorHost.locksEditing(store.posture(forDocId: docId))
+    }
+
+    func test_aPiecesAuthorCannotEditTheProjectsStatement() async throws {
+        let store = try await fixture.openAs(
+            .author(.pieces([PostureFixture.docId])), statements: true)
+
+        let projectLocked = try statementLock(store, .intent, .project)
+        XCTAssertTrue(projectLocked, "the project's statement is the book author's")
+        XCTAssertFalse(typingReaches(lockEditing: projectLocked, isReviewMode: false).accepted,
+                       "and the statement editor's membrane refuses her keystroke")
+
+        XCTAssertFalse(try statementLock(store, .intent, .document(PostureFixture.docId)),
+                       "her own piece's statement is hers")
+        XCTAssertTrue(try statementLock(store, .visualLanguage, .project),
+                      "a project statement with no file yet is the book author's too")
+        XCTAssertFalse(try statementLock(store, .visualLanguage, .document(PostureFixture.docId)),
+                       "and her piece's, with no file yet, is hers")
+    }
+
+    func test_theBookAuthorEditsEveryStatement() async throws {
+        let store = try await fixture.openAs(.bookAuthor, statements: true)
+        XCTAssertFalse(try statementLock(store, .intent, .project))
+        XCTAssertFalse(try statementLock(store, .visualLanguage, .project))
+        XCTAssertFalse(try statementLock(store, .intent, .document(PostureFixture.docId)))
+        XCTAssertTrue(typingReaches(lockEditing: false, isReviewMode: false).accepted)
+    }
+
+    /// Mid-session, both directions: demoted to a pieces-author the open
+    /// project statement locks; promoted back, it opens.
+    func test_theStatementLockFollowsThePermitMidSession() async throws {
+        let store = try await fixture.openAs(.bookAuthor, statements: true)
+        XCTAssertFalse(try statementLock(store, .intent, .project))
+        try await fixture.changeMyPermit(
+            to: .author(.pieces([PostureFixture.docId])), store: store)
+        XCTAssertTrue(try statementLock(store, .intent, .project))
+        try await fixture.changeMyPermit(to: .bookAuthor, store: store)
+        XCTAssertFalse(try statementLock(store, .intent, .project))
+    }
+}

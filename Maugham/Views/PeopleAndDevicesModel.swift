@@ -172,6 +172,9 @@ struct PeopleAndDevicesModel: Equatable {
 
         var sentence: String {
             if let described { return "\(name) (\(code)) — \(described)" }
+            // A device whose record arrived before any of its writing (F10) —
+            // the sheet's own sentence, never *0 lines waiting*.
+            if heldLines <= 0 { return "\(name) (\(code)) — \(AdmissionRequest.nothingYet)" }
             let held = heldLines == 1 ? "1 line" : "\(heldLines) lines"
             return "\(name) (\(code)) — \(held) waiting"
         }
