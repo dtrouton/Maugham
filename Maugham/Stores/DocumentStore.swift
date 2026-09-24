@@ -93,6 +93,28 @@ public final class DocumentStore {
     /// archive). See `ManifestEcho` + findings 1.2 / O2.
     private var lastWrittenManifest: ManifestEcho?
 
+    /// A manifest from another device that arrived while a structural verb
+    /// was running, held until `structuralVerbsSettled` decides who wrote last
+    /// (F7 fix round, I1). Nil almost always.
+    @ObservationIgnored private var deferredManifest: Data?
+
+    /// A settle is queued for the next main-actor turn (`scheduleStructuralSettle`).
+    @ObservationIgnored private var settleScheduled = false
+
+    /// Callers of `waitForStructuralVerbs`, resumed once a settle has run with
+    /// no verb in flight.
+    @ObservationIgnored private var settleWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Test seam: runs inside `relocate(plan:)` after the affected Documents
+    /// are closed and before any file moves — the wait a structural verb holds
+    /// its copy of the structure across. Nil in production.
+    @ObservationIgnored internal var relocateWillMove: (@MainActor () async -> Void)?
+
+    /// Test seam: runs at the top of `writeManifest`, inside the caller's
+    /// save — the moment a manifest from elsewhere can land mid-save. Nil in
+    /// production.
+    @ObservationIgnored internal var writeManifestWillWrite: (@MainActor () async -> Void)?
+
     /// The `ProjectStore` looking at this project, where one is. Set by
     /// `ProjectWindow` at open time, beside `ProjectStore.documentStore`, and
     /// weak for the same reason: the window owns them both and neither must
@@ -298,6 +320,10 @@ public final class DocumentStore {
             documentStoreLog.error(
                 "open-time registry presence failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
+        // What the register looked like when this open finished writing to it:
+        // the baseline a registry change arriving later is compared against,
+        // so the callbacks for this open's OWN writes above settle nothing.
+        store.noteRegistrySettled()
 
         // Project-open seal maintenance (ADR 0016 / growth spec §5.2): rotate
         // any of THIS Mac's oversized per-doc tails (e.g. grown while another
@@ -539,6 +565,7 @@ public final class DocumentStore {
     /// `ProjectStore.saveManifest`'s legacy direct path; for every un-narrowed
     /// book it hands back the caller's own bytes untouched.
     public func writeManifest(_ data: Data) async throws {
+        await writeManifestWillWrite?()
         let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
         let coordinator = NSFileCoordinator(filePresenter: presenter)
         var coordError: NSError?
@@ -686,6 +713,28 @@ public final class DocumentStore {
 
     /// Coordinated read for callers outside ProjectStore.
     public func readManifest() async throws -> Data {
+        // A manifest held for a structural verb is settled first (m1): read now,
+        // the gate or the heal would write the HELD bytes back, the echo would
+        // become the held content, and the settle would then conclude that
+        // this window wrote last and archive it without ever adopting it.
+        while true {
+            await waitForStructuralVerbs()
+            let data = try coordinatedManifestRead()
+            // **Bytes nobody here wrote are taken on before anyone writes them
+            // back** (F7 fix round, M2). Both callers — the narrowing gate and
+            // the heal — hand what they read to `writeManifest`, which records
+            // the bytes it writes as this window's own echo. A manifest from
+            // another device whose presenter callback had not yet run would then
+            // read as an echo and never be adopted.
+            if ManifestEcho.afterWrite(bytes: data) != lastWrittenManifest {
+                handleManifestChanged()
+            }
+            // Held because a verb began in between: wait for that one too.
+            if deferredManifest == nil { return data }
+        }
+    }
+
+    private func coordinatedManifestRead() throws -> Data {
         let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
         let coordinator = NSFileCoordinator(filePresenter: presenter)
         var coordError: NSError?
@@ -815,13 +864,16 @@ public final class DocumentStore {
             at: Date(), projectWordCount: projectWordCount)
 
         idleTimerToken?.cancel()
-        let snapshotWordCount = projectWordCount
         let token = DispatchWorkItem { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                // `lastKnownProjectWordCount` rather than a value captured
+                // here: it is this keystroke's total unless another device's
+                // piece arrived or left since, in which case
+                // `excludeForeignWords` has moved it and the baseline together.
                 if let event = self.sessionTracker.endSessionIfIdle(
                     at: Date(),
-                    currentProjectWordCount: snapshotWordCount) {
+                    currentProjectWordCount: self.lastKnownProjectWordCount) {
                     try? await self.appendSessionEvent(event)
                 }
             }
@@ -830,6 +882,55 @@ public final class DocumentStore {
         DispatchQueue.main.asyncAfter(
             deadline: .now() + SessionTracker.idleThreshold,
             execute: token)
+    }
+
+    /// **Another device's words never enter this writer's session** (F7,
+    /// Denver's ruling 2026-09-23). An adoption that added or removed pieces
+    /// moved the project total by `delta`; the live total and the session's
+    /// baseline move together, so `liveSessionWordsNet` and the event the
+    /// session ends with count only what was typed here.
+    func excludeForeignWords(_ delta: Int) {
+        guard delta != 0, sessionTracker.activeSession != nil else { return }
+        lastKnownProjectWordCount += delta
+        sessionTracker.shiftBaseline(by: delta)
+    }
+
+    /// **Re-read an open Document after its op log changed outside this
+    /// writer's hand** (F7 final round, I1) — a co-author's burst syncing in, a
+    /// record arriving that lets a held span through or refuses one, *Theirs*,
+    /// an admission, a revocation. The ONE way this store calls
+    /// `handleExternalLogChange`: the words that arrive or leave that way were
+    /// not typed here, so the piece's count moves to what it now holds and the
+    /// session's baseline moves with it (`excludeForeignWords`). Without this
+    /// the next keystroke's `recordEditorTextWrite` counted the whole text and
+    /// the session gained — or lost — another person's words.
+    ///
+    /// The counts run only when the text CHANGED: this is also the route of
+    /// every echo of this Mac's own appends, where `handleExternalLogChange`
+    /// returns without touching `displayText`, and an unchanged String compares
+    /// equal on its storage without walking it.
+    ///
+    /// **Only what the re-read itself brought in is excluded** (final round,
+    /// N1). The re-read suspends — the burst flush's append, the load — and a
+    /// keystroke landing in that window is counted into the session by
+    /// `recordEditorTextWrite` AND appears in the text the re-read leaves. The
+    /// setter keeps the count cache current, so what it recorded meanwhile is
+    /// the cache's own movement, and that much of the difference stays the
+    /// writer's.
+    func reReadAfterExternalChange(_ document: Document) async throws {
+        let path = openDocuments.first { $0.value === document }?.key
+        let before = document.displayText
+        let cachedAtEntry = projectStore?.cachedWordCount(for: document.docId)
+        try await document.handleExternalLogChange()
+        let after = document.displayText
+        guard after != before, let path, let store = projectStore else { return }
+        let mode = WritingModeFactory.mode(for: path)
+        let was = mode.wordCount(before)
+        let now = mode.wordCount(after)
+        let typedMeanwhile = (store.cachedWordCount(for: document.docId) ?? was)
+            - (cachedAtEntry ?? was)
+        store.recordWordCount(forDocumentId: document.docId, wordCount: now)
+        excludeForeignWords(now - was - typedMeanwhile)
     }
 
     /// Called from app-quit hook. Finalises any active session immediately
@@ -882,6 +983,7 @@ public final class DocumentStore {
         // EditorHost.loadDocumentIfNeeded when the writer re-selects them.
         await closeFlushAndUnregister(
             affectedPaths: plan.steps.map(\.oldRelativePath))
+        await relocateWillMove?()
 
         let scratchDir = projectURL.appendingPathComponent(".maugham/scratch")
         try FileManager.default.createDirectory(
@@ -980,7 +1082,34 @@ public final class DocumentStore {
             originalParentId: originalParentId,
             originalIndex: originalIndex,
             displayTitle: displayTitle,
-            subject: subject)
+            subject: subject,
+            trashedBy: await Self.trashedByLabel(in: projectURL))
+    }
+
+    /// **Who this Mac is, in the words a trash entry records** (F7 final
+    /// round, M1 — Denver's ruling that a piece trashed on another device
+    /// closes with a notice naming who moved it).
+    ///
+    /// The name this book's register gives this Mac's writer — the label, and
+    /// the machine's own name beside it when the two differ — so another Mac
+    /// reads the same words People & Devices shows it. A book with no record
+    /// of this Mac (keyless, or not yet written) falls back to the machine's
+    /// own name. A DISPLAY string, never an identity (tripwire 35): nothing
+    /// reads it back to decide anything. The register is read off the main
+    /// actor; a read that fails costs the label, never the trash.
+    static func trashedByLabel(in projectURL: URL) async -> String {
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        let machine = thisMacsName
+        let named: String? = await Task.detached(priority: .userInitiated) {
+            guard let registry = try? TrustResolution.resolveVerified(
+                projectURL: projectURL, identities: identities, cache: cache).registry,
+                  let me = registry.person(identities.author.fingerprint)
+            else { return nil }
+            return me.ownName.isEmpty || me.ownName == me.label
+                ? me.label : "\(me.label) (\(me.ownName))"
+        }.value
+        return named ?? machine
     }
 
     /// The shared close-before-FS-surgery primitive. For each affected
@@ -1098,6 +1227,20 @@ public final class DocumentStore {
 
     public func register(document: Document, for path: String) {
         openDocuments[path] = document
+        // **The words a piece holds when it opens were not typed in this
+        // session** (F7 second fix round, m3). The count cache may not hold
+        // this piece at all — another device's piece whose op log had not
+        // synced when the manifest was adopted, or whose words arrived while
+        // it was closed — and the first keystroke would then record its whole
+        // count as the writer's. Counting it here, and moving the session's
+        // baseline by whatever that changed, leaves the first keystroke with
+        // only what it typed.
+        if let store = projectStore {
+            let count = WritingModeFactory.mode(for: path).wordCount(document.displayText)
+            let prior = store.cachedWordCount(for: document.docId) ?? 0
+            store.recordWordCount(forDocumentId: document.docId, wordCount: count)
+            excludeForeignWords(count - prior)
+        }
         // **A load is how this window finds out somebody is waiting** (signed
         // op log P2b, spec §4.1). The counts are a property of a load, and
         // registering is the one moment a finished load becomes visible to
@@ -1116,6 +1259,111 @@ public final class DocumentStore {
     /// writer said *Not now* to is the window's business (`dismissed`), not
     /// this store's.
     private var announcedPendingDevices: Set<String> = []
+
+    // MARK: - A registry change arriving (P3b review, Important #1)
+
+    /// The register as this window last settled it — every record's name and
+    /// modification time (`TrustResolution.signatureEntries`), or nil before
+    /// the open recorded one. `invalidateTrust` records it, because every verb
+    /// of this Mac's own that writes a record calls that verb afterwards, so a
+    /// presenter callback for one of those writes finds nothing new.
+    private var settledRegistry: [String: String]?
+
+    /// Record the register as it stands now as the one this window has
+    /// settled on.
+    func noteRegistrySettled() {
+        settledRegistry = Dictionary(
+            TrustResolution.signatureEntries(of: projectURL)
+                .map { ($0.file, $0.stamp) },
+            uniquingKeysWith: { _, last in last })
+    }
+
+    /// How many times a registry change re-judged the open documents. Test
+    /// only: an echo must leave it where it was.
+    private(set) var registrySettlesForTesting = 0
+
+    /// **Is this change something another Mac wrote?** — pure, so both
+    /// directions are pinned with no folder.
+    ///
+    /// No change at all is an echo. So is a change to THIS device's own device
+    /// record alone: that is `RegistryPresence.declareActor` adding a key this
+    /// Mac minted mid-session (F6), which moves no verdict here — this device's
+    /// own keys read as its own whatever its record says. Anything else — a
+    /// person record, a claim, an event, another device's record — may move a
+    /// verdict and is not an echo.
+    nonisolated static func registryChangeIsAnEcho(
+        before: [String: String], after: [String: String], myDevice: String
+    ) -> Bool {
+        let changed = Set(before.keys).union(after.keys)
+            .filter { before[$0] != after[$0] }
+        let mine = "\(RegistryDirectory.devices.rawValue)/\(myDevice).json"
+        return changed.allSatisfy { $0 == mine }
+    }
+
+    private var _registryChangeScheduler: DebounceScheduler<Int>?
+    private var registryChangeScheduler: DebounceScheduler<Int> {
+        if let existing = _registryChangeScheduler { return existing }
+        let scheduler = DebounceScheduler<Int>(delay: .milliseconds(500)) { [weak self] _ in
+            await self?.registryChanged()
+        }
+        _registryChangeScheduler = scheduler
+        return scheduler
+    }
+
+    /// Removed Elsewhere's re-derivation when a let-go record arrives. Built on
+    /// first use for the same reason as the registry's scheduler.
+    private var _letGoRefreshScheduler: DebounceScheduler<Int>?
+    private var letGoRefreshScheduler: DebounceScheduler<Int> {
+        if let existing = _letGoRefreshScheduler { return existing }
+        let scheduler = DebounceScheduler<Int>(delay: .milliseconds(500)) { [weak self] _ in
+            await self?.projectStore?.refreshRemovedElsewhere()
+        }
+        _letGoRefreshScheduler = scheduler
+        return scheduler
+    }
+
+    /// Run a pending let-go refresh now rather than after the debounce — for a
+    /// test that has just delivered the callback.
+    func flushLetGoRefreshForTesting() async {
+        await _letGoRefreshScheduler?.flush()
+    }
+
+    /// Run a pending registry settle now rather than after the debounce —
+    /// for a test that has just delivered the callback.
+    func flushRegistryChangeForTesting() async {
+        await _registryChangeScheduler?.flush()
+    }
+
+    /// **A record another Mac wrote has landed: judge again.** `admit`'s own
+    /// third act — forget every table, re-read every open document, say so —
+    /// because a record that syncs in AFTER the lines it vouches for changes
+    /// their verdict without any op-log file changing, and until this route
+    /// existed such a line stayed held until another op landed or the book was
+    /// reopened. Off the typing path (it runs from the presenter, debounced),
+    /// and never for this Mac's own writes (`registryChangeIsAnEcho`).
+    private func registryChanged() async {
+        let current = Dictionary(
+            TrustResolution.signatureEntries(of: projectURL)
+                .map { ($0.file, $0.stamp) },
+            uniquingKeysWith: { _, last in last })
+        let before = settledRegistry ?? [:]
+        if Self.registryChangeIsAnEcho(
+            before: before, after: current,
+            myDevice: Document.loadIdentities.author.fingerprint) {
+            settledRegistry = current
+            return
+        }
+        registrySettlesForTesting += 1
+        invalidateTrust()
+        for document in openDocuments.values {
+            do { try await reReadAfterExternalChange(document) }
+            catch {
+                documentStoreLog.error(
+                    "re-read after a registry change failed for \(document.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        MaughamEvent.postAdmissionSettled(projectURL: projectURL)
+    }
 
     /// The presenter's path to `announcePendingHistory`, coalesced.
     ///
@@ -1345,7 +1593,7 @@ public final class DocumentStore {
 
         invalidateTrust()
         for document in openDocuments.values {
-            do { try await document.handleExternalLogChange() }
+            do { try await reReadAfterExternalChange(document) }
             catch {
                 documentStoreLog.error(
                     "re-read after admitting \(DeviceCode.short(fingerprint), privacy: .public) failed for \(document.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -1365,7 +1613,19 @@ public final class DocumentStore {
     /// already on screen would otherwise go on saying *not yet admitted* about
     /// a device that now has a name.
     func invalidateTrust() {
+        noteRegistrySettled()
         for document in openDocuments.values { document.opStore.invalidateTrust() }
+        // **And the closed pieces' words** (F7 final round, I1). The derived
+        // cache keys on op-log file mtimes, and a trust change moves no file:
+        // after *Theirs*, an admission or a revocation the same log derives to
+        // different words, so the cache is dropped and every closed piece is
+        // recounted — off this call, one table for the pass, none of it in the
+        // writer's session (`recountFromOpLogs`). Open pieces are counted by
+        // the re-read that follows every call of this verb.
+        if let store = projectStore {
+            store.derivedCache.invalidateAll()
+            store.recountFromOpLogs(ProjectStore.collectDocuments(in: store.manifest.structure))
+        }
         // Only when one already exists: this is also called from `open`, where
         // building an inbox store to tell it to forget nothing would be a
         // whole subsystem started by a no-op.
@@ -1401,7 +1661,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
                     // past its echo guard: this callback also fires on our OWN
                     // appends, and announcing here would put a project-wide
                     // walk on every typing burst (M3 P2 Task 9).
-                    try? await doc.handleExternalLogChange()
+                    try? await self.reReadAfterExternalChange(doc)
                     // **A stranger's file arriving through sync** (spec §4.1's
                     // second trigger). The re-read above is what discovers it,
                     // and the same predicate guards the post as at register
@@ -1425,6 +1685,21 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
 
         case .checkpoints:
             MaughamEvent.post(.maughamCheckpointAdded, to: .project(for: projectURL))
+
+        case .registry:
+            // A record arrived — or this Mac wrote one. Debounced, because a
+            // device syncing in delivers several records at once, and decided
+            // after the wait by `registryChanged`, which is where an echo of
+            // this Mac's own write is told apart from somebody else's record.
+            registryChangeScheduler.schedule(0)
+
+        case .letGo:
+            // A device's let-go record — another Mac emptied its Trash, or
+            // this Mac just did. Removed Elsewhere is re-derived (its file
+            // reads run off the main actor), debounced because a sync delivers
+            // a burst of callbacks. Nothing here is on the typing path: a
+            // let-go is written only by a permanent deletion.
+            letGoRefreshScheduler.schedule(0)
 
         case .otherProjectFile(let relativePath):
             // Manuscripts live alongside research notes and binder content
@@ -1477,45 +1752,257 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
     private func handleManifestChanged() {
         let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
         guard let data = try? Data(contentsOf: manifestURL) else { return }  // adr-0018-ok: project manifest JSON read, not manuscript
-        // Decode to confirm the bytes are a well-formed manifest before reacting
-        // (a partial/torn write isn't a conflict to archive).
-        guard (try? ProjectManifest.makeDecoder().decode(
-            ProjectManifest.self, from: data)) != nil else { return }
 
         // Content-hash echo guard (findings 1.2 + O2). If the disk content
-        // matches what we last wrote (or loaded at open), this callback is an
-        // echo of our own coordinated write — NOT an external change — so we
-        // must not archive. Only when the bytes genuinely DIFFER is it a real
-        // external manifest, which we preserve per the master spec:
-        // "Last-writer-wins; the loser is `.maugham/conflicts/manifest-<ts>.json`."
-        // Using a content hash (not a whole-second-truncated timestamp) means a
-        // same-second external change is still detected (O2).
+        // matches what we last wrote, loaded at open or adopted below, this
+        // callback is an echo — NOT an external change. A content hash (not a
+        // whole-second-truncated timestamp) means a same-second external change
+        // is still detected (O2).
         let diskEcho = ManifestEcho.afterWrite(bytes: data)
         if diskEcho == lastWrittenManifest {
             return
         }
-        archiveManifestForConflict(data: data)
+
+        // Decoded through the OPEN's own guard. A torn write is not a manifest
+        // at all and is ignored until the whole file lands. A manifest from a
+        // LATER build is refused rather than adopted: this build would decode
+        // it lossily and its next structural save would drop whatever it could
+        // not represent. Its bytes are archived so they outlive that save
+        // (`writeManifest` logs the overwrite) — the pre-F7 behaviour, kept for
+        // the one case where this window cannot honestly take the file on.
+        let incoming: ProjectManifest
+        do {
+            incoming = try ProjectManifest.decodeGuardingSchema(data)
+        } catch let tooNew as ProjectManifest.SchemaTooNewError {
+            documentStoreLog.error(
+                "manifest at \(self.projectURL.lastPathComponent, privacy: .public) arrived at schema \(tooNew.found, privacy: .public), which this build (\(tooNew.supported, privacy: .public)) cannot read; kept this window's copy and archived the incoming one")
+            archiveManifestForConflict(data: data)
+            lastWrittenManifest = diskEcho
+            return
+        } catch {
+            return
+        }
+        // **Held, not adopted, while a structural verb is running** (F7 fix
+        // round, I1). Several verbs copy part of the structure, await file
+        // surgery and then write the copy back, so an adoption that landed in
+        // that wait would be undone and the incoming manifest lost with nothing
+        // archived. The echo is left alone, so the bytes still read as someone
+        // else's when `structuralVerbsSettled` decides who wrote last. A
+        // manifest that arrives on top of one already held is the later outside
+        // write, which makes the held one its loser.
+        if let live = projectStore, live.structuralVerbDepth > 0 {
+            if let superseded = deferredManifest, superseded != data {
+                archiveManifestForConflict(data: superseded)
+            }
+            deferredManifest = data
+            return
+        }
         lastWrittenManifest = diskEcho
+
+        // **Adopt it** (F7, 2026-09-23). The master spec: "Last-writer-wins;
+        // the loser is `.maugham/conflicts/manifest-<ts>.json`." Until this fix
+        // the handler archived the INCOMING manifest and never assigned the
+        // live one, so another Mac's chapter never appeared here and this
+        // window's next structural save wrote its stale copy over it — the
+        // winner archived and the loser kept. Now the copy this window held is
+        // the loser. A headless store has no live copy, so nothing can lose.
+        if let live = projectStore {
+            let adoption = live.adoptExternalManifest(incoming)
+            if adoption.replacedSomething,
+               let loser = try? ProjectManifest.makeEncoder().encode(adoption.previous) {
+                archiveManifestForConflict(data: loser)
+            }
+            if adoption.overUnsavedChange {
+                documentStoreLog.error(
+                    "adopted another device's manifest at \(self.projectURL.lastPathComponent, privacy: .public) over a structural change of this window's own that never reached disk; that change is in .maugham/conflicts/")
+            }
+            // The verified shadow mirrors the manifest this window now holds,
+            // so a later corrupt file recovers to it and not to the copy it
+            // just replaced. Best-effort, as at every save.
+            try? ManifestShadow.write(data, in: projectURL)
+            // Another device's pieces arriving or leaving moved the project's
+            // total, and none of those words were typed here.
+            excludeForeignWords(adoption.wordCountDelta)
+            letGoOfPiecesMovedElsewhere(adoption, store: live)
+        }
+
         // **A manifest that arrived from somewhere else is the other half of
         // the gate's problem** (P3b fix round 1, ruling 2). This is the path an
         // iCloud conflict pick and a pre-fix Mac's save both come down, and
         // either can have landed a number below this build's on a book that has
-        // been narrowed. Raise-only, narrowed-only, never blocking: the
-        // conflict backup above has already been taken, so the bytes that
-        // arrived are kept whatever happens next.
+        // been narrowed. Raise-only, narrowed-only, never blocking: whichever
+        // copy lost has already been archived above.
         Task { [weak self] in await self?.healTheSchemaGateIfNarrowed() }
+    }
+
+    /// **Settle a manifest held while a structural verb ran** (F7 fix round,
+    /// I1). Called by `ProjectStore.endStructuralVerb` as the outermost verb
+    /// finishes, which is after its save. Three outcomes:
+    ///
+    /// - The file is what this window last wrote: the verb saved AFTER the
+    ///   held manifest arrived, so this window is the later writer and the held
+    ///   manifest is the loser. It is archived and the window keeps its own.
+    /// - The file is still the held manifest: the verb wrote nothing (it threw,
+    ///   or had nothing to save), so the held manifest is adopted now.
+    /// - The file is something newer again: the held one lost to that later
+    ///   outside write and is archived, and the newer one is taken on the
+    ///   ordinary way.
+    ///
+    /// A genuine concurrent structural edit is settled last-writer-wins, as the
+    /// master spec says; nothing here merges.
+    func structuralVerbsSettled() {
+        settleScheduled = false
+        // A verb that began between the schedule and now keeps the hold; its
+        // own end schedules the next settle.
+        if let live = projectStore, live.structuralVerbDepth > 0 { return }
+        defer { resumeSettleWaiters() }
+        guard let held = deferredManifest else { return }
+        deferredManifest = nil
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        guard let disk = try? Data(contentsOf: manifestURL) else {  // adr-0018-ok: project manifest JSON read, not manuscript
+            archiveManifestForConflict(data: held)
+            return
+        }
+        if ManifestEcho.afterWrite(bytes: disk) == lastWrittenManifest {
+            documentStoreLog.info(
+                "another device's manifest arrived at \(self.projectURL.lastPathComponent, privacy: .public) while a structural change was being written here; this window wrote last, so the incoming one is in .maugham/conflicts/")
+            archiveManifestForConflict(data: held)
+            return
+        }
+        if disk != held {
+            archiveManifestForConflict(data: held)
+        }
+        handleManifestChanged()
+    }
+
+    /// Called by `ProjectStore.endStructuralVerb` as the outermost verb ends.
+    /// The settle runs on the NEXT main-actor turn rather than inside the
+    /// verb's `defer` (F7 second fix round, m2): a verb that rolls its own
+    /// change back in a `catch` after a failed save does so synchronously on
+    /// the throw, so deferring one turn lets that rollback land BEFORE a held
+    /// manifest is adopted — otherwise the rollback would write the verb's old
+    /// fields onto the manifest another device just wrote.
+    func scheduleStructuralSettle() {
+        guard !settleScheduled else { return }
+        settleScheduled = true
+        Task { @MainActor [weak self] in self?.structuralVerbsSettled() }
+    }
+
+    /// Suspend until no structural verb is running and any held manifest has
+    /// been settled. `readManifest` waits here, so the narrowing gate and the
+    /// heal never read — and then write back — a manifest that is being held
+    /// (F7 second fix round, m1). Not for use from inside a structural verb:
+    /// the verb would wait for itself.
+    func waitForStructuralVerbs() async {
+        while (projectStore?.structuralVerbDepth ?? 0) > 0 || settleScheduled {
+            await withCheckedContinuation { settleWaiters.append($0) }
+        }
+    }
+
+    private func resumeSettleWaiters() {
+        let waiting = settleWaiters
+        settleWaiters = []
+        for waiter in waiting { waiter.resume() }
+    }
+
+    /// **A piece open here that another device moved or trashed** (F7 fix
+    /// round, Denver's rulings 2026-09-23).
+    ///
+    /// Each such Document stops rendering its `.md` at once — its file is no
+    /// longer at the path it holds, and a flush there would put a phantom back
+    /// (tripwire 14) — and leaves the registry, so a presenter callback for the
+    /// old path finds nothing. Closing it then flushes its last keystrokes into
+    /// the op log, which belongs to the piece wherever it now lives.
+    ///
+    /// - **Moved or renamed:** the editor follows on its own, because its
+    ///   reload is keyed on the item's path (tripwire 22) and the adoption just
+    ///   changed that path.
+    /// - **Gone from the structure:** the editor has no item to show and takes
+    ///   no more keystrokes, and the writer is told. Trash is named only when
+    ///   Trash holds the piece, and then so is WHO moved it there — the
+    ///   entry's `trashedBy`, which this build records when it trashes (F7
+    ///   final round, M1); an entry without one says "another device".
+    private func letGoOfPiecesMovedElsewhere(
+        _ adoption: ManifestAdoption, store: ProjectStore
+    ) {
+        var closing: [Document] = []
+        for moved in adoption.moved {
+            if let doc = openDocuments.removeValue(forKey: moved.oldPath) {
+                doc.stopRendering()
+                closing.append(doc)
+            }
+        }
+        var trashedOpen: [ManifestAdoption.Removed] = []
+        for removed in adoption.removed {
+            if let doc = openDocuments.removeValue(forKey: removed.oldPath) {
+                doc.stopRendering()
+                closing.append(doc)
+                trashedOpen.append(removed)
+            }
+        }
+        guard !adoption.removed.isEmpty || !closing.isEmpty else { return }
+        let projectURL = self.projectURL
+        let anyRemoved = !adoption.removed.isEmpty
+        Task { @MainActor [weak store] in
+            for doc in closing { await doc.close() }
+            // **Absence is not trash** (F7 second fix round, I-B). A piece can
+            // leave the structure without going to Trash — an older build
+            // saving its stale window over this book drops every piece it never
+            // saw — so Trash is named only where Trash actually holds it, and
+            // the window's list is refreshed so the promise can be kept.
+            var entries: [TrashEntry] = []
+            if anyRemoved, let store {
+                entries = (try? await store.trashStore.list()) ?? store.trashEntries
+                store.trashEntries = entries
+            }
+            for removed in trashedOpen {
+                let trashed = entries.first { Self.entry($0, holds: removed.id) }
+                MaughamEvent.postNotice(
+                    trashed.map {
+                        Self.trashedElsewhereNotice(title: removed.title, by: $0.trashedBy)
+                    } ?? Self.removedElsewhereNotice(title: removed.title),
+                    projectURL: projectURL)
+            }
+        }
+    }
+
+    /// Whether a trash entry is the deletion of the structure item `id`. The
+    /// entry's metadata is the item as it stood, so its own `id` field says.
+    private static func entry(_ entry: TrashEntry, holds id: String) -> Bool {
+        struct Probe: Decodable { let id: String }
+        return (try? JSONDecoder().decode(Probe.self, from: entry.itemMetadata))?.id == id
+    }
+
+    /// The sentence the writer reads when a piece they had open was moved to
+    /// Trash on another device. It names who moved it when the trash record
+    /// says (`TrashEntry.trashedBy`), and "another device" when it does not —
+    /// an entry an older build wrote. Static so a test can read the words.
+    static func trashedElsewhereNotice(title: String, by who: String?) -> String {
+        guard let who, !who.isEmpty else {
+            return "“\(title)” was moved to Trash on another device, so it has been closed here. It can be restored from Trash."
+        }
+        return "“\(title)” was moved to Trash by \(who) on another device, so it has been closed here. It can be restored from Trash."
+    }
+
+    /// The sentence for a piece that left the binder WITHOUT going to Trash.
+    /// It names what happened to the binder and not who did it, in Removed
+    /// Elsewhere's own words (review M6): the archived outline cannot tell a
+    /// stale outline another device saved from an addition that lost a
+    /// last-writer-wins race, so no device is blamed. The way back is *Removed
+    /// Elsewhere*, below the binder (Denver's ruling, 2026-09-24): the adoption
+    /// that closed it has just archived the outline that held it, which is what
+    /// that list reads (`RemovedElsewhere`), so the promise holds from this
+    /// moment.
+    static func removedElsewhereNotice(title: String) -> String {
+        "“\(title)” left the binder when two devices\u{2019} outlines crossed, so it has been closed here. Its words are still in this book, and it is not in Trash — restore it from Removed Elsewhere, below the binder."
     }
 
     private func archiveManifestForConflict(data: Data) {
         let conflictsDir = projectURL.appendingPathComponent(".maugham/conflicts")
         try? FileManager.default.createDirectory(
             at: conflictsDir, withIntermediateDirectories: true)
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let stamp = formatter.string(from: Date())
-            .replacingOccurrences(of: ":", with: "-")
         let backupURL = conflictsDir
-            .appendingPathComponent("manifest-\(stamp).json")
+            .appendingPathComponent(ManifestConflictArchive.fileName(for: Date()))
         // LOG (sync, non-throwing context): this is the conflict backup — the
         // *loser* of a cloud manifest conflict, i.e. the safety net itself. A
         // swallowed `try?` would let that safety net vanish silently on a write

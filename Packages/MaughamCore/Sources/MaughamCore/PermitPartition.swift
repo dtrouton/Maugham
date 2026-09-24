@@ -183,12 +183,15 @@ public enum PermitPartition {
             // step over: an AUTHOR's edit of somebody else's note is
             // `allowsEverything`, and it is her later demotion that would
             // otherwise reach back and un-do it.
-            let skip = entry.permit.allowsEverything(actor: actor)
+            // **`judging`, never `permit`** (P3b smoke find F9): the entry's
+            // permit read as having held any piece a later answer settled.
+            let permit = entry.judging
+            let skip = permit.allowsEverything(actor: actor)
             if skip, !recordAmendments { continue }
             guard let what = decoding(line.bytes) else { continue }
             if recordAmendments, Permit.group(of: what) == .ownAnnotation,
                let opId = RevocationSplit.opId(ofLine: line.bytes) {
-                amendments?.record(opId, entry.permit)
+                amendments?.record(opId, permit)
             }
             if skip { continue }
             let documentClass = resolvedClass ?? documentClass()
@@ -214,14 +217,14 @@ public enum PermitPartition {
             // row. See `Permit.actorJudging`, which is also where the
             // `typingBurst` arm is explained and why it is not built.
             let judging = Permit.actorJudging(what, signedBy: actor)
-            switch entry.permit.allows(what, in: documentClass, actor: judging) {
+            switch permit.allows(what, in: documentClass, actor: judging) {
             case .yes:
                 continue
             case .cannotJudge:
                 holding[index] = trust.person(forSealKey: key)
             case let .no(refused):
                 if startsAPieceNobodyHasClaimed(
-                    permit: entry.permit, actor: judging,
+                    permit: permit, actor: judging,
                     class: documentClass, what: what) {
                     let answer = unownedAnswer ?? unowned()
                     unownedAnswer = answer
@@ -236,6 +239,14 @@ public enum PermitPartition {
                         // the `Written` — is gone by the time a surface asks.
                         // See `AmendmentPermits.recordStartedAPiece`.
                         amendments?.recordStartedAPiece(holder)
+                        // **And whether she STARTED it at all** (Q1): the
+                        // permit layer's one answer, so the question can be
+                        // put truthfully after a deliberate removal.
+                        if let piece = documentClass.piece,
+                           trust.timeline(forSealKey: key)
+                            .wasTakenFromThem(piece: piece) {
+                            amendments?.recordKeptWritingInATakenPiece(holder)
+                        }
                         continue
                     }
                 }
@@ -460,7 +471,7 @@ public enum PermitPartition {
                   let what = decoding(line.bytes),
                   Permit.group(of: what) == .manuscriptText
             else { continue }
-            if case .author(.book) = entry.permit { return true }
+            if case .author(.book) = entry.judging { return true }
         }
         return false
     }

@@ -208,17 +208,32 @@ public enum HeldLines {
     ///
     /// Nil for a count of nothing, so a surface drawing this never has to
     /// decide whether zero is worth a sentence.
+    ///
+    /// **`what` says what the lines ARE** (P3b smoke find F2). A held line of
+    /// prose is not a note, and *1 note is waiting* over a paragraph Kit wrote
+    /// told the writer the opposite of what was waiting. Where the caller has
+    /// the kinds — `Waiting`, counted by the load — the sentence says them in
+    /// the writer's terms (*2 paragraphs and 1 note*); where it has only a
+    /// count (the capture stream, which holds no ops), it says *notes* as it
+    /// always did.
+    ///
+    /// `pieceWasTakenFromThem` is the walk's own answer
+    /// (`AmendmentPermits.whoKeptWritingInATakenPiece`): §4.5's line after a
+    /// deliberate removal, where *nobody has claimed* would be false (Q1,
+    /// ruled 2026-09-24). It reaches only the piece-start arm.
     public static func sentence(
-        _ holder: Holder, notes count: Int, named name: String? = nil,
-        wayBackIn: WayBackIn = .theInboxDoor
+        _ holder: Holder, notes count: Int, what: Waiting? = nil,
+        named name: String? = nil,
+        wayBackIn: WayBackIn = .theInboxDoor, pieceWasTakenFromThem: Bool = false
     ) -> String? {
         guard count > 0 else { return nil }
-        let noun = count == 1 ? "note" : "notes"
-        let verb = count == 1 ? "is" : "are"
+        let phrase = what?.phrase
+        let noun = phrase.map(\.text) ?? "\(count) \(count == 1 ? "note" : "notes")"
+        let verb = (phrase.map(\.isPlural) ?? (count != 1)) ? "are" : "is"
         switch holder {
         case .stranger:
             let who = name ?? "another device"
-            return "\(count) \(noun) from \(who) \(verb) waiting for admission."
+            return "\(noun) from \(who) \(verb) waiting for admission."
         case .permitPending(_, let startedAPiece):
             let who = name ?? "a device in this book"
             // **§4.5, and the only held line the writer can do something
@@ -229,19 +244,174 @@ public enum HeldLines {
             // reads her line perfectly well, and telling the writer to wait
             // for a newer Maugham would be telling them to wait for nothing.
             guard !startedAPiece else {
-                return "\(count) \(noun) from \(who) \(verb) waiting in a piece "
+                if pieceWasTakenFromThem {
+                    return "\(noun) from \(who) \(verb) waiting in a "
+                        + "piece that was taken from them — they kept writing "
+                        + "in it. Say whether to give it back in People & Devices."
+                }
+                return "\(noun) from \(who) \(verb) waiting in a piece "
                     + "nobody has claimed yet. Say whether the piece is theirs "
                     + "in People & Devices."
             }
-            return "\(count) \(noun) from \(who) \(verb) waiting. This version "
+            return "\(noun) from \(who) \(verb) waiting. This version "
                 + "of Maugham can’t tell what they are allowed to write here; "
                 + "a newer one will."
         case .unsigned:
             let where_ = wayBackIn == .theInboxDoor
                 ? "can be brought back through the Inbox."
                 : "is brought back from History."
-            return "\(count) \(noun) \(verb) waiting from \(unsignedWriter). "
+            return "\(noun) \(verb) waiting from \(unsignedWriter). "
                 + "There is no device to admit — what it wrote \(where_)"
+        }
+    }
+
+    // MARK: - What is waiting (P3b smoke find F2)
+
+    /// **What a holder's held lines ARE, in the writer's terms** — paragraphs
+    /// of prose, notes, and other changes — with a few of the words.
+    ///
+    /// Every surface that counted held lines put *notes* after the number,
+    /// whatever the lines were: the admission sheet said *1 note waiting* and
+    /// History said *1 note is waiting in a piece no one has claimed yet* about
+    /// a paragraph of prose (smoke find F2). The kinds are ASKED of
+    /// `Permit.group(of:)` — the one exhaustive switch over `OpKind`, which
+    /// itself asks `Deriver.appliesToManuscript` for prose (tripwire 44) —
+    /// never restated here:
+    ///
+    /// - **prose** — the group that becomes words;
+    /// - **notes** — the annotation layer: making a note, amending one, or
+    ///   settling one;
+    /// - **changes** — everything else: a task's life, a bookmark, a kind from
+    ///   a later build.
+    ///
+    /// **Prose is counted by PARAGRAPH**, not by op: a writer typing one
+    /// paragraph in three bursts wrote one paragraph, and *3 paragraphs* would
+    /// be a number they cannot find. `prose` keeps the op count, and a prose op
+    /// that names no paragraph at all is said as a change — counted in
+    /// `anonymousProse`, so it is said even beside prose that does name one.
+    public struct Waiting: Equatable, Sendable {
+        /// Every paragraph a held prose op touched.
+        public var paragraphIds: Set<String>
+        /// Held op lines that would move the manuscript's words.
+        public var prose: Int
+        /// The held prose op lines among `prose` that named NO paragraph — a
+        /// line from a later build, or one with no changes. No paragraph can
+        /// count them, so the phrase says each as a change.
+        public var anonymousProse: Int
+        /// Held annotation-layer op lines — comments, suggestions, queries,
+        /// craft notes, and edits and dispositions of them.
+        public var notes: Int
+        /// Every other held op line: tasks, bookmarks, unknown kinds.
+        public var other: Int
+        /// The words of the first held paragraph, as it last read in the held
+        /// span, with task anchors taken out — for a peek, never for applying.
+        /// At most `peekLimit` characters; a surface shortens it further.
+        public var peek: String?
+
+        public init(
+            paragraphIds: Set<String> = [], prose: Int = 0, anonymousProse: Int = 0,
+            notes: Int = 0, other: Int = 0, peek: String? = nil
+        ) {
+            self.paragraphIds = paragraphIds
+            self.prose = prose
+            self.anonymousProse = anonymousProse
+            self.notes = notes
+            self.other = other
+            self.peek = peek
+        }
+
+        /// How much of a paragraph a peek keeps. Enough for any line a surface
+        /// draws, small enough that a provenance carrying one per holder per
+        /// file costs nothing to hold.
+        public static let peekLimit = 280
+
+        public var paragraphs: Int { paragraphIds.count }
+        public var isEmpty: Bool { prose == 0 && notes == 0 && other == 0 }
+
+        /// Two files' (or two documents') worth, as one. The first peek stands:
+        /// it is the first words the writer will be shown either way.
+        public func merged(with more: Waiting) -> Waiting {
+            Waiting(
+                paragraphIds: paragraphIds.union(more.paragraphIds),
+                prose: prose + more.prose,
+                anonymousProse: anonymousProse + more.anonymousProse,
+                notes: notes + more.notes,
+                other: other + more.other, peek: peek ?? more.peek)
+        }
+
+        /// **The noun phrase** — *1 paragraph*, *2 paragraphs and 1 note*,
+        /// *1 paragraph, 2 notes and 1 change* — and whether a verb after it is
+        /// plural. Nil when nothing is waiting.
+        public var phrase: (text: String, isPlural: Bool)? {
+            var parts: [(Int, String, String)] = []
+            if paragraphs > 0 { parts.append((paragraphs, "paragraph", "paragraphs")) }
+            if notes > 0 { parts.append((notes, "note", "notes")) }
+            // A prose op that named no paragraph is still something held, and
+            // a sentence that counted nothing would say less than is true —
+            // whether or not other prose ops named one (whole-branch review
+            // M5). With no paragraph named at all, every prose op is one of
+            // them, which also covers a description built by hand from `prose`.
+            let changes = other + (paragraphs == 0 ? prose : anonymousProse)
+            if changes > 0 { parts.append((changes, "change", "changes")) }
+            guard !parts.isEmpty else { return nil }
+            let words = parts.map { "\($0.0) \($0.0 == 1 ? $0.1 : $0.2)" }
+            let text = words.count == 1
+                ? words[0]
+                : words.dropLast().joined(separator: ", ") + " and " + words.last!
+            return (text, parts.count > 1 || parts[0].0 != 1)
+        }
+
+        /// **Counted from the lines a walk classified**, keyed the way
+        /// `OpLogChain.pendingByDevice` keys them — by the device the line is
+        /// held under — and over OP lines only, for that function's reason:
+        /// a seal is neither a paragraph nor a note.
+        ///
+        /// Each held op line is decoded ONCE, as an `Op`; only a line that will
+        /// not decode is read again for its bare `kind` (`Op.kind(ofLine:)`),
+        /// so a later build's shape is still counted rather than dropped. A
+        /// load pays nothing here for a file that holds nothing.
+        public static func byDevice(
+            of lines: [OpLogChain.Line]
+        ) -> [String: Waiting] {
+            var answer: [String: Waiting] = [:]
+            var peekParagraph: [String: String] = [:]
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
+            for line in lines where line.kind == .op {
+                guard let device = line.state.pendingDevice else { continue }
+                var waiting = answer[device] ?? Waiting()
+                defer { answer[device] = waiting }
+                let op = try? decoder.decode(Op.self, from: line.bytes)
+                guard let kind = op?.kind ?? Op.kind(ofLine: line.bytes) else {
+                    waiting.other += 1
+                    continue
+                }
+                switch Permit.group(of: kind) {
+                case .manuscriptText:
+                    waiting.prose += 1
+                    if (op?.changes ?? []).isEmpty { waiting.anonymousProse += 1 }
+                case .annotationCreation, .ownAnnotation, .disposition:
+                    waiting.notes += 1
+                    continue
+                case .checkpoint, .task, .translationRecord, .inboxRow, .unreadable:
+                    waiting.other += 1
+                    continue
+                }
+                for change in op?.changes ?? [] {
+                    waiting.paragraphIds.insert(change.paragraphId)
+                    let text = MarkdownDisplayFilter.stripTaskAnchorsInline(change.next)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !text.isEmpty else { continue }
+                    // The FIRST paragraph held, as it LAST reads: a paragraph
+                    // typed in three bursts peeks at its third.
+                    let first = peekParagraph[device] ?? change.paragraphId
+                    peekParagraph[device] = first
+                    if change.paragraphId == first {
+                        waiting.peek = String(text.prefix(peekLimit))
+                    }
+                }
+            }
+            return answer
         }
     }
 }

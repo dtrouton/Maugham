@@ -22,7 +22,7 @@ The manuscript op log: append-only event stream of paragraph-level mutations, pa
 - `Permit.swift` / `PermitEvent.swift` / `PermitMark.swift` / `PermitTimeline.swift` / `DocumentClass.swift` / `PermitPartition.swift` / `AnnotationOwnership.swift` / `LocalWritePermit.swift` / `OpLogPermitContext.swift` (MaughamCore) — P3a's permit layer: what a person may write, the event that changes it, the chain positions an event is marked at, the timeline the check reads, which kind of stream a file is, the line-by-line partition, the same-person rule for annotation amendments, and the write-side answer. See *The permit* below.
 - `RegistryCache.swift` (MaughamCore) — this device's memory of the last verified registry, and the root it joined. Restores a record something deleted or tampered with, byte-faithfully, and reports it.
 - `TrustTable.swift` / `TrustResolution.swift` (MaughamCore) — `TrustVerdict`'s six answers to *who is this seal's key to me*, as a pure function of the registry (`TrustTable`) and the impure half that reads the folder, reconciles the cache and records the join (`TrustResolution`). `keyless(mine:)` is P1's behaviour exactly.
-- `RegistryPresence.swift` (MaughamCore) — what a device says about itself at open, and the first Mac's root. `Maugham/Stores/DocumentStore.swift` calls it; the phone's `PhoneDeviceRecord` is its other caller.
+- `RegistryPresence.swift` (MaughamCore) — what a device says about itself at open, and the first Mac's root. `Maugham/Stores/DocumentStore.swift` calls it; the phone's `PhoneDeviceRecord` is its other caller; and `OpLogStore.append`/`TranslationStore.appendBatch` ask its `declareActor` before a key minted after the open signs its first line (F6).
 - `ISO8601Fast.swift` (MaughamCore) — the byte-level parser for the two ISO-8601 spellings the app writes (no fraction, or exactly three digits), tried before `ISO8601DateFormatter` on the op log's decode path. Equivalence by construction rather than by replicating Foundation's undocumented truncation: every other shape falls through to the formatter chain untouched. See "Where the time goes" item 4.
 - `OpLogProvenance.swift` (MaughamCore) — `FileProvenance` per file and `OpLogProvenance` over a document, the load's own account of what its history is made of. What `HistoryPane`'s unsigned-history sentence reads.
 - `Bootstrap.swift` — mints `¶id` anchors on first-open of a document. **Must be called from any production load path *that may write the piece*.** Wired into `Document.load` since `milestone-document-first-class` (2026-05-19); `BootstrapWiringTests` enforces the contract. Any new manuscript-load path must route through `Document.load`. The qualifier is P3a Task 8's — see *The load seam* below.
@@ -764,6 +764,55 @@ sweep; on the phone `PhoneDeviceRecord.ensure` runs at the first write inside
 the writers' existing main-actor hop, because the phone has no open. An unsigned
 device writes nothing and says so once per process.
 
+**A key named AFTER the open reaches the record before its first line does**
+(P3b smoke find F6). `LocalIdentities` is lazy, so the assistant's key is minted
+by the first MCP write of a session, the translator's by the pipeline's first
+run, Maugham's by the first rebalance — all after `DocumentStore.open` declared
+this device. Until the fix those lines were signed by a key the record did not
+name, and every other Mac held them as a stranger's until this one relaunched.
+`RegistryPresence.declareActor` re-signs the record by editing the FILE's
+object (`RegistryWriter.resign`, rename's door), changing `actors` alone — so a
+later build's fields and any actor this build has no word for survive, and the
+name is still decided only at open. The two write paths that sign as a
+non-author actor — `OpLogStore.append` and `TranslationStore.appendBatch` —
+reach it through `declareActorOnce` BEFORE the line is written, on their own
+(main) actor and only when `declarationIsDue` — a check that reads no record —
+says so (a detached hop was measured to reorder what `append`'s callers observe
+and was withdrawn). A store ASKS once per actor until it learns the registry
+changed — `invalidateTrust()` (which `DocumentStore` sends every open document
+on a registry arrival and after its own registry writes) or its own
+`trust()`/`trustOnThisActor()` re-resolving over a new signature both make it
+forget, so an open document's store asks again (whole-branch review M2; before
+that the store memoised the actor before the due check and never re-asked for
+its life). Across stores there is one ATTEMPT per registry state (the memo holds
+the registry's `TrustResolution.signature` after the last attempt, per project
+and actor key, for the process's life), so a registry that REFUSES costs one
+verified read and one write attempt, not one per line. The author's typing path
+is untouched: an author line asks nothing, one enum compare. It never declares a device the book has no record of, never names the
+author (the author is the device, declared at open, and the keystroke path pays
+nothing), never mints a key it only enumerated, leaves a retired record alone,
+and never costs a line: a refusal is logged and the line goes on, held elsewhere
+until the registry changes or the next open catches the record up. The phone
+signs as the author only, so it never reaches the re-signing.
+
+**And a record that arrives AFTER its line re-judges it** (P3b review,
+Important #1). *Before the line* is ordering on the writing Mac's disk only —
+iCloud may still deliver the line first. The receiving Mac's presenter routes
+every registry folder as `MaughamSidecarPath.registry` (folders asked of
+`RegistryWriter.directoryURL`, tripwire 40), and `DocumentStore.registryChanged`
+— debounced, off the typing path — takes `admit`'s third act: forget every
+table, re-read every open document, post the admission-settled event. It does
+NOT fire for this Mac's own writes: `invalidateTrust` (which every registry
+verb here calls) records the register as settled, and a change touching nothing
+but this device's own DEVICE record — F6's mid-session re-sign — is an echo
+(`DocumentStore.registryChangeIsAnEcho`; this Mac's keys read as its own
+whatever that record says). Pinned by `RegistryArrivalTests`.
+
+**Stated limit.** The open's own `ensureDeviceRecord` still writes a fresh `DeviceRecord`
+rather than re-signing the file's object, so a later build's fields on this
+device's record are dropped at open (tripwire 42's rule honoured by the
+mid-session door only).
+
 **What History says.** `HistoryPane.pendingNotice` is the one line in that pane
 with a control — *14 notes from iPhone are waiting for admission* — and its
 **Admit…** button is LIVE as of P2b (it posts a forced
@@ -1444,6 +1493,19 @@ unsigned stream — and they are told apart HERE, once, by the string the walk
 held them under. `unsigned:<stream>` is a shape no fingerprint and no device id
 can be, which is what makes the classification total rather than a guess.
 
+**`HeldLines.Waiting` — what a held line IS** (P3b smoke find F2). Every
+surface put *notes* after a held count, so Kit's paragraph of prose was *1 note
+waiting* on the admission sheet and on History's §4.5 banner. The load now
+counts, beside `pendingByDevice` and from the same classified lines,
+`FileProvenance.pendingWaitingByDevice`: prose by distinct PARAGRAPH (a
+paragraph typed in three bursts is one), the annotation layer as notes,
+everything else (tasks, bookmarks, a later build's kinds) as changes, and the
+first held paragraph's last words, task anchors stripped, as a peek. The kinds
+are ASKED of `Permit.group(of:)`, the one exhaustive switch over `OpKind`
+(which asks `Deriver.appliesToManuscript` for prose — tripwire 44), and each
+held op line is decoded once. `HeldLines.sentence(_:notes:what:)` says the phrase where it has
+one and the old count where it has none (the capture stream holds no ops).
+
 **`OpLogDeviceState.acknowledgeLoss` — the escape.** A remembered stream that
 is legitimately gone made `revoke`, `changePermit` and `admit` refuse for ever.
 History draws what the book is missing — a stream found shorter than it was, or
@@ -1460,14 +1522,40 @@ is raise-only against what is on DISK, inside the coordinated write, and a P3
 build that meets a narrowed book stamped lower HEALS it at open. A book made on
 this build starts at 9.
 
-**`markLine` and settling pieces.** Answering §4.5's question (*the piece is
-theirs*) writes a `scopeChanged` event whose mark cuts that piece's streams
-BEFORE her first held line — the last line SEEN before the first held one, not
-the last line that is not held — so her held words come in. A refusal before
-her span stays set aside; a PERMIT refusal after it in the same stream is
-re-judged under the granted permit. A segment holding her span is cut by LINE
-HASH and lists no digest, and `cutStream` stops every later file of that stream
-contributing; the earliest file that holds her decides.
+**Settling a piece — *Theirs* re-judges BY REASON** (P3b smoke find F9;
+Denver's ruling of 2026-09-23, replacing the positional cut). Answering §4.5's
+question (*the piece is theirs*) writes an ordinary `scopeChanged` event — the
+ordinary seen mark, the piece added — carrying `PermitEvent.settled`, the
+pieces it answered (omitted while nil, so every other event's bytes are
+unchanged). `PermitTimeline` reads it: every EARLIER entry of that person is
+judged by `Entry.judging` — its permit read as having held the settled piece
+(`Permit.settling`, which widens only an author-of-some-pieces list) — while
+`Entry.permit` stays what the event installed, for History and `current`. So a
+line of hers in that piece refused ONLY because the piece was not hers is
+re-judged under the granted permit wherever it sits: before her held span,
+after it, in a segment that arrives late. Every other refusal stays set aside
+wherever it sits — the actor rows (the assistant never writes the manuscript),
+a reviewer's rung, a verdict (a revocation, a broken chain: those are refused
+before the partition runs), another person's line (the answer is on HER
+timeline). A line held for a reason that is not §4.5's — a kind this build
+cannot read — stays held, because `.cannotJudge` is the table's answer under
+every permit. An entry AFTER the answer is not widened, so a piece taken away
+again is taken away from that event's mark on; and `settled` over a permit that
+does not author the piece settles nothing (`Entry.settles`, which History reads
+too). The partition asks `entry.judging` and nothing else — one judgment, the
+load and every sweep alike. The mark being the ordinary one, the answer takes
+the ordinary loss check: a segment this Mac APPLIED that is missing now refuses
+it (`streamMissingFromSweep`); one it never applied is honest late sync and is
+judged by reason when it arrives. *Another person's line* means one another
+person SIGNED — her own accepts, rejects and archives of other people's notes in
+the piece, refused only for scope, come in too. **After a deliberate removal**
+(Q1, ruled 2026-09-24) the question is still put and *Theirs* still brings it
+all in, but the partition records that the piece was TAKEN from her
+(`PermitTimeline.wasTakenFromThem` → `AmendmentPermits
+.whoKeptWritingInATakenPiece` → `Document.keptWritingInATakenPiece`), so the
+sheet, People & Devices' waiting row, History's banner and History's entry for
+the answer all say she kept writing in it after it was taken. The positional machinery that preceded this
+(`markLine`, the settling cut, `settlingOrder`) is gone.
 
 ## Sealed segments (ADR 0016, M2)
 

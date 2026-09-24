@@ -38,12 +38,12 @@ final class ClaimSheetTests: XCTestCase {
     private func mount(
         _ offer: ClaimOffer, refusal: String? = nil,
         onClaim: @escaping () -> Void = {},
-        onNotMine: @escaping () -> Void = {}
+        onCancel: @escaping () -> Void = {}
     ) -> NSWindow {
         let window = TestWindow.mount(
             AnyView(ClaimSheet(
                 offer: offer, projectTitle: "Playlist", refusal: refusal,
-                onClaim: onClaim, onNotMine: onNotMine)
+                onClaim: onClaim, onCancel: onCancel)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)),
             size: CGSize(width: 520, height: 400))
         windows.append(window)
@@ -75,14 +75,14 @@ final class ClaimSheetTests: XCTestCase {
         XCTAssertTrue(texts.contains { $0.contains("adopts what those") },
                       "Claim says what it writes: \(texts)")
         XCTAssertTrue(texts.contains { $0.contains("changes nothing") },
-                      "and Not mine says that it changes nothing: \(texts)")
+                      "and Cancel says that it changes nothing: \(texts)")
     }
 
     func test_bothButtonsAreDrawnAndLive() throws {
         let window = mount(offer())
         let labels = try axButtonLabels(in: window)
 
-        for title in [ClaimDecision.claimTitle, ClaimDecision.notMineTitle] {
+        for title in [ClaimDecision.claimTitle, ClaimDecision.cancelTitle] {
             let buttons = try axButtons(labelled: title, in: window)
             XCTAssertFalse(buttons.isEmpty, "\(title) is drawn: \(labels)")
             for button in buttons {
@@ -112,13 +112,13 @@ final class ClaimSheetTests: XCTestCase {
         let window = TestWindow.mount(
             AnyView(ClaimSheet(
                 offer: offer(), projectTitle: "Playlist", isClaiming: true,
-                onClaim: {}, onNotMine: {})
+                onClaim: {}, onCancel: {})
                 .frame(maxWidth: .infinity, maxHeight: .infinity)),
             size: CGSize(width: 520, height: 400))
         windows.append(window)
         pump(0.2)
 
-        for title in [ClaimDecision.claimTitle, ClaimDecision.notMineTitle] {
+        for title in [ClaimDecision.claimTitle, ClaimDecision.cancelTitle] {
             for button in try axButtons(labelled: title, in: window) {
                 XCTAssertEqual(axEnabled(button), false, "\(title) while claiming")
             }
@@ -135,13 +135,13 @@ final class ClaimSheetTests: XCTestCase {
         var declined = 0
         let sheet = ClaimSheet(
             offer: offer(), projectTitle: "Playlist",
-            onClaim: { claimed += 1 }, onNotMine: { declined += 1 })
+            onClaim: { claimed += 1 }, onCancel: { declined += 1 })
 
         sheet.claimForTesting()
         XCTAssertEqual(claimed, 1)
         XCTAssertEqual(declined, 0)
 
-        sheet.notMineForTesting()
+        sheet.cancelForTesting()
         XCTAssertEqual(claimed, 1)
         XCTAssertEqual(declined, 1)
     }
@@ -149,5 +149,5 @@ final class ClaimSheetTests: XCTestCase {
 
 private extension ClaimSheet {
     func claimForTesting() { onClaim() }
-    func notMineForTesting() { onNotMine() }
+    func cancelForTesting() { onCancel() }
 }

@@ -163,10 +163,15 @@ struct PeopleAndDevicesModel: Equatable {
         /// the whole of how an admission is checked.
         let code: String
         let heldLines: Int
+        /// **What is waiting, and where** (P3b smoke find F2) — the admission
+        /// sheet's own line (`AdmissionWaiting.line`), so this row and the
+        /// sheet say one thing about one device. Nil draws the plain count.
+        var described: String? = nil
 
         var id: String { fingerprint }
 
         var sentence: String {
+            if let described { return "\(name) (\(code)) — \(described)" }
             let held = heldLines == 1 ? "1 line" : "\(heldLines) lines"
             return "\(name) (\(code)) — \(held) waiting"
         }
@@ -697,6 +702,8 @@ struct PeopleAndDevicesModel: Equatable {
         unsignedStreams: [String] = [],
         pieces: [PermitControl.Piece] = [],
         heldPieceStarts: [String: [String: Int]] = [:],
+        heldWaiting: [String: [String: HeldLines.Waiting]] = [:],
+        heldCaptures: [String: Int] = [:],
         declinedPieces: Set<OpLogDeviceState.DeclinedPiece> = [],
         settledPieces: Set<OpLogDeviceState.DeclinedPiece> = []
     ) -> PeopleAndDevicesModel {
@@ -756,7 +763,11 @@ struct PeopleAndDevicesModel: Equatable {
                 name: InboxByline.name(
                     forDevice: request.fingerprint, registry: registry),
                 code: request.code,
-                heldLines: request.waitingCount)
+                heldLines: request.waitingCount,
+                described: AdmissionWaiting.describe(
+                    holder: request.fingerprint, waiting: heldWaiting,
+                    captures: heldCaptures,
+                    order: pieces.map { (id: $0.id, title: $0.title) })?.line)
         }
         pendingRows.sort { left, right in
             left.heldLines == right.heldLines
@@ -796,7 +807,8 @@ struct PeopleAndDevicesModel: Equatable {
         // put off is still theirs to come back to, and this is the only
         // surface that offers it.
         let asked = LoadQuestions.newPieces(
-            held: HeldLineUnion(counts: held, startedAPiece: heldPieceStarts),
+            held: HeldLineUnion(
+                counts: held, startedAPiece: heldPieceStarts, waiting: heldWaiting),
             registry: registry, titles: pieceTitleById,
             declined: settledPieces, me: me)
         let pendingPieces: [PendingPiece] = asked.map { question in

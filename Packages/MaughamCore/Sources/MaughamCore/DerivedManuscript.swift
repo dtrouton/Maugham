@@ -24,8 +24,16 @@ public enum DerivedManuscript {
     /// The derived `paragraphs` map + `sequence`, for callers that need them
     /// directly (task derivation, word count) without re-anchoring. Throws as
     /// `materialize` does.
-    public static func derivedState(forDocId docId: String, in projectURL: URL) throws -> Deriver.DerivedState {
+    ///
+    /// `trust` is a table the caller already resolved. Nil resolves one here —
+    /// a verified read of the registry folder — so a caller walking a book's
+    /// chapters passes one table for the whole walk (`loadSyncMerged`'s own
+    /// advice).
+    public static func derivedState(
+        forDocId docId: String, in projectURL: URL, trust: TrustTable? = nil
+    ) throws -> Deriver.DerivedState {
         Deriver.deriveWithSequenceFallback(
-            ops: try OpLogStore.loadSyncMerged(forDocId: docId, in: projectURL))
+            ops: try OpLogStore.loadSyncMerged(
+                forDocId: docId, in: projectURL, trust: trust))
     }
 }

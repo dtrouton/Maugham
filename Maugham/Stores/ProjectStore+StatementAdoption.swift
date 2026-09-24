@@ -33,6 +33,7 @@ extension ProjectStore {
     /// manuscript because an intent note was odd is a far worse outcome than
     /// un-adopted intent.
     func adoptLegacyCraftIntentIfNeeded() async {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         // The gate is the ON-DISK schema version. Gating on "has no `statements`
         // section" would re-scan, forever, every writer who legitimately has no
         // intent — absence is a valid, deliberate state (spec §5).

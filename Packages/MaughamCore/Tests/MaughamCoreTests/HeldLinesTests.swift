@@ -148,4 +148,19 @@ final class HeldLinesTests: XCTestCase {
             .permitPending(person: "p", startedAPiece: false), notes: 0))
         XCTAssertNil(HeldLines.sentence(.unsigned(stream: "s"), notes: 0))
     }
+
+    /// **A piece TAKEN from them is not a piece nobody has claimed** (Q1,
+    /// ruled 2026-09-24): the sentence says she kept writing in it, and the
+    /// flag reaches the piece-start arm alone.
+    func test_aPieceTakenFromThemSaysSoAndNotThatNobodyClaimedIt() throws {
+        let taken = try XCTUnwrap(HeldLines.sentence(
+            .permitPending(person: "who", startedAPiece: true), notes: 1,
+            named: "Sam", pieceWasTakenFromThem: true))
+        XCTAssertTrue(taken.contains("taken from them"))
+        XCTAssertFalse(taken.localizedCaseInsensitiveContains("nobody has claimed"))
+        let unjudgeable = try XCTUnwrap(HeldLines.sentence(
+            .permitPending(person: "who", startedAPiece: false), notes: 1,
+            named: "Sam", pieceWasTakenFromThem: true))
+        XCTAssertFalse(unjudgeable.contains("taken"), "not §4.5's line at all")
+    }
 }

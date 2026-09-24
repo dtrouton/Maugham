@@ -41,6 +41,17 @@ struct ProjectSettingsSheet: View {
     /// sentence first; the alert is presented here because a section is not the
     /// presenter of its own dialogs.
     @State private var confirming: PeopleAndDevicesConfirmation?
+    /// **The claim this pane can offer**, from the same read as the model
+    /// (`ClaimDecision.offer`), or nil where it may not be offered. Since P3b
+    /// smoke find F3 this control is the ONLY way to the claim: no Mac is asked
+    /// at open, so a collaborator is never put the question.
+    @State private var claimOffer: ClaimOffer?
+    /// The claim the writer has pressed *This Book Is Mine…* for and not yet
+    /// confirmed — the sheet's item — with the refusal of the last attempt
+    /// and whether one is being written.
+    @State private var claiming: ClaimOffer?
+    @State private var claimRefusal: String?
+    @State private var isClaiming: Bool = false
     /// **The one act that asks for a word** (P2 smoke find 3), and the word.
     ///
     /// Its own state rather than a fourth case inside `confirming`, because
@@ -200,6 +211,18 @@ struct ProjectSettingsSheet: View {
                 Button("Cancel", role: .cancel) {}
             } message: { confirmation in
                 Text(confirmation.message)
+            }
+            // **The claim, confirmed** (spec §5, made a verb by F3). The same
+            // sheet the open used to put up unasked; now only a press reaches
+            // it, and Cancel closes it having written nothing.
+            .sheet(item: $claiming) { offer in
+                ClaimSheet(
+                    offer: offer,
+                    projectTitle: store.manifest.title,
+                    refusal: claimRefusal,
+                    isClaiming: isClaiming,
+                    onClaim: { claimBook(offer) },
+                    onCancel: { claiming = nil })
             }
             // **The rung, and the pieces, before the act** (P3b Task 5). A
             // sheet rather than a third alert: an `Alert` takes buttons and a
@@ -495,6 +518,10 @@ struct ProjectSettingsSheet: View {
         // and this Mac's own memory of the ones already put off, which this
         // pane lists and the sheet does not.
         let heldPieceStarts = union.startedAPiece
+        // What those lines ARE, per piece, and the captures (P3b smoke F2):
+        // the pending rows say what the admission sheet says.
+        let heldWaiting = union.waiting
+        let heldCaptures = union.captures
         let declinedPieces = store.documentStore?.declinedPieceQuestions() ?? []
         let settledPieces = store.documentStore?.settledPieceQuestions() ?? []
         // What a narrowing would cost this book: the unsigned rows' subject,
@@ -516,7 +543,8 @@ struct ProjectSettingsSheet: View {
             .acknowledgedLostHistory() ?? DocumentStore.AcknowledgedLosses()
         let pieces = PermitControl.pieces(in: store.manifest.structure)
         let url = store.url
-        peopleAndDevices = await Task.detached(priority: .userInitiated) {
+        let loaded = await Task.detached(priority: .userInitiated) {
+            () -> (PeopleAndDevicesModel, ClaimOffer?) in
             let mine = LocalIdentities.current
             let remembered = AdmissionMemory.shared.remembered
             let claimants = RegistryCache.shared.claimants(for: url)
@@ -534,7 +562,11 @@ struct ProjectSettingsSheet: View {
                 let restorable = Set(resolved.registry.malformed
                     .compactMap(\.ref)
                     .filter { RegistryCache.shared.rawBytes(of: $0, for: url) != nil })
-                return PeopleAndDevicesModel.make(
+                let claim = ClaimDecision.offer(
+                    registry: resolved.registry, table: resolved.table,
+                    canWriteRegistry: ClaimDecision.canWriteRegistry(in: url),
+                    canSign: mine.author.canSign)
+                let model = PeopleAndDevicesModel.make(
                     registry: resolved.registry, table: resolved.table,
                     remembered: remembered,
                     requests: AdmissionDecision.requests(
@@ -553,20 +585,27 @@ struct ProjectSettingsSheet: View {
                     unsignedStreams: unsignedStreams,
                     pieces: pieces,
                     heldPieceStarts: heldPieceStarts,
+                    heldWaiting: heldWaiting,
+                    heldCaptures: heldCaptures,
                     declinedPieces: declinedPieces,
                     settledPieces: settledPieces)
+                return (model, claim)
             } catch {
                 // A registry this Mac could not read judges nobody, so there is
                 // no chain to be a stranger to and no request to make of the
                 // writer — the refusal below is the whole of what this section
                 // says (RULING-54).
-                return PeopleAndDevicesModel.make(
+                // Nor a claim: a book whose register will not read is not one
+                // this Mac can know it has no key in.
+                return (PeopleAndDevicesModel.make(
                     registry: Registry(), table: TrustResolution.keyless(mine: mine),
                     remembered: remembered, requests: [], claimants: claimants,
                     standing: DeviceStanding.refused(mine: mine, error: error),
-                    me: mine.author.fingerprint)
+                    me: mine.author.fingerprint), nil)
             }
         }.value
+        peopleAndDevices = loaded.0
+        claimOffer = loaded.1
     }
 
     /// People & Devices, extracted from `body` for `ProjectWindow.body`'s
@@ -597,6 +636,8 @@ struct ProjectSettingsSheet: View {
             onPieceIsTheirs: answerPieceQuestion,
             onPieceNotNow: putPieceQuestionOff,
             writeAgain: confirmWriteAgain,
+            claim: claimOffer,
+            claimBook: askToClaim,
             notice: peopleNotice)
     }
 
@@ -656,6 +697,47 @@ struct ProjectSettingsSheet: View {
             named: device?.name ?? DeviceCode.short(fingerprint),
             kind: device?.kind ?? "Mac")
     }
+
+    /// **This book is mine** — open the confirmation (F3). The offer is the
+    /// one this pane's read decided, so the sheet names the roots the control
+    /// was drawn for.
+    private func askToClaim() {
+        peopleNotice = nil
+        claimRefusal = nil
+        claiming = claimOffer
+    }
+
+    /// Write this Mac's own root record and the claim adopting what it found.
+    /// A refusal keeps the sheet up carrying its own sentence — a dialog must
+    /// never close on a write that did not happen — in `AdmissionDecision`'s
+    /// words, the one vocabulary a `RegistryAdmissionError` becomes.
+    private func claimBook(_ offer: ClaimOffer) {
+        guard !isClaiming else { return }
+        // The window's store is what performs a claim; a settings sheet up
+        // before it exists (a project still opening) says so on the sheet
+        // rather than closing on a write that never happened (RULING-7).
+        guard let documentStore = store.documentStore else {
+            claimRefusal = Self.claimNotReady
+            return
+        }
+        isClaiming = true
+        claimRefusal = nil
+        Task { @MainActor in
+            defer { isClaiming = false }
+            do {
+                _ = try await documentStore.claim(adopting: offer.roots)
+                claiming = nil
+            } catch {
+                claimRefusal = AdmissionDecision.refusal(error)
+            }
+            await loadPeopleAndDevices()
+        }
+    }
+
+    /// What the claim's sheet says when the project has no store to perform
+    /// it yet.
+    static let claimNotReady =
+        "This book is still opening, so nothing was claimed. Try again in a moment."
 
     /// **Is that root also you?** The claimant row's own question, asked before
     /// a chain of somebody's devices starts applying here (Task 8).

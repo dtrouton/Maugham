@@ -167,7 +167,19 @@ final class PlanTreeStructureCreationTests: XCTestCase {
                 callers.append("\(file.lastPathComponent): \(line.trimmingCharacters(in: .whitespaces))")
             }
         }
-        XCTAssertEqual(callers, callers.filter { $0.hasPrefix("BinderView.swift:") },
+        // `TestDocumentTools.swift` is the dev-only `test_add_document` MCP tool
+        // (`#if MAUGHAM_DEV_BUILD`, absent from the stable binary): a scripted
+        // multi-Mac smoke reaching the binder's own verb, not a second door.
+        //
+        // Allowed by FILE AND SPELLING — the exact call line — so a second
+        // call in either file — even one spelled identically — is a new caller
+        // and fails here (review M3). Compared as a list, not a set, so a
+        // duplicate of an allowed line counts.
+        let allowed = [
+            "BinderView.swift: let item = try await store.addStructureItem(",
+            "TestDocumentTools.swift: let item = try await entry.store.addStructureItem(",
+        ]
+        XCTAssertEqual(callers.sorted(), allowed.sorted(),
                        "structure creation grew a second production caller: \(callers)")
         XCTAssertFalse(callers.isEmpty,
                        "the control: no caller found at all means this scan is "

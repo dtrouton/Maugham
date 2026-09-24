@@ -130,6 +130,7 @@ extension ProjectStore {
     /// no-DocumentStore branch of `deleteStructureItem` and `deleteResearchItem`.
     @discardableResult
     public func restoreTrashEntry(id: String) async throws -> TrashRestoreReport {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         let pending = ((try? await trashStore.entriesIncludingInternal()) ?? [])
             .first { $0.id == id }
 
@@ -358,7 +359,7 @@ extension ProjectStore {
         return TrashRestoreReport()
     }
 
-    private func survivingParentId(
+    func survivingParentId(
         _ recorded: String?, exists: (String) -> Bool
     ) -> String? {
         guard let recorded, exists(recorded) else { return nil }
@@ -386,7 +387,7 @@ extension ProjectStore {
     /// numeric-suffix dedupe `addResearchTextNote` uses on a colliding title.
     /// The writer asked for their item back and got it beside the occupant
     /// (RULING-38); two rows with one name would make that indistinguishable.
-    private func distinguishedTitle(_ title: String, amongst siblings: [String]) -> String {
+    func distinguishedTitle(_ title: String, amongst siblings: [String]) -> String {
         let taken = Set(siblings)
         guard taken.contains(title) else { return title }
         var counter = 2

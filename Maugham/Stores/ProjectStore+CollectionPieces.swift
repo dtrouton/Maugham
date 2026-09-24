@@ -837,6 +837,7 @@ extension ProjectStore {
     /// on disk to match, updates manifest entry paths, and rewrites per-piece
     /// research item paths whose prefix changed.
     public func movePiece(pieceId: String, toIndex destIndex: Int) async throws {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         guard manifest.type == .collection else {
             throw ProjectStoreError.fileSystemError(
                 "movePiece only valid for Collection projects")
@@ -961,6 +962,7 @@ extension ProjectStore {
     /// only (the .maugham-link.json filename stays). Slug dedup against
     /// existing sibling piece folders.
     public func renamePiece(pieceId: String, newTitle: String) async throws {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         guard manifest.type == .collection else {
             throw ProjectStoreError.fileSystemError(
                 "renamePiece only valid for Collection projects")

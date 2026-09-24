@@ -98,4 +98,4 @@ The on-disk filenames have a numeric prefix (`01-chapter-1.md`) so manuscripts s
 
 **My screenplay's page count looks off.** Maugham uses Final Draft's wrap heuristic. If you're using a non-monospace screen font, the on-screen layout may not match the printed page count.
 
-**A binder item I deleted is gone forever.** Try ⌘⌥Z — it restores the most-recent deletion. If you've moved on since, look in `.maugham/.trash/` directly; entries live for 30 days.
+**A binder item I deleted is gone forever.** Try ⌘⌥Z — it restores the most-recent deletion. If you've moved on since, look in `.maugham/.trash/` directly; entries live for 30 days. If you didn't delete it and it isn't in Trash — another Mac saved an older outline over it — look under **Removed Elsewhere** at the foot of the binder.

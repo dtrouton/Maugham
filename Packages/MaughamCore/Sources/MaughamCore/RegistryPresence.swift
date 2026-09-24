@@ -103,6 +103,181 @@ public enum RegistryPresence {
             record, signedBy: author, in: projectURL, presenter: presenter)
     }
 
+    // MARK: - A key named after the open (P3b smoke find F6)
+
+    /// **Put an actor key this device has just named on its record here**,
+    /// before the first line that key signs — and answer the file if anything
+    /// was written.
+    ///
+    /// `ensureDeviceRecord` runs at OPEN, and `LocalIdentities` is lazy: the
+    /// assistant's key exists only once MCP writes, the translator's once the
+    /// pipeline runs, Maugham's once a rebalance does. A key minted after the
+    /// open signed lines that the record did not name, so every other Mac held
+    /// them as a stranger's until this one relaunched and reopened the book —
+    /// on the smoke rig, an admitted reviewer's first Claude note. The write
+    /// paths that sign as a non-author actor (`OpLogStore.append`,
+    /// `TranslationStore.appendBatch`) ask this first.
+    ///
+    /// **It re-declares; it never declares.** The record on disk is RE-SIGNED
+    /// by editing the file's own object (`RegistryWriter.resign`, rename's
+    /// door): only `actors` changes, and every field a later build wrote on
+    /// this device's record — and any actor it named that this build has no
+    /// word for — survives (tripwire 42's rule, applied to a re-sign). The name
+    /// and kind are the record's, so this device's name is still decided in
+    /// exactly one place (the open). Where there is no record of this device
+    /// here at all — a book this Mac never opened, or one whose open could not
+    /// write — it writes nothing: the whole device is unknown there, and saying
+    /// who it is is the open's act. A retired device is left alone, for
+    /// `ensureDeviceRecord`'s reason.
+    ///
+    /// The AUTHOR is never declared from here: it IS the device, written at
+    /// open, and a writer's keystroke path must not pay a registry read to
+    /// learn so. It answers before touching the disk.
+    ///
+    /// An unsigned device writes nothing, quietly — `ensureDeviceRecord` has
+    /// already said so once for this process at the open.
+    ///
+    /// Throws what the read and the write throw. The CALLERS treat a throw as
+    /// *not yet* rather than *no*: the line is written regardless (the words
+    /// are safe first), and the record catches up on a later line or the next
+    /// open.
+    @discardableResult
+    nonisolated public static func declareActor(
+        _ actor: DeviceActor,
+        in projectURL: URL,
+        identities: LocalIdentities,
+        presenter: NSFilePresenter? = nil
+    ) throws -> URL? {
+        guard actor != .author else { return nil }
+        // ENUMERATE before naming: a device whose author key does not exist has
+        // declared itself nowhere, and naming the author here would mint a key
+        // for an actor nothing is writing as (`LocalIdentities`' lazy rule).
+        guard identities.existingActors.contains(.author) else { return nil }
+        let author = identities.author
+        guard author.canSign else { return nil }
+        // A stat before a verified read: a book with no device records at all
+        // — a project never opened on a Mac with a key — is answered without
+        // reading the registry.
+        guard FileManager.default.fileExists(
+            atPath: RegistryWriter.directoryURL(.devices, in: projectURL).path)
+        else { return nil }
+
+        let registry = try RegistryReader.load(projectURL: projectURL, presenter: presenter)
+        guard let existing = registry.devices.first(where: { $0.device == author.fingerprint }),
+              existing.retiredAt == nil,
+              existing.actors[actor.rawValue] != identities[actor].fingerprint
+        else { return nil }
+
+        // What the record says, plus every key this device now holds — an
+        // entry this build cannot name is kept, never dropped. The author entry
+        // IS the device (`ensureDeviceRecord`'s rule, for its reason).
+        var actors = existing.actors
+        for held in identities.existingActors {
+            actors[held.rawValue] = identities[held].fingerprint
+        }
+        actors[DeviceActor.author.rawValue] = author.fingerprint
+        return try RegistryWriter.resign(
+            existing, signedBy: author, in: projectURL, presenter: presenter
+        ) { object in
+            object["actors"] = actors
+        }
+    }
+
+    /// **`declareActor`, asked at most once per registry state** (the F6
+    /// review's m2) — the door both write paths use.
+    ///
+    /// A registry that REFUSES — unwritable, or holding a record that will not
+    /// read — would otherwise be asked again for every line an actor writes,
+    /// and each asking is a verified read of the whole folder plus a write
+    /// attempt. So each attempt, whatever it answered, is remembered against
+    /// the registry's `TrustResolution.signature` taken AFTER it, per project
+    /// and per actor key, for the life of the process: the next line asks only
+    /// if the folder has changed since (a record repaired, restored, synced in
+    /// — or this Mac's next open writing the record itself).
+    ///
+    /// **On the caller's actor, and only when due.** Both callers are
+    /// `@MainActor` and ask `declarationIsDue` first, which reads no record;
+    /// the verified read and the write run here only when that says yes. A
+    /// detached hop was tried and measured to reorder what callers of
+    /// `OpLogStore.append` observe, so the cost that stays on the main actor
+    /// is one verified read (and write) per actor per registry state.
+    ///
+    /// Throws what `declareActor` throws, AFTER remembering the attempt.
+    @discardableResult
+    nonisolated public static func declareActorOnce(
+        _ actor: DeviceActor,
+        in projectURL: URL,
+        identities: LocalIdentities,
+        presenter: NSFilePresenter? = nil
+    ) throws -> URL? {
+        guard actor != .author,
+              identities.existingActors.contains(actor) else { return nil }
+        let key = memoKey(actor, in: projectURL, identities: identities)
+        guard declarationMemo.shouldAttempt(
+            key, signature: TrustResolution.signature(of: projectURL))
+        else { return nil }
+        declareAttemptObserverForTesting?(projectURL, actor)
+        defer {
+            declarationMemo.record(
+                key, signature: TrustResolution.signature(of: projectURL))
+        }
+        return try declareActor(
+            actor, in: projectURL, identities: identities, presenter: presenter)
+    }
+
+    /// **Would `declareActorOnce` do anything now?** — asked synchronously,
+    /// without reading a record, so a caller can skip the hop off its actor
+    /// when the answer is no: an author, an actor with no key, a book with no
+    /// devices folder at all, or a registry already attempted in exactly this
+    /// state. A yes is not a promise that anything will be written; it is only
+    /// *the verified read is worth making*.
+    nonisolated public static func declarationIsDue(
+        _ actor: DeviceActor,
+        in projectURL: URL,
+        identities: LocalIdentities
+    ) -> Bool {
+        let existing = identities.existingActors
+        guard actor != .author,
+              existing.contains(actor), existing.contains(.author),
+              identities.author.canSign,
+              FileManager.default.fileExists(
+                atPath: RegistryWriter.directoryURL(.devices, in: projectURL).path)
+        else { return false }
+        return declarationMemo.shouldAttempt(
+            memoKey(actor, in: projectURL, identities: identities),
+            signature: TrustResolution.signature(of: projectURL))
+    }
+
+    nonisolated private static func memoKey(
+        _ actor: DeviceActor, in projectURL: URL, identities: LocalIdentities
+    ) -> String {
+        "\(projectURL.standardizedFileURL.path)|\(identities[actor].fingerprint)"
+    }
+
+    /// Test-only: told of every attempt `declareActorOnce` actually makes.
+    nonisolated(unsafe) static var declareAttemptObserverForTesting:
+        (@Sendable (URL, DeviceActor) -> Void)?
+
+    private static let declarationMemo = DeclarationMemo()
+
+    /// Project-and-key → the registry signature after the last attempt.
+    private final class DeclarationMemo: @unchecked Sendable {
+        private let lock = NSLock()
+        private var attempted: [String: String] = [:]
+
+        func shouldAttempt(_ key: String, signature: String) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return attempted[key] != signature
+        }
+
+        func record(_ key: String, signature: String) {
+            lock.lock()
+            attempted[key] = signature
+            lock.unlock()
+        }
+    }
+
     // MARK: - Writing this Mac's own record again (P3b Task 5, audit F4)
 
     /// **Why this device cannot put its own record back.**

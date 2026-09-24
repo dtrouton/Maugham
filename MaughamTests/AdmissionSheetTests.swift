@@ -236,6 +236,90 @@ final class AdmissionSheetTests: XCTestCase {
         XCTAssertEqual(AdmissionSheet.waitingLine(count: 2), "2 notes waiting")
     }
 
+    // MARK: - Who and what (P3b smoke F2)
+
+    func test_theSheetSaysWhatIsWaitingWhereAndPeeksAtTheWords() throws {
+        var described = request(waiting: 1)
+        described.described = AdmissionWaiting(
+            pieces: [.init(title: "Chapter 3", waiting: HeldLines.Waiting(
+                paragraphIds: ["p1ab"], prose: 1, peek: "The rain came in sideways."))],
+            captures: 0)
+        let window = mount(described)
+        let texts = try axTexts(in: window)
+
+        XCTAssertTrue(texts.contains { $0.contains("1 paragraph waiting in “Chapter 3”") },
+                      "\(texts)")
+        XCTAssertTrue(texts.contains { $0.contains("The rain came in sideways.") },
+                      "a peek at the words: \(texts)")
+        XCTAssertFalse(texts.contains { $0.contains("note waiting") }, "\(texts)")
+        XCTAssertTrue(texts.contains { $0.contains(DeviceCode.short(phone)) },
+                      "and the code is still there: \(texts)")
+    }
+
+    // MARK: - A shared name (P3b smoke F1)
+
+    private func sharedNameRequest() -> AdmissionRequest {
+        AdmissionRequest(
+            fingerprint: phone, ownName: "Denver’s MacBook Air",
+            code: DeviceCode.short(phone), waitingCount: 1, proposedLabel: "",
+            knownLabels: ["Denver’s MacBook Air"],
+            sharesItsNameWith: "Denver’s MacBook Air")
+    }
+
+    func test_aSharedNameSaysWhyTheFieldIsEmptyAndHowToMergeOnPurpose() throws {
+        let notice = try XCTUnwrap(AdmissionSheet.sharedNameNotice(
+            for: sharedNameRequest(), typedLabel: ""))
+
+        XCTAssertTrue(notice.contains("“Denver’s MacBook Air”"), notice)
+        XCTAssertTrue(notice.contains(AdmissionSheet.knownLabelsTitle),
+                      "it names the deliberate way to the existing person: \(notice)")
+        XCTAssertNil(
+            AdmissionSheet.sharedNameNotice(for: sharedNameRequest(), typedLabel: "Sam"),
+            "once the writer has chosen, the notice has said its piece")
+        XCTAssertNil(
+            AdmissionSheet.sharedNameNotice(for: request(), typedLabel: ""),
+            "and a device whose name nobody has is told nothing")
+    }
+
+    /// **Review Important 1, the sheet's half**: the same stranger arrives
+    /// freshly derived, and the proposal it was seeded with has become a
+    /// merge. An untouched field follows; a typed one is the writer's.
+    func test_aFreshRequestWhoseProposalChangedNeverLeavesAMergeInTheField() {
+        let before = AdmissionRequest(
+            fingerprint: phone, ownName: "MacBook Air", code: DeviceCode.short(phone),
+            waitingCount: 1, proposedLabel: "MacBook Air", knownLabels: [])
+        let after = AdmissionRequest(
+            fingerprint: phone, ownName: "MacBook Air", code: DeviceCode.short(phone),
+            waitingCount: 1, proposedLabel: "", knownLabels: ["MacBook Air"],
+            sharesItsNameWith: "MacBook Air")
+
+        let untouched = AdmissionSheet.reseeded(typed: "MacBook Air", from: before, to: after)
+        XCTAssertEqual(untouched, "")
+        XCTAssertEqual(AdmissionDecision.outcome(for: after, typedLabel: untouched), .notNow,
+                       "the field left behind is not a merge")
+
+        XCTAssertEqual(AdmissionSheet.reseeded(typed: "Ren", from: before, to: after), "Ren",
+                       "what the writer typed is never replaced")
+        XCTAssertEqual(
+            AdmissionSheet.reseeded(typed: "", from: after, to: before), "MacBook Air",
+            "and an untouched field follows a proposal that returns")
+    }
+
+    func test_theSheetDrawsTheSharedNameNoticeOverAnEmptyField() throws {
+        let window = mount(sharedNameRequest())
+
+        let fields = collect(NSTextField.self, in: window).filter { $0.isEditable }
+        XCTAssertTrue(fields.contains { $0.stringValue.isEmpty },
+                      "the field does not start on the root's name: "
+                      + "\(fields.map(\.stringValue))")
+        XCTAssertFalse(fields.contains { $0.stringValue == "Denver’s MacBook Air" })
+        let texts = try axTexts(in: window)
+        XCTAssertTrue(texts.contains { $0.contains("already the name of someone") },
+                      "and says why: \(texts)")
+        XCTAssertFalse(texts.contains { $0.contains("will join") },
+                       "nothing on the sheet announces a merge: \(texts)")
+    }
+
     func test_aDeviceWithNoNameIsTitledByItsCode() {
         let title = AdmissionSheet.title(
             request: request(ownName: nil), projectTitle: "Playlist")

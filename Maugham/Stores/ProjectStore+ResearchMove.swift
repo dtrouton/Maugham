@@ -117,6 +117,7 @@ extension ProjectStore {
     public func moveResearchItems(
         ids: [String], to target: ResearchMoveTarget, atIndex destIndex: Int? = nil
     ) async throws {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         let dest = try resolveResearchMoveTarget(target)
         let effectiveIds = collapseResearchSelection(ids)
 

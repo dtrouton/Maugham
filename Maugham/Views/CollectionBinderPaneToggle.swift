@@ -72,7 +72,14 @@ struct CollectionBinderPaneToggle: View {
                 TrashDisclosure(store: store, isExpanded: $trashExpanded,
                                 onRestoreOutcome: onRestoreOutcome)
             }
+            // Removed Elsewhere — asked exactly as `BinderPaneToggle` asks it.
+            if !store.removedElsewhere.isEmpty {
+                Divider()
+                RemovedElsewhereDisclosure(store: store,
+                                           onRestoreOutcome: onRestoreOutcome)
+            }
         }
+        .modifier(RemovedElsewhereRefresh(store: store))
     }
 
     /// The Collection's tree, shared by both arms of the switch above.

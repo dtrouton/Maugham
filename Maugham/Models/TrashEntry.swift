@@ -47,6 +47,15 @@ public struct TrashEntry: Identifiable, Equatable, Sendable {
     /// nil for a manifest-only entry, which puts no file anywhere.
     public let restoredRelativePath: String?
 
+    /// Who moved it to Trash, as a DISPLAY string — the label this book's
+    /// register gives the Mac that trashed it ("Denver (Denver’s iPhone)"),
+    /// else that Mac's own name. Recorded when this build trashes (F7 final
+    /// round, M1: Denver's ruling that the notice for a piece trashed on
+    /// another device names who moved it). Nil for an entry written before the
+    /// field existed, or by a path that records no one; a reader says
+    /// "another device" then. A name, never an identity (tripwire 35).
+    public let trashedBy: String?
+
     public init(
         id: String,
         trashedAt: Date,
@@ -58,7 +67,8 @@ public struct TrashEntry: Identifiable, Equatable, Sendable {
         subject: TrashSubject? = nil,
         carriesFile: Bool = true,
         isUnreadable: Bool = false,
-        restoredRelativePath: String? = nil
+        restoredRelativePath: String? = nil,
+        trashedBy: String? = nil
     ) {
         self.isUnreadable = isUnreadable
         self.id = id
@@ -71,6 +81,7 @@ public struct TrashEntry: Identifiable, Equatable, Sendable {
         self.subject = subject
         self.carriesFile = carriesFile
         self.restoredRelativePath = restoredRelativePath
+        self.trashedBy = trashedBy
     }
 
     /// Days remaining before the 30-day sweep removes this entry.

@@ -382,6 +382,7 @@ extension ProjectStore {
     /// pane that has taken it to load, is the shape to refuse at review.
     @discardableResult
     public func rollbackUnusedStatement(_ statement: Statement) async -> Bool {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         // Under the open gate, so a pane cannot bind this statement between the
         // check below and the file going away.
         await lockStatementOpen(statement.id)

@@ -2,12 +2,13 @@
 import SwiftUI
 import MaughamCore
 
-/// **One book, one question** (signed op log P2b Task 8, spec §5).
+/// **One book, one confirmation** (signed op log P2b Task 8, spec §5; reached
+/// only from People & Devices' *This Book Is Mine…* since P3b smoke find F3).
 ///
 /// > **Is this book yours?**
 /// > This book’s history was written by devices this Mac doesn’t know
 /// > (Denver’s old MacBook, Denver’s iPhone). Is it yours?
-/// > [Not mine] [Claim]
+/// > [Cancel] [Claim]
 ///
 /// Everything it says comes from a `ClaimOffer`, and what a press MEANS is
 /// `RegistryAdmission.claim`. This view holds no state at all: it draws a value
@@ -15,9 +16,9 @@ import MaughamCore
 ///
 /// **Both consequences are on screen before either press**, because the two
 /// answers are not symmetrical. Claim writes two signed records and there is no
-/// way back through the app; *Not mine* writes nothing and leaves the book
-/// exactly as decision B3 already reads it. A writer who cannot tell which is
-/// the reversible one will press the wrong one.
+/// way back through the app; Cancel writes nothing and leaves the book exactly
+/// as decision B3 already reads it. A writer who cannot tell which is the
+/// reversible one will press the wrong one.
 struct ClaimSheet: View {
     let offer: ClaimOffer
     let projectTitle: String
@@ -29,7 +30,7 @@ struct ClaimSheet: View {
     /// pressed on top of the first.
     let isClaiming: Bool
     let onClaim: () -> Void
-    let onNotMine: () -> Void
+    let onCancel: () -> Void
 
     init(
         offer: ClaimOffer,
@@ -37,14 +38,14 @@ struct ClaimSheet: View {
         refusal: String? = nil,
         isClaiming: Bool = false,
         onClaim: @escaping () -> Void,
-        onNotMine: @escaping () -> Void
+        onCancel: @escaping () -> Void
     ) {
         self.offer = offer
         self.projectTitle = projectTitle
         self.refusal = refusal
         self.isClaiming = isClaiming
         self.onClaim = onClaim
-        self.onNotMine = onNotMine
+        self.onCancel = onCancel
     }
 
     /// *Is this book yours?* — the book named, because a writer with three
@@ -68,7 +69,7 @@ struct ClaimSheet: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(ClaimDecision.notMineConsequence)
+                Text(ClaimDecision.cancelConsequence)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -83,7 +84,7 @@ struct ClaimSheet: View {
 
             HStack {
                 Spacer()
-                Button(ClaimDecision.notMineTitle, role: .cancel) { onNotMine() }
+                Button(ClaimDecision.cancelTitle, role: .cancel) { onCancel() }
                     .disabled(isClaiming)
                 Button(ClaimDecision.claimTitle) { onClaim() }
                     .keyboardShortcut(.defaultAction)

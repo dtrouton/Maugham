@@ -104,13 +104,15 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
         _ model: PeopleAndDevicesModel,
         admit: @escaping () -> Void = {},
         forget: @escaping (String) -> Void = { _ in },
+        claim: ClaimOffer? = nil,
         notice: String? = nil
     ) -> NSWindow {
         let window = TestWindow.mount(
             AnyView(
                 Form {
                     PeopleAndDevicesSection(
-                        model: model, admit: admit, forget: forget, notice: notice)
+                        model: model, admit: admit, forget: forget,
+                        claim: claim, notice: notice)
                 }
                 .formStyle(.grouped)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)),
@@ -432,6 +434,42 @@ final class PeopleAndDevicesSectionTests: XCTestCase {
         section.restoreForTesting(try XCTUnwrap(drawn.unverifiable.first))
 
         XCTAssertEqual(restored, [ref])
+    }
+
+    // MARK: - This book is mine (P3b smoke find F3)
+
+    /// Where `ClaimDecision` offers the claim — a Mac on no chain here — the
+    /// verb is drawn, live, with the sentence telling an invited collaborator
+    /// it is not for them.
+    func test_theClaimVerbIsDrawnWhereItIsOffered() throws {
+        let window = mount(
+            model(), claim: ClaimOffer(roots: [claimant], names: ["Denver's old MacBook"]))
+        let buttons = try axButtons(labelled: ClaimDecision.verbTitle, in: window)
+        let texts = try axTexts(in: window)
+
+        let labels = try axButtonLabels(in: window)
+        XCTAssertFalse(buttons.isEmpty, "\(labels)")
+        for button in buttons { XCTAssertEqual(axEnabled(button), true) }
+        XCTAssertTrue(texts.contains { $0.contains("If somebody invited you") }, "\(texts)")
+    }
+
+    /// And absent where it is not — a Mac on a root, the model's own fixture.
+    func test_theClaimVerbIsAbsentWhereItIsNotOffered() throws {
+        let window = mount(model(), claim: nil)
+
+        XCTAssertTrue(try axButtons(labelled: ClaimDecision.verbTitle, in: window).isEmpty)
+    }
+
+    func test_theClaimVerbAsksTheHostToConfirm() {
+        var asked = 0
+        let section = PeopleAndDevicesSection(
+            model: model(),
+            claim: ClaimOffer(roots: [claimant], names: []),
+            claimBook: { asked += 1 })
+
+        section.claimBook()
+
+        XCTAssertEqual(asked, 1)
     }
 
     func test_admitAsksWithoutNamingADevice() {
