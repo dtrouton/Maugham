@@ -269,8 +269,12 @@ public struct AnnotationAmendments: Sendable {
     public static let honourEverything = AnnotationAmendments { _, _ in true }
 
     /// Whether this amendment op stands against the note its `creation` op
-    /// made. Asked of edits and withdrawals, and of a reopen where it undoes a
-    /// withdrawal (`AnnotationDeriver`'s withdraw pass).
+    /// made. Asked of edits and withdrawals — and of a reopen where it undoes
+    /// a withdrawal (`AnnotationDeriver`'s withdraw pass), with the WITHDRAWAL
+    /// it undoes passed as `creation` (controller Ruling D): the same-person
+    /// arm then reads *the same writer as the one who deleted it*, so she
+    /// undoes her own Delete and the root's Delete of her note stays the
+    /// root's. Author rights answer either way.
     public func honours(_ amendment: Op, creation: Op) -> Bool {
         rule(amendment, creation)
     }

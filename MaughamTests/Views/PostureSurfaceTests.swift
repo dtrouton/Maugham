@@ -77,19 +77,20 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertFalse(notHers.ownNote, "…and only of her own")
     }
 
-    /// **A deleted note's Restore follows ownership** (ruling P): it undoes a
-    /// withdrawal, so her own is hers to restore whatever her rung, and
-    /// somebody else's only where she may settle notes.
-    func test_aDeletedNotesRestoreFollowsOwnership() {
-        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: reviewer, isOwn: true),
-                      "her own deleted note")
-        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(posture: reviewer, isOwn: false),
-                       "somebody else's")
-        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: bookAuthor, isOwn: false),
+    /// **A deleted note's Restore follows who deleted it** (ruling P,
+    /// Ruling D): what she deleted is hers to restore whatever her rung;
+    /// what somebody else deleted — the root's Delete of her own note
+    /// included — only where she may settle notes.
+    func test_aDeletedNotesRestoreFollowsWhoDeletedIt() {
+        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: reviewer, deletedByHer: true),
+                      "her own Delete")
+        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(posture: reviewer, deletedByHer: false),
+                       "somebody else's Delete")
+        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: bookAuthor, deletedByHer: false),
                       "the book author restores anybody's")
-        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(posture: piecesAuthorInB, isOwn: false),
+        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(posture: piecesAuthorInB, deletedByHer: false),
                        "outside her pieces, only her own")
-        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: .settling, isOwn: true))
+        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: .settling, deletedByHer: true))
     }
 
     func test_aBookAuthorsRowOffersEveryVerb() {

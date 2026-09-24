@@ -1182,13 +1182,13 @@ struct AnnotationsPane: View {
                                     .lineLimit(2)
                                 Spacer()
                                 // A restore undoes a WITHDRAWAL, so it follows
-                                // ownership (ruling P): her own deleted note is
-                                // hers to restore whatever her rung. Hidden
-                                // where the door would refuse it.
+                                // the deleter (ruling P, Ruling D): what SHE
+                                // deleted is hers to restore whatever her
+                                // rung. Hidden where the door would refuse it.
                                 if AnnotationRowVerbs.restoresDeleted(
                                     posture: posture,
-                                    isOwn: AnnotationOwnership.isOwn(
-                                        author: note.author,
+                                    deletedByHer: AnnotationOwnership.isOwn(
+                                        author: note.withdrawnBy,
                                         localName: userPreferences.collaboratorDisplayName)) {
                                     Button("Restore") { reopen(document, id: note.id) }
                                         .buttonStyle(.bordered).controlSize(.small)
@@ -2139,16 +2139,18 @@ struct AnnotationRowVerbs: Equatable {
             ownNote: isOwn)
     }
 
-    /// **Restore on a deleted note** (P3c plan 2, ruling P). A restore is a
-    /// reopen that undoes a WITHDRAWAL, and the deriver judges that by the
-    /// ownership rule (`AnnotationOwnership.mayAmend`): the writer's OWN
-    /// deleted note is hers to restore whatever her rung — the reviewer row —
-    /// and anybody's is a posture that may settle notes here, which is the
-    /// rule's author-rights arm. Hidden otherwise; the door behind it is
-    /// `Document.reopenAnnotation`'s ownership check, which asks the deriver's
-    /// own policy.
-    static func restoresDeleted(posture: Posture, isOwn: Bool) -> Bool {
-        isOwn || posture.allows(.dispose)
+    /// **Restore on a deleted note** (P3c plan 2, ruling P; controller
+    /// Ruling D). A restore is a reopen that undoes a WITHDRAWAL, and the
+    /// deriver honours it from the same writer as the one who DELETED the note
+    /// or from author rights (`AnnotationOwnership.mayAmend`, handed the
+    /// withdrawal): what she deleted herself is hers to restore whatever her
+    /// rung — so her own note, since a reviewer's Delete of anybody else's is
+    /// never honoured — and anybody's is a posture that may settle notes
+    /// here. The root's Delete of her note is the root's. Hidden otherwise;
+    /// the door behind it is `Document.requireRestoreHonoured`, which asks the
+    /// deriver's own walk.
+    static func restoresDeleted(posture: Posture, deletedByHer: Bool) -> Bool {
+        deletedByHer || posture.allows(.dispose)
     }
 
     /// **The P1 surface, by name** — every verb its kind has. For a row built

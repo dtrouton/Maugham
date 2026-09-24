@@ -1161,14 +1161,13 @@ extension Document {
         case .archived: undoneKind = .claudeArchive
         case .stetted:  undoneKind = .annotationStet
         case nil:
-            // Absent from the projection — withdrawn iff the latest
-            // withdraw/reopen op for this id is a withdraw; otherwise the id is
-            // unknown (never existed, or already reopened by another device).
-            let latest = _opLogMirror
-                .filter { ($0.kind == .annotationWithdraw || $0.kind == .annotationReopen)
-                          && $0.provenance?.sourceAnnotationId == id }
-                .max { $0.opId < $1.opId }
-            guard latest?.kind == .annotationWithdraw else {
+            // Absent from the projection — withdrawn iff the deriver's own
+            // walk says so (`isWithdrawn`, judged by `annotationAmendments`);
+            // otherwise the id is unknown (never existed, or already reopened
+            // by another device). Never the raw latest op: since ruling P a
+            // reopen the deriver does not honour reaches the mirror, and read
+            // raw it would make her Restore a silent no-op.
+            guard isWithdrawn(annotationId: id) else {
                 documentLog.error("reopenAnnotation: \(id, privacy: .public) unknown or not withdrawn — ignoring")
                 return
             }
@@ -1192,7 +1191,7 @@ extension Document {
             return
         }
         if undoneKind == .annotationWithdraw {
-            try requireAmendmentHonoured(op)
+            try requireRestoreHonoured(op)
         }
         try await appendAnnotationOpInternal(op)
     }
@@ -1401,20 +1400,19 @@ extension Document {
         kind == .annotationReopen ? .annotationStet : kind
     }
 
-    /// **The ownership door** (ruling P): throw `PostureRefusal` unless the
-    /// deriver would honour this amendment — asked of the deriver's own policy
-    /// (`annotationAmendments`, `AnnotationOwnership.mayAmend`), never
-    /// restated here. A reopen that undoes a withdrawal is her own act on her
-    /// own note, so her own is allowed whatever her rung, and a note somebody
-    /// else deleted is not hers to restore. A creation this stream does not
-    /// hold decides nothing, exactly as in the deriver.
-    internal func requireAmendmentHonoured(_ amendment: Op) throws {
-        guard let src = amendment.provenance?.sourceAnnotationId,
-              let creation = _opLogMirror.first(where: { $0.opId == src })
-        else { return }
-        guard annotationAmendments.honours(amendment, creation: creation) else {
-            throw PostureRefusal(kind: amendment.kind)
-        }
+    /// **The restore door** (ruling P, controller Ruling D): throw
+    /// `PostureRefusal` unless the deriver, handed this reopen, would bring
+    /// the note back — asked of the deriver's own walk
+    /// (`AnnotationDeriver.isWithdrawn` over the mirror plus this op, judged by
+    /// `annotationAmendments`), never restated here. So her own Delete is hers
+    /// to undo whatever her rung, the root's Delete of her note is not, and a
+    /// note somebody else deleted is not hers to restore.
+    internal func requireRestoreHonoured(_ reopen: Op) throws {
+        guard let src = reopen.provenance?.sourceAnnotationId else { return }
+        guard !AnnotationDeriver.isWithdrawn(
+            annotationId: src, in: _opLogMirror + [reopen],
+            amendments: annotationAmendments)
+        else { throw PostureRefusal(kind: reopen.kind) }
     }
 
     /// **⌘Z and ⇧⌘Z's half of the door** (P3c Task 5). An undo registered
@@ -1638,8 +1636,11 @@ extension Document {
                 $0.provenance?.sourceAnnotationId == id
             }
             // The status side: latest lifecycle op wins (AnnotationDeriver).
+            // Honoured ops only (ruling P): a reopen the deriver does not
+            // honour is not the status winner, so it must not hide one.
+            let amendments = annotationAmendments
             guard let latestLifecycle = forThis
-                    .filter({ Document.isLifecycleOpKind($0.kind) })
+                    .filter({ AnnotationDeriver.isHonouredLifecycleOp($0, amendments: amendments) })
                     .max(by: { $0.opId < $1.opId }),
                   latestLifecycle.kind == .claudeReject else { continue }
             // The text side: latest op carrying a payload for this annotation.
@@ -1724,9 +1725,12 @@ extension Document {
         }
     }
 
-    /// The same rule as a `Set`, for the two rewind sites that test membership
-    /// over an op stream rather than filtering with a predicate
-    /// (`RewindImpact.preview` and `restoreToOp`'s step-9 return journey).
+    /// The same rule as a `Set`. It served the two rewind sites that test
+    /// membership over an op stream (`RewindImpact.preview` and
+    /// `restoreToOp`'s step-9 return journey) until ruling P, when both moved
+    /// to `AnnotationDeriver.isHonouredLifecycleOp` — the same kinds, less a
+    /// reopen the deriver does not honour; `AnnotationStetTests`' census
+    /// still binds it.
     /// Each carried its own literal copy until M3 P2 — four spellings of one
     /// rule, none of them tested. Derived from the predicate so there is
     /// nothing left to keep in step.

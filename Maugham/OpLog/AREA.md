@@ -1273,19 +1273,28 @@ not doors here: they are the reviewer row. **A reopen is judged by what it
 undoes** (ruling P, P3c plan 2). The table files `annotationReopen` with edit
 and withdraw (`.ownAnnotation`), because the partition sees only the kind, and
 `AnnotationDeriver` judges it twice through ONE Core policy
-(`AnnotationAmendments`): in the withdraw pass by ownership
-(`AnnotationOwnership.mayAmend` — her own Delete is hers to undo), in the
-lifecycle fold as a disposition (`AnnotationOwnership.mayDispose` — author
-rights alone, never the same-person arm, so her own note the root archived stays
-archived). The Mac's door branches the same way: `reopenAnnotation` asks
-`requireAmendmentHonoured` (the deriver's own policy) where it undoes a
-withdrawal and `requireDispositionPermitted` otherwise, which probes a reopen
-as a stet (`dispositionProbe`) — asked about itself, a reopen would answer the
-reviewer row. The Deleted view's Restore follows ownership
-(`AnnotationRowVerbs.restoresDeleted`). The stated cost (RP-1): a reviewer's
-reopen of somebody else's archive is no longer set aside as a `.lines` record;
-it passes the partition and is simply not honoured, so History records
-nothing.
+(`AnnotationAmendments`): in the withdraw pass by ownership against the
+WITHDRAWAL it undoes (`AnnotationOwnership.mayAmend` handed the withdraw op —
+controller Ruling D: author rights, or the same writer as the one who deleted
+it, so she undoes her own Delete and the root's Delete of her note stays the
+root's; `withdrawalStates` is the one walk behind `derive`, `deriveWithdrawn`
+and `isWithdrawn`), in the lifecycle fold as a disposition
+(`AnnotationOwnership.mayDispose` — author rights alone, never the same-person
+arm, so her own note the root archived stays archived). The Mac's door branches
+the same way: `reopenAnnotation` asks `requireRestoreHonoured` (the deriver's
+own walk over the mirror plus the reopen) where it undoes a withdrawal and
+`requireDispositionPermitted` otherwise, which probes a reopen as a stet
+(`dispositionProbe`) — asked about itself, a reopen would answer the reviewer
+row. The Deleted view's Restore follows who DELETED the note
+(`WithdrawnAnnotation.withdrawnBy`, `AnnotationRowVerbs.restoresDeleted`).
+**Every reader of the raw mirror asks the same judgement**: a reopen the
+deriver does not honour now reaches `_opLogMirror`, so the withdrawn check in
+`reopenAnnotation` is the judged `isWithdrawn`, and the reject/splice repair,
+the rewind's return journey and `RewindImpact.preview` walk
+`AnnotationDeriver.isHonouredLifecycleOp` rather than the bare lifecycle kinds.
+The stated cost (RP-1): a reviewer's reopen of somebody else's archive is no
+longer set aside as a `.lines` record; it passes the partition and is simply
+not honoured, so History records nothing.
 
 **The stamp is LIVE, not a load-time snapshot** (P3c plan 1, Task 2).
 `Document.localWritePermit` is `internal private(set)`, and its one setter is

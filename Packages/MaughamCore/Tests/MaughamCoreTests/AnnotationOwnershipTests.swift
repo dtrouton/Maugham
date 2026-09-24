@@ -716,4 +716,53 @@ final class AnnotationOwnershipTests: XCTestCase {
             signerPermit: .author(.book), signerActor: .author,
             in: .piece(docId), trust: judged))
     }
+
+    // MARK: - Ruling D: a reopen is judged against the WITHDRAWAL it undoes
+
+    /// **The root's Delete of her note stays the root's.** Her reopen is the
+    /// same person as the note's creator but not as its deleter, and she has
+    /// no author rights.
+    func test_herReopenDoesNotUndoTheRootsDeleteOfHerNote() throws {
+        try twoReviewers()
+        let ops = [creation("01", by: sam.author),
+                   withdraw("02", of: "01", by: root.author),
+                   reopen("03", of: "01", by: sam.author)]
+        let policy = try amendments()
+        XCTAssertTrue(derived(ops, policy).isEmpty, "the root deleted it")
+        XCTAssertEqual(
+            AnnotationDeriver.deriveWithdrawn(ops: ops, amendments: policy).map(\.id), ["01"])
+        XCTAssertTrue(AnnotationDeriver.isWithdrawn(
+            annotationId: "01", in: ops, amendments: policy))
+    }
+
+    /// Its converse: what she deleted herself she restores, and a later
+    /// reopen nobody honours hides nothing — the walk takes the latest
+    /// HONOURED op, so Kim's stray reopen neither restores the note nor
+    /// masks Sam's own restore behind it.
+    func test_herOwnRestoreStandsAndAStrayReopenChangesNothing() throws {
+        try twoReviewers()
+        let policy = try amendments()
+        let stray = [creation("01", by: sam.author),
+                     withdraw("02", of: "01", by: sam.author),
+                     reopen("03", of: "01", by: kim.author)]
+        XCTAssertTrue(derived(stray, policy).isEmpty, "Kim's reopen restores nothing")
+        XCTAssertEqual(
+            AnnotationDeriver.deriveWithdrawn(ops: stray, amendments: policy).map(\.id),
+            ["01"], "still in the Deleted view")
+
+        let hers = stray + [reopen("04", of: "01", by: sam.author)]
+        XCTAssertEqual(derived(hers, policy).map(\.id), ["01"])
+    }
+
+    /// **Ruling C**: an assistant-signed reopen in a rooted, UN-narrowed book
+    /// is not honoured as a disposition — the assistant is the reviewer row
+    /// on every device, whatever the book.
+    func test_anAssistantReopenIsNotADispositionEvenUnnarrowed() throws {
+        try writeRoot()
+        try admit(sam, label: "Sam")
+        let ops = [creation("01", by: root.author),
+                   archive("02", of: "01", by: root.author),
+                   reopen("03", of: "01", by: sam.assistant)]
+        XCTAssertEqual(derived(ops, try amendments()).first?.status, .archived)
+    }
 }
