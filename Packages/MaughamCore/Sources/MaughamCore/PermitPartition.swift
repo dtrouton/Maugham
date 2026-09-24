@@ -52,7 +52,8 @@ public enum PermitPartition {
     /// true.
     public enum UnownedPiece: Equatable, Hashable, Sendable {
         /// Nobody holding an author-of-the-whole-book permit has applied a
-        /// manuscript-text line in this document.
+        /// manuscript-text line in this document — an opening (`bootstrap`)
+        /// is not one (Option A; see `bookAuthorWroteManuscriptText`).
         case nobodyHasWrittenItsText
         /// Somebody has, so the piece is theirs.
         case aBookAuthorHasWrittenItsText
@@ -114,6 +115,10 @@ public enum PermitPartition {
     ///     requires events in the registry, so no existing book pays for it.
     ///     (`RevocationSplit.partition`'s `highestOpIdSeen` is the same shape
     ///     for the same reason.)
+    ///   - startedBy: the piece's recorded starter (`StructureItem.startedBy`),
+    ///     for Option A — asked at most once per file, and only where one of
+    ///     THIS writer's own lines reached §4.5's hold. Nil (the default, and
+    ///     a piece made before this build) is today's rule: held everywhere.
     ///
     /// **Neutral by construction for a book with no events.** Every admitted
     /// person's timeline is then one entry — author of the whole book — and
@@ -130,7 +135,8 @@ public enum PermitPartition {
         settledByKey: String? = nil,
         decoding: WrittenDecoder = writtenOp,
         recordingAmendmentsInto amendments: AmendmentPermits? = nil,
-        unowned: () -> UnownedPiece
+        unowned: () -> UnownedPiece,
+        startedBy: () -> String? = { nil }
     ) -> OpLogChain.Verification {
         guard judgesAnything(trust) else { return verification }
         let lines = verification.lines
@@ -155,6 +161,9 @@ public enum PermitPartition {
         // the whole book pays for neither.
         var resolvedClass: DocumentClass?
         var unownedAnswer: UnownedPiece?
+        // Option A's starter, read at most once per file and only where one of
+        // this writer's own lines reached §4.5.
+        var startedByAnswer: String??
         // **Is the governing permit of an amendment line worth writing down?**
         // (fix round 1; narrowed by the final fix wave's W1.) Only where
         // somebody in this book is NARROWED: where every permit is *author of
@@ -223,12 +232,29 @@ public enum PermitPartition {
             case .cannotJudge:
                 holding[index] = trust.person(forSealKey: key)
             case let .no(refused):
-                if startsAPieceNobodyHasClaimed(
-                    permit: permit, actor: judging,
-                    class: documentClass, what: what) {
+                if permit.startsAPieceNobodyHasClaimed(
+                    what, in: documentClass, actor: judging) {
                     let answer = unownedAnswer ?? unowned()
                     unownedAnswer = answer
                     if answer == .nobodyHasWrittenItsText {
+                        // **Her own words, on her own Mac** (P3c plan 2,
+                        // Option A, ruling OA-3). A line this writer signed
+                        // — on this Mac or on another of hers — in a piece
+                        // one of her own devices STARTED is applied here, and
+                        // nowhere else: every other Mac holds it and the root
+                        // is asked, exactly as below. `trust.isThisWriters`
+                        // is asked first because it is a lookup; the starter
+                        // is a manifest read and is asked only after it.
+                        if appliesOnItsWritersOwnMac(
+                            key: key, trust: trust, class: documentClass,
+                            startedBy: {
+                                if let known = startedByAnswer { return known }
+                                let read = startedBy()
+                                startedByAnswer = .some(read)
+                                return read
+                            }) {
+                            continue
+                        }
                         let holder = trust.person(forSealKey: key)
                         holding[index] = holder
                         // **Which of the two holds this is** (P3b Task 7,
@@ -336,7 +362,8 @@ public enum PermitPartition {
             trust: judge.trust, settledByKey: settledByKey,
             decoding: judge.decoding,
             recordingAmendmentsInto: judge.context.amendments,
-            unowned: judge.context.unowned)
+            unowned: judge.context.unowned,
+            startedBy: judge.context.startedBy)
     }
 
     // MARK: - The unsigned door (P3b Task 2)
@@ -438,6 +465,15 @@ public enum PermitPartition {
     /// and shares every one of its rules, so the two cannot disagree about
     /// which lines count.
     ///
+    /// **A `bootstrap` alone is not writing its text** (P3c plan 2, Option A).
+    /// A bootstrap is the piece's OPENING — the op the load mints from the
+    /// `.md` on the Mac that opens a piece with no history — and before
+    /// ruling OA-2 a root opening a collaborator's new piece before its ops
+    /// synced minted exactly that. Counting it would make the root's own
+    /// opening the claim that sets her words aside on every Mac. So only what
+    /// a book author WROTE into the piece claims it; an opening does not. It
+    /// is the one rule this pass keeps that `partition` has no use for.
+    ///
     /// Only a line signed by the person's own **author** key counts. The
     /// assistant's hand is the reviewer row on every device including the
     /// root's, so an assistant-signed manuscript line is refused rather than
@@ -469,7 +505,8 @@ public enum PermitPartition {
                   actor(ofSealKey: key, trust: trust, deviceSlug: deviceSlug) == .author,
                   let entry = governing[key]?[index],
                   let what = decoding(line.bytes),
-                  Permit.group(of: what) == .manuscriptText
+                  Permit.group(of: what) == .manuscriptText,
+                  what != .op(.bootstrap)
             else { continue }
             if case .author(.book) = entry.judging { return true }
         }
@@ -804,6 +841,46 @@ public enum PermitPartition {
         return DeviceIdentity.actor(ofDeviceId: deviceSlug, signingWith: key)
     }
 
+    /// **Option A's read-side half** (P3c plan 2, ruling OA-3): does a line
+    /// §4.5 would hold apply HERE, because this Mac is its writer's own and
+    /// the piece is one her own devices started?
+    ///
+    /// Asked only inside §4.5's `.nobodyHasWrittenItsText` arm, so every
+    /// other fact that arm turned on — an author of some pieces, her own
+    /// hand, manuscript text, a piece outside her scope that no book author
+    /// has written a word of — already holds. What this adds:
+    ///
+    /// 1. **The line is this writer's** (`TrustTable.isThisWriters`): one of
+    ///    this device's own keys, or her other Mac's. On the ROOT's Mac it is
+    ///    somebody else's line, so this answers false and the line is held and
+    ///    the root asked — which is the whole of *never let her lines apply on
+    ///    the root's Mac before Theirs*.
+    /// 2. **One of her own devices started the piece**
+    ///    (`TrustTable.starter(ofPieceStartedBy:)`). A piece with no starter
+    ///    recorded (made before this build), or one somebody else started,
+    ///    keeps today's rule on her Mac too.
+    /// 3. **The piece was not TAKEN from her.** A root that removed a piece
+    ///    from her scope has said whose it is not; she keeps writing there
+    ///    only as today's rule allows (held, and the root asked).
+    ///
+    /// The write side asks the same three facts through
+    /// `OpLogStore.localWritePermit`, so her Mac never lets her type what its
+    /// own next read would hold.
+    private static func appliesOnItsWritersOwnMac(
+        key: String, trust: TrustTable, class documentClass: DocumentClass,
+        startedBy: () -> String?
+    ) -> Bool {
+        guard trust.isThisWriters(sealKey: key),
+              let piece = documentClass.piece,
+              !trust.timeline(forSealKey: key).wasTakenFromThem(piece: piece),
+              let starter = startedBy()
+        else { return false }
+        switch trust.starter(ofPieceStartedBy: starter) {
+        case .thisDevice, .anotherOfThisWritersDevices: return true
+        case .somebodyElse: return false
+        }
+    }
+
     /// **Spec §4.4's third sentence** — *…after it stopped being hers.*
     ///
     /// Not *this entry has a mark*: an ADMISSION has a mark too (an empty one,
@@ -821,29 +898,5 @@ public enum PermitPartition {
         // is a compile error here.
         case .revoked, .revokedEntirely, .retired, .unknown, .none: return false
         }
-    }
-
-    /// **Spec §4.5's shape**: an author of some pieces, writing with her own
-    /// hand, putting manuscript text into a piece that is not in her scope.
-    ///
-    /// The actor must be `.author`: an assistant-signed manuscript line is
-    /// refused because the assistant never changes the manuscript on any
-    /// device, and that refusal has nothing to do with whose piece it is.
-    private static func startsAPieceNobodyHasClaimed(
-        permit: Permit, actor: DeviceActor?,
-        class documentClass: DocumentClass, what: Written
-    ) -> Bool {
-        // **The rung half is the permit layer's** (P3b Task 5), so a surface
-        // that needs to SAY this — the pane's permit-change confirmation —
-        // asks the same question rather than testing a permit against a
-        // literal rung. What stays here is what a rung cannot carry: whose
-        // hand wrote it, what it wrote, and where.
-        guard actor == .author, permit.mayStartAPieceOfTheirOwn,
-              case let .author(scope) = permit,
-              case let .pieces(mine) = scope,
-              case let .piece(id) = documentClass, !mine.contains(id),
-              Permit.group(of: what) == .manuscriptText
-        else { return false }
-        return true
     }
 }

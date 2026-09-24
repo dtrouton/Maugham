@@ -37,10 +37,36 @@ public struct LocalWritePermit: Equatable, Sendable {
     /// Where this stream sits — resolved ONLY when an answer could turn on it.
     public let documentClass: DocumentClass?
 
-    public init(permit: Permit, actor: DeviceActor, documentClass: DocumentClass?) {
+    /// **Whether this Mac started the piece** (P3c plan 2, Option A; rulings
+    /// OA-1 and OA-2) — `true` where this very device is the piece's recorded
+    /// starter, `false` where some other device is, and **nil where the
+    /// starter rule does not bind**: a book in which nobody is narrowed, a
+    /// piece with no starter recorded (made before this build), or a stream
+    /// that is not a piece. Nil is today's rule, exactly.
+    ///
+    /// Read by `mayMintOpening` alone.
+    public let startedHere: Bool?
+
+    /// **Option A's arm** (ruling OA-3): an author of some pieces, in a piece
+    /// one of her own devices started, which is outside her scope and which
+    /// no book author has written a word of. Her manuscript text there is
+    /// `.yes` on her own Mac — the same line the partition applies on her Mac
+    /// and holds on every other one — until the root says whose it is.
+    ///
+    /// Decided once, by `OpLogStore.localWritePermit`, from the three facts
+    /// the partition's arm asks (`PermitPartition.appliesOnItsWritersOwnMac`),
+    /// and false everywhere else — every book nobody is narrowed in included.
+    public let writesAsItsStarter: Bool
+
+    public init(
+        permit: Permit, actor: DeviceActor, documentClass: DocumentClass?,
+        startedHere: Bool? = nil, writesAsItsStarter: Bool = false
+    ) {
         self.permit = permit
         self.actor = actor
         self.documentClass = documentClass
+        self.startedHere = startedHere
+        self.writesAsItsStarter = writesAsItsStarter
     }
 
     /// The answer every book already on disk gives the writer's own hand:
@@ -60,7 +86,69 @@ public struct LocalWritePermit: Equatable, Sendable {
 
     /// May this device's own `actor` key write `what` here?
     public func allows(_ what: Written) -> Allowed {
-        permit.allows(what, in: documentClass ?? Self.hardestClass, actor: actor)
+        answer(what, signedBy: actor)
+    }
+
+    /// **The table's answer, and Option A's one widening of it.**
+    ///
+    /// The widening moves a `.no` to `.yes` and nothing else, and only where
+    /// `writesAsItsStarter` AND the permit layer's own §4.5 shape
+    /// (`Permit.startsAPieceNobodyHasClaimed`) both say so — so it reaches
+    /// manuscript text signed by her own hand and never a disposition, a
+    /// checkpoint, a task, a translation, or any key but the author's.
+    private func answer(_ what: Written, signedBy key: DeviceActor) -> Allowed {
+        let cls = documentClass ?? Self.hardestClass
+        let answer = permit.allows(what, in: cls, actor: key)
+        guard writesAsItsStarter, case .no = answer,
+              permit.startsAPieceNobodyHasClaimed(what, in: cls, actor: key)
+        else { return answer }
+        return .yes
+    }
+
+    /// **Is the `.yes` for her words here Option A's, rather than her scope's?**
+    /// — what makes a posture say *waiting for the root to say this piece is
+    /// yours* while every writing verb is offered. Asked of the one line
+    /// typing writes, so it is true exactly where the widening decided it.
+    public var isWaitingToBeClaimed: Bool {
+        guard writesAsItsStarter else { return false }
+        let cls = documentClass ?? Self.hardestClass
+        let text = Written.op(.typingBurst)
+        return permit.allows(text, in: cls, actor: actor) != .yes
+            && answer(text, signedBy: actor) == .yes
+    }
+
+    /// **May this Mac mint the piece's opening?** — the ONE predicate the
+    /// load's bootstrap guard asks (P3c plan 2, Option A; rulings OA-1, OA-2).
+    ///
+    /// - **The starter rule, in a narrowed book**: only the device the piece
+    ///   records as its starter mints its opening — the root included (OA-2),
+    ///   and her own OTHER Mac included (Review Focus 1: it waits, then
+    ///   applies her lines when they arrive). And even there only where this
+    ///   Mac may write the opening at all, so a reviewer named as a starter
+    ///   by an unsigned manifest mints nothing.
+    /// - **No starter recorded, or a book nobody is narrowed in**: today's
+    ///   rule exactly — whoever may write the piece's text mints it.
+    public var mayMintOpening: Bool {
+        let opening = allows(.op(.bootstrap)) == .yes
+        guard let startedHere else { return opening }
+        return startedHere && opening
+    }
+
+    /// **May this key start a piece at all?** — the `.startAPiece` verb's
+    /// question (P3c plan 2, Option A widens ruling R3).
+    ///
+    /// The table's answer in the hardest class says *yes* for a book author's
+    /// hand, whose every piece is already theirs. An author of some pieces is
+    /// refused there, and she may now open a piece of her own
+    /// (`Permit.mayOpenAPieceOfTheirOwn`, the permit layer's one spelling of
+    /// which key on which rung may): that is a `.yes`. A reviewer, a narrowed
+    /// actor and a permit this build cannot read keep the table's answer.
+    public func allowsStartingAPiece() -> Allowed {
+        let answer = permit.allows(
+            .op(.typingBurst), in: Self.hardestClass, actor: actor)
+        guard case .no = answer, permit.mayOpenAPieceOfTheirOwn(actor: actor)
+        else { return answer }
+        return .yes
     }
 
     /// **The same question of another of this device's keys.**
@@ -72,7 +160,7 @@ public struct LocalWritePermit: Equatable, Sendable {
     /// class and could name *a statement* where *the manuscript* is the truer
     /// word — so no surface reads this; its caller compares against `.yes`.
     public func allows(_ what: Written, signedBy other: DeviceActor) -> Allowed {
-        permit.allows(what, in: documentClass ?? Self.hardestClass, actor: other)
+        answer(what, signedBy: other)
     }
 
     /// **Whether the class need not be resolved at all** — asked of a bare

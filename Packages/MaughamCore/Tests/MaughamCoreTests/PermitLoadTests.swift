@@ -2524,6 +2524,310 @@ final class PermitLoadTests: XCTestCase {
         let applied = try await appliedOpIds()
         XCTAssertEqual(applied, ["herAccept", "herArchive", "herReject"])
     }
+
+    // MARK: - Option A (P3c plan 2): the piece records its starter
+
+    /// A Mac this suite reads the book from: its keys, its head, its memory.
+    private struct Mac {
+        let ids: LocalIdentities
+        let state: OpLogDeviceState
+        let cache: RegistryCache
+    }
+
+    private func mac(_ ids: LocalIdentities, _ name: String) -> Mac {
+        Mac(ids: ids, state: state(name),
+            cache: RegistryCache(
+                fileURL: projectURL.appendingPathComponent("registry-cache-\(name).json"),
+                identity: ids.author.fingerprint))
+    }
+
+    private var rootsMac: Mac { Mac(ids: root, state: rootState, cache: cache) }
+
+    private func store(on mac: Mac) -> OpLogStore {
+        OpLogStore(projectURL: projectURL, identities: mac.ids,
+                   state: mac.state, cache: mac.cache)
+    }
+
+    /// The op ids a Mac applies, through BOTH doors, which must agree.
+    private func appliedOpIds(
+        on mac: Mac, carrier: AmendmentPermits? = nil,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async throws -> [String] {
+        let coordinated = try await store(on: mac).loadDiagnosed(
+            docId: docId, amendmentPermits: carrier)
+        let sync = try OpLogStore.loadSyncMerged(
+            forDocId: docId, in: projectURL, identities: mac.ids,
+            state: mac.state, trust: try await store(on: mac).trust())
+        XCTAssertEqual(sync.map(\.opId), coordinated.ops.map(\.opId),
+                       "both readers see the same document", file: file, line: line)
+        return coordinated.ops.map(\.opId)
+    }
+
+    /// This document as a manifest item, starting where `startedBy` says —
+    /// or, nil, a piece made before this build.
+    private func writeManifest(startedBy: String?) throws {
+        let manifest = ProjectManifest(
+            type: .collection, title: "A book", author: "Denver",
+            created: Date(timeIntervalSince1970: 0),
+            modified: Date(timeIntervalSince1970: 0),
+            structure: [
+                StructureItem(
+                    id: docId, title: "Hers", type: .document,
+                    path: "pieces/hers.md", startedBy: startedBy),
+            ],
+            research: [])
+        try ProjectManifest.makeEncoder().encode(manifest).write(
+            to: projectURL.appendingPathComponent(ProjectManifest.fileName),
+            options: .atomic)
+    }
+
+    /// Sam, an author of one OTHER piece — so this document is outside her
+    /// scope and §4.5 is the question.
+    private func samIsAnAuthorOfSomePieces() throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: ["doc-hers"])
+    }
+
+    /// Sam's OTHER Mac, admitted under the same label — the root's word that
+    /// the two are one writer — and narrowed exactly as her first Mac is.
+    private func admitSamsOtherMac(_ other: LocalIdentities) throws {
+        let fingerprint = other.author.fingerprint
+        try RegistryWriter.write(
+            PersonRecord(
+                person: fingerprint, label: "Sam", ownName: "Sam’s iMac",
+                admittedAt: Date(timeIntervalSince1970: 21), admittedBy: rootPerson),
+            signedBy: root.author, in: projectURL)
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: fingerprint, name: "Sam’s iMac", kind: .mac,
+                actors: [DeviceActor.author.rawValue: fingerprint],
+                madeAt: Date(timeIntervalSince1970: 6)),
+            signedBy: other.author, in: projectURL)
+        try RegistryWriter.write(
+            PermitEvent(
+                event: "\(fingerprint).a", kind: .admitted, subject: fingerprint,
+                role: Permit.authorRole, scope: Permit.piecesScope,
+                pieces: ["doc-hers"], mark: [:],
+                at: Date(timeIntervalSince1970: 41), by: rootPerson),
+            signedBy: root.author, in: projectURL)
+    }
+
+    private func permit(on mac: Mac) -> LocalWritePermit {
+        store(on: mac).localWritePermit {
+            OpLogStore.documentClass(forDocId: self.docId, in: self.projectURL)
+        }
+    }
+
+    /// **Her own Mac applies her own lines in a piece she started; the ROOT's
+    /// Mac holds them and asks** (ruling OA-3, both directions in one book).
+    /// And her Mac lets her write there, mints the opening, and says it is
+    /// waiting for the root — while the root's Mac, which did not start the
+    /// piece, may not mint it (OA-2).
+    func test_herOwnMacAppliesHerLinesInAPieceSheStartedAndTheRootsMacHoldsThem()
+        async throws
+    {
+        try samIsAnAuthorOfSomePieces()
+        try writeManifest(startedBy: sam.author.deviceId)
+        try samsFile([op("herOpening", by: sam.author)])
+        let samsMac = mac(sam, "sam-mac")
+
+        let herCarrier = AmendmentPermits()
+        let onHers = try await appliedOpIds(on: samsMac, carrier: herCarrier)
+        XCTAssertEqual(onHers, ["herOpening"], "her words, on her own Mac")
+        XCTAssertTrue(herCarrier.whoStartedAPiece.isEmpty,
+                      "nothing is held on her Mac, so nobody is asked about")
+
+        let rootsCarrier = AmendmentPermits()
+        let onRoots = try await appliedOpIds(on: rootsMac, carrier: rootsCarrier)
+        XCTAssertEqual(onRoots, [], "held on the root's Mac until it answers")
+        XCTAssertEqual(rootsCarrier.whoStartedAPiece, [samPerson], "and the root is asked")
+        XCTAssertTrue(linesRecords().isEmpty, "held, never set aside")
+
+        let hers = permit(on: samsMac)
+        XCTAssertEqual(hers.allows(.op(.typingBurst)), .yes)
+        XCTAssertTrue(hers.writesAsItsStarter)
+        XCTAssertTrue(hers.isWaitingToBeClaimed)
+        XCTAssertTrue(hers.mayMintOpening, "she mints the piece she started")
+        XCTAssertEqual(hers.allows(.op(.checkpoint)), .no(.other),
+                       "only her words — never what the read side would set aside")
+        XCTAssertEqual(
+            PostureDoor.posture(forDocId: docId, in: projectURL, using: store(on: samsMac))
+                .reason, .waitingToBeClaimed)
+
+        let roots = permit(on: rootsMac)
+        XCTAssertFalse(roots.mayMintOpening, "OA-2: the root waits for her piece")
+        XCTAssertFalse(roots.writesAsItsStarter)
+        XCTAssertEqual(roots.allows(.op(.typingBurst)), .yes,
+                       "the root may still write every piece — it just does not open hers")
+    }
+
+    /// **Her two Macs** (Review Focus 1). She started the piece on her first
+    /// Mac; her second waits rather than minting an opening of its own, and
+    /// applies her first Mac's lines once they arrive, because both keys are
+    /// hers by the root's label.
+    func test_herOtherMacAppliesHerLinesButDoesNotMintTheOpening() async throws {
+        try samIsAnAuthorOfSomePieces()
+        let other = LocalIdentities.softwareForTesting()
+        try admitSamsOtherMac(other)
+        try writeManifest(startedBy: sam.author.deviceId)
+        let secondMac = mac(other, "sam-imac")
+
+        let before = permit(on: secondMac)
+        XCTAssertFalse(before.mayMintOpening, "her second Mac waits for the ops")
+        XCTAssertTrue(before.writesAsItsStarter, "and may write there once they arrive")
+
+        try samsFile([op("herOpening", by: sam.author)])
+        let applied = try await appliedOpIds(on: secondMac)
+        XCTAssertEqual(applied, ["herOpening"], "her first Mac's words, on her second")
+        let onRoots = try await appliedOpIds(on: rootsMac)
+        XCTAssertEqual(onRoots, [])
+    }
+
+    /// **A legacy piece** (Review Focus 3): no starter recorded. Whoever may
+    /// write its text mints it — the root, exactly as today — and her lines
+    /// there are held on her own Mac as on every other one.
+    func test_aPieceWithNoStarterKeepsTodaysRuleOnEveryMac() async throws {
+        try samIsAnAuthorOfSomePieces()
+        try writeManifest(startedBy: nil)
+        let samsMac = mac(sam, "sam-mac")
+
+        let roots = permit(on: rootsMac)
+        XCTAssertNil(roots.startedHere)
+        XCTAssertTrue(roots.mayMintOpening, "whoever may write its text mints it")
+        let hers = permit(on: samsMac)
+        XCTAssertFalse(hers.mayMintOpening)
+        XCTAssertFalse(hers.writesAsItsStarter)
+        XCTAssertEqual(hers.allows(.op(.typingBurst)), .no(.manuscriptText))
+
+        try samsFile([op("herOpening", by: sam.author)])
+        let onHers = try await appliedOpIds(on: samsMac)
+        XCTAssertEqual(onHers, [], "held on her Mac too — she started nothing here")
+    }
+
+    /// **Only HER lines apply on her Mac** — the line's key must be this
+    /// writer's as well as the piece. Another author of some pieces writing
+    /// in the piece Sam started is held on Sam's Mac exactly as anywhere.
+    func test_somebodyElsesLinesInThePieceSheStartedAreHeldOnHerMac() async throws {
+        try samIsAnAuthorOfSomePieces()
+        let ada = LocalIdentities.softwareForTesting()
+        let adaPerson = ada.author.fingerprint
+        try RegistryWriter.write(
+            PersonRecord(
+                person: adaPerson, label: "Ada", ownName: "Ada’s Mac",
+                admittedAt: Date(timeIntervalSince1970: 22), admittedBy: rootPerson),
+            signedBy: root.author, in: projectURL)
+        try RegistryWriter.write(
+            PermitEvent(
+                event: "\(adaPerson).a", kind: .admitted, subject: adaPerson,
+                role: Permit.authorRole, scope: Permit.piecesScope,
+                pieces: ["doc-adas"], mark: [:],
+                at: Date(timeIntervalSince1970: 42), by: rootPerson),
+            signedBy: root.author, in: projectURL)
+        try writeManifest(startedBy: sam.author.deviceId)
+        try writeFile(by: ada.author, ops: [op("adasLine", by: ada.author)])
+
+        let carrier = AmendmentPermits()
+        let onSams = try await appliedOpIds(on: mac(sam, "sam-mac"), carrier: carrier)
+        XCTAssertEqual(onSams, [], "Ada's words wait for the root on Sam's Mac too")
+        XCTAssertEqual(carrier.whoStartedAPiece, [adaPerson])
+    }
+
+    /// **A starter that names somebody else** — another admitted person's
+    /// device. This Mac may not mint it and she may not write it, and her
+    /// lines are held on her own Mac as well.
+    func test_aPieceSomebodyElseStartedIsNotHers() async throws {
+        try samIsAnAuthorOfSomePieces()
+        let ada = LocalIdentities.softwareForTesting()
+        try RegistryWriter.write(
+            PersonRecord(
+                person: ada.author.fingerprint, label: "Ada", ownName: "Ada’s Mac",
+                admittedAt: Date(timeIntervalSince1970: 22), admittedBy: rootPerson),
+            signedBy: root.author, in: projectURL)
+        try writeManifest(startedBy: ada.author.deviceId)
+        let samsMac = mac(sam, "sam-mac")
+
+        let hers = permit(on: samsMac)
+        XCTAssertEqual(hers.startedHere, false)
+        XCTAssertFalse(hers.mayMintOpening)
+        XCTAssertFalse(hers.writesAsItsStarter)
+        XCTAssertEqual(permit(on: rootsMac).mayMintOpening, false,
+                       "nor does the root: Ada's Mac opens Ada's piece")
+
+        try samsFile([op("herOpening", by: sam.author)])
+        let onHers = try await appliedOpIds(on: samsMac)
+        XCTAssertEqual(onHers, [])
+    }
+
+    /// **Once a book author writes the piece's text, it is theirs — on her
+    /// Mac too** (OA-3's last clause). Her lines harden from applied to set
+    /// aside on her own Mac, her Mac stops offering her words there, and her
+    /// posture says *not your piece*.
+    func test_onceABookAuthorWritesItsTextHerLinesAreSetAsideOnHerMacToo()
+        async throws
+    {
+        try samIsAnAuthorOfSomePieces()
+        try writeManifest(startedBy: sam.author.deviceId)
+        try samsFile([op("herOpening", by: sam.author)])
+        let samsMac = mac(sam, "sam-mac")
+        let first = try await appliedOpIds(on: samsMac)
+        XCTAssertEqual(first, ["herOpening"])
+
+        try writeFile(by: root.author, ops: [op("rootsText", by: root.author)])
+
+        let afterwards = try await appliedOpIds(on: samsMac)
+        XCTAssertEqual(afterwards, ["rootsText"])
+        XCTAssertFalse(linesRecords().isEmpty, "set aside, in her own words")
+        let hers = permit(on: samsMac)
+        XCTAssertFalse(hers.writesAsItsStarter)
+        XCTAssertEqual(hers.allows(.op(.typingBurst)), .no(.manuscriptText))
+        XCTAssertEqual(
+            PostureDoor.posture(forDocId: docId, in: projectURL, using: store(on: samsMac))
+                .reason, .notYourPiece)
+    }
+
+    /// **A book author's opening alone does not claim the piece.** Before
+    /// OA-2 a root opening her new piece ahead of its ops minted exactly
+    /// this; counting it would set her words aside behind a root-signed
+    /// `bootstrap`. Held on the root's Mac (and the root asked), applied on
+    /// hers — and the same `bootstrap` is still APPLIED everywhere.
+    func test_aBookAuthorsOpeningAloneDoesNotClaimThePiece() async throws {
+        try samIsAnAuthorOfSomePieces()
+        try writeManifest(startedBy: sam.author.deviceId)
+        try writeFile(by: root.author,
+                      ops: [op("0rootsOpening", by: root.author, kind: .bootstrap)])
+        try samsFile([op("herOpening", by: sam.author)])
+
+        let rootsTable = try await store(on: rootsMac).trust()
+        XCTAssertEqual(
+            OpLogStore.unownedPiece(forDocId: docId, in: projectURL, trust: rootsTable),
+            .nobodyHasWrittenItsText)
+        let onRoots = try await appliedOpIds(on: rootsMac)
+        XCTAssertEqual(onRoots, ["0rootsOpening"], "her line held, not set aside")
+        XCTAssertTrue(linesRecords().isEmpty)
+        let onHers = try await appliedOpIds(on: mac(sam, "sam-mac"))
+        XCTAssertEqual(Set(onHers), ["0rootsOpening", "herOpening"])
+    }
+
+    /// **A piece TAKEN from her is not one she started** — the root removed
+    /// it from her scope, which says whose it is not. Her Mac keeps today's
+    /// rule there: it holds her lines and does not let her write.
+    func test_aPieceTakenFromHerIsNotWrittenAsItsStarter() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("a", kind: .admitted, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: ["doc-hers", docId])
+        try writeEvent("b", kind: .scopeChanged, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: ["doc-hers"])
+        try writeManifest(startedBy: sam.author.deviceId)
+        let samsMac = mac(sam, "sam-mac")
+
+        XCTAssertFalse(permit(on: samsMac).writesAsItsStarter)
+        try samsFile([op("afterItWasTaken", by: sam.author)])
+        let onHers = try await appliedOpIds(on: samsMac)
+        XCTAssertEqual(onHers, [])
+    }
 }
 
 private extension JSONEncoder {

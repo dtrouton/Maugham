@@ -156,4 +156,124 @@ final class LocalWritePermitTests: XCTestCase {
             author.allows(.op(.typingBurst), signedBy: .maugham), .no(.manuscriptText),
             "the app on nobody's instruction writes task order and nothing else")
     }
+
+    // MARK: - Option A (P3c plan 2): the starter and the may-start arm
+
+    /// **No starter recorded, or a book nobody is narrowed in (`startedHere`
+    /// nil), is today's rule exactly**: whoever may write the opening mints
+    /// it — every permit, every class, every key. Review Focus 3.
+    func test_withNoStarterTheOpeningIsTodaysRule() {
+        for permit in permits {
+            for actor in DeviceActor.allCases {
+                for documentClass in classes {
+                    let value = LocalWritePermit(
+                        permit: permit, actor: actor, documentClass: documentClass)
+                    XCTAssertEqual(
+                        value.mayMintOpening,
+                        value.allows(.op(.bootstrap)) == .yes,
+                        "\(permit)/\(actor)/\(documentClass)")
+                }
+            }
+        }
+    }
+
+    /// **The starter rule, both directions** (OA-1, OA-2): only the Mac that
+    /// started a piece mints its opening — the root's Mac included, and her
+    /// own OTHER Mac included — and even the starter mints only what it may
+    /// write, so a reviewer an unsigned manifest names as a starter mints
+    /// nothing.
+    func test_onlyTheStartersMacMintsTheOpeningAndOnlyWhatItMayWrite() {
+        func value(_ permit: Permit, here: Bool, hers: Bool = false) -> LocalWritePermit {
+            LocalWritePermit(
+                permit: permit, actor: .author, documentClass: .piece("p2"),
+                startedHere: here, writesAsItsStarter: hers)
+        }
+        XCTAssertTrue(value(.bookAuthor, here: true).mayMintOpening)
+        XCTAssertFalse(value(.bookAuthor, here: false).mayMintOpening,
+            "OA-2: the root waits for a piece it did not start")
+        XCTAssertTrue(value(.author(.pieces(["p1"])), here: true, hers: true).mayMintOpening,
+            "she mints the piece she started")
+        XCTAssertFalse(value(.author(.pieces(["p1"])), here: false, hers: true).mayMintOpening,
+            "her other Mac waits for the ops (Review Focus 1)")
+        XCTAssertFalse(value(.author(.pieces(["p1"])), here: true, hers: false).mayMintOpening,
+            "a piece a book author has since written is not hers to open")
+        XCTAssertFalse(value(.reviewer, here: true, hers: true).mayMintOpening,
+            "a reviewer named as a starter mints nothing")
+    }
+
+    /// **The arm widens manuscript text signed by her own hand, and nothing
+    /// else** — every kind, every key, against the plain table. A disposition,
+    /// a checkpoint, a task or a translation in her unclaimed piece is exactly
+    /// what it was, because the read side sets those aside everywhere.
+    func test_theArmReachesHerOwnManuscriptTextAndNothingElse() {
+        let piecesAuthor = Permit.author(.pieces(["p1"]))
+        for actor in DeviceActor.allCases {
+            let armed = LocalWritePermit(
+                permit: piecesAuthor, actor: actor, documentClass: .piece("p2"),
+                startedHere: true, writesAsItsStarter: true)
+            for what in writtens {
+                let table = piecesAuthor.allows(what, in: .piece("p2"), actor: actor)
+                let widened = actor == .author
+                    && Permit.group(of: what) == .manuscriptText
+                XCTAssertEqual(
+                    armed.allows(what), widened ? .yes : table,
+                    "\(actor)/\(what)")
+            }
+            XCTAssertEqual(armed.isWaitingToBeClaimed, actor == .author, "\(actor)")
+        }
+    }
+
+    /// **And the arm is inert everywhere §4.5 is not the question** — inside
+    /// her own scope, for a book author, for a reviewer, and whenever it is
+    /// off. Those answers are the table's, cell for cell.
+    func test_theArmIsInertWhereSheIsNotStartingAPiece() {
+        let cases: [(Permit, DocumentClass)] = [
+            (.author(.pieces(["p1"])), .piece("p1")),
+            (.author(.pieces(["p1"])), .projectStatement),
+            (.author(.pieces(["p1"])), .pieceStatement(piece: "p2")),
+            (.author(.pieces(["p1"])), .translation(piece: "p2")),
+            (.bookAuthor, .piece("p2")),
+            (.reviewer, .piece("p2")),
+            (.unjudgeable(raw: "curator"), .piece("p2")),
+        ]
+        for (permit, documentClass) in cases {
+            let armed = LocalWritePermit(
+                permit: permit, actor: .author, documentClass: documentClass,
+                startedHere: true, writesAsItsStarter: true)
+            for what in writtens {
+                XCTAssertEqual(
+                    armed.allows(what),
+                    permit.allows(what, in: documentClass, actor: .author),
+                    "\(permit)/\(documentClass)/\(what)")
+            }
+            XCTAssertFalse(armed.isWaitingToBeClaimed, "\(permit)/\(documentClass)")
+        }
+        let off = LocalWritePermit(
+            permit: .author(.pieces(["p1"])), actor: .author,
+            documentClass: .piece("p2"), startedHere: true, writesAsItsStarter: false)
+        XCTAssertEqual(off.allows(.op(.typingBurst)), .no(.manuscriptText))
+        XCTAssertFalse(off.isWaitingToBeClaimed)
+    }
+
+    /// **Starting a piece** is the book author's hand and an author of some
+    /// pieces' hand — nobody else's (Option A widens ruling R3).
+    func test_startingAPieceIsTheWholeBookOrSomePiecesAndTheWritersOwnHand() {
+        for permit in permits {
+            for actor in DeviceActor.allCases {
+                let value = LocalWritePermit(
+                    permit: permit, actor: actor, documentClass: .piece("p1"))
+                let expected: Allowed
+                switch (permit, actor) {
+                case (.author, .author): expected = .yes
+                default:
+                    expected = permit.allows(
+                        .op(.typingBurst), in: LocalWritePermit.hardestClass, actor: actor)
+                }
+                XCTAssertEqual(value.allowsStartingAPiece(), expected, "\(permit)/\(actor)")
+            }
+        }
+        XCTAssertEqual(
+            LocalWritePermit(permit: .reviewer, actor: .author, documentClass: nil)
+                .allowsStartingAPiece(), .no(.statement))
+    }
 }

@@ -250,7 +250,7 @@ public enum Permit: Equatable, Hashable, Sendable {
 
     /// **May a piece nobody has written in yet become theirs?** (spec §4.5.)
     ///
-    /// The rung half of `PermitPartition.startsAPieceNobodyHasClaimed`, which
+    /// The rung half of `startsAPieceNobodyHasClaimed` (below), which
     /// is the rule that ENFORCES it and which adds the two facts a rung cannot
     /// carry: that the line is manuscript text signed by the person's own hand,
     /// and that nobody else has written the piece's text yet. It is here
@@ -266,6 +266,47 @@ public enum Permit: Equatable, Hashable, Sendable {
     public var mayStartAPieceOfTheirOwn: Bool {
         if case .author(.pieces) = self { return true }
         return false
+    }
+
+    /// **May this key open a piece of its own?** — `mayStartAPieceOfTheirOwn`
+    /// with the actor row applied (P3c plan 2, Option A).
+    ///
+    /// Only the writer's own hand starts a piece: the assistant is the
+    /// reviewer row on every device and the translator and the rebalance write
+    /// one thing each, so none of them opens anything whatever the person's
+    /// rung. This is what the `.startAPiece` verb asks beside the table's own
+    /// answer, and what `startsAPieceNobodyHasClaimed` below is built on — one
+    /// spelling of *which key, on which rung, may start a piece*.
+    public func mayOpenAPieceOfTheirOwn(actor: DeviceActor?) -> Bool {
+        actor == .author && mayStartAPieceOfTheirOwn
+    }
+
+    /// **Spec §4.5's shape**: an author of some pieces, writing with her own
+    /// hand, putting manuscript text into a piece that is not in her scope.
+    ///
+    /// Moved here from `PermitPartition` (P3c plan 2, Option A) because it now
+    /// has TWO askers that must not disagree: the partition, which holds such
+    /// a line (or, on her own Mac, applies it), and `LocalWritePermit`, which
+    /// lets her write it in a piece she started. A second copy of the shape on
+    /// the write side would be a second opinion about which lines §4.5 covers,
+    /// and the two drifting is exactly a Mac that lets her type what its own
+    /// next read sets aside.
+    ///
+    /// The actor must be `.author` (`mayOpenAPieceOfTheirOwn`): an
+    /// assistant-signed manuscript line is refused because the assistant never
+    /// changes the manuscript on any device, and that refusal has nothing to
+    /// do with whose piece it is. Manuscript TEXT only — a disposition, a
+    /// checkpoint, a task in such a piece is not §4.5's question.
+    public func startsAPieceNobodyHasClaimed(
+        _ what: Written, in documentClass: DocumentClass, actor: DeviceActor?
+    ) -> Bool {
+        guard mayOpenAPieceOfTheirOwn(actor: actor),
+              case let .author(scope) = self,
+              case let .pieces(mine) = scope,
+              case let .piece(id) = documentClass, !mine.contains(id),
+              Permit.group(of: what) == .manuscriptText
+        else { return false }
+        return true
     }
 
     /// **The permit a person RECORD says they hold** — the current-state

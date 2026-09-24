@@ -87,6 +87,10 @@ enum PostureStandingLine {
         case .notYourPiece: kind = .notYourPiece(title: title)
         case .yielding(let name): kind = .yielding(to: name)
         case .cannotJudge: kind = .cannotJudge
+        // P3c plan 2, Option A: not a refusal — her words are offered. Its
+        // standing line (*Waiting for <root> to say this piece is yours*) is
+        // Task 4's; until then the posture draws no line of its own.
+        case .waitingToBeClaimed: kind = nil
         }
         let kept = ownLinesKeptInHistory > 0
         guard kind != nil || kept else { return nil }

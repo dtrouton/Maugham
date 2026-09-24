@@ -223,10 +223,18 @@ final class PostureStandingLineTests: XCTestCase {
     func test_noReasonDrawsNoLine() {
         XCTAssertNil(PostureStandingLine.line(
             for: Posture(.unrestricted), title: "C", docId: "d"))
+        // P3c plan 2, Option A (controller ruling E): a pieces author may now
+        // start a piece, so her own piece restricts nothing — and a reviewer
+        // and an unreadable permit still may not start one.
         let ownPiece = Posture(permit(.author(.pieces(["d"])), .piece("d")))
-        XCTAssertTrue(ownPiece.isRestricted, "precondition: restricted")
+        XCTAssertTrue(ownPiece.allows(.startAPiece), "a pieces author may start a piece")
+        XCTAssertFalse(ownPiece.isRestricted, "so her own piece restricts nothing")
+        XCTAssertFalse(Posture(permit(.reviewer, .piece("d"))).allows(.startAPiece),
+                       "a reviewer still may not")
+        XCTAssertFalse(Posture(permit(.unjudgeable(raw: "editor"), .piece("d")))
+            .allows(.startAPiece), "nor may a permit this build cannot read")
         XCTAssertNil(PostureStandingLine.line(for: ownPiece, title: "C", docId: "d"),
-                     "restricted, but the words she is looking at are hers")
+                     "the words she is looking at are hers")
         XCTAssertNil(PostureStandingLine.line(for: .settling, title: "C", docId: "d"),
                      "nothing is decided yet, so nothing is named")
     }

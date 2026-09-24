@@ -1272,4 +1272,91 @@ final class TrustTableTests: XCTestCase {
         XCTAssertTrue(table.aDeviceRecordNames(itsAssistant))
         XCTAssertFalse(table.aDeviceRecordNames(foreignKey()))
     }
+
+    // MARK: - Who started a piece (P3c plan 2, Option A)
+
+    /// A book this device roots, with its own person record labelled
+    /// "Denver", her OTHER device admitted under the same label, and Sam's
+    /// device admitted under his — the three answers `starter(ofPieceStartedBy:)`
+    /// has, plus the shut-out ones.
+    private func starterTable(
+        other: String, sam: String,
+        otherRevoked: Bool = false, otherRetired: Bool = false
+    ) -> TrustTable {
+        let me = mine.author.fingerprint
+        return TrustTable.resolve(
+            registry: Registry(
+                devices: [
+                    deviceRecord(me, name: "Denver's MacBook", kind: .mac),
+                    otherRetired
+                        ? retiredDeviceRecord(
+                            other, at: Date(timeIntervalSince1970: 40),
+                            name: "Denver's iMac", kind: .mac)
+                        : deviceRecord(other, name: "Denver's iMac", kind: .mac),
+                    deviceRecord(sam, name: "Sam's Mac", kind: .mac),
+                ],
+                people: [
+                    rootRecord(me),
+                    admittedRecord(
+                        other, under: me, label: "Denver", ownName: "Denver's iMac",
+                        revokedAt: otherRevoked ? Date(timeIntervalSince1970: 50) : nil,
+                        revokedBy: otherRevoked ? me : nil),
+                    admittedRecord(sam, under: me, label: "Sam", ownName: "Sam's Mac"),
+                ]),
+            mine: mine, joinedRoot: nil)
+    }
+
+    private func authorId(_ fingerprint: String) -> String {
+        DeviceIdentity.deviceId(actor: DeviceActor.author.rawValue, fingerprint: fingerprint)
+    }
+
+    /// Both directions of *whose device started this piece*: this Mac, her
+    /// other Mac (the same writer by the root's label), and everybody else.
+    func test_aPiecesStarterIsThisDeviceHerOtherDeviceOrSomebodyElse() {
+        let (other, sam) = (foreignKey(), foreignKey())
+        let table = starterTable(other: other, sam: sam)
+
+        XCTAssertEqual(table.starter(ofPieceStartedBy: mine.author.deviceId), .thisDevice)
+        XCTAssertEqual(table.starter(ofPieceStartedBy: authorId(other)),
+                       .anotherOfThisWritersDevices, "her two Macs are both hers")
+        XCTAssertEqual(table.starter(ofPieceStartedBy: authorId(sam)), .somebodyElse,
+                       "a device of another person is not hers")
+        XCTAssertEqual(table.starter(ofPieceStartedBy: mine.assistant.deviceId),
+                       .somebodyElse, "a piece is started by a writer's hand, never MCP")
+        XCTAssertEqual(table.starter(ofPieceStartedBy: authorId(foreignKey())),
+                       .somebodyElse, "a device this register never heard of")
+        XCTAssertEqual(table.starter(ofPieceStartedBy: "author-not-a-device"), .somebodyElse)
+
+        XCTAssertTrue(table.isThisWriters(sealKey: mine.author.fingerprint))
+        XCTAssertTrue(table.isThisWriters(sealKey: mine.assistant.fingerprint))
+        XCTAssertTrue(table.isThisWriters(sealKey: other))
+        XCTAssertFalse(table.isThisWriters(sealKey: sam))
+    }
+
+    /// **A device the root shut out, or that stopped, starts nothing of hers**
+    /// — revoked and retired, each on its own.
+    func test_aRevokedOrRetiredDeviceOfHersIsNotHerStarter() {
+        let (other, sam) = (foreignKey(), foreignKey())
+        let revoked = starterTable(other: other, sam: sam, otherRevoked: true)
+        XCTAssertEqual(revoked.starter(ofPieceStartedBy: authorId(other)), .somebodyElse)
+        let retired = starterTable(other: other, sam: sam, otherRetired: true)
+        XCTAssertEqual(retired.starter(ofPieceStartedBy: authorId(other)), .somebodyElse)
+    }
+
+    /// **The other device must be the same WRITER, by the root's label** — the
+    /// same machine under a different label is somebody else.
+    func test_aDeviceUnderAnotherLabelIsSomebodyElsesStarter() {
+        let me = mine.author.fingerprint
+        let other = foreignKey()
+        let table = TrustTable.resolve(
+            registry: Registry(
+                devices: [deviceRecord(other, name: "Denver's iMac", kind: .mac)],
+                people: [
+                    rootRecord(me),
+                    admittedRecord(other, under: me, label: "Studio", ownName: "iMac"),
+                ]),
+            mine: mine, joinedRoot: nil)
+        XCTAssertEqual(table.starter(ofPieceStartedBy: authorId(other)), .somebodyElse)
+        XCTAssertFalse(table.isThisWriters(sealKey: other))
+    }
 }

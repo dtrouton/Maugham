@@ -800,9 +800,12 @@ public struct TrustTable: Equatable, Sendable {
     /// folding them together would make *unnamed* an identity.
     ///
     /// **Not a general-purpose answer.** It is asked by the ownership rule and
+    /// by Option A's *whose piece did she start* (`isThisWriters`), and
     /// nothing else: a verdict, a permit and a mark are all about the machine,
     /// and widening any of those to a label would let a name decide what a
-    /// signature means.
+    /// signature means. Option A's use is the ownership rule's own shape — a
+    /// question about the WRITER — and it widens nothing but which of her own
+    /// Macs shows her own words while the root decides.
     nonisolated public func sameWriter(
         _ fingerprint: String, _ other: String
     ) -> Bool {
@@ -810,6 +813,65 @@ public struct TrustTable: Equatable, Sendable {
         if a == b { return true }
         return TrustTable.sharesLabel(
             personByFingerprint[a]?.label, personByFingerprint[b]?.label)
+    }
+
+    // MARK: - Who started a piece (P3c plan 2, Option A)
+
+    /// **Whose device a piece's recorded starter is, to this device** (ruling
+    /// OA-1). `StructureItem.startedBy` carries an AUTHOR device id; this is
+    /// the one place that id is turned into an answer.
+    public enum PieceStarter: Equatable, Sendable {
+        /// This very Mac started it — the one device that may mint its
+        /// opening (`LocalWritePermit.mayMintOpening`).
+        case thisDevice
+        /// Another of this writer's own devices started it: her other Mac.
+        /// Her words from there are hers here too; the opening is not this
+        /// Mac's to mint (Review Focus 1 — it waits for the ops).
+        case anotherOfThisWritersDevices
+        /// Somebody else, or a device this register cannot vouch for — a
+        /// contested key, a revoked or retired device, one nobody names.
+        case somebodyElse
+    }
+
+    /// **Is this seal key one of THIS writer's?** — one of this device's own
+    /// keys, or a key `sameWriter` joins to this device's own author key (her
+    /// other Mac, which the root labelled as hers).
+    ///
+    /// The second caller `sameWriter`'s note anticipates: Option A asks it
+    /// about the piece a writer STARTED, which is a question about the writer
+    /// and not the machine, exactly as *may she withdraw her own note* is.
+    /// False where this device has never written as its author: it then has
+    /// no person here to be the same as.
+    nonisolated public func isThisWriters(sealKey fingerprint: String) -> Bool {
+        if mine.contains(fingerprint) { return true }
+        guard let myPerson else { return false }
+        return sameWriter(fingerprint, myPerson)
+    }
+
+    /// **Whose device `deviceId` — a piece's recorded starter — is.**
+    ///
+    /// The id is a CLAIM written into an unsigned manifest, so it is matched
+    /// forwards against keys this register already vouches for
+    /// (`deviceKey(forDeviceId:)`) and never believed on its face:
+    ///
+    /// - it must name an AUTHOR key — a piece is started by a writer's own
+    ///   hand, never by the assistant or the pipeline;
+    /// - it must be owned — a contested key is nobody's (`DeviceKey.isOwned`);
+    /// - one of this device's own keys is `.thisDevice`, first-hand;
+    /// - otherwise it must be this writer's (`isThisWriters`) AND still
+    ///   standing here — `.admitted`, never `.revoked` or `.retired`: a device
+    ///   the root shut out, or that stopped, starts nothing of hers.
+    ///
+    /// Everything else is `.somebodyElse`, which is the waiting answer.
+    nonisolated public func starter(ofPieceStartedBy deviceId: String) -> PieceStarter {
+        guard let named = deviceKey(forDeviceId: deviceId), named.isOwned,
+              (named.actor ?? DeviceIdentity.claimedActor(ofDeviceId: deviceId)) == .author
+        else { return .somebodyElse }
+        if mine.contains(named.key) { return .thisDevice }
+        guard isThisWriters(sealKey: named.key),
+              case .admitted = verdict(forSealKey: named.key)
+        else { return .somebodyElse }
+        return .anotherOfThisWritersDevices
     }
 
     /// **Do two person records name the same writer?** — the label rule above,

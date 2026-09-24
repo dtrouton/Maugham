@@ -346,14 +346,21 @@ extension DocumentStore {
         forDocId docId: String, as actor: DeviceActor
     ) -> LocalWritePermit {
         let projectURL = self.projectURL
-        let statements = projectStore?.manifest.statements
+        let manifest = projectStore?.manifest
         postureBook.builderCalls += 1
-        return postureOpStore.localWritePermit(as: actor) {
-            if let statements {
-                return DocumentClass.resolve(docId: docId, statements: statements)
-            }
-            return Document.documentClass(forDocId: docId, in: projectURL)
-        }
+        // The piece's starter (Option A) from the same live manifest, for
+        // ruling AD's reason; nil (a headless store) reads it off disk.
+        let startedBy = manifest.map { live in { live.startedBy(ofPiece: $0) } }
+        return postureOpStore.localWritePermit(
+            as: actor,
+            documentClass: {
+                if let manifest {
+                    return DocumentClass.resolve(
+                        docId: docId, statements: manifest.statements)
+                }
+                return Document.documentClass(forDocId: docId, in: projectURL)
+            },
+            startedBy: startedBy)
     }
 
     /// A new epoch: every view that asked re-renders. `clearing` forgets the

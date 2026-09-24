@@ -1321,23 +1321,33 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertTrue(TreeStructureVerbs.mayStartAPiece(book(DocumentClass.projectStreamDocId)))
 
         // An author of A: A's row, and a group holding only A — never B's,
-        // never a group holding B however deep, never an empty group, and
-        // never a new piece (ruling R3) — so no Duplicate either.
+        // never a group holding B however deep, never an empty group. Since
+        // P3c plan 2's Option A (controller ruling E) she may START a piece
+        // of her own, so New is offered on every row and Duplicate wherever
+        // she may restructure the row — and nothing else about B moves.
+        let newOnly = TreeStructureVerbs(
+            newInside: true, duplicate: false, rename: false, delete: false,
+            move: false, linkResearch: false, tidy: false)
         let pieces = postures(.author(.pieces(["doc-a"])))
         XCTAssertEqual(TreeStructureVerbs.decide(for: t.a, postureOf: pieces),
-                       TreeStructureVerbs(newInside: false, duplicate: false, rename: true,
+                       TreeStructureVerbs(newInside: true, duplicate: true, rename: true,
                                           delete: true, move: true, linkResearch: true,
                                           tidy: false))
-        XCTAssertEqual(TreeStructureVerbs.decide(for: t.b, postureOf: pieces), none)
+        XCTAssertEqual(TreeStructureVerbs.decide(for: t.b, postureOf: pieces), newOnly,
+                       "B is not hers: only a new piece of her own")
         XCTAssertEqual(TreeStructureVerbs.decide(for: t.groupA, postureOf: pieces),
-                       TreeStructureVerbs(newInside: false, duplicate: false, rename: true,
+                       TreeStructureVerbs(newInside: true, duplicate: true, rename: true,
                                           delete: true, move: true, linkResearch: false,
                                           tidy: true))
-        XCTAssertEqual(TreeStructureVerbs.decide(for: t.groupAB, postureOf: pieces), none,
+        XCTAssertEqual(TreeStructureVerbs.decide(for: t.groupAB, postureOf: pieces), newOnly,
                        "a pieces-author may not delete a group holding somebody else's chapter")
-        XCTAssertEqual(TreeStructureVerbs.decide(for: t.empty, postureOf: pieces), none)
+        XCTAssertEqual(TreeStructureVerbs.decide(for: t.empty, postureOf: pieces), newOnly)
+        XCTAssertTrue(TreeStructureVerbs.mayStartAPiece(
+            pieces(DocumentClass.projectStreamDocId)), "Option A widens ruling R3")
+        // …and the other direction: a reviewer (above) and a permit this
+        // build cannot read still start nothing.
         XCTAssertFalse(TreeStructureVerbs.mayStartAPiece(
-            pieces(DocumentClass.projectStreamDocId)), "ruling R3")
+            postures(.unjudgeable(raw: "editor"))(DocumentClass.projectStreamDocId)))
 
         // Settling offers the reviewer row alone — no structure.
         XCTAssertEqual(TreeStructureVerbs.decide(for: t.a, postureOf: { _ in .settling }), none)
@@ -1364,13 +1374,16 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertTrue(binder.structureVerbs(for: a).move)
         XCTAssertFalse(binder.structureVerbs(for: b).rename, "not hers: no verbs")
         XCTAssertFalse(binder.structureVerbs(for: b).move, "the drop refuses B")
-        XCTAssertFalse(binder.mayStartAPiece, "no New Document at the root (R3)")
+        XCTAssertTrue(binder.mayStartAPiece,
+                      "Option A: New Document at the root is hers too (ruling E)")
         XCTAssertFalse(pieces.structureVerbs(for: b).delete)
-        XCTAssertFalse(pieces.mayStartAPiece)
+        XCTAssertTrue(pieces.mayStartAPiece)
 
         try await become(.reviewer, h)
         XCTAssertFalse(binder.structureVerbs(for: a).offersAny, "a reviewer: nothing")
         XCTAssertFalse(pieces.structureVerbs(for: a).offersAny)
+        XCTAssertFalse(binder.mayStartAPiece, "a reviewer starts nothing")
+        XCTAssertFalse(pieces.mayStartAPiece)
 
         try await become(.bookAuthor, h)
         XCTAssertTrue(binder.structureVerbs(for: b).delete, "promotion: back, no reopen")
@@ -1726,14 +1739,19 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertTrue(admittedAsAuthor)
 
         try await become(.author(.pieces(["doc-a"])), h)
-        XCTAssertEqual(StartAPieceDoor.drawn(store: h.store), false, "R3: not hers to start")
-        var admitted = true
+        XCTAssertEqual(StartAPieceDoor.drawn(store: h.store), true,
+                       "Option A: a pieces author may start a piece (ruling E)")
+        var admitted = false
+        let saidToHer = await notices { admitted = await StartAPieceDoor.admits(store: h.store) }
+        XCTAssertTrue(admitted, "the receiver admits her")
+        XCTAssertEqual(saidToHer, [])
+
+        try await become(.reviewer, h)
+        XCTAssertEqual(StartAPieceDoor.drawn(store: h.store), false, "a reviewer may not")
+        admitted = true
         let said = await notices { admitted = await StartAPieceDoor.admits(store: h.store) }
         XCTAssertFalse(admitted, "the receiver refuses a post that arrives anyway")
         XCTAssertEqual(said, [StartAPieceDoor.refusal], "and says so")
-
-        try await become(.reviewer, h)
-        XCTAssertEqual(StartAPieceDoor.drawn(store: h.store), false)
 
         try await become(.bookAuthor, h)
         XCTAssertEqual(StartAPieceDoor.drawn(store: h.store), true, "promotion: enabled again")

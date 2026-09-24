@@ -124,6 +124,14 @@ public struct Posture: Equatable, Sendable {
         /// A permit this build cannot read (a later build's rung or scope), or a
         /// statement it cannot place. Nothing is decided about the words.
         case cannotJudge
+        /// **Not a refusal** (P3c plan 2, Option A; ruling OA-3): an author of
+        /// some pieces, writing in a piece she started that nobody has claimed.
+        /// Every writing verb is offered — the words are hers on her own Mac —
+        /// and this names the one thing still open: the root has not yet said
+        /// whose the piece is. The standing line's sentence (*Waiting for
+        /// <root> to say this piece is yours*) is the Mac's to write; the root's
+        /// label is read where the waiting sentence already reads it.
+        case waitingToBeClaimed
     }
 
     // MARK: - The one switch
@@ -131,9 +139,10 @@ public struct Posture: Equatable, Sendable {
     /// What a verb would write, and where it is asked.
     private struct Probe {
         let what: Written
-        /// Asked of `LocalWritePermit.hardestClass` instead of this document's
-        /// class: starting a piece is a book-author's act until plan 2 widens
-        /// it (ruling R3).
+        /// Asked of `LocalWritePermit.allowsStartingAPiece` instead of this
+        /// document's class: starting a piece is not about the document shown
+        /// (ruling R3), and since plan 2's Option A an author of some pieces
+        /// may start one of her own as well as the book author.
         let asAnyNewPiece: Bool
     }
 
@@ -167,8 +176,7 @@ public struct Posture: Equatable, Sendable {
     private func withAnswer<T>(to verb: Verb, _ read: (Allowed) -> T) -> T {
         let probe = Self.probe(verb)
         if probe.asAnyNewPiece {
-            return read(permit.permit.allows(
-                probe.what, in: LocalWritePermit.hardestClass, actor: permit.actor))
+            return read(permit.allowsStartingAPiece())
         }
         return read(permit.allows(probe.what))
     }
@@ -193,9 +201,11 @@ public struct Posture: Equatable, Sendable {
         }
     }
 
-    /// Any verb refused. NB: an author of some pieces, inside her own piece, is
-    /// restricted (she may not start a piece — ruling R3) while `reason` is nil,
-    /// because the words she is looking at are hers.
+    /// Any verb refused. NB: an author of some pieces, inside her own piece,
+    /// is unrestricted since Option A (she may start a piece of her own), and
+    /// in a piece she started that nobody has claimed she is restricted —
+    /// dispositions, checkpoints and tasks wait for the root — while `reason`
+    /// is `.waitingToBeClaimed` rather than a refusal of her words.
     public var isRestricted: Bool {
         !Verb.allCases.allSatisfy { allows($0) }
     }
@@ -210,7 +220,9 @@ public struct Posture: Equatable, Sendable {
         return withAnswer(to: .writeText) { answer -> Reason? in
             switch answer {
             case .yes:
-                return nil
+                // Hers — by her scope, or (Option A) by having started a
+                // piece nobody has claimed yet, which the permit decided.
+                return permit.isWaitingToBeClaimed ? .waitingToBeClaimed : nil
             case .cannotJudge:
                 return .cannotJudge
             case .no:
