@@ -23,7 +23,7 @@ struct RemovedElsewhereDisclosure: View {
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Removed from the binder on another device. The words are still in this book.")
+                Text(Self.sectionCaption)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -87,15 +87,26 @@ struct RemovedElsewhereDisclosure: View {
         }
     }
 
-    /// "Removed today" / "Removed yesterday" / "Removed 12 Sep 2026".
+    /// **What the section says, true of every way a piece gets here** (review
+    /// M6). A piece is listed when an archived outline held it and the live one
+    /// does not: most often another device's stale outline replaced one here
+    /// that held it, but equally a chapter ANOTHER Mac added that lost a
+    /// last-writer-wins race before it ever reached this binder. *Removed on
+    /// another device* is wrong for the second, and the archive does not record
+    /// which it was, so the wording is chosen to be true of both rather than
+    /// derived per row: it names what happened to the binder, not who did it.
+    static let sectionCaption =
+        "Left the binder when two devices\u{2019} outlines crossed. The words are still in this book."
+
+    /// "Left the binder today" / "… yesterday" / "Left the binder 12 Sep 2026".
     static func caption(for date: Date, now: Date = Date(),
                         calendar: Calendar = .current) -> String {
-        if calendar.isDate(date, inSameDayAs: now) { return "Removed today" }
+        if calendar.isDate(date, inSameDayAs: now) { return "Left the binder today" }
         if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
            calendar.isDate(date, inSameDayAs: yesterday) {
-            return "Removed yesterday"
+            return "Left the binder yesterday"
         }
-        return "Removed \(date.formatted(date: .abbreviated, time: .omitted))"
+        return "Left the binder \(date.formatted(date: .abbreviated, time: .omitted))"
     }
 }
 

@@ -173,12 +173,17 @@ public struct TrashStore {
             at: trashRoot,
             includingPropertiesForKeys: [.creationDateKey, .contentModificationDateKey],
             options: [])) ?? []
+        // The pieces of every entry actually removed are recorded as let go
+        // (Denver's ruling, 2026-09-24), exactly as `permanentlyDelete` does.
+        var lettingGo = Set<String>()
         for folder in folders where folder.hasDirectoryPath {
             guard let trashedAt = Self.ageOfEntry(at: folder) else { continue }
             if trashedAt < cutoff {
-                try? fm.removeItem(at: folder)
+                let held = LetGoRecord.ids(inTrashEntryFolder: folder)
+                if (try? fm.removeItem(at: folder)) != nil { lettingGo.formUnion(held) }
             }
         }
+        LetGoRecord.recordLettingGo(of: lettingGo, in: projectURL)
     }
 
     /// When an entry folder was trashed: its name's timestamp, else the
@@ -195,9 +200,18 @@ public struct TrashStore {
     }
 
     /// Permanently delete a trashed entry.
+    ///
+    /// **Records the let-go** (Denver's ruling, 2026-09-24): the pieces the
+    /// entry held are written to this device's `LetGoRecord` once the folder
+    /// is gone, so *Removed Elsewhere* does not offer them back (a record that
+    /// fails to write is logged; see `LetGoRecord`). Their op logs
+    /// stay on disk, as they always have. Every permanent deletion from Trash
+    /// passes here or through `sweep()`.
     public func permanentlyDelete(trashId: String) async throws {
         let entryFolder = trashRoot.appendingPathComponent(trashId)
+        let lettingGo = LetGoRecord.ids(inTrashEntryFolder: entryFolder)
         try FileManager.default.removeItem(at: entryFolder)
+        LetGoRecord.recordLettingGo(of: lettingGo, in: projectURL)
     }
 
     /// Restore a trashed entry: move its file back, delete the trash folder,
