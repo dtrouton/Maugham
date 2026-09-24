@@ -387,6 +387,17 @@ final class AdmissionPermitTests: XCTestCase {
             + "whether her key is a person's at all")
         XCTAssertEqual(store.heldLinesByDevice(), union.counts,
                        "one walk, two readers")
+        // **And what those lines ARE, in which piece** (P3b smoke find F2):
+        // the load's description, joined to the docId only this fold knows.
+        let what = try XCTUnwrap(union.waiting[stranger.fingerprint]?[id])
+        XCTAssertEqual(what.phrase?.text, "1 paragraph")
+        XCTAssertEqual(what.peek, "02")
+        let order = [(id: id, title: "Chapter 1")]
+        XCTAssertEqual(
+            AdmissionWaiting.describe(
+                holder: stranger.fingerprint, waiting: union.waiting,
+                captures: union.captures, order: order)?.line,
+            "1 paragraph waiting in \u{201C}Chapter 1\u{201D}")
         await held.close()
     }
 

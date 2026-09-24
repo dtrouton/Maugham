@@ -38,6 +38,11 @@ public struct FileProvenance: Equatable, Sendable {
     /// as both its author and its assistant is one device waiting for
     /// admission. A key no device record names stands for itself.
     public let pendingByDevice: [String: Int]
+    /// **What those held lines ARE** — paragraphs of prose and notes, and a
+    /// few of the words — keyed as `pendingByDevice` is (P3b smoke find F2).
+    /// `HeldLines.Waiting.byDevice`'s answer, taken from the same classified
+    /// lines in the same pass, so a count and its description cannot disagree.
+    public let pendingWaitingByDevice: [String: HeldLines.Waiting]
     /// **Of those, the ones this book has no person record for** — the devices
     /// the writer can actually be asked to ADMIT (P3a Task 5's D5).
     ///
@@ -89,6 +94,7 @@ public struct FileProvenance: Equatable, Sendable {
         quarantined: Int = 0,
         pending: Int = 0,
         pendingByDevice: [String: Int] = [:],
+        pendingWaitingByDevice: [String: HeldLines.Waiting] = [:],
         pendingStrangerDevices: Set<String>? = nil,
         deviceSlug: String? = nil,
         isSealedSegment: Bool = false,
@@ -102,6 +108,7 @@ public struct FileProvenance: Equatable, Sendable {
         self.quarantined = quarantined
         self.pending = pending
         self.pendingByDevice = pendingByDevice
+        self.pendingWaitingByDevice = pendingWaitingByDevice
         self.pendingStrangerDevices =
             pendingStrangerDevices ?? Set(pendingByDevice.keys)
         self.deviceSlug = deviceSlug
@@ -136,6 +143,17 @@ public struct OpLogProvenance: Equatable, Sendable {
     public var pendingByDevice: [String: Int] {
         files.reduce(into: [:]) { total, file in
             for (key, count) in file.pendingByDevice { total[key, default: 0] += count }
+        }
+    }
+
+    /// **What each holder's held lines are, across every file** (F2) — the
+    /// same union `pendingByDevice` is, of the descriptions rather than the
+    /// counts.
+    public var pendingWaitingByDevice: [String: HeldLines.Waiting] {
+        files.reduce(into: [:]) { total, file in
+            for (key, waiting) in file.pendingWaitingByDevice {
+                total[key] = total[key].map { $0.merged(with: waiting) } ?? waiting
+            }
         }
     }
 

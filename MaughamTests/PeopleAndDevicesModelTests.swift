@@ -247,6 +247,26 @@ final class PeopleAndDevicesModelTests: XCTestCase {
                       "the count is in the sentence: \(request.sentence)")
     }
 
+    /// **The pending row says what the sheet says** (P3b smoke F2): paragraphs
+    /// in a piece by title, not a line count.
+    func test_apendingRowSaysWhatIsWaitingAndWhere() throws {
+        let registry = registry()
+        let model = PeopleAndDevicesModel.make(
+            registry: registry, table: table(registry), remembered: [:],
+            requests: AdmissionDecision.requests(
+                pending: [stranger.fingerprint: 1], registry: registry,
+                memory: [:], myRoot: table(registry).myRoot),
+            claimants: [], standing: standing(), me: mac.fingerprint,
+            held: [stranger.fingerprint: 1],
+            pieces: [PermitControl.Piece(id: "doc-3", title: "Chapter 3")],
+            heldWaiting: [stranger.fingerprint: ["doc-3": HeldLines.Waiting(
+                paragraphIds: ["p1ab"], prose: 1)]])
+
+        let row = try XCTUnwrap(model.pending.first)
+        XCTAssertEqual(row.sentence,
+                       "The old iPhone (\(row.code)) — 1 paragraph waiting in “Chapter 3”")
+    }
+
     /// A device with nothing on disk to describe it is named by its code — the
     /// four characters its own Settings screen shows, which is the whole of
     /// how an admission is checked.

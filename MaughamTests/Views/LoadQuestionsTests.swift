@@ -332,6 +332,29 @@ final class LoadQuestionsTests: XCTestCase {
             [])
     }
 
+    // MARK: - What is waiting, in the question (P3b smoke F2 × F9)
+
+    /// The load's description reaches the consequence, and composes with the
+    /// truthful *taken from them* question.
+    func test_theConsequenceSaysWhatIsWaitingAndTheTakenQuestionStaysTruthful() throws {
+        var held = union(counts: [sam: 2], startedAPiece: [sam: ["ch-2"]])
+        held.waiting = [sam: ["ch-2": HeldLines.Waiting(
+            paragraphIds: ["p1ab"], prose: 1, notes: 1)]]
+        let asked = try XCTUnwrap(LoadQuestions.newPieces(
+            held: held, registry: samsBook(), titles: ["ch-2": "The Orchard"],
+            declined: [], me: root).first)
+
+        XCTAssertEqual(asked.waiting?.phrase?.text, "1 paragraph and 1 note")
+        XCTAssertTrue(asked.consequence.hasPrefix(
+            "The 1 paragraph and 1 note Sam has already written here"),
+            asked.consequence)
+
+        var taken = asked
+        taken.takenFromThem = true
+        XCTAssertTrue(taken.question.contains("after you took it from them"), taken.question)
+        XCTAssertTrue(taken.consequence.contains("1 paragraph and 1 note"), taken.consequence)
+    }
+
     // MARK: - It is not the admission queue
 
     /// **The two questions never overlap.** A holder raising a new-piece

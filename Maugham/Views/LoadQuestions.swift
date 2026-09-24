@@ -60,6 +60,10 @@ enum LoadQuestions {
         /// asked of the permit layer. Same answers, same effect; the question
         /// must not say they STARTED something they were given and lost.
         var takenFromThem: Bool = false
+        /// **What those lines ARE** (P3b smoke find F2) — paragraphs, notes and
+        /// changes, as the load described them in this piece. Nil where the
+        /// load gave no description; the consequence then counts lines.
+        var waiting: HeldLines.Waiting? = nil
 
         /// Per PERSON and per PIECE, which is the grain of the question and
         /// the grain the *not now* memory is keyed at.
@@ -78,9 +82,9 @@ enum LoadQuestions {
         /// the piece rather than the rung, because *what may they write* is a
         /// question this sentence must not answer twice (tripwire 47).
         var consequence: String {
-            let already = heldLines == 1
-                ? "The 1 line \(name) has already written here"
-                : "The \(heldLines) lines \(name) has already written here"
+            let what = waiting?.phrase?.text
+                ?? (heldLines == 1 ? "1 line" : "\(heldLines) lines")
+            let already = "The \(what) \(name) has already written here"
             return "\(already) will join the draft, and from now on they may "
                 + "write in this piece. Nothing else they may write changes."
         }
@@ -151,7 +155,8 @@ enum LoadQuestions {
                 return NewPiece(
                     person: person, name: name, docId: docId,
                     title: titles[docId] ?? "a new piece", heldLines: waiting,
-                    takenFromThem: timeline.wasTakenFromThem(piece: docId))
+                    takenFromThem: timeline.wasTakenFromThem(piece: docId),
+                    waiting: held.waiting[holder]?[docId])
             }
         }
     }
