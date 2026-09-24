@@ -75,16 +75,19 @@ struct AdmissionModifier: ViewModifier {
                 admissions = AdmissionQueue()
                 refusal = nil
             }
-            .task(id: projectURL) { await recompute(forced: false) }
+            .task(id: projectURL) { await recompute(forced: false, cause: .open) }
             .onProjectEvent(.maughamAdmissionRequested, url: projectURL, window: window) { note in
                 let forced = note.userInfo?[MaughamEvent.admissionForcedKey] as? Bool ?? false
-                Task { await recompute(forced: forced) }
+                Task {
+                    await recompute(
+                        forced: forced, cause: forced ? .writersPress : .announcement)
+                }
             }
             .onProjectEvent(.maughamAdmissionSettled, url: projectURL, window: window) { _ in
                 // A second window on this book let somebody in, or the open
                 // did. Whoever it was is no longer a stranger, so the queue is
                 // re-derived rather than left holding a sheet about them.
-                Task { await recompute(forced: false) }
+                Task { await recompute(forced: false, cause: .settle) }
             }
     }
 
@@ -144,7 +147,7 @@ struct AdmissionModifier: ViewModifier {
     /// collaborator who has written only in closed chapters — or not yet at
     /// all — is asked about when their machine arrives.
     @MainActor
-    private func recompute(forced: Bool) async {
+    private func recompute(forced: Bool, cause: AdmissionDecision.RefreshCause) async {
         if forced { admissions.forgetDismissals() }
         guard let documentStore else { return }
         // A forced recompute is the writer pressing Admit…, and the press they
@@ -161,6 +164,7 @@ struct AdmissionModifier: ViewModifier {
         let cache = Document.loadRegistryCache
         let me = identities.author.fingerprint
         let requests = await AdmissionDecision.refreshedRequests(
+            cause: cause,
             heldLines: { documentStore.heldLinesByDevice() },
             // The streams those held lines were in (P3b Task 4), read from the
             // same union in the same moment: a key that is not a person's must
@@ -199,7 +203,11 @@ struct AdmissionModifier: ViewModifier {
                     do {
                         let verified = try TrustResolution.resolveVerified(
                             projectURL: url, identities: identities, cache: cache)
-                        return (verified.registry, verified.table.myRoot)
+                        // The sheet is a ROOT's question (Ruling AA): this
+                        // Mac's own root record, never the root an admitted
+                        // Mac judges by.
+                        return (verified.registry, AdmissionDecision.askingRoot(
+                            in: verified.registry, thisDevice: me))
                     } catch {
                         admissionLog.error(
                             "admission could not read \(url.lastPathComponent, privacy: .public)'s registry: \(error.localizedDescription, privacy: .public)")

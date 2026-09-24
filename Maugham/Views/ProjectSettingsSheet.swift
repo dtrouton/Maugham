@@ -572,7 +572,11 @@ struct ProjectSettingsSheet: View {
                     requests: AdmissionDecision.requests(
                         pending: pending, streams: heldStreams,
                         registry: resolved.registry,
-                        memory: remembered, myRoot: resolved.table.myRoot,
+                        memory: remembered,
+                        // A root's question (Ruling AA): an admitted Mac lists
+                        // nobody as waiting on it, as its sheet asks nobody.
+                        myRoot: AdmissionDecision.askingRoot(
+                            in: resolved.registry, thisDevice: mine.author.fingerprint),
                         thisDevice: mine.author.fingerprint),
                     claimants: claimants,
                     restores: restores,

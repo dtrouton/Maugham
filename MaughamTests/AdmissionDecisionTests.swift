@@ -394,9 +394,11 @@ final class AdmissionDecisionTests: XCTestCase {
         memory: [String: AdmissionMemory.Label] = [:],
         resolves: Bool = true,
         listsTheFolder: Bool = false,
-        thisDevice: String? = nil
+        thisDevice: String? = nil,
+        cause: AdmissionDecision.RefreshCause = .settle
     ) async -> [AdmissionRequest]? {
         await AdmissionDecision.refreshedRequests(
+            cause: cause,
             heldLines: { log.held },
             // F10's pre-check, modelled on what the folder holds: a device
             // record with no person record beside it, this Mac's own left out.
@@ -736,6 +738,62 @@ final class AdmissionDecisionTests: XCTestCase {
 
         XCTAssertEqual(requests, [])
         XCTAssertEqual(log.acts, ["list"], "zero resolves")
+    }
+
+    // MARK: Ruling AA — the sheet is a ROOT's question
+
+    /// Sam's Mac is this Mac's `other`; the root `root` admitted it. The book
+    /// as Sam's Mac reads it: a stranger's record, and the same stranger's
+    /// lines, both waiting.
+    private func admittedNonRootBook() -> Registry {
+        rootedRegistry(
+            devices: [device(phone, name: "A stranger’s iPhone")],
+            people: [person(other, label: "Sam", admittedBy: root)])
+    }
+
+    func test_onlyAMacHoldingItsOwnRootRecordIsAnAskingRoot() {
+        let registry = admittedNonRootBook()
+
+        XCTAssertEqual(AdmissionDecision.askingRoot(in: registry, thisDevice: root), root)
+        XCTAssertNil(AdmissionDecision.askingRoot(in: registry, thisDevice: other),
+                     "admitted, with a root to judge by, and no root record of its own")
+        XCTAssertNil(AdmissionDecision.askingRoot(in: registry, thisDevice: "cccc4444"),
+                     "and a Mac no record names is no root either")
+    }
+
+    /// **Both directions, record-only and held lines**: the root is asked
+    /// about the stranger; an admitted Mac reading the same folder is not —
+    /// its only possible answer would be Admit → `.notARoot`.
+    func test_theRootIsAskedAndAnAdmittedMacIsNotForARecordOrForLines() {
+        let registry = admittedNonRootBook()
+        for pending in [[:], [phone: 3]] as [[String: Int]] {
+            XCTAssertEqual(
+                AdmissionDecision.requests(
+                    pending: pending, registry: registry, memory: [:],
+                    myRoot: AdmissionDecision.askingRoot(in: registry, thisDevice: root),
+                    thisDevice: root).map(\.fingerprint),
+                [phone], "the root is asked (held: \(pending))")
+            XCTAssertEqual(
+                AdmissionDecision.requests(
+                    pending: pending, registry: registry, memory: [:],
+                    myRoot: AdmissionDecision.askingRoot(in: registry, thisDevice: other),
+                    thisDevice: other),
+                [], "an admitted Mac is not (held: \(pending))")
+        }
+    }
+
+    // MARK: Ruling AB — the recount is the settle's alone
+
+    @MainActor
+    func test_theCaptureRecountIsPaidOnASettleAndNeverOnAnOpenOrAnAnnouncement() async {
+        for cause in [AdmissionDecision.RefreshCause.open, .announcement, .writersPress, .settle] {
+            let log = RefreshLog(
+                registry: rootedRegistry(devices: [device(phone, name: "Sam’s iPhone")]),
+                held: [:])
+            _ = await refresh(log, listsTheFolder: true, thisDevice: root, cause: cause)
+            let recounts = log.acts.filter { $0 == "recount" }.count
+            XCTAssertEqual(recounts, cause == .settle ? 1 : 0, "\(cause)")
+        }
     }
 
     func test_anArrivedDeviceThisMacHasNamedIsRemembered() {

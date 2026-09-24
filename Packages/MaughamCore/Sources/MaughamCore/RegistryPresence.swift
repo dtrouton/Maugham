@@ -606,8 +606,7 @@ public enum RegistryPresence {
         // yet would otherwise make this device a stranger on its own book.
         let registry = try TrustResolution.verifiedRegistry(
             projectURL: projectURL, presenter: presenter, cache: cache)
-        guard registry.roots.contains(where: { $0.person == author.fingerprint })
-        else { return [] }
+        guard registry.holdsARootRecord(author.fingerprint) else { return [] }
         let unreadable = RegistryAdmission.unreadablePeople(in: registry)
 
         var admitted: [PersonRecord] = []

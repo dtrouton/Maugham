@@ -324,6 +324,17 @@ public struct Registry: Equatable, Sendable {
     /// (decision B1).
     public var roots: [PersonRecord] { people.filter(\.isRoot) }
 
+    /// **Does this key hold a root record here?** — the one test of *may this
+    /// Mac let anybody in*. `RegistryAdmission.admit` refuses `.notARoot`
+    /// without it, `RegistryPresence.admitRemembered` admits nobody without
+    /// it, and the admission sheet asks nobody without it (P3c Task 9, Ruling
+    /// AA): an ADMITTED Mac has a root to judge by (`TrustTable.myRoot`) but
+    /// none of its own, and a question only a root can answer is not put to
+    /// it. One spelling, so the three can never disagree about who is a root.
+    public func holdsARootRecord(_ fingerprint: String) -> Bool {
+        roots.contains { $0.person == fingerprint }
+    }
+
     /// Every person admitted under this root, transitively, the root included.
     ///
     /// A revoked person is still IN the chain: revocation is a state of a

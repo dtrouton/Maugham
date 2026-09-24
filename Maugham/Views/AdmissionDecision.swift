@@ -148,10 +148,15 @@ enum AdmissionDecision {
     /// record under any root, an unsigned holder and a contested key are all
     /// refused by the same classification a held holder is.
     ///
-    /// **Empty when this device has no root** (decision B3). A device no record
-    /// names judges nobody, so nothing of anybody's is held and there is
-    /// nothing to admit — and asking anyway would be this Mac inviting a device
-    /// into a book it is not itself in. `myRoot` is `TrustTable.myRoot`.
+    /// **Empty unless this Mac is a ROOT here.** Two rules meet in `myRoot`.
+    /// Decision B3: a device no record names judges nobody, so nothing of
+    /// anybody's is held and there is nothing to admit. And spec P2 §4.1's
+    /// *the sheet (root device, Mac only)* (P3c Task 9, Ruling AA): an
+    /// ADMITTED Mac has a root to judge by but no root record of its own, and
+    /// the only answer it could give is Admit → `.notARoot`. Production
+    /// callers pass `askingRoot(in:thisDevice:)` — never `TrustTable.myRoot`,
+    /// which is the ADMITTING root on a non-root Mac and would put the sheet
+    /// in front of every admitted Mac in the book each time a record arrives.
     ///
     /// **A fingerprint with a person record is not a stranger**, whoever
     /// admitted it: under my own root it is already in, and under another
@@ -376,8 +381,15 @@ enum AdmissionDecision {
     /// already named as well as for a remembered holder (`anyRemembered`):
     /// `RegistryPresence.admitRemembered` walks the folder's device records and
     /// needs no held line, so a known machine joins on its record's arrival.
+    ///
+    /// **And only on a SETTLE** (Ruling AB, the review's M1): `cause` says
+    /// which event asked, and the recount is paid for `.settle` alone — the
+    /// one event whose un-awaited inbox refresh is the race. An open or a
+    /// load's announcement has counts already in hand, and a stranger who
+    /// waits for days must not cost an inbox read on every chapter opened.
     @MainActor
     static func refreshedRequests(
+        cause: RefreshCause = .announcement,
         heldLines: @MainActor () -> [String: Int],
         heldStreams: @MainActor () -> [String: Set<String>] = { [:] },
         arrivedDevices: @MainActor () async -> Set<String> = { [] },
@@ -390,7 +402,7 @@ enum AdmissionDecision {
         var pending = heldLines()
         var arrived = await arrivedDevices()
         guard !pending.isEmpty || !arrived.isEmpty else { return [] }
-        if arrived.contains(where: { (pending[$0] ?? 0) == 0 }) {
+        if cause == .settle, arrived.contains(where: { (pending[$0] ?? 0) == 0 }) {
             await recountCaptures()
             pending = heldLines()
         }
@@ -408,6 +420,30 @@ enum AdmissionDecision {
             registry: resolved.registry,
             memory: memory, myRoot: resolved.myRoot,
             thisDevice: thisDevice)
+    }
+
+    /// **Which event asked for a refresh** — the window's four triggers, named
+    /// so a rule that holds for one of them is decided here with no window.
+    enum RefreshCause: Equatable {
+        /// The window opened on this project (`.task(id:)`).
+        case open
+        /// A load or a synced op file announced a newcomer's held lines.
+        case announcement
+        /// A registry change settled: a record arrived, or somebody was let
+        /// in. The only cause that recounts captures.
+        case settle
+        /// The writer pressed an *Admit…* control; the inbox was re-read
+        /// before this was asked.
+        case writersPress
+    }
+
+    /// **The root this Mac may admit as, or nil** (Ruling AA): its OWN root
+    /// record, asked of the one test the verbs use
+    /// (`Registry.holdsARootRecord`, which `RegistryAdmission.admit` and
+    /// `RegistryPresence.admitRemembered` refuse and admit by). What both
+    /// production callers hand `requests` as `myRoot`.
+    static func askingRoot(in registry: Registry, thisDevice: String) -> String? {
+        registry.holdsARootRecord(thisDevice) ? thisDevice : nil
     }
 
     /// Is any device waiting here one this writer has already named?
@@ -443,11 +479,18 @@ enum AdmissionDecision {
     /// Records are filed `<fingerprint>.json` (`RegistryWriter.url`), so a
     /// device file with no person file of the same name is a device the book
     /// has not let in — or one whose admission has not synced yet, which the
-    /// verified read then sorts out. Nothing here opens a file: no signature
-    /// check and no op log, because this runs on every registry settle and
-    /// every open, and its only job is to say whether the verified read is
-    /// worth paying for. A malformed or forged file answers *look*, and the
-    /// look is what refuses it.
+    /// verified read then sorts out. No signature check and no op log, because
+    /// this runs on every registry settle and every open, and its only job is
+    /// to say whether the verified read is worth paying for. A malformed or
+    /// forged file answers *look*, and the look is what refuses it.
+    ///
+    /// **A RETIRED record is not waiting** (Ruling AB, the review's M2). The
+    /// one file this opens is a device record ALREADY unmatched by name —
+    /// usually none at all — and only to ask whether it carries `retiredAt`.
+    /// Otherwise a retired, never-admitted machine would cost a verified read
+    /// on every settle for ever, and would reach `anyRemembered`'s record arm
+    /// and so the silent admission mid-session. A file that will not read or
+    /// parse answers *not retired*, which is *look*.
     ///
     /// `thisDevice` is left out — a Mac waiting to be let into somebody else's
     /// book has exactly this shape for its own record, and it asks nobody about
@@ -464,7 +507,23 @@ enum AdmissionDecision {
         guard !devices.isEmpty else { return [] }
         var arrived = devices.subtracting(recordNames(in: .people, projectURL: projectURL))
         if let thisDevice { arrived.remove(thisDevice) }
-        return arrived
+        return arrived.filter { !saysItRetired($0, projectURL: projectURL) }
+    }
+
+    /// Whether an unmatched device file says it retired — a key's presence,
+    /// UNVERIFIED on purpose, like the listing it refines: a record whose
+    /// signature fails is refused by the verified read whichever way this
+    /// answers, so the only thing it decides is whether to look.
+    nonisolated private static func saysItRetired(
+        _ fingerprint: String, projectURL: URL
+    ) -> Bool {
+        let url = RegistryWriter.directoryURL(.devices, in: projectURL)
+            .appendingPathComponent("\(fingerprint).json")
+        guard let bytes = try? Data(contentsOf: url),  // adr-0018-ok: a device record's retirement flag, never manuscript text
+              let object = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+              let retired = object["retiredAt"]
+        else { return false }
+        return !(retired is NSNull)
     }
 
     /// The fingerprints one registry folder files records under, from their
