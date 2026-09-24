@@ -781,9 +781,5 @@ Controller rulings made on Denver's behalf (confirm):
 
 ## Open for Denver
 
-- **M5-AN-012's filing.** The claim is amended and pinned (*decoded from old
-  logs, never written*). Its filing stays **NO_RULING_REACHES** because spec §8
-  is not a register RULING-n. If Denver promotes spec §8's sentence — *`authorCollaboratorId` is decoded and never
-  written; attribution is the signing device through the registry* — to a RULING-n in `_meta.rulings`,
-  `scripts/flip-claim.py` flips the claim to COMPLIES.
+- ~~**M5-AN-012's filing.**~~ **RESOLVED 2026-09-24:** Denver chose to mint it — spec §8's sentence is now **RULING-55** (*attribution is the signing device*), and M5-AN-012 is COMPLIES (commit `7d96334f`).
 - **Confirm the controller rulings above**, the ones marked with a cost first.
