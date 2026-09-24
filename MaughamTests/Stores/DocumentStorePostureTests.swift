@@ -242,25 +242,30 @@ final class DocumentStorePostureTests: XCTestCase {
 
     /// Every main-actor turn during a refresh, seen from outside.
     @MainActor private final class TurnLog {
-        struct Sample: Hashable { let epoch: Int; let locked: Bool }
+        struct Sample: Hashable { let epoch: Int; let locked: Bool; let drawnLocked: Bool }
         var samples: [Sample] = []
         var running = true
     }
 
-    /// **The re-stamp and the epoch bump are ONE main-actor turn** (ruling
-    /// AG). The Document's stamp decides whether its own writes are made; the
-    /// epoch re-renders the editor's membrane. If any turn sees one moved and
-    /// not the other, a keystroke in that turn reaches an editor drawn one way
-    /// over a Document answering the other.
+    /// **The re-stamp, the drawn answer and the epoch bump are ONE main-actor
+    /// turn** (ruling AG; the whole-branch fix wave's Minor 1). The Document's
+    /// stamp decides whether its own writes are made; the drawing door is what
+    /// a surface draws; the epoch re-renders the editor's membrane. If any turn
+    /// sees one moved and not the others, a keystroke in that turn reaches an
+    /// editor drawn one way over a Document answering the other.
     ///
     /// **How ordering is observed with no window:** a sampler task on the main
-    /// actor records `(postureEpoch, !mayWriteThePendingFile)` and yields,
+    /// actor records `(postureEpoch, !mayWriteThePendingFile, the DRAWN
+    /// answer)` and yields,
     /// over and over, for the whole of the demotion's delivery and refresh.
     /// Every `await` the refresh makes — the off-main warm, each pre-warm
     /// chunk — lets the sampler run, so any turn boundary between the
-    /// re-stamp and the bump is SEEN as a sample. The invariant: no epoch is
-    /// ever observed with the document both unlocked and locked. Enough keys
-    /// are asked first that the pre-warm yields several times.
+    /// re-stamp and the bump is SEEN as a sample. The invariants: no epoch is
+    /// ever observed with the document both unlocked and locked, and in EVERY
+    /// sample the drawing door answers what the Document's stamp answers — a
+    /// pre-warm that published its answers before the re-stamp (or a table
+    /// published before it) draws the new answer over the old stamp. Enough
+    /// keys are asked first that the pre-warm yields several times.
     func test_theRestampAndTheBumpAreOneTurn() async throws {
         beASigningMac()
         let root = try makeForeignRoot()
@@ -275,14 +280,17 @@ final class DocumentStorePostureTests: XCTestCase {
         let sampler = Task { @MainActor in
             while log.running {
                 log.samples.append(.init(
-                    epoch: store.postureEpoch, locked: !doc.mayWriteThePendingFile))
+                    epoch: store.postureEpoch, locked: !doc.mayWriteThePendingFile,
+                    drawnLocked: !store.posture(forDocId: Self.docId).allows(.writeText)))
                 await Task.yield()
             }
         }
         try await rootChangesMyPermit(to: .reviewer, root: root, store: store)
         log.running = false
         await sampler.value
-        log.samples.append(.init(epoch: store.postureEpoch, locked: !doc.mayWriteThePendingFile))
+        log.samples.append(.init(
+            epoch: store.postureEpoch, locked: !doc.mayWriteThePendingFile,
+            drawnLocked: !store.posture(forDocId: Self.docId).allows(.writeText)))
 
         XCTAssertTrue(log.samples.contains { !$0.locked }, "the sampler saw the unlocked state")
         XCTAssertTrue(log.samples.contains { $0.locked }, "and the demotion land")
@@ -292,6 +300,11 @@ final class DocumentStorePostureTests: XCTestCase {
             "a turn saw the Document's stamp and the epoch disagree — the re-stamp "
             + "and the bump were split across turns. Unlocked at \(unlockedEpochs.sorted()), "
             + "locked at \(lockedEpochs.sorted()), over \(log.samples.count) samples")
+        let split = log.samples.filter { $0.locked != $0.drawnLocked }
+        XCTAssertTrue(split.isEmpty,
+            "a turn drew one answer over a Document stamped with the other — the "
+            + "pre-warm's answers were published before the re-stamp. Split samples: "
+            + "\(split.count) of \(log.samples.count)")
         await doc.close()
     }
 
@@ -339,6 +352,80 @@ final class DocumentStorePostureTests: XCTestCase {
             XCTAssertEqual(answer, freshPosture(id), "\(id)'s pre-warmed answer is fresh")
             XCTAssertFalse(answer.allows(.writeText))
         }
+    }
+
+    // MARK: - Open statement editors are re-stamped too (whole-branch fix wave, I1)
+
+    /// **A statement editor's `Document` is in no `DocumentStore` registry**,
+    /// so the re-stamp walks the project store's open statements as well:
+    /// a demotion stops its own writes (the pending file) as it locks the
+    /// surface, and the promotion restores both — no reopen.
+    func test_anOpenStatementDocumentIsRestampedInBothDirections() async throws {
+        beASigningMac()
+        let root = try makeForeignRoot()
+        let statementId = "stmt-c1-intent"
+        let statementPath = "intent/c1.md"
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        var manifest = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+        manifest.statements = [Statement(
+            id: statementId, kind: .intent, scope: .document(Self.docId),
+            path: statementPath)]
+        try ProjectManifest.makeEncoder().encode(manifest).write(to: manifestURL)
+        try FileManager.default.createDirectory(
+            at: projectURL.appendingPathComponent("intent"), withIntermediateDirectories: true)
+        try "What this chapter is for.\n".write(
+            to: projectURL.appendingPathComponent(statementPath),
+            atomically: true, encoding: .utf8)
+
+        let store = try await DocumentStore.open(url: projectURL)
+        let projectStore = try await ProjectStore.load(from: projectURL)
+        projectStore.documentStore = store
+        store.projectStore = projectStore
+        let statement = try await Document.load(
+            url: projectURL.appendingPathComponent(statementPath),
+            actor: .author, session: "s", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        projectStore.noteStatementDocumentOpened(statement, id: statementId)
+        await store.postureSettled()
+        XCTAssertTrue(statement.mayWriteThePendingFile, "precondition: hers to write")
+
+        try await rootChangesMyPermit(to: .reviewer, root: root, store: store)
+        XCTAssertFalse(store.posture(forDocId: statementId).allows(.editStatement),
+                       "the surface locks")
+        XCTAssertFalse(statement.mayWriteThePendingFile,
+                       "and the open statement Document was re-stamped with it")
+
+        try await rootChangesMyPermit(to: .bookAuthor, root: root, store: store)
+        XCTAssertTrue(statement.mayWriteThePendingFile, "the promotion restores both")
+        XCTAssertTrue(store.posture(forDocId: statementId).allows(.editStatement))
+        await statement.close()
+    }
+
+    // MARK: - The standing line's History clause is observed (whole-branch fix wave, Minor 6)
+
+    /// The review read `Document.ownLinesKeptInHistory` as a non-observed
+    /// stored Int. `Document` is `@Observable` and the property is not
+    /// `@ObservationIgnored`, so a view that reads it in `body` re-renders the
+    /// moment a re-read changes it. Pinned, so the premise is a test rather
+    /// than a sentence.
+    func test_theKeptInHistoryCountIsObservedByAViewThatReadsIt() async throws {
+        let doc = try await Document.load(
+            url: docURL, device: "test", session: "s", presenter: nil)
+        let changed = Box(false)
+        withObservationTracking {
+            _ = doc.ownLinesKeptInHistory
+        } onChange: {
+            changed.value = true
+        }
+        doc.ownLinesKeptInHistory = 3
+        XCTAssertTrue(changed.value, "a read of the count is an observed read")
+        await doc.close()
+    }
+
+    private final class Box<T>: @unchecked Sendable {
+        var value: T
+        init(_ value: T) { self.value = value }
     }
 
     // MARK: - The root's cooperative yield
@@ -479,7 +566,7 @@ final class DocumentStorePostureTests: XCTestCase {
         XCTAssertTrue(store.posture(forDocId: Self.docId).allows(.writeText))
     }
 
-    // MARK: - The door never fails open (fix round 1, I1)
+    // MARK: - The door never fails open about a document it has never answered (fix round 1, I1)
 
     /// A reviewer's Mac, as the root has made it: a foreign root, this device
     /// admitted and then narrowed to the reviewer row — all BEFORE the window

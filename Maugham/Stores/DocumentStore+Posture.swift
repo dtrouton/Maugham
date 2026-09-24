@@ -109,12 +109,15 @@ final class PostureBook {
 /// warm and answers `.author` reading nothing.
 ///
 /// **Fresh on every trust change.** `invalidateTrust` and manifest adoption
-/// bump the epoch and clear the cache; the refresh that follows re-stamps every
-/// open `Document`'s `localWritePermit` from the same builder IN THE SAME TURN
-/// as the epoch bump that re-renders the editor, so once the refresh lands a
-/// demotion stops the document's own writes and locks its editor together, and
-/// a promotion restores both, with no reopen. Until it lands, both still
-/// answer as before the change.
+/// bump the epoch and clear the cache; the refresh that follows warms the new
+/// answers into a staging dictionary, then — IN ONE TURN — publishes them to
+/// the drawing cache, re-stamps every open `Document`'s `localWritePermit`
+/// (the manuscript registry's and every open statement editor's) from the same
+/// builder, and bumps the epoch that re-renders the editor. So once the
+/// refresh lands a demotion stops the document's own writes, changes what a
+/// surface draws and locks its editor together, and a promotion restores all
+/// three, with no reopen. Until it lands, all three still answer as before the
+/// change.
 ///
 /// **The root's cooperative yield** (spec §2/§8, plan ruling R2). Where this
 /// device is the book's root and `PieceWriters` names somebody on a piece — a
@@ -264,8 +267,12 @@ extension DocumentStore {
 
     /// From manifest adoption: a piece that moved or a statement that arrived
     /// may be a document whose class changed, and the book's writers may have.
-    /// The table is still good; the answers and the stamps are re-asked.
+    /// The table is still good; the answers and the stamps are re-asked, and
+    /// — like a trust change's — published only in the refresh's one turn, so
+    /// a redraw meanwhile draws the last answer rather than a new class's
+    /// answer over a Document still stamped with the old one.
     func postureManifestAdopted() {
+        postureBook.readySignature = nil
         bumpPostureEpoch()
         schedulePostureRefresh(force: true)
     }
@@ -309,11 +316,18 @@ extension DocumentStore {
     /// True for a book with no register (the builder asks nothing at all), and
     /// for one whose folder still reads as it did when the table was warmed.
     private func postureTableIsWarm() -> Bool {
+        postureTableIsWarm(readyAt: postureBook.readySignature)
+    }
+
+    /// The same question about a table warmed at `ready` — what a refresh asks
+    /// of the table IT warmed before that table is published to the drawing
+    /// accessor (`runPostureRefresh`).
+    private func postureTableIsWarm(readyAt ready: String?) -> Bool {
         let cache = Document.loadRegistryCache
         guard TrustResolution.hasAnythingToResolve(in: projectURL, cache: cache) else {
             return true
         }
-        guard let ready = postureBook.readySignature else { return false }
+        guard let ready else { return false }
         return ready == TrustResolution.signature(of: projectURL)
     }
 
@@ -358,34 +372,37 @@ extension DocumentStore {
     private static var prewarmChunk: Int { 16 }
 
     /// **Warm every key this window has asked about, off the table just
-    /// warmed** (Task 10, rulings AD and AG) — the same builder over the same
-    /// inputs a miss would use, overwriting whatever the cache held. The
-    /// folder's signature is checked once per chunk rather than once per key;
-    /// a chunk that finds the folder moved (or a newer refresh) abandons the
-    /// warm and answers false, and the caller falls back to the clearing bump.
-    ///
-    /// It yields the main actor between chunks, so it runs BEFORE the
-    /// documents are re-stamped: the re-stamp and the epoch bump must share
-    /// one turn (see `runPostureRefresh`).
-    private func prewarmPostureCache(generation: Int) async -> Bool {
+    /// warmed — into a STAGING dictionary** (Task 10, rulings AD and AG; the
+    /// whole-branch fix wave's Minor 1). The same builder over the same inputs
+    /// a miss would use, for EVERY key, cached or not. Nothing here is visible
+    /// to the drawing accessor: the staged answers are published by
+    /// `runPostureRefresh` in the one turn that re-stamps the documents and
+    /// bumps the epoch, so no redraw during the warm's yields can draw the new
+    /// answer over a Document still stamped with the old one. The folder's
+    /// signature is checked once per chunk rather than once per key; a chunk
+    /// that finds the folder moved (or a newer refresh) abandons the warm and
+    /// answers nil, and the caller falls back to the clearing bump.
+    private func stagePostureCache(
+        generation: Int, readyAt signature: String
+    ) async -> [PostureBook.Key: LocalWritePermit]? {
         let book = postureBook
         let keys = Array(book.asked)
+        var staged: [PostureBook.Key: LocalWritePermit] = [:]
         var index = 0
         while index < keys.count {
-            guard book.generation == generation, postureTableIsWarm() else { return false }
+            guard book.generation == generation,
+                  postureTableIsWarm(readyAt: signature) else { return nil }
             // EVERY key, cached or not (controller ruling AG): a refresh that
             // no clearing bump preceded — the one a drawing miss schedules when
             // the folder moved before the debounced invalidation — must not
             // keep an answer taken off the table it is replacing.
             for key in keys[index..<min(index + Self.prewarmChunk, keys.count)] {
-                let permit = permitFromTheBuilder(forDocId: key.docId, as: key.actor)
-                book.permits[key] = permit
-                book.lastKnown[key] = permit
+                staged[key] = permitFromTheBuilder(forDocId: key.docId, as: key.actor)
             }
             index += Self.prewarmChunk
             if index < keys.count { await Task.yield() }
         }
-        return book.generation == generation
+        return book.generation == generation ? staged : nil
     }
 
     /// Warm the table, re-stamp the open documents, bump; then read who writes
@@ -414,45 +431,60 @@ extension DocumentStore {
         let signature = TrustResolution.signature(of: projectURL)
         await store.prepareTrust()
         guard book.generation == generation else { return }
-        book.readySignature = signature
 
-        // The pre-warm first: it yields the main actor between chunks, so it
-        // must finish before anything this refresh changes becomes visible.
-        var warmed = false
-        if postureTableIsWarm() {
-            warmed = await prewarmPostureCache(generation: generation)
+        // The staging pre-warm first: it yields the main actor between chunks,
+        // so it must finish before anything this refresh changes becomes
+        // visible — and until the one turn below, NOTHING it did is: the
+        // table is not yet published (`readySignature` still names the old
+        // one, or nil after a trust change), so a drawing miss during a yield
+        // answers provisionally from the last answer or the Document's own
+        // stamp, never from the new table.
+        var staged: [PostureBook.Key: LocalWritePermit]?
+        if postureTableIsWarm(readyAt: signature) {
+            staged = await stagePostureCache(generation: generation, readyAt: signature)
             guard book.generation == generation else { return }
         }
 
-        // **The re-stamp and the epoch bump are ONE main-actor turn** —
-        // controller ruling AG, and no `await` may come between them. The
-        // Document's stamp decides whether its own writes are made; the epoch
-        // is what re-renders the editor's membrane. Between the two a keystroke
-        // would reach an editor still drawn unlocked over a Document already
-        // refusing (or the reverse), and a burst could be signed in her name
-        // only to be set aside. `DocumentStorePostureTests
-        // .test_theRestampAndTheBumpAreOneTurn` samples every turn to pin it.
+        // **Publishing the table, the re-stamp and the epoch bump are ONE
+        // main-actor turn** — controller ruling AG, and no `await` may come
+        // between them. The Document's stamp decides whether its own writes
+        // are made; the drawing cache is what a surface draws; the epoch is
+        // what re-renders the editor's membrane. Between any two of them a
+        // keystroke would reach an editor drawn one way over a Document
+        // answering the other, and a burst could be signed in her name only to
+        // be set aside. `DocumentStorePostureTests
+        // .test_theRestampAndTheBumpAreOneTurn` samples every turn — the stamp
+        // AND the drawn answer — to pin it.
         //
-        // The re-stamp: every open document, from the one builder, over the
+        // The re-stamp: every open document — the manuscript registry AND the
+        // open statement editors, which are deliberately in no `DocumentStore`
+        // registry (whole-branch fix wave, I1) — from the one builder, over the
         // table just warmed, for the SAME actor its stamp was made for (the
         // load stamps the author's, because what it emits on its own account
-        // is the author's — tripwire 38 — so a re-stamp that named the
-        // loading actor instead would change what the stamp means). Only when
-        // that table still describes the folder — otherwise the builder would
+        // is the author's — tripwire 38 — so a re-stamp that named the loading
+        // actor instead would change what the stamp means). Only when that
+        // table still describes the folder — otherwise the builder would
         // resolve here, and the next refresh (the presenter's own
         // invalidation) re-stamps anyway.
+        book.readySignature = signature
         let stillWarm = postureTableIsWarm()
         if stillWarm {
-            for document in allOpenDocuments() {
+            if let staged {
+                for (key, permit) in staged {
+                    book.permits[key] = permit
+                    book.lastKnown[key] = permit
+                }
+            }
+            for document in postureRestampedDocuments() {
                 document.stamp(localWritePermit: permitFromTheBuilder(
                     forDocId: document.docId, as: document.localWritePermit.actor))
             }
         }
-        // Warmed: the cache already holds this table's answers, so the bump
-        // re-renders without forgetting them. Not warmed (the folder moved
+        // Staged and still warm: the cache holds this table's answers, so the
+        // bump re-renders without forgetting them. Otherwise (the folder moved
         // mid-resolve): forget, as before — the presenter's own invalidation
         // refreshes again.
-        bumpPostureEpoch(clearing: !(warmed && stillWarm))
+        bumpPostureEpoch(clearing: !(staged != nil && stillWarm))
 
         let yields = await resolvePostureYields()
         guard book.generation == generation else { return }
@@ -461,6 +493,16 @@ extension DocumentStore {
         // the yield at the question), so the second bump keeps the cache.
         bumpPostureEpoch(clearing: false)
         book.refreshesLanded += 1
+    }
+
+    /// **Every `Document` a refresh re-stamps** — the manuscript registry and
+    /// the open statement editors (whole-branch fix wave, I1). A statement is
+    /// deliberately in no `DocumentStore` registry (`StatementEditorHost`), so
+    /// `allOpenDocuments()` alone left a statement editor LOCKED by its
+    /// surface over a Document still stamped as before: its pending file and
+    /// its task-anchor question kept the load's answer until reopen.
+    private func postureRestampedDocuments() -> [Document] {
+        allOpenDocuments() + (projectStore?.liveStatementDocuments ?? [])
     }
 
     /// **Who this device, as the root, yields to on which piece.** One

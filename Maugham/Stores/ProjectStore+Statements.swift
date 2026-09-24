@@ -50,6 +50,14 @@ extension ProjectStore {
         return document
     }
 
+    /// **Every statement `Document` a pane holds open** (not closed) — what
+    /// the posture door re-stamps beside the manuscript registry on every trust
+    /// change (P3c whole-branch fix wave, I1). Through `openStatementDocument(id:)`,
+    /// so a closed husk is never among them.
+    var liveStatementDocuments: [Document] {
+        openStatementDocuments.keys.sorted().compactMap { openStatementDocument(id: $0) }
+    }
+
     /// What a statement currently SAYS, **derived rather than read off the
     /// `.md`** (tripwire 20). A statement is a `Document` with an op log, so the
     /// file beside it is derived output and lags whenever an op lands out of
