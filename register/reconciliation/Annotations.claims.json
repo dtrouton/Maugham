@@ -179,7 +179,7 @@
   "claim_id": "M5-AN-012",
   "scope": "Document.addReviewerAnnotation",
   "kind": "POSTCONDITION",
-  "statement": "addReviewerAnnotation stamps author .human plus display name and collaborator id; a plain addAnnotation with no author derives author nil, which is how the surfaces tell Claude's notes from a person's",
+  "statement": "addReviewerAnnotation stamps author .human plus display name and NO collaborator id — author_collaborator_id is decoded from old log lines (and derived as author.collaboratorId) but never written, by any path; a plain addAnnotation with no author derives author nil, which is how the surfaces tell Claude's notes from a person's",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_authorProvenance"
@@ -189,6 +189,13 @@
   "reachability": "LIVE — the review toolbar vs every MCP annotation",
   "evidence": {
    "property_test": null
+  },
+  "amended": {
+   "commit": "cfaadc3a",
+   "date": "2026-09-24",
+   "previous_statement": "addReviewerAnnotation stamps author .human plus display name and collaborator id; a plain addAnnotation with no author derives author nil, which is how the surfaces tell Claude's notes from a person's",
+   "authorised_by": "docs/superpowers/specs/2026-09-19-signed-op-log-p3-roles-scope-collaborator-design.md §8 — Denver's ruling from the P3 brainstorm, 2026-09-19: 'authorCollaboratorId is decoded and never written; attribution is the signing device through the registry.' Moved under controller Ruling O, P3c plan 1 Task 4, 2026-09-24",
+   "pinned_by": "MaughamTests/Claims/AnnotationsCharacterization.test_authorProvenance (re-pinned: nothing written, the key absent from the encoded line, a hand-built pre-P3c line decodes and derives its id); TripwireGrepTests.test_theCollaboratorIdIsDecodedAndNeverWritten (census, Op.swift alone admitted)"
   }
  },
  {
