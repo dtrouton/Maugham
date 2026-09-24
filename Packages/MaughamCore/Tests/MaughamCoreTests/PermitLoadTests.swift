@@ -2810,6 +2810,65 @@ final class PermitLoadTests: XCTestCase {
         XCTAssertEqual(Set(onHers), ["0rootsOpening", "herOpening"])
     }
 
+    /// **Ruling G, the other direction: a book author's opening DOES claim a
+    /// piece that nobody else started** — a legacy piece (no starter recorded)
+    /// and a piece the root itself started. An Add-File import or a seed is
+    /// the root's own writing, and her lines there are set aside as before.
+    func test_aBookAuthorsOpeningClaimsAPieceNobodyElseStarted() async throws {
+        for starter in [nil, root.author.deviceId] as [String?] {
+            try? FileManager.default.removeItem(
+                at: projectURL.appendingPathComponent(".maugham/conflicts"))
+            try samIsAnAuthorOfSomePieces()
+            try writeManifest(startedBy: starter)
+            let opening = try writeFile(
+                by: root.author,
+                ops: [op("0rootsOpening", by: root.author, kind: .bootstrap)])
+            let hers = try samsFile([op("herOpening", by: sam.author)])
+
+            let rootsTable = try await store(on: rootsMac).trust()
+            XCTAssertEqual(
+                OpLogStore.unownedPiece(forDocId: docId, in: projectURL, trust: rootsTable),
+                .aBookAuthorHasWrittenItsText, "starter \(starter ?? "nil")")
+            let onRoots = try await appliedOpIds(on: rootsMac)
+            XCTAssertEqual(onRoots, ["0rootsOpening"])
+            XCTAssertFalse(linesRecords().isEmpty,
+                           "her line is set aside, today's rule (\(starter ?? "nil"))")
+            try FileManager.default.removeItem(at: opening)
+            try FileManager.default.removeItem(at: hers)
+        }
+    }
+
+    /// **A modified manifest naming the ROOT's own device as the starter**
+    /// (review M2): the root's Mac may mint, but her lines there are still
+    /// held and the root asked — never applied on the root's Mac.
+    func test_aStarterNamingTheRootDoesNotApplyHerLinesOnTheRootsMac() async throws {
+        try samIsAnAuthorOfSomePieces()
+        try writeManifest(startedBy: root.author.deviceId)
+        try samsFile([op("herOpening", by: sam.author)])
+
+        let carrier = AmendmentPermits()
+        let onRoots = try await appliedOpIds(on: rootsMac, carrier: carrier)
+        XCTAssertEqual(onRoots, [])
+        XCTAssertEqual(carrier.whoStartedAPiece, [samPerson], "and the root is asked")
+        XCTAssertTrue(permit(on: rootsMac).startedHere == true)
+    }
+
+    /// **Narrowed from the whole book, she can still start a piece** — every
+    /// piece was hers under the whole book, but a piece started AFTER the
+    /// narrowing was taken from nobody (`wasTakenFromTheirNamedPieces`).
+    func test_aWriterNarrowedFromTheWholeBookStillStartsAPiece() async throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeEvent("a", kind: .roleChanged, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: ["doc-hers"])
+        try writeManifest(startedBy: sam.author.deviceId)
+        let samsMac = mac(sam, "sam-mac")
+        XCTAssertTrue(permit(on: samsMac).writesAsItsStarter)
+        try samsFile([op("herOpening", by: sam.author)])
+        let onHers = try await appliedOpIds(on: samsMac)
+        XCTAssertEqual(onHers, ["herOpening"])
+    }
+
     /// **A piece TAKEN from her is not one she started** — the root removed
     /// it from her scope, which says whose it is not. Her Mac keeps today's
     /// rule there: it holds her lines and does not let her write.

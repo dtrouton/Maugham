@@ -465,14 +465,18 @@ public enum PermitPartition {
     /// and shares every one of its rules, so the two cannot disagree about
     /// which lines count.
     ///
-    /// **A `bootstrap` alone is not writing its text** (P3c plan 2, Option A).
-    /// A bootstrap is the piece's OPENING — the op the load mints from the
-    /// `.md` on the Mac that opens a piece with no history — and before
-    /// ruling OA-2 a root opening a collaborator's new piece before its ops
-    /// synced minted exactly that. Counting it would make the root's own
-    /// opening the claim that sets her words aside on every Mac. So only what
-    /// a book author WROTE into the piece claims it; an opening does not. It
-    /// is the one rule this pass keeps that `partition` has no use for.
+    /// **A book author's `bootstrap` counts — unless the piece was started by
+    /// somebody else** (P3c plan 2, controller ruling G). A bootstrap carries
+    /// the piece's paragraph TEXT: an Add-File import, a seed, a legacy piece
+    /// the root opened from its `.md` — each is the root's own writing, and
+    /// counts exactly as before. The one bootstrap that does NOT claim a piece
+    /// is a book author's opening of a piece whose recorded starter
+    /// (`startedBy`) is a DIFFERENT writer — the Option A race, where the root
+    /// opened her new piece before its ops synced (OA-2 stops it minting one
+    /// now; an older opening stays unclaiming). A starter this register cannot
+    /// resolve is somebody else, which is the safe side: her lines are held,
+    /// never set aside. It is the one rule this pass keeps that `partition`
+    /// has no use for.
     ///
     /// Only a line signed by the person's own **author** key counts. The
     /// assistant's hand is the reviewer row on every device including the
@@ -485,7 +489,8 @@ public enum PermitPartition {
         fileSegmentDigest: String?,
         trust: TrustTable,
         settledByKey: String? = nil,
-        decoding: WrittenDecoder = writtenOp
+        decoding: WrittenDecoder = writtenOp,
+        startedBy: String? = nil
     ) -> Bool {
         guard judgesAnything(trust) else { return false }
         let lines = verification.lines
@@ -505,9 +510,10 @@ public enum PermitPartition {
                   actor(ofSealKey: key, trust: trust, deviceSlug: deviceSlug) == .author,
                   let entry = governing[key]?[index],
                   let what = decoding(line.bytes),
-                  Permit.group(of: what) == .manuscriptText,
-                  what != .op(.bootstrap)
+                  Permit.group(of: what) == .manuscriptText
             else { continue }
+            if what == .op(.bootstrap), let startedBy,
+               !trust.isAStarter(startedBy, ofTheSameWriterAs: key) { continue }
             if case .author(.book) = entry.judging { return true }
         }
         return false
@@ -861,18 +867,25 @@ public enum PermitPartition {
     ///    keeps today's rule on her Mac too.
     /// 3. **The piece was not TAKEN from her.** A root that removed a piece
     ///    from her scope has said whose it is not; she keeps writing there
-    ///    only as today's rule allows (held, and the root asked).
+    ///    only as today's rule allows (held, and the root asked). Asked of
+    ///    her NAMED pieces (`wasTakenFromTheirNamedPieces`), so a writer
+    ///    narrowed from the whole book can still start a new piece.
     ///
     /// The write side asks the same three facts through
-    /// `OpLogStore.localWritePermit`, so her Mac never lets her type what its
-    /// own next read would hold.
+    /// `OpLogStore.localWritePermit`. Its answer is stamped on the open
+    /// `Document`, and the third fact (no book author has written the text)
+    /// changes as lines ARRIVE — so the Mac re-stamps such a Document on every
+    /// external re-read (ruling H), the same re-read at which this arm stops
+    /// applying her lines. Between a book author's line landing on disk and
+    /// that re-read, what she types is set aside by the re-read; it is kept
+    /// in History.
     private static func appliesOnItsWritersOwnMac(
         key: String, trust: TrustTable, class documentClass: DocumentClass,
         startedBy: () -> String?
     ) -> Bool {
         guard trust.isThisWriters(sealKey: key),
               let piece = documentClass.piece,
-              !trust.timeline(forSealKey: key).wasTakenFromThem(piece: piece),
+              !trust.timeline(forSealKey: key).wasTakenFromTheirNamedPieces(piece: piece),
               let starter = startedBy()
         else { return false }
         switch trust.starter(ofPieceStartedBy: starter) {

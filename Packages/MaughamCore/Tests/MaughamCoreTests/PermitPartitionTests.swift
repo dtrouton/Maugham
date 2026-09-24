@@ -138,6 +138,28 @@ final class PermitPartitionTests: XCTestCase {
         return TrustTable.resolve(registry: registry, mine: mine, joinedRoot: nil)
     }
 
+    /// The same book, read on SAM's Mac (P3c plan 2, Option A).
+    private func tableOnSamsMac(events: [PermitEvent]) -> TrustTable {
+        let registry = Registry(
+            devices: [
+                DeviceRecord(
+                    device: root, name: "Denver’s MacBook", kind: .mac,
+                    actors: [DeviceActor.author.rawValue: root],
+                    madeAt: Date(timeIntervalSince1970: 1)),
+                samsDeviceRecord(),
+            ],
+            people: [
+                PersonRecord(
+                    person: root, label: "Denver", ownName: "Denver’s MacBook",
+                    admittedAt: Date(timeIntervalSince1970: 2), admittedBy: root),
+                PersonRecord(
+                    person: samPerson, label: "Sam", ownName: "Sam’s Mac",
+                    admittedAt: Date(timeIntervalSince1970: 3), admittedBy: root),
+            ],
+            events: events)
+        return TrustTable.resolve(registry: registry, mine: sam, joinedRoot: nil)
+    }
+
     private func walk(_ file: Chained, trust: TrustTable) -> OpLogChain.Verification {
         OpLogChain.verify(
             bytes: file.bytes,
@@ -150,13 +172,14 @@ final class PermitPartitionTests: XCTestCase {
         class documentClass: DocumentClass,
         trust: TrustTable,
         deviceSlug: String? = nil,
-        unowned: PermitPartition.UnownedPiece = .aBookAuthorHasWrittenItsText
+        unowned: PermitPartition.UnownedPiece = .aBookAuthorHasWrittenItsText,
+        startedBy: String? = nil
     ) -> OpLogChain.Verification {
         PermitPartition.partition(
             of: verification, class: { documentClass },
             streamKey: streamKey, deviceSlug: deviceSlug,
             fileSegmentDigest: nil, trust: trust,
-            unowned: { unowned })
+            unowned: { unowned }, startedBy: { startedBy })
     }
 
     // MARK: - Reading a result
@@ -533,6 +556,96 @@ final class PermitPartitionTests: XCTestCase {
 
         XCTAssertEqual(held(result), ["herOpening"])
         XCTAssertTrue(result.quarantined.isEmpty, "a question, not a violation")
+    }
+
+    // MARK: - Option A: her own Mac (P3c plan 2) — the three guards, one at a time
+
+    private func samAuthorOf(_ pieces: [String]) -> PermitEvent {
+        permitEvent("a", subject: samPerson, by: root, kind: .admitted,
+                    role: Permit.authorRole, scope: Permit.piecesScope,
+                    pieces: pieces)
+    }
+
+    private func herOpeningFile() throws -> Chained {
+        var file = Chained()
+        file.append(try opJSON("herOpening", by: sam.author))
+        try file.seal(by: sam.author)
+        return file
+    }
+
+    /// All three guards hold — the line is hers, the piece is one she started,
+    /// and it was not taken from her: applied on HER Mac, held on the root's.
+    func test_herLinesInAPieceSheStartedApplyOnHerMacOnly() throws {
+        let events = [samAuthorOf(["doc-hers"])]
+        let file = try herOpeningFile()
+
+        let onHers = tableOnSamsMac(events: events)
+        let mine = partition(
+            walk(file, trust: onHers), class: .piece(docId), trust: onHers,
+            unowned: .nobodyHasWrittenItsText, startedBy: sam.author.deviceId)
+        XCTAssertEqual(applied(mine), ["herOpening"])
+
+        let onRoots = table(events: events)
+        let theirs = partition(
+            walk(file, trust: onRoots), class: .piece(docId), trust: onRoots,
+            unowned: .nobodyHasWrittenItsText, startedBy: sam.author.deviceId)
+        XCTAssertEqual(held(theirs), ["herOpening"])
+    }
+
+    /// **Guard 1 alone — the LINE must be this writer's.** On the root's Mac,
+    /// with a (modified) manifest naming the ROOT's own device as the starter,
+    /// the starter guard passes; her line is still held (review M2's case).
+    func test_guardOneTheLineMustBeThisWritersOwn() throws {
+        let trust = table(events: [samAuthorOf(["doc-hers"])])
+        let result = partition(
+            walk(try herOpeningFile(), trust: trust), class: .piece(docId),
+            trust: trust, unowned: .nobodyHasWrittenItsText,
+            startedBy: mine.author.deviceId)
+        XCTAssertEqual(held(result), ["herOpening"])
+        XCTAssertTrue(applied(result).isEmpty)
+    }
+
+    /// **Guard 2 alone — the PIECE must be one her devices started.** Her own
+    /// Mac, her own line: a piece the root started, and a piece with no
+    /// starter recorded, both keep today's rule.
+    func test_guardTwoThePieceMustBeOneSheStarted() throws {
+        let trust = tableOnSamsMac(events: [samAuthorOf(["doc-hers"])])
+        for starter in [mine.author.deviceId, nil] as [String?] {
+            let result = partition(
+                walk(try herOpeningFile(), trust: trust), class: .piece(docId),
+                trust: trust, unowned: .nobodyHasWrittenItsText, startedBy: starter)
+            XCTAssertEqual(held(result), ["herOpening"], "starter \(starter ?? "nil")")
+        }
+    }
+
+    /// **Guard 3 alone — not TAKEN from her named pieces.** Her Mac, her line,
+    /// a piece she started, but the root once listed it in her scope and then
+    /// removed it: held. And a writer narrowed from the WHOLE book is not
+    /// thereby "taken from" — a piece she starts afterwards applies.
+    func test_guardThreeAPieceTakenFromHerNamedPiecesIsHeld() throws {
+        let taken = tableOnSamsMac(events: [
+            samAuthorOf(["doc-hers", docId]),
+            permitEvent("b", subject: samPerson, by: root, kind: .scopeChanged,
+                        role: Permit.authorRole, scope: Permit.piecesScope,
+                        pieces: ["doc-hers"]),
+        ])
+        let held1 = partition(
+            walk(try herOpeningFile(), trust: taken), class: .piece(docId),
+            trust: taken, unowned: .nobodyHasWrittenItsText,
+            startedBy: sam.author.deviceId)
+        XCTAssertEqual(held(held1), ["herOpening"])
+
+        let narrowed = tableOnSamsMac(events: [
+            permitEvent("a", subject: samPerson, by: root, kind: .roleChanged,
+                        role: Permit.authorRole, scope: Permit.piecesScope,
+                        pieces: ["doc-hers"]),
+        ])
+        let applied1 = partition(
+            walk(try herOpeningFile(), trust: narrowed), class: .piece(docId),
+            trust: narrowed, unowned: .nobodyHasWrittenItsText,
+            startedBy: sam.author.deviceId)
+        XCTAssertEqual(applied(applied1), ["herOpening"],
+                       "narrowed from the whole book: nobody took this piece")
     }
 
     /// The other direction: where a book author HAS written the piece's text,

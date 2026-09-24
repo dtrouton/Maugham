@@ -270,6 +270,22 @@ public struct PermitTimeline: Equatable, Hashable, Sendable {
         !current.authors(.piece(piece)) && authored(piece: piece, before: entries.count)
     }
 
+    /// **Was this piece taken out of their NAMED pieces?** (P3c plan 2,
+    /// Option A; ruling F.) An earlier permit's piece list held it, and the
+    /// permit in force now does not author it — the root removing a piece from
+    /// her scope, which says whose it is not.
+    ///
+    /// Narrower than `wasTakenFromThem` on purpose: that one also answers yes
+    /// for every piece after a WHOLE-BOOK author is narrowed to some pieces,
+    /// because the whole book authored them all — including a piece she
+    /// starts after the narrowing, which nobody took from her. A piece she
+    /// wrote in while she held the whole book is claimed anyway (her own
+    /// lines judged `.author(.book)` count as a book author writing its text),
+    /// so the whole-book case needs no exclusion of its own.
+    public func wasTakenFromTheirNamedPieces(piece: String) -> Bool {
+        !current.authors(.piece(piece)) && entries.contains { $0.permit.namesPiece(piece) }
+    }
+
     /// Did any entry before `index` install a permit that authors this piece?
     /// `wasTakenFromThem`'s one spelling, and what History asks about the
     /// entry an answer installed.

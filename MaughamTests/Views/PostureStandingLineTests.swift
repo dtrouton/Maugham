@@ -239,6 +239,66 @@ final class PostureStandingLineTests: XCTestCase {
                      "nothing is decided yet, so nothing is named")
     }
 
+    // MARK: - Option A: the stamp follows the lines (P3c plan 2, ruling H)
+
+    /// **A book author's text syncing into her started piece locks her editor
+    /// at the next re-read** — the stamp, the door's drawn answer and the
+    /// reason all move in that one re-read, with no reopen and no trust
+    /// change. Real disk: this device is an author of some OTHER piece, the
+    /// manifest records it as this piece's starter, and the root's burst
+    /// arrives as a file another Mac wrote.
+    func test_aBookAuthorsTextArrivingLocksHerStartedPieceAtTheNextReRead()
+        async throws
+    {
+        fixture.beASigningMac()
+        try fixture.makeForeignRoot()
+        let manifestURL = fixture.projectURL.appendingPathComponent(ProjectManifest.fileName)
+        var manifest = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+        manifest.structure[0].startedBy = fixture.identities.author.deviceId
+        try ProjectManifest.makeEncoder().encode(manifest).write(to: manifestURL)
+        // Narrowed FROM the whole book (the fixture admits her as a book
+        // author) — so this also pins that a piece she starts afterwards is
+        // not "taken from her" (`wasTakenFromTheirNamedPieces`).
+        try await fixture.changeMyPermit(to: .author(.pieces(["doc-other"])), store: nil)
+
+        let store = try await DocumentStore.open(url: fixture.projectURL)
+        let doc = try await Document.load(
+            url: fixture.docURL, actor: .author, session: "s", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        store.register(document: doc, for: PostureFixture.docPath)
+        await store.postureSettled()
+        XCTAssertTrue(doc.mayWriteItsText, "precondition: her started piece, unclaimed")
+        XCTAssertEqual(store.posture(forDocId: PostureFixture.docId).reason,
+                       .waitingToBeClaimed)
+
+        // The root's Mac writes the piece's text, and the file syncs in.
+        let root = try XCTUnwrap(fixture.root)
+        let rootStore = OpLogStore(
+            projectURL: fixture.projectURL, identities: .forAuthor(root),
+            state: OpLogDeviceState(fileURL: fixture.projectURL
+                .appendingPathComponent("root-op-log-state.json")),
+            cache: RegistryCache(
+                fileURL: fixture.projectURL.appendingPathComponent("root-cache.json"),
+                identity: root.fingerprint))
+        let added = ParagraphID.mintUnique(excluding: Set(doc.sequence))
+        try await rootStore.append(Op(
+            opId: ULID.generate(), docId: PostureFixture.docId, at: Date(),
+            device: root.deviceId, session: "root", kind: .typingBurst,
+            changes: [.init(paragraphId: added, prior: nil, next: "The root's words.")],
+            sequence: doc.sequence + [added]))
+
+        try await store.reReadAfterExternalChange(doc)
+
+        XCTAssertFalse(doc.localWritePermit.writesAsItsStarter)
+        XCTAssertFalse(doc.mayWriteItsText,
+                       "a burst typed after this is refused at the stamp")
+        let posture = store.posture(forDocId: PostureFixture.docId)
+        XCTAssertEqual(posture.reason, .notYourPiece)
+        XCTAssertFalse(posture.allows(.writeText), "her editor locks")
+        await doc.close()
+    }
+
     // MARK: - Both directions, through the door
 
     func test_aReviewersLineAppearsAndAPromotionTakesItAway() async throws {

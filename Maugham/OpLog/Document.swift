@@ -177,6 +177,28 @@ public final class Document {
         self.localWritePermit = permit
     }
 
+    /// **Option A's stamp follows the lines** (P3c plan 2, controller ruling
+    /// H) — asked by `handleExternalLogChange` on every external re-read.
+    ///
+    /// `writesAsItsStarter` turns on whether a book author has written this
+    /// piece's text — a fact about its LINES, which is exactly what an
+    /// external re-read brings in. The load and a trust change are the only
+    /// other re-stamps, and neither fires when a root's burst syncs in; without
+    /// this her editor would keep offering words the same re-read has just
+    /// started setting aside. Asked only of a stamp that carries the arm, so
+    /// every other Document pays nothing. The builder is the one builder
+    /// (tripwire 46), asked exactly as the load asks it.
+    internal func restampWhereItsStarterArmMayHaveClosed() {
+        guard localWritePermit.writesAsItsStarter else { return }
+        let projectURL = opStore.projectURL
+        let docId = self.docId
+        stamp(localWritePermit: opStore.localWritePermit(
+            as: localWritePermit.actor,
+            documentClass: {
+                Document.documentClass(forDocId: docId, in: projectURL)
+            }))
+    }
+
     /// **Whose annotation it is** (P3a Task 6, spec §4.2) — resolved once by
     /// `Document.load`, beside `localWritePermit` and for its reason.
     ///

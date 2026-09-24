@@ -268,6 +268,16 @@ public enum Permit: Equatable, Hashable, Sendable {
         return false
     }
 
+    /// **Does this permit NAME `piece` in a scoped list?** — true only for an
+    /// author of some pieces whose list holds it (P3c plan 2, Option A). A
+    /// whole-book permit authors every piece without naming any, so it is
+    /// false there: this is the question *was this piece ever hers BY NAME*,
+    /// which `PermitTimeline.wasTakenFromTheirNamedPieces` asks.
+    public func namesPiece(_ piece: String) -> Bool {
+        if case .author(.pieces(let mine)) = self { return mine.contains(piece) }
+        return false
+    }
+
     /// **May this key open a piece of its own?** — `mayStartAPieceOfTheirOwn`
     /// with the actor row applied (P3c plan 2, Option A).
     ///
@@ -290,7 +300,9 @@ public enum Permit: Equatable, Hashable, Sendable {
     /// lets her write it in a piece she started. A second copy of the shape on
     /// the write side would be a second opinion about which lines §4.5 covers,
     /// and the two drifting is exactly a Mac that lets her type what its own
-    /// next read sets aside.
+    /// next read sets aside. (What keeps the two in step over TIME — lines
+    /// arriving that claim the piece — is the Mac's re-stamp on each external
+    /// re-read, ruling H; this function keeps them in step over the shape.)
     ///
     /// The actor must be `.author` (`mayOpenAPieceOfTheirOwn`): an
     /// assistant-signed manuscript line is refused because the assistant never

@@ -117,6 +117,11 @@ extension Document {
         if startedAPiece != started { startedAPiece = started }
         let taken = amendmentPermits.whoKeptWritingInATakenPiece
         if keptWritingInATakenPiece != taken { keptWritingInATakenPiece = taken }
+        // **Option A's stamp follows the lines** (P3c plan 2, controller
+        // ruling H) — see `restampWhereItsStarterArmMayHaveClosed`. Before the
+        // echo guard, for `provenance`'s reason: the stamp is about the
+        // folder, not about whether a new op was applied.
+        restampWhereItsStarterArmMayHaveClosed()
 
         // Echo guard: every op we ourselves appended is already in
         // _opLogMirror. If the disk log has no ops we haven't seen, this

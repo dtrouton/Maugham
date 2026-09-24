@@ -931,7 +931,11 @@ public final class DocumentStore {
         let path = openDocuments.first { $0.value === document }?.key
         let before = document.displayText
         let cachedAtEntry = projectStore?.cachedWordCount(for: document.docId)
-        try await document.handleExternalLogChange()
+        // Ruling H: a re-read can re-stamp Option A's arm; the drawn posture
+        // follows it in the same turn.
+        try await withPostureFollowingReStamp(of: document) {
+            try await document.handleExternalLogChange()
+        }
         let after = document.displayText
         guard after != before, let path, let store = projectStore else { return }
         let mode = WritingModeFactory.mode(for: path)

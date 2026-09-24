@@ -800,7 +800,8 @@ public struct TrustTable: Equatable, Sendable {
     /// folding them together would make *unnamed* an identity.
     ///
     /// **Not a general-purpose answer.** It is asked by the ownership rule and
-    /// by Option A's *whose piece did she start* (`isThisWriters`), and
+    /// by Option A's *whose piece did she start* (`isThisWriters`,
+    /// `isAStarter`), and
     /// nothing else: a verdict, a permit and a mark are all about the machine,
     /// and widening any of those to a label would let a name decide what a
     /// signature means. Option A's use is the ownership rule's own shape — a
@@ -833,9 +834,12 @@ public struct TrustTable: Equatable, Sendable {
         case somebodyElse
     }
 
-    /// **Is this seal key one of THIS writer's?** — one of this device's own
-    /// keys, or a key `sameWriter` joins to this device's own author key (her
-    /// other Mac, which the root labelled as hers).
+    /// **Is this seal key one of THIS writer's?** — ANY of this device's own
+    /// four keys (author, assistant, translator, maugham — not only the
+    /// writer's hand), or a key `sameWriter` joins to this device's own author
+    /// key (her other Mac, which the root labelled as hers). Every caller that
+    /// means *her hand* must also require the `.author` actor, as Option A's
+    /// arm does through `Permit.startsAPieceNobodyHasClaimed`.
     ///
     /// The second caller `sameWriter`'s note anticipates: Option A asks it
     /// about the piece a writer STARTED, which is a question about the writer
@@ -864,14 +868,34 @@ public struct TrustTable: Equatable, Sendable {
     ///
     /// Everything else is `.somebodyElse`, which is the waiting answer.
     nonisolated public func starter(ofPieceStartedBy deviceId: String) -> PieceStarter {
-        guard let named = deviceKey(forDeviceId: deviceId), named.isOwned,
-              (named.actor ?? DeviceIdentity.claimedActor(ofDeviceId: deviceId)) == .author
-        else { return .somebodyElse }
-        if mine.contains(named.key) { return .thisDevice }
-        guard isThisWriters(sealKey: named.key),
-              case .admitted = verdict(forSealKey: named.key)
+        guard let key = starterKey(deviceId) else { return .somebodyElse }
+        if mine.contains(key) { return .thisDevice }
+        guard isThisWriters(sealKey: key),
+              case .admitted = verdict(forSealKey: key)
         else { return .somebodyElse }
         return .anotherOfThisWritersDevices
+    }
+
+    /// **Is `deviceId` — a piece's recorded starter — the same writer as the
+    /// key `fingerprint`?** (controller ruling G.) Asked of a book author's
+    /// `bootstrap` by §4.5's pass 1: her opening counts as writing the piece's
+    /// text unless the piece was started by somebody else. The same forwards
+    /// match `starter(ofPieceStartedBy:)` makes, then `sameWriter`; a starter
+    /// this register cannot resolve is nobody's, so the answer is false.
+    nonisolated public func isAStarter(
+        _ deviceId: String, ofTheSameWriterAs fingerprint: String
+    ) -> Bool {
+        guard let key = starterKey(deviceId) else { return false }
+        return sameWriter(key, fingerprint)
+    }
+
+    /// The owned AUTHOR key a recorded starter names, or nil — the one match
+    /// of a starter id against this register.
+    nonisolated private func starterKey(_ deviceId: String) -> String? {
+        guard let named = deviceKey(forDeviceId: deviceId), named.isOwned,
+              (named.actor ?? DeviceIdentity.claimedActor(ofDeviceId: deviceId)) == .author
+        else { return nil }
+        return named.key
     }
 
     /// **Do two person records name the same writer?** — the label rule above,

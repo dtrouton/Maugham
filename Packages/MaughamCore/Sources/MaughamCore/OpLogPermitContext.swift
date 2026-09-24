@@ -457,11 +457,15 @@ extension OpLogStore {
 
     /// **§4.5's pass 1, over every file of one document**: has any key holding
     /// an author-of-the-whole-book permit applied a manuscript-text line here?
-    /// An opening alone is not one (P3c plan 2, Option A): the rule is
-    /// `PermitPartition.bookAuthorWroteManuscriptText`'s, asked per file. And
-    /// since Option A the WRITE side asks this too (`localWritePermit`, for an
-    /// author of some pieces in a piece she started), so her Mac stops
-    /// offering her words there at the same moment its read sets them aside.
+    /// A book author's opening of a piece somebody ELSE started is not one
+    /// (ruling G): the rule is `PermitPartition.bookAuthorWroteManuscriptText`'s,
+    /// asked per file. Since Option A the WRITE side asks this too
+    /// (`localWritePermit`, for an author of some pieces in a piece she
+    /// started). The answer is a fact about the document's LINES, so a stamp
+    /// taken from it goes stale when lines arrive: the Mac re-stamps a
+    /// Document carrying `writesAsItsStarter` on every external re-read
+    /// (ruling H, `Document.handleExternalLogChange`), which is when her read
+    /// sets her lines aside — so her editor locks at that same re-read.
     ///
     /// Classified with **no permit context of its own**, which is what stops
     /// this recursing, and with `state: nil`, so it adopts no head, remembers
@@ -477,6 +481,18 @@ extension OpLogStore {
         forDocId docId: String, in projectURL: URL, trust: TrustTable?
     ) -> PermitPartition.UnownedPiece {
         guard let trust else { return .nobodyHasWrittenItsText }
+        return unownedPiece(
+            forDocId: docId, in: projectURL, trust: trust,
+            startedBy: startedBy(ofPiece: docId, in: projectURL))
+    }
+
+    /// The same question, for a caller that already holds the piece's
+    /// recorded starter (ruling G: a book author's `bootstrap` claims the
+    /// piece unless somebody else started it).
+    nonisolated public static func unownedPiece(
+        forDocId docId: String, in projectURL: URL, trust: TrustTable,
+        startedBy: String?
+    ) -> PermitPartition.UnownedPiece {
         for url in opLogFileURLs(forDocId: docId, in: projectURL) {
             guard let bytes = (try? readCoordinated(url: url, presenter: nil)) ?? nil,
                   let stream = PermitMark.stream(of: url)
@@ -495,14 +511,15 @@ extension OpLogStore {
                     in: settled.verification, streamKey: stream.key,
                     deviceSlug: stream.deviceSlug,
                     fileSegmentDigest: settled.digest, trust: trust,
-                    settledByKey: settled.key) { return .aBookAuthorHasWrittenItsText }
+                    settledByKey: settled.key,
+                    startedBy: startedBy) { return .aBookAuthorHasWrittenItsText }
                 continue
             }
             if PermitPartition.bookAuthorWroteManuscriptText(
                 in: verification, streamKey: stream.key,
                 deviceSlug: stream.deviceSlug,
                 fileSegmentDigest: classified.verifiedSegmentDigest,
-                trust: trust) { return .aBookAuthorHasWrittenItsText }
+                trust: trust, startedBy: startedBy) { return .aBookAuthorHasWrittenItsText }
         }
         return .nobodyHasWrittenItsText
     }
@@ -578,7 +595,12 @@ extension OpLogStore {
             },
             unowned: {
                 unownedMemo {
-                    unownedPiece(forDocId: docId, in: projectURL, trust: trust)
+                    guard let trust else { return .nobodyHasWrittenItsText }
+                    return unownedPiece(
+                        forDocId: docId, in: projectURL, trust: trust,
+                        startedBy: starterMemo {
+                            startedBy(ofPiece: docId, in: projectURL)
+                        })
                 }
             },
             amendments: amendments,

@@ -363,6 +363,32 @@ extension DocumentStore {
             startedBy: startedBy)
     }
 
+    /// **The drawn posture follows a Document's re-stamp** (P3c plan 2,
+    /// controller ruling H). `Document.handleExternalLogChange` re-stamps a
+    /// Document whose permit carries Option A's arm, because a book author's
+    /// text arriving closes it. The door caches per epoch and prefers that
+    /// cache, so a changed stamp forgets this document's cached answer (the
+    /// next draw rebuilds it off the warm table and the live manifest), leaves
+    /// the new stamp as the provisional answer, and bumps the epoch so every
+    /// surface that asked redraws. An unchanged stamp — every re-read of every
+    /// document outside Option A — touches nothing.
+    func withPostureFollowingReStamp(
+        of document: Document, _ reRead: () async throws -> Void
+    ) async throws {
+        let before = document.localWritePermit
+        try await reRead()
+        postureFollowsReStamp(of: document, from: before)
+    }
+
+    private func postureFollowsReStamp(of document: Document, from before: LocalWritePermit) {
+        let after = document.localWritePermit
+        guard after != before else { return }
+        let key = PostureBook.Key(docId: document.docId, actor: after.actor)
+        postureBook.permits[key] = nil
+        postureBook.lastKnown[key] = after
+        postureBook.epoch += 1
+    }
+
     /// A new epoch: every view that asked re-renders. `clearing` forgets the
     /// cached answers too — a trust change or a manifest adoption, whose
     /// answers were taken off a table or a manifest being replaced. A refresh
