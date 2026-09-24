@@ -53,11 +53,11 @@ final class RemovedElsewhereTests: XCTestCase {
 
     /// The record is per device (tripwire 17) and read as the UNION of every
     /// device's file; a line this build cannot read is skipped, not fatal.
-    func test_theLetGoRecordIsReadAsTheUnionOfEveryDevicesFile() throws {
+    func test_theLetGoRecordIsReadAsTheUnionOfEveryDevicesFile() async throws {
         let url = temp.url.appendingPathComponent("letgo-union")
-        try LetGoRecord.record(ids: ["doc-aaaa", "doc-bbbb"], in: url,
+        try await LetGoRecord.record(ids: ["doc-aaaa", "doc-bbbb"], in: url,
                                device: DeviceSlug.unsafeForTesting("thismac"))
-        try LetGoRecord.record(ids: ["doc-cccc"], in: url,
+        try await LetGoRecord.record(ids: ["doc-cccc"], in: url,
                                device: DeviceSlug.unsafeForTesting("othermac"))
         let other = LetGoRecord.fileURL(for: DeviceSlug.unsafeForTesting("othermac"), in: url)
         let handle = try FileHandle(forWritingTo: other)
@@ -73,6 +73,24 @@ final class RemovedElsewhereTests: XCTestCase {
             "one file per device, never one shared file")
         XCTAssertEqual(LetGoRecord.ids(in: temp.url.appendingPathComponent("nothing")), [],
                        "no record at all is nothing let go")
+    }
+
+    /// **Review N4**: the record is written by the house coordinated append,
+    /// so it round-trips through `JSONLAppendStore`'s own loader — id AND date
+    /// — as well as through the union read, and a second record appends to
+    /// the same device's file rather than replacing it.
+    func test_theLetGoRecordRoundTripsThroughTheHouseAppendStore() async throws {
+        let url = temp.url.appendingPathComponent("letgo-roundtrip")
+        let slug = DeviceSlug.unsafeForTesting("thismac")
+        let when = Date(timeIntervalSince1970: 1_790_000_000)
+        try await LetGoRecord.record(ids: ["doc-aaaa"], in: url, device: slug, at: when)
+        try await LetGoRecord.record(ids: ["doc-bbbb"], in: url, device: slug, at: when)
+
+        let lines = try await JSONLAppendStore<LetGoRecord.Line>(
+            fileURL: LetGoRecord.fileURL(for: slug, in: url)).loadStrict()
+        XCTAssertEqual(lines, [LetGoRecord.Line(id: "doc-aaaa", at: when),
+                               LetGoRecord.Line(id: "doc-bbbb", at: when)])
+        XCTAssertEqual(LetGoRecord.ids(in: url), ["doc-aaaa", "doc-bbbb"])
     }
 
     func test_theRowComesFromTheNewestArchiveThatHeldIt() {
@@ -438,7 +456,7 @@ final class RemovedElsewhereTests: XCTestCase {
         XCTAssertEqual(store.removedElsewhere.map(\.id), [second.id],
                        "precondition: listed while nothing records a let-go")
 
-        try LetGoRecord.record(ids: [second.id], in: url,
+        try await LetGoRecord.record(ids: [second.id], in: url,
                                device: DeviceSlug.unsafeForTesting("othermac"))
         await store.refreshRemovedElsewhere()
         XCTAssertEqual(store.removedElsewhere, [])
