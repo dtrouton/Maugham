@@ -85,6 +85,14 @@ internal enum MaughamSidecarPath: Equatable {
     /// in `DocumentStore` (ADR 0021). See ADR 0013-adjacent inbox design (spec §3.2–3.3).
     case inbox(kind: InboxFileKind, relativePath: String)
 
+    /// A record in the book's REGISTER — any of `RegistryDirectory`'s folders
+    /// (the devices, the people, their claims and permit events). Routing
+    /// intent: re-judge what is open, because a record that syncs in AFTER the
+    /// op lines it vouches for changes their verdict without any op-log file
+    /// changing (P3b review, Important #1). The folders are asked of
+    /// `RegistryWriter.directoryURL` and never spelled here (tripwire 40).
+    case registry(relativePath: String)
+
     /// A path under `.maugham/` that doesn't match any known subdir.
     /// Routing intent: ignore.
     case unknownSidecar(relativePath: String)
@@ -112,6 +120,14 @@ internal enum MaughamSidecarPath: Equatable {
 
         if relativePath == ProjectManifest.fileName {
             return .manifest
+        }
+
+        for directory in RegistryDirectory.allCases {
+            let folder = RegistryWriter.directoryURL(directory, in: projectURL)
+                .standardizedFileURL.path
+            if changed.hasPrefix(folder + "/") {
+                return .registry(relativePath: relativePath)
+            }
         }
 
         if relativePath.hasPrefix(".maugham/") {

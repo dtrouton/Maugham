@@ -789,13 +789,20 @@ and never costs a line: a refusal is logged and the line goes on, held elsewhere
 until the registry changes or the next open catches the record up. The phone
 signs as the author only, so it never reaches the re-signing.
 
-**Stated limits.** (1) *Before the line* is ordering on THIS disk, not on
-another Mac's: iCloud may deliver the op line before the record, and the
-receiving Mac's presenter classifies a registry file change as an unknown
-sidecar (`MaughamSidecarPath`), so a record that arrives AFTER the line
-triggers no `invalidateTrust` and no re-read — the line stays held until that
-document's next op-log change or reopen. The routing fix is owed after F7.
-(2) The open's own `ensureDeviceRecord` still writes a fresh `DeviceRecord`
+**And a record that arrives AFTER its line re-judges it** (P3b review,
+Important #1). *Before the line* is ordering on the writing Mac's disk only —
+iCloud may still deliver the line first. The receiving Mac's presenter routes
+every registry folder as `MaughamSidecarPath.registry` (folders asked of
+`RegistryWriter.directoryURL`, tripwire 40), and `DocumentStore.registryChanged`
+— debounced, off the typing path — takes `admit`'s third act: forget every
+table, re-read every open document, post the admission-settled event. It does
+NOT fire for this Mac's own writes: `invalidateTrust` (which every registry
+verb here calls) records the register as settled, and a change touching nothing
+but this device's own DEVICE record — F6's mid-session re-sign — is an echo
+(`DocumentStore.registryChangeIsAnEcho`; this Mac's keys read as its own
+whatever that record says). Pinned by `RegistryArrivalTests`.
+
+**Stated limit.** The open's own `ensureDeviceRecord` still writes a fresh `DeviceRecord`
 rather than re-signing the file's object, so a later build's fields on this
 device's record are dropped at open (tripwire 42's rule honoured by the
 mid-session door only).

@@ -466,7 +466,22 @@ public enum TrustResolution {
     /// KNOWS it changed the registry says so rather than hoping a timestamp
     /// moved.
     nonisolated public static func signature(of projectURL: URL) -> String {
-        var parts: [String] = []
+        signatureEntries(of: projectURL)
+            .map { "\($0.file)@\($0.stamp)" }
+            .joined(separator: ";")
+    }
+
+    /// The same description, one entry per record: `file` is
+    /// `<directory>/<name>` (the directory's `RegistryDirectory` raw value,
+    /// never a path), `stamp` its modification time. In `signature`'s order.
+    ///
+    /// For a caller that must know WHICH records changed rather than only that
+    /// something did — the Mac's presenter, telling this device's own record
+    /// re-signing itself (an echo) from a record another Mac wrote.
+    nonisolated public static func signatureEntries(
+        of projectURL: URL
+    ) -> [(file: String, stamp: String)] {
+        var parts: [(file: String, stamp: String)] = []
         for directory in RegistryDirectory.allCases {
             let url = RegistryWriter.directoryURL(directory, in: projectURL)
             guard let entries = try? FileManager.default.contentsOfDirectory(
@@ -476,10 +491,11 @@ public enum TrustResolution {
             for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
                 let modified = (try? entry.resourceValues(
                     forKeys: [.contentModificationDateKey]).contentModificationDate)
-                parts.append("\(directory.rawValue)/\(entry.lastPathComponent)@"
-                             + "\(modified?.timeIntervalSince1970 ?? 0)")
+                parts.append((
+                    "\(directory.rawValue)/\(entry.lastPathComponent)",
+                    "\(modified?.timeIntervalSince1970 ?? 0)"))
             }
         }
-        return parts.joined(separator: ";")
+        return parts
     }
 }

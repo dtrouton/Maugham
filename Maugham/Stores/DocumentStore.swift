@@ -320,6 +320,10 @@ public final class DocumentStore {
             documentStoreLog.error(
                 "open-time registry presence failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
+        // What the register looked like when this open finished writing to it:
+        // the baseline a registry change arriving later is compared against,
+        // so the callbacks for this open's OWN writes above settle nothing.
+        store.noteRegistrySettled()
 
         // Project-open seal maintenance (ADR 0016 / growth spec §5.2): rotate
         // any of THIS Mac's oversized per-doc tails (e.g. grown while another
@@ -1191,6 +1195,93 @@ public final class DocumentStore {
     /// this store's.
     private var announcedPendingDevices: Set<String> = []
 
+    // MARK: - A registry change arriving (P3b review, Important #1)
+
+    /// The register as this window last settled it — every record's name and
+    /// modification time (`TrustResolution.signatureEntries`), or nil before
+    /// the open recorded one. `invalidateTrust` records it, because every verb
+    /// of this Mac's own that writes a record calls that verb afterwards, so a
+    /// presenter callback for one of those writes finds nothing new.
+    private var settledRegistry: [String: String]?
+
+    /// Record the register as it stands now as the one this window has
+    /// settled on.
+    func noteRegistrySettled() {
+        settledRegistry = Dictionary(
+            TrustResolution.signatureEntries(of: projectURL)
+                .map { ($0.file, $0.stamp) },
+            uniquingKeysWith: { _, last in last })
+    }
+
+    /// How many times a registry change re-judged the open documents. Test
+    /// only: an echo must leave it where it was.
+    private(set) var registrySettlesForTesting = 0
+
+    /// **Is this change something another Mac wrote?** — pure, so both
+    /// directions are pinned with no folder.
+    ///
+    /// No change at all is an echo. So is a change to THIS device's own device
+    /// record alone: that is `RegistryPresence.declareActor` adding a key this
+    /// Mac minted mid-session (F6), which moves no verdict here — this device's
+    /// own keys read as its own whatever its record says. Anything else — a
+    /// person record, a claim, an event, another device's record — may move a
+    /// verdict and is not an echo.
+    nonisolated static func registryChangeIsAnEcho(
+        before: [String: String], after: [String: String], myDevice: String
+    ) -> Bool {
+        let changed = Set(before.keys).union(after.keys)
+            .filter { before[$0] != after[$0] }
+        let mine = "\(RegistryDirectory.devices.rawValue)/\(myDevice).json"
+        return changed.allSatisfy { $0 == mine }
+    }
+
+    private var _registryChangeScheduler: DebounceScheduler<Int>?
+    private var registryChangeScheduler: DebounceScheduler<Int> {
+        if let existing = _registryChangeScheduler { return existing }
+        let scheduler = DebounceScheduler<Int>(delay: .milliseconds(500)) { [weak self] _ in
+            await self?.registryChanged()
+        }
+        _registryChangeScheduler = scheduler
+        return scheduler
+    }
+
+    /// Run a pending registry settle now rather than after the debounce —
+    /// for a test that has just delivered the callback.
+    func flushRegistryChangeForTesting() async {
+        await _registryChangeScheduler?.flush()
+    }
+
+    /// **A record another Mac wrote has landed: judge again.** `admit`'s own
+    /// third act — forget every table, re-read every open document, say so —
+    /// because a record that syncs in AFTER the lines it vouches for changes
+    /// their verdict without any op-log file changing, and until this route
+    /// existed such a line stayed held until another op landed or the book was
+    /// reopened. Off the typing path (it runs from the presenter, debounced),
+    /// and never for this Mac's own writes (`registryChangeIsAnEcho`).
+    private func registryChanged() async {
+        let current = Dictionary(
+            TrustResolution.signatureEntries(of: projectURL)
+                .map { ($0.file, $0.stamp) },
+            uniquingKeysWith: { _, last in last })
+        let before = settledRegistry ?? [:]
+        if Self.registryChangeIsAnEcho(
+            before: before, after: current,
+            myDevice: Document.loadIdentities.author.fingerprint) {
+            settledRegistry = current
+            return
+        }
+        registrySettlesForTesting += 1
+        invalidateTrust()
+        for document in openDocuments.values {
+            do { try await document.handleExternalLogChange() }
+            catch {
+                documentStoreLog.error(
+                    "re-read after a registry change failed for \(document.docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        MaughamEvent.postAdmissionSettled(projectURL: projectURL)
+    }
+
     /// The presenter's path to `announcePendingHistory`, coalesced.
     ///
     /// A device syncing into this project delivers one callback per FILE, and a
@@ -1439,6 +1530,7 @@ public final class DocumentStore {
     /// already on screen would otherwise go on saying *not yet admitted* about
     /// a device that now has a name.
     func invalidateTrust() {
+        noteRegistrySettled()
         for document in openDocuments.values { document.opStore.invalidateTrust() }
         // Only when one already exists: this is also called from `open`, where
         // building an inbox store to tell it to forget nothing would be a
@@ -1499,6 +1591,13 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
 
         case .checkpoints:
             MaughamEvent.post(.maughamCheckpointAdded, to: .project(for: projectURL))
+
+        case .registry:
+            // A record arrived — or this Mac wrote one. Debounced, because a
+            // device syncing in delivers several records at once, and decided
+            // after the wait by `registryChanged`, which is where an echo of
+            // this Mac's own write is told apart from somebody else's record.
+            registryChangeScheduler.schedule(0)
 
         case .otherProjectFile(let relativePath):
             // Manuscripts live alongside research notes and binder content
