@@ -770,6 +770,14 @@ Controller rulings made on Denver's behalf (confirm):
   - `BinderView.structureVerbs`/`CollectionPiecesPane.structureVerbs`' fail-
     closed arms are pinned through `TreeStructureVerbs.none` and
     `StartAPieceDoor`, not through a mounted tree.
+- From the final targeted fix's re-review:
+  - `test_everyGuardedDocumentMutatorIsClassified` has no planted-offender
+    control (a planted unclassified `rejectMutationIfNotWritable("…")` site).
+  - `archiveTask` sets `didSplice` without checking that the splice wrote
+    (`Document+Tasks.swift`). This is latent: it matters only if the task door
+    and the text check ever give different answers.
+  - The census counts per file, so swapping one spelling for another inside a
+    file keeps the count. This predates P3c.
 
 ## Open for Denver
 
