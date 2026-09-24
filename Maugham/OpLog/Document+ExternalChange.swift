@@ -55,6 +55,7 @@ extension Document {
         // partial view must neither write nor silently become a fuller one
         // behind the reader's back — the real open is how a fixed file lands.
         if rejectMutationIfNotWritable("handleExternalLogChange") { return }
+        await externalLogChangeWillBegin?()
         // Flush any un-bursted local work BEFORE the merge (E3a). This
         // re-derives purely from the on-disk ops, so anything that hasn't
         // reached a burst boundary would otherwise be silently discarded the

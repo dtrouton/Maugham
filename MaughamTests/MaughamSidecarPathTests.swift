@@ -1,5 +1,5 @@
 import XCTest
-import MaughamCore
+@testable import MaughamCore
 @testable import Maugham
 
 final class MaughamSidecarPathTests: XCTestCase {
@@ -125,6 +125,18 @@ final class MaughamSidecarPathTests: XCTestCase {
         XCTAssertEqual(
             MaughamSidecarPath.classify(url: url, projectURL: projectURL),
             .publicationSnapshot(relativePath: ".maugham/publications/snap-cls.json")
+        )
+    }
+
+    /// Another device's let-go record (`.maugham/let-go/let-go.<slug>.jsonl`)
+    /// has an arm of its own, so its arrival re-derives Removed Elsewhere
+    /// rather than waiting for the next structure or Trash change.
+    func testClassifies_letGoRecord() {
+        let url = LetGoRecord.fileURL(
+            for: DeviceSlug.unsafeForTesting("other-mac"), in: projectURL)
+        XCTAssertEqual(
+            MaughamSidecarPath.classify(url: url, projectURL: projectURL),
+            .letGo(relativePath: ".maugham/let-go/let-go.other-mac.jsonl")
         )
     }
 }

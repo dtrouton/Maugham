@@ -1496,6 +1496,11 @@ public final class Document {
     /// in production.
     @ObservationIgnored internal var closeBodyWillRun: (@MainActor () async -> Void)?
 
+    /// Test seam: awaited at the top of `handleExternalLogChange`, past its
+    /// writability guard, so a test can land a keystroke inside a re-read the
+    /// way one lands during its real suspensions. Nil in production.
+    @ObservationIgnored internal var externalLogChangeWillBegin: (@MainActor () async -> Void)?
+
     private func performClose() async {
         closeBodyRuns += 1
         await closeBodyWillRun?()

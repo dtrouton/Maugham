@@ -612,6 +612,53 @@ final class DocumentStoreAdmissionTests: XCTestCase {
         await open.close()
     }
 
+    /// **A keystroke that lands INSIDE the re-read stays the writer's** (final
+    /// round, N1). The re-read suspends (the burst flush's append, the load),
+    /// and a keystroke in that window is counted into the session by
+    /// `recordEditorTextWrite` AND shows up in the text the re-read leaves
+    /// behind. Excluding the whole before/after difference took the typed word
+    /// out of the session with their paragraph; only what the re-read itself
+    /// brought in is someone else's.
+    func test_aKeystrokeDuringTheReReadStaysInTheSession() async throws {
+        beThisMac()
+        let (project, store) = try await openWindow()
+        let open = try await openDocument()
+        store.register(document: open, for: "manuscript/c1.md")
+        let docId = open.docId
+        let mode = WritingModeFactory.mode(for: "manuscript/c1.md")
+        store.recordSessionActivity(
+            documentId: docId, projectWordCount: project.projectWordCount)
+        try await writeStrangerParagraph(docId: docId, after: open.sequence)
+        func type(_ word: String) {
+            let typed = open.displayText + "\n\n" + word
+            open.setFullText(typed)
+            store.recordEditorTextWrite(
+                documentId: docId, newText: typed, mode: mode, store: project)
+        }
+        // The writer types one word into their own paragraph while the
+        // admission's re-read is under way. (Into an existing paragraph: their
+        // op declares the whole sequence and sorts last, so a NEW paragraph
+        // typed here would lose to it — a property of this fixture.)
+        open.externalLogChangeWillBegin = {
+            open.externalLogChangeWillBegin = nil
+            let typed = open.displayText.replacingOccurrences(of: "Hello.", with: "Hello. Nine")
+            open.setFullText(typed)
+            store.recordEditorTextWrite(
+                documentId: docId, newText: typed, mode: mode, store: project)
+        }
+
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Denver", ownName: "Denver’s iPhone")
+        XCTAssertTrue(open.displayText.contains(Self.theirWords), "premise: they arrived")
+        XCTAssertTrue(open.displayText.contains("Nine"), "premise: the typed word survived")
+        XCTAssertEqual(project.cachedWordCount(for: docId), mode.wordCount(open.displayText))
+
+        type("Ten")
+        XCTAssertEqual(store.liveSessionWordsNet, 2,
+                       "two words typed, one of them during the re-read; their five are not the writer's")
+        await open.close()
+    }
+
     /// **And a CLOSED chapter's count follows a trust change.** The derived
     /// cache keys on op-log file mtimes and an admission moves no file, so the
     /// cached derive — which held their paragraph back — was served again and

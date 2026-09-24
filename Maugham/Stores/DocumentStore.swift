@@ -909,16 +909,28 @@ public final class DocumentStore {
     /// every echo of this Mac's own appends, where `handleExternalLogChange`
     /// returns without touching `displayText`, and an unchanged String compares
     /// equal on its storage without walking it.
+    ///
+    /// **Only what the re-read itself brought in is excluded** (final round,
+    /// N1). The re-read suspends — the burst flush's append, the load — and a
+    /// keystroke landing in that window is counted into the session by
+    /// `recordEditorTextWrite` AND appears in the text the re-read leaves. The
+    /// setter keeps the count cache current, so what it recorded meanwhile is
+    /// the cache's own movement, and that much of the difference stays the
+    /// writer's.
     func reReadAfterExternalChange(_ document: Document) async throws {
         let path = openDocuments.first { $0.value === document }?.key
         let before = document.displayText
+        let cachedAtEntry = projectStore?.cachedWordCount(for: document.docId)
         try await document.handleExternalLogChange()
         let after = document.displayText
         guard after != before, let path, let store = projectStore else { return }
         let mode = WritingModeFactory.mode(for: path)
+        let was = mode.wordCount(before)
         let now = mode.wordCount(after)
+        let typedMeanwhile = (store.cachedWordCount(for: document.docId) ?? was)
+            - (cachedAtEntry ?? was)
         store.recordWordCount(forDocumentId: document.docId, wordCount: now)
-        excludeForeignWords(now - mode.wordCount(before))
+        excludeForeignWords(now - was - typedMeanwhile)
     }
 
     /// Called from app-quit hook. Finalises any active session immediately
@@ -1298,6 +1310,24 @@ public final class DocumentStore {
         return scheduler
     }
 
+    /// Removed Elsewhere's re-derivation when a let-go record arrives. Built on
+    /// first use for the same reason as the registry's scheduler.
+    private var _letGoRefreshScheduler: DebounceScheduler<Int>?
+    private var letGoRefreshScheduler: DebounceScheduler<Int> {
+        if let existing = _letGoRefreshScheduler { return existing }
+        let scheduler = DebounceScheduler<Int>(delay: .milliseconds(500)) { [weak self] _ in
+            await self?.projectStore?.refreshRemovedElsewhere()
+        }
+        _letGoRefreshScheduler = scheduler
+        return scheduler
+    }
+
+    /// Run a pending let-go refresh now rather than after the debounce — for a
+    /// test that has just delivered the callback.
+    func flushLetGoRefreshForTesting() async {
+        await _letGoRefreshScheduler?.flush()
+    }
+
     /// Run a pending registry settle now rather than after the debounce —
     /// for a test that has just delivered the callback.
     func flushRegistryChangeForTesting() async {
@@ -1663,6 +1693,14 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             // this Mac's own write is told apart from somebody else's record.
             registryChangeScheduler.schedule(0)
 
+        case .letGo:
+            // A device's let-go record — another Mac emptied its Trash, or
+            // this Mac just did. Removed Elsewhere is re-derived (its file
+            // reads run off the main actor), debounced because a sync delivers
+            // a burst of callbacks. Nothing here is on the typing path: a
+            // let-go is written only by a permanent deletion.
+            letGoRefreshScheduler.schedule(0)
+
         case .otherProjectFile(let relativePath):
             // Manuscripts live alongside research notes and binder content
             // outside `.maugham/`. The registry's path-keyed lookup is the
@@ -1946,13 +1984,17 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         return "“\(title)” was moved to Trash by \(who) on another device, so it has been closed here. It can be restored from Trash."
     }
 
-    /// The sentence for a piece that left this book on another device WITHOUT
-    /// going to Trash. The way back is *Removed Elsewhere*, below the binder
-    /// (Denver's ruling, 2026-09-24): the adoption that closed it has just
-    /// archived the outline that held it, which is what that list reads
-    /// (`RemovedElsewhere`), so the promise holds from this moment.
+    /// The sentence for a piece that left the binder WITHOUT going to Trash.
+    /// It names what happened to the binder and not who did it, in Removed
+    /// Elsewhere's own words (review M6): the archived outline cannot tell a
+    /// stale outline another device saved from an addition that lost a
+    /// last-writer-wins race, so no device is blamed. The way back is *Removed
+    /// Elsewhere*, below the binder (Denver's ruling, 2026-09-24): the adoption
+    /// that closed it has just archived the outline that held it, which is what
+    /// that list reads (`RemovedElsewhere`), so the promise holds from this
+    /// moment.
     static func removedElsewhereNotice(title: String) -> String {
-        "“\(title)” was removed from this book on another device, so it has been closed here. It is not in Trash — restore it from Removed Elsewhere, below the binder."
+        "“\(title)” left the binder when two devices\u{2019} outlines crossed, so it has been closed here. Its words are still in this book, and it is not in Trash — restore it from Removed Elsewhere, below the binder."
     }
 
     private func archiveManifestForConflict(data: Data) {

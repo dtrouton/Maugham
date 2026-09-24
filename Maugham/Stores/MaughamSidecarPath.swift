@@ -93,6 +93,13 @@ internal enum MaughamSidecarPath: Equatable {
     /// `RegistryWriter.directoryURL` and never spelled here (tripwire 40).
     case registry(relativePath: String)
 
+    /// A device's let-go record (`LetGoRecord`, `.maugham/let-go/`): the ids
+    /// it permanently deleted from its Trash. Routing intent: re-derive Removed
+    /// Elsewhere, so a let-go another Mac recorded is honoured when it syncs in
+    /// rather than at the next structure or Trash change. The folder is asked
+    /// of `LetGoRecord.directory(in:)` and never spelled here.
+    case letGo(relativePath: String)
+
     /// A path under `.maugham/` that doesn't match any known subdir.
     /// Routing intent: ignore.
     case unknownSidecar(relativePath: String)
@@ -128,6 +135,11 @@ internal enum MaughamSidecarPath: Equatable {
             if changed.hasPrefix(folder + "/") {
                 return .registry(relativePath: relativePath)
             }
+        }
+
+        let letGoFolder = LetGoRecord.directory(in: projectURL).standardizedFileURL.path
+        if changed.hasPrefix(letGoFolder + "/") {
+            return .letGo(relativePath: relativePath)
         }
 
         if relativePath.hasPrefix(".maugham/") {
