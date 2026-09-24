@@ -564,10 +564,17 @@ minors. The report is
   rename sweep skips and says which links were left (ruling AH). While in the
   population the wave also found `ProjectStore.mutateStatementText` had no door
   of its own — promotion's appends and the picture ingest reached statements
-  behind no posture question — and gave it one (`StatementWriteRefused`). **The
-  population is a grep**: `TripwireGrepTests.manuscriptWriterCallSites`
-  (+ its planted-offender control). ADR 0032's *Every verb has a door and a
-  surface* no longer claims a list.
+  behind no posture question — and gave it one (`StatementWriteRefused`). The
+  wave's re-review found its spelling list missed `setParagraph`/
+  `insertParagraph` (History's recovered-orphans *Append*, the inline
+  checkbox's ⌘Z); a final targeted fix (Denver-approved) put the guard INSIDE
+  the four paragraph primitives, gated and said both callers, said the
+  adoption's refused ⌘Z, and made **the population DERIVED**:
+  `test_everyGuardedDocumentMutatorIsClassified` reads `Document`'s own
+  `rejectMutationIfNotWritable`/`requireWritable` sites, and
+  `manuscriptWriterCallSites` counts every call of every text writer's
+  spelling (+ planted-offender control). ADR 0032's *Every verb has a door and
+  a surface* no longer claims a list.
 - **I1** — open statement Documents are re-stamped with the rest.
 - **I2** — `RegistryPresence.admitRemembered` never silently admits a RETIRED
   device, so project-open agrees with the mid-session pre-check (Core).
@@ -582,8 +589,13 @@ minors. The report is
   standing line's History clause IS observed; pinned by a test.
 - **Minor 7** — carried to plan 2 (ruling AJ).
 - **CLAUDE.md was not edited by the fix wave** (an agent may not edit it on an
-  agent's instruction): the census wants its own tripwire row (52) — the text
-  is in the fix-wave report for whoever lands it.
+  agent's instruction): the census wants its own tripwire row (52) — the final
+  text is in the fix-wave report under *Tripwire 52 row — final*; the
+  controller adds it.
+- **Re-review minors not taken** (carry to plan 2): Find computes a posture per
+  match row per body pass (build a path→Bool map once); History's
+  `offersRevert` puts every document into `PostureBook.asked`;
+  `PartialRestorePicker`'s left-alone sentence names doc ids, not titles.
 
 ## The rulings, with their costs
 

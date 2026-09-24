@@ -1710,13 +1710,23 @@ This heading claimed completeness for a list enumerated from the plan. The
 whole-branch review found three manuscript writers outside the editor's
 membrane that were on neither list — History's restore, project Replace /
 Replace All, and the rename's wiki-link sweep — and the fix wave gave each a
-door and a surface. **The population is now a grep, not a list**:
-`TripwireGrepTests.test_everyManuscriptWriterOutsideTheEditorIsANamedSite`
-counts every production call of `setFullText(`, `applyRestore(`,
-`restoreToOp(`, `restoreToOpUndoable(`, `Restore.buildRestoreOp(` and the
-replace verbs, by file, against a named array whose every entry says where its
-posture is asked or why it need not be (count the array,
-`manuscriptWriterCallSites`, never this paragraph). A burst's EMISSION is
+door and a surface. The re-review then found the fix wave's own spelling list
+had missed two burst primitives (`setParagraph`, `insertParagraph` — History's
+recovered-orphans *Append* and the inline checkbox's ⌘Z), so **the population
+is now DERIVED, not typed**: `test_everyGuardedDocumentMutatorIsClassified`
+reads every `rejectMutationIfNotWritable("…")`/`requireWritable("…")` site in
+`Maugham/` and fails on a mutator nobody has classified as a text writer or
+not (`guardedDocumentMutators`), and every text writer's spelling must be in
+`manuscriptWriterPatterns`;
+`test_everyManuscriptWriterOutsideTheEditorIsANamedSite` then counts every
+production call of those spellings, by file, against a named array whose every
+entry says where its posture is asked or why it need not be (count the arrays,
+never this paragraph). **Beneath the paragraph primitives the guard is inside**:
+`setParagraph`/`insertParagraph`/`deleteParagraph`/`reorder` refuse where the
+stamp refuses the text (`Document.rejectTextWriteIfNotPermitted`), so a future
+caller that forgets to ask writes nothing; `setFullText` stays unguarded
+because it is the editor's typing, and a keystroke that beat a demotion's
+refresh is kept in History, never dropped. A burst's EMISSION is
 deliberately not permit-guarded — the editor's membrane is in front of the
 keystroke — so any other caller that reaches one must ask first.
 
@@ -1769,7 +1779,14 @@ ask the one door.
 - **Every statement write** passes `ProjectStore.mutateStatementText`, which
   refuses where the statement Document's stamp refuses its text
   (`StatementWriteRefused`) — behind the ruling and proposal doors, and the one
-  door for promotion's appends and the picture ingest.
+  door for promotion's appends and the picture ingest. An adoption's ⌘Z/⇧⌘Z it
+  refuses is said in the window's notice channel.
+- **History's recovered-orphans *Append to End* / *Append All*** are drawn only
+  where `.writeText` is allowed; the door is the stamp
+  (`RecoveredHistorySheet.mayAppend(to:)`), and a refusal is said in the sheet.
+- **The inline checkbox flip** (`InlineToggleUndo`) and its ⌘Z/⇧⌘Z ask the
+  stamp before the stack clear and the write; a refusal is said
+  (`UndoDecline.taskNotPermitted`).
 
 **Where the posture comes from for each kind of document.** A statement's
 posture is its piece's (a piece statement) or the book's (a project statement).
