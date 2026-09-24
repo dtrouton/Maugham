@@ -351,3 +351,48 @@ struct CollectionPiecesPane: View {
         .help("Add a piece")
     }
 }
+
+// MARK: - Starting a piece from the menu bar (P3c Task 8, ruling X)
+
+/// **The File menu's three piece-adding items and their receiver**, asked the
+/// same `.startAPiece` question as the tree's own + (`TreeStructureVerbs`).
+enum StartAPieceDoor {
+
+    /// The menu item's enabled state. nil — no project window in front — keeps
+    /// the item enabled as it always was: the receiver is already a no-op
+    /// there, and greying it would read as broken while a sheet holds focus
+    /// (`FocusedRunButtons`' reasoning). Only a window that SAYS it may not
+    /// start a piece disables it.
+    static func menuIsEnabled(mayStartAPiece: Bool?) -> Bool {
+        mayStartAPiece != false
+    }
+
+    /// What the window publishes for the menu — the drawing door's answer.
+    /// No window's door behind the store: the P1 menu.
+    @MainActor
+    static func drawn(store: ProjectStore?) -> Bool? {
+        guard let documentStore = store?.documentStore else { return nil }
+        return TreeStructureVerbs.mayStartAPiece(
+            documentStore.posture(forDocId: DocumentClass.projectStreamDocId))
+    }
+
+    /// The sentence a refused post is told in.
+    static let refusal = "Your part in this book doesn\u{2019}t reach starting a piece "
+        + "\u{2014} only an author of the whole book can add one."
+
+    /// **The receiver's door** (ruling I — the SETTLED answer): true where the
+    /// piece may be started; otherwise the refusal is posted to the window's
+    /// notice channel and false comes back. A stale menu or a keyboard route
+    /// reaching the receiver is refused in words, never silently.
+    @MainActor
+    static func admits(store: ProjectStore) async -> Bool {
+        guard let documentStore = store.documentStore else { return true }
+        let posture = await documentStore.settledPosture(
+            forDocId: DocumentClass.projectStreamDocId)
+        guard TreeStructureVerbs.mayStartAPiece(posture) else {
+            MaughamEvent.postNotice(refusal, projectURL: store.url)
+            return false
+        }
+        return true
+    }
+}

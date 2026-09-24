@@ -526,17 +526,16 @@ struct DepartmentPaneHost: View {
         // naming it, before a seven-leg round spends a session on words the
         // pipeline would then refuse to write.
         Task {
-            let refused = await refusedPieces([docId])
-            guard refused.isEmpty else {
-                notice = Self.notTranslatable(titles: refused.map(pieceTitle))
-                return
+            notice = await Self.startTranslating(
+                [docId], in: documentStore, structure: store.manifest.structure
+            ) { _ in
+                if Self.needsTranslatorName(language: language, in: store.manifest) {
+                    castPrompt = DepartmentCastPrompt(
+                        ask: .nameForRun(language: language, docId: docId))
+                    return
+                }
+                pipeline.run(docId: docId, language: language)
             }
-            if Self.needsTranslatorName(language: language, in: store.manifest) {
-                castPrompt = DepartmentCastPrompt(
-                    ask: .nameForRun(language: language, docId: docId))
-                return
-            }
-            pipeline.run(docId: docId, language: language)
         }
     }
 
@@ -554,17 +553,27 @@ struct DepartmentPaneHost: View {
 
     /// The pieces among `docIds` the translator's SETTLED posture refuses, in
     /// order — the acting question (ruling I), asked before a round starts.
-    private func refusedPieces(_ docIds: [String]) async -> [String] {
+    /// **The desk's acting door** (ruling I): the pieces among `docIds` this
+    /// Mac's translator may write, asked of the SETTLED posture as the
+    /// translator, before a round spends a session. `start` is called with the
+    /// allowed pieces, in order, and only when there is at least one; the
+    /// refused ones are named in the returned notice (nil when none were).
+    /// Static and window-free, so the door is assertable with nothing mounted.
+    static func startTranslating(
+        _ docIds: [String], in documentStore: DocumentStore,
+        structure: [StructureItem], start: ([String]) -> Void
+    ) async -> String? {
+        var allowed: [String] = []
         var refused: [String] = []
         for docId in docIds {
             let posture = await documentStore.settledPosture(forDocId: docId, as: .translator)
-            if !posture.allows(.translate) { refused.append(docId) }
+            if posture.allows(.translate) { allowed.append(docId) } else { refused.append(docId) }
         }
-        return refused
-    }
-
-    private func pieceTitle(_ docId: String) -> String {
-        TreeWalk.find(id: docId, in: store.manifest.structure)?.title ?? docId
+        if !allowed.isEmpty { start(allowed) }
+        guard !refused.isEmpty else { return nil }
+        return notTranslatable(titles: refused.map {
+            TreeWalk.find(id: $0, in: structure)?.title ?? $0
+        })
     }
 
     /// **What the desk says about pieces its translator may not write**, by
@@ -615,18 +624,16 @@ struct DepartmentPaneHost: View {
         // write are run, and the ones it may not are named and left out —
         // never a round over a chapter whose words the pipeline would refuse.
         Task {
-            let refused = await refusedPieces(book)
-            let documents = book.filter { !refused.contains($0) }
-            if !refused.isEmpty {
-                notice = Self.notTranslatable(titles: refused.map(pieceTitle))
+            notice = await Self.startTranslating(
+                book, in: documentStore, structure: store.manifest.structure
+            ) { documents in
+                if Self.needsTranslatorName(language: language, in: store.manifest) {
+                    castPrompt = DepartmentCastPrompt(
+                        ask: Self.bookAsk(language: language, documentIds: documents))
+                    return
+                }
+                pipeline.runBook(documentIds: documents, language: language)
             }
-            guard !documents.isEmpty else { return }
-            if Self.needsTranslatorName(language: language, in: store.manifest) {
-                castPrompt = DepartmentCastPrompt(
-                    ask: Self.bookAsk(language: language, documentIds: documents))
-                return
-            }
-            pipeline.runBook(documentIds: documents, language: language)
         }
     }
 

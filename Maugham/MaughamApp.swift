@@ -183,15 +183,7 @@ struct MaughamApp: App {
                     MaughamEvent.post(.maughamShowProjectStatistics, to: .keyWindow)
                 }
                 Divider()
-                Button("New Prose Story") {
-                    MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
-                }
-                Button("New Screenplay (Collection)") {
-                    MaughamEvent.post(.maughamAddScreenplayPiece, to: .keyWindow)
-                }
-                Button("Link Existing Project…") {
-                    MaughamEvent.post(.maughamLinkProject, to: .keyWindow)
-                }
+                FocusedStartAPieceButtons()
                 Divider()
                 FocusedShareForReviewButton()
                 Button("Project Settings…") {
@@ -509,6 +501,18 @@ extension FocusedValues {
     }
 }
 
+/// Whether the focused window's posture may start a piece (`.startAPiece`,
+/// P3c Task 8 / ruling X). Published by `ProjectWindow.CollectionPieceModifier`
+/// — the receiver of the three items it enables; read only by
+/// `FocusedStartAPieceButtons`.
+struct FocusedMayStartAPieceKey: FocusedValueKey { typealias Value = Bool }
+extension FocusedValues {
+    var mayStartAPiece: Bool? {
+        get { self[FocusedMayStartAPieceKey.self] }
+        set { self[FocusedMayStartAPieceKey.self] = newValue }
+    }
+}
+
 /// Whether the focused window's canvas has something to promote. Published by
 /// `CanvasPromotionModifier`; read only by the File-menu item, so a `Promote…`
 /// that could do nothing is disabled rather than silently no-op.
@@ -536,6 +540,30 @@ private struct FocusedRunButtons: View {
             MaughamEvent.postCompilerFreshEyes()
         }
         .keyboardShortcut("r", modifiers: [.command, .shift])
+    }
+}
+
+/// File → New Prose Story / New Screenplay / Link Existing Project — each adds a
+/// piece, so each is DISABLED (the menu bar's convention; the tree's own + is
+/// hidden) where the focused window's posture refuses `.startAPiece` (P3c Task
+/// 8, controller ruling X). The receiver refuses with a notice if a post
+/// arrives anyway (`StartAPieceDoor.admits`).
+private struct FocusedStartAPieceButtons: View {
+    @FocusedValue(\.mayStartAPiece) private var mayStartAPiece
+    var body: some View {
+        let enabled = StartAPieceDoor.menuIsEnabled(mayStartAPiece: mayStartAPiece)
+        Button("New Prose Story") {
+            MaughamEvent.post(.maughamAddLoosePiece, to: .keyWindow)
+        }
+        .disabled(!enabled)
+        Button("New Screenplay (Collection)") {
+            MaughamEvent.post(.maughamAddScreenplayPiece, to: .keyWindow)
+        }
+        .disabled(!enabled)
+        Button("Link Existing Project…") {
+            MaughamEvent.post(.maughamLinkProject, to: .keyWindow)
+        }
+        .disabled(!enabled)
     }
 }
 

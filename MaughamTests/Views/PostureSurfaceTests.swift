@@ -1656,4 +1656,73 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertFalse(ruleOnly.sideWithTheNote(hasQuery: true),
                        "never a ruling whose reply the door would then refuse")
     }
+
+    // MARK: - Task 8 fix round
+
+    /// **The desk's own acting door** (review I1; ruling I): `run`/`runBook`
+    /// start a round only over the pieces the translator's SETTLED posture
+    /// allows, and name the rest — windowless, nothing pressed (tripwire 33).
+    func test_theDesksActingDoorStartsOnlyWhatItsTranslatorMay() async throws {
+        let h = try await makeStatementHarness()
+        let structure = h.store.manifest.structure
+        func start(_ ids: [String]) async -> (started: [[String]], notice: String?) {
+            var started: [[String]] = []
+            let notice = await DepartmentPaneHost.startTranslating(
+                ids, in: h.documentStore, structure: structure) { started.append($0) }
+            return (started, notice)
+        }
+
+        try await become(.author(.pieces(["doc-a"])), h)
+        let refused = await start(["doc-b"])
+        XCTAssertEqual(refused.started, [], "a refused piece starts nothing")
+        XCTAssertEqual(refused.notice, DepartmentPaneHost.notTranslatable(titles: ["B"]),
+                       "and is named")
+        let allowed = await start(["doc-a"])
+        XCTAssertEqual(allowed.started, [["doc-a"]], "her piece starts")
+        XCTAssertNil(allowed.notice)
+        let book = await start(["doc-a", "doc-b"])
+        XCTAssertEqual(book.started, [["doc-a"]], "the book run leaves B out")
+        XCTAssertEqual(book.notice, DepartmentPaneHost.notTranslatable(titles: ["B"]))
+
+        try await become(.reviewer, h)
+        let reviewer = await start(["doc-a", "doc-b"])
+        XCTAssertEqual(reviewer.started, [], "a reviewer starts nothing")
+        XCTAssertEqual(reviewer.notice, DepartmentPaneHost.notTranslatable(titles: ["A", "B"]))
+
+        try await become(.bookAuthor, h)
+        let promoted = await start(["doc-a", "doc-b"])
+        XCTAssertEqual(promoted.started, [["doc-a", "doc-b"]], "promotion: the whole book runs")
+        XCTAssertNil(promoted.notice)
+    }
+
+    /// **The File menu's piece items follow `.startAPiece`** (ruling X):
+    /// disabled where the focused window says no, and a post that arrives
+    /// anyway is refused at the receiver, in words.
+    func test_theFileMenusPieceItemsFollowStartAPieceAndTheReceiverRefuses() async throws {
+        XCTAssertTrue(StartAPieceDoor.menuIsEnabled(mayStartAPiece: nil),
+                      "no project window in front: as before")
+        XCTAssertTrue(StartAPieceDoor.menuIsEnabled(mayStartAPiece: true))
+        XCTAssertFalse(StartAPieceDoor.menuIsEnabled(mayStartAPiece: false))
+
+        let h = try await makeStatementHarness()
+        XCTAssertEqual(StartAPieceDoor.drawn(store: h.store), true)
+        let admittedAsAuthor = await StartAPieceDoor.admits(store: h.store)
+        XCTAssertTrue(admittedAsAuthor)
+
+        try await become(.author(.pieces(["doc-a"])), h)
+        XCTAssertEqual(StartAPieceDoor.drawn(store: h.store), false, "R3: not hers to start")
+        var admitted = true
+        let said = await notices { admitted = await StartAPieceDoor.admits(store: h.store) }
+        XCTAssertFalse(admitted, "the receiver refuses a post that arrives anyway")
+        XCTAssertEqual(said, [StartAPieceDoor.refusal], "and says so")
+
+        try await become(.reviewer, h)
+        XCTAssertEqual(StartAPieceDoor.drawn(store: h.store), false)
+
+        try await become(.bookAuthor, h)
+        XCTAssertEqual(StartAPieceDoor.drawn(store: h.store), true, "promotion: enabled again")
+        let saidAfter = await notices { admitted = await StartAPieceDoor.admits(store: h.store) }
+        XCTAssertTrue(admitted)
+        XCTAssertEqual(saidAfter, [])
+    }
 }

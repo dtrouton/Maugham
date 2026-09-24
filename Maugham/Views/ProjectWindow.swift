@@ -1238,9 +1238,13 @@ struct ProjectWindow: View {
 
         func body(content: Content) -> some View {
             content
+                // The File menu's enabled state (ruling X), published by the
+                // modifier that receives the three items.
+                .focusedSceneValue(\.mayStartAPiece, StartAPieceDoor.drawn(store: store))
                 .onKeyWindowCommand(.maughamAddLoosePiece, window: window) { _ in
                     guard let store, store.manifest.type == .collection else { return }
                     Task {
+                        guard await StartAPieceDoor.admits(store: store) else { return }
                         let piece = try? await store.addLoosePiece(
                             title: "Untitled Piece", mode: .prose)
                         if let piece {
@@ -1252,6 +1256,7 @@ struct ProjectWindow: View {
                 .onKeyWindowCommand(.maughamAddScreenplayPiece, window: window) { _ in
                     guard let store, store.manifest.type == .collection else { return }
                     Task {
+                        guard await StartAPieceDoor.admits(store: store) else { return }
                         let piece = try? await store.addLoosePiece(
                             title: "Untitled Screenplay", mode: .screenplay)
                         if let piece {
@@ -1262,16 +1267,19 @@ struct ProjectWindow: View {
                 }
                 .onKeyWindowCommand(.maughamLinkProject, window: window) { _ in
                     guard let store, store.manifest.type == .collection else { return }
-                    let panel = NSOpenPanel()
-                    panel.canChooseDirectories = true
-                    panel.canChooseFiles = false
-                    panel.allowsMultipleSelection = false
-                    panel.message = "Pick a Maugham project folder to link"
-                    panel.begin { response in
-                        guard response == .OK, let target = panel.url else { return }
-                        Task {
-                            let piece = try? await store.addProjectReference(targetURL: target)
-                            if let piece { selectedSubject = .item(piece.id) }
+                    Task {
+                        guard await StartAPieceDoor.admits(store: store) else { return }
+                        let panel = NSOpenPanel()
+                        panel.canChooseDirectories = true
+                        panel.canChooseFiles = false
+                        panel.allowsMultipleSelection = false
+                        panel.message = "Pick a Maugham project folder to link"
+                        panel.begin { response in
+                            guard response == .OK, let target = panel.url else { return }
+                            Task {
+                                let piece = try? await store.addProjectReference(targetURL: target)
+                                if let piece { selectedSubject = .item(piece.id) }
+                            }
                         }
                     }
                 }
