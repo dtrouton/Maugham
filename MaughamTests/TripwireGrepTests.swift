@@ -9102,6 +9102,19 @@ final class TripwireGrepTests: XCTestCase {
         "Document+Annotations.swift": ["localWritePermit"],
     ]
 
+    /// **The door's own acting accessor is an ASK, not a second table** (P3c
+    /// Task 3). `settledPosture(forDocId:as:)` is what every door that ACTS
+    /// calls (controller ruling I), and its name ends in `Posture(` — which the
+    /// substring match reads as building one. A line is admitted only where
+    /// removing every `settledPosture(` leaves no ask spelling behind, so a
+    /// real offender on the same line is still caught.
+    static func postureAskExcludeLine(_ line: String) -> Bool {
+        if admissionExcludeLine(line) { return true }
+        guard line.contains("settledPosture(") else { return false }
+        let rest = line.replacingOccurrences(of: "settledPosture(", with: "")
+        return !postureAskPatterns.contains(where: { rest.contains($0) })
+    }
+
     /// Component A — the sharing-role posture P3c retires. Allowed nowhere.
     static let componentAPatterns = [
         "CollaborationRole", "ReviewPosturePolicy", "ShareIdentityMapper", "effectivePosture",
@@ -9122,7 +9135,7 @@ final class TripwireGrepTests: XCTestCase {
             in: postureAskRoots,
             patterns: Self.postureAskPatterns,
             allowedSpellings: Self.postureAskAllowed,
-            excludeLine: Self.admissionExcludeLine)
+            excludeLine: Self.postureAskExcludeLine)
         XCTAssertTrue(askers.isEmpty,
             "A file outside the posture door asks the permit table directly or "
             + "builds a Posture of its own. Ask `posture.allows(.someVerb)` of "
@@ -9170,24 +9183,31 @@ final class TripwireGrepTests: XCTestCase {
         let mapped = ShareIdentityMapper.map(share)
         let effective = effectivePosture.isReviewMode
         let fine = posture.allows(.writeText)
+        let acted = await store.settledPosture(forDocId: id)
+        let smuggled = await store.settledPosture(forDocId: id) ?? Posture(permit)
         """.write(to: tmp.appendingPathComponent("ASecondPostureTable.swift"),
                   atomically: true, encoding: .utf8)
 
         func hits() throws -> (ask: [String], componentA: [String]) {
             (try grepSwift(in: [tmp], patterns: Self.postureAskPatterns,
                            allowedSpellings: Self.postureAskAllowed,
-                           excludeLine: Self.admissionExcludeLine),
+                           excludeLine: Self.postureAskExcludeLine),
              try grepSwift(in: [tmp], patterns: Self.componentAPatterns,
                            allowedSpellings: [:],
                            excludeLine: Self.admissionExcludeLine))
         }
 
         let planted = try hits()
-        XCTAssertEqual(planted.ask.count, 9,
-            "Self-check: each of the nine ask spellings is caught, and neither "
-            + "the comment nor the posture's own `allows`. Caught:\n"
+        XCTAssertEqual(planted.ask.count, 10,
+            "Self-check: each of the nine ask spellings is caught, plus a real "
+            + "one beside the door's acting accessor, and neither the comment, "
+            + "the posture's own `allows` nor `settledPosture(` alone. Caught:\n"
             + planted.ask.joined(separator: "\n"))
         XCTAssertFalse(planted.ask.contains(where: { $0.contains("let fine") }))
+        XCTAssertFalse(planted.ask.contains(where: { $0.contains("let acted") }),
+            "the acting door is an ask (P3c Task 3)")
+        XCTAssertTrue(planted.ask.contains(where: { $0.contains("let smuggled") }),
+            "a Posture( built beside it is still caught")
         XCTAssertEqual(planted.componentA.count, 4,
             "Self-check: each Component A spelling is caught. Caught:\n"
             + planted.componentA.joined(separator: "\n"))
@@ -9196,7 +9216,7 @@ final class TripwireGrepTests: XCTestCase {
         try fm.moveItem(at: tmp.appendingPathComponent("ASecondPostureTable.swift"),
                         to: tmp.appendingPathComponent("Document+Waiting.swift"))
         let asASite = try hits()
-        XCTAssertEqual(asASite.ask.count, 8,
+        XCTAssertEqual(asASite.ask.count, 9,
             "Self-check: Document+Waiting.swift is admitted `localWritePermit` "
             + "alone. Caught:\n" + asASite.ask.joined(separator: "\n"))
         XCTAssertFalse(asASite.ask.contains(where: { $0.contains("let asked") }))
