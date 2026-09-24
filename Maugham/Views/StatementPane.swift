@@ -189,7 +189,12 @@ struct StatementPane: View {
             // itself, sequentially — see `StatementEditorHost.reconcile`.
             StatementEditorHost(
                 store: store, documentStore: documentStore,
-                kind: kind, scope: scope)
+                kind: kind, scope: scope,
+                // The DRAWING door (controller ruling I); reading it here
+                // observes `postureEpoch`, so a demotion or a promotion locks
+                // or unlocks the open statement with no remount (P3c Task 3).
+                posture: documentStore.posture(forDocId: StatementEditorHost.postureDocId(
+                    kind: kind, scope: scope, statements: store.manifest.statements)))
                 // **The one `.id()` the paragraph above allows, and it is a
                 // different case entirely.** `hostGeneration` never moves for a
                 // scope change; it moves only when an Adopt CREATED the

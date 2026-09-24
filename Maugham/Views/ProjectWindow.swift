@@ -244,8 +244,9 @@ struct ProjectWindow: View {
     @State private var currentElement: String? = nil
     /// Resolved iCloud collaboration identity for THIS project, resolved once on
     /// open and again on a share-change (app re-activation), then cached. Drives
-    /// both the sharing pill and — via `ReviewPosturePolicy` — the editor review
-    /// posture. `nil` until the first resolve completes (treated as `.unknown`).
+    /// the sharing pill and the read-only-share lock (`isViewOnlyReviewer`); the
+    /// editor's review posture is the permit's (`editorMembrane`, P3c Task 3).
+    /// `nil` until the first resolve completes.
     /// Single resolve, threaded down; the pill no longer reads on its own
     /// (consolidation, per the WF1 task).
     @State private var collaborator: Collaborator?
@@ -419,7 +420,8 @@ struct ProjectWindow: View {
                                         device: _checkpointDeviceId,
                                         session: _checkpointSessionId,
                                         label: label,
-                                        activeDocument: activeDoc)
+                                        activeDocument: activeDoc,
+                                        posture: { await documentStore.settledPosture(forDocId: $0) })
                                 }
                             }
                         },
@@ -693,7 +695,7 @@ struct ProjectWindow: View {
         // Extracted into a ViewModifier to stay under ProjectWindow.body's
         // SwiftUI type-checker ceiling (the extracted-ViewModifier pattern).
         .modifier(EditorControlMirrorModifier(
-            effectivePosture: effectivePosture,
+            membrane: editorMembrane,
             effectiveTypography: effectiveTypography,
             editorControl: $editorControl))
         .modifier(TranslationReviewModifier(
@@ -790,15 +792,44 @@ struct ProjectWindow: View {
         collaborator = ShareIdentityMapper.resolve(meta)
     }
 
-    /// The resolved role, defaulting to `.unknown` until the first resolve lands.
-    private var resolvedRole: CollaborationRole { collaborator?.role ?? .unknown }
+    /// The manuscript document the tree names, when it names one — the
+    /// document the editor is FOR. `nil` for the project, a group, research, or
+    /// nothing, none of which has text to lock.
+    private var selectedManuscriptDocId: String? {
+        guard let store, let id = activeItemID,
+              let item = TreeWalk.find(id: id, in: store.manifest.structure),
+              item.type == .document else { return nil }
+        return id
+    }
 
-    /// Effective review posture: combines the resolved role with the manual
-    /// ⌘⌥⇧R toggle. `lockEditing` is the hard floor — a reviewer/unknown is locked
-    /// regardless of the toggle, so the manual flag can never unlock the text.
-    private var effectivePosture: ReviewPosturePolicy.Effective {
-        ReviewPosturePolicy.effective(
-            role: resolvedRole, manualReview: isReviewModeOn)
+    /// **The editor's membrane, asked of the posture** (P3c Task 3). The
+    /// DRAWING accessor (controller ruling I): reading it observes
+    /// `postureEpoch`, so a demotion or a promotion arriving mid-session
+    /// re-mirrors with no reopen. The rule itself is
+    /// `EditorControlMirror.membrane`, pinned without a window.
+    private var editorMembrane: EditorControlMirror.Membrane {
+        EditorControlMirror.membrane(
+            posture: selectedManuscriptDocId.flatMap { id in
+                documentStore?.posture(forDocId: id)
+            },
+            manualReview: isReviewModeOn,
+            shareIsReadOnly: isViewOnlyReviewer)
+    }
+
+    /// The standing line over the editor, when there is a reason to name
+    /// (`PostureStandingLine.line`), for the document the centre column is
+    /// actually showing — never over the canvas, the altitude view, a research
+    /// subject or the palette wall.
+    private var postureStandingLine: PostureStandingLine.Line? {
+        guard let store, let documentStore, let id = selectedManuscriptDocId,
+              Self.showsStatusFooter(
+                persona: persona, subject: selectedSubject,
+                showsPaletteWall: showsPaletteWall,
+                structure: store.manifest.structure),
+              let item = TreeWalk.find(id: id, in: store.manifest.structure)
+        else { return nil }
+        return PostureStandingLine.line(
+            for: documentStore.posture(forDocId: id), title: item.title, docId: id)
     }
 
     /// The typography the editor actually uses — manifest override else user
@@ -1431,12 +1462,19 @@ struct ProjectWindow: View {
                 }
             }
             .safeAreaInset(edge: .top) {
-                // Reflect the EFFECTIVE posture, not just the manual toggle: a
-                // reviewer (or still-resolving unknown) always shows REVIEWING;
-                // an author shows it only when they manually entered review.
-                if effectivePosture.isReviewMode {
-                    ReviewModeIndicator(
-                        collaboratorName: userPreferences.collaboratorDisplayName)
+                // **Why the words are not hers** (P3c Task 3) — the posture's
+                // own reason, one sentence, over the editor. The manual ⌘⌥⇧R
+                // review keeps its own pill, which names no role: a role is the
+                // permit's, and the standing line is where it is said.
+                VStack(spacing: 0) {
+                    if let line = postureStandingLine {
+                        PostureStandingLineView(
+                            line: line, documentStore: documentStore)
+                    }
+                    if isReviewModeOn {
+                        ReviewModeIndicator(
+                            collaboratorName: userPreferences.collaboratorDisplayName)
+                    }
                 }
             }
             .safeAreaInset(edge: .top) {
@@ -2056,10 +2094,11 @@ struct ProjectWindow: View {
                 wikiLinkClickResolver: { title in
                     store.resolveDocumentId(forTitle: title)
                 },
-                // Role-driven posture flows entirely through the EditorControl
-                // model (ADR 0017): an author's manual ⌘⌥⇧R drives the render; a
-                // reviewer/unknown is FORCED into review render AND hard-locked
-                // (lockEditing) via `effectivePosture` mirrored into the control.
+                // Posture flows entirely through the EditorControl model (ADR
+                // 0017): an author's manual ⌘⌥⇧R drives the render; a document
+                // whose posture refuses the text is FORCED into review render
+                // AND hard-locked (lockEditing) via `editorMembrane` mirrored
+                // into the control (P3c Task 3).
                 control: editorControl,
                 // M3 P2 Task 8: a note written from the margin carries the pass
                 // this piece is being reviewed through.
@@ -4218,6 +4257,11 @@ enum CheckpointFlashDecision {
         do {
             try await capture()
             onSuccess()
+        } catch CheckpointRefusal.notYourText {
+            // **⌘S always flashes** (P3c Task 3, plan ruling R5): the refusal
+            // wrote NOTHING — no op, no entry — by design, so it is not a
+            // failure to explain. Exactly this refusal and no other error.
+            onSuccess()
         } catch {
             MaughamEvent.postNotice(
                 "Couldn’t save a checkpoint — \(error.localizedDescription)",
@@ -4273,7 +4317,8 @@ private struct CheckpointModifier: ViewModifier {
                             device: _checkpointDeviceId,
                             session: _checkpointSessionId,
                             label: nil,
-                            activeDocument: activeDoc)
+                            activeDocument: activeDoc,
+                            posture: { await documentStore.settledPosture(forDocId: $0) })
                     }
                     // Runs regardless of whether the checkpoint above landed —
                     // CheckpointFlashDecision.run catches its own throw rather
@@ -4289,8 +4334,25 @@ private struct CheckpointModifier: ViewModifier {
                 }
             }
             .onKeyWindowCommand(.maughamNamedCheckpoint, window: window) { _ in
-                guard store != nil else { return }
-                showingCheckpointLabelSheet = true
+                guard let store, let documentStore else { return }
+                let allDocIds = ProjectWindow.documentIds(in: store.manifest.structure)
+                // **⇧⌘S over text this Mac may not change says why instead of
+                // opening** (plan ruling R5). An ACTING decision — the sheet is
+                // the first half of a write — so it asks the settled door.
+                guard let subject = CheckpointCapture.documentSubject(
+                    of: activeDocId, in: allDocIds) else {
+                    showingCheckpointLabelSheet = true
+                    return
+                }
+                Task { @MainActor in
+                    let posture = await documentStore.settledPosture(forDocId: subject)
+                    if posture.allows(.checkpoint) {
+                        showingCheckpointLabelSheet = true
+                    } else {
+                        MaughamEvent.postNotice(
+                            PostureStandingLine.checkpointRefusal, projectURL: store.url)
+                    }
+                }
             }
             .modifier(RewindModifier(
                 documentStore: documentStore,
@@ -4838,20 +4900,54 @@ private struct ParagraphNavModifier: ViewModifier {
     }
 }
 
+/// **The editor's membrane, decided from the posture** (P3c Task 3) — pure, so
+/// both directions are pinned without a window (`ReviewModeMembraneTests`).
+///
+/// - `lockEditing` is the hard floor: the posture refuses `.writeText`, or the
+///   iCloud share is read-only (an OS-level lock that claims no role).
+/// - `isReviewMode` is the manual ⌘⌥⇧R toggle, or forced on where the posture
+///   refuses the text — a reviewer's Mac opens in review mode, so the
+///   selection toolbar offers annotation.
+///
+/// Keyed on `allows(.writeText)`, never on `isRestricted` (controller ruling
+/// E): an author of some pieces inside her own piece is restricted (she may
+/// not start a piece) and may type every word of it. `Posture.settling` —
+/// nothing decided yet — refuses `.writeText`, so it LOCKS: a verb appearing a
+/// frame late is fine, one appearing that must not is not. `nil` is no
+/// manuscript document in the editor: nothing to lock.
+enum EditorControlMirror {
+    struct Membrane: Equatable {
+        let lockEditing: Bool
+        let isReviewMode: Bool
+    }
+
+    static func membrane(
+        posture: Posture?, manualReview: Bool, shareIsReadOnly: Bool
+    ) -> Membrane {
+        let mayWrite = posture?.allows(.writeText) ?? true
+        return Membrane(
+            lockEditing: !mayWrite || shareIsReadOnly,
+            isReviewMode: manualReview || !mayWrite)
+    }
+}
+
 /// Mirrors posture + appearance changes from ProjectWindow-owned sources into
 /// the `EditorControl` model (ADR 0017). Extracted into a ViewModifier to stay
 /// under ProjectWindow.body's SwiftUI type-checker ceiling.
 private struct EditorControlMirrorModifier: ViewModifier {
-    let effectivePosture: ReviewPosturePolicy.Effective
+    /// Computed in `ProjectWindow`'s body from the drawing posture door, so a
+    /// selection change AND a `postureEpoch` bump both arrive here as a change
+    /// of this value.
+    let membrane: EditorControlMirror.Membrane
     let effectiveTypography: TypographySettings
     @Binding var editorControl: EditorControl
     @Environment(UserPreferences.self) private var userPreferences
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: effectivePosture) { _, posture in
-                editorControl.isReviewMode = posture.isReviewMode
-                editorControl.lockEditing = posture.lockEditing
+            .onChange(of: membrane) { _, membrane in
+                editorControl.isReviewMode = membrane.isReviewMode
+                editorControl.lockEditing = membrane.lockEditing
             }
             .onChange(of: userPreferences.theme) { _, t in editorControl.theme = t }
             .onChange(of: effectiveTypography) { _, t in editorControl.typography = t }
@@ -4867,8 +4963,8 @@ private struct EditorControlMirrorModifier: ViewModifier {
             .onAppear {
                 // Seed the model from current sources (onChange only fires on
                 // transitions, not on first render).
-                editorControl.isReviewMode = effectivePosture.isReviewMode
-                editorControl.lockEditing = effectivePosture.lockEditing
+                editorControl.isReviewMode = membrane.isReviewMode
+                editorControl.lockEditing = membrane.lockEditing
                 editorControl.theme = userPreferences.theme
                 editorControl.typography = effectiveTypography
                 editorControl.typewriterScroll = userPreferences.typewriterScroll

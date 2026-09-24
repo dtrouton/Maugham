@@ -1,6 +1,15 @@
 import Foundation
 import MaughamCore
 
+/// **Why a checkpoint was not taken** (P3c Task 3, plan ruling R5): the
+/// subject document's posture forbids `.checkpoint`. Thrown by
+/// `CheckpointCapture.run` before anything is written. ⌘S swallows exactly
+/// this refusal and still flashes (the flash is muscle memory, not a promise
+/// about what was written); every other error keeps its notice.
+public enum CheckpointRefusal: Error, Equatable {
+    case notYourText
+}
+
 /// Single entry point for ⌘S and Shift-⌘S. Force-flushes pending bursts on
 /// every doc, appends a `checkpoint` breadcrumb op to the active doc's log —
 /// *when the subject is one of the project's documents* — and writes a
@@ -20,9 +29,9 @@ public enum CheckpointCapture {
         device: String,
         session: String,
         label: String?,
-        activeDocument: Document? = nil
+        activeDocument: Document? = nil,
+        posture: (@MainActor (String) async -> Posture)? = nil
     ) async throws -> Checkpoint {
-        let opStore = OpLogStore(projectURL: projectURL)
 
         // ONE decision, and everything below that needs a document id reads
         // THIS value: the breadcrumb op's `docId`, the auto-label's
@@ -32,6 +41,24 @@ public enum CheckpointCapture {
         // by `CheckpointSubjectRecordTests.test_theLabelAndTheRecordCannotDisagree`,
         // which goes red on a half-fix in either direction.
         let subjectDoc: String? = documentSubject(of: activeDocId, in: allDocIds)
+
+        // **The door** (signed op log P3c Task 3, plan ruling R5): a checkpoint
+        // of text this device may not change marks nothing of hers, so where
+        // the subject document's posture forbids `.checkpoint` NOTHING is
+        // written — no breadcrumb op AND no checkpoint entry, because an entry
+        // without its op is a dangling reference. Asked before the first read
+        // or write below. The posture is the caller's to supply — an ACTING
+        // door, so `DocumentStore.settledPosture`, never the drawing accessor
+        // (controller ruling I); nothing here asks a permit of its own. A
+        // subject that is not a document has no text to refuse and takes
+        // today's path. `nil` is a caller with no window (the test tool, the
+        // pre-P3c suites): no door, today's behaviour.
+        if let subjectDoc, let posture,
+           !(await posture(subjectDoc)).allows(.checkpoint) {
+            throw CheckpointRefusal.notYourText
+        }
+
+        let opStore = OpLogStore(projectURL: projectURL)
 
         // doc_pointers = last op_id per doc.
         var pointers: [String: String] = [:]
