@@ -153,6 +153,27 @@ enum AnnotationBulkActions {
                 + applicable.filter { $0.kind != .suggestedChange }).map(\.id)
     }
 
+    /// **The posture half of the plan** (P3c Task 5): the notes this Mac may
+    /// act on at all, before `applies` asks which the verb honestly reaches.
+    /// Accept is an accept; Stet and every triage mark are dispositions. The
+    /// bar runs over ONE document (`AnnotationScopePolicy.showsBulkAffordances`),
+    /// so its rows share a posture and the drop is all or nothing — and a verb
+    /// whose plan the posture empties is not drawn (`offers`), where a verb
+    /// whose plan the notes empty stays drawn and disabled, as it always has.
+    static func offers(_ verb: BulkVerb, under posture: Posture) -> Bool {
+        switch verb {
+        case .accept: return posture.allows(.acceptOrReject)
+        case .stet, .triage: return posture.allows(.dispose)
+        }
+    }
+
+    /// `plan`, with the notes the posture forbids dropped first.
+    static func plan(
+        _ annotations: [Annotation], verb: BulkVerb, posture: Posture
+    ) -> [String] {
+        offers(verb, under: posture) ? plan(annotations, verb: verb) : []
+    }
+
     /// The per-note arm of the rule in this file's doc comment. Separate from
     /// `plan` so a row-level caller could ask the same question of one note
     /// without building an array.

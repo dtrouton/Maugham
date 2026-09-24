@@ -1259,6 +1259,21 @@ nothing: the piece's own author makes the same repair the next time she opens
 it, and a disagreement standing visibly is what the repair already does when a
 paragraph has drifted.
 
+**P3c Task 5 widened that guard from the automations to every caller.** Every
+disposition mutator — accept, revert, reject, stet, archive, triage, reopen —
+asks the stamp first (`requireDispositionPermitted`, or the same check inside
+`appendLifecycleOp`) and throws `Document.PostureRefusal` before it writes
+anything; the automations keep `AutomationNotPermitted`, which their two
+callers catch by type. The surfaces hide these verbs by the posture, so the
+door is what stops a stale row, a margin card drawn before a demotion, or a ⌘Z
+registered while this Mac could still write. An undo or redo refused this way
+says so (`refusingLoudly` → `UndoDecline.notPermitted`) rather than falling
+silent. Annotation creation and the writer's own note's edit and withdraw are
+not doors here: they are the reviewer row. **Known edge**: the table files
+`annotationReopen` under dispositions whatever it undoes, so a reviewer's ⌘Z of
+her OWN Delete (a reopen) is refused and said — a table question, not this
+door's.
+
 **And what RELEASED builds wrote is judged as the author's, permanently**
 (final fix wave, W3(a)). The attribution rule above fixes what this build
 writes; v0.37–v0.40 signed the same emissions with whichever actor opened the

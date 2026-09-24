@@ -1134,6 +1134,8 @@ struct AnnotationsPane: View {
         } else {
             ScrollView {
                 let livePids = Set(document.sequence)
+                let mayDispose = documentStore.posture(forDocId: document.docId)
+                    .allows(.dispose)
                 let selection = effectiveSelection(in: rows)
                 // One read for the whole pass, for `ledgerText`'s reason.
                 let ledger = ledgerText
@@ -1160,8 +1162,12 @@ struct AnnotationsPane: View {
                                     .font(.callout).foregroundStyle(.secondary)
                                     .lineLimit(2)
                                 Spacer()
-                                Button("Restore") { reopen(document, id: note.id) }
-                                    .buttonStyle(.bordered).controlSize(.small)
+                                // A restore is a reopen — a disposition in the
+                                // table (P3c Task 5): hidden where refused.
+                                if mayDispose {
+                                    Button("Restore") { reopen(document, id: note.id) }
+                                        .buttonStyle(.bordered).controlSize(.small)
+                                }
                             }
                             .padding(.horizontal, 12).padding(.vertical, 8)
                             Divider()
@@ -1172,7 +1178,12 @@ struct AnnotationsPane: View {
             // Only over rows: the Deleted section below the queue is
             // restore-only, and a bar offering to accept nothing is a
             // dead control (RULING-35).
-            if showBulkBar && !rows.isEmpty {
+            //
+            // Nor over a document whose posture offers no bulk verb (P3c Task
+            // 5): a bar of Select All and nothing to press is the same dead
+            // control.
+            if showBulkBar && !rows.isEmpty
+                && bulkOffersAVerb(posture: documentStore.posture(forDocId: document.docId)) {
                 Divider()
                 bulkBar(document: document, rows: rows)
             }
@@ -1321,15 +1332,17 @@ struct AnnotationsPane: View {
         isSelectable: Bool = false,
         isSelected: Bool = false
     ) -> some View {
+        let isOwn = AnnotationOwnership.isOwn(
+            ann, localName: userPreferences.collaboratorDisplayName)
         AnnotationRow(
             annotation: ann,
             revertIsEnabled: AnnotationRowPolicy.revertEnabled(ann, livePids: livePids),
             showingStet: stetFlourishIds.contains(ann.id),
-            isOwn: AnnotationOwnership.isOwn(
-                ann, localName: userPreferences.collaboratorDisplayName),
+            isOwn: isOwn,
             verbsEnabled: AnnotationScopePolicy.verbsEnabled(
                 documentIsOpen: rowDocument != nil),
             verbsDisabledReason: AnnotationScopePolicy.closedPieceReason,
+            verbs: rowVerbs(for: ann, docId: docId, isOwn: isOwn),
             isSelectable: isSelectable,
             isSelected: isSelected,
             onToggleSelection: { toggleSelection(ann.id) },
@@ -1356,6 +1369,39 @@ struct AnnotationsPane: View {
             onJumpToParagraph: { click(docId: docId, annotation: ann) },
             ledgerText: ledgerText,
             manifest: store.manifest)
+    }
+
+    /// **Which verbs this Mac may offer on this row** (P3c Task 5) — asked of
+    /// the posture of THE ROW'S OWN DOCUMENT, by `docId`, never of the
+    /// window's selection: in project scope a pieces-author's own chapter
+    /// carries its verbs and the chapter beside it, somebody else's, carries
+    /// none. The drawing door answers for a closed document too, so a closed
+    /// piece's row is judged by its own posture as well (its verbs are also
+    /// disabled until it is opened — `AnnotationScopePolicy.verbsEnabled`).
+    /// Reading the door observes `postureEpoch`, so a promotion or a demotion
+    /// redraws the queue with no reopen.
+    private func rowVerbs(
+        for ann: Annotation, docId: String, isOwn: Bool
+    ) -> AnnotationRowVerbs {
+        let rulingKind: Statement.Kind? = switch RulingDestination.offered(
+            for: ann, manifest: store.manifest) {
+        case .editionBrief(let language): .editionBrief(language)
+        case .firstReader: .firstReader
+        case nil: nil
+        }
+        return AnnotationRowVerbs.decide(
+            posture: documentStore.posture(forDocId: docId),
+            isOwn: isOwn,
+            rulingStatement: rulingKind.map(postureOfStatement(_:)),
+            lessons: postureOfStatement(.lessons))
+    }
+
+    /// The posture of a PROJECT statement (every statement a queue verb files
+    /// into is one), through the same door and the same id rule the statement
+    /// pane uses — a statement not yet written asks the project stream.
+    private func postureOfStatement(_ kind: Statement.Kind) -> Posture {
+        documentStore.posture(forDocId: StatementEditorHost.postureDocId(
+            kind: kind, scope: .project, statements: store.manifest.statements))
     }
 
     /// Belt behind the disabled verbs: a control that somehow fires with no
@@ -1395,8 +1441,14 @@ struct AnnotationsPane: View {
             reviewPasses: reviewPasses,
             resolvedPassId: resolvedPassId,
             scopeIsProject: scope.isProject,
+            // …and only where this document's posture leaves a bulk verb to
+            // press (P3c Task 5): selection mode over a bar with no verbs is a
+            // mode with nothing at the end of it.
             showsBulkAffordances:
-                AnnotationScopePolicy.showsBulkAffordances(scope),
+                AnnotationScopePolicy.showsBulkAffordances(scope)
+                    && (document.map {
+                        bulkOffersAVerb(posture: documentStore.posture(forDocId: $0.docId))
+                    } ?? true),
             selectionModeOn: showBulkBar,
             authorLabels: authorLabels,
             onSetScope: { setScope($0) },
@@ -1426,10 +1478,19 @@ struct AnnotationsPane: View {
     /// The bulk bar. Two rows so nothing truncates in a narrow column: the
     /// scope on top (what is being acted on, and the one control that changes
     /// it), the verbs below.
+    /// Whether any bulk verb survives this document's posture (P3c Task 5).
+    private func bulkOffersAVerb(posture: Posture) -> Bool {
+        [AnnotationBulkActions.BulkVerb.accept, .stet, .triage(nil)]
+            .contains { AnnotationBulkActions.offers($0, under: posture) }
+    }
+
     @ViewBuilder
     private func bulkBar(document: Document, rows: [Annotation]) -> some View {
         let targets = bulkTargets(in: rows)
         let selection = effectiveSelection(in: rows)
+        // ONE document, so one posture for every row the bar would act on —
+        // asked of the document the bar acts on, never the window's.
+        let posture = documentStore.posture(forDocId: document.docId)
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Button(selection.isEmpty ? "Select All" : "Deselect All") {
@@ -1443,16 +1504,16 @@ struct AnnotationsPane: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 bulkTriageMenu(document: document, targets: targets,
-                               hasSelection: !selection.isEmpty)
+                               hasSelection: !selection.isEmpty, posture: posture)
             }
             HStack(spacing: 8) {
                 bulkButton(.accept, document: document, targets: targets,
-                           hasSelection: !selection.isEmpty,
+                           hasSelection: !selection.isEmpty, posture: posture,
                            help: "Answer these at once. ⌘Z reverses the batch — "
                                + "except for accepted suggestions, where it reaches "
                                + "only the last; use a row's Revert for the others.")
                 bulkButton(.stet, document: document, targets: targets,
-                           hasSelection: !selection.isEmpty,
+                           hasSelection: !selection.isEmpty, posture: posture,
                            help: "Read, considered — and the words stand. "
                                + "Resolves these without applying or refusing anything.")
                 Spacer(minLength: 0)
@@ -1462,21 +1523,25 @@ struct AnnotationsPane: View {
         .padding(.horizontal, 8).padding(.vertical, 6)
     }
 
+    /// Not drawn at all where the posture forbids the verb (P3c Task 5) —
+    /// hidden, not disabled; disabled only where the NOTES leave nothing to do.
     @ViewBuilder
     private func bulkButton(
         _ verb: AnnotationBulkActions.BulkVerb, document: Document,
-        targets: [Annotation], hasSelection: Bool, help: String
+        targets: [Annotation], hasSelection: Bool, posture: Posture, help: String
     ) -> some View {
-        let planned = AnnotationBulkActions.plan(targets, verb: verb)
-        Button(AnnotationBulkActions.buttonTitle(
-            verb, planned: planned.count, targetCount: targets.count,
-            hasSelection: hasSelection)
-        ) {
-            runBulk(verb, on: planned, in: document)
+        if AnnotationBulkActions.offers(verb, under: posture) {
+            let planned = AnnotationBulkActions.plan(targets, verb: verb, posture: posture)
+            Button(AnnotationBulkActions.buttonTitle(
+                verb, planned: planned.count, targetCount: targets.count,
+                hasSelection: hasSelection)
+            ) {
+                runBulk(verb, on: planned, in: document)
+            }
+            .buttonStyle(.bordered)
+            .disabled(planned.isEmpty || bulkInFlight)
+            .help(help)
         }
-        .buttonStyle(.bordered)
-        .disabled(planned.isEmpty || bulkInFlight)
-        .help(help)
     }
 
     /// Marking a pile is the gesture bulk was built for — a writer skims forty
@@ -1485,16 +1550,28 @@ struct AnnotationsPane: View {
     /// are not reached (the row's menu refuses the same re-mark).
     @ViewBuilder
     private func bulkTriageMenu(
-        document: Document, targets: [Annotation], hasSelection: Bool
+        document: Document, targets: [Annotation], hasSelection: Bool,
+        posture: Posture
+    ) -> some View {
+        if AnnotationBulkActions.offers(.triage(nil), under: posture) {
+            bulkTriageMenuBody(document: document, targets: targets,
+                               hasSelection: hasSelection, posture: posture)
+        }
+    }
+
+    @ViewBuilder
+    private func bulkTriageMenuBody(
+        document: Document, targets: [Annotation], hasSelection: Bool,
+        posture: Posture
     ) -> some View {
         Menu {
             ForEach(TriageMark.allCases, id: \.self) { mark in
                 bulkMenuItem(.triage(mark), document: document, targets: targets,
-                             hasSelection: hasSelection)
+                             hasSelection: hasSelection, posture: posture)
             }
             Divider()
             bulkMenuItem(.triage(nil), document: document, targets: targets,
-                         hasSelection: hasSelection)
+                         hasSelection: hasSelection, posture: posture)
         } label: {
             Label("Triage", systemImage: "flag")
                 .font(.caption)
@@ -1508,9 +1585,9 @@ struct AnnotationsPane: View {
     @ViewBuilder
     private func bulkMenuItem(
         _ verb: AnnotationBulkActions.BulkVerb, document: Document,
-        targets: [Annotation], hasSelection: Bool
+        targets: [Annotation], hasSelection: Bool, posture: Posture
     ) -> some View {
-        let planned = AnnotationBulkActions.plan(targets, verb: verb)
+        let planned = AnnotationBulkActions.plan(targets, verb: verb, posture: posture)
         Button(AnnotationBulkActions.buttonTitle(
             verb, planned: planned.count, targetCount: targets.count,
             hasSelection: hasSelection)
@@ -1970,6 +2047,68 @@ enum AnnotationRowPolicy {
     }
 }
 
+/// **Which of a queue row's verbs this Mac may offer** (P3c Task 5) — asked of
+/// the ROW'S OWN document's posture, never the window's: the cross-document
+/// queue shows a pieces-author's own piece with its verbs beside somebody
+/// else's without them.
+///
+/// Hidden, never disabled: a greyed Accept reads as broken. The door behind
+/// each is the Document's own (`Document.requireDispositionPermitted`).
+///
+/// **Independent of the note's kind**, deliberately: every kind's Accept (and a
+/// query's Reply…) writes the same accept op and every Stet / Archive / Triage
+/// / Reopen the same disposition group, so the kind decides which verbs a row
+/// HAS (`AnnotationRow.dispositions`) and never whether this Mac may press
+/// them. Pinned over every kind in `PostureSurfaceTests`.
+struct AnnotationRowVerbs: Equatable {
+    /// Accept, Got it, Reply…, Reject…, Revert — they move the words or settle
+    /// the note with the writer's answer.
+    let acceptOrReject: Bool
+    /// Stet, Archive, the triage menu, Reopen, and a deleted note's Restore.
+    let dispose: Bool
+    /// *Answer as ruling…* — a reply AND a dated ruling in the statement it
+    /// files under, so both halves have to be this Mac's to write.
+    let answerAsRuling: Bool
+    /// *This is a choice* — a stet AND a lessons-ledger row.
+    let makeChoice: Bool
+    /// *Keep as lesson…* — a lessons-ledger row, no annotation op.
+    let keepAsLesson: Bool
+    /// Edit / Delete of the local writer's OWN note — the reviewer row, which
+    /// every rung holds, so it follows ownership alone.
+    let ownNote: Bool
+
+    /// **The one decision.** `rulingStatement` is the posture of the statement
+    /// *Answer as ruling…* would file under (nil where the row offers none);
+    /// `lessons` is the lessons ledger's. Both are asked of the same door as
+    /// the row's own (`StatementEditorHost.postureDocId`), and Task 7's door on
+    /// `RulingPerformer` is what refuses the write; here they only hide.
+    static func decide(
+        posture: Posture, isOwn: Bool,
+        rulingStatement: Posture?, lessons: Posture
+    ) -> AnnotationRowVerbs {
+        let answer = posture.allows(.acceptOrReject)
+        let dispose = posture.allows(.dispose)
+        let ledger = lessons.allows(.editStatement)
+        return AnnotationRowVerbs(
+            acceptOrReject: answer,
+            dispose: dispose,
+            answerAsRuling: answer
+                && (rulingStatement?.allows(.editStatement) ?? false),
+            makeChoice: dispose && ledger,
+            keepAsLesson: ledger,
+            ownNote: isOwn)
+    }
+
+    /// What a row built outside the pane (a test's, a measurement's) draws: the
+    /// P1 surface, every verb its kind has. The pane — the one production host
+    /// — always passes `decide`'s answer.
+    static func unrestricted(isOwn: Bool) -> AnnotationRowVerbs {
+        AnnotationRowVerbs(
+            acceptOrReject: true, dispose: true, answerAsRuling: true,
+            makeChoice: true, keepAsLesson: true, ownNote: isOwn)
+    }
+}
+
 struct AnnotationRow: View {
     let annotation: Annotation
     var revertIsEnabled: Bool = true
@@ -1985,6 +2124,12 @@ struct AnnotationRow: View {
     /// never enabled and silently inert (RULING-35).
     var verbsEnabled: Bool = true
     var verbsDisabledReason: String? = nil
+    /// **Which verbs this Mac may offer on this row** (P3c Task 5), asked of
+    /// the row's own document's posture by the pane. Nil — a row built
+    /// outside the pane — is the P1 surface (`AnnotationRowVerbs.unrestricted`).
+    /// A verb the posture forbids is not drawn; `verbsEnabled` above is a
+    /// different question (is there a live document to append to at all).
+    var verbs: AnnotationRowVerbs? = nil
     /// Multiselect (M3 P2 Task 5) — true only while the pane is in selection
     /// mode. The control is a `Button`, so it takes the click the row's
     /// whole-body `.onTapGesture` would otherwise read as navigation: selecting
@@ -2047,6 +2192,10 @@ struct AnnotationRow: View {
     /// destination.
     private var rulingDestination: RulingDestination? {
         RulingDestination.offered(for: annotation, manifest: manifest)
+    }
+
+    private var offered: AnnotationRowVerbs {
+        verbs ?? .unrestricted(isOwn: isOwn)
     }
 
     var body: some View {
@@ -2273,55 +2422,80 @@ struct AnnotationRow: View {
             if showsReopen {
                 // (An accepted suggestion keeps its Revert below — reopening it
                 // is Revert's job, text included.)
-                Button("Reopen", action: onReopen).buttonStyle(.bordered)
-                    .help("Return this to the open list — resolution is yours to reverse (⌘Z re-applies it)")
+                if offered.dispose {
+                    Button("Reopen", action: onReopen).buttonStyle(.bordered)
+                        .help("Return this to the open list — resolution is yours to reverse (⌘Z re-applies it)")
+                }
             } else {
                 dispositions(useIcons: useIcons)
             }
-            triageMenu
-            if isOwn {
+            if offered.dispose { triageMenu }
+            if offered.ownNote {
                 Spacer(minLength: 4)
                 ownAffordances
             }
         }
     }
 
+    /// Every verb here is drawn only where `offered` says this Mac may press
+    /// it (P3c Task 5) — hidden, not disabled. The kind still decides which
+    /// verbs the row HAS; the posture decides which of those are drawn.
     @ViewBuilder
     private func dispositions(useIcons: Bool) -> some View {
         switch annotation.kind {
         case .comment:
-            Button("Got it", action: onAccept).buttonStyle(.borderedProminent)
+            if offered.acceptOrReject {
+                Button("Got it", action: onAccept).buttonStyle(.borderedProminent)
+            }
             stetButton(useIcons: useIcons)
-            secondary("Archive", symbol: "archivebox", useIcons: useIcons, action: onArchive)
+            archiveButton(useIcons: useIcons)
         case .suggestedChange:
             if annotation.status == .accepted {
                 // Accepted rows (visible under the resolved/All filter):
                 // the one meaningful action is putting the text back.
                 // ⌘Z only reaches the MOST RECENT accept; this reaches
                 // any accepted suggestion at any time.
-                Button("Revert", action: onRevert).buttonStyle(.bordered)
-                    .disabled(!revertIsEnabled)
-                    .help(revertIsEnabled
-                          ? "Restore the pre-accept text and reopen this suggestion"
-                          : "Its paragraph was deleted — there is nothing to revert into")
+                if offered.acceptOrReject {
+                    Button("Revert", action: onRevert).buttonStyle(.bordered)
+                        .disabled(!revertIsEnabled)
+                        .help(revertIsEnabled
+                              ? "Restore the pre-accept text and reopen this suggestion"
+                              : "Its paragraph was deleted — there is nothing to revert into")
+                }
             } else {
-                Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
-                secondary("Reject\u{2026}", symbol: "xmark", useIcons: useIcons, action: onReject)
+                if offered.acceptOrReject {
+                    Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
+                    secondary("Reject\u{2026}", symbol: "xmark", useIcons: useIcons, action: onReject)
+                }
                 stetButton(useIcons: useIcons)
-                secondary("Archive", symbol: "archivebox", useIcons: useIcons, action: onArchive)
+                archiveButton(useIcons: useIcons)
             }
         case .query:
-            Button("Reply\u{2026}", action: onReply).buttonStyle(.borderedProminent)
+            if offered.acceptOrReject {
+                Button("Reply\u{2026}", action: onReply).buttonStyle(.borderedProminent)
+            }
             answerAsRulingButton(useIcons: useIcons)
             choiceButton(useIcons: useIcons)
             stetButton(useIcons: useIcons)
-            secondary("Archive", symbol: "archivebox", useIcons: useIcons, action: onArchive)
+            archiveButton(useIcons: useIcons)
         case .craftNote:
-            Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
+            if offered.acceptOrReject {
+                Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
+            }
             answerAsRulingButton(useIcons: useIcons)
             keepAsLessonButton(useIcons: useIcons)
-            secondary("Reject\u{2026}", symbol: "xmark", useIcons: useIcons, action: onReject)
+            if offered.acceptOrReject {
+                secondary("Reject\u{2026}", symbol: "xmark", useIcons: useIcons, action: onReject)
+            }
             stetButton(useIcons: useIcons)
+            archiveButton(useIcons: useIcons)
+        }
+    }
+
+    /// Archive — a disposition, drawn only where one may be written here.
+    @ViewBuilder
+    private func archiveButton(useIcons: Bool) -> some View {
+        if offered.dispose {
             secondary("Archive", symbol: "archivebox", useIcons: useIcons, action: onArchive)
         }
     }
@@ -2340,7 +2514,7 @@ struct AnnotationRow: View {
     /// that was not, and the narrow column is where that costs a word.
     @ViewBuilder
     private func choiceButton(useIcons: Bool) -> some View {
-        if QueueLedgerVerbs.offersAChoice(annotation) {
+        if offered.makeChoice, QueueLedgerVerbs.offersAChoice(annotation) {
             secondary(QueueLedgerVerbs.choiceTitle, symbol: "checkmark.seal",
                       useIcons: useIcons,
                       help: QueueLedgerVerbs.choiceHelp,
@@ -2353,7 +2527,8 @@ struct AnnotationRow: View {
     /// others.
     @ViewBuilder
     private func keepAsLessonButton(useIcons: Bool) -> some View {
-        if QueueLedgerVerbs.offersAKeep(annotation, ledgerText: ledgerText) {
+        if offered.keepAsLesson,
+           QueueLedgerVerbs.offersAKeep(annotation, ledgerText: ledgerText) {
             secondary(QueueLedgerVerbs.keepTitle, symbol: "graduationcap",
                       useIcons: useIcons,
                       help: QueueLedgerVerbs.keepHelp,
@@ -2379,7 +2554,7 @@ struct AnnotationRow: View {
     /// cost a word rather than the pane's layout width.
     @ViewBuilder
     private func answerAsRulingButton(useIcons: Bool) -> some View {
-        if let destination = rulingDestination {
+        if offered.answerAsRuling, let destination = rulingDestination {
             secondary("Answer as ruling\u{2026}", symbol: "building.columns",
                       useIcons: useIcons,
                       help: destination.help,
@@ -2392,10 +2567,12 @@ struct AnnotationRow: View {
     /// under the words that stand.
     @ViewBuilder
     private func stetButton(useIcons: Bool) -> some View {
-        secondary(
-            "Stet", symbol: "textformat.abc.dottedunderline", useIcons: useIcons,
-            help: "Read, considered — and the words stand. Resolves the note without applying or refusing anything.",
-            action: onStet)
+        if offered.dispose {
+            secondary(
+                "Stet", symbol: "textformat.abc.dottedunderline", useIcons: useIcons,
+                help: "Read, considered — and the words stand. Resolves the note without applying or refusing anything.",
+                action: onStet)
+        }
     }
 
     @ViewBuilder

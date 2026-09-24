@@ -688,6 +688,7 @@ struct ProjectWindow: View {
         // SwiftUI type-checker ceiling (the extracted-ViewModifier pattern).
         .modifier(EditorControlMirrorModifier(
             membrane: editorMembrane,
+            posture: editorPosture,
             effectiveTypography: effectiveTypography,
             editorControl: $editorControl))
         .modifier(TranslationReviewModifier(
@@ -800,11 +801,16 @@ struct ProjectWindow: View {
     /// `EditorControlMirror.membrane`, pinned without a window.
     private var editorMembrane: EditorControlMirror.Membrane {
         EditorControlMirror.membrane(
-            posture: selectedManuscriptDocId.flatMap { id in
-                documentStore?.posture(forDocId: id)
-            },
+            posture: editorPosture,
             manualReview: isReviewModeOn,
             shareIsReadOnly: Self.shareIsReadOnly(shareSnapshot))
+    }
+
+    /// The drawing posture of the manuscript document in the editor, nil where
+    /// none is — the membrane's input, and (P3c Task 5) the margin card's,
+    /// mirrored to `EditorControl.posture`.
+    private var editorPosture: Posture? {
+        selectedManuscriptDocId.flatMap { id in documentStore?.posture(forDocId: id) }
     }
 
     /// The standing line over the editor, when there is a reason to name
@@ -4963,6 +4969,10 @@ private struct EditorControlMirrorModifier: ViewModifier {
     /// selection change AND a `postureEpoch` bump both arrive here as a change
     /// of this value.
     let membrane: EditorControlMirror.Membrane
+    /// The same door's answer, whole, for the margin card's dispositions
+    /// (P3c Task 5) — mirrored beside the membrane rather than folded into it,
+    /// because the membrane is the pinned lock decision and nothing more.
+    let posture: Posture?
     let effectiveTypography: TypographySettings
     @Binding var editorControl: EditorControl
     @Environment(UserPreferences.self) private var userPreferences
@@ -4973,6 +4983,7 @@ private struct EditorControlMirrorModifier: ViewModifier {
                 editorControl.isReviewMode = membrane.isReviewMode
                 editorControl.lockEditing = membrane.lockEditing
             }
+            .onChange(of: posture) { _, posture in editorControl.posture = posture }
             .onChange(of: userPreferences.theme) { _, t in editorControl.theme = t }
             .onChange(of: effectiveTypography) { _, t in editorControl.typography = t }
             .onChange(of: userPreferences.typewriterScroll) { _, v in
@@ -4989,6 +5000,7 @@ private struct EditorControlMirrorModifier: ViewModifier {
                 // transitions, not on first render).
                 editorControl.isReviewMode = membrane.isReviewMode
                 editorControl.lockEditing = membrane.lockEditing
+                editorControl.posture = posture
                 editorControl.theme = userPreferences.theme
                 editorControl.typography = effectiveTypography
                 editorControl.typewriterScroll = userPreferences.typewriterScroll

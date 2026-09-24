@@ -324,6 +324,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// view (like the gutter) and shown only in review mode.
     weak var markRenderer: AnnotationMarkRenderer?
     weak var marginRail: ReviewMarginRailView?
+    /// The posture the margin card's dispositions follow (P3c Task 5) —
+    /// `EditorControl.posture`, set only through `updateReviewCardVerbs(for:)`.
+    var reviewCardPosture: Posture?
 
     /// Staleness-badge overlay for translation review (Task 12): margin dots in
     /// the LEFT inset — amber (stale) / gray-hollow (missing). Installed lazily
@@ -885,6 +888,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             // explicitly so the tracked set never silently widens.
             _ = control.lockEditing
             _ = control.isReviewMode
+            _ = control.posture
             _ = control.theme
             _ = control.typography
             _ = control.typewriterScroll
@@ -918,6 +922,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         applyControlCount += 1
         setLockEditing(c.lockEditing)        // self-guarded
         setReviewMode(c.isReviewMode)        // self-guarded
+        updateReviewCardVerbs(for: c.posture) // self-guarded
         // Translation review is a pure membrane flip driven off language
         // presence; the surface buffer swap is EditorHost's (the text binding).
         setTranslationReview(c.translationLanguage != nil)   // self-guarded

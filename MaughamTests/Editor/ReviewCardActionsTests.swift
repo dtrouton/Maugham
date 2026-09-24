@@ -81,4 +81,43 @@ final class ReviewCardActionsTests: XCTestCase {
             XCTAssertEqual(ReviewCardAction.stet.label(for: kind), "Stet")
         }
     }
+
+    // MARK: - The posture (P3c Task 5)
+
+    private func posture(_ permit: Permit, in cls: DocumentClass) -> Posture {
+        Posture(LocalWritePermit(permit: permit, actor: .author, documentClass: cls))
+    }
+
+    /// A reviewer's card: no disposition for any kind, and Edit / Delete of
+    /// HER note stay — the reviewer row.
+    func test_aReviewersCardOffersNoDispositionAndKeepsHerOwnEditAndDelete() {
+        let reviewer = posture(.reviewer, in: .piece("doc-a"))
+        for kind in AnnotationKind.allCases {
+            XCTAssertEqual(
+                ReviewCardActions.actions(for: kind, isOwn: false, posture: reviewer), [],
+                "\(kind): nothing to press on somebody else's note")
+            XCTAssertEqual(
+                ReviewCardActions.actions(for: kind, isOwn: true, posture: reviewer),
+                [.edit, .delete], "\(kind): her own note keeps Edit and Delete")
+        }
+    }
+
+    /// The other direction: in her own piece every verb comes back, exactly
+    /// the card with no posture at all; outside it, none of them.
+    func test_aPiecesAuthorsCardFollowsTheDocumentsPosture() {
+        let mine = posture(.author(.pieces(["doc-a"])), in: .piece("doc-a"))
+        let theirs = posture(.author(.pieces(["doc-a"])), in: .piece("doc-b"))
+        for kind in AnnotationKind.allCases {
+            for isOwn in [false, true] {
+                XCTAssertEqual(
+                    ReviewCardActions.actions(for: kind, isOwn: isOwn, posture: mine),
+                    ReviewCardActions.actions(for: kind, isOwn: isOwn),
+                    "\(kind)/isOwn=\(isOwn): her own piece offers every verb")
+                XCTAssertEqual(
+                    ReviewCardActions.actions(for: kind, isOwn: isOwn, posture: theirs),
+                    isOwn ? [.edit, .delete] : [],
+                    "\(kind)/isOwn=\(isOwn): somebody else's piece offers none")
+            }
+        }
+    }
 }

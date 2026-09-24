@@ -568,7 +568,7 @@ final class ReviewMarginRailView: NSView {
               let mark = coordinator.resolvedReviewMarks.first(where: { $0.id == selectedId })
         else { return }
 
-        let actions = ReviewCardActions.actions(for: mark.kind, isOwn: mark.isOwn)
+        let actions = coordinator.reviewCardActions(for: mark)
         guard !actions.isEmpty else { return }
 
         let stack = NSStackView()

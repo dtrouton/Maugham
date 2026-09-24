@@ -401,8 +401,13 @@ public final class Document {
     /// from the queue exactly like the pre-A2 defect, and a defect the writer
     /// cannot tell from a bug is one they will report as a bug — so it says so
     /// rather than reaching `documentLog` alone.
+    ///
+    /// `notPermitted` (P3c Task 5) is a refusal of the other kind: nothing
+    /// drifted, but this Mac may no longer write that act in this piece — a
+    /// demotion landed between the press and its ⌘Z or ⇧⌘Z. The door refused
+    /// the compensating op before it was written (`refusingLoudly`).
     internal enum UndoDecline: Hashable, CaseIterable {
-        case annotationEdit, acceptNote, stet, triage, stetRestore
+        case annotationEdit, acceptNote, stet, triage, stetRestore, notPermitted
 
         /// One sentence for however many notes of this verb declined. A batch
         /// that ALSO undid some notes says nothing about them: the queue has
@@ -421,6 +426,8 @@ public final class Document {
                 "Couldn't undo \(count) triage marks — they changed on another device."
             case .stetRestore:
                 "Couldn't put back \(count) notes' earlier resolutions — they're open again."
+            case .notPermitted:
+                "Couldn't change \(count) notes — this Mac can no longer answer notes in this piece."
             }
         }
 
@@ -436,6 +443,8 @@ public final class Document {
                 "Couldn't undo the triage mark — it changed on another device."
             case .stetRestore:
                 "Couldn't put back the note's earlier resolution — it's open again."
+            case .notPermitted:
+                "Couldn't change that note — this Mac can no longer answer notes in this piece."
             }
         }
     }
