@@ -8,38 +8,38 @@ final class ReviewCardActionsTests: XCTestCase {
 
     func test_comment_notOwn_acceptStetArchive() {
         XCTAssertEqual(
-            ReviewCardActions.actions(for: .comment, isOwn: false),
+            ReviewCardActions.actions(for: .comment, isOwn: false, posture: nil),
             [.accept, .stet, .archive])
     }
 
     func test_suggestedChange_notOwn_acceptRejectStetArchive() {
         XCTAssertEqual(
-            ReviewCardActions.actions(for: .suggestedChange, isOwn: false),
+            ReviewCardActions.actions(for: .suggestedChange, isOwn: false, posture: nil),
             [.accept, .reject, .stet, .archive])
     }
 
     func test_query_notOwn_replyStetArchive() {
         XCTAssertEqual(
-            ReviewCardActions.actions(for: .query, isOwn: false),
+            ReviewCardActions.actions(for: .query, isOwn: false, posture: nil),
             [.reply, .stet, .archive])
     }
 
     func test_craftNote_notOwn_acceptRejectStetArchive() {
         XCTAssertEqual(
-            ReviewCardActions.actions(for: .craftNote, isOwn: false),
+            ReviewCardActions.actions(for: .craftNote, isOwn: false, posture: nil),
             [.accept, .reject, .stet, .archive])
     }
 
     func test_own_appendsEditAndDelete() {
         // Own annotations add Edit + Delete on top of the kind's disposition set.
         XCTAssertEqual(
-            ReviewCardActions.actions(for: .comment, isOwn: true),
+            ReviewCardActions.actions(for: .comment, isOwn: true, posture: nil),
             [.accept, .stet, .archive, .edit, .delete])
         XCTAssertEqual(
-            ReviewCardActions.actions(for: .query, isOwn: true),
+            ReviewCardActions.actions(for: .query, isOwn: true, posture: nil),
             [.reply, .stet, .archive, .edit, .delete])
         XCTAssertEqual(
-            ReviewCardActions.actions(for: .suggestedChange, isOwn: true),
+            ReviewCardActions.actions(for: .suggestedChange, isOwn: true, posture: nil),
             [.accept, .reject, .stet, .archive, .edit, .delete])
     }
 
@@ -47,7 +47,7 @@ final class ReviewCardActionsTests: XCTestCase {
     /// Archive does — the card and the pane offer the same four answers.
     func test_stetIsOfferedForEveryKindThatOffersArchive() {
         for kind in AnnotationKind.allCases {
-            let actions = ReviewCardActions.actions(for: kind, isOwn: false)
+            let actions = ReviewCardActions.actions(for: kind, isOwn: false, posture: nil)
             XCTAssertTrue(actions.contains(.archive), "\(kind) offers Archive")
             XCTAssertTrue(actions.contains(.stet), "\(kind) must also offer Stet")
         }
@@ -59,7 +59,7 @@ final class ReviewCardActionsTests: XCTestCase {
     func test_triageIsNotAMarginCardAction() {
         for kind in AnnotationKind.allCases {
             for isOwn in [true, false] {
-                let labels = ReviewCardActions.actions(for: kind, isOwn: isOwn)
+                let labels = ReviewCardActions.actions(for: kind, isOwn: isOwn, posture: nil)
                     .map { $0.label(for: kind).lowercased() }
                 XCTAssertFalse(labels.contains { ["do", "decline", "discuss"].contains($0) },
                                "\(kind)/isOwn=\(isOwn) must not carry a triage mark")
@@ -111,7 +111,7 @@ final class ReviewCardActionsTests: XCTestCase {
             for isOwn in [false, true] {
                 XCTAssertEqual(
                     ReviewCardActions.actions(for: kind, isOwn: isOwn, posture: mine),
-                    ReviewCardActions.actions(for: kind, isOwn: isOwn),
+                    ReviewCardActions.actions(for: kind, isOwn: isOwn, posture: nil),
                     "\(kind)/isOwn=\(isOwn): her own piece offers every verb")
                 XCTAssertEqual(
                     ReviewCardActions.actions(for: kind, isOwn: isOwn, posture: theirs),

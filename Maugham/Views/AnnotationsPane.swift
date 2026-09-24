@@ -1338,11 +1338,10 @@ struct AnnotationsPane: View {
             annotation: ann,
             revertIsEnabled: AnnotationRowPolicy.revertEnabled(ann, livePids: livePids),
             showingStet: stetFlourishIds.contains(ann.id),
-            isOwn: isOwn,
+            verbs: rowVerbs(for: ann, docId: docId, isOwn: isOwn),
             verbsEnabled: AnnotationScopePolicy.verbsEnabled(
                 documentIsOpen: rowDocument != nil),
             verbsDisabledReason: AnnotationScopePolicy.closedPieceReason,
-            verbs: rowVerbs(for: ann, docId: docId, isOwn: isOwn),
             isSelectable: isSelectable,
             isSelected: isSelected,
             onToggleSelection: { toggleSelection(ann.id) },
@@ -2099,9 +2098,9 @@ struct AnnotationRowVerbs: Equatable {
             ownNote: isOwn)
     }
 
-    /// What a row built outside the pane (a test's, a measurement's) draws: the
-    /// P1 surface, every verb its kind has. The pane — the one production host
-    /// — always passes `decide`'s answer.
+    /// **The P1 surface, by name** — every verb its kind has. For a row built
+    /// outside the pane (a test's, a measurement's), which must say so; the
+    /// pane — the one production host — always passes `decide`'s answer.
     static func unrestricted(isOwn: Bool) -> AnnotationRowVerbs {
         AnnotationRowVerbs(
             acceptOrReject: true, dispose: true, answerAsRuling: true,
@@ -2113,10 +2112,16 @@ struct AnnotationRow: View {
     let annotation: Annotation
     var revertIsEnabled: Bool = true
     var showingStet: Bool = false
-    /// True iff this is the local reviewer's own human annotation — gates the
-    /// Edit + Delete (withdraw) affordances. Claude's / other humans' rows
-    /// never show them.
-    var isOwn: Bool = false
+    /// **Which verbs this Mac may offer on this row** (P3c Task 5), asked of
+    /// the row's own document's posture by the pane (`AnnotationRowVerbs
+    /// .decide`). REQUIRED, deliberately: a host that forgot to thread the
+    /// posture would otherwise draw every verb, so every host — a test's
+    /// included — says what it means (`.unrestricted(isOwn:)` is the P1
+    /// surface, by name). Carries ownership too (`ownNote`): Edit + Delete of
+    /// the local writer's own note. A verb the posture forbids is not drawn;
+    /// `verbsEnabled` below is a different question (is there a live document
+    /// to append to at all).
+    let verbs: AnnotationRowVerbs
     /// **Whether this row's verbs can act** (M3 P2 Task 7). False in the
     /// cross-document scope when the row's piece is closed: there is no live
     /// `Document` to append to, and the alternative — a transient one — would
@@ -2124,12 +2129,6 @@ struct AnnotationRow: View {
     /// never enabled and silently inert (RULING-35).
     var verbsEnabled: Bool = true
     var verbsDisabledReason: String? = nil
-    /// **Which verbs this Mac may offer on this row** (P3c Task 5), asked of
-    /// the row's own document's posture by the pane. Nil — a row built
-    /// outside the pane — is the P1 surface (`AnnotationRowVerbs.unrestricted`).
-    /// A verb the posture forbids is not drawn; `verbsEnabled` above is a
-    /// different question (is there a live document to append to at all).
-    var verbs: AnnotationRowVerbs? = nil
     /// Multiselect (M3 P2 Task 5) — true only while the pane is in selection
     /// mode. The control is a `Button`, so it takes the click the row's
     /// whole-body `.onTapGesture` would otherwise read as navigation: selecting
@@ -2194,9 +2193,7 @@ struct AnnotationRow: View {
         RulingDestination.offered(for: annotation, manifest: manifest)
     }
 
-    private var offered: AnnotationRowVerbs {
-        verbs ?? .unrestricted(isOwn: isOwn)
-    }
+    private var offered: AnnotationRowVerbs { verbs }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {

@@ -82,11 +82,13 @@ enum ReviewCardAction: Equatable {
 /// ownership alone. `posture` is the editor's document's, mirrored into
 /// `EditorControl.posture` from the window's drawing door; nil — no posture
 /// known, which is every surface that predates P3c — is the P1 card, every
-/// verb its kind has. The Document refuses at its own door either way
+/// verb its kind has. The parameter is REQUIRED, nil included: a caller that
+/// forgot the posture would otherwise draw every verb, so each one says what it
+/// means. The Document refuses at its own door either way
 /// (`Document.requireDispositionPermitted`).
 enum ReviewCardActions {
     static func actions(
-        for kind: AnnotationKind, isOwn: Bool, posture: Posture? = nil
+        for kind: AnnotationKind, isOwn: Bool, posture: Posture?
     ) -> [ReviewCardAction] {
         var actions: [ReviewCardAction]
         switch kind {

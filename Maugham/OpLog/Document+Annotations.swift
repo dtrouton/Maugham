@@ -965,7 +965,11 @@ extension Document {
                 } catch {
                     // Refused at the posture door (P3c Task 5): said, like any
                     // other refused ⌘Z — and nothing moved, so nothing else is.
-                    if error is PostureRefusal { doc.declineUndo(.notPermitted) }
+                    if error is PostureRefusal {
+                        doc.declineUndo(.notPermitted)
+                        documentLog.error("stetAnnotation undo: the reopen for \(id, privacy: .public) was refused at the posture door — the note is still stetted, nothing is restored, and the writer is told why")
+                        return
+                    }
                     documentLog.error("stetAnnotation undo: the reopen for \(id, privacy: .public) failed: \(error.localizedDescription, privacy: .public) — the note is still stetted, so nothing is restored and nothing is said")
                     return
                 }

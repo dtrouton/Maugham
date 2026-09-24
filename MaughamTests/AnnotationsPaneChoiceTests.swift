@@ -189,6 +189,7 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
     ) -> NSWindow {
         let row = AnnotationRow(
             annotation: annotation,
+            verbs: .unrestricted(isOwn: false),
             onAccept: {}, onReject: {}, onArchive: {}, onReply: {},
             onJumpToParagraph: {},
             ledgerText: ledgerText, manifest: nil)
@@ -876,6 +877,7 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
         for (what, annotation) in rows {
             let row = AnnotationRow(
                 annotation: annotation,
+                verbs: .unrestricted(isOwn: false),
                 onAccept: {}, onReject: {}, onArchive: {}, onReply: {},
                 onJumpToParagraph: {}, manifest: nil)
             for width in widths {
