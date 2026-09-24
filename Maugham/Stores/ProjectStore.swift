@@ -156,6 +156,24 @@ public final class ProjectStore {
     public let url: URL
     public internal(set) var manifest: ProjectManifest
 
+    /// **The manifest as it last stood level with disk** — loaded, saved, or
+    /// adopted from another device (F7, 2026-09-23). Outside a structural verb,
+    /// `manifest` differing from it is a change of this window's own that
+    /// never reached disk — a verb whose save threw — and an adoption over it
+    /// says so in the log (`ManifestAdoption.overUnsavedChange`).
+    /// `@ObservationIgnored`: bookkeeping, never something a view draws.
+    @ObservationIgnored internal var settledManifest: ProjectManifest
+
+    /// **How many structural verbs are between their first read of the
+    /// manifest and the end of their save** (F7 fix round, I1). A verb that
+    /// copies part of the structure, awaits file surgery and then writes the
+    /// copy back would undo an adoption that landed during the wait, so while
+    /// this is above zero a manifest from elsewhere is HELD rather than adopted
+    /// (`DocumentStore.structuralVerbsSettled`). Entered by
+    /// `beginStructuralVerb()`; `TripwireGrepTests` requires it of every
+    /// production function that awaits before its `saveManifest()`.
+    @ObservationIgnored internal var structuralVerbDepth = 0
+
     /// Optional reference to the DocumentStore that owns this project's
     /// coordinated I/O. Set by ProjectWindow at open time. When non-nil,
     /// manifest saves route through DocumentStore.writeManifest. When nil
@@ -229,6 +247,24 @@ public final class ProjectStore {
 
     public func recordWordCount(forDocumentId id: String, wordCount: Int) {
         wordCountCache[id] = wordCount
+    }
+
+    /// A document that left the structure takes its count with it, so the
+    /// project total is the structure's (F7: a piece another device trashed).
+    func forgetWordCount(forDocumentId id: String) {
+        wordCountCache.removeValue(forKey: id)
+    }
+
+    /// One document's word count, derived from the op log (ADR 0018) through
+    /// the shared `derivedCache`. Nil when the log cannot be read — a piece
+    /// whose ops have not synced yet, or an unreadable file. The load-time
+    /// population and an adoption's refresh both count through here.
+    func derivedWordCount(of item: StructureItem) -> Int? {
+        guard let path = item.path,
+              let state = try? derivedCache.state(forDocId: item.id, in: url)
+        else { return nil }
+        let text = state.paragraphs.values.joined(separator: " ")
+        return WritingModeFactory.mode(for: path).wordCount(text)
     }
 
     public func cachedWordCount(for id: String) -> Int? {
@@ -398,6 +434,7 @@ public final class ProjectStore {
     ) {
         self.url = url
         self.manifest = manifest
+        self.settledManifest = manifest
         self.trashStore = trashStore
         self.trashEntries = trashEntries
     }
@@ -506,7 +543,7 @@ public final class ProjectStore {
         wordCountPopulationTask = Task { @MainActor [weak self] in
             for item in Self.collectDocuments(in: manifest.structure) {
                 if Task.isCancelled { return }
-                guard let path = item.path else { continue }
+                guard item.path != nil else { continue }
                 // **`self` is bound inside a scope that ENDS before the
                 // suspension below.** A `guard let self` at the top of the loop
                 // body binds a strong reference for the whole iteration, and
@@ -526,11 +563,16 @@ public final class ProjectStore {
                     // ADR 0018: derive from the op log, never the .md file.
                     // RULING-54 lenient, reason recorded: a background stats
                     // pass skips an unreadable doc; opening it refuses loudly.
-                    guard let state = try? self.derivedCache.state(
-                        forDocId: item.id, in: projectURL) else { return true }
-                    let text = state.paragraphs.values.joined(separator: " ")
-                    let count = WritingModeFactory.mode(for: path).wordCount(text)
+                    // A piece that left the structure since this pass began —
+                    // another device trashed it and the adoption forgot its
+                    // count — stays forgotten (F7 second fix round, m3).
+                    guard TreeWalk.contains(id: item.id, in: self.manifest.structure),
+                          let count = self.derivedWordCount(of: item) else { return true }
+                    let prior = self.cachedWordCount(for: item.id) ?? 0
                     self.recordWordCount(forDocumentId: item.id, wordCount: count)
+                    // Counting what is already on disk is not the writer
+                    // typing: a session already under way does not gain it.
+                    self.documentStore?.excludeForeignWords(count - prior)
                     return true
                 }()
                 guard storeIsStillHere else { return }

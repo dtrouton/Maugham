@@ -73,6 +73,7 @@ extension ProjectStore {
         parentId: String?,
         fromURL externalURL: URL
     ) async throws -> ResearchItem {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         guard let documentStore else {
             throw ProjectStoreError.fileSystemError("DocumentStore not available")
         }
@@ -397,6 +398,7 @@ extension ProjectStore {
     /// Duplicate a research item. Asset → copy file with "Copy of <title>".
     /// Link → new entry with same URL. Group → recursive copy with fresh ids.
     public func duplicateResearchItem(id: String) async throws -> ResearchItem {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         guard let source = findResearchItem(id: id, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
         }
@@ -535,6 +537,7 @@ extension ProjectStore {
     /// armed with the last entry alone, and returned one of fifty saying
     /// nothing about the rest.
     public func deleteResearchItems(ids: [String]) async throws {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         let effective = collapseResearchSelection(ids)
         // Validate the whole batch before trashing anything.
         var titles: [String] = []
@@ -637,6 +640,7 @@ extension ProjectStore {
         tags: [String]? = nil,
         url linkURL: String? = nil
     ) async throws {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         guard let oldItem = findResearchItem(id: id, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
         }
