@@ -387,6 +387,17 @@ final class AdmissionPermitTests: XCTestCase {
             + "whether her key is a person's at all")
         XCTAssertEqual(store.heldLinesByDevice(), union.counts,
                        "one walk, two readers")
+        // **And what those lines ARE, in which piece** (P3b smoke find F2):
+        // the load's description, joined to the docId only this fold knows.
+        let what = try XCTUnwrap(union.waiting[stranger.fingerprint]?[id])
+        XCTAssertEqual(what.phrase?.text, "1 paragraph")
+        XCTAssertEqual(what.peek, "02")
+        let order = [(id: id, title: "Chapter 1")]
+        XCTAssertEqual(
+            AdmissionWaiting.describe(
+                holder: stranger.fingerprint, waiting: union.waiting,
+                captures: union.captures, order: order)?.line,
+            "1 paragraph waiting in \u{201C}Chapter 1\u{201D}")
         await held.close()
     }
 
@@ -530,6 +541,40 @@ final class AdmissionPermitTests: XCTestCase {
 
         XCTAssertTrue(store.closedPieceQuestions().contains(
             .init(person: stranger.fingerprint, docId: piece)))
+    }
+
+    /// **Theirs brings her words in — the smoke's own route, end to end**
+    /// (P3b smoke find F9). A stranger opens a piece and writes in it; the
+    /// root lets her in as an author of a DIFFERENT piece, so the admission's
+    /// mark names her line; the load asks *is it theirs?*; the writer answers
+    /// Theirs; and the next load applies what she wrote. Before the fix her
+    /// line fell under the admission's mark and was judged for good by the
+    /// permit that could not place it; the answer now re-judges it BY REASON
+    /// (Denver's ruling of 2026-09-23).
+    func test_theirsBringsAStrangersHeldWordsIntoThePieceSheStarted() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let piece = try pieceIdFromManifest()
+        try await writeStrangerFile(docId: piece, opIds: ["herOpening"])
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: PermitControl.permit(for: .somePieces, pieces: ["ch-A"]))
+
+        let asked = try await Document.load(
+            url: docURL, actor: .author, session: "s", presenter: nil)
+        XCTAssertEqual(asked.startedAPiece, [stranger.fingerprint], "the question is put")
+        XCTAssertFalse(asked.opLogSnapshot.contains { $0.opId == "herOpening" })
+        await asked.close()
+
+        _ = try await store.pieceIsTheirs(person: stranger.fingerprint, docId: piece)
+
+        let answered = try await Document.load(
+            url: docURL, actor: .author, session: "s", presenter: nil)
+        defer { Task { await answered.close() } }
+        XCTAssertTrue(
+            answered.opLogSnapshot.contains { $0.opId == "herOpening" },
+            "her words came in")
+        XCTAssertTrue(answered.startedAPiece.isEmpty, "and nothing of hers is waiting")
     }
 
     /// **A reviewer is refused, and refused in the act's own words.** §4.5 can

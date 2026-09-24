@@ -188,6 +188,95 @@ final class AdmissionDecisionTests: XCTestCase {
             "Admit is refused until the writer says what to call it")
     }
 
+    // MARK: - A merge is never the default (P3b smoke F1)
+
+    /// On the smoke every Mac was called "Denver’s MacBook Air" — the root's own
+    /// label — and the field pre-filled with it, so one press of Admit made the
+    /// stranger the root, with the root's permit.
+    func test_aMachineNameThatIsAlreadySomebodysLabelIsNotProposed() throws {
+        let registry = Registry(
+            devices: [device(phone, name: "Denver’s MacBook Air", kind: .mac)],
+            people: [person(root, label: "Denver’s MacBook Air",
+                            ownName: "Denver’s MacBook Air", admittedBy: root)])
+
+        let request = try XCTUnwrap(AdmissionDecision.requests(
+            pending: [phone: 1], registry: registry, memory: [:], myRoot: root).first)
+
+        XCTAssertEqual(request.ownName, "Denver’s MacBook Air",
+                       "what it calls itself is still said in the title")
+        XCTAssertEqual(request.proposedLabel, "",
+                       "but the field does not start on a merge")
+        XCTAssertEqual(request.sharesItsNameWith, "Denver’s MacBook Air")
+        XCTAssertEqual(
+            AdmissionDecision.outcome(for: request, typedLabel: request.proposedLabel),
+            .notNow, "so Admit, pressed at once, writes nothing")
+    }
+
+    func test_theCollisionIsTheSameRuleTheMergeIsAndReadsMemoryToo() throws {
+        // Case and surrounding space differ, and the label is only this Mac's
+        // memory of another device: still the same person by `matches`.
+        let memory = ["cccc4444": AdmissionMemory.Label(
+            label: "sam’s mac", ownName: "Sam’s Mac", labelledAt: Date(timeIntervalSince1970: 1))]
+        let registry = rootedRegistry(devices: [device(phone, name: " Sam’s Mac ")])
+
+        let request = try XCTUnwrap(AdmissionDecision.requests(
+            pending: [phone: 1], registry: registry, memory: memory, myRoot: root).first)
+
+        XCTAssertEqual(request.proposedLabel, "")
+        XCTAssertEqual(request.sharesItsNameWith, "sam’s mac",
+                       "named in the existing label's own spelling")
+    }
+
+    func test_aDeliberateMergeIsStillReachable() throws {
+        let registry = Registry(
+            devices: [device(phone, name: "Denver’s MacBook Air", kind: .mac)],
+            people: [person(root, label: "Denver’s MacBook Air", admittedBy: root)])
+        let request = try XCTUnwrap(AdmissionDecision.requests(
+            pending: [phone: 1], registry: registry, memory: [:], myRoot: root).first)
+
+        // Chosen from "this is also…" (which writes the label into the field)
+        // or typed: either is the writer's act, and it merges.
+        XCTAssertEqual(
+            AdmissionDecision.outcome(for: request, typedLabel: "Denver’s MacBook Air"),
+            .mergeUnder(label: "Denver’s MacBook Air"))
+        XCTAssertTrue(request.knownLabels.contains("Denver’s MacBook Air"),
+                      "and the menu offers it")
+    }
+
+    func test_aMachineNameNobodyHasIsStillProposed() throws {
+        let request = try XCTUnwrap(AdmissionDecision.requests(
+            pending: [phone: 1],
+            registry: rootedRegistry(devices: [device(phone, name: "Sam’s MacBook")]),
+            memory: [:], myRoot: root).first)
+
+        XCTAssertEqual(request.proposedLabel, "Sam’s MacBook")
+        XCTAssertNil(request.sharesItsNameWith)
+        XCTAssertEqual(
+            AdmissionDecision.outcome(for: request, typedLabel: request.proposedLabel),
+            .admit(label: "Sam’s MacBook"),
+            "the ordinary admission is still one press")
+    }
+
+    /// The invariant itself, over every shape of book the two tests above are
+    /// examples of: whatever the field STARTS with never merges.
+    func test_theProposedLabelNeverMerges() {
+        let names = ["Denver", "denver ", "Denver’s MacBook Air", "Amelia", "Sam", ""]
+        for machine in names {
+            for label in names where !label.isEmpty {
+                let registry = Registry(
+                    devices: [device(phone, name: machine, kind: .mac)],
+                    people: [person(root, label: label, admittedBy: root)])
+                for request in AdmissionDecision.requests(
+                    pending: [phone: 1], registry: registry, memory: [:], myRoot: root) {
+                    if case .mergeUnder = AdmissionDecision.outcome(
+                        for: request, typedLabel: request.proposedLabel) {
+                        XCTFail("the field starts on a merge: machine \(machine), label \(label)")
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Refusals speak (RULING-7)
 
     func test_eachRefusalCarriesItsOwnSentence() {

@@ -38,6 +38,20 @@ public final class Document {
     /// resurrecting the husk. Mirror of `EditorCoordinator.detach()`.
     public private(set) var isClosed = false
 
+    /// **Whether this Document may still write its `.md`** (F7 fix round,
+    /// Denver's ruling 2026-09-23). Cleared by `stopRendering()` when another
+    /// device has moved or trashed the piece while it was open here: the file
+    /// is no longer at `url`, and an autosave or the flush in `close()` would
+    /// put it back there, which is tripwire 14's phantom arriving from another
+    /// Mac. The op log and the pending mirror are still written, so no word is
+    /// lost; only the derived render is withheld.
+    public private(set) var rendersToDisk = true
+
+    /// Stop rendering the `.md` for good. See `rendersToDisk`.
+    public func stopRendering() {
+        rendersToDisk = false
+    }
+
     /// Recovery spec §4: the read-only partial open. Set only by
     /// `Document.load(recovery: .readOnlyPartial)`; a doc carrying this state
     /// can write NOTHING — every path that reaches `opStore.append` or
@@ -95,6 +109,12 @@ public final class Document {
     /// first paragraph of a new chapter ARRIVES through sync, which produces
     /// no applied op at all. Empty for every book that has narrowed nobody.
     public internal(set) var startedAPiece: Set<String> = []
+
+    /// **The holders among `startedAPiece` whose piece had been TAKEN from
+    /// them** (P3b smoke F9, Q1) — the walk's own answer
+    /// (`AmendmentPermits.whoKeptWritingInATakenPiece`), stamped beside it for
+    /// the same reason, so History's banner can say the truth on a draw.
+    public internal(set) var keptWritingInATakenPiece: Set<String> = []
 
     /// The pending file `load` found but could not recover (RULING-54,
     /// M9-OL-010): un-bursted keystrokes from a crashed session, already
@@ -743,6 +763,10 @@ public final class Document {
                     "pending mirror flush failed for doc \(self.docId, privacy: .public); crash recovery may lose the un-bursted tail: \(error.localizedDescription, privacy: .public)")
             }
         }
+
+        // A piece another device moved or trashed has no file at `url` any
+        // more, and writing one would be a phantom (see `rendersToDisk`).
+        guard rendersToDisk else { return }
 
         // ADR 0019: the on-disk file is the clean display form (no ¶id / t-
         // anchors). The op log + in-memory NSTextStorage keep the anchors.
@@ -1433,7 +1457,48 @@ public final class Document {
         }
     }
 
+    /// **Single-flight** (F7 second fix round, I-A). `isClosed` only flips at
+    /// the END of the close, after a dozen suspensions, so two closers arriving
+    /// together — a remote rename's adoption and `EditorHost`'s reload, or
+    /// `appWillTerminate` racing `onDisappear` — both used to pass the guard and
+    /// run the whole close twice: the pending burst appended twice, the chain
+    /// sealed twice, the tail rotated twice. The first caller starts the close;
+    /// every later caller awaits that same close and returns when it is done.
+    ///
+    /// **The first caller runs the close inline**, as it always has, rather
+    /// than in a `Task` of its own: callers rely on its synchronous prefix
+    /// running before they next suspend, and a close deferred behind whatever
+    /// the main actor had queued broke a statement pane's scope change
+    /// (`StatementEditorMountTests.test_changingScopeFlushesTheOutgoingStatement`).
     public func close() async {
+        guard !isClosed else { return }
+        if closeWaiters != nil {
+            await withCheckedContinuation { closeWaiters?.append($0) }
+            return
+        }
+        closeWaiters = []
+        await performClose()
+        let waiting = closeWaiters ?? []
+        closeWaiters = nil
+        for waiter in waiting { waiter.resume() }
+    }
+
+    /// Non-nil while a close is running: the callers waiting for it. See
+    /// `close()`.
+    @ObservationIgnored private var closeWaiters: [CheckedContinuation<Void, Never>]?
+
+    /// How many times the body of a close has run. Test-observable: a single-
+    /// flight close runs it once however many callers arrive.
+    @ObservationIgnored internal private(set) var closeBodyRuns = 0
+
+    /// Test seam: awaited at the top of the close body, so a test can hold a
+    /// close open across a real suspension while a second caller arrives. Nil
+    /// in production.
+    @ObservationIgnored internal var closeBodyWillRun: (@MainActor () async -> Void)?
+
+    private func performClose() async {
+        closeBodyRuns += 1
+        await closeBodyWillRun?()
         // Idempotent: a closed doc is already husked and its disk truth written,
         // so a second close (DocumentStore drain + EditorHost belt, or
         // appWillTerminate racing onDisappear) returns immediately rather than

@@ -27,11 +27,46 @@ struct AdmissionRequest: Identifiable, Equatable {
     /// answer to *what shall I call this* is *what it calls itself*. Empty when
     /// the device has no record here, which leaves Admit refused until the
     /// writer types something (`outcome` answers `.notNow` for empty).
+    ///
+    /// **And empty when its own name is a label this book already has** (P3b
+    /// smoke find F1). Two Macs sharing a name is the ORDINARY case — the
+    /// shipped default, a machine restored from another's backup (tripwire
+    /// 35) — and a field pre-filled with a known label is a merge: one press
+    /// of Admit made a stranger the root, with the root's permit. A merge is
+    /// only ever the writer's deliberate act, through *this is also…* or a
+    /// label they typed; never the default. `sharesItsNameWith` says why the
+    /// field is empty. This holds for the request as DERIVED; keeping a stale
+    /// derivation out of the field is `AdmissionQueue.awaitingSettlement`'s and
+    /// `AdmissionSheet.reseeded`'s.
     let proposedLabel: String
     /// Every label this book already knows, so *this is also…* can offer them
     /// rather than making the writer re-spell one. Sorted, and deduplicated
     /// case-insensitively on first spelling.
     let knownLabels: [String]
+    /// The label this book already has that the device's OWN name matches,
+    /// in that label's spelling — nil when there is none (F1). Set exactly
+    /// when the device's name was withheld from `proposedLabel`.
+    let sharesItsNameWith: String?
+    /// **What is waiting, and where, in the writer's terms** (P3b smoke find
+    /// F2) — *1 paragraph in “Chapter 3”* and the first words of it. Filled in
+    /// by the window from the loads' own descriptions (`AdmissionWaiting
+    /// .describe`); nil where there is nothing to describe, and the sheet then
+    /// says the plain count.
+    var described: AdmissionWaiting?
+
+    init(
+        fingerprint: String, ownName: String?, code: String,
+        waitingCount: Int, proposedLabel: String, knownLabels: [String],
+        sharesItsNameWith: String? = nil
+    ) {
+        self.fingerprint = fingerprint
+        self.ownName = ownName
+        self.code = code
+        self.waitingCount = waitingCount
+        self.proposedLabel = proposedLabel
+        self.knownLabels = knownLabels
+        self.sharesItsNameWith = sharesItsNameWith
+    }
 
     var id: String { fingerprint }
 
@@ -115,14 +150,33 @@ enum AdmissionDecision {
             else { return nil }
             let record = registry.devices.first { $0.device == fingerprint }
             let ownName = record?.name
+            let start = Self.proposal(ownName: ownName, knownLabels: labels)
             return AdmissionRequest(
                 fingerprint: fingerprint,
                 ownName: ownName,
                 code: DeviceCode.short(fingerprint),
                 waitingCount: waiting,
-                proposedLabel: ownName ?? "",
-                knownLabels: labels)
+                proposedLabel: start.label,
+                knownLabels: labels,
+                sharesItsNameWith: start.collidesWith)
         }
+    }
+
+    /// **What the label field starts with — never a merge** (P3b smoke F1).
+    ///
+    /// The device's own name, unless that name is already a label here — in
+    /// which case nothing, and the label it collides with, so the sheet can
+    /// say why. Matched by `matches`, the same rule `outcome` merges by, so
+    /// the field's starting value can never be one `outcome` would read as
+    /// `.mergeUnder`: the two cannot disagree about what a collision is.
+    static func proposal(
+        ownName: String?, knownLabels: [String]
+    ) -> (label: String, collidesWith: String?) {
+        guard let ownName, !ownName.isEmpty else { return ("", nil) }
+        if let existing = knownLabels.first(where: { matches($0, ownName) }) {
+            return ("", existing)
+        }
+        return (ownName, nil)
     }
 
     // MARK: - What a held holder IS (P3b Task 4, spec §7.1)

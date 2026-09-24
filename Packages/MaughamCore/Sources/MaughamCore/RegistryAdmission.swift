@@ -580,6 +580,16 @@ public enum RegistryAdmission {
     /// The timeline is what it is asked of, because the record can be one step
     /// ahead of the history and that window is not a permit change.
     ///
+    /// **`settling` names the pieces whose §4.5 question this act answers**
+    /// (P3b smoke find F9, Denver's ruling of 2026-09-23: *Theirs* re-judges by
+    /// REASON, not by position). It is written onto the event as `settled`,
+    /// and `PermitTimeline` reads it: every line of hers in those pieces that
+    /// an EARLIER permit refused only because the piece was not in it is
+    /// judged as though it had been, wherever it sits. The mark stays the
+    /// ordinary one — the answer moves no position, it moves which pieces the
+    /// past permits are read as having held. Empty for every other caller, and
+    /// then the event's bytes are what they always were.
+    ///
     /// **The caller invalidates trust**, exactly as after an admission: this one
     /// moves what every open document APPLIES.
     @discardableResult
@@ -590,6 +600,7 @@ public enum RegistryAdmission {
         pieces: [String],
         mark: PermitMark,
         unsigned: PermitMark? = nil,
+        settling: Set<String> = [],
         in projectURL: URL,
         by root: DeviceIdentity,
         cache: RegistryCache,
@@ -635,7 +646,7 @@ public enum RegistryAdmission {
                 asked, unsigned: unsigned, subject: fingerprint)
             try writeEvent(
                 kind, about: fingerprint, role: role, scope: scope, pieces: pieces,
-                mark: mark, unsigned: unsigned,
+                mark: mark, unsigned: unsigned, settling: settling,
                 in: projectURL, by: root, within: registry,
                 now: now, presenter: presenter)
         }
@@ -901,6 +912,7 @@ public enum RegistryAdmission {
         pieces: [String],
         mark: PermitMark,
         unsigned: PermitMark? = nil,
+        settling: Set<String> = [],
         in projectURL: URL,
         by signer: DeviceIdentity,
         within registry: Registry,
@@ -975,7 +987,11 @@ public enum RegistryAdmission {
             PermitEvent(
                 event: id, kind: kind, subject: subject,
                 role: role, scope: scope, pieces: pieces, mark: streams,
-                unsigned: unsignedStreams, at: at, by: signer.fingerprint)
+                unsigned: unsignedStreams,
+                // Nil unless this act answered §4.5's question, so every other
+                // event's bytes are what they were (P3b smoke find F9).
+                settled: settling.isEmpty ? nil : settling.sorted(),
+                at: at, by: signer.fingerprint)
         }
         let draft = made(unsigned: nil)
         let event = PermitTimeline.narrows(draft)

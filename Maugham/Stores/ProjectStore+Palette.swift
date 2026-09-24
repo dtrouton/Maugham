@@ -103,6 +103,7 @@ extension ProjectStore {
     /// slug, so the new path/slug is re-derived from the manifest after the
     /// rename, and `imagePaths` are remapped from the OLD/NEW paths (not titles).
     public func updatePaletteCard(_ card: PaletteCard) async throws {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         guard let oldItem = findResearchItem(id: card.researchItemId, in: manifest.research),
               let oldPath = oldItem.path else {
             throw ProjectStoreError.structureMissing

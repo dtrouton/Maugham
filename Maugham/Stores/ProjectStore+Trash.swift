@@ -130,6 +130,7 @@ extension ProjectStore {
     /// no-DocumentStore branch of `deleteStructureItem` and `deleteResearchItem`.
     @discardableResult
     public func restoreTrashEntry(id: String) async throws -> TrashRestoreReport {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         let pending = ((try? await trashStore.entriesIncludingInternal()) ?? [])
             .first { $0.id == id }
 

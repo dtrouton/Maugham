@@ -88,6 +88,7 @@ extension ProjectStore {
     public func moveStructureItem(
         id: String, toParentId: String?, atIndex destIndex: Int
     ) async throws {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         guard let item = findItem(id: id, in: manifest.structure),
               let oldPath = item.path else {
             throw ProjectStoreError.structureMissing
@@ -258,9 +259,16 @@ extension ProjectStore {
     }
 
     func saveManifest() async throws {
+        // A save is a structural verb of its own: a manifest arriving across
+        // its `await` is held and settled after the write, never adopted over
+        // the copy being written (F7 fix round, I1).
+        beginStructuralVerb(); defer { endStructuralVerb() }
+        // What this save puts on disk, captured before the write so a mutation
+        // landing across its `await` is not counted as settled with it (F7).
+        let saving = manifest
         let data: Data
         do {
-            data = try ProjectManifest.makeEncoder().encode(manifest)
+            data = try ProjectManifest.makeEncoder().encode(saving)
         } catch {
             throw ProjectStoreError.manifestUnwritable(error.localizedDescription)
         }
@@ -272,6 +280,7 @@ extension ProjectStore {
             } catch {
                 throw ProjectStoreError.manifestUnwritable(error.localizedDescription)
             }
+            settledManifest = saving
             return
         }
 
@@ -294,6 +303,7 @@ extension ProjectStore {
                 data, toAtLeast: ProjectManifest.schemaVersion(ofFileAt: manifestURL))
             try bytes.write(to: tmpURL, options: [.atomic])
             _ = try FileManager.default.replaceItemAt(manifestURL, withItemAt: tmpURL)
+            settledManifest = saving
             // Capped at this build's own number, the coordinated door's rule
             // and for its reason (fix round 2).
             if let floor = ProjectManifest.schemaVersion(of: bytes) {
@@ -313,6 +323,7 @@ extension ProjectStore {
     public func renameStructureItem(
         id: String, newTitle: String
     ) async throws {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         guard let item = findItem(id: id, in: manifest.structure),
               let oldPath = item.path else {
             throw ProjectStoreError.structureMissing
@@ -690,6 +701,7 @@ extension ProjectStore {
     public func duplicateStructureItem(
         id: String
     ) async throws -> StructureItem {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         guard let source = findItem(id: id, in: manifest.structure),
               let sourcePath = source.path else {
             throw ProjectStoreError.structureMissing
@@ -782,6 +794,7 @@ extension ProjectStore {
     /// Compact NN sequence gaps within a parent's children (or root if nil).
     /// Idempotent: running on an already-contiguous group is a no-op.
     public func tidyFilenames(parentId: String?) async throws {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         guard let documentStore else {
             throw ProjectStoreError.fileSystemError("DocumentStore not available")
         }
@@ -938,6 +951,7 @@ extension ProjectStore {
     /// remove its manifest entry. The original file is recoverable via
     /// restoreLastDeletion() or restoreTrashEntry(id:) within 30 days.
     public func deleteStructureItem(id: String) async throws {
+        beginStructuralVerb(); defer { endStructuralVerb() }
         guard let item = findItem(id: id, in: manifest.structure) else {
             throw ProjectStoreError.structureMissing
         }

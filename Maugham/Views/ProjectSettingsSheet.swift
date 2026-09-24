@@ -518,6 +518,10 @@ struct ProjectSettingsSheet: View {
         // and this Mac's own memory of the ones already put off, which this
         // pane lists and the sheet does not.
         let heldPieceStarts = union.startedAPiece
+        // What those lines ARE, per piece, and the captures (P3b smoke F2):
+        // the pending rows say what the admission sheet says.
+        let heldWaiting = union.waiting
+        let heldCaptures = union.captures
         let declinedPieces = store.documentStore?.declinedPieceQuestions() ?? []
         let settledPieces = store.documentStore?.settledPieceQuestions() ?? []
         // What a narrowing would cost this book: the unsigned rows' subject,
@@ -581,6 +585,8 @@ struct ProjectSettingsSheet: View {
                     unsignedStreams: unsignedStreams,
                     pieces: pieces,
                     heldPieceStarts: heldPieceStarts,
+                    heldWaiting: heldWaiting,
+                    heldCaptures: heldCaptures,
                     declinedPieces: declinedPieces,
                     settledPieces: settledPieces)
                 return (model, claim)

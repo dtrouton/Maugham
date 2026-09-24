@@ -21,7 +21,7 @@ private let admissionLog = Logger(
 /// dialog — the writer is deciding about a device, and a device is a single
 /// yes-or-no about a name.
 ///
-/// **Not now dismisses until the next open** (spec §4.1). `dismissed` is window
+/// **Not now dismisses until the next open** (spec §4.1). `AdmissionQueue.dismissed` is window
 /// `@State` and nothing persists it: closing the window and opening it again is
 /// exactly the next open. The writer's own press of History's *Admit…* arrives
 /// `forced` and clears it, because that is them asking rather than the book
@@ -37,27 +37,17 @@ struct AdmissionModifier: ViewModifier {
     let projectStore: ProjectStore?
     @Binding var window: NSWindow?
 
-    /// The strangers still to be asked about, head first.
-    @State private var queue: [AdmissionRequest] = []
-    /// The one the sheet is drawing. Held apart from the queue's head on
-    /// purpose: a `sheet(item:)` whose item changes from one request straight
-    /// to another is asking SwiftUI to swap a presented sheet's identity in a
-    /// single pass, and the second sheet is the one that does not appear. So
-    /// this goes to nil, the dismissal completes, and `advance` puts the next
-    /// one up from `onDismiss` — the sequential-sheet shape, deliberately.
-    @State private var presented: AdmissionRequest?
-    /// What `presented` last held, so `onDismiss` can tell an ANSWERED sheet
-    /// from one the writer closed with Escape.
-    @State private var shown: AdmissionRequest?
-    /// Fingerprints the writer said *Not now* to in this window.
-    @State private var dismissed: Set<String> = []
+    /// Who is waiting, who is up, and who was put off — every decision about
+    /// ORDER is the value's (`AdmissionQueue`, pinned windowlessly; smoke find
+    /// F4), and this modifier only calls it.
+    @State private var admissions = AdmissionQueue()
     /// The refusal from the last attempt on the head request, if it refused.
     @State private var refusal: String?
     @State private var isAdmitting: Bool = false
 
     func body(content: Content) -> some View {
         content
-            .sheet(item: $presented, onDismiss: advance) { request in
+            .sheet(item: presentedBinding, onDismiss: advance) { request in
                 AdmissionSheet(
                     request: request,
                     projectTitle: projectTitle,
@@ -82,10 +72,7 @@ struct AdmissionModifier: ViewModifier {
             // `DocumentStore`, so its identity is the honest key, and the reset
             // rides on it rather than on a comment asking to be believed.
             .onChange(of: documentStore.map(ObjectIdentifier.init)) { _, _ in
-                dismissed = []
-                queue = []
-                presented = nil
-                shown = nil
+                admissions = AdmissionQueue()
                 refusal = nil
             }
             .task(id: projectURL) { await recompute(forced: false) }
@@ -101,30 +88,20 @@ struct AdmissionModifier: ViewModifier {
             }
     }
 
-    /// One sheet has closed; put the next stranger up, if there is one.
-    ///
-    /// **Escape means *Not now***, and this is where that is decided: a request
-    /// still in the queue when its sheet closed was never answered, because
-    /// both answers remove it. Treating a closed sheet as *ask me again in a
-    /// moment* would put the same dialog straight back up over the writer's
-    /// draft, which is the one behaviour a dismissal must not have.
-    private func advance() {
-        if let finished = shown,
-           queue.contains(where: { $0.fingerprint == finished.fingerprint }) {
-            dismissed.insert(finished.fingerprint)
-            queue.removeAll { $0.fingerprint == finished.fingerprint }
-        }
-        refusal = nil
-        shown = queue.first
-        presented = shown
+    /// SwiftUI writes nil here when the writer closes the sheet with Escape;
+    /// nothing else is ever written through it.
+    private var presentedBinding: Binding<AdmissionRequest?> {
+        Binding(
+            get: { admissions.presented },
+            set: { admissions.presented = $0 })
     }
 
-    /// Draw the head, unless a sheet is already up — in which case `advance`
-    /// will reach it when that one closes.
-    private func presentHeadIfIdle() {
-        guard presented == nil, let head = queue.first else { return }
-        shown = head
-        presented = head
+    /// One sheet has closed; put the next stranger up, if there is one. Escape
+    /// means *Not now*, and `AdmissionQueue.sheetClosed` is where that is
+    /// decided.
+    private func advance() {
+        admissions.sheetClosed()
+        refusal = nil
     }
 
     // MARK: - Who is waiting
@@ -164,7 +141,7 @@ struct AdmissionModifier: ViewModifier {
     /// question being put.
     @MainActor
     private func recompute(forced: Bool) async {
-        if forced { dismissed = [] }
+        if forced { admissions.forgetDismissals() }
         guard let documentStore else { return }
         // A forced recompute is the writer pressing Admit…, and the press they
         // made was on a count the inbox last read. Re-read the stream first so
@@ -216,40 +193,35 @@ struct AdmissionModifier: ViewModifier {
         // whoever it is currently asking about, which is how an admission made
         // in a SECOND window reaches this one's sheet.
         guard let requests else { return }
-        queue = requests.filter { !dismissed.contains($0.fingerprint) }
-        takeDownAVanishedSheet()
-        presentHeadIfIdle()
+        admissions.rederived(described(requests, in: documentStore))
     }
 
-    /// Close a sheet whose subject is no longer a stranger (the review's Minor
-    /// 1).
-    ///
-    /// A second window on the same book — or the silent admission at open —
-    /// can let this device in while its sheet stands here. Leaving it up is not
-    /// merely stale: `RegistryAdmission.admit` treats a label change as a
-    /// REWRITE rather than a refusal, so pressing Admit on the stale sheet
-    /// would relabel a person record somebody has already settled, with this
-    /// window's field deciding a name nobody asked it about.
-    ///
-    /// Only when the request is gone from a queue that was actually rebuilt —
-    /// the early return above empties `queue` when there is nothing pending
-    /// anywhere this window can see, which is the ordinary state of a window
-    /// whose chapters and capture stream simply hold no lines of anybody's.
-    private func takeDownAVanishedSheet() {
-        guard let shown,
-              !queue.contains(where: { $0.fingerprint == shown.fingerprint })
-        else { return }
-        presented = nil
+    /// **Each request with what it has waiting, and where** (P3b smoke find
+    /// F2): the open documents' own descriptions of their held lines, joined to
+    /// the binder's titles. Read from the loads, so this costs no disk.
+    @MainActor
+    private func described(
+        _ requests: [AdmissionRequest], in documentStore: DocumentStore
+    ) -> [AdmissionRequest] {
+        guard !requests.isEmpty else { return requests }
+        let held = documentStore.heldLines()
+        let order = PermitControl.pieces(in: projectStore?.manifest.structure ?? [])
+            .map { (id: $0.id, title: $0.title) }
+        return requests.map { request in
+            var request = request
+            request.described = AdmissionWaiting.describe(
+                holder: request.fingerprint, waiting: held.waiting,
+                captures: held.captures, order: order)
+            return request
+        }
     }
 
     // MARK: - Answering
 
     private func notNow(_ request: AdmissionRequest) {
-        dismissed.insert(request.fingerprint)
-        queue.removeAll { $0.fingerprint == request.fingerprint }
         // Down, not straight on to the next: `advance` puts that one up once
-        // this dismissal has finished.
-        presented = nil
+        // this dismissal has finished — and never the one just declined.
+        admissions.notNow(request.fingerprint)
     }
 
     /// **What a narrowing would cost this book**, for the sheet's sentence.
@@ -321,8 +293,10 @@ struct AdmissionModifier: ViewModifier {
                 _ = try await documentStore.admit(
                     device: request.fingerprint, label: label,
                     ownName: request.recordedOwnName, permit: permit)
-                queue.removeAll { $0.fingerprint == request.fingerprint }
-                presented = nil
+                // THIS request's sheet, never whatever is up by now (F4): the
+                // settlement this write announced may already have re-derived
+                // the queue and put the next stranger up.
+                admissions.admitted(request.fingerprint)
             } catch {
                 refusal = AdmissionDecision.refusal(error)
                 admissionLog.error(

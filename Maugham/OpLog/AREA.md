@@ -1480,6 +1480,19 @@ unsigned stream — and they are told apart HERE, once, by the string the walk
 held them under. `unsigned:<stream>` is a shape no fingerprint and no device id
 can be, which is what makes the classification total rather than a guess.
 
+**`HeldLines.Waiting` — what a held line IS** (P3b smoke find F2). Every
+surface put *notes* after a held count, so Kit's paragraph of prose was *1 note
+waiting* on the admission sheet and on History's §4.5 banner. The load now
+counts, beside `pendingByDevice` and from the same classified lines,
+`FileProvenance.pendingWaitingByDevice`: prose by distinct PARAGRAPH (a
+paragraph typed in three bursts is one), the annotation layer as notes,
+everything else (tasks, bookmarks, a later build's kinds) as changes, and the
+first held paragraph's last words, task anchors stripped, as a peek. The kinds
+are ASKED of `Permit.group(of:)`, the one exhaustive switch over `OpKind`
+(which asks `Deriver.appliesToManuscript` for prose — tripwire 44), and each
+held op line is decoded once. `HeldLines.sentence(_:notes:what:)` says the phrase where it has
+one and the old count where it has none (the capture stream holds no ops).
+
 **`OpLogDeviceState.acknowledgeLoss` — the escape.** A remembered stream that
 is legitimately gone made `revoke`, `changePermit` and `admit` refuse for ever.
 History draws what the book is missing — a stream found shorter than it was, or
@@ -1496,14 +1509,40 @@ is raise-only against what is on DISK, inside the coordinated write, and a P3
 build that meets a narrowed book stamped lower HEALS it at open. A book made on
 this build starts at 9.
 
-**`markLine` and settling pieces.** Answering §4.5's question (*the piece is
-theirs*) writes a `scopeChanged` event whose mark cuts that piece's streams
-BEFORE her first held line — the last line SEEN before the first held one, not
-the last line that is not held — so her held words come in. A refusal before
-her span stays set aside; a PERMIT refusal after it in the same stream is
-re-judged under the granted permit. A segment holding her span is cut by LINE
-HASH and lists no digest, and `cutStream` stops every later file of that stream
-contributing; the earliest file that holds her decides.
+**Settling a piece — *Theirs* re-judges BY REASON** (P3b smoke find F9;
+Denver's ruling of 2026-09-23, replacing the positional cut). Answering §4.5's
+question (*the piece is theirs*) writes an ordinary `scopeChanged` event — the
+ordinary seen mark, the piece added — carrying `PermitEvent.settled`, the
+pieces it answered (omitted while nil, so every other event's bytes are
+unchanged). `PermitTimeline` reads it: every EARLIER entry of that person is
+judged by `Entry.judging` — its permit read as having held the settled piece
+(`Permit.settling`, which widens only an author-of-some-pieces list) — while
+`Entry.permit` stays what the event installed, for History and `current`. So a
+line of hers in that piece refused ONLY because the piece was not hers is
+re-judged under the granted permit wherever it sits: before her held span,
+after it, in a segment that arrives late. Every other refusal stays set aside
+wherever it sits — the actor rows (the assistant never writes the manuscript),
+a reviewer's rung, a verdict (a revocation, a broken chain: those are refused
+before the partition runs), another person's line (the answer is on HER
+timeline). A line held for a reason that is not §4.5's — a kind this build
+cannot read — stays held, because `.cannotJudge` is the table's answer under
+every permit. An entry AFTER the answer is not widened, so a piece taken away
+again is taken away from that event's mark on; and `settled` over a permit that
+does not author the piece settles nothing (`Entry.settles`, which History reads
+too). The partition asks `entry.judging` and nothing else — one judgment, the
+load and every sweep alike. The mark being the ordinary one, the answer takes
+the ordinary loss check: a segment this Mac APPLIED that is missing now refuses
+it (`streamMissingFromSweep`); one it never applied is honest late sync and is
+judged by reason when it arrives. *Another person's line* means one another
+person SIGNED — her own accepts, rejects and archives of other people's notes in
+the piece, refused only for scope, come in too. **After a deliberate removal**
+(Q1, ruled 2026-09-24) the question is still put and *Theirs* still brings it
+all in, but the partition records that the piece was TAKEN from her
+(`PermitTimeline.wasTakenFromThem` → `AmendmentPermits
+.whoKeptWritingInATakenPiece` → `Document.keptWritingInATakenPiece`), so the
+sheet, People & Devices' waiting row, History's banner and History's entry for
+the answer all say she kept writing in it after it was taken. The positional machinery that preceded this
+(`markLine`, the settling cut, `settlingOrder`) is gone.
 
 ## Sealed segments (ADR 0016, M2)
 

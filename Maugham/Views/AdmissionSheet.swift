@@ -4,7 +4,9 @@ import MaughamCore
 
 /// **One device, one sheet** (signed op log P2b, spec §4.1).
 ///
-/// > **Denver’s iPhone wants to write in *Playlist*** — 14 notes waiting.
+/// > **Denver’s iPhone wants to write in *Playlist***
+/// > 1 paragraph waiting in “Chapter 3”, and 14 captures in the Inbox
+/// > “The rain came in sideways…”
 /// > Label: [Denver ▾]
 /// > Code **4F2K** is shown on the device’s Settings too.
 /// > [Not now] [Admit]
@@ -102,6 +104,13 @@ struct AdmissionSheet: View {
         count == 1 ? "1 note waiting" : "\(count) notes waiting"
     }
 
+    /// **What is waiting, in the writer's terms** (P3b smoke find F2): the
+    /// request's own description where the loads gave one — *1 paragraph
+    /// waiting in “Chapter 3”* — else the plain count, as the sheet always said.
+    static func waitingLine(for request: AdmissionRequest) -> String {
+        request.described?.line ?? waitingLine(count: request.waitingCount)
+    }
+
     static func codeLine(code: String) -> String {
         "Code \(code) is shown on the device’s Settings too."
     }
@@ -125,6 +134,47 @@ struct AdmissionSheet: View {
     /// which. Additive: the label below is untouched and is still what
     /// VoiceOver announces.
     static let knownLabelsIdentifier = "admissionSheet.knownLabels"
+
+    /// **Why the label field is empty** when the device's own name is already
+    /// somebody's label here (P3b smoke find F1).
+    ///
+    /// Two Macs sharing a name is the ordinary case, so the sheet must neither
+    /// pre-fill the merge nor leave the writer wondering why the name they can
+    /// see on the other screen is not in the field. It names both ways on:
+    /// a name of their own, or — deliberately — the existing person.
+    static func sharedNameNotice(ownName: String, existing: String) -> String {
+        "This device calls itself \u{201C}\(ownName)\u{201D}, which is already the "
+            + "name of someone who writes in this book. Give whoever writes on it "
+            + "a name of their own \u{2014} or, if they are the same person, choose "
+            + "\u{201C}\(existing)\u{201D} from \u{201C}\(knownLabelsTitle)\u{201D}."
+    }
+
+    /// **What the field holds when the same stranger arrives freshly derived**
+    /// (F1/F4 review, Important 1).
+    ///
+    /// The field is `@State`, seeded once, and a re-derivation swaps the
+    /// request under a sheet that keeps its identity — so a proposal the
+    /// registry has since withdrawn (a name that became somebody's label a
+    /// moment ago) would sit in the field as a merge. Where the writer has not
+    /// touched it — it still holds the OLD proposal — it follows the new one;
+    /// anything they typed or chose is theirs and is never replaced.
+    static func reseeded(
+        typed: String, from old: AdmissionRequest, to new: AdmissionRequest
+    ) -> String {
+        typed == old.proposedLabel ? new.proposedLabel : typed
+    }
+
+    /// Drawn while the writer has not yet chosen a label — once they type one
+    /// or choose one, the merge notice (or nothing) says what Admit will do.
+    static func sharedNameNotice(
+        for request: AdmissionRequest, typedLabel: String
+    ) -> String? {
+        guard let existing = request.sharesItsNameWith,
+              let ownName = request.ownName,
+              AdmissionDecision.outcome(for: request, typedLabel: typedLabel) == .notNow
+        else { return nil }
+        return sharedNameNotice(ownName: ownName, existing: existing)
+    }
 
     /// What the writer is being told the label is FOR. A label is the author's
     /// word for a person, not the device's name, and the distinction is the
@@ -178,9 +228,19 @@ struct AdmissionSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(Self.title(request: request, projectTitle: projectTitle))
                 .font(.headline)
-            Text(Self.waitingLine(count: request.waitingCount))
+            Text(Self.waitingLine(for: request))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let peek = request.described?.peek {
+                // A peek at the words, so the writer can tell whose they are
+                // before deciding — never the whole span, and never editable.
+                Text(peek)
+                    .font(.callout)
+                    .italic()
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
 
             Divider()
 
@@ -209,6 +269,13 @@ struct AdmissionSheet: View {
                         .accessibilityLabel(Text(Self.knownLabelsTitle))
                         .accessibilityIdentifier(Self.knownLabelsIdentifier)
                     }
+                }
+                if let shared = Self.sharedNameNotice(
+                    for: request, typedLabel: typedLabel) {
+                    Text(shared)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Text(Self.labelExplanation)
                     .font(.caption)
@@ -259,6 +326,9 @@ struct AdmissionSheet: View {
         }
         .padding(20)
         .frame(minWidth: 420)
+        .onChange(of: request) { old, new in
+            typedLabel = Self.reseeded(typed: typedLabel, from: old, to: new)
+        }
         // Asked when the choice starts narrowing, and never before: the answer
         // is a walk of the project's whole op log, and an ordinary admission
         // owes it nothing.
