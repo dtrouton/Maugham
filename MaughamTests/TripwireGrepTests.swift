@@ -8239,9 +8239,10 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
-    /// A permit compared to a literal rung. Unlike `.reviewer` — which is also
-    /// `CollaborationRole.reviewer`, the sharing role, in half a dozen views —
-    /// these three spellings can only be this milestone's `Permit`.
+    /// A permit compared to a literal rung. Unlike a bare `.reviewer` — also
+    /// `Posture.Reason.reviewer` and `PostureStandingLine`'s own kind, the
+    /// display values surfaces are MEANT to switch on — these three spellings
+    /// can only be this milestone's `Permit`.
     static let permitLiteralPatterns = [
         "Permit.bookAuthor", ".author(.book)", "Permit.reviewer",
     ]
@@ -9147,13 +9148,10 @@ final class TripwireGrepTests: XCTestCase {
             patterns: Self.componentAPatterns,
             allowedSpellings: [:],
             excludeLine: Self.admissionExcludeLine)
-        XCTExpectFailure("Component A still exists until P3c Task 4 deletes it; "
-                         + "Task 4 removes this expectation.") {
-            XCTAssertTrue(componentA.isEmpty,
-                "The sharing-role posture survives. A role is the permit's, "
-                + "asked through `Posture`. Offenders:\n"
-                + componentA.joined(separator: "\n"))
-        }
+        XCTAssertTrue(componentA.isEmpty,
+            "The sharing-role posture survives. A role is the permit's, "
+            + "asked through `Posture`. Offenders:\n"
+            + componentA.joined(separator: "\n"))
     }
 
     /// The census's control: it fires on a planted file carrying one of each

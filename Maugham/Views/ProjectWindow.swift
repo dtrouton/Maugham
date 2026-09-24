@@ -242,14 +242,6 @@ struct ProjectWindow: View {
     @State private var showingCheckpointLabelSheet: Bool = false
     @State private var showingBootstrapNotice: Bool = false
     @State private var currentElement: String? = nil
-    /// Resolved iCloud collaboration identity for THIS project, resolved once on
-    /// open and again on a share-change (app re-activation), then cached. Drives
-    /// the sharing pill and the read-only-share lock (`isViewOnlyReviewer`); the
-    /// editor's review posture is the permit's (`editorMembrane`, P3c Task 3).
-    /// `nil` until the first resolve completes.
-    /// Single resolve, threaded down; the pill no longer reads on its own
-    /// (consolidation, per the WF1 task).
-    @State private var collaborator: Collaborator?
     /// Control-plane model for the editor (ADR 0017). ProjectWindow is its sole
     /// posture/appearance writer; EditorHost writes the annotation set (Task 5).
     /// Threaded down to the coordinator, which observes it.
@@ -315,9 +307,12 @@ struct ProjectWindow: View {
     /// that pane — is a function of it. It has no width; a studied reference
     /// takes `detailColumnWidth`, the right column's own (spec §3.2).
     @State private var assistant = AssistantColumnModel()
-    /// Raw share snapshot kept alongside `collaborator` for the pill's hover
-    /// diagnostics (the `.help()` tooltip), so the resolver stays the single
-    /// read path.
+    /// This project's iCloud share snapshot, read once on open and again on a
+    /// share-change (app re-activation), then cached — an INDICATOR, never a
+    /// role (P3c Task 4). It drives the sharing pill, the share sheet's
+    /// eligibility, and the read-only-share lock (`shareIsReadOnly`); the
+    /// editor's review posture is the permit's (`editorMembrane`, P3c Task 3).
+    /// `nil` until the first read completes. Single read, threaded down.
     @State private var shareSnapshot: ShareMetadata?
     /// What ⌘⌥Z has to say: the reason it refused a deletion it could not
     /// return whole (RULING-40), or what a restore could not give back
@@ -678,15 +673,15 @@ struct ProjectWindow: View {
         .sheet(isPresented: $showingSyntaxHelp) {
             SyntaxHelpSheet(mode: currentSyntaxHelpMode)
         }
-        // Resolve the iCloud collaboration role ONCE per project URL (and again
-        // on app re-activation — a pragmatic "the user may have just accepted a
+        // Read the iCloud share snapshot ONCE per project URL (and again on
+        // app re-activation — a pragmatic "the user may have just accepted a
         // share in Finder" trigger). Reads off the main actor's critical path;
         // the result is cached in @State and threaded one-way to the editor and
         // the pill. Never polled / per-render.
-        .task(id: url) { await resolveCollaborator() }
+        .task(id: url) { await readShareSnapshot() }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await resolveCollaborator() }
+            Task { await readShareSnapshot() }
         }
         // Mirror posture + appearance into the EditorControl model (ADR 0017).
         // Extracted into a ViewModifier to stay under ProjectWindow.body's
@@ -777,16 +772,15 @@ struct ProjectWindow: View {
                           payload: [MaughamEvent.personaKey: next.rawValue])
     }
 
-    /// Reads the share metadata for this project off the main actor and folds it
-    /// into a cached `Collaborator`. Idempotent; safe to call repeatedly.
-    private func resolveCollaborator() async {
+    /// Reads the share metadata for this project off the main actor and caches
+    /// it. Idempotent; safe to call repeatedly.
+    private func readShareSnapshot() async {
         let target = url
         let reader = shareReader
         let meta = await Task.detached(priority: .utility) {
             reader.read(for: target)
         }.value
         shareSnapshot = meta
-        collaborator = ShareIdentityMapper.resolve(meta)
     }
 
     /// The manuscript document the tree names, when it names one — the
@@ -810,7 +804,7 @@ struct ProjectWindow: View {
                 documentStore?.posture(forDocId: id)
             },
             manualReview: isReviewModeOn,
-            shareIsReadOnly: isViewOnlyReviewer)
+            shareIsReadOnly: Self.shareIsReadOnly(shareSnapshot))
     }
 
     /// The standing line over the editor, when there is a reason to name
@@ -841,12 +835,15 @@ struct ProjectWindow: View {
             userDefault: userPreferences.typography)
     }
 
-    /// True when the resolved identity is a reviewer on a READ-ONLY iCloud
-    /// share: they cannot append annotation ops, so the editor surfaces a clear
-    /// "ask the owner for edit access" notice rather than failing silently.
-    private var isViewOnlyReviewer: Bool {
-        guard let c = collaborator else { return false }
-        return c.role == .reviewer && c.canWrite == false
+    /// **True when iCloud grants this user READ-ONLY access to the share** —
+    /// an OS-level lock that claims no role (P3c Task 4). Such a user cannot
+    /// write into the folder at all, not even an annotation op, so the editor
+    /// locks and `ViewOnlyShareNotice` says "ask the owner for edit access"
+    /// rather than letting a comment fail silently. Only an explicit
+    /// `canWrite == false` locks: an unresolved grant (`nil`) or an unshared
+    /// project never does. Derived from the snapshot alone, never from a role.
+    nonisolated static func shareIsReadOnly(_ snapshot: ShareMetadata?) -> Bool {
+        snapshot?.isShared == true && snapshot?.canWrite == false
     }
 
     private var preferredColorScheme: ColorScheme? {
@@ -1430,8 +1427,7 @@ struct ProjectWindow: View {
                             projectID: ProjectIdentifier.id(for: store.url),
                             projectURL: store.url)
                     }
-                    SharingStatusPill(
-                        collaborator: collaborator, snapshot: shareSnapshot)
+                    SharingStatusPill(snapshot: shareSnapshot)
                 }
                 .padding(.top, 8)
                 .padding(.trailing, 12)
@@ -1477,10 +1473,10 @@ struct ProjectWindow: View {
                 }
             }
             .safeAreaInset(edge: .top) {
-                // Read-only trap: an iCloud reviewer on a VIEW-ONLY share cannot
+                // Read-only trap: a user on a VIEW-ONLY iCloud share cannot
                 // append annotation ops at all. Surface that loudly rather than
                 // letting a comment attempt fail silently.
-                if isViewOnlyReviewer {
+                if Self.shareIsReadOnly(shareSnapshot) {
                     ViewOnlyShareNotice()
                 }
             }
