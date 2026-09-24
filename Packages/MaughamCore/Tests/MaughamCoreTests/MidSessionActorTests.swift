@@ -260,15 +260,124 @@ final class MidSessionActorTests: XCTestCase {
     /// registry.
     func test_aSecondLineBySameActorDoesNotAskAgain() async throws {
         try openedAndAdmitted()
+        let attempts = attemptCounter()
+        let rensStore = OpLogStore(
+            projectURL: projectURL, identities: ren, state: renState)
+        try await rensStore.append(note("01", by: ren.assistant))
+        try await rensStore.append(note("02", by: ren.assistant))
+
+        XCTAssertEqual(rensStore.declaredActorsForTesting, [.assistant])
+        XCTAssertEqual(attempts.count, 1, "the second line asked nothing")
+    }
+
+    // MARK: - The review's m2: a failing registry costs once
+
+    /// **A registry that refuses is asked once, not per line** — and not once
+    /// per STORE either, because every MCP call builds a store: the attempt is
+    /// remembered against the registry's state, and a later store over the same
+    /// unchanged folder asks nothing. It asks again when the folder changes.
+    func test_aFailingRegistryIsAskedOnceUntilItChanges() async throws {
+        try openedAndAdmitted()
+        let devices = RegistryWriter.directoryURL(.devices, in: projectURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o555], ofItemAtPath: devices.path)
+        let attempts = attemptCounter()
+
+        for opId in ["01", "02"] {
+            let store = OpLogStore(
+                projectURL: projectURL, identities: ren, state: renState)
+            try await store.append(note(opId, by: ren.assistant))
+        }
+        try await TranslationStore.appendBatch(
+            [TranslationRecord(paragraphId: "aaaa", language: "es",
+                               text: "hola", sourceHash: "h")],
+            forDocId: docId, language: "es",
+            identity: ren.assistant, identities: ren,
+            state: renState, in: projectURL)
+        XCTAssertEqual(attempts.count, 1,
+                       "two stores and a translation batch, one attempt")
+
+        // The folder changes — here, it becomes writable and a record moves.
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: devices.path)
+        try RegistryWriter.write(
+            PersonRecord(
+                person: ren.author.fingerprint, label: "Ren again", ownName: "Ren’s Mac",
+                admittedAt: Date(timeIntervalSince1970: 21),
+                admittedBy: root.author.fingerprint),
+            signedBy: root.author, in: projectURL)
+        let later = OpLogStore(projectURL: projectURL, identities: ren, state: renState)
+        try await later.append(note("03", by: ren.assistant))
+
+        XCTAssertEqual(attempts.count, 2, "a changed registry is asked again")
+        XCTAssertEqual(try renRecord().actors[DeviceActor.assistant.rawValue],
+                       ren.assistant.fingerprint, "and this time it lands")
+    }
+
+    /// The translator's batch goes through the same memo.
+    func test_theTranslatorsSecondBatchAsksNothing() async throws {
+        try openedAndAdmitted()
+        let attempts = attemptCounter()
+        for text in ["hola", "adiós"] {
+            try await TranslationStore.appendBatch(
+                [TranslationRecord(paragraphId: "aaaa", language: "es",
+                                   text: text, sourceHash: "h")],
+                forDocId: docId, language: "es",
+                identity: ren.translator, identities: ren,
+                state: renState, in: projectURL)
+        }
+        XCTAssertEqual(attempts.count, 1)
+    }
+
+    // MARK: - The review's m3: a later build's fields survive
+
+    /// **A mid-session declare re-signs the FILE's object**, so a field a later
+    /// build wrote on this device's record — and an actor this build has no
+    /// word for — is still there afterwards, and the record still verifies.
+    func test_aMidSessionDeclareKeepsWhatALaterBuildWroteOnTheRecord() async throws {
+        try openedAndAdmitted()
+        let record = try renRecord()
+        try RegistryWriter.resign(record, signedBy: ren.author, in: projectURL) { object in
+            object["laterBuildField"] = "kept"
+            var actors = object["actors"] as? [String: String] ?? [:]
+            actors["fifthWriter"] = "ffff0000ffff0000"
+            object["actors"] = actors
+        }
+
         let rensStore = OpLogStore(
             projectURL: projectURL, identities: ren, state: renState)
         try await rensStore.append(note("01", by: ren.assistant))
 
-        let recordURL = RegistryWriter.url(
+        let fileURL = RegistryWriter.url(
             .devices, fingerprint: ren.author.fingerprint, in: projectURL)
-        let before = try Data(contentsOf: recordURL)
-        try await rensStore.append(note("02", by: ren.assistant))
-        XCTAssertEqual(try Data(contentsOf: recordURL), before)
-        XCTAssertEqual(rensStore.declaredActorsForTesting, [.assistant])
+        let object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: fileURL))
+                as? [String: Any])
+        XCTAssertEqual(object["laterBuildField"] as? String, "kept")
+        let actors = try XCTUnwrap(object["actors"] as? [String: String])
+        XCTAssertEqual(actors["fifthWriter"], "ffff0000ffff0000")
+        XCTAssertEqual(actors[DeviceActor.assistant.rawValue], ren.assistant.fingerprint)
+        XCTAssertTrue(try RegistryReader.load(projectURL: projectURL).malformed.isEmpty,
+                      "the re-signed record verifies")
+    }
+
+    // MARK: - Counting attempts
+
+    private final class Counter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        func bump() { lock.lock(); value += 1; lock.unlock() }
+        var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+    }
+
+    /// Counts the attempts `declareActorOnce` makes on THIS test's project.
+    private func attemptCounter() -> Counter {
+        let counter = Counter()
+        let mine = projectURL.standardizedFileURL.path
+        RegistryPresence.declareAttemptObserverForTesting = { url, _ in
+            if url.standardizedFileURL.path == mine { counter.bump() }
+        }
+        addTeardownBlock { RegistryPresence.declareAttemptObserverForTesting = nil }
+        return counter
     }
 }

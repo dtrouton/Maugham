@@ -326,7 +326,8 @@ public enum TrustResolution {
     ///
     /// **A device on no chain lists nobody**, which is the one guard that is
     /// not obvious. Its surface for a book full of somebody else's history is
-    /// the claim sheet at open, and recording the root it has not joined YET
+    /// People & Devices' *This Book Is Mine…* (P3b smoke find F3 — no Mac is
+    /// asked at open any more), and recording the root it has not joined YET
     /// would leave that root in `claimants` for good — including after it
     /// admitted this device, so a perfectly ordinary second Mac would go on
     /// warning about the chain it belongs to.

@@ -770,17 +770,35 @@ by the first MCP write of a session, the translator's by the pipeline's first
 run, Maugham's by the first rebalance — all after `DocumentStore.open` declared
 this device. Until the fix those lines were signed by a key the record did not
 name, and every other Mac held them as a stranger's until this one relaunched.
-`RegistryPresence.declareActor` re-signs the record (through
-`ensureDeviceRecord`, with the name and kind the record ALREADY carries, so the
-name is still decided only at open) and is asked by the two write paths that
-sign as a non-author actor — `OpLogStore.append` (once per store per actor) and
-`TranslationStore.appendBatch` — BEFORE the line is written. It never declares a
-device the book has no record of, never names the author (the author is the
-device, declared at open, and the keystroke path pays nothing), never mints a
-key it only enumerated, leaves a retired record alone, and never costs a line:
-a registry that cannot be written is logged and the line goes on, held elsewhere
-until a later line or the next open catches the record up. The phone signs as
-the author only, so it never reaches the re-signing.
+`RegistryPresence.declareActor` re-signs the record by editing the FILE's
+object (`RegistryWriter.resign`, rename's door), changing `actors` alone — so a
+later build's fields and any actor this build has no word for survive, and the
+name is still decided only at open. The two write paths that sign as a
+non-author actor — `OpLogStore.append` and `TranslationStore.appendBatch` —
+reach it through `declareActorOnce` BEFORE the line is written, on their own
+(main) actor and only when `declarationIsDue` — a check that reads no record —
+says so (a detached hop was measured to reorder what `append`'s callers observe
+and was withdrawn): one attempt per store per actor, and across stores one
+attempt per registry state (the memo holds the registry's `TrustResolution.signature`
+after the last attempt, per project and actor key, for the process's life), so
+a registry that REFUSES costs one verified read and one write attempt, not one
+per line. It never declares a device the book has no record of, never names the
+author (the author is the device, declared at open, and the keystroke path pays
+nothing), never mints a key it only enumerated, leaves a retired record alone,
+and never costs a line: a refusal is logged and the line goes on, held elsewhere
+until the registry changes or the next open catches the record up. The phone
+signs as the author only, so it never reaches the re-signing.
+
+**Stated limits.** (1) *Before the line* is ordering on THIS disk, not on
+another Mac's: iCloud may deliver the op line before the record, and the
+receiving Mac's presenter classifies a registry file change as an unknown
+sidecar (`MaughamSidecarPath`), so a record that arrives AFTER the line
+triggers no `invalidateTrust` and no re-read — the line stays held until that
+document's next op-log change or reopen. The routing fix is owed after F7.
+(2) The open's own `ensureDeviceRecord` still writes a fresh `DeviceRecord`
+rather than re-signing the file's object, so a later build's fields on this
+device's record are dropped at open (tripwire 42's rule honoured by the
+mid-session door only).
 
 **What History says.** `HistoryPane.pendingNotice` is the one line in that pane
 with a control — *14 notes from iPhone are waiting for admission* — and its

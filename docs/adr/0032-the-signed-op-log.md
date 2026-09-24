@@ -424,7 +424,10 @@ device's record at `DocumentStore.open` (and, on the phone, at the first write),
 with the first Mac in an empty book writing the root — and re-signs it, before
 the first line, when a key the lazy `LocalIdentities` minted after the open is
 about to sign one (`declareActor`, P3b smoke find F6; without it a Mac's first
-Claude write of a session was held on every other Mac until it relaunched). History says what is held
+Claude write of a session was held on every other Mac until it relaunched). The
+limit: *before the line* is ordering on the writing Mac's disk only — a receiving
+Mac that gets the line first does not re-read when the record follows, because a
+registry file change reaches no trust invalidation there (the routing is owed). History says what is held
 and whose chain this Mac joined.
 
 **The root order, and the rule that a device never switches chains** — the one
@@ -847,7 +850,8 @@ answering it by halves is not something the writer was offered.
 call made on each Mac. Afterwards each answers `.admitted` for the other's
 devices, `adoptedRoots` holds the other on each side, and **`joinedRoot` is nil
 on both** — a merge widens whose history a device verifies and moves nobody's
-root. *Not mine* writes nothing and leaves B3 exactly as it was.
+root. *Not mine* (since F3, the confirmation's *Cancel*) writes nothing and
+leaves B3 exactly as it was.
 
 **A Mac already on somebody else's chain cannot merge.** It has no root record
 of its own to sign a claim with, and a non-root signs no claim any reader takes,

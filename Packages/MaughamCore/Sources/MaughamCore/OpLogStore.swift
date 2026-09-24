@@ -349,25 +349,36 @@ public final class OpLogStore {
     /// declared and before the line is written, so a test can see the order.
     var beforeChainedAppendForTesting: (() -> Void)?
 
-    /// The actors this store has already put on this device's record here —
-    /// asked once per store per actor, because the answer does not change
-    /// under a store's feet and a registry read per line would be a folder
-    /// read and a P256 verify per record on every append. Only a declaration
-    /// that did not THROW is remembered, so a registry that could not be
-    /// written is asked again on the next line.
+    /// The actors this store has asked about — ONCE per store per actor,
+    /// whatever the answer was, because a registry read per line would be a
+    /// folder read and a P256 verify per record on every append (and a failing
+    /// registry would pay a write attempt too). A later store asks
+    /// `RegistryPresence.declarationIsDue`, which answers yes again only if the
+    /// registry has changed since the last attempt.
     private var declaredActors: Set<DeviceActor> = []
     var declaredActorsForTesting: Set<DeviceActor> { declaredActors }
 
-    /// `RegistryPresence.declareActor`, once per actor, and never at the cost
-    /// of the line: a declaration that fails is logged and the append goes on.
-    /// The line is then held on other Macs until the record catches up — the
-    /// behaviour before F6, and no worse.
+    /// `RegistryPresence.declareActorOnce`, BEFORE the line is written — and
+    /// never at the cost of the line: a declaration that fails is logged and
+    /// the append goes on. The line is then held on other Macs until the
+    /// record catches up — the behaviour before F6, and no worse.
+    ///
+    /// **Synchronous, on this actor, and deliberately so.** A detached hop
+    /// would take the registry read off the main thread, but it is a
+    /// suspension point on the append path, and that was measured to reorder
+    /// what callers observe: three `CompilerRunCommandTests` lost a minted
+    /// note to it. So the cheap question — is a declaration due at all? — is
+    /// asked first without reading a record, and the verified read runs on
+    /// this actor only when the answer is yes: at most once per actor per
+    /// registry state per process.
     private func declareBeforeFirstLine(as actor: DeviceActor) {
-        guard !declaredActors.contains(actor) else { return }
+        guard declaredActors.insert(actor).inserted,
+              RegistryPresence.declarationIsDue(
+                actor, in: projectURL, identities: identities)
+        else { return }
         do {
-            try RegistryPresence.declareActor(
+            try RegistryPresence.declareActorOnce(
                 actor, in: projectURL, identities: identities, presenter: presenter)
-            declaredActors.insert(actor)
         } catch {
             opLogLoadLog.error("""
                 Could not put this device's \(actor.rawValue, privacy: .public) \
@@ -2625,7 +2636,11 @@ public final class OpLogStore {
         // A key this device named after the book was opened goes on its record
         // BEFORE the first line it signs, or every other Mac holds that line as
         // a stranger's until this one reopens the book (P3b smoke find F6).
-        if let signer { declareBeforeFirstLine(as: signer.actor) }
+        // The AUTHOR is the device and was declared at open, so the writer's
+        // own lines ask nothing at all.
+        if let signer, signer.actor != .author {
+            declareBeforeFirstLine(as: signer.actor)
+        }
         beforeChainedAppendForTesting?()
         try await store(
             forDocId: op.docId, deviceSlug: slug, signer: signer

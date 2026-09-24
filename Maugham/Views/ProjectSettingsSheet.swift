@@ -212,9 +212,6 @@ struct ProjectSettingsSheet: View {
             } message: { confirmation in
                 Text(confirmation.message)
             }
-            // **The rung, and the pieces, before the act** (P3b Task 5). A
-            // sheet rather than a third alert: an `Alert` takes buttons and a
-            // text field, and this question needs a picker and a list.
             // **The claim, confirmed** (spec §5, made a verb by F3). The same
             // sheet the open used to put up unasked; now only a press reaches
             // it, and Cancel closes it having written nothing.
@@ -227,6 +224,9 @@ struct ProjectSettingsSheet: View {
                     onClaim: { claimBook(offer) },
                     onCancel: { claiming = nil })
             }
+            // **The rung, and the pieces, before the act** (P3b Task 5). A
+            // sheet rather than a third alert: an `Alert` takes buttons and a
+            // text field, and this question needs a picker and a list.
             .sheet(item: $changingPermit) { ask in
                 PermitChangeSheet(
                     person: ask.person,
@@ -706,7 +706,14 @@ struct ProjectSettingsSheet: View {
     /// never close on a write that did not happen — in `AdmissionDecision`'s
     /// words, the one vocabulary a `RegistryAdmissionError` becomes.
     private func claimBook(_ offer: ClaimOffer) {
-        guard let documentStore = store.documentStore, !isClaiming else { return }
+        guard !isClaiming else { return }
+        // The window's store is what performs a claim; a settings sheet up
+        // before it exists (a project still opening) says so on the sheet
+        // rather than closing on a write that never happened (RULING-7).
+        guard let documentStore = store.documentStore else {
+            claimRefusal = Self.claimNotReady
+            return
+        }
         isClaiming = true
         claimRefusal = nil
         Task { @MainActor in
@@ -720,6 +727,11 @@ struct ProjectSettingsSheet: View {
             await loadPeopleAndDevices()
         }
     }
+
+    /// What the claim's sheet says when the project has no store to perform
+    /// it yet.
+    static let claimNotReady =
+        "This book is still opening, so nothing was claimed. Try again in a moment."
 
     /// **Is that root also you?** The claimant row's own question, asked before
     /// a chain of somebody's devices starts applying here (Task 8).

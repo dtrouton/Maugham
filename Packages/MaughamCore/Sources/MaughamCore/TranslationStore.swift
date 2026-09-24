@@ -144,11 +144,20 @@ public enum TranslationStore {
         // device's record before its first line, or every other Mac holds the
         // batch as a stranger's until this one reopens the book (P3b smoke
         // find F6). Best-effort, for `OpLogStore.append`'s reason — the words
-        // are written whether or not the record could be.
-        do {
-            try RegistryPresence.declareActor(
-                identity.actor, in: projectURL, identities: identities)
-        } catch {
+        // are written whether or not the record could be — and asked through
+        // the memoised door, off the main actor, awaited before the batch.
+        // Asked only when a declaration is due, synchronously on this actor
+        // (`OpLogStore.append`'s rule, for its measured reason).
+        let actor = identity.actor
+        var declared: Error?
+        if RegistryPresence.declarationIsDue(
+            actor, in: projectURL, identities: identities) {
+            do {
+                try RegistryPresence.declareActorOnce(
+                    actor, in: projectURL, identities: identities)
+            } catch { declared = error }
+        }
+        if let error = declared {
             translationLog.error("""
                 Could not put this device's \(identity.actor.rawValue, privacy: .public) \
                 key on its record: \(String(describing: error), privacy: .public). \
