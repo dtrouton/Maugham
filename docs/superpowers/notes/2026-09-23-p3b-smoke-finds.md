@@ -32,3 +32,14 @@ Four-Mac rig on one machine (`scripts/second-mac.sh`, `--name third`, `--name fo
 ## Observed as designed (P3c)
 
 - Sam's Mac dropped her own out-of-scope Chapter 1 line and her demoted lines 20–31 from her screen; Ren's Mac dropped her own reviewer prose — silently. P3c's posture and the standing line are the answer.
+
+## Re-smoke (2026-09-24, build ed82aec2, fresh four-Mac book "P3b Resmoke") — PASSED
+
+- F3: no claim sheet on any Mac; the root is not offered *This Book Is Mine…*.
+- F7: the root's open window showed Kit's new Chapter 3 live, no reopen.
+- F1/F2/F4: each sheet said what was waiting and where, with a peek; the label field was empty where the machine name collided; after each Admit the next stranger came up.
+- Admissions as ruled: Sam's Chapter 2 line applied, his Chapter 1 line refused; Ren's prose refused.
+- F9: *Theirs* on Kit's Chapter 3 — his sentence applied on the root AND on his own Mac; the event carries `settled: [Chapter 3]`.
+- F6: Ren's first Claude comment reached the root within seconds, no relaunch; her device record lists `assistant`.
+
+**F10 — for Denver (not fixed):** the admission sheet asks only about strangers whose lines are in chapters OPEN on this Mac (`AdmissionModifier.recompute`, by design — reading a closed chapter's log at every open costs). A writer whose collaborator wrote only in chapters the writer has not opened gets no sign anyone is waiting. The `.registry` arrival arm could raise the question from the stranger's device record alone, with no log read.
