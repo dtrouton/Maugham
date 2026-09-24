@@ -563,8 +563,16 @@ public final class ProjectStore {
                     // ADR 0018: derive from the op log, never the .md file.
                     // RULING-54 lenient, reason recorded: a background stats
                     // pass skips an unreadable doc; opening it refuses loudly.
-                    guard let count = self.derivedWordCount(of: item) else { return true }
+                    // A piece that left the structure since this pass began —
+                    // another device trashed it and the adoption forgot its
+                    // count — stays forgotten (F7 second fix round, m3).
+                    guard TreeWalk.contains(id: item.id, in: self.manifest.structure),
+                          let count = self.derivedWordCount(of: item) else { return true }
+                    let prior = self.cachedWordCount(for: item.id) ?? 0
                     self.recordWordCount(forDocumentId: item.id, wordCount: count)
+                    // Counting what is already on disk is not the writer
+                    // typing: a session already under way does not gain it.
+                    self.documentStore?.excludeForeignWords(count - prior)
                     return true
                 }()
                 guard storeIsStillHere else { return }

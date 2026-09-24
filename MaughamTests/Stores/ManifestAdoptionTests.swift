@@ -205,6 +205,7 @@ final class ManifestAdoptionTests: XCTestCase {
 
         try await store.moveStructureItem(id: second.id, toParentId: nil, atIndex: 0)
         ds.relocateWillMove = nil
+        await ds.waitForStructuralVerbs()
 
         let chapter3 = try XCTUnwrap(added)
         XCTAssertFalse(adoptedMidVerb, "nothing is adopted while the verb holds its copy")
@@ -229,6 +230,7 @@ final class ManifestAdoptionTests: XCTestCase {
                      "held while the verb runs")
 
         store.endStructuralVerb()
+        await ds.waitForStructuralVerbs()
 
         XCTAssertNotNil(TreeWalk.find(id: added.id, in: store.manifest.structure))
         await ds.close()
@@ -308,34 +310,40 @@ final class ManifestAdoptionTests: XCTestCase {
         await ds.close()
     }
 
-    /// **A remote trash closes the piece, with a notice.** The editor has no
-    /// item left to show, the Document takes no more keystrokes, nothing is
-    /// rendered back at the old path, the words are in the op log, and the
-    /// writer is told who moved it — "another device", because the trash
-    /// record names none — and that it can be restored from Trash.
+    /// Every notice posted while `body` runs.
+    private func notices(during body: () async throws -> Void) async rethrows -> [String] {
+        var seen: [String] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let m = note.userInfo?[MaughamEvent.noticeMessageKey] as? String {
+                seen.append(m)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        try await body()
+        return seen
+    }
+
+    /// **A remote trash closes the piece, with a notice.** The other Mac
+    /// trashes it through the ordinary verb, so Trash really holds it. The
+    /// editor has no item left to show, the Document takes no more keystrokes,
+    /// nothing is rendered back at the old path, the words are in the op log,
+    /// and the writer is told — "another device", because the trash record
+    /// names none — that it can be restored from Trash, which lists it.
     func test_aRemoteTrashClosesTheOpenPieceAndSaysSo() async throws {
         let (url, store, ds) = try await openWindow()
         let item = store.manifest.structure[0]
         let path = try XCTUnwrap(item.path)
         let doc = try await openAndType(path, in: url, ds: ds, text: "Typed here before the trash.")
-        try FileManager.default.removeItem(at: url.appendingPathComponent(path))
-        var external = store.manifest
-        external.structure.removeAll { $0.id == item.id }
-        try ProjectManifest.makeEncoder().encode(external)
-            .write(to: manifestURL(url), options: [.atomic])
+        let other = try await ProjectStore.load(from: url)
+        try await other.deleteStructureItem(id: item.id)
 
-        var notices: [String] = []
-        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
-            forName: .maughamDocumentNotice, object: nil, queue: nil
-        ) { note in
-            if let m = note.userInfo?[MaughamEvent.noticeMessageKey] as? String {
-                notices.append(m)
-            }
+        let seen = await notices {
+            ds.presenterDidChangeSubitem(at: manifestURL(url))
+            await waitUntil { doc.isClosed && !store.trashEntries.isEmpty }
+            for _ in 0..<5 { await Task.yield() }
         }
-        defer { NotificationCenter.default.removeObserver(token) }
-
-        ds.presenterDidChangeSubitem(at: manifestURL(url))
-        await waitUntil { !notices.isEmpty }
 
         XCTAssertNil(TreeWalk.find(id: item.id, in: store.manifest.structure))
         XCTAssertTrue(doc.isClosed, "no more keystrokes into a piece that has left the structure")
@@ -343,10 +351,36 @@ final class ManifestAdoptionTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathComponent(path).path),
                        "nothing was rendered back where the piece used to be")
         XCTAssertTrue(wordsInOpLog(item.id, store).contains("Typed here before the trash."))
-        XCTAssertEqual(notices, [DocumentStore.trashedElsewhereNotice(title: item.title)])
-        XCTAssertTrue(notices[0].contains("another device"))
-        XCTAssertTrue(notices[0].contains("Trash"))
-        await ds.close()
+        XCTAssertEqual(seen, [DocumentStore.trashedElsewhereNotice(title: item.title)])
+        XCTAssertTrue(seen.first?.contains("another device") ?? false)
+        XCTAssertFalse(store.trashEntries.isEmpty, "the Trash the notice names lists the piece")
+    }
+
+    /// **Absence is not trash** (second fix round, I-B). A piece can leave the
+    /// structure without going to Trash — an older build saving its stale
+    /// window over this book drops every piece it never saw. The notice must
+    /// not send the writer to a Trash that is empty.
+    func test_aPieceThatLeftWithoutGoingToTrashIsNotSaidToBeInTrash() async throws {
+        let (url, store, ds) = try await openWindow()
+        let item = store.manifest.structure[0]
+        let path = try XCTUnwrap(item.path)
+        let doc = try await openAndType(path, in: url, ds: ds, text: "Typed here, then dropped elsewhere.")
+        var external = store.manifest
+        external.structure.removeAll { $0.id == item.id }
+        try ProjectManifest.makeEncoder().encode(external)
+            .write(to: manifestURL(url), options: [.atomic])
+
+        let seen = await notices {
+            ds.presenterDidChangeSubitem(at: manifestURL(url))
+            await waitUntil { doc.isClosed }
+            for _ in 0..<20 { await Task.yield() }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        XCTAssertEqual(seen, [DocumentStore.removedElsewhereNotice(title: item.title)])
+        XCTAssertFalse(seen.first?.contains("restored") ?? true,
+                       "nothing promises a way back the window does not offer")
+        XCTAssertTrue(wordsInOpLog(item.id, store).contains("Typed here, then dropped elsewhere."))
     }
 
     // MARK: - Word counts (Denver, 2026-09-23)
@@ -416,6 +450,142 @@ final class ManifestAdoptionTests: XCTestCase {
         await ds.flushSessionOnQuit()
         let log = try await ds.loadSessionLog()
         XCTAssertEqual(log.events.last?.wordsNet, 0)
+        await ds.close()
+    }
+
+    // MARK: - Second fix round
+
+    /// **m1: the gate and the heal wait for a held manifest to settle.** They
+    /// read the disk manifest and write it back raised. Reading while a
+    /// manifest is held would write the HELD bytes back, make them this
+    /// window's echo, and the settle would then conclude this window wrote
+    /// last and archive them without ever adopting them.
+    func test_theGatesReadWaitsForAHeldManifestAndItIsAdopted() async throws {
+        let (url, store, ds) = try await openWindow()
+        store.beginStructuralVerb()
+        let added = try await anotherMacAddsAChapter(url)
+        ds.presenterDidChangeSubitem(at: manifestURL(url))
+        // The gate's shape: read, then write back raised.
+        let gate = Task { @MainActor in
+            let data = try await ds.readManifest()
+            try await ds.writeManifest(ProjectManifest.raising(
+                data, toAtLeast: ProjectManifest.currentSchemaVersion))
+        }
+        for _ in 0..<20 { await Task.yield() }
+
+        store.endStructuralVerb()
+        try await gate.value
+
+        XCTAssertNotNil(TreeWalk.find(id: added.id, in: store.manifest.structure),
+                        "the held manifest was adopted, not archived as this window's loser")
+        XCTAssertNotNil(TreeWalk.find(id: added.id, in: try manifestOnDisk(url).structure))
+        await ds.close()
+    }
+
+    /// **m2: a verb's rollback lands before a held manifest is adopted.**
+    /// `commitProductionRoles` puts its old roles and stamp back in a `catch`
+    /// when its save fails. If the save's own verb settled first, that rollback
+    /// would land ON the manifest another device just wrote.
+    func test_aFailedSavesRollbackDoesNotLandOnAnAdoptedManifest() async throws {
+        let (url, store, ds) = try await openWindow()
+        let fm = FileManager.default
+        let original = try XCTUnwrap(
+            fm.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber)
+        defer { try? fm.setAttributes([.posixPermissions: original], ofItemAtPath: url.path) }
+        var external = store.manifest
+        external.title = "Written Elsewhere"
+        external.modified = Date(timeIntervalSince1970: 2_000_000_000)
+        let externalBytes = try ProjectManifest.makeEncoder().encode(external)
+        ds.writeManifestWillWrite = { [weak ds] in
+            guard let ds else { return }
+            ds.writeManifestWillWrite = nil
+            // The other device's manifest lands mid-save (written in place: the
+            // folder is read-only, which is also what makes this save fail).
+            let handle = try? FileHandle(forWritingTo: self.manifestURL(url))
+            try? handle?.truncate(atOffset: 0)
+            try? handle?.write(contentsOf: externalBytes)
+            try? handle?.close()
+            ds.presenterDidChangeSubitem(at: self.manifestURL(url))
+        }
+        try fm.setAttributes([.posixPermissions: 0o500], ofItemAtPath: url.path)
+
+        do {
+            _ = try await store.translatorRole(for: "es")
+            XCTFail("expected the manifest write to be refused")
+        } catch {}
+        try fm.setAttributes([.posixPermissions: original], ofItemAtPath: url.path)
+        await ds.waitForStructuralVerbs()
+
+        XCTAssertEqual(store.manifest.title, "Written Elsewhere")
+        XCTAssertEqual(store.manifest.modified.timeIntervalSince1970, 2_000_000_000,
+                       "the rollback's old stamp did not land on the adopted manifest")
+        XCTAssertTrue(store.manifest.productionRoles.isEmpty)
+        await ds.close()
+    }
+
+    /// **m3, the lagging op log.** The manifest names the other Mac's piece
+    /// before its op log has synced, so the adoption can count nothing. When
+    /// the words arrive and the writer opens the piece and types one word, the
+    /// session gains one word — not the piece's whole count.
+    func test_aPieceWhoseWordsArriveAfterItsManifestNeverEntersTheSession() async throws {
+        let (url, store, ds) = try await openWindow()
+        ds.recordSessionActivity(
+            documentId: store.manifest.structure[0].id,
+            projectWordCount: store.projectWordCount)
+        let added = try await anotherMacAddsAChapter(url, title: "Late Words")
+        ds.presenterDidChangeSubitem(at: manifestURL(url))
+        let path = try XCTUnwrap(added.path)
+        // Their words arrive afterwards.
+        let theirs = try await Document.load(
+            url: url.appendingPathComponent(path), actor: .author,
+            session: "other-mac", presenter: nil)
+        theirs.setFullText("one two three four five six")
+        await theirs.close()
+
+        // The writer opens the piece and types one word.
+        let doc = try await Document.load(
+            url: url.appendingPathComponent(path), actor: .author,
+            session: "adoption-test", presenter: ds.presenter)
+        ds.register(document: doc, for: path)
+        let typed = doc.displayText + " seven"
+        doc.setFullText(typed)
+        ds.recordEditorTextWrite(
+            documentId: doc.docId, newText: typed,
+            mode: WritingModeFactory.mode(for: path), store: store)
+
+        XCTAssertEqual(ds.liveSessionWordsNet, 1, "one word typed, one word in the session")
+        XCTAssertEqual(store.cachedWordCount(for: added.id), 7, "and the piece shows its true count")
+        await doc.close()
+        await ds.close()
+    }
+
+    /// **m3, the load-time pass.** The word-count pass iterates the manifest
+    /// as it stood at open; a piece another device has since removed must stay
+    /// forgotten, and nothing the pass counts enters a session under way.
+    func test_theLoadTimeCountingPassNeitherRevivesARemovedPieceNorFeedsTheSession() async throws {
+        let (url, store, ds) = try await openWindow()
+        let added = try await anotherMacWritesAChapter(url, words: "one two three four")
+        ds.presenterDidChangeSubitem(at: manifestURL(url))
+        let withIt = store.manifest
+        ds.recordSessionActivity(
+            documentId: store.manifest.structure[0].id,
+            projectWordCount: store.projectWordCount)
+        var external = store.manifest
+        external.structure.removeAll { $0.id == added.id }
+        try ProjectManifest.makeEncoder().encode(external)
+            .write(to: manifestURL(url), options: [.atomic])
+        ds.presenterDidChangeSubitem(at: manifestURL(url))
+        XCTAssertNil(store.cachedWordCount(for: added.id))
+
+        // A pass that began over the manifest that still held the piece.
+        store.beginWordCountPopulation(from: withIt, at: url)
+        await store.wordCountPopulationTask?.value
+
+        XCTAssertNil(store.cachedWordCount(for: added.id), "a removed piece stays forgotten")
+        ds.recordSessionActivity(
+            documentId: store.manifest.structure[0].id,
+            projectWordCount: store.projectWordCount)
+        XCTAssertEqual(ds.liveSessionWordsNet, 0)
         await ds.close()
     }
 }

@@ -15,9 +15,13 @@ import XCTest
 /// call `beginStructuralVerb()`.
 ///
 /// **Its known limit**: a function that awaits and then mutates the manifest
-/// but leaves the save to its caller, or saves through a helper that is not
-/// named `saveManifest()`, is not seen. The helper that does the save is, and
-/// a caller awaiting it holds the verb open across both.
+/// but leaves the save to its caller is not seen. Four such helpers exist
+/// today, each reached only from a caller that IS wrapped, which holds the
+/// verb open across them: `restoreStructureItem`, `restoreResearchItem` and
+/// `restorePriorVersion` (`ProjectStore+Trash.swift`, under
+/// `restoreTrashEntry`) and `trashResearchItemCore`
+/// (`ProjectStore+Research.swift`, under `deleteResearchItems`). A new
+/// caller of any of the four must be a verb too.
 final class StructuralVerbCensusTests: XCTestCase {
 
     private var sourceDir: URL {

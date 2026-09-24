@@ -113,11 +113,13 @@ extension ProjectStore {
     }
 
     /// Leave a structural verb. On the way out of the outermost one, the
-    /// document store settles any manifest it held while the verb ran.
+    /// document store settles any manifest it held while the verb ran — on the
+    /// next main-actor turn, so a caller's rollback in its `catch` lands first
+    /// (`DocumentStore.scheduleStructuralSettle`).
     func endStructuralVerb() {
         structuralVerbDepth -= 1
         if structuralVerbDepth == 0 {
-            documentStore?.structuralVerbsSettled()
+            documentStore?.scheduleStructuralSettle()
         }
     }
 

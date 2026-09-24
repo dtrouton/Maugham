@@ -98,10 +98,22 @@ public final class DocumentStore {
     /// (F7 fix round, I1). Nil almost always.
     @ObservationIgnored private var deferredManifest: Data?
 
+    /// A settle is queued for the next main-actor turn (`scheduleStructuralSettle`).
+    @ObservationIgnored private var settleScheduled = false
+
+    /// Callers of `waitForStructuralVerbs`, resumed once a settle has run with
+    /// no verb in flight.
+    @ObservationIgnored private var settleWaiters: [CheckedContinuation<Void, Never>] = []
+
     /// Test seam: runs inside `relocate(plan:)` after the affected Documents
     /// are closed and before any file moves — the wait a structural verb holds
     /// its copy of the structure across. Nil in production.
     @ObservationIgnored internal var relocateWillMove: (@MainActor () async -> Void)?
+
+    /// Test seam: runs at the top of `writeManifest`, inside the caller's
+    /// save — the moment a manifest from elsewhere can land mid-save. Nil in
+    /// production.
+    @ObservationIgnored internal var writeManifestWillWrite: (@MainActor () async -> Void)?
 
     /// The `ProjectStore` looking at this project, where one is. Set by
     /// `ProjectWindow` at open time, beside `ProjectStore.documentStore`, and
@@ -549,6 +561,7 @@ public final class DocumentStore {
     /// `ProjectStore.saveManifest`'s legacy direct path; for every un-narrowed
     /// book it hands back the caller's own bytes untouched.
     public func writeManifest(_ data: Data) async throws {
+        await writeManifestWillWrite?()
         let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
         let coordinator = NSFileCoordinator(filePresenter: presenter)
         var coordError: NSError?
@@ -696,6 +709,28 @@ public final class DocumentStore {
 
     /// Coordinated read for callers outside ProjectStore.
     public func readManifest() async throws -> Data {
+        // A manifest held for a structural verb is settled first (m1): read now,
+        // the gate or the heal would write the HELD bytes back, the echo would
+        // become the held content, and the settle would then conclude that
+        // this window wrote last and archive it without ever adopting it.
+        while true {
+            await waitForStructuralVerbs()
+            let data = try coordinatedManifestRead()
+            // **Bytes nobody here wrote are taken on before anyone writes them
+            // back** (F7 fix round, M2). Both callers — the narrowing gate and
+            // the heal — hand what they read to `writeManifest`, which records
+            // the bytes it writes as this window's own echo. A manifest from
+            // another device whose presenter callback had not yet run would then
+            // read as an echo and never be adopted.
+            if ManifestEcho.afterWrite(bytes: data) != lastWrittenManifest {
+                handleManifestChanged()
+            }
+            // Held because a verb began in between: wait for that one too.
+            if deferredManifest == nil { return data }
+        }
+    }
+
+    private func coordinatedManifestRead() throws -> Data {
         let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
         let coordinator = NSFileCoordinator(filePresenter: presenter)
         var coordError: NSError?
@@ -712,18 +747,6 @@ public final class DocumentStore {
         }
         if let coordError { throw coordError }
         if let readError { throw readError }
-        // **Bytes nobody here wrote are taken on before anyone writes them
-        // back** (F7 fix round, M2). Both callers — the narrowing gate and the
-        // heal — read the disk manifest and hand it to `writeManifest`, which
-        // records the bytes it writes as this window's own echo. A manifest
-        // from another device whose presenter callback had not yet run would
-        // then read as an echo and never be adopted, and the next structural
-        // save would write this window's stale copy over it with nothing
-        // archived. Running the handler first adopts it (or holds it, inside a
-        // structural verb) exactly as the callback would have.
-        if let data, ManifestEcho.afterWrite(bytes: data) != lastWrittenManifest {
-            handleManifestChanged()
-        }
         return data ?? Data()
     }
 
@@ -1135,6 +1158,20 @@ public final class DocumentStore {
 
     public func register(document: Document, for path: String) {
         openDocuments[path] = document
+        // **The words a piece holds when it opens were not typed in this
+        // session** (F7 second fix round, m3). The count cache may not hold
+        // this piece at all — another device's piece whose op log had not
+        // synced when the manifest was adopted, or whose words arrived while
+        // it was closed — and the first keystroke would then record its whole
+        // count as the writer's. Counting it here, and moving the session's
+        // baseline by whatever that changed, leaves the first keystroke with
+        // only what it typed.
+        if let store = projectStore {
+            let count = WritingModeFactory.mode(for: path).wordCount(document.displayText)
+            let prior = store.cachedWordCount(for: document.docId) ?? 0
+            store.recordWordCount(forDocumentId: document.docId, wordCount: count)
+            excludeForeignWords(count - prior)
+        }
         // **A load is how this window finds out somebody is waiting** (signed
         // op log P2b, spec §4.1). The counts are a property of a load, and
         // registering is the one moment a finished load becomes visible to
@@ -1613,6 +1650,11 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
     /// A genuine concurrent structural edit is settled last-writer-wins, as the
     /// master spec says; nothing here merges.
     func structuralVerbsSettled() {
+        settleScheduled = false
+        // A verb that began between the schedule and now keeps the hold; its
+        // own end schedules the next settle.
+        if let live = projectStore, live.structuralVerbDepth > 0 { return }
+        defer { resumeSettleWaiters() }
         guard let held = deferredManifest else { return }
         deferredManifest = nil
         let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
@@ -1632,6 +1674,36 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         handleManifestChanged()
     }
 
+    /// Called by `ProjectStore.endStructuralVerb` as the outermost verb ends.
+    /// The settle runs on the NEXT main-actor turn rather than inside the
+    /// verb's `defer` (F7 second fix round, m2): a verb that rolls its own
+    /// change back in a `catch` after a failed save does so synchronously on
+    /// the throw, so deferring one turn lets that rollback land BEFORE a held
+    /// manifest is adopted — otherwise the rollback would write the verb's old
+    /// fields onto the manifest another device just wrote.
+    func scheduleStructuralSettle() {
+        guard !settleScheduled else { return }
+        settleScheduled = true
+        Task { @MainActor [weak self] in self?.structuralVerbsSettled() }
+    }
+
+    /// Suspend until no structural verb is running and any held manifest has
+    /// been settled. `readManifest` waits here, so the narrowing gate and the
+    /// heal never read — and then write back — a manifest that is being held
+    /// (F7 second fix round, m1). Not for use from inside a structural verb:
+    /// the verb would wait for itself.
+    func waitForStructuralVerbs() async {
+        while (projectStore?.structuralVerbDepth ?? 0) > 0 || settleScheduled {
+            await withCheckedContinuation { settleWaiters.append($0) }
+        }
+    }
+
+    private func resumeSettleWaiters() {
+        let waiting = settleWaiters
+        settleWaiters = []
+        for waiter in waiting { waiter.resume() }
+    }
+
     /// **A piece open here that another device moved or trashed** (F7 fix
     /// round, Denver's rulings 2026-09-23).
     ///
@@ -1644,9 +1716,10 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
     /// - **Moved or renamed:** the editor follows on its own, because its
     ///   reload is keyed on the item's path (tripwire 22) and the adoption just
     ///   changed that path.
-    /// - **Trashed:** the piece has left the structure, so the editor has no
-    ///   item to show and takes no more keystrokes, and the writer is told. The
-    ///   trash record names no device, so the sentence says "another device".
+    /// - **Gone from the structure:** the editor has no item to show and takes
+    ///   no more keystrokes, and the writer is told. Trash is named only when
+    ///   Trash holds the piece; the trash record names no device, so either
+    ///   sentence says "another device".
     private func letGoOfPiecesMovedElsewhere(
         _ adoption: ManifestAdoption, store: ProjectStore
     ) {
@@ -1670,23 +1743,46 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         let anyRemoved = !adoption.removed.isEmpty
         Task { @MainActor [weak store] in
             for doc in closing { await doc.close() }
+            // **Absence is not trash** (F7 second fix round, I-B). A piece can
+            // leave the structure without going to Trash — an older build
+            // saving its stale window over this book drops every piece it never
+            // saw — so Trash is named only where Trash actually holds it, and
+            // the window's list is refreshed so the promise can be kept.
+            var entries: [TrashEntry] = []
+            if anyRemoved, let store {
+                entries = (try? await store.trashStore.list()) ?? store.trashEntries
+                store.trashEntries = entries
+            }
             for removed in trashedOpen {
+                let inTrash = entries.contains { Self.entry($0, holds: removed.id) }
                 MaughamEvent.postNotice(
-                    Self.trashedElsewhereNotice(title: removed.title),
+                    inTrash
+                        ? Self.trashedElsewhereNotice(title: removed.title)
+                        : Self.removedElsewhereNotice(title: removed.title),
                     projectURL: projectURL)
             }
-            // The piece is in Trash on disk; the window's list should say so,
-            // or "restored from Trash" would point at an empty disclosure.
-            if anyRemoved, let store {
-                store.trashEntries = (try? await store.trashStore.list()) ?? store.trashEntries
-            }
         }
+    }
+
+    /// Whether a trash entry is the deletion of the structure item `id`. The
+    /// entry's metadata is the item as it stood, so its own `id` field says.
+    private static func entry(_ entry: TrashEntry, holds id: String) -> Bool {
+        struct Probe: Decodable { let id: String }
+        return (try? JSONDecoder().decode(Probe.self, from: entry.itemMetadata))?.id == id
     }
 
     /// The sentence the writer reads when a piece they had open was moved to
     /// Trash on another device. Static so a test can read the words.
     static func trashedElsewhereNotice(title: String) -> String {
-        "“\(title)” was moved to Trash on another device, so it has been closed here. Its words are safe and can be restored from Trash."
+        "“\(title)” was moved to Trash on another device, so it has been closed here. It can be restored from Trash."
+    }
+
+    /// The sentence for a piece that left this book on another device WITHOUT
+    /// going to Trash. It promises no way back, because the app offers none
+    /// yet: its words are still in the book's op log and the outline that held
+    /// it is in `.maugham/conflicts/`, but nothing in the window reaches either.
+    static func removedElsewhereNotice(title: String) -> String {
+        "“\(title)” was removed from this book on another device, so it has been closed here. It is not in Trash."
     }
 
     private func archiveManifestForConflict(data: Data) {

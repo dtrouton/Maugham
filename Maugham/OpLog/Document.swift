@@ -1451,7 +1451,33 @@ public final class Document {
         }
     }
 
+    /// **Single-flight** (F7 second fix round, I-A). `isClosed` only flips at
+    /// the END of the close, after a dozen suspensions, so two closers arriving
+    /// together — a remote rename's adoption and `EditorHost`'s reload, or
+    /// `appWillTerminate` racing `onDisappear` — both used to pass the guard and
+    /// run the whole close twice: the pending burst appended twice, the chain
+    /// sealed twice, the tail rotated twice. The first caller starts the close;
+    /// every later caller awaits that same close and returns when it is done.
     public func close() async {
+        guard !isClosed else { return }
+        if let running = closing {
+            await running.value
+            return
+        }
+        let task = Task { @MainActor in await self.performClose() }
+        closing = task
+        await task.value
+    }
+
+    /// The close in progress, if one is. See `close()`.
+    @ObservationIgnored private var closing: Task<Void, Never>?
+
+    /// How many times the body of a close has run. Test-observable: a single-
+    /// flight close runs it once however many callers arrive.
+    @ObservationIgnored internal private(set) var closeBodyRuns = 0
+
+    private func performClose() async {
+        closeBodyRuns += 1
         // Idempotent: a closed doc is already husked and its disk truth written,
         // so a second close (DocumentStore drain + EditorHost belt, or
         // appWillTerminate racing onDisappear) returns immediately rather than
