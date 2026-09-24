@@ -16,9 +16,26 @@ struct RecoveredHistorySheet: View {
     /// disabled with `documentClosedReason` rather than silently reaching
     /// for a closed doc through some other path.
     let document: Document?
+    /// **Whether this Mac may write the document's text** — the drawing
+    /// posture's `.writeText`, asked by the host (P3c whole-branch fix wave,
+    /// re-review item 1). Append is a typing burst; where it would be set
+    /// aside, it is not drawn. The door behind it is `append`'s own.
+    let mayAppend: Bool
     let onDismiss: () -> Void
 
     @State private var appendedIds: Set<String> = []
+    /// What the door said, when a press reached it after a demotion.
+    @State private var refusal: String?
+
+    /// The sentence a refused Append says.
+    static let refusedSentence =
+        "This Mac may not change this piece's text, so nothing was appended."
+
+    /// **The door** (re-review item 1): may this press write? The Document's
+    /// own stamp, re-stamped on every trust change.
+    static func mayAppend(to document: Document) -> Bool {
+        document.mayWriteItsText
+    }
 
     /// Shown in place of the per-orphan Append control when `document` is
     /// nil. Pinned as a `static let` (not inlined) so the copy is testable
@@ -36,9 +53,13 @@ struct RecoveredHistorySheet: View {
     /// a private method on the view — testable directly without mounting,
     /// matching `HistoryPane.predecessorIndex`'s pattern for view-adjacent
     /// pure logic.
+    ///
+    /// Returns "" and writes nothing where this Mac may not write the text
+    /// (`mayAppend(to:)`); the sheet asks first and says so.
     @discardableResult
     static func append(_ orphan: RecoveredHistoryReport.Orphan, to document: Document) -> String {
-        document.insertParagraph(after: document.sequence.last, text: orphan.text)
+        guard mayAppend(to: document) else { return "" }
+        return document.insertParagraph(after: document.sequence.last, text: orphan.text)
     }
 
     var body: some View {
@@ -70,7 +91,10 @@ struct RecoveredHistorySheet: View {
         HStack {
             Text("Recovered history").font(.headline)
             Spacer()
-            if !report.orphans.isEmpty {
+            if let refusal {
+                Text(refusal).font(.caption).foregroundStyle(.secondary)
+            }
+            if !report.orphans.isEmpty, mayAppend {
                 Button("Append All to End", action: appendAll)
                     .disabled(document == nil || allAppended)
             }
@@ -97,12 +121,18 @@ struct RecoveredHistorySheet: View {
 
     @ViewBuilder
     private func appendControl(_ orphan: RecoveredHistoryReport.Orphan) -> some View {
-        if let document {
+        if !mayAppend {
+            EmptyView()
+        } else if let document {
             if appendedIds.contains(orphan.id) {
                 Label("Appended", systemImage: "checkmark")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 Button("Append to End") {
+                    guard Self.mayAppend(to: document) else {
+                        refusal = Self.refusedSentence
+                        return
+                    }
                     Self.append(orphan, to: document)
                     appendedIds.insert(orphan.id)
                 }
@@ -117,6 +147,10 @@ struct RecoveredHistorySheet: View {
 
     private func appendAll() {
         guard let document else { return }
+        guard Self.mayAppend(to: document) else {
+            refusal = Self.refusedSentence
+            return
+        }
         for orphan in report.orphans where !appendedIds.contains(orphan.id) {
             Self.append(orphan, to: document)
             appendedIds.insert(orphan.id)

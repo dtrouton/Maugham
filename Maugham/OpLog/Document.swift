@@ -1199,6 +1199,7 @@ public final class Document {
 
     public func setParagraph(id: String, text: String) {
         if rejectMutationIfNotWritable("setParagraph") { return }
+        if rejectTextWriteIfNotPermitted("setParagraph") { return }
         let prior = paragraphs[id]
         guard prior != text else { return }
         pending.recordChange(paragraphId: id, prior: prior, next: text)
@@ -1221,6 +1222,7 @@ public final class Document {
 
     public func insertParagraph(after: String?, text: String) -> String {
         if rejectMutationIfNotWritable("insertParagraph") { return "" }
+        if rejectTextWriteIfNotPermitted("insertParagraph") { return "" }
         // Unique against the doc's live id population (birthday hazard over
         // the ~1.05M id space — see ParagraphID.mintUnique).
         let newId = ParagraphID.mintUnique(
@@ -1245,6 +1247,7 @@ public final class Document {
 
     public func deleteParagraph(id: String) {
         if rejectMutationIfNotWritable("deleteParagraph") { return }
+        if rejectTextWriteIfNotPermitted("deleteParagraph") { return }
         guard paragraphs[id] != nil else { return }
         let priorText = paragraphs[id]
         paragraphs.removeValue(forKey: id)
@@ -1268,6 +1271,7 @@ public final class Document {
 
     public func reorder(sequence: [String]) {
         if rejectMutationIfNotWritable("reorder") { return }
+        if rejectTextWriteIfNotPermitted("reorder") { return }
         self.sequence = sequence
         _orderingDirty = true
         _orderingChangedSinceLoad = true
@@ -1748,6 +1752,29 @@ public final class Document {
     /// misuse, a scheduler tail) must no-op rather than operate on husked state
     /// or resurrect it. Data safety is unaffected — the disk truth was written
     /// before husking.
+    /// **The floor under the paragraph primitives** (P3c whole-branch fix wave,
+    /// re-review item 1): `setParagraph`, `insertParagraph`, `deleteParagraph`
+    /// and `reorder` write a typing burst, and nothing but the editor's
+    /// membrane stood in front of a burst — so a caller outside the editor
+    /// (History's recovered-orphans Append, the inline checkbox's ⌘Z) signed
+    /// text every read then set aside. Guarded INSIDE, so a future caller
+    /// cannot skip it. The load path emits through none of these (its
+    /// bootstrap, pending fold and anchor splice are the author's by tripwire
+    /// 38 and go through their own emitters), and the editor's typing is
+    /// `setFullText`, which stays unguarded on purpose: a keystroke that beat
+    /// a demotion's refresh is kept in History, never dropped.
+    ///
+    /// Silent here by necessity (these return nothing to say it with), so
+    /// every production caller ASKS `mayWriteItsText` first and says the
+    /// refusal in its own words; this is what stands behind a caller that
+    /// forgets.
+    internal func rejectTextWriteIfNotPermitted(_ site: StaticString) -> Bool {
+        guard !mayWriteItsText else { return false }
+        documentLog.error(
+            "\(site, privacy: .public) refused on \(self.docId, privacy: .public): this device may not write this piece's text; no-op")
+        return true
+    }
+
     internal func rejectMutationIfNotWritable(_ site: StaticString) -> Bool {
         if isClosed {
             documentLog.error(

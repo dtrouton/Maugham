@@ -220,11 +220,33 @@ enum StatementProposalGate {
             undoManager, actionName: StatementProposalCopy.undoActionName, target: store,
             workTaskSink: workTaskSink,
             undo: { s in
-                try? await s.mutateStatementText(of: statement, session: session) { _ in before }
+                await sayingARefusal(s) {
+                    try await s.mutateStatementText(of: statement, session: session) { _ in before }
+                }
             },
             redo: { s in
-                try? await s.mutateStatementText(of: statement, session: session) { _ in after }
+                await sayingARefusal(s) {
+                    try await s.mutateStatementText(of: statement, session: session) { _ in after }
+                }
             })
+    }
+
+    /// **An adopt's ⌘Z/⇧⌘Z after a demotion is SAID** (P3c whole-branch fix
+    /// wave, re-review item 2): `mutateStatementText` refuses with
+    /// `StatementWriteRefused` where this Mac may no longer write the
+    /// statement, and the old `try?` swallowed it — the Edit menu named the
+    /// act and nothing happened. Said in the window's notice channel; any
+    /// other error keeps the silence it had.
+    static func sayingARefusal(
+        _ store: ProjectStore, _ work: () async throws -> Void
+    ) async {
+        do {
+            try await work()
+        } catch let refused as ProjectStore.StatementWriteRefused {
+            MaughamEvent.postNotice(
+                refused.errorDescription ?? StatementProposalCopy.undoRefused,
+                projectURL: store.url)
+        } catch {}
     }
 
     private static let session = "proposal-\(UUID().uuidString)"
@@ -232,6 +254,10 @@ enum StatementProposalGate {
 
 /// Every sentence the gate says, as statics — assertable with nothing mounted.
 enum StatementProposalCopy {
+    /// Fallback for a refused undo of an adoption (the refusal's own sentence
+    /// is what is said).
+    static let undoRefused =
+        "This Mac may not change that statement's text, so it was left as it was."
     static let adoptTitle = "Adopt"
     static let discardTitle = "Discard"
     static let rationaleHeading = "Why"

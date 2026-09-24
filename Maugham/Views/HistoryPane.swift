@@ -1155,6 +1155,10 @@ struct HistoryPane: View {
                 RecoveredHistorySheet(
                     report: report,
                     document: documentStore?.document(forDocId: activeDocId),
+                    // Drawn only where this Mac may write the text (re-review
+                    // item 1); no door behind the pane fails closed.
+                    mayAppend: Self.offersRewind(
+                        documentStore?.posture(forDocId: activeDocId)),
                     onDismiss: { showingRecoveredHistorySheet = false })
             }
         }

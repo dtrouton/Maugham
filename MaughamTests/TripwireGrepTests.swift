@@ -9269,9 +9269,19 @@ final class TripwireGrepTests: XCTestCase {
     /// review found two such doors with neither a surface gate nor a storage
     /// door — the third time in P3 a "which paths write X" list was enumerated
     /// from the plan rather than from the code — so the population is a grep.
+    ///
+    /// **The re-review grew it** by the paragraph primitives — `setParagraph(`,
+    /// `insertParagraph(`, `deleteParagraph(` and `Document.reorder(sequence:` —
+    /// which write a burst exactly as `setFullText` does and which the first
+    /// list missed (History's recovered-orphans Append and the inline
+    /// checkbox's ⌘Z). So the list is no longer trusted on its own:
+    /// `test_everyGuardedDocumentMutatorIsClassified` derives the population
+    /// from `Document`'s own `rejectMutationIfNotWritable`/`requireWritable`
+    /// sites and fails on a new one nobody classified.
     static let manuscriptWriterPatterns = [
         "setFullText(", "applyRestore(", "restoreToOp(", "restoreToOpUndoable(",
         "buildRestoreOp(", "replaceAll(", "replaceMatch(", "replaceInManuscript(",
+        "setParagraph(", "insertParagraph(", "deleteParagraph(", "reorder(sequence:",
     ]
 
     /// **Every production call site, by file and by count** — count the array,
@@ -9303,8 +9313,25 @@ final class TripwireGrepTests: XCTestCase {
     /// - `Document+RewindUndo.swift` × 4 — the undoable wrapper (its own door
     ///   before the stack clear) and its undo/redo; each reaches the doored
     ///   `restoreToOp`, and a refusal there is said (`declineUndo(.notPermitted)`).
-    /// - `Document+Tasks.swift` × 1 — the inline-archive undo's
-    ///   `applyRestore`, doored; its refusal is said the same way.
+    /// - `Document+Tasks.swift` × 3 — the inline-archive undo's
+    ///   `applyRestore`, doored, its refusal said the same way; and
+    ///   `archiveTask`'s own splice (`deleteParagraph`/`setParagraph`), behind
+    ///   the task door that refuses the archive whole where the splice is
+    ///   refused.
+    /// - `OpUndoRegistrar.swift` × 2 — `InlineToggleUndo`'s checkbox flip and
+    ///   its undo: each asks `mayWriteItsText` first and a refusal is said
+    ///   (`declineUndo(.taskNotPermitted)`); the press is hidden by
+    ///   `TaskRowVerbs` on the drawing posture.
+    /// - `RecoveredHistorySheet.swift` × 1 — *Append to End* / *Append All*:
+    ///   drawn only where `.writeText` is allowed (`mayAppend`), the door
+    ///   `RecoveredHistorySheet.mayAppend(to:)` on the stamp, a refusal said
+    ///   in the sheet.
+    ///
+    /// And beneath all four paragraph primitives, whatever the caller:
+    /// `Document.rejectTextWriteIfNotPermitted` refuses inside
+    /// `setParagraph`/`insertParagraph`/`deleteParagraph`/`reorder`, so a future
+    /// caller that forgets to ask writes nothing (silently — which is why each
+    /// listed caller asks first and says it).
     /// - `ProjectWindow.swift` × 1 — *Restore here…*'s receiver; the button is
     ///   drawn only where `.writeText` is allowed (`RewindWindow.offersRestore`)
     ///   and a refusal from the door is SAID in the restore toast.
@@ -9326,7 +9353,9 @@ final class TripwireGrepTests: XCTestCase {
         "ProjectSearchView.swift": 2,
         "Document+Rewind.swift": 2,
         "Document+RewindUndo.swift": 4,
-        "Document+Tasks.swift": 1,
+        "Document+Tasks.swift": 3,
+        "OpUndoRegistrar.swift": 2,
+        "RecoveredHistorySheet.swift": 1,
         "ProjectWindow.swift": 1,
         "PartialRestorePicker.swift": 1,
         "TestEditTool.swift": 1,
@@ -9364,6 +9393,60 @@ final class TripwireGrepTests: XCTestCase {
             + "Found: \(found.sorted(by: { $0.key < $1.key }))")
     }
 
+    /// **Every guarded `Document` mutator, classified** — the population the
+    /// spelling list is checked against, DERIVED from the code (the re-review's
+    /// ask: the first list was enumerated and missed two primitives). Each name
+    /// that `Maugham/` guards with `rejectMutationIfNotWritable("…")` or
+    /// `requireWritable("…")` is here, as a TEXT WRITER (its spelling must be
+    /// in `manuscriptWriterPatterns`) or with why it is not one.
+    static let guardedDocumentMutators: [String: String] = [
+        // Text writers — each spelled in `manuscriptWriterPatterns`.
+        "setFullText": "text", "setParagraph": "text", "insertParagraph": "text",
+        "deleteParagraph": "text", "reorder": "text", "applyRestore": "text",
+        "restoreToOp": "text",
+        // Not text writers, and where their own door is.
+        "appendMirrored": "⌘S's checkpoint op — CheckpointCapture's door",
+        "performAutosave": "writes the DERIVED .md of ops already judged",
+        "flushBurstNow": "emits what setFullText/the primitives already wrote",
+        "handleExternalDiskChange": "a read — another device's lines, judged by the partition",
+        "handleExternalLogChange": "a read — another device's lines, judged by the partition",
+        "acceptAnnotation": "a disposition — requireDispositionPermitted",
+        "revertAcceptedAnnotation": "a disposition — requireDispositionPermitted",
+        "reopenAnnotation": "a disposition — requireDispositionPermitted",
+        "reopenAcceptedTextlessAnnotation": "a disposition — requireDispositionPermitted",
+        "appendTaskOpInternal": "a task op — the task door",
+        "appendTaskRewindCloser": "reached only after the doored restoreToOp",
+        "applyMintedAnchors": "the load's own emission, the author's (tripwire 38), gated on mayAnchor",
+    ]
+
+    func test_everyGuardedDocumentMutatorIsClassified() throws {
+        let hits = try grepSwift(
+            in: sourceDir,
+            patterns: ["rejectMutationIfNotWritable(\"", "requireWritable(\""],
+            allowed: [],
+            excludeLine: Self.admissionExcludeLine)
+        var names: Set<String> = []
+        let regex = try NSRegularExpression(
+            pattern: #"(?:rejectMutationIfNotWritable|requireWritable)\("([A-Za-z]+)"\)"#)
+        for hit in hits {
+            let range = NSRange(hit.startIndex..., in: hit)
+            regex.enumerateMatches(in: hit, range: range) { m, _, _ in
+                if let m, let r = Range(m.range(at: 1), in: hit) { names.insert(String(hit[r])) }
+            }
+        }
+        XCTAssertFalse(names.isEmpty, "precondition: the guarded mutators were found")
+        XCTAssertEqual(names, Set(Self.guardedDocumentMutators.keys),
+            "A guarded Document mutator appeared or disappeared. Classify it in "
+            + "`guardedDocumentMutators`: a TEXT writer's spelling joins "
+            + "`manuscriptWriterPatterns` and its callers `manuscriptWriterCallSites`. "
+            + "Found: \(names.sorted())")
+        for (name, kind) in Self.guardedDocumentMutators where kind == "text" {
+            XCTAssertTrue(
+                Self.manuscriptWriterPatterns.contains { $0.hasPrefix(name + "(") },
+                "\(name) writes text and is not in manuscriptWriterPatterns")
+        }
+    }
+
     /// The census's control: it counts a planted call of each spelling, not the
     /// comment and not the declaration, and a file off the list fails it.
     func test_theManuscriptWriterCensusFiresOnPlantedOffenders() throws {
@@ -9385,13 +9468,17 @@ final class TripwireGrepTests: XCTestCase {
         try await store.replaceAll(in: results, with: text)
         try await store.replaceMatch(match, with: text)
         try await replaceInManuscript(path: p, title: t, query: q,
+        doc.setParagraph(id: pid, text: flipped)
+        _ = doc.insertParagraph(after: last, text: orphan)
+        doc.deleteParagraph(id: pid)
+        doc.reorder(sequence: ids)
         """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),
                   atomically: true, encoding: .utf8)
 
         let planted = try manuscriptWriterCallCounts(in: [tmp])
-        XCTAssertEqual(planted, ["ASixthWayToWriteText.swift": 8],
-            "Self-check: each of the eight spellings is counted once, the comment "
-            + "and the declaration are not. Counted: \(planted)")
+        XCTAssertEqual(planted, ["ASixthWayToWriteText.swift": Self.manuscriptWriterPatterns.count],
+            "Self-check: each spelling is counted once, the comment and the "
+            + "declaration are not. Counted: \(planted)")
         XCTAssertNotEqual(planted, Self.manuscriptWriterCallSites,
             "and a file that is not on the list fails the census it feeds")
     }

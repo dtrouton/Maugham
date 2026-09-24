@@ -160,6 +160,135 @@ final class ManuscriptWriterPostureTests: XCTestCase {
         return seen
     }
 
+    // MARK: - The paragraph primitives (re-review item 1)
+
+    /// **`setParagraph`/`insertParagraph`/`deleteParagraph`/`reorder` write
+    /// nothing where the stamp refuses the text** — the floor under every
+    /// caller — and write normally where it allows (both directions).
+    func test_theParagraphPrimitivesWriteNothingWhereTheStampRefuses() async throws {
+        let doc = try await loadOne(prefix: "ParagraphFloor")
+        _ = try await twoMoments(doc)
+        let pid = try XCTUnwrap(doc.sequence.first)
+        beAReviewer(doc)
+        let text = doc.displayText
+        let sequence = doc.sequence
+
+        doc.setParagraph(id: pid, text: "Rewritten.")
+        XCTAssertEqual(doc.insertParagraph(after: pid, text: "Inserted."), "")
+        doc.deleteParagraph(id: pid)
+        doc.reorder(sequence: sequence.reversed())
+        XCTAssertEqual(doc.displayText, text, "no primitive moved a word")
+        XCTAssertEqual(doc.sequence, sequence)
+        let before = doc._opLogMirror.count
+        try await doc.flushBurstNow()
+        XCTAssertEqual(doc._opLogMirror.count, before, "and no burst was pending")
+
+        doc.stamp(localWritePermit: .unrestricted)
+        doc.setParagraph(id: pid, text: "Rewritten.")
+        XCTAssertTrue(doc.displayText.hasPrefix("Rewritten."), "promoted: it writes")
+        await doc.close()
+    }
+
+    /// **History's recovered-orphans Append**: the door on the stamp refuses
+    /// and writes nothing; promoted, it appends.
+    func test_recoveredHistoryAppendIsRefusedWhereTheStampRefuses() async throws {
+        let doc = try await loadOne(prefix: "RecoveredAppend")
+        let orphan = RecoveredHistoryReport.Orphan(paragraphId: "abcd", text: "Lost words.")
+        beAReviewer(doc)
+        let text = doc.displayText
+
+        XCTAssertFalse(RecoveredHistorySheet.mayAppend(to: doc))
+        XCTAssertEqual(RecoveredHistorySheet.append(orphan, to: doc), "")
+        XCTAssertEqual(doc.displayText, text, "nothing was appended")
+
+        doc.stamp(localWritePermit: .unrestricted)
+        XCTAssertTrue(RecoveredHistorySheet.mayAppend(to: doc))
+        XCTAssertNotEqual(RecoveredHistorySheet.append(orphan, to: doc), "")
+        XCTAssertTrue(doc.displayText.hasSuffix("Lost words."))
+        await doc.close()
+    }
+
+    /// **The inline checkbox flip and its ⌘Z ask the stamp and SAY a refusal**
+    /// (the existing `declineUndo` path).
+    func test_theInlineToggleAndItsUndoAreRefusedAndSaid() async throws {
+        let doc = try await loadOne(prefix: "InlineToggle")
+        let pid = try XCTUnwrap(doc.sequence.first)
+        let prior = try XCTUnwrap(doc.paragraph(id: pid))
+        let flipped = prior + " (done)"
+
+        // Refused forward press: said, nothing written, nothing registered.
+        beAReviewer(doc)
+        let um = UndoManager()
+        let saidOnPress = await notices {
+            InlineToggleUndo.perform(on: doc, paragraphId: pid, prior: prior,
+                                     flipped: flipped, undoManager: um)
+            await doc.awaitPendingUndoWork()
+        }
+        XCTAssertEqual(saidOnPress, [
+            "Couldn't change that task — this Mac can no longer file tasks in this piece."])
+        XCTAssertEqual(doc.paragraph(id: pid), prior)
+        XCTAssertFalse(um.canUndo)
+
+        // Permitted press, then a demotion, then ⌘Z: refused and said.
+        doc.stamp(localWritePermit: .unrestricted)
+        InlineToggleUndo.perform(on: doc, paragraphId: pid, prior: prior,
+                                 flipped: flipped, undoManager: um)
+        XCTAssertEqual(doc.paragraph(id: pid), flipped)
+        beAReviewer(doc)
+        let saidOnUndo = await notices {
+            um.undo()
+            await doc.awaitPendingUndoWork()
+        }
+        XCTAssertEqual(saidOnUndo, [
+            "Couldn't change that task — this Mac can no longer file tasks in this piece."])
+        XCTAssertEqual(doc.paragraph(id: pid), flipped, "the flip stays")
+        await doc.close()
+    }
+
+    /// **An adoption's ⌘Z refused by the statement door is SAID** (re-review
+    /// item 2) — `StatementProposalGate.sayingARefusal` around the real door.
+    func test_aRefusedAdoptUndoIsSaid() async throws {
+        let (store, statement, open) = try await aReviewersOpenStatement(prefix: "AdoptUndo")
+        let said = await notices {
+            await StatementProposalGate.sayingARefusal(store) {
+                try await store.mutateStatementText(of: statement, session: "s") { _ in "Before." }
+            }
+        }
+        XCTAssertEqual(said, [
+            "This Mac may not change that statement's text, so it was left as it was."])
+        XCTAssertEqual(open.displayText, "What it is for.")
+        await open.close()
+    }
+
+    private func aReviewersOpenStatement(
+        prefix: String
+    ) async throws -> (ProjectStore, Statement, Document) {
+        let (dir, _) = try makeTestProject(prefix: prefix, initialMd: "Hello.\n")
+        roots.append(dir)
+        let statementPath = "intent/c1.md"
+        let statement = Statement(
+            id: "stmt-c1-intent", kind: .intent, scope: .document("doc-test"),
+            path: statementPath)
+        let manifestURL = dir.appendingPathComponent(ProjectManifest.fileName)
+        var manifest = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+        manifest.statements = [statement]
+        try ProjectManifest.makeEncoder().encode(manifest).write(to: manifestURL)
+        try FileManager.default.createDirectory(
+            at: dir.appendingPathComponent("intent"), withIntermediateDirectories: true)
+        try "What it is for.\n".write(
+            to: dir.appendingPathComponent(statementPath), atomically: true, encoding: .utf8)
+        let store = try await ProjectStore.load(from: dir)
+        let open = try await Document.load(
+            url: dir.appendingPathComponent(statementPath),
+            device: "test", session: "s", presenter: nil)
+        store.noteStatementDocumentOpened(open, id: statement.id)
+        open.stamp(localWritePermit: LocalWritePermit(
+            permit: .reviewer, actor: .author,
+            documentClass: .pieceStatement(piece: "doc-test")))
+        return (store, statement, open)
+    }
+
     // MARK: - The surfaces' decisions (pure)
 
     private let bookAuthor = Posture(.unrestricted)
