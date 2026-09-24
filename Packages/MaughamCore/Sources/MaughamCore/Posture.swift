@@ -40,13 +40,37 @@ public struct Posture: Equatable, Sendable {
     /// WITHOUT it; nothing here knows about the override.
     public let yieldingTo: String?
 
+    /// True only for `settling`: nothing is decided yet, and only the
+    /// reviewer row is offered.
+    private let undecided: Bool
+
     public init(_ permit: LocalWritePermit, yieldingTo: String? = nil) {
         self.permit = permit
         self.yieldingTo = yieldingTo
+        self.undecided = false
+    }
+
+    private init(undecidedOver permit: LocalWritePermit) {
+        self.permit = permit
+        self.yieldingTo = nil
+        self.undecided = true
     }
 
     /// The writer's own hand, author of the whole book: every verb.
     public static let author = Posture(.unrestricted)
+
+    /// **Not yet decided** (P3c Task 2, fix round 1) — the Mac's door's answer
+    /// for a document it has never answered, in a book that HAS a register,
+    /// in the moments before its off-main table lands. Only `annotate` is
+    /// offered, because the reviewer row is every rung's: a verb appearing a
+    /// frame late is fine, and a verb appearing that must not is not. `reason`
+    /// is nil — nothing is known to name — and `isSettling` says so. Never
+    /// the answer in a book with no register, and never the answer a verb's
+    /// own door acts on (`settledPosture` does not return it).
+    public static let settling = Posture(undecidedOver: .unrestricted)
+
+    /// This is `settling`: an answer still on its way, not a refusal.
+    public var isSettling: Bool { undecided }
 
     // MARK: - The verbs
 
@@ -157,7 +181,8 @@ public struct Posture: Equatable, Sendable {
     ///   read still lets her leave a note — the reviewer row, which every rung
     ///   contains — and NEVER lets her change text.
     public func allows(_ verb: Verb) -> Bool {
-        withAnswer(to: verb) { answer in
+        if undecided { return verb == .annotate }
+        return withAnswer(to: verb) { answer in
             switch answer {
             case .yes: return verb == .annotate || yieldingTo == nil
             case .no: return false
@@ -177,6 +202,7 @@ public struct Posture: Equatable, Sendable {
     /// they are. Derived here and nowhere else; the rung is read only to NAME
     /// the reason, never to decide a verb.
     public var reason: Reason? {
+        if undecided { return nil }
         if let yieldingTo { return .yielding(to: yieldingTo) }
         let text = Self.probe(.writeText).what
         return withAnswer(to: .writeText) { answer -> Reason? in

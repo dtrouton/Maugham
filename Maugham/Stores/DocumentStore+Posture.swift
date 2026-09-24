@@ -28,6 +28,10 @@ final class PostureBook {
         let actor: DeviceActor
     }
 
+    /// docId → the piece it is ABOUT (a piece, its statement, its
+    /// translation), in THIS epoch — asked only while somebody is yielded to.
+    @ObservationIgnored fileprivate var pieceOf: [String: String?] = [:]
+
     /// The permit answered for each `(docId, actor)` in THIS epoch.
     @ObservationIgnored fileprivate var permits: [Key: LocalWritePermit] = [:]
 
@@ -72,15 +76,24 @@ final class PostureBook {
 /// device's actor write here* (tripwire 46): the door wraps it and never
 /// computes a second answer beside it.
 ///
+/// **Two accessors, and which one a caller uses is the rule** (controller
+/// ruling I). A SURFACE draws from `posture(forDocId:)`; every door that ACTS
+/// — Accept/Reject/Stet, ⌘S's op, a round's Run, a ruling, an inbox promote,
+/// a translation write — asks `settledPosture(forDocId:as:)`, which never
+/// answers provisionally.
+///
 /// **O(1) in a view body, and never a registry read on the main actor.** The
 /// first question per `(docId, actor)` per epoch asks the builder of a store
 /// whose table was warmed off the main actor (`OpLogStore.prepareTrust`), so it
-/// costs a few stats; every later question is a dictionary hit. While no warm
-/// table is in hand — the moments after a trust change, before the refresh
-/// lands — the door answers PROVISIONALLY (the last answer it gave, else the
-/// open document's own stamp, else the whole book) without caching it, and the
-/// refresh's epoch bump re-asks. A verb that WRITES asks `settledPosture`, which
-/// waits for the refresh instead.
+/// costs a few stats; every later question is a dictionary hit. `open` awaits
+/// the first warm, so a window never draws from a cold door. After a trust
+/// change, before the refresh lands, the drawing accessor answers
+/// PROVISIONALLY and caches nothing: the last answer it gave for that
+/// document and actor, else that document's own stamp (same actor), else —
+/// in a book that has a register — `Posture.settling`, which offers the
+/// reviewer row alone. **It never fails open**: a verb appearing a frame late
+/// is fine; a verb appearing that must not is not. A book with no register is
+/// always warm and answers `.author` reading nothing.
 ///
 /// **Fresh on every trust change.** `invalidateTrust` and manifest adoption
 /// bump the epoch and clear the cache; the refresh that follows re-stamps every
@@ -92,7 +105,11 @@ final class PostureBook {
 /// device is the book's root and `PieceWriters` names somebody on a piece — a
 /// permit whose scope NAMES pieces; a co-writing whole-book author names none
 /// and is never yielded to — the writer's-hand posture on that piece carries
-/// `yieldingTo`, until `overrideYield(docId:)` in this window.
+/// `yieldingTo`, until `overrideYield(docId:)` in this window. The piece's
+/// statement and its translation yield with it (controller ruling H): the
+/// yield keys on the piece a document's CLASS is about. Never to this
+/// device's own person — the root's own second Mac admitted under the
+/// writer's label is the writer.
 extension DocumentStore {
 
     // MARK: - Asking
@@ -106,13 +123,40 @@ extension DocumentStore {
     /// cooperative posture is about her own typing, not about what the
     /// assistant or the translator may write.
     func posture(forDocId docId: String, as actor: DeviceActor = .author) -> Posture {
+        _ = postureBook.epoch  // observed: a trust change re-renders whoever asked
+        guard let permit = postureWritePermit(forDocId: docId, as: actor) else {
+            return .settling
+        }
+        return assemble(permit, forDocId: docId, as: actor)
+    }
+
+    /// The permit plus the yield — the one place a `Posture` is put together.
+    private func assemble(
+        _ permit: LocalWritePermit, forDocId docId: String, as actor: DeviceActor
+    ) -> Posture {
         let book = postureBook
-        _ = book.epoch  // observed: a trust change re-renders whoever asked
-        let permit = postureWritePermit(forDocId: docId, as: actor)
-        guard actor == .author, !book.overridden.contains(docId),
-              let yielding = book.yields[docId]
+        guard actor == .author, !book.yields.isEmpty,
+              let piece = postureYieldPiece(forDocId: docId),
+              !book.overridden.contains(piece),
+              let yielding = book.yields[piece]
         else { return Posture(permit) }
         return Posture(permit, yieldingTo: yielding)
+    }
+
+    /// The piece a document is about, by its CLASS — the piece itself, its
+    /// statement, its translation — cached per epoch. From the live manifest
+    /// where the window holds one (pure), else the file.
+    private func postureYieldPiece(forDocId docId: String) -> String? {
+        let book = postureBook
+        if let known = book.pieceOf[docId] { return known }
+        let cls: DocumentClass
+        if let manifest = projectStore?.manifest {
+            cls = DocumentClass.resolve(docId: docId, statements: manifest.statements)
+        } else {
+            cls = Document.documentClass(forDocId: docId, in: projectURL)
+        }
+        book.pieceOf[docId] = .some(cls.piece)
+        return cls.piece
     }
 
     /// The same door, for the document the window shows by PATH. Resolves the
@@ -122,14 +166,41 @@ extension DocumentStore {
         posture(forDocId: postureDocId(forPath: path), as: actor)
     }
 
-    /// **The answer after any refresh in flight has landed** — for a verb's
-    /// own door, which must not act on a provisional posture.
+    /// **The answer a verb's own door acts on** (controller ruling I) —
+    /// never provisional, never `settling`.
+    ///
+    /// Waits for any refresh in flight; then, if the folder has moved since the
+    /// table was warmed (a record that landed before the presenter's debounced
+    /// invalidation), warms it again off the main actor, a bounded number of
+    /// times. A registry that keeps moving under all of them is answered by the
+    /// builder directly — a registry read on this actor, the price of a correct
+    /// answer in a state that should not persist.
     func settledPosture(
         forDocId docId: String, as actor: DeviceActor = .author
     ) async -> Posture {
         await postureSettled()
-        return posture(forDocId: docId, as: actor)
+        let book = postureBook
+        for _ in 0..<Self.settleAttempts {
+            if postureTableIsWarm() { break }
+            let generation = book.generation
+            let signature = TrustResolution.signature(of: projectURL)
+            await postureOpStore.prepareTrust()
+            // A trust change that arrived meanwhile forgot the table this
+            // warmed; its own refresh will set the signature.
+            if book.generation == generation { book.readySignature = signature }
+            await postureSettled()
+        }
+        let key = PostureBook.Key(docId: docId, actor: actor)
+        let permit = book.permits[key] ?? {
+            let built = permitFromTheBuilder(forDocId: docId, as: actor)
+            if postureTableIsWarm() { book.permits[key] = built }
+            book.lastKnown[key] = built
+            return built
+        }()
+        return assemble(permit, forDocId: docId, as: actor)
     }
+
+    private static var settleAttempts: Int { 3 }
 
     /// Wait until no posture refresh is in flight.
     func postureSettled() async {
@@ -145,15 +216,17 @@ extension DocumentStore {
     /// window, for the session. Not persisted and not synced — a second window
     /// on the same book still yields.
     func overrideYield(docId: String) {
-        postureBook.overridden.insert(docId)
+        postureBook.overridden.insert(postureYieldPiece(forDocId: docId) ?? docId)
     }
 
     // MARK: - The hooks DocumentStore.swift calls
 
     /// At open: warm the first table and read who writes what, off the main
-    /// actor, before the first view asks.
-    func postureOpened() {
+    /// actor, and WAIT for it — `open` is async, so the first view never asks
+    /// a cold door.
+    func postureOpened() async {
         schedulePostureRefresh(force: true)
+        await postureSettled()
     }
 
     /// From `invalidateTrust`: every answer this window holds was taken off the
@@ -182,10 +255,12 @@ extension DocumentStore {
         return store
     }
 
-    /// The ONE builder, asked only where it will not resolve on this actor.
+    /// The ONE builder, asked only where it will not resolve on this actor;
+    /// nil where nothing is known and the table is cold (the caller draws
+    /// `settling`).
     private func postureWritePermit(
         forDocId docId: String, as actor: DeviceActor
-    ) -> LocalWritePermit {
+    ) -> LocalWritePermit? {
         let book = postureBook
         let key = PostureBook.Key(docId: docId, actor: actor)
         if let hit = book.permits[key] { return hit }
@@ -198,11 +273,11 @@ extension DocumentStore {
         // Provisional, and NOT cached: the refresh's epoch bump re-asks.
         schedulePostureRefresh(force: false)
         if let last = book.lastKnown[key] { return last }
-        if actor == .author, let open = document(forDocId: docId) {
+        if let open = document(forDocId: docId), open.localWritePermit.actor == actor {
             // Stamped by the load (or the last refresh) from the same builder.
             return open.localWritePermit
         }
-        return .unrestricted
+        return nil
     }
 
     /// Would asking the builder now cost no registry resolution on this actor?
@@ -229,6 +304,7 @@ extension DocumentStore {
     private func bumpPostureEpoch() {
         postureBook.epoch += 1
         postureBook.permits.removeAll()
+        postureBook.pieceOf.removeAll()
     }
 
     /// Warm the table, re-stamp the open documents, bump; then read who writes
@@ -260,13 +336,17 @@ extension DocumentStore {
         book.readySignature = signature
 
         // The re-stamp: every open document, from the one builder, over the
-        // table just warmed. Only when that table still describes the folder —
-        // otherwise the builder would resolve here, and the next refresh (the
-        // presenter's own invalidation) re-stamps anyway.
+        // table just warmed, for the SAME actor its stamp was made for (the
+        // load stamps the author's, because what it emits on its own account
+        // is the author's — tripwire 38 — so a re-stamp that named the
+        // loading actor instead would change what the stamp means). Only when
+        // that table still describes the folder — otherwise the builder would
+        // resolve here, and the next refresh (the presenter's own
+        // invalidation) re-stamps anyway.
         if postureTableIsWarm() {
             for document in allOpenDocuments() {
                 document.stamp(localWritePermit: permitFromTheBuilder(
-                    forDocId: document.docId, as: .author))
+                    forDocId: document.docId, as: document.localWritePermit.actor))
             }
         }
         bumpPostureEpoch()
@@ -304,9 +384,15 @@ extension DocumentStore {
             let pieces = PermitControl.pieces(in: items)
             let writers = PieceWriters.resolve(
                 registry: resolved.registry, table: resolved.table, pieces: pieces)
+            // Never to this device's own person: the root's own second Mac,
+            // admitted under the writer's own label, is the writer.
+            let mine = resolved.registry.person(root)?.label
             var yields: [String: String] = [:]
             for piece in pieces {
-                if let names = writers.sentence(for: piece.id) { yields[piece.id] = names }
+                let others = writers.writers(of: piece.id).filter { $0 != mine }
+                if let names = PieceWriters.sentence(naming: others) {
+                    yields[piece.id] = names
+                }
             }
             return yields
         }.value

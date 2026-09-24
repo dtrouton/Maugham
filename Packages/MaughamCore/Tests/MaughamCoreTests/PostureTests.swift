@@ -102,6 +102,21 @@ final class PostureTests: XCTestCase {
         }
     }
 
+    /// **Settling offers the reviewer row and nothing else, and names no
+    /// reason** — the door's answer before it can ask (P3c Task 2, fix round 1).
+    func test_settlingOffersOnlyTheReviewerRowAndNamesNoReason() {
+        let settling = Posture.settling
+        for verb in V.allCases {
+            XCTAssertEqual(settling.allows(verb), verb == .annotate, "\(verb)")
+        }
+        XCTAssertNil(settling.reason)
+        XCTAssertNil(settling.yieldingTo)
+        XCTAssertTrue(settling.isSettling)
+        XCTAssertFalse(Posture.author.isSettling)
+        XCTAssertNotEqual(settling, Posture.author,
+                          "the same permit underneath, not the same answer")
+    }
+
     func test_theAuthorPostureIsTheUnrestrictedOne() {
         XCTAssertEqual(Posture.author, Posture(.unrestricted))
         XCTAssertNil(Posture.author.yieldingTo)

@@ -9077,14 +9077,18 @@ final class TripwireGrepTests: XCTestCase {
     /// Task 2 tightened it by three: the table asked by its qualified name
     /// (`Permit.allows(`), the inbox row asked of a permit (`.allows(.inboxRow`),
     /// and `Posture.author` — a fallback that walks round the door by
-    /// answering *the whole book* without asking anyone.
+    /// answering *the whole book* without asking anyone. Fix round 1 adds
+    /// `Posture.settling`, the door's own not-yet answer, for the same reason
+    /// from the other side: a surface that spelled it would be deciding when
+    /// the door has not answered.
     static let postureAskPatterns = [
         "LocalWritePermit", "localWritePermit", ".allows(.op(",
         ".allows(.translationRecord", "Posture(",
         "Permit.allows(", ".allows(.inboxRow", "Posture.author",
+        "Posture.settling",
     ]
 
-    /// File AND spelling. The door names all eight; the five `Document` files
+    /// File AND spelling. The door names all nine; the five `Document` files
     /// are P3a's load-seam and membrane sites and keep exactly the spellings
     /// they already have. `Document+Load.swift` asks through a local
     /// `writePermit`, so it carries `.allows(.op(` as well; every other line
@@ -9160,6 +9164,7 @@ final class TripwireGrepTests: XCTestCase {
         let direct = Permit.allows(written, in: cls, actor: actor)
         let row = permit.allows(.inboxRow) == .yes
         let fallback = Posture.author
+        let undecided = Posture.settling
         let role: CollaborationRole = .reviewer
         let policy = ReviewPosturePolicy.resolve(role)
         let mapped = ShareIdentityMapper.map(share)
@@ -9178,8 +9183,8 @@ final class TripwireGrepTests: XCTestCase {
         }
 
         let planted = try hits()
-        XCTAssertEqual(planted.ask.count, 8,
-            "Self-check: each of the eight ask spellings is caught, and neither "
+        XCTAssertEqual(planted.ask.count, 9,
+            "Self-check: each of the nine ask spellings is caught, and neither "
             + "the comment nor the posture's own `allows`. Caught:\n"
             + planted.ask.joined(separator: "\n"))
         XCTAssertFalse(planted.ask.contains(where: { $0.contains("let fine") }))
@@ -9191,7 +9196,7 @@ final class TripwireGrepTests: XCTestCase {
         try fm.moveItem(at: tmp.appendingPathComponent("ASecondPostureTable.swift"),
                         to: tmp.appendingPathComponent("Document+Waiting.swift"))
         let asASite = try hits()
-        XCTAssertEqual(asASite.ask.count, 7,
+        XCTAssertEqual(asASite.ask.count, 8,
             "Self-check: Document+Waiting.swift is admitted `localWritePermit` "
             + "alone. Caught:\n" + asASite.ask.joined(separator: "\n"))
         XCTAssertFalse(asASite.ask.contains(where: { $0.contains("let asked") }))

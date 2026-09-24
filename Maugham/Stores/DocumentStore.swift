@@ -331,9 +331,9 @@ public final class DocumentStore {
         // the baseline a registry change arriving later is compared against,
         // so the callbacks for this open's OWN writes above settle nothing.
         store.noteRegistrySettled()
-        // The posture door's first table, off the main actor, so the first
-        // view that asks finds it warm (P3c Task 2).
-        store.postureOpened()
+        // The posture door's first table, off the main actor and awaited, so
+        // the first view that asks finds it warm (P3c Task 2).
+        await store.postureOpened()
 
         // Project-open seal maintenance (ADR 0016 / growth spec §5.2): rotate
         // any of THIS Mac's oversized per-doc tails (e.g. grown while another

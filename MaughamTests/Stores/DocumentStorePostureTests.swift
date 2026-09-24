@@ -242,6 +242,56 @@ final class DocumentStorePostureTests: XCTestCase {
                      "and the first keeps its override")
     }
 
+    /// **Ruling H**: a yielded piece's own statement yields with it — the
+    /// yield keys on the piece a document's class is about. And Edit Anyway
+    /// on the statement lifts the piece.
+    func test_aYieldedPiecesStatementYieldsToo() async throws {
+        beASigningMac()
+        let statementId = "stmt-c1-intent"
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        var manifest = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+        manifest.statements = [Statement(
+            id: statementId, kind: .intent, scope: .document(Self.docId),
+            path: "intent/c1.md")]
+        try ProjectManifest.makeEncoder().encode(manifest).write(to: manifestURL)
+
+        let store = try await DocumentStore.open(url: projectURL)
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(
+            device: sam.author.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: .author(.pieces([Self.docId])))
+        await store.postureSettled()
+
+        XCTAssertEqual(store.posture(forDocId: statementId).yieldingTo, "Sam")
+        XCTAssertFalse(store.posture(forDocId: statementId).allows(.editStatement))
+        XCTAssertNil(store.posture(forDocId: "doc-someone-elses").yieldingTo,
+                     "a piece nobody's scope names yields to nobody")
+
+        store.overrideYield(docId: statementId)
+        XCTAssertNil(store.posture(forDocId: Self.docId).yieldingTo,
+                     "the override is the piece's")
+        XCTAssertNil(store.posture(forDocId: statementId).yieldingTo)
+    }
+
+    /// **Never to this device's own person** (m6): the root's own second Mac,
+    /// admitted as an author of this piece under the writer's own label.
+    func test_theRootNeverYieldsToItsOwnLabel() async throws {
+        beASigningMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let myLabel = try XCTUnwrap(
+            try RegistryReader.load(projectURL: projectURL)
+                .person(identities.author.fingerprint)?.label)
+        let secondMac = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(
+            device: secondMac.author.fingerprint, label: myLabel,
+            ownName: "My other Mac", permit: .author(.pieces([Self.docId])))
+        await store.postureSettled()
+
+        XCTAssertNil(store.posture(forDocId: Self.docId).yieldingTo)
+        XCTAssertTrue(store.posture(forDocId: Self.docId).allows(.writeText))
+    }
+
     /// **A co-writing whole-book author is never yielded to** — her scope names
     /// no piece, so she is on no piece's row.
     func test_theRootDoesNotYieldToAWholeBookCoAuthor() async throws {
@@ -295,6 +345,90 @@ final class DocumentStorePostureTests: XCTestCase {
 
         XCTAssertNil(store.posture(forDocId: Self.docId).yieldingTo)
         XCTAssertTrue(store.posture(forDocId: Self.docId).allows(.writeText))
+    }
+
+    // MARK: - The door never fails open (fix round 1, I1)
+
+    /// A reviewer's Mac, as the root has made it: a foreign root, this device
+    /// admitted and then narrowed to the reviewer row — all BEFORE the window
+    /// opens.
+    private func beAReviewersMac() async throws -> DeviceIdentity {
+        beASigningMac()
+        let root = try makeForeignRoot()
+        let rootCache = RegistryCache(
+            fileURL: projectURL.appendingPathComponent("root-cache.json"),
+            identity: root.fingerprint)
+        _ = try RegistryAdmission.changePermit(
+            person: identities.author.fingerprint,
+            role: Permit.reviewerRole, scope: Permit.bookScope, pieces: [],
+            mark: .nothingApplied, unsigned: .nothingApplied,
+            in: projectURL, by: root, cache: rootCache)
+        return root
+    }
+
+    /// **Right after open, about a CLOSED document**: both accessors answer
+    /// the reviewer, because `open` waited for the first warm.
+    func test_aReviewerAskingAboutAClosedDocumentRightAfterOpenIsAReviewer() async throws {
+        _ = try await beAReviewersMac()
+        let store = try await DocumentStore.open(url: projectURL)
+
+        let drawn = store.posture(forDocId: Self.docId)
+        XCTAssertFalse(drawn.allows(.writeText))
+        XCTAssertFalse(drawn.allows(.acceptOrReject))
+        XCTAssertTrue(drawn.allows(.annotate))
+        XCTAssertEqual(drawn.reason, .reviewer, "a real answer, not a provisional one")
+
+        let settled = await store.settledPosture(forDocId: Self.docId)
+        XCTAssertFalse(settled.allows(.writeText))
+        XCTAssertEqual(settled.reason, .reviewer)
+    }
+
+    /// **After a trust change, about a document never asked**: the drawing
+    /// accessor has nothing to go on and the table is cold, and it offers the
+    /// reviewer row alone — never the whole book.
+    func test_aColdDoorDrawsTheReviewerRowAloneNeverTheWholeBook() async throws {
+        _ = try await beAReviewersMac()
+        let store = try await DocumentStore.open(url: projectURL)
+
+        store.invalidateTrust()
+        let cold = store.posture(forDocId: "doc-never-asked")
+        XCTAssertFalse(cold.allows(.writeText), "a cold door does not fail open")
+        XCTAssertFalse(cold.allows(.acceptOrReject))
+        XCTAssertTrue(cold.allows(.annotate))
+        XCTAssertTrue(cold.isSettling)
+
+        let cold2 = store.posture(forDocId: "doc-never-asked", as: .translator)
+        XCTAssertFalse(cold2.allows(.translate), "nor for another actor")
+
+        await store.postureSettled()
+        XCTAssertEqual(store.posture(forDocId: "doc-never-asked").reason, .reviewer,
+                       "and the refresh replaces it with the real answer")
+    }
+
+    /// **`settledPosture` never returns a provisional answer** — not even when
+    /// the registry moved on disk after the warm and nothing has told the
+    /// window yet.
+    func test_settledPostureWarmsAgainWhenTheFolderMovedUnderIt() async throws {
+        let root = try await beAReviewersMac()
+        let store = try await DocumentStore.open(url: projectURL)
+
+        // A record lands with no presenter callback: the signature moves.
+        let stranger = DeviceIdentity.softwareForTesting()
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: stranger.fingerprint, name: "A third Mac", kind: .mac,
+                actors: [DeviceActor.author.rawValue: stranger.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 4_000)),
+            signedBy: stranger, in: projectURL)
+        _ = root
+        // Deliberately NOT asked through the drawing accessor first: its cold
+        // miss schedules a refresh, and `settledPosture` would then be saved by
+        // the wait alone rather than by its own re-warm.
+
+        let settled = await store.settledPosture(forDocId: "doc-fresh")
+        XCTAssertFalse(settled.isSettling)
+        XCTAssertEqual(settled.reason, .reviewer)
+        XCTAssertFalse(settled.allows(.writeText))
     }
 
     // MARK: - Neutral where nothing is registered
