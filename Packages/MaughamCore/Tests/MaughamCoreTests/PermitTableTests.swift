@@ -1295,4 +1295,47 @@ final class DocumentClassTests: XCTestCase {
                        + "every piece is already theirs")
         XCTAssertFalse(Permit.unjudgeable(raw: "editor").mayStartAPieceOfTheirOwn)
     }
+
+    /// **Settling a piece moves exactly the scope refusal and nothing else**
+    /// (P3b smoke find F9, Denver's ruling of 2026-09-23). Every rung, every
+    /// actor and every group, against the table: after `settling`, the only
+    /// cells that change are the ones that were a `.no` for an AUTHOR of some
+    /// pieces whose piece list lacked the settled one — and every one of those
+    /// becomes `.yes`. A reviewer, a book author and a word this build cannot
+    /// read are the same permit afterwards.
+    func test_settlingAPieceChangesOnlyTheScopeRefusalsForThatPiece() {
+        let permits: [Permit] = [
+            .reviewer, .author(.book), .author(.pieces([])),
+            .author(.pieces(["ch1"])), .unjudgeable(raw: "editor"),
+        ]
+        let classes: [DocumentClass] = [
+            .piece("ch2"), .pieceStatement(piece: "ch2"),
+            .translation(piece: "ch2"), .piece("ch1"), .piece("ch3"),
+        ]
+        let actors: [DeviceActor?] = DeviceActor.allCases + [nil]
+        let kinds: [Written] = OpKind.allCases.map(Written.op)
+            + [.translationRecord, .inboxRow]
+        for permit in permits {
+            let settled = permit.settling(["ch2"])
+            for documentClass in classes {
+                for actor in actors {
+                    for what in kinds {
+                        let before = permit.allows(what, in: documentClass, actor: actor)
+                        let after = settled.allows(what, in: documentClass, actor: actor)
+                        guard before != after else { continue }
+                        XCTAssertEqual(after, .yes, "\(permit) \(what) \(documentClass)")
+                        XCTAssertEqual(documentClass.piece, "ch2")
+                        guard case .author(.pieces) = permit else {
+                            return XCTFail("only the middle rung moves: \(permit)")
+                        }
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(Permit.reviewer.settling(["ch2"]), .reviewer)
+        XCTAssertEqual(Permit.author(.book).settling(["ch2"]), .author(.book))
+        XCTAssertEqual(
+            Permit.author(.pieces(["ch1"])).settling(["ch2"]),
+            .author(.pieces(["ch1", "ch2"])))
+    }
 }

@@ -96,6 +96,12 @@ public final class Document {
     /// no applied op at all. Empty for every book that has narrowed nobody.
     public internal(set) var startedAPiece: Set<String> = []
 
+    /// **The holders among `startedAPiece` whose piece had been TAKEN from
+    /// them** (P3b smoke F9, Q1) — the walk's own answer
+    /// (`AmendmentPermits.whoKeptWritingInATakenPiece`), stamped beside it for
+    /// the same reason, so History's banner can say the truth on a draw.
+    public internal(set) var keptWritingInATakenPiece: Set<String> = []
+
     /// The pending file `load` found but could not recover (RULING-54,
     /// M9-OL-010): un-bursted keystrokes from a crashed session, already
     /// preserved in the quarantine record. Stamped by `Document.load` and

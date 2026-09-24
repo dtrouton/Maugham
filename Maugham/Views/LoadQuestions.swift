@@ -55,6 +55,15 @@ enum LoadQuestions {
         let title: String
         /// How much of theirs is waiting on this answer.
         let heldLines: Int
+        /// **The piece was theirs and was TAKEN from them** (P3b smoke F9, Q1,
+        /// Denver's ruling of 2026-09-24) — `PermitTimeline.wasTakenFromThem`,
+        /// asked of the permit layer. Same answers, same effect; the question
+        /// must not say they STARTED something they were given and lost.
+        var takenFromThem: Bool = false
+        /// **What those lines ARE** (P3b smoke find F2) — paragraphs, notes and
+        /// changes, as the load described them in this piece. Nil where the
+        /// load gave no description; the consequence then counts lines.
+        var waiting: HeldLines.Waiting? = nil
 
         /// Per PERSON and per PIECE, which is the grain of the question and
         /// the grain the *not now* memory is keyed at.
@@ -63,16 +72,19 @@ enum LoadQuestions {
         /// **The question**, naming both so the writer can answer it without
         /// going to look anything up.
         var question: String {
-            "\(name) started \u{201C}\(title)\u{201D} — is it theirs?"
+            takenFromThem
+                ? "\(name) kept writing in \u{201C}\(title)\u{201D} after you "
+                    + "took it from them. Give it back and bring those words in?"
+                : "\(name) started \u{201C}\(title)\u{201D} — is it theirs?"
         }
 
         /// What pressing *Theirs* is about to do, and what it is not. It names
         /// the piece rather than the rung, because *what may they write* is a
         /// question this sentence must not answer twice (tripwire 47).
         var consequence: String {
-            let already = heldLines == 1
-                ? "The 1 line \(name) has already written here"
-                : "The \(heldLines) lines \(name) has already written here"
+            let what = waiting?.phrase?.text
+                ?? (heldLines == 1 ? "1 line" : "\(heldLines) lines")
+            let already = "The \(what) \(name) has already written here"
             return "\(already) will join the draft, and from now on they may "
                 + "write in this piece. Nothing else they may write changes."
         }
@@ -131,6 +143,7 @@ enum LoadQuestions {
                 person: person, by: me, in: registry).get()) != nil
             else { return [] }
             let name = registry.person(person)?.label ?? DeviceCode.short(person)
+            let timeline = PermitTimeline(about: person, in: registry)
             return pieces.keys.sorted().compactMap { docId in
                 // **This piece's own count** (fix round 1, I4). The question
                 // names one piece and promises what pressing it brings in, so
@@ -141,7 +154,9 @@ enum LoadQuestions {
                     .init(person: person, docId: docId)) else { return nil }
                 return NewPiece(
                     person: person, name: name, docId: docId,
-                    title: titles[docId] ?? "a new piece", heldLines: waiting)
+                    title: titles[docId] ?? "a new piece", heldLines: waiting,
+                    takenFromThem: timeline.wasTakenFromThem(piece: docId),
+                    waiting: held.waiting[holder]?[docId])
             }
         }
     }

@@ -1449,6 +1449,42 @@ found shorter than it was, or one the folder holds no file of at all — and
 **Acknowledge** puts it down; every sweep, the snapshot's included, takes the
 same escape through one function (`expectedStreams`).
 
+### *Theirs* re-judges by reason, not by position (P3b smoke find F9, ruled 2026-09-23)
+
+§4.5's answer — *the piece she started is hers* — first shipped as a
+POSITIONAL cut: the event's mark was taken before her first held line, so
+what followed was judged under the widened permit. The smoke found it doing
+nothing (a stranger whose admission had already seen her line got the
+admission's position carried forward over the cut), and the fix exposed that a
+position can only say *everything after X is new*, which is not the rule the
+writer meant. Denver ruled the rule instead: **a line of hers in the settled
+piece that was refused ONLY because the piece was not in her permit is
+re-judged under the granted permit wherever it sits** — before her held span,
+after it, in a segment that arrives later — **and a line refused for any other
+reason stays set aside wherever it sits**; a line held for a reason that is not
+§4.5's (a kind this build cannot read) stays held.
+
+So the answer is a FACT on the event, not a position: `PermitEvent.settled`
+names the pieces, the mark is the ordinary seen mark, and `PermitTimeline`
+reads every earlier entry of that person as having held those pieces
+(`Entry.judging`, via `Permit.settling`, which widens an author-of-some-pieces
+list and nothing else). `Entry.permit` stays what was installed, so History and
+`current` are unchanged. The partition asks `judging` — one judgment, for the
+load and every sweep. Because only the piece list moves, every other refusal
+is answered by something the widening does not touch: the actor rows, a
+reviewer's rung, `.cannotJudge`, and every VERDICT (revoked, retired, a broken
+chain), which is decided before the partition runs. *Another person's line*
+means a line another person SIGNED: her own accepts, rejects and archives of
+other people's notes in the settled piece, refused only for scope, are her
+acts and come in too (Denver, 2026-09-24). After a deliberate REMOVAL the
+question is still put and the effect is the same, but every surface says she
+kept writing in a piece that was taken from her (`PermitTimeline
+.wasTakenFromThem`, ruled 2026-09-24). An entry after the answer
+is not widened, and `settled` over a permit that does not author the piece
+settles nothing. The ordinary mark takes the ordinary loss check, so an answer
+over a stream missing a segment this Mac applied refuses, as every marking verb
+does.
+
 ### What the surfaces are
 
 The admission sheet installs a rung and never offers a non-author actor key or
@@ -1501,8 +1537,8 @@ unsigned stream in a narrowed book.
   *Re-admit*, which is P3b's surface for a revoked person, does carry it).
 - **A settled question's held lines can outlive their answer.** *Theirs* brings
   in what was held under §4.5 in the piece it settles; a `.cannotJudge` hold in
-  that piece falls after the same cut and is re-judged to the same answer
-  (still held), and a held line in any OTHER piece stays where it was. The
+  that piece is re-judged to the same answer (still held), and a held line in
+  any OTHER piece stays where it was. The
   sentence then names People & Devices and there is no control beside it.
 - **A too-new manifest arriving mid-session is decoded without the schema
   guard.** `handleManifestChanged` re-reads the file; the guard runs at open.

@@ -547,9 +547,10 @@ final class AdmissionPermitTests: XCTestCase {
     /// (P3b smoke find F9). A stranger opens a piece and writes in it; the
     /// root lets her in as an author of a DIFFERENT piece, so the admission's
     /// mark names her line; the load asks *is it theirs?*; the writer answers
-    /// Theirs; and the next load applies what she wrote. Before the fix the
-    /// answer's event carried the admission's position forward over the
-    /// settling cut and her line stayed held for good.
+    /// Theirs; and the next load applies what she wrote. Before the fix her
+    /// line fell under the admission's mark and was judged for good by the
+    /// permit that could not place it; the answer now re-judges it BY REASON
+    /// (Denver's ruling of 2026-09-23).
     func test_theirsBringsAStrangersHeldWordsIntoThePieceSheStarted() async throws {
         beThisMac()
         let store = try await DocumentStore.open(url: projectURL)

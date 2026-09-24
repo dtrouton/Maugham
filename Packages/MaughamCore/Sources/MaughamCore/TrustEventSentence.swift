@@ -161,20 +161,34 @@ public enum TrustEventSentence {
     /// backwards.
     ///
     /// **An answer to §4.5's question is its own sentence** (P3b smoke find
-    /// F9). *Theirs* widens, but what it is FOR is the opposite of the
-    /// widening sentence: the words they had already written in the piece
-    /// they started come in, and only what was set aside before those words
-    /// stays set aside. The event says it was such an answer (`settled`); the
-    /// rung is never compared here (tripwire 47).
+    /// F9, Denver's ruling of 2026-09-23). *Theirs* widens, but what it is FOR
+    /// is the opposite of the widening sentence: what they had already written
+    /// in the piece they started is judged as theirs, wherever it sits, and
+    /// only what was set aside for another reason stays set aside. It says
+    /// *counts as theirs* rather than *came in* because it is written on every
+    /// record under their label, and a machine of theirs that never wrote a
+    /// word in that piece had nothing to bring. What the timeline settled is
+    /// the timeline's (`Entry.settles`); no rung is compared here (tripwire
+    /// 47).
     nonisolated static func consequence(of event: TrustEvent) -> String {
         guard let permit = event.permit, let previous = event.previousPermit
         else { return "" }
+        if !event.returnedPieces.isEmpty {
+            // **Given BACK, not started** (Q1, ruled 2026-09-24): the piece
+            // had been taken from them and they kept writing in it.
+            let pieces = event.returnedPieces.count == 1
+                ? "the piece"
+                : "the \(event.returnedPieces.count) pieces"
+            return " They had kept writing in \(pieces) after it was taken from "
+                + "them; it is theirs again, and what they wrote there counts as "
+                + "theirs. Anything set aside for any other reason stays set aside."
+        }
         if !event.settledPieces.isEmpty {
             let pieces = event.settledPieces.count == 1
                 ? "the piece they started"
                 : "the \(event.settledPieces.count) pieces they started"
-            return " What they had already written in \(pieces) came in. "
-                + "Anything set aside before those words stays set aside."
+            return " What they had already written in \(pieces) counts as "
+                + "theirs. Anything set aside for any other reason stays set aside."
         }
         let widened = permit.covers(previous) && !previous.covers(permit)
         return widened

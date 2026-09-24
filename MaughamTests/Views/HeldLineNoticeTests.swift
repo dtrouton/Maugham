@@ -101,6 +101,35 @@ final class HeldLineNoticeTests: XCTestCase {
             notice, "2 paragraphs and 1 note from Kit’s MacBook are waiting for admission.")
     }
 
+    /// **History's banner tells the truth after a deliberate removal** (Q1):
+    /// the walk said the piece had been taken from her, so the notice says so
+    /// rather than *nobody has claimed it*.
+    func test_aPieceTakenFromHerGetsTheTruthfulSentence() throws {
+        let notice = try XCTUnwrap(HistoryPane.heldLineRows(
+            provenance: provenance(counts: [sam: 2], strangers: []),
+            startedAPiece: [sam], takenFrom: [sam],
+            names: [sam: "Sam"]).first?.sentence)
+        XCTAssertTrue(notice.contains("taken from them"))
+        XCTAssertFalse(notice.localizedCaseInsensitiveContains("nobody has claimed"))
+    }
+
+    /// Both at once: the truthful premise AND what the lines are.
+    func test_aPieceTakenFromHerSaysParagraphsInTheTruthfulSentence() throws {
+        let described = OpLogProvenance(files: [FileProvenance(
+            name: "doc.author-a.jsonl", pending: 2, pendingByDevice: [sam: 2],
+            pendingWaitingByDevice: [sam: HeldLines.Waiting(
+                paragraphIds: ["p1ab"], prose: 1, notes: 1)],
+            pendingStrangerDevices: [])])
+
+        let notice = try XCTUnwrap(HistoryPane.heldLineRows(
+            provenance: described, startedAPiece: [sam], takenFrom: [sam],
+            names: [sam: "Sam"]).first?.sentence)
+
+        XCTAssertTrue(notice.hasPrefix(
+            "1 paragraph and 1 note from Sam are waiting in a piece that was taken from them"),
+            notice)
+    }
+
     /// An unsigned stream is named by its stream and points at the Inbox,
     /// because there is no device to admit and no permit to widen.
     func test_anUnsignedStreamPointsAtTheInbox() throws {

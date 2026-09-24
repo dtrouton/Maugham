@@ -51,17 +51,45 @@ public struct PermitTimeline: Equatable, Hashable, Sendable {
         public let event: String?
         public let kind: PermitEvent.Kind?
         public let at: Date?
+        /// **The pieces a LATER event of this person's said were theirs in
+        /// answer to §4.5's question** (P3b smoke find F9, Denver's ruling of
+        /// 2026-09-23). Empty on every entry of every book that has never
+        /// answered one.
+        public let settledLater: Set<String>
+        /// **The pieces THIS entry's event settled** — its `settled`, kept
+        /// only where the permit it installs really authors the piece. An
+        /// answer is a widening; an event that says *settled* over a permit
+        /// that does not give her the piece settles nothing. History reads
+        /// this rather than the event's field, so the sentence and the rule
+        /// cannot disagree about what was settled.
+        public let settles: Set<String>
 
         public init(
             permit: Permit, mark: PermitMark?,
-            event: String? = nil, kind: PermitEvent.Kind? = nil, at: Date? = nil
+            event: String? = nil, kind: PermitEvent.Kind? = nil, at: Date? = nil,
+            settles: Set<String> = [], settledLater: Set<String> = []
         ) {
             self.permit = permit
             self.mark = mark
             self.event = event
             self.kind = kind
             self.at = at
+            self.settles = settles
+            self.settledLater = settledLater
         }
+
+        /// **The permit a line under this entry is JUDGED by** — the one
+        /// every reader of a line asks, and never `permit` itself.
+        ///
+        /// `permit` is what the event installed, which is what History says
+        /// and what `current` answers. `judging` is that permit read as having
+        /// held the pieces a later answer settled: *Theirs* re-judges BY
+        /// REASON, so a line of hers in such a piece that this entry refused
+        /// only because the piece was not in it is judged as though it had
+        /// been, wherever it sits in her streams. Every other refusal is
+        /// untouched, because `Permit.settling` widens the one thing a scope
+        /// refusal turns on and nothing else.
+        public var judging: Permit { permit.settling(settledLater) }
 
         /// The entry every timeline opens with: what this book meant before
         /// anybody wrote a permit down.
@@ -100,6 +128,16 @@ public struct PermitTimeline: Equatable, Hashable, Sendable {
     ///   event means anything at all: skipping it would apply lines under a
     ///   permit a newer Mac may have narrowed, and refusing them would
     ///   quarantine what a newer Mac applies.
+    ///
+    /// **An answer to §4.5 reaches BACK, by reason and only for its pieces**
+    /// (P3b smoke find F9, Denver's ruling of 2026-09-23). An event carrying
+    /// `settled` says those pieces were hers all along, so every EARLIER entry
+    /// is read as having held them (`Entry.settledLater`, `Entry.judging`).
+    /// Later entries are not: a piece taken away again afterwards is taken
+    /// away from that entry's mark on. And a settled piece counts only where
+    /// the event's own permit really authors it — an answer is a widening, and
+    /// an event that says *settled* over a permit that does not give her the
+    /// piece settles nothing.
     public init(events: [PermitEvent]) {
         let ordered = events.sorted(by: { $0.event < $1.event })
         var built: [Entry] = [Self.opening(before: ordered)]
@@ -107,7 +145,22 @@ public struct PermitTimeline: Equatable, Hashable, Sendable {
             guard let permit = Self.installedPermit(of: event) else { continue }
             built.append(Entry(
                 permit: permit, mark: PermitMark(event.mark),
-                event: event.event, kind: event.kind, at: event.at))
+                event: event.event, kind: event.kind, at: event.at,
+                settles: Set(event.settled ?? []).filter {
+                    permit.authors(.piece($0))
+                }))
+        }
+        // Newest to oldest, so each entry learns what every LATER one settled.
+        var later: Set<String> = []
+        for index in built.indices.reversed() {
+            let entry = built[index]
+            if !later.isEmpty {
+                built[index] = Entry(
+                    permit: entry.permit, mark: entry.mark, event: entry.event,
+                    kind: entry.kind, at: entry.at, settles: entry.settles,
+                    settledLater: later)
+            }
+            later.formUnion(entry.settles)
         }
         entries = built
     }
@@ -200,6 +253,29 @@ public struct PermitTimeline: Equatable, Hashable, Sendable {
     /// question about this moment, not about a line that already exists.
     /// Anything judging LINES asks `permits(forFile:lineCount:)` instead.
     public var current: Permit { entries.last?.permit ?? .bookAuthor }
+
+    /// **Was this piece TAKEN from them?** — an earlier permit of theirs
+    /// authored it and the one in force now does not (P3b smoke F9, Q1,
+    /// Denver's ruling of 2026-09-24).
+    ///
+    /// §4.5's question assumes she STARTED the piece. After a deliberate
+    /// removal that premise is false — she kept writing in something the
+    /// writer took from her — and the question, the waiting row and History
+    /// must say which. The answer is the same act either way (*Theirs* brings
+    /// it all in, ruled); only the sentence differs. Asked of the installed
+    /// permits, never of `judging`, because what was TAKEN is what an event
+    /// said, not what a later answer read back into it. Surfaces ask this and
+    /// compare no rung (tripwire 47).
+    public func wasTakenFromThem(piece: String) -> Bool {
+        !current.authors(.piece(piece)) && authored(piece: piece, before: entries.count)
+    }
+
+    /// Did any entry before `index` install a permit that authors this piece?
+    /// `wasTakenFromThem`'s one spelling, and what History asks about the
+    /// entry an answer installed.
+    public func authored(piece: String, before index: Int) -> Bool {
+        entries.prefix(max(0, index)).contains { $0.permit.authors(.piece(piece)) }
+    }
 
     /// Has anything ever happened to this permit? False is the P2-era book.
     public var hasEvents: Bool { entries.count > 1 }
@@ -294,7 +370,7 @@ public struct PermitTimeline: Equatable, Hashable, Sendable {
     public func permit(
         ofLineAt index: Int, judgements: [PermitMark.Judgement?]
     ) -> Permit {
-        governingEntry(ofLineAt: index, judgements: judgements).permit
+        governingEntry(ofLineAt: index, judgements: judgements).judging
     }
 
     /// **The whole entry that governs a line**, not just its permit — which is

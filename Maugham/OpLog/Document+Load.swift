@@ -672,6 +672,7 @@ extension Document {
         // P3b Task 7: and which of the holders it is counting opened a piece
         // nobody has claimed — the one held line the writer can answer today.
         doc.startedAPiece = amendmentPermits.whoStartedAPiece
+        doc.keptWritingInATakenPiece = amendmentPermits.whoKeptWritingInATakenPiece
         return doc
     }
 }

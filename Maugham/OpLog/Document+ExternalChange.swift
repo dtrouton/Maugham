@@ -112,6 +112,8 @@ extension Document {
         // of a new chapter ARRIVES through sync and produces no applied op.
         let started = amendmentPermits.whoStartedAPiece
         if startedAPiece != started { startedAPiece = started }
+        let taken = amendmentPermits.whoKeptWritingInATakenPiece
+        if keptWritingInATakenPiece != taken { keptWritingInATakenPiece = taken }
 
         // Echo guard: every op we ourselves appended is already in
         // _opLogMirror. If the disk log has no ops we haven't seen, this

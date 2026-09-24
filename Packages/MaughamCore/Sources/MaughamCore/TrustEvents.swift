@@ -119,6 +119,11 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
     /// Carried for the sentence's reason: *Theirs* is a widening whose whole
     /// point is the opposite of the widening sentence.
     public let settledPieces: [String]
+    /// **The settled pieces that had been TAKEN from them** — a subset of
+    /// `settledPieces` where an earlier permit authored the piece (Q1,
+    /// `PermitTimeline.authored(piece:before:)`), so the row says the piece
+    /// went back to them rather than that they started it.
+    public let returnedPieces: [String]
     /// The permit event's own id, where the row came from one. It is what
     /// keeps two `roleChanged` rows about one person apart — see `id`.
     public let event: String?
@@ -127,7 +132,8 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
         date: Date?, kind: Kind, subject: String, label: String? = nil,
         ownName: String? = nil, by: String? = nil, isMine: Bool = false,
         permit: Permit? = nil, previousPermit: Permit? = nil,
-        settledPieces: [String] = [], event: String? = nil
+        settledPieces: [String] = [], returnedPieces: [String] = [],
+        event: String? = nil
     ) {
         self.date = date
         self.kind = kind
@@ -139,6 +145,7 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
         self.permit = permit
         self.previousPermit = previousPermit
         self.settledPieces = settledPieces
+        self.returnedPieces = returnedPieces
         self.event = event
     }
 
@@ -474,7 +481,11 @@ public enum TrustEvents {
             by: event.by, isMine: isMine,
             permit: installed == nil ? nil : Permit(event: event),
             previousPermit: previous,
-            settledPieces: installed == nil ? [] : (event.settled ?? []),
+            settledPieces: installed.map { timeline.entries[$0].settles.sorted() } ?? [],
+            returnedPieces: installed.map { at in
+                timeline.entries[at].settles
+                    .filter { timeline.authored(piece: $0, before: at) }.sorted()
+            } ?? [],
             event: event.event)
     }
 

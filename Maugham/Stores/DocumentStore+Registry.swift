@@ -140,10 +140,12 @@ extension DocumentStore {
     /// C1, made internal in fix round 3's minor 4).
     ///
     /// `settling` is not a knob: it names the pieces whose §4.5 question this
-    /// act is answering, and passing it means *cut those streams before her
-    /// held span*. Exactly one caller has an answer to give — `pieceIsTheirs`
-    /// — so the parameter is internal and the public verb above is the
-    /// signature every other surface has always called.
+    /// act is answering, and passing it writes them onto the event as
+    /// `settled` — *these pieces were hers all along*, which `PermitTimeline`
+    /// reads BY REASON (P3b smoke find F9, Denver's ruling of 2026-09-23). The
+    /// mark is the ordinary one. Exactly one caller has an answer to give —
+    /// `pieceIsTheirs` — so the parameter is internal and the public verb
+    /// above is the signature every other surface has always called.
     func changePermit(
         person fingerprint: String, to permit: Permit,
         settling: Set<String>
@@ -152,13 +154,13 @@ extension DocumentStore {
         // revocation's reason: a short mark moves a permission boundary
         // silently, and the direction it moves it in is *more set aside than
         // the writer asked for*.
-        let mark = try await sweptPermitMark(
-            forPerson: fingerprint, settling: settling)
+        let mark = try await sweptPermitMark(forPerson: fingerprint)
         let unsigned = try await sweptUnsignedSnapshot(for: permit)
         // Gate, then event, then record (P3b Task 3).
         try await gateOldBuildsOut(before: permit)
         return try await changePermit(
-            person: fingerprint, to: permit, mark: mark, unsigned: unsigned)
+            person: fingerprint, to: permit, mark: mark, unsigned: unsigned,
+            settling: settling)
     }
 
     /// **Shut older builds out of this book before it is narrowed** (P3b
@@ -331,10 +333,9 @@ extension DocumentStore {
     /// `changePermit`'s sweep, alone — so the plural verb below can take every
     /// record's mark BEFORE it writes any of them (fix round 1, minor 2).
     private func sweptPermitMark(
-        forPerson fingerprint: String, settling: Set<String> = []
+        forPerson fingerprint: String
     ) async throws -> PermitMark {
-        switch await permitMark(
-            forPerson: fingerprint, seen: true, settling: settling) {
+        switch await permitMark(forPerson: fingerprint, seen: true) {
         case .mark(let found): return found
         case .unreadable(let name):
             throw RegistryAdmissionError.historyUnreadable(
@@ -346,7 +347,7 @@ extension DocumentStore {
     @discardableResult
     private func changePermit(
         person fingerprint: String, to permit: Permit, mark: PermitMark,
-        unsigned: PermitMark?
+        unsigned: PermitMark?, settling: Set<String> = []
     ) async throws -> PersonRecord {
         let projectURL = self.projectURL
         let author = Document.loadIdentities.author
@@ -356,6 +357,7 @@ extension DocumentStore {
                 person: fingerprint,
                 role: permit.wireRole, scope: permit.wireScope,
                 pieces: permit.wirePieces, mark: mark, unsigned: unsigned,
+                settling: settling,
                 in: projectURL, by: author, cache: cache)
         }.value
 
@@ -456,7 +458,7 @@ extension DocumentStore {
         var marks: [String: PermitMark] = [:]
         for record in records {
             marks[record.person] = try await sweptPermitMark(
-                forPerson: record.person, settling: settling)
+                forPerson: record.person)
         }
         // **One photograph for the whole act** (P3b Task 1). The snapshot is
         // of the BOOK's unsigned streams, not of this person's, so sweeping it
@@ -479,7 +481,7 @@ extension DocumentStore {
                 moved.append(try await changePermit(
                     person: record.person, to: permit,
                     mark: marks[record.person] ?? .nothingApplied,
-                    unsigned: unsigned))
+                    unsigned: unsigned, settling: settling))
             } catch {
                 throw PermitChangePartlyApplied(
                     moved: moved.map(\.person), failed: record.person,
@@ -915,7 +917,7 @@ extension DocumentStore {
     }
 
     private func permitMark(
-        forPerson person: String, seen: Bool, settling: Set<String> = []
+        forPerson person: String, seen: Bool
     ) async -> SweptPositions {
         let projectURL = self.projectURL
         let identities = Document.loadIdentities
@@ -937,7 +939,7 @@ extension DocumentStore {
                 return .success(seen
                     ? try OpLogStore.seenPositions(
                         ofDeviceIds: ids, in: projectURL, trust: resolved.table,
-                        expecting: expected, settlingPieces: settling)
+                        expecting: expected)
                     : try OpLogStore.appliedPositions(
                         ofDeviceIds: ids, in: projectURL, trust: resolved.table,
                         expecting: expected))
@@ -1266,12 +1268,13 @@ extension DocumentStore {
         // refusal** (fix round 3, minor 4). `widened` is `standing`'s piece
         // list plus one id, so it covers `standing` by construction and this
         // can only fire if somebody changes how the permit above is built.
-        // It is kept because of what it is guarding: `settling` makes the mark
-        // fall BEFORE her held span, so those lines are re-judged under
-        // `widened` — and re-judging is safe in one direction only. The day
-        // this verb learns to narrow, the cut stops being safe, and this line
-        // is where that is noticed. `Permit.covers` is the permit layer's own
-        // comparison, never a rung tested here (tripwire 47).
+        // It is kept because of what it is guarding: `settling` makes every
+        // earlier permit of hers be READ as having held this piece, so her
+        // scope-only refusals in it are re-judged — and re-judging is safe in
+        // one direction only. The day this verb learns to narrow, that stops
+        // being safe, and this line is where that is noticed. `Permit.covers`
+        // is the permit layer's own comparison, never a rung tested here
+        // (tripwire 47).
         guard widened.covers(standing) else {
             throw PieceIsTheirsRefused(person: person)
         }
