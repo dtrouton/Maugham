@@ -157,7 +157,18 @@ public final class Document {
     /// other way — the read-only recovery view, a direct construction in a test
     /// — carries `.unrestricted`, which is the whole book, from the start, and
     /// is exactly what every project on disk before P3 means.
-    internal var localWritePermit: LocalWritePermit = .unrestricted
+    internal private(set) var localWritePermit: LocalWritePermit = .unrestricted
+
+    /// **The one setter for the stamp** (P3c Task 2). The load stamps it once;
+    /// the posture door (`DocumentStore+Posture.swift`) re-stamps every open
+    /// document on each trust change, so a demotion arriving mid-session stops
+    /// `mayWriteThePendingFile`, the task anchors, the rebalance and the
+    /// automation guard at the next keystroke — and a promotion restores them
+    /// — with no reopen. Both callers take the value from
+    /// `OpLogStore.localWritePermit`, the one builder (tripwire 46).
+    internal func stamp(localWritePermit permit: LocalWritePermit) {
+        self.localWritePermit = permit
+    }
 
     /// **Whose annotation it is** (P3a Task 6, spec §4.2) — resolved once by
     /// `Document.load`, beside `localWritePermit` and for its reason.

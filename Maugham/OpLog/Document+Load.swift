@@ -652,7 +652,7 @@ extension Document {
         // breadcrumbs — can ask the same question the load asked, without a
         // registry read of their own on a path a plain `tasks(filter:)` READ
         // reaches.
-        doc.localWritePermit = writePermit
+        doc.stamp(localWritePermit: writePermit)
         // P3a Task 6: and the same for the OTHER direction — not what this
         // device may write, but which of the amendments already in the log this
         // derivation honours. Resolved here because the table `localWritePermit`

@@ -229,6 +229,28 @@ public final class OpLogStore {
         declaredActors.removeAll()
     }
 
+    /// **Resolve the table OFF this actor, ahead of a question asked on it**
+    /// (P3c Task 2).
+    ///
+    /// `localWritePermit` is synchronous, and where the table is cold it
+    /// resolves it right here (`trustOnThisActor`) — the right shape inside
+    /// `Document.load`, whose suspension points are part of its contract, and
+    /// the wrong one for the Mac's posture door, which a view asks from its
+    /// `body`. The door warms the table through this first: `trust()`'s
+    /// detached hop, stored under the same signature, so the permit question
+    /// that follows costs a few stats and no verification.
+    ///
+    /// A project with no register asks nothing, exactly as `localWritePermit`
+    /// does. Answers whether a table is now in hand; a registry record that is
+    /// present and unreadable answers false, and the caller's own permit
+    /// question then meets `localWritePermit`'s never-throwing fallback.
+    @discardableResult
+    public func prepareTrust() async -> Bool {
+        guard TrustResolution.hasAnythingToResolve(
+            in: projectURL, cache: registryCache) else { return true }
+        return (try? await trust()) != nil
+    }
+
     /// **May this device's own hand write here, and what?** — the ONE question
     /// asked before a line exists (P3a Task 8).
     ///
