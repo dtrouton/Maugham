@@ -868,7 +868,7 @@ public enum PermitPartition {
     /// 3. **The piece was not TAKEN from her.** A root that removed a piece
     ///    from her scope has said whose it is not; she keeps writing there
     ///    only as today's rule allows (held, and the root asked). Asked of
-    ///    her NAMED pieces (`wasTakenFromTheirNamedPieces`), so a writer
+    ///    her NAMED pieces (`wasTakenFromThem`), so a writer
     ///    narrowed from the whole book can still start a new piece.
     ///
     /// The write side asks the same three facts through
@@ -885,7 +885,7 @@ public enum PermitPartition {
     ) -> Bool {
         guard trust.isThisWriters(sealKey: key),
               let piece = documentClass.piece,
-              !trust.timeline(forSealKey: key).wasTakenFromTheirNamedPieces(piece: piece),
+              !trust.timeline(forSealKey: key).wasTakenFromThem(piece: piece),
               let starter = startedBy()
         else { return false }
         switch trust.starter(ofPieceStartedBy: starter) {

@@ -509,6 +509,26 @@ final class PermitTimelineTests: XCTestCase {
             "nothing is before the opening entry")
     }
 
+    /// **A whole-book narrowing took nothing BY NAME** (P3c plan 2, rulings I
+    /// and J). The whole book authored every piece without naming one, so a
+    /// piece she starts after being narrowed to some pieces was taken from
+    /// nobody — and the one named piece she then loses was.
+    func test_aWholeBookNarrowingTakesNoPieceByName() {
+        let narrowed = event(
+            "a", kind: .roleChanged, scope: Permit.piecesScope, pieces: ["d-one"])
+        XCTAssertFalse(
+            PermitTimeline(events: [narrowed]).wasTakenFromThem(piece: "d-new"),
+            "a piece started after the narrowing was taken from nobody")
+        let lost = event(
+            "b", kind: .scopeChanged, scope: Permit.piecesScope, pieces: [])
+        XCTAssertTrue(
+            PermitTimeline(events: [narrowed, lost]).wasTakenFromThem(piece: "d-one"),
+            "the named piece she then lost was")
+        XCTAssertTrue(
+            PermitTimeline(events: [narrowed]).authored(piece: "d-new", before: 1),
+            "History's narration still says the whole book once authored it")
+    }
+
     /// **A `settled` over a permit that does not author the piece settles
     /// nothing** — read here, so it holds whoever wrote the event.
     func test_aSettledPieceTheEventDoesNotGiveSettlesNothing() {

@@ -127,6 +127,45 @@ final class LoadQuestionsTests: XCTestCase {
         XCTAssertTrue(started.question.contains("started"))
     }
 
+    /// **A writer narrowed from the WHOLE book who then starts a piece is
+    /// asked about as STARTING it** (P3c plan 2, ruling J). The whole book
+    /// authored every piece without naming one, so nothing was taken from her;
+    /// the broad reading said *"…after you took it from them"* about a piece
+    /// that did not exist when she was narrowed. A named piece she then loses
+    /// is still asked as giving it back.
+    func test_aWriterNarrowedFromTheWholeBookIsAskedAsStartingANewPiece() throws {
+        let narrowed = PermitEvent(
+            event: "\(sam).01", kind: .roleChanged, subject: sam,
+            role: Permit.authorRole, scope: Permit.piecesScope,
+            pieces: ["doc-hers"],
+            at: Date(timeIntervalSince1970: 20), by: root)
+        let book = Registry(
+            devices: [],
+            people: [person(root, label: "Denver", admittedBy: root),
+                     person(sam, label: "Sam", admittedBy: root)],
+            events: [narrowed])
+        let started = try XCTUnwrap(LoadQuestions.newPieces(
+            held: union(counts: [sam: 2], startedAPiece: [sam: ["ch-new"]]),
+            registry: book, titles: ["ch-new": "The Orchard"],
+            declined: [], me: root).first)
+        XCTAssertEqual(started.question,
+                       "Sam started \u{201C}The Orchard\u{201D} — is it theirs?")
+        XCTAssertFalse(started.takenFromThem)
+
+        let lost = PermitEvent(
+            event: "\(sam).02", kind: .scopeChanged, subject: sam,
+            role: Permit.authorRole, scope: Permit.piecesScope, pieces: [],
+            at: Date(timeIntervalSince1970: 30), by: root)
+        let later = Registry(
+            devices: [], people: book.people, events: [narrowed, lost])
+        let taken = try XCTUnwrap(LoadQuestions.newPieces(
+            held: union(counts: [sam: 2], startedAPiece: [sam: ["doc-hers"]]),
+            registry: later, titles: ["doc-hers": "Chapter 3"],
+            declined: [], me: root).first)
+        XCTAssertTrue(taken.takenFromThem, "the named piece she lost was taken")
+        XCTAssertTrue(taken.question.contains("took it from them"))
+    }
+
     /// **Two buttons and no third**, and neither of them is *yours*. There is
     /// no verb that applies her text as the opening of the root's own piece —
     /// the root claims a piece by WRITING in it, which refuses her lines rather

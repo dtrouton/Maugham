@@ -117,12 +117,6 @@ extension Document {
         if startedAPiece != started { startedAPiece = started }
         let taken = amendmentPermits.whoKeptWritingInATakenPiece
         if keptWritingInATakenPiece != taken { keptWritingInATakenPiece = taken }
-        // **Option A's stamp follows the lines** (P3c plan 2, controller
-        // ruling H) — see `restampWhereItsStarterArmMayHaveClosed`. Before the
-        // echo guard, for `provenance`'s reason: the stamp is about the
-        // folder, not about whether a new op was applied.
-        restampWhereItsStarterArmMayHaveClosed()
-
         // Echo guard: every op we ourselves appended is already in
         // _opLogMirror. If the disk log has no ops we haven't seen, this
         // is NSFilePresenter firing on our own write — bail out before
@@ -156,6 +150,11 @@ extension Document {
         if newOps.isEmpty, departed.isEmpty {
             return
         }
+        // Past the echo guard: this re-read APPLIED a change another hand
+        // made. The one fact Option A's re-stamp keys on (ruling H, fix round
+        // 2): a book author's claim on her piece can only arrive as a newly
+        // applied op, never as an echo of her own burst.
+        externalChangesApplied += 1
 
         // Re-derive from the merged log through the SAME path as
         // `Document.load` (E3c): `deriveWithSequenceFallback` + `reconcile`.

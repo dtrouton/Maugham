@@ -326,7 +326,7 @@ public final class OpLogStore {
         let mine = starter != .somebodyElse
             && permit.startsAPieceNobodyHasClaimed(
                 .op(.typingBurst), in: cls, actor: actor)
-            && !table.myTimeline.wasTakenFromTheirNamedPieces(piece: piece)
+            && !table.myTimeline.wasTakenFromThem(piece: piece)
             && OpLogStore.unownedPiece(
                 forDocId: piece, in: projectURL, trust: table, startedBy: starterId)
                 == .nobodyHasWrittenItsText

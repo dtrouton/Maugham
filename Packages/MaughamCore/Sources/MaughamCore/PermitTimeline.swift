@@ -254,9 +254,10 @@ public struct PermitTimeline: Equatable, Hashable, Sendable {
     /// Anything judging LINES asks `permits(forFile:lineCount:)` instead.
     public var current: Permit { entries.last?.permit ?? .bookAuthor }
 
-    /// **Was this piece TAKEN from them?** — an earlier permit of theirs
-    /// authored it and the one in force now does not (P3b smoke F9, Q1,
-    /// Denver's ruling of 2026-09-24).
+    /// **Was this piece TAKEN from them?** — an earlier permit's piece list
+    /// NAMED it, and the permit in force now does not author it (P3b smoke
+    /// F9, Q1, Denver's ruling of 2026-09-24; narrowed to NAMED pieces by P3c
+    /// plan 2's rulings I and J).
     ///
     /// §4.5's question assumes she STARTED the piece. After a deliberate
     /// removal that premise is false — she kept writing in something the
@@ -266,29 +267,33 @@ public struct PermitTimeline: Equatable, Hashable, Sendable {
     /// permits, never of `judging`, because what was TAKEN is what an event
     /// said, not what a later answer read back into it. Surfaces ask this and
     /// compare no rung (tripwire 47).
-    public func wasTakenFromThem(piece: String) -> Bool {
-        !current.authors(.piece(piece)) && authored(piece: piece, before: entries.count)
-    }
-
-    /// **Was this piece taken out of their NAMED pieces?** (P3c plan 2,
-    /// Option A; ruling F.) An earlier permit's piece list held it, and the
-    /// permit in force now does not author it — the root removing a piece from
-    /// her scope, which says whose it is not.
     ///
-    /// Narrower than `wasTakenFromThem` on purpose: that one also answers yes
-    /// for every piece after a WHOLE-BOOK author is narrowed to some pieces,
-    /// because the whole book authored them all — including a piece she
-    /// starts after the narrowing, which nobody took from her. A piece she
-    /// wrote in while she held the whole book is claimed anyway (her own
-    /// lines judged `.author(.book)` count as a book author writing its text),
-    /// so the whole-book case needs no exclusion of its own.
-    public func wasTakenFromTheirNamedPieces(piece: String) -> Bool {
+    /// **One predicate for the rule and for the words** (ruling J). Option A
+    /// asks it too: a piece taken from her named pieces is not one she may
+    /// write as its starter. It is NAMED pieces only: a writer narrowed from
+    /// the WHOLE book once authored every piece without naming any, and a
+    /// piece she starts after that narrowing was taken from nobody — the
+    /// broad reading (*any earlier permit authored it*) said "you took it
+    /// from them" about a piece that did not exist when anything was taken,
+    /// and it is gone.
+    ///
+    /// What the whole-book narrowing leaves: a piece she wrote in while she
+    /// held the whole book is claimed by her own earlier lines ONLY where the
+    /// narrowing event's MARK covers them — those are judged under the
+    /// opening `.author(.book)` entry and count as a book author writing its
+    /// text. Lines the root had not yet SEEN when it narrowed her are judged
+    /// NEW, under the narrowed permit (`governingEntry`), so such a piece can
+    /// stay unclaimed, and — if she is its recorded starter — her own Mac
+    /// writes it under Option A while the root is asked *Sam started …*.
+    public func wasTakenFromThem(piece: String) -> Bool {
         !current.authors(.piece(piece)) && entries.contains { $0.permit.namesPiece(piece) }
     }
 
     /// Did any entry before `index` install a permit that authors this piece?
-    /// `wasTakenFromThem`'s one spelling, and what History asks about the
-    /// entry an answer installed.
+    /// What History asks about the entry an answer installed (`TrustEvents`) —
+    /// a narration of what that EVENT did, which is why it keeps the broad
+    /// *authors* reading: a whole-book narrowing did take every piece, and the
+    /// dated entry says so. It is not asked by `wasTakenFromThem`.
     public func authored(piece: String, before index: Int) -> Bool {
         entries.prefix(max(0, index)).contains { $0.permit.authors(.piece(piece)) }
     }

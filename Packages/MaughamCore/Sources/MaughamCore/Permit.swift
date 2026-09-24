@@ -272,7 +272,7 @@ public enum Permit: Equatable, Hashable, Sendable {
     /// author of some pieces whose list holds it (P3c plan 2, Option A). A
     /// whole-book permit authors every piece without naming any, so it is
     /// false there: this is the question *was this piece ever hers BY NAME*,
-    /// which `PermitTimeline.wasTakenFromTheirNamedPieces` asks.
+    /// which `PermitTimeline.wasTakenFromThem` asks.
     public func namesPiece(_ piece: String) -> Bool {
         if case .author(.pieces(let mine)) = self { return mine.contains(piece) }
         return false

@@ -2855,7 +2855,7 @@ final class PermitLoadTests: XCTestCase {
 
     /// **Narrowed from the whole book, she can still start a piece** — every
     /// piece was hers under the whole book, but a piece started AFTER the
-    /// narrowing was taken from nobody (`wasTakenFromTheirNamedPieces`).
+    /// narrowing was taken from nobody (`wasTakenFromThem`, named pieces only).
     func test_aWriterNarrowedFromTheWholeBookStillStartsAPiece() async throws {
         try writeRootRecord()
         try admitSam()
@@ -2867,6 +2867,15 @@ final class PermitLoadTests: XCTestCase {
         try samsFile([op("herOpening", by: sam.author)])
         let onHers = try await appliedOpIds(on: samsMac)
         XCTAssertEqual(onHers, ["herOpening"])
+
+        // **And the root's Mac says she STARTED it** (ruling J): the History
+        // row's flag asks the same named-pieces predicate the arm asks.
+        let carrier = AmendmentPermits()
+        let onRoots = try await appliedOpIds(on: rootsMac, carrier: carrier)
+        XCTAssertEqual(onRoots, [])
+        XCTAssertEqual(carrier.whoStartedAPiece, [samPerson])
+        XCTAssertTrue(carrier.whoKeptWritingInATakenPiece.isEmpty,
+                      "nobody took this piece from her")
     }
 
     /// **A piece TAKEN from her is not one she started** — the root removed
@@ -2886,6 +2895,10 @@ final class PermitLoadTests: XCTestCase {
         try samsFile([op("afterItWasTaken", by: sam.author)])
         let onHers = try await appliedOpIds(on: samsMac)
         XCTAssertEqual(onHers, [])
+        // The root's Mac says it was TAKEN (ruling J, the other direction).
+        let carrier = AmendmentPermits()
+        _ = try await appliedOpIds(on: rootsMac, carrier: carrier)
+        XCTAssertEqual(carrier.whoKeptWritingInATakenPiece, [samPerson])
     }
 }
 

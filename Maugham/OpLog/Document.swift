@@ -177,8 +177,20 @@ public final class Document {
         self.localWritePermit = permit
     }
 
+    /// How many external re-reads got past the echo guard — applied a change
+    /// another hand made (P3c plan 2, ruling H fix round 2). The posture door
+    /// reads it to re-stamp Option A only after such a re-read; an echo of
+    /// this device's own append leaves it where it was.
+    @ObservationIgnored internal var externalChangesApplied = 0
+
+    /// Test-observable: how many times Option A's re-stamp asked the builder.
+    @ObservationIgnored internal private(set) var starterRestampsForTesting = 0
+
     /// **Option A's stamp follows the lines** (P3c plan 2, controller ruling
-    /// H) — asked by `handleExternalLogChange` on every external re-read.
+    /// H) — asked by the posture door (`DocumentStore
+    /// .withPostureFollowingReStamp`) after an external re-read that applied a
+    /// change, in the same main-actor turn as the door's own epoch bump (plan
+    /// 1's ruling AG: the stamp and the drawn answer change together).
     ///
     /// `writesAsItsStarter` turns on whether a book author has written this
     /// piece's text — a fact about its LINES, which is exactly what an
@@ -190,6 +202,7 @@ public final class Document {
     /// (tripwire 46), asked exactly as the load asks it.
     internal func restampWhereItsStarterArmMayHaveClosed() {
         guard localWritePermit.writesAsItsStarter else { return }
+        starterRestampsForTesting += 1
         let projectURL = opStore.projectURL
         let docId = self.docId
         stamp(localWritePermit: opStore.localWritePermit(

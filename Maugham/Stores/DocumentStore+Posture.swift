@@ -375,8 +375,17 @@ extension DocumentStore {
     func withPostureFollowingReStamp(
         of document: Document, _ reRead: () async throws -> Void
     ) async throws {
-        let before = document.localWritePermit
+        let appliedBefore = document.externalChangesApplied
         try await reRead()
+        // **One turn, from here to the bump** (fix round 2, N3): no `await`
+        // between the re-stamp and `postureFollowsReStamp`, so no turn sees
+        // the Document's stamp and the drawn answer disagree (ruling AG). And
+        // only after a re-read that applied somebody else's change (N2): an
+        // echo of her own burst cannot have claimed her piece, so her typing
+        // never pays for the builder.
+        guard document.externalChangesApplied != appliedBefore else { return }
+        let before = document.localWritePermit
+        document.restampWhereItsStarterArmMayHaveClosed()
         postureFollowsReStamp(of: document, from: before)
     }
 

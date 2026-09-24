@@ -241,15 +241,12 @@ final class PostureStandingLineTests: XCTestCase {
 
     // MARK: - Option A: the stamp follows the lines (P3c plan 2, ruling H)
 
-    /// **A book author's text syncing into her started piece locks her editor
-    /// at the next re-read** — the stamp, the door's drawn answer and the
-    /// reason all move in that one re-read, with no reopen and no trust
-    /// change. Real disk: this device is an author of some OTHER piece, the
-    /// manifest records it as this piece's starter, and the root's burst
-    /// arrives as a file another Mac wrote.
-    func test_aBookAuthorsTextArrivingLocksHerStartedPieceAtTheNextReRead()
-        async throws
-    {
+    /// Her started piece, unclaimed, open in a window: the manifest records
+    /// this device as its starter, and she is narrowed FROM the whole book to
+    /// another piece (the fixture admits her as a book author) — so this also
+    /// pins that a piece she starts afterwards is not "taken from her"
+    /// (`wasTakenFromThem`, named pieces only).
+    private func herStartedPieceOpen() async throws -> (DocumentStore, Document) {
         fixture.beASigningMac()
         try fixture.makeForeignRoot()
         let manifestURL = fixture.projectURL.appendingPathComponent(ProjectManifest.fileName)
@@ -257,9 +254,6 @@ final class PostureStandingLineTests: XCTestCase {
             .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
         manifest.structure[0].startedBy = fixture.identities.author.deviceId
         try ProjectManifest.makeEncoder().encode(manifest).write(to: manifestURL)
-        // Narrowed FROM the whole book (the fixture admits her as a book
-        // author) — so this also pins that a piece she starts afterwards is
-        // not "taken from her" (`wasTakenFromTheirNamedPieces`).
         try await fixture.changeMyPermit(to: .author(.pieces(["doc-other"])), store: nil)
 
         let store = try await DocumentStore.open(url: fixture.projectURL)
@@ -271,8 +265,11 @@ final class PostureStandingLineTests: XCTestCase {
         XCTAssertTrue(doc.mayWriteItsText, "precondition: her started piece, unclaimed")
         XCTAssertEqual(store.posture(forDocId: PostureFixture.docId).reason,
                        .waitingToBeClaimed)
+        return (store, doc)
+    }
 
-        // The root's Mac writes the piece's text, and the file syncs in.
+    /// The root's Mac writes the piece's text, as a file another Mac wrote.
+    private func theRootWritesTheText(after doc: Document) async throws {
         let root = try XCTUnwrap(fixture.root)
         let rootStore = OpLogStore(
             projectURL: fixture.projectURL, identities: .forAuthor(root),
@@ -287,6 +284,17 @@ final class PostureStandingLineTests: XCTestCase {
             device: root.deviceId, session: "root", kind: .typingBurst,
             changes: [.init(paragraphId: added, prior: nil, next: "The root's words.")],
             sequence: doc.sequence + [added]))
+    }
+
+    /// **A book author's text syncing into her started piece locks her editor
+    /// at the next re-read** — the stamp, the door's drawn answer and the
+    /// reason all move in that one re-read, with no reopen and no trust
+    /// change. Real disk: the root's burst arrives as a file another Mac wrote.
+    func test_aBookAuthorsTextArrivingLocksHerStartedPieceAtTheNextReRead()
+        async throws
+    {
+        let (store, doc) = try await herStartedPieceOpen()
+        try await theRootWritesTheText(after: doc)
 
         try await store.reReadAfterExternalChange(doc)
 
@@ -296,6 +304,60 @@ final class PostureStandingLineTests: XCTestCase {
         let posture = store.posture(forDocId: PostureFixture.docId)
         XCTAssertEqual(posture.reason, .notYourPiece)
         XCTAssertFalse(posture.allows(.writeText), "her editor locks")
+        await doc.close()
+    }
+
+    /// **Her own typing never pays for the re-stamp** (fix round 2, N2): the
+    /// echo of her own burst reaches the same re-read and is stopped at the
+    /// echo guard, so the builder is not asked; a re-read that APPLIES the
+    /// root's text asks it once.
+    func test_anEchoOfHerOwnBurstDoesNotReStamp() async throws {
+        let (store, doc) = try await herStartedPieceOpen()
+        doc.setFullText(doc.displayText + "\n\nHer own sentence.")
+        try await doc.flushBurstNow()
+
+        try await store.reReadAfterExternalChange(doc)
+        XCTAssertEqual(doc.starterRestampsForTesting, 0, "an echo re-stamps nothing")
+        XCTAssertTrue(doc.mayWriteItsText)
+
+        try await theRootWritesTheText(after: doc)
+        try await store.reReadAfterExternalChange(doc)
+        XCTAssertEqual(doc.starterRestampsForTesting, 1, "an applied change re-stamps once")
+        XCTAssertFalse(doc.mayWriteItsText)
+        await doc.close()
+    }
+
+    /// **The re-stamp and the door's answer change in ONE turn** (fix round 2,
+    /// N3; plan 1's ruling AG). A sampler interleaved with the re-read never
+    /// sees the Document's stamp and the drawn answer disagree.
+    func test_theStarterReStampAndTheDrawnAnswerAreOneTurn() async throws {
+        let (store, doc) = try await herStartedPieceOpen()
+        try await theRootWritesTheText(after: doc)
+
+        final class Log { var running = true; var samples: [(Bool, Bool)] = [] }
+        let log = Log()
+        let sampler = Task { @MainActor in
+            while log.running {
+                log.samples.append((
+                    !doc.mayWriteItsText,
+                    !store.posture(forDocId: PostureFixture.docId).allows(.writeText)))
+                await Task.yield()
+            }
+        }
+        while log.samples.isEmpty { await Task.yield() }
+        try await store.reReadAfterExternalChange(doc)
+        log.running = false
+        await sampler.value
+        log.samples.append((
+            !doc.mayWriteItsText,
+            !store.posture(forDocId: PostureFixture.docId).allows(.writeText)))
+
+        XCTAssertTrue(log.samples.contains { !$0.0 }, "the sampler saw it unlocked")
+        XCTAssertTrue(log.samples.contains { $0.0 }, "and the claim land")
+        let split = log.samples.filter { $0.0 != $0.1 }
+        XCTAssertTrue(split.isEmpty,
+            "a turn saw the Document's stamp and the drawn answer disagree: "
+            + "\(split.count) of \(log.samples.count) samples")
         await doc.close()
     }
 
