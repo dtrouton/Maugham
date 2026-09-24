@@ -474,9 +474,9 @@ public final class OpLogStore {
         // One watch for the whole document: a stream is a run of segments plus
         // a tail, and whether its remembered line is still anywhere in it can
         // only be asked once every file has been seen (P3a Task 9).
+        let mine = ForeignStreamWatch.slugs(of: identities)
         let foreign = ForeignStreamWatch(
-            projectURL: projectURL, state: deviceState,
-            mine: ForeignStreamWatch.slugs(of: identities))
+            projectURL: projectURL, state: deviceState, mine: mine)
         for url in urls {
             let result = try await Self.loadFileDiagnosed(
                 url: url, presenter: presenter,
@@ -489,7 +489,7 @@ public final class OpLogStore {
         foreign.settle()
         return (Self.mergeSortedDedup(merged),
                 ParseDiagnostics(skipped: skipped),
-                OpLogProvenance(files: files))
+                OpLogProvenance(files: files, ownStreams: mine))
     }
 
     /// **The lines one holder is waiting under, as the walk itself answers
@@ -648,7 +648,8 @@ public final class OpLogStore {
             ops: Self.mergeSortedDedup(all),
             diagnostics: ParseDiagnostics(skipped: skipped),
             unreadableFiles: unreadable.sorted { $0.name < $1.name },
-            provenance: OpLogProvenance(files: files))
+            provenance: OpLogProvenance(
+                files: files, ownStreams: ForeignStreamWatch.slugs(of: identities)))
     }
 
     /// Load + parse ONE op-log file — plain `.jsonl` tail or sealed `.mzseg`

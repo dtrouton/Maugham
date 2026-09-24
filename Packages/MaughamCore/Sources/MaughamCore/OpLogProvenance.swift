@@ -115,6 +115,12 @@ public struct FileProvenance: Equatable, Sendable {
         self.isSealedSegment = isSealedSegment
         self.segmentVerified = segmentVerified
     }
+
+    /// **Lines of this file kept in History rather than in the text** — set
+    /// aside (`quarantined`) or held (`pending`) (P3c Task 3, controller ruling
+    /// K). Both are already counted by the load; this names their sum, so the
+    /// one question a surface asks of a file has one spelling.
+    public var keptInHistory: Int { quarantined + pending }
 }
 
 /// The same account over every file a document's history is spread across.
@@ -125,8 +131,29 @@ public struct FileProvenance: Equatable, Sendable {
 public struct OpLogProvenance: Equatable, Sendable {
     public let files: [FileProvenance]
 
-    public init(files: [FileProvenance] = []) {
+    /// **The stream slugs this device's own actors write under**, as the load
+    /// that built this value enumerated them (`ForeignStreamWatch.slugs(of:)` —
+    /// every actor whose key exists, minting none). Carried so a reader can ask
+    /// *which of these files are mine* without enumerating identities of its
+    /// own (P3c Task 3, controller ruling K). Empty for a value built by hand:
+    /// then no file is this device's, and nothing is counted as hers.
+    public let ownStreams: Set<String>
+
+    public init(files: [FileProvenance] = [], ownStreams: Set<String> = []) {
         self.files = files
+        self.ownStreams = ownStreams
+    }
+
+    /// **Set-aside and held lines in THIS device's own files** (P3c Task 3,
+    /// controller ruling K) — what the editor's standing line means by *some
+    /// of what you wrote here is kept in History*. Summed over the files whose
+    /// stream slug is one of `ownStreams`; a file with no slug (the legacy
+    /// unsuffixed log) is nobody's in particular and is not counted.
+    public var ownLinesKeptInHistory: Int {
+        files.reduce(0) { total, file in
+            guard let slug = file.deviceSlug, ownStreams.contains(slug) else { return total }
+            return total + file.keptInHistory
+        }
     }
 
     public var legacyLines: Int { files.reduce(0) { $0 + $1.legacy } }
