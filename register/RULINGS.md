@@ -3,7 +3,7 @@
 **GENERATED from `register/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**
 Regenerate with `python3 register/scripts/23-generate-rulings.py` after any ruling change.
 
-54 rulings, 4 principles.
+55 rulings, 4 principles.
 
 Every ruling carries its **BASIS** — the reason it was made. The basis is load-bearing:
 applying a ruling to a new case means re-checking the basis, not pattern-matching the
@@ -568,6 +568,14 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 *basis:* Denver, 2026-08-09, structured question GAP-I2: chose the recommended 'Rule it generally' over op-log-only-now and case-by-case.
 
 *settles:* GAP-I2 (the Inbox filings' shared-layer residual). The inbox's loadStrict fix (6955c2d8) becomes the pattern; the sweep of the four consumers is queued in START-HERE, op log first, each with its own characterised loop because the surfacing UX differs per consumer.
+
+### RULING-55 — X — attribution is the signing device  `RATIFIED`
+
+> Who wrote a line is answered by the device that signed it, resolved through the book's register — never by a field the writing client stamps on the op. The legacy WF1 collaborator id (`author_collaborator_id` / `AnnotationAuthor.collaboratorId`) is decoded from old logs so their notes keep their colour, and is never written again by any path.
+
+*basis:* Denver, 2026-09-19, P3 brainstorm (spec 2026-09-19-signed-op-log-p3-roles-scope-collaborator-design.md §8: 'authorCollaboratorId is decoded and never written; attribution is the signing device through the registry'); promoted to a register ruling by Denver 2026-09-24 (option B of the M5-AN-012 question), after P3c plan 1 Task 4 removed the last writer (cfaadc3a).
+
+*settles:* M5-AN-012's filing (NO_RULING_REACHES since the claim moved under the spec ruling) — now COMPLIES; and any later claim about who wrote an annotation, a paragraph or an inbox row.
 
 ## The enforcement gradient — how each ruling is held
 

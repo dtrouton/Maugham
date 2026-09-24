@@ -61,8 +61,13 @@
  },
  {
   "claim_id": "M5-AN-012",
-  "outcome": "NO_RULING_REACHES",
-  "reason": "Provenance stamping. No RULING-n reaches it; the product question — who wrote a note — is answered by the signing device through the registry (P3 spec §8, Denver 2026-09-19), and the collaborator id survives only as a decoded field of old logs. Telling Claude's notes from a person's is still answered by sourceKind.",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-55",
+  "clause_that_reaches_it": "The legacy WF1 collaborator id (`author_collaborator_id` / `AnnotationAuthor.collaboratorId`) is decoded from old logs so their notes keep their colour, and is never written again by any path.",
+  "why_in_scope": "The claim is exactly the clause's two halves: addReviewerAnnotation (and every other path) writes no collaborator id, and an old line carrying one still decodes and derives it. RULING-55's scope is attribution of any written line; a reviewer annotation is one.",
+  "intent_expressed_when": "earlier — spec §8, Denver 2026-09-19; promoted to RULING-55 on 2026-09-24",
+  "call_path": "review toolbar → EditorHost → Document.addReviewerAnnotation → appendAnnotationOpInternal (no collaborator id); load → AnnotationDeriver reads author_collaborator_id from old lines",
+  "violation_or_enhancement": "neither",
   "amendment": {
    "commit": "cfaadc3a",
    "date": "2026-09-24",
@@ -539,12 +544,12 @@
  },
  {
   "_summary": {
-   "reached": 23,
-   "complies": 23,
+   "reached": 24,
+   "complies": 24,
    "violates": 0,
-   "no_ruling": 37,
+   "no_ruling": 36,
    "total": 60,
-   "coverage": "38%",
+   "coverage": "40%",
    "by_ruling": {
     "RULING-1": [
      "M5-AN-006"
@@ -592,6 +597,9 @@
      "M5-AN-026",
      "M5-AN-049",
      "M5-AN-050"
+    ],
+    "RULING-55": [
+     "M5-AN-012"
     ]
    },
    "reached_by_a_root_only": [
