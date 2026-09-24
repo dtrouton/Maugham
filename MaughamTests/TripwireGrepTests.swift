@@ -9229,4 +9229,64 @@ final class TripwireGrepTests: XCTestCase {
             + asTheDoor.ask.joined(separator: "\n"))
         XCTAssertEqual(asTheDoor.componentA.count, 4)
     }
+
+    // MARK: - author_collaborator_id is decoded and never written (P3c Task 4)
+
+    /// The argument label that WRITES the retired field into an op. Reading it
+    /// (`prov?.authorCollaboratorId`, `AnnotationDeriver`) carries no colon.
+    static let collaboratorIdWritePatterns = ["authorCollaboratorId:"]
+
+    /// `Op.swift` declares the field, its init parameter and its decode — old
+    /// logs carry it — and nothing else may name the label.
+    static let collaboratorIdWriteAllowed: [String: Set<String>] = [
+        "Op.swift": ["authorCollaboratorId:"],
+    ]
+
+    /// **`author_collaborator_id` is decoded and never written** (signed op
+    /// log P3 spec §8, Denver's ruling 2026-09-19 — attribution is the signing
+    /// device through the registry; claim M5-AN-012). The WF1 share-role
+    /// system stamped a collaborator id on reviewer annotations; a second
+    /// writer would be a second attribution beside the signature, one nothing
+    /// verifies.
+    func test_theCollaboratorIdIsDecodedAndNeverWritten() throws {
+        let writers = try grepSwift(
+            in: admissionRoots,
+            patterns: Self.collaboratorIdWritePatterns,
+            allowedSpellings: Self.collaboratorIdWriteAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertTrue(writers.isEmpty,
+            "A file writes `authorCollaboratorId` into an op. It is decoded "
+            + "from old logs and never written — attribution is the signing "
+            + "device. Offenders:\n" + writers.joined(separator: "\n"))
+    }
+
+    /// The control: a planted writer is caught, the comment and a read are
+    /// not, and the same file named `Op.swift` is admitted.
+    func test_theCollaboratorIdCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-collabid-selfcheck-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try """
+        // A comment may name authorCollaboratorId: freely.
+        let read = AnnotationAuthor(sourceKind: .human, displayName: "", collaboratorId: prov?.authorCollaboratorId)
+        let prov = Op.Provenance(authorDisplayName: name, authorCollaboratorId: id)
+        """.write(to: tmp.appendingPathComponent("SecondAttribution.swift"),
+                  atomically: true, encoding: .utf8)
+        func hits() throws -> [String] {
+            try grepSwift(in: [tmp], patterns: Self.collaboratorIdWritePatterns,
+                          allowedSpellings: Self.collaboratorIdWriteAllowed,
+                          excludeLine: Self.admissionExcludeLine)
+        }
+        let planted = try hits()
+        XCTAssertEqual(planted.count, 1, "Self-check: the one writer is caught. Caught:\n"
+                       + planted.joined(separator: "\n"))
+        XCTAssertTrue(planted.first?.contains("let prov") == true)
+
+        try fm.moveItem(at: tmp.appendingPathComponent("SecondAttribution.swift"),
+                        to: tmp.appendingPathComponent("Op.swift"))
+        XCTAssertTrue(try hits().isEmpty, "Self-check: Op.swift is admitted")
+    }
 }

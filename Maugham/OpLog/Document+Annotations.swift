@@ -201,7 +201,6 @@ extension Document {
                 annotationBody: body,
                 authorSourceKind: author?.sourceKind.rawValue,
                 authorDisplayName: author?.displayName,
-                authorCollaboratorId: author?.collaboratorId,
                 spanQuote: span?.quote,
                 spanPrefix: span?.prefix,
                 spanSuffix: span?.suffix,
@@ -261,8 +260,13 @@ extension Document {
 
     /// Create a human-authored annotation (review toolbar / collaborator
     /// review). Thin wrapper over `addAnnotation` that stamps the provenance
-    /// author as `.human` with the reviewer's display name + optional
-    /// collaborator id. Span-anchored to a sub-paragraph quote when supplied.
+    /// author as `.human` with the reviewer's display name. Span-anchored to a
+    /// sub-paragraph quote when supplied.
+    ///
+    /// **No collaborator id is written** (signed op log P3 spec §8, Denver's
+    /// ruling 2026-09-19): `author_collaborator_id` is decoded from old logs
+    /// and never written — attribution is the signing device through the
+    /// registry. Claim M5-AN-012.
     @discardableResult
     public func addReviewerAnnotation(
         kind: AnnotationKind,
@@ -271,7 +275,6 @@ extension Document {
         body: String,
         suggestedText: String? = nil,
         authorName: String,
-        authorId: String? = nil,
         /// See `addAnnotation`'s own parameter — this wrapper only carries it.
         reviewPassId: String? = nil
     ) async throws -> String {
@@ -283,8 +286,7 @@ extension Document {
             span: span,
             author: AnnotationAuthor(
                 sourceKind: .human,
-                displayName: authorName,
-                collaboratorId: authorId),
+                displayName: authorName),
             reviewPassId: reviewPassId)
     }
 
@@ -303,7 +305,6 @@ extension Document {
         newBody: String,
         newSuggestedText: String?,
         authorName: String,
-        authorId: String? = nil,
         undoManager: UndoManager? = nil
     ) async throws {
         // Snapshot the pre-edit derived state BEFORE appending, so ⌘Z can
@@ -350,8 +351,7 @@ extension Document {
                 annotationBody: newBody,
                 sourceAnnotationId: id,
                 authorSourceKind: AnnotationAuthor.SourceKind.human.rawValue,
-                authorDisplayName: authorName,
-                authorCollaboratorId: authorId))
+                authorDisplayName: authorName))
         try await appendAnnotationOpInternal(op)
 
         // ⌘Z: undo appends a compensating edit carrying the pre-edit body (and
@@ -393,14 +393,13 @@ extension Document {
                     priorSuggested: priorSuggested,
                     authorSourceKind: AnnotationAuthor.SourceKind.human.rawValue,
                     authorDisplayName: authorName,
-                    authorCollaboratorId: authorId,
                     docId: doc.docId, device: doc.device, session: doc.session)
                 try? await doc.appendAnnotationOpInternal(revert)
             },
             redo: { [weak undoManager] doc in
                 try? await doc.editReviewerAnnotation(
                     id: id, newBody: newBody, newSuggestedText: newSuggestedText,
-                    authorName: authorName, authorId: authorId,
+                    authorName: authorName,
                     undoManager: undoManager)
             })
     }
@@ -412,7 +411,6 @@ extension Document {
     public func withdrawReviewerAnnotation(
         id: String,
         authorName: String,
-        authorId: String? = nil,
         undoManager: UndoManager? = nil
     ) async throws {
         // RULING-22 / M5-AN-036: capture the status this annotation had BEFORE
@@ -439,8 +437,7 @@ extension Document {
                 sessionId: session,
                 sourceAnnotationId: id,
                 authorSourceKind: AnnotationAuthor.SourceKind.human.rawValue,
-                authorDisplayName: authorName,
-                authorCollaboratorId: authorId))
+                authorDisplayName: authorName))
         try await appendAnnotationOpInternal(op)
 
         // ⌘Z: undo reopens (annotationReopen restores it to the projection),
@@ -482,7 +479,7 @@ extension Document {
             },
             redo: { [weak undoManager] doc in
                 try? await doc.withdrawReviewerAnnotation(
-                    id: id, authorName: authorName, authorId: authorId,
+                    id: id, authorName: authorName,
                     undoManager: undoManager)
             })
     }

@@ -279,17 +279,41 @@ final class AnnotationsCharacterization: XCTestCase {
         XCTAssertEqual(h2.doc.paragraphs[h2.pid], "")
     }
 
-    /// M5-AN-012 — `addReviewerAnnotation` stamps `.human` + display name +
-    /// collaborator id; a plain `addAnnotation` with no author derives nil.
+    /// M5-AN-012 — `addReviewerAnnotation` stamps `.human` + display name and
+    /// NO collaborator id; a plain `addAnnotation` with no author derives nil.
+    /// `author_collaborator_id` is decoded from an old log line and never
+    /// written (signed op log P3 spec §8, Denver's ruling 2026-09-19:
+    /// attribution is the signing device through the registry; moved under
+    /// controller Ruling O, P3c plan 1 Task 4).
     func test_authorProvenance() async throws {
         let h = try await makeHarness("Alpha.")
         let rid = try await h.doc.addReviewerAnnotation(
             kind: .comment, paragraphId: h.pid, span: nil, body: "b",
-            authorName: "Denver", authorId: "d1")
+            authorName: "Denver")
         let author = try XCTUnwrap(one(h.doc, rid)?.author)
         XCTAssertEqual(author.sourceKind, .human)
         XCTAssertEqual(author.displayName, "Denver")
-        XCTAssertEqual(author.collaboratorId, "d1")
+        XCTAssertNil(author.collaboratorId, "never written")
+        let log = try await h.doc.opLog()
+        let written = try XCTUnwrap(log.first { $0.opId == rid })
+        XCTAssertNil(written.provenance?.authorCollaboratorId)
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+        let line = try XCTUnwrap(String(data: try enc.encode(written), encoding: .utf8))
+        XCTAssertFalse(line.contains("author_collaborator_id"),
+                       "the key is absent from the line on disk, not merely null")
+
+        // An OLD log line — written by a build before P3c — still decodes and
+        // still derives the id it carries.
+        let legacy = #"{"op_id":"01J0LEGACYAUTHORID000000001","doc_id":"doc-x","at":"2026-06-20T10:00:00.000Z","device":"legacy-mac","session":"s0","kind":"claude_comment","changes":[{"paragraph_id":"\#(h.pid)","prior":null,"next":""}],"provenance":{"annotation_body":"old","author_source_kind":"human","author_display_name":"Denver","author_collaborator_id":"d1"}}"#
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
+        let old = try dec.decode(Op.self, from: Data(legacy.utf8))
+        XCTAssertEqual(old.provenance?.authorCollaboratorId, "d1")
+        let derived = try XCTUnwrap(AnnotationDeriver.derive(
+            ops: [old], paragraphs: [h.pid: "Alpha."]).first)
+        XCTAssertEqual(derived.author?.collaboratorId, "d1", "decoded from an old line")
+        XCTAssertEqual(derived.author?.displayName, "Denver")
 
         let cid = try await h.doc.addAnnotation(kind: .comment, paragraphId: h.pid, body: "b2")
         XCTAssertNil(one(h.doc, cid)?.author)
@@ -972,7 +996,7 @@ final class AnnotationsCharacterization: XCTestCase {
             kind: .comment, paragraphId: h.pid, span: nil, body: "keep me",
             suggestedText: nil, authorName: "D")
         try await h.doc.withdrawReviewerAnnotation(
-            id: id, authorName: "D", authorId: nil, undoManager: nil)
+            id: id, authorName: "D", undoManager: nil)
         XCTAssertNil(one(h.doc, id), "withdrawn — gone from every status filter")
 
         let deleted = h.doc.withdrawnAnnotations()

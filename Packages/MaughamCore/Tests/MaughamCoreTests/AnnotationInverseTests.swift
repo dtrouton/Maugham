@@ -59,7 +59,7 @@ final class AnnotationInverseTests: XCTestCase {
         let op = AnnotationInverse.editRevertOp(
             annotationId: "01A", priorBody: "old body",
             priorSuggested: (paragraphId: "ab2c", prior: "was", next: "old suggestion"),
-            authorSourceKind: "human", authorDisplayName: "Denver", authorCollaboratorId: nil,
+            authorSourceKind: "human", authorDisplayName: "Denver",
             docId: "d1", device: "mac", session: "s1")
         XCTAssertEqual(op.kind, .annotationEdit)
         XCTAssertEqual(op.provenance?.annotationBody, "old body")

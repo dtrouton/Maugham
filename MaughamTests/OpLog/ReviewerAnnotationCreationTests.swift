@@ -31,7 +31,7 @@ final class ReviewerAnnotationCreationTests: XCTestCase {
 
         let id = try await doc.addReviewerAnnotation(
             kind: .comment, paragraphId: pid, span: span,
-            body: "consider showing", authorName: "Marian", authorId: "c-1")
+            body: "consider showing", authorName: "Marian")
 
         let anns = doc.annotations()
         let ann = anns.first { $0.id == id }
@@ -39,9 +39,26 @@ final class ReviewerAnnotationCreationTests: XCTestCase {
         XCTAssertEqual(ann?.kind, .comment)
         XCTAssertEqual(ann?.author?.sourceKind, .human)
         XCTAssertEqual(ann?.author?.displayName, "Marian")
-        XCTAssertEqual(ann?.author?.collaboratorId, "c-1")
+        XCTAssertNil(ann?.author?.collaboratorId,
+                     "author_collaborator_id is decoded and never written (P3 spec §8)")
         XCTAssertEqual(ann?.span?.quote, span.quote)
         XCTAssertEqual(ann?.body, "consider showing")
+    }
+
+    /// A reviewer comment from a build before P3c carries
+    /// `author_collaborator_id` in its log line. It is decoded and derived —
+    /// old logs keep their attribution — though nothing writes it any more.
+    func test_aLegacyLineCarryingACollaboratorIdStillDerivesIt() throws {
+        let legacy = #"{"op_id":"01J0LEGACYAUTHORID000000002","doc_id":"doc-x","at":"2026-06-20T10:00:00Z","device":"legacy-mac","session":"s0","kind":"claude_comment","changes":[{"paragraph_id":"ab2c","prior":null,"next":""}],"provenance":{"annotation_body":"consider showing","author_source_kind":"human","author_display_name":"Marian","author_collaborator_id":"c-1","span_quote":"angry"}}"#
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
+        let op = try dec.decode(Op.self, from: Data(legacy.utf8))
+        let ann = AnnotationDeriver.derive(
+            ops: [op], paragraphs: ["ab2c": "She was angry and shaking with fury."]).first
+        XCTAssertEqual(ann?.author?.sourceKind, .human)
+        XCTAssertEqual(ann?.author?.displayName, "Marian")
+        XCTAssertEqual(ann?.author?.collaboratorId, "c-1")
+        XCTAssertEqual(ann?.span?.quote, "angry")
     }
 
     func test_addReviewerQuery_kindIsQuery() async throws {

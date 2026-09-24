@@ -62,11 +62,15 @@ public enum AnnotationInverse {
 
     /// Compensating edit for undoing an annotationEdit: another edit carrying
     /// the prior body (and prior suggested replacement, when present).
+    ///
+    /// Takes no collaborator id: the revert is a NEW edit authored by whoever
+    /// pressed ⌘Z, not a restoration of the original op's own field, and
+    /// `author_collaborator_id` is decoded and never written (P3 spec §8).
     public static func editRevertOp(
         annotationId: String,
         priorBody: String,
         priorSuggested: (paragraphId: String, prior: String?, next: String)?,
-        authorSourceKind: String?, authorDisplayName: String?, authorCollaboratorId: String?,
+        authorSourceKind: String?, authorDisplayName: String?,
         docId: String, device: String, session: String
     ) -> Op {
         let changes: [Op.ParagraphChange] = priorSuggested.map {
@@ -82,8 +86,7 @@ public enum AnnotationInverse {
                 annotationBody: priorBody,
                 sourceAnnotationId: annotationId,
                 authorSourceKind: authorSourceKind,
-                authorDisplayName: authorDisplayName,
-                authorCollaboratorId: authorCollaboratorId))
+                authorDisplayName: authorDisplayName))
     }
 
     /// Compensating triage for undoing an `annotationTriage`: another triage
