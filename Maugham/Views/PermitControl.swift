@@ -169,39 +169,9 @@ enum PermitControl {
     }
 }
 
-/// **The words the writer reads for each rung** — here rather than in Core,
-/// because a rung is a storage fact and these are this app's sentences about
-/// it. The rung itself is `Permit.Rung` (tripwire 47: nothing in a view decides
-/// what a rung MEANS).
-extension Permit.Rung {
-    /// What the control calls it.
-    var title: String {
-        switch self {
-        case .reviewer: return "Reviewer"
-        case .somePieces: return "Author of some pieces"
-        case .wholeBook: return "Author of the whole book"
-        }
-    }
-
-    /// One line under the control saying what the choice means in the
-    /// manuscript, because *reviewer* is a word with a dozen meanings in this
-    /// app and exactly one here.
-    var explanation: String {
-        switch self {
-        case .reviewer:
-            return "Can leave notes and send captures. Anything they write "
-                + "in the manuscript itself is set aside."
-        case .somePieces:
-            return "Can write anything in the pieces you choose, and leaves "
-                + "notes everywhere else."
-        case .wholeBook:
-            return "Can write anywhere in the book, as you can."
-        }
-    }
-
-    /// Does this choice need the piece picker?
-    var picksPieces: Bool { self == .somePieces }
-}
+// The words the writer reads for each rung — `Permit.Rung.title`,
+// `.explanation` and `.picksPieces` — live in MaughamCore's `PermitWords.swift`
+// (P3c plan 2, Task 1) so the phone says the same words (tripwire 19).
 
 /// **The control itself** — a rung, and the pieces where the rung needs them.
 ///

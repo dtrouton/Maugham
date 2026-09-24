@@ -187,8 +187,9 @@ public enum TranslationWritePipeline {
     /// translation stream — `.translation(piece:)`, whose id is the piece's
     /// own — rather than one resolved from the manifest.
     ///
-    /// **Built here, from the one builder** (`OpLogStore.localWritePermit`,
-    /// tripwire 46; controller ruling A): the pipeline is reached from MCP and
+    /// **Built through Core's posture door, over the one builder**
+    /// (`PostureDoor`, `OpLogStore.localWritePermit` — tripwire 46; controller
+    /// ruling A; P3c plan 2 Task 1): the pipeline is reached from MCP and
     /// from the translator's ingest with a project URL and no window, and its
     /// callers inject the identities and the device memory the lines are
     /// signed with — the permit is asked over the SAME ones, so the key that
@@ -201,9 +202,9 @@ public enum TranslationWritePipeline {
         let store = OpLogStore(
             projectURL: projectURL, presenter: nil, identities: identities,
             state: deviceState, cache: Document.loadRegistryCache)
-        let posture = Posture(store.localWritePermit(as: actor) {
+        let posture = PostureDoor.posture(as: actor, using: store) {
             .translation(piece: documentId)
-        })
+        }
         guard posture.allows(.translate) else {
             let title = pieceTitle(documentId, in: projectURL)
             throw MCPError.toolError(payload: .init(

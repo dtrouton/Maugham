@@ -379,16 +379,11 @@ struct PeopleAndDevicesModel: Equatable {
         /// A rung this build cannot draw says so rather than guessing: the
         /// record carries a word a later Maugham wrote, and naming it *author*
         /// would be this Mac deciding something it does not know.
+        ///
+        /// The sentence is `PermitWords.sentence`, in Core, so the phone reads
+        /// the same words (P3c plan 2, Task 1).
         var permitSentence: String {
-            guard let rung else {
-                return "This book says something about what they may write that "
-                    + "this version of Maugham doesn\u{2019}t recognise."
-            }
-            guard rung.picksPieces else { return rung.title }
-            guard !pieceTitles.isEmpty else {
-                return "\(rung.title) \u{2014} none chosen yet"
-            }
-            return "\(rung.title): \(pieceTitles.joined(separator: ", "))"
+            PermitWords.sentence(rung: rung, pieceTitles: pieceTitles)
         }
 
         /// **The record and the history disagree**, in one sentence naming both

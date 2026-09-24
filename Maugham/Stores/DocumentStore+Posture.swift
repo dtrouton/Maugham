@@ -148,7 +148,10 @@ extension DocumentStore {
         return assemble(permit, forDocId: docId, as: actor)
     }
 
-    /// The permit plus the yield — the one place a `Posture` is put together.
+    /// The permit plus the yield. The yield is decided here (it reads the
+    /// window's `PieceWriters` answer and its *Edit Anyway* set); the `Posture`
+    /// itself is put together by Core's `PostureDoor.posture(permit:)`, the one
+    /// place a permit becomes a posture on either surface (P3c plan 2, Task 1).
     private func assemble(
         _ permit: LocalWritePermit, forDocId docId: String, as actor: DeviceActor
     ) -> Posture {
@@ -157,8 +160,8 @@ extension DocumentStore {
               let piece = postureYieldPiece(forDocId: docId),
               !book.overridden.contains(piece),
               let yielding = book.yields[piece]
-        else { return Posture(permit) }
-        return Posture(permit, yieldingTo: yielding)
+        else { return PostureDoor.posture(permit: permit) }
+        return PostureDoor.posture(permit: permit, yieldingTo: yielding)
     }
 
     /// The piece a document is about, by its CLASS — the piece itself, its

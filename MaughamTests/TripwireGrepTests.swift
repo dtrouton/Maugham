@@ -9073,7 +9073,8 @@ final class TripwireGrepTests: XCTestCase {
 
     /// The spellings of asking the permit table a question directly. A surface
     /// asks `posture.allows(.someVerb)` instead; `Posture(` is construction,
-    /// which is the Mac's one door's (`DocumentStore+Posture.swift`) alone.
+    /// which is MaughamCore's `PostureDoor` alone (P3c plan 2 Task 1 — Core is
+    /// not scanned), reached on the Mac through `DocumentStore+Posture.swift`.
     ///
     /// Task 2 tightened it by three: the table asked by its qualified name
     /// (`Permit.allows(`), the inbox row asked of a permit (`.allows(.inboxRow`),
@@ -9104,16 +9105,12 @@ final class TripwireGrepTests: XCTestCase {
         // P3c whole-branch fix wave (C1): the restore door,
         // `requireRestorePermitted`, asks the stamp like its siblings.
         "Document+Rewind.swift": ["localWritePermit"],
-        // P3c Task 7 (controller ruling A): the ruling door's fallback for a
-        // `ProjectStore` no window holds — the one builder, wrapped right there.
-        "RulingPerformer.swift": ["localWritePermit", "Posture("],
-        // P3c Task 8 (ruling A): the translation pipeline is reached from MCP
-        // and the translator's ingest with no window — it asks the one builder
-        // as the TRANSLATOR actor, over the identities it signs with. Its one
-        // `Posture(` wraps that builder on the SAME line, so `localWritePermit`
-        // admits it; the file is admitted nothing more (Task 10's census check —
-        // a second `Posture(` there, built from anything else, is caught).
-        "TranslationWritePipeline.swift": ["localWritePermit"],
+        // P3c plan 2 Task 1: `RulingPerformer.swift` (the ruling door's
+        // windowless fallback) and `TranslationWritePipeline.swift` (the
+        // translator's refusal) were admitted builders here; both now ask
+        // MaughamCore's `PostureDoor`, which this census does not scan, so
+        // neither is admitted any spelling. A `Posture(` built in either again
+        // is caught.
     ]
 
     /// **The door's own acting accessor is an ASK, not a second table** (P3c
@@ -9233,20 +9230,29 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertFalse(asASite.ask.contains(where: { $0.contains("let asked") }))
         XCTAssertEqual(asASite.componentA.count, 4)
 
-        // The translation pipeline is a P3a site's equal (Task 10's census
-        // check): its wrapping `Posture(` rides on the `localWritePermit` line,
-        // so it is admitted that spelling alone.
+        // The translation pipeline asks Core's `PostureDoor` since P3c plan 2
+        // Task 1, so it is admitted NOTHING: every spelling there is caught.
         try fm.moveItem(at: tmp.appendingPathComponent("Document+Waiting.swift"),
                         to: tmp.appendingPathComponent("TranslationWritePipeline.swift"))
         let asThePipeline = try hits()
-        XCTAssertEqual(asThePipeline.ask.count, 9,
-            "Self-check: TranslationWritePipeline.swift is admitted "
-            + "`localWritePermit` alone. Caught:\n" + asThePipeline.ask.joined(separator: "\n"))
+        XCTAssertEqual(asThePipeline.ask.count, 10,
+            "Self-check: TranslationWritePipeline.swift is admitted no spelling. "
+            + "Caught:\n" + asThePipeline.ask.joined(separator: "\n"))
         XCTAssertTrue(asThePipeline.ask.contains(where: { $0.contains("let mine") }),
             "a bare Posture( in the pipeline is caught")
+        XCTAssertTrue(asThePipeline.ask.contains(where: { $0.contains("let asked") }),
+            "and so is the builder asked there directly")
+
+        // The ruling performer likewise.
+        try fm.moveItem(at: tmp.appendingPathComponent("TranslationWritePipeline.swift"),
+                        to: tmp.appendingPathComponent("RulingPerformer.swift"))
+        let asThePerformer = try hits()
+        XCTAssertEqual(asThePerformer.ask.count, 10,
+            "Self-check: RulingPerformer.swift is admitted no spelling. Caught:\n"
+            + asThePerformer.ask.joined(separator: "\n"))
 
         // The door may ask every spelling, and is still caught naming Component A.
-        try fm.moveItem(at: tmp.appendingPathComponent("TranslationWritePipeline.swift"),
+        try fm.moveItem(at: tmp.appendingPathComponent("RulingPerformer.swift"),
                         to: tmp.appendingPathComponent("DocumentStore+Posture.swift"))
         let asTheDoor = try hits()
         XCTAssertTrue(asTheDoor.ask.isEmpty,
