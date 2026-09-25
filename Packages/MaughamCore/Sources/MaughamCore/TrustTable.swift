@@ -180,8 +180,19 @@ public struct TrustTable: Equatable, Sendable {
     /// on the DEVICE, because retirement is a machine's own act and every actor
     /// key it holds retires with it.
     private let retiredAtByDevice: [String: Date]
-    /// Everyone under `myRoot`, transitively, the root included.
-    private let myChain: Set<String>
+    /// **Everyone this device judges as admitted**: everyone under `myRoot`,
+    /// transitively, the root included — AND everyone under every root in
+    /// `adoptedRoots`, each of those roots included (P3c Task 7, carry M4).
+    /// Empty where `myRoot` is nil.
+    ///
+    /// It is the exact set `verdict(forSealKey:)` answers `.admitted` (or
+    /// `.revoked`/`.retired`) over, so it is public and read-only for the
+    /// surfaces that LIST people — People & Devices, `PieceWriters` and so the
+    /// root's yields, `DeviceStanding`. A surface that listed
+    /// `Registry.chain(underRoot: myRoot)` alone would leave out a person an
+    /// adopted root admitted while the op log applies every line she writes:
+    /// the pane and the words disagreeing about who is in the book.
+    public let myChain: Set<String>
     /// Person fingerprint → the OTHER root whose chain holds them.
     private let otherRootByMember: [String: String]
 

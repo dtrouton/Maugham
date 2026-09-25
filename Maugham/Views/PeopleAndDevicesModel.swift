@@ -775,8 +775,12 @@ struct PeopleAndDevicesModel: Equatable {
 
         // Everyone on the chain this device judges by, and nobody else: a
         // person under another root is that root's business, and is listed —
-        // if it concerns this device at all — as a claimant below.
-        let members: Set<String> = table.myRoot.map { registry.chain(underRoot: $0) } ?? []
+        // if it concerns this device at all — as a claimant below. **The
+        // TABLE's chain** (P3c Task 7, M4): my root's AND every root it
+        // adopted, because that is the set the op log applies lines from — a
+        // person an adopted root admitted writes into this book, so she is in
+        // it. Empty where this Mac judges by no root.
+        let members: Set<String> = table.myChain
         var memberRecords: [PersonRecord] = registry.people.filter {
             members.contains($0.person)
         }

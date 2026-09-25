@@ -181,6 +181,52 @@ final class DeviceStandingTests: XCTestCase {
                       "and still says where that was decided: \(standing.sentence)")
     }
 
+    /// **Admitted by a root this device's root ADOPTED** (P3c Task 7, M4).
+    ///
+    /// The phone joined Denver's MacBook (the memory's joined root outranks
+    /// the folder), and the MacBook has claimed Amelia's chain — so a phone
+    /// Amelia's Mac admitted is on the chain this device judges by, and every
+    /// line it writes is applied on every Mac on that root. It is in this
+    /// book, and must not read *not yet admitted*. The other direction is the
+    /// same folder without the claim: then Amelia's admission is another
+    /// root's business, and the phone is waiting.
+    func test_adeviceAnAdoptedRootAdmittedIsInTheBookAndWithoutTheClaimIsNot() {
+        let amelia = DeviceIdentity.softwareForTesting()
+        let memory = cache()
+        _ = memory.join(root: mac.fingerprint, for: projectURL,
+                        at: Date(timeIntervalSince1970: 1_757_376_000))
+        let base = registry(admittingPhoneAs: nil)
+        let people = base.people + [
+            PersonRecord(
+                person: amelia.fingerprint, label: "Amelia",
+                ownName: "Amelia's MacBook", role: "author",
+                admittedAt: Date(timeIntervalSince1970: 1_000_000),
+                admittedBy: amelia.fingerprint),
+            PersonRecord(
+                person: phone.fingerprint, label: "Denver",
+                ownName: "Denver's iPhone", role: "author",
+                admittedAt: Date(timeIntervalSince1970: 2_000_000),
+                admittedBy: amelia.fingerprint),
+        ]
+        let claim = ClaimRecord(
+            newRoot: mac.fingerprint, adopted: [amelia.fingerprint],
+            claimedAt: Date(timeIntervalSince1970: 1_600_000))
+
+        let adopted = DeviceStanding.resolve(
+            registry: Registry(devices: base.devices, people: people,
+                               claims: [claim]),
+            cache: memory, mine: mine, for: projectURL)
+        XCTAssertTrue(adopted.admitted,
+                      "an adopted root's member is in this book: \(adopted.sentence)")
+        XCTAssertEqual(adopted.label, "Denver")
+
+        let notAdopted = DeviceStanding.resolve(
+            registry: Registry(devices: base.devices, people: people),
+            cache: memory, mine: mine, for: projectURL)
+        XCTAssertFalse(notAdopted.admitted,
+                       "without the claim, another root's admission is not this book's")
+    }
+
     /// The Mac a book was started on was taken in by nobody — saying *X in
     /// this book as X* would read as an admission it never needed.
     func test_theStartingMacSaysSoRatherThanNamingAnAdmission() {

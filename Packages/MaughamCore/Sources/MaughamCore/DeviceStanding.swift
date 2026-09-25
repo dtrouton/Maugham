@@ -166,8 +166,11 @@ public struct DeviceStanding: Equatable, Sendable {
                 && (ref.directory == .people || ref.directory == .devices)
         }
 
+        // **The table's chain** (P3c Task 7, M4): my root's and every root it
+        // adopted, which is the set the op log admits this device's lines
+        // under. A Mac an adopted root let in IS in this book.
         guard let root = table.myRoot,
-              registry.chain(underRoot: root).contains(author.fingerprint)
+              table.myChain.contains(author.fingerprint)
         else {
             return DeviceStanding(
                 code: code, retiredAt: retiredAt,

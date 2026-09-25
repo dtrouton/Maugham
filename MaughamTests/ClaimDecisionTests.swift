@@ -98,6 +98,39 @@ final class ClaimDecisionTests: XCTestCase {
         XCTAssertTrue(offer.question.hasSuffix("Is it yours?"), offer.question)
     }
 
+    /// **An ADOPTED root's members are named too** (P3c Task 7, M4 — a pin,
+    /// not a change). The offer is made only where this Mac judges by NO root
+    /// (`table.myRoot == nil`), so the table's chain is empty by construction
+    /// and there is no "my chain" to widen: the question names every root in
+    /// the folder and each root's own chain. A root the old Mac adopted still
+    /// holds its own self-signed root record, so it is one of those roots, and
+    /// the phone it admitted is named in the question the writer recognises
+    /// their book by.
+    func test_aMemberOfARootTheOldMacAdoptedIsNamedInTheQuestion() throws {
+        let amelia = DeviceIdentity.softwareForTesting()
+        let ameliasPhone = DeviceIdentity.softwareForTesting()
+        let base = somebodyElsesBook()
+        let registry = Registry(
+            devices: base.devices + [
+                deviceRecord(amelia, name: "Amelia's MacBook", kind: .mac),
+                deviceRecord(ameliasPhone, name: "Amelia's iPhone", kind: .phone),
+            ],
+            people: base.people + [
+                person(amelia, label: "Amelia", ownName: "Amelia's MacBook",
+                       admittedBy: amelia),
+                person(ameliasPhone, label: "Amelia", ownName: "Amelia's iPhone",
+                       admittedBy: amelia),
+            ],
+            claims: [ClaimRecord(newRoot: oldMac.fingerprint,
+                                 adopted: [amelia.fingerprint],
+                                 claimedAt: admitted)])
+        let offer = try XCTUnwrap(ClaimDecision.offer(
+            registry: registry, table: table(registry), canWriteRegistry: true, canSign: true))
+
+        XCTAssertTrue(offer.names.contains("Amelia's iPhone"), "\(offer.names)")
+        XCTAssertEqual(Set(offer.roots), [oldMac.fingerprint, amelia.fingerprint])
+    }
+
     /// A root with no record naming it is still a root, and the writer is owed
     /// something they can compare against another screen.
     func test_aRootWithNoRecordNamingItIsAskedAboutByItsCode() throws {

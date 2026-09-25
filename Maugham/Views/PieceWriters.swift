@@ -35,8 +35,8 @@ import MaughamCore
 /// **It lives beside `PeopleAndDevicesModel` rather than in MaughamCore** for
 /// two reasons, in this order: it reads `PermitControl`, a Mac view-layer
 /// display helper, and it must answer *who is in this book* with the same rule
-/// the People & Devices pane lists its rows by (`table.myRoot` →
-/// `Registry.chain(underRoot:)`) — a copy in Core would be a second answer to
+/// the People & Devices pane lists its rows by (`TrustTable.myChain`: my root
+/// and every root it adopted) — a copy in Core would be a second answer to
 /// that question, sitting one module away from the first. Nothing on the phone
 /// asks it; P3c decides what the phone shows.
 struct PieceWriters: Equatable, Sendable {
@@ -114,11 +114,14 @@ struct PieceWriters: Equatable, Sendable {
         registry: Registry, table: TrustTable, pieces: [PermitControl.Piece]
     ) -> PieceWriters {
         // The chain this device judges by, and nobody else — the rule the
-        // People & Devices pane lists its rows by. A Mac that judges by no
-        // root at all (keyless, or a registry it could not read) knows of
-        // nobody, and says so rather than guessing.
-        guard let root = table.myRoot else { return .none }
-        let members = registry.chain(underRoot: root)
+        // People & Devices pane lists its rows by: the TABLE's chain, my root
+        // and every root it adopted (P3c Task 7, M4), because a person an
+        // adopted root admitted is somebody whose lines this Mac applies, and
+        // the root's yields must name her too. A Mac that judges by no root at
+        // all (keyless, or a registry it could not read) knows of nobody, and
+        // says so rather than guessing — `myChain` is empty there.
+        let members = table.myChain
+        guard !members.isEmpty else { return .none }
 
         var byPiece: [String: Set<String>] = [:]
         for record in registry.people
