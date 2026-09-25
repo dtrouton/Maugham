@@ -282,7 +282,7 @@ struct CollectionPiecesPane: View {
     nonisolated static func emptyDescription(mayStartAPiece: Bool) -> String {
         mayStartAPiece
             ? "Add your first piece. Use the + button."
-            : "Pieces appear here when the book\u{2019}s author adds them. "
+            : "Pieces appear here when an author adds them. "
                 + "You can read and leave notes on each one."
     }
 
@@ -391,9 +391,11 @@ enum StartAPieceDoor {
             documentStore.posture(forDocId: DocumentClass.projectStreamDocId))
     }
 
-    /// The sentence a refused post is told in.
+    /// The sentence a refused post is told in. Since Option A (P3c plan 2) an
+    /// author of SOME pieces may start one too, so the refusal is a
+    /// reviewer's (or a permit this build cannot read) and names who can.
     static let refusal = "Your part in this book doesn\u{2019}t reach starting a piece "
-        + "\u{2014} only an author of the whole book can add one."
+        + "\u{2014} only an author can add one."
 
     /// **The receiver's door** (ruling I — the SETTLED answer): true where the
     /// piece may be started; otherwise the refusal is posted to the window's

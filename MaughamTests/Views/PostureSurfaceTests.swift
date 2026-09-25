@@ -1811,6 +1811,14 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertTrue(may.contains("+ button"))
         XCTAssertFalse(mayNot.contains("+"), "no pointing at a button that is not there")
         XCTAssertTrue(mayNot.contains("leave notes"), "and it says what she can do")
+        // P3c plan 2 Task 4, Option A: an author of SOME pieces may start one
+        // too, so neither the empty state nor the refusal says only the
+        // whole-book author can.
+        XCTAssertEqual(mayNot, "Pieces appear here when an author adds them. "
+                       + "You can read and leave notes on each one.")
+        XCTAssertEqual(StartAPieceDoor.refusal,
+                       "Your part in this book doesn\u{2019}t reach starting a piece "
+                       + "\u{2014} only an author can add one.")
         XCTAssertEqual(TreeStructureVerbs.mayStartAPiece(posture(.reviewer, in: .projectStream)),
                        false, "the pane's own answer for a reviewer is the one this reads")
     }

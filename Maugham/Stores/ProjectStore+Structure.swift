@@ -58,13 +58,16 @@ extension ProjectStore {
             throw ProjectStoreError.fileSystemError(error.localizedDescription)
         }
 
-        // 5. Build the new StructureItem
+        // 5. Build the new StructureItem. A document records THIS Mac as its
+        // starter (P3c plan 2, Option A — `StructureItem.startedBy`); a group
+        // holds no text of its own, so nothing asks who started it.
         let item = StructureItem(
             id: Self.newId(prefix: kind.idPrefix),
             title: title,
             type: kind.itemType,
             path: relativePath,
-            children: kind.itemType == .group ? [] : nil)
+            children: kind.itemType == .group ? [] : nil,
+            startedBy: kind.itemType == .document ? Self.thisMacAsAStarter : nil)
 
         // 6. Mutate manifest: append to parent's children or to root structure
         if let parentId {
@@ -819,7 +822,8 @@ extension ProjectStore {
             from: source,
             newTitle: newTitle,
             newPath: newPath,
-            newPrefixForChildren: newPath)
+            newPrefixForChildren: newPath,
+            startedBy: Self.thisMacAsAStarter)
 
         let sourceIndex = currentIndex(of: id, parentId: parentId)
         var siblings = childrenOf(parentId: parentId)
@@ -834,16 +838,24 @@ extension ProjectStore {
     /// Recursively rebuild a StructureItem tree with fresh ids and rewritten
     /// paths. The top-level copy gets `newTitle` and `newPath`; descendants
     /// keep their titles and have their paths rewritten via `newPrefixForChildren`.
+    ///
+    /// **A copy is a new piece, started on this Mac** (P3c plan 2, Option A):
+    /// every document in it records `startedBy` — never the source's, which
+    /// names whoever started the ORIGINAL and would have that Mac mint an
+    /// opening it has never seen. A group records none, as in
+    /// `addStructureItem`.
     func duplicatedItemTree(
         from source: StructureItem,
         newTitle: String,
         newPath: String,
-        newPrefixForChildren: String
+        newPrefixForChildren: String,
+        startedBy: String
     ) -> StructureItem {
         var copy = source
         copy.id = Self.newDuplicateId(prefix: source.type == .group ? "grp" : "doc")
         copy.title = newTitle
         copy.path = newPath
+        copy.startedBy = source.type == .document ? startedBy : nil
         if let children = source.children {
             var copiedChildren: [StructureItem] = []
             for child in children {
@@ -855,11 +867,22 @@ extension ProjectStore {
                     from: child,
                     newTitle: child.title,
                     newPath: childNewPath,
-                    newPrefixForChildren: childNewPath))
+                    newPrefixForChildren: childNewPath,
+                    startedBy: startedBy))
             }
             copy.children = copiedChildren
         }
         return copy
+    }
+
+    /// **Who a piece made on this Mac records as its starter** (P3c plan 2,
+    /// Option A, ruling OA-1): this Mac's AUTHOR device id, through the same
+    /// identity seam the load asks (`Document.loadIdentities`), so the piece a
+    /// creation records and the Mac the load recognises as its starter are
+    /// one answer. Asked by every creation site and by nothing else — a
+    /// rename, a move, a tidy and a trash restore carry the field as it is.
+    static var thisMacAsAStarter: String {
+        Document.loadIdentities.author.deviceId
     }
 
     static func newDuplicateId(prefix: String) -> String {

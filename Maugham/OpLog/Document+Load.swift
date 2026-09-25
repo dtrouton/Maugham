@@ -390,7 +390,17 @@ extension Document {
             // synced yet, and minting the opening op would put a line in the
             // book the next read sets aside. Refuse, mint nothing, and say what
             // is happening — never a word of the `.md` as truth (tripwire 20).
-            guard writePermit.allows(.op(.bootstrap)) == .yes else {
+            //
+            // **Option A (P3c plan 2, OA-1/OA-2): only the piece's STARTER
+            // mints.** In a book where somebody is narrowed, a piece whose
+            // manifest records who started it (`StructureItem.startedBy`) is
+            // minted by that Mac alone — the root's included, so the root
+            // waits for her new piece rather than putting a root-signed
+            // opening in front of the words she is typing. A piece with no
+            // recorded starter, and every un-narrowed book, keep today's rule:
+            // whoever may write its text mints it. The one predicate is
+            // Core's (`LocalWritePermit.mayMintOpening`).
+            guard writePermit.mayMintOpening else {
                 throw DocumentLoadError.waitingForPiece(
                     docId: docId,
                     from: Document.rootLabelForWaiting(in: projectURL))

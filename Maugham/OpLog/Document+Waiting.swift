@@ -109,10 +109,25 @@ extension Document {
         guard permit.permit.mayStartAPieceOfTheirOwn else {
             return error.localizedDescription
         }
-        guard let root else {
-            return "Waiting for this piece to be added to yours."
+        // **A piece she may already write is waiting for its OPS, not for a
+        // person** (P3c plan 2, Option A). Since every creation records its
+        // starter, a narrowed book's piece is minted by that Mac alone — so
+        // her OWN piece started on another Mac, and a piece she started on her
+        // other Mac, wait here until the opening arrives. Nobody is deciding
+        // anything about either, so the sentence names no root.
+        if permit.permit.namesPiece(docId) || permit.writesAsItsStarter {
+            return DocumentLoadError.waitingForPiece(docId: docId, from: nil)
+                .localizedDescription
         }
-        return "Waiting for \(root) to add this piece to yours."
+        return Self.waitingToBeToldItIsYours(root: root)
+    }
+
+    /// **Denver's words for a piece that is not hers yet** (P3c plan 2,
+    /// Option A): the pane's waiting sentence and her standing line over a
+    /// piece she started and nobody has claimed say the same thing, so they
+    /// are spelled once. `root` nil names the root by what it is.
+    nonisolated static func waitingToBeToldItIsYours(root: String?) -> String {
+        "Waiting for \(root ?? "the book\u{2019}s author") to say this piece is yours."
     }
 
     /// The label of the root this device is on, for the waiting sentence — or
@@ -122,11 +137,29 @@ extension Document {
     /// read the registry a second time: the ordinary load has already gone past
     /// this point and paid nothing.
     internal static func rootLabelForWaiting(in projectURL: URL) -> String? {
+        rootLabel(in: projectURL, identities: loadIdentities, cache: loadRegistryCache)
+    }
+
+    /// `rootLabelForWaiting`'s body, callable OFF the main actor — the
+    /// standing line reads the same label from a detached task
+    /// (`PostureStandingLine.rootLabel`), so the two cannot name two roots.
+    ///
+    /// **Nil on a root's own Mac** (P3c plan 2, OA-2). The root waits too now,
+    /// for a piece somebody else started; *waiting for this piece to arrive
+    /// from Denver* on Denver's own Mac names the one person who is certainly
+    /// not what the wait is for. `Registry.holdsARootRecord` is the one test of
+    /// who is a root (Ruling AA).
+    nonisolated static func rootLabel(
+        in projectURL: URL, identities: LocalIdentities, cache: RegistryCache
+    ) -> String? {
         guard let registry = try? TrustResolution.verifiedRegistry(
-            projectURL: projectURL, cache: loadRegistryCache) else { return nil }
+            projectURL: projectURL, cache: cache) else { return nil }
+        guard !registry.holdsARootRecord(identities.author.fingerprint) else {
+            return nil
+        }
         let table = TrustTable.resolve(
-            registry: registry, mine: loadIdentities,
-            joinedRoot: loadRegistryCache.joinedRoot(for: projectURL))
+            registry: registry, mine: identities,
+            joinedRoot: cache.joinedRoot(for: projectURL))
         guard let root = table.myRoot else { return nil }
         return registry.roots.first { $0.person == root }?.label
     }

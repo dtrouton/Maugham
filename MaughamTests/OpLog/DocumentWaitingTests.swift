@@ -558,7 +558,87 @@ final class DocumentWaitingTests: XCTestCase {
         XCTAssertEqual(
             Document.waitingSentence(
                 error, docId: Self.otherDocId, in: projectURL),
-            "Waiting for Sam to add this piece to yours.")
+            "Waiting for Sam to say this piece is yours.",
+            "Denver's words (P3c plan 2, Option A): the standing line over a "
+            + "piece she started says the same")
+        XCTAssertEqual(
+            Document.waitingSentence(
+                .waitingForPiece(docId: Self.otherDocId, from: nil),
+                docId: Self.otherDocId, in: projectURL),
+            "Waiting for the book\u{2019}s author to say this piece is yours.",
+            "a root not yet read is named by what it is")
+    }
+
+    // MARK: - Option A (P3c plan 2 Task 4): only the starter mints
+
+    /// Record who started `docId` in the manifest on disk — what a creation
+    /// writes (`ProjectStore.thisMacAsAStarter`).
+    private func recordStarter(_ deviceId: String, of docId: String) throws {
+        let url = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        var manifest = try dec.decode(ProjectManifest.self, from: Data(contentsOf: url))
+        manifest.structure = TreeWalk.mutate(id: docId, in: manifest.structure) {
+            var item = $0
+            item.startedBy = deviceId
+            return item
+        }
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        try enc.encode(manifest).write(to: url)
+    }
+
+    /// **A piece she started mints on her Mac, outside her scope** (OA-1/OA-3),
+    /// where the same piece with no recorded starter waits
+    /// (`test_anAuthorOfSomePiecesBootstrapsHersAndWaitsForTheRest`).
+    func test_aPieceSheStartedMintsOnHerMacOutsideHerScope() async throws {
+        _ = try makeProject()
+        let root = try makeRoot()
+        try narrow(
+            by: root, role: Permit.authorRole, scope: Permit.piecesScope,
+            pieces: [Self.docId])
+        try recordStarter(identities.author.deviceId, of: Self.otherDocId)
+
+        let started = try await Document.load(
+            url: projectURL.appendingPathComponent(Self.otherPath),
+            actor: .author, session: "s", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        XCTAssertTrue(started.displayText.contains("Another piece."))
+        XCTAssertTrue(started.localWritePermit.isWaitingToBeClaimed,
+                      "hers to write while the root decides")
+        await started.close()
+        XCTAssertEqual(
+            try ops(of: identities.author, docId: Self.otherDocId)
+                .filter { $0.kind == .bootstrap }.count, 1,
+            "her Mac minted the opening")
+    }
+
+    /// **Her OWN piece, started on another Mac, waits for its ops** — the
+    /// starter mints it, not whichever Mac opens it first — and the pane
+    /// says she is waiting for the piece, not for a person: nobody is deciding
+    /// anything about it.
+    func test_herOwnPieceStartedElsewhereWaitsForItsOpeningAndSaysSo() async throws {
+        _ = try makeProject()
+        let root = try makeRoot()
+        try narrow(
+            by: root, role: Permit.authorRole, scope: Permit.piecesScope,
+            pieces: [Self.docId])
+        try recordStarter(root.deviceId, of: Self.docId)
+
+        do {
+            _ = try await Document.load(
+                url: projectURL.appendingPathComponent(Self.docPath),
+                actor: .author, session: "s", presenter: nil,
+                burstIdle: .seconds(3600), burstMax: .seconds(3600))
+            XCTFail("a piece another Mac started is minted there")
+        } catch let error as DocumentLoadError {
+            XCTAssertEqual(error, .waitingForPiece(docId: Self.docId, from: "Sam"))
+            XCTAssertEqual(
+                Document.waitingSentence(error, docId: Self.docId, in: projectURL),
+                "Waiting for this piece to arrive.")
+        }
+        XCTAssertTrue(OpLogStore.opLogFileURLs(forDocId: Self.docId, in: projectURL).isEmpty,
+                      "nothing minted")
     }
 
     /// **And a REVIEWER keeps P3a's sentence, byte for byte.** She may write no

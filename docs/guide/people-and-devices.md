@@ -272,8 +272,12 @@ and **Link Existing Project…** are greyed.
 
 An **author of some pieces** has all of that in their own chapters. Everywhere
 else they are a reviewer, and the line says *"Chapter 3" isn't one of your
-pieces — you can leave notes.* Adding a new piece to the book is still the
-whole-book author's. **Replace All** replaces in their chapters and tells them
+pieces — you can leave notes.* They can also start a new piece — **New
+Document**, **Duplicate**, or the File menu's piece items — and write in it
+straight away. Until the book's author says it's theirs, the line over it reads
+*Waiting for Denver to say this piece is yours.*; on the author's Mac the piece
+waits for their words to arrive, and then Maugham asks whether it's theirs.
+**Replace All** replaces in their chapters and tells them
 which chapters it left as they were. **Renaming** one of their own chapters
 renames it, but links to it inside chapters that aren't theirs keep the old
 title — Maugham says which, and those links point nowhere until someone who

@@ -494,6 +494,242 @@ final class AdmissionPermitTests: XCTestCase {
         await doc.close()
     }
 
+    // MARK: - Option A end to end (P3c plan 2 Task 4)
+
+    /// One Mac of this two-Mac book: whose keys, and what it remembers.
+    private struct Mac {
+        let identities: LocalIdentities
+        let state: OpLogDeviceState
+        let cache: RegistryCache
+        let memory: AdmissionMemory
+    }
+
+    /// Point every load seam at `mac`, as if the next call ran there.
+    private func be(_ mac: Mac) {
+        Document.localIdentitiesForTesting = mac.identities
+        Document.deviceStateForTesting = mac.state
+        Document.registryCacheForTesting = mac.cache
+        Document.admissionMemoryForTesting = mac.memory
+    }
+
+    /// This Mac as the book's root (the first Mac in an empty book writes the
+    /// root record at open) and the stranger as an author of `ch-A` only.
+    private func aRootAndHer() async throws -> (root: Mac, her: Mac, rootStore: DocumentStore) {
+        let rootIds = beThisMac()
+        let root = Mac(
+            identities: rootIds, state: try XCTUnwrap(Document.deviceStateForTesting),
+            cache: cache, memory: memory)
+        let rootStore = try await DocumentStore.open(url: projectURL)
+        _ = try await rootStore.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: PermitControl.permit(for: .somePieces, pieces: ["ch-A"]))
+        let her = Mac(
+            identities: strangerDevice, state: strangerState,
+            cache: RegistryCache(
+                fileURL: projectURL.appendingPathComponent("her-cache.json"),
+                identity: stranger.fingerprint),
+            memory: AdmissionMemory(
+                fileURL: projectURL.appendingPathComponent("her-memory.json"),
+                identity: stranger.fingerprint))
+        return (root, her, rootStore)
+    }
+
+    private func load(_ url: URL, session: String) async throws -> Document {
+        try await Document.load(
+            url: url, actor: .author, session: session, presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+    }
+
+    private func occurrences(of text: String, in doc: Document) -> Int {
+        doc.displayText.components(separatedBy: text).count - 1
+    }
+
+    /// **She starts a piece and writes it while the root decides; the root
+    /// waits for a piece it did not start** (OA-1, OA-2, OA-3; Review Focus 2
+    /// and 4). Real disk, two identities, every step through the production
+    /// door:
+    ///
+    /// 1. She creates X on her Mac: the manifest ON DISK records her as its
+    ///    starter before anything opens it (the creation saves first).
+    /// 2. Her load opens it, she types, and her own Mac applies her words.
+    /// 3. The root opens X before her ops have arrived: it WAITS and mints
+    ///    nothing (OA-2) — the `.md` beside it is not truth (tripwire 20).
+    /// 4. Her ops arrive: the root holds them and is asked; her Mac is not.
+    /// 5. *Theirs*: both Macs apply her words, exactly once.
+    func test_sheStartsAPieceAndWritesItWhileTheRootWaitsAndThenDecides() async throws {
+        let (root, her, rootStore) = try await aRootAndHer()
+        let words = "Her first words in the orchard."
+
+        // 1. She creates X.
+        be(her)
+        let herProject = try await ProjectStore.load(from: projectURL)
+        let x = try await herProject.addStructureItem(
+            parentId: nil, title: "The Orchard", kind: .document(extension: "md"))
+        XCTAssertEqual(x.startedBy, her.identities.author.deviceId)
+        XCTAssertEqual(
+            OpLogStore.startedBy(ofPiece: x.id, in: projectURL),
+            her.identities.author.deviceId,
+            "saved before its first open: her own load reads the disk")
+        let xURL = projectURL.appendingPathComponent(try XCTUnwrap(x.path))
+
+        // 2. Her load, and she types.
+        let typing = try await load(xURL, session: "her")
+        XCTAssertTrue(typing.mayWriteItsText, "hers to write while the root decides")
+        XCTAssertEqual(Posture(typing.localWritePermit).reason, .waitingToBeClaimed)
+        typing.setFullText(words)
+        try await typing.flushBurstNow()
+        await typing.close()
+        // The derived render, as iCloud would carry it ahead of the ops.
+        try Data((words + "\n").utf8).write(to: xURL)
+        let reread = try await load(xURL, session: "her-2")
+        XCTAssertEqual(occurrences(of: words, in: reread), 1, "her Mac applies her words")
+        await reread.close()
+        let herFiles = OpLogStore.opLogFileURLs(forDocId: x.id, in: projectURL)
+        XCTAssertFalse(herFiles.isEmpty)
+
+        // 3. The root opens X before her ops arrive.
+        let aside = projectURL.appendingPathComponent("not-yet-synced", isDirectory: true)
+        try FileManager.default.createDirectory(at: aside, withIntermediateDirectories: true)
+        for file in herFiles {
+            try FileManager.default.moveItem(
+                at: file, to: aside.appendingPathComponent(file.lastPathComponent))
+        }
+        be(root)
+        do {
+            let minted = try await load(xURL, session: "root")
+            await minted.close()
+            XCTFail("the root minted an opening in a piece it did not start")
+        } catch let error as DocumentLoadError {
+            XCTAssertEqual(error, .waitingForPiece(docId: x.id, from: nil),
+                           "and names no root: this Mac is the root")
+            XCTAssertEqual(
+                Document.waitingSentence(error, docId: x.id, in: projectURL),
+                "Waiting for this piece to arrive.")
+        }
+        XCTAssertTrue(OpLogStore.opLogFileURLs(forDocId: x.id, in: projectURL).isEmpty,
+                      "nothing minted on the root's Mac")
+
+        // 4. Her ops arrive.
+        for file in herFiles {
+            try FileManager.default.moveItem(
+                at: aside.appendingPathComponent(file.lastPathComponent), to: file)
+        }
+        let asked = try await load(xURL, session: "root-2")
+        XCTAssertEqual(asked.startedAPiece, [stranger.fingerprint], "the root holds them")
+        XCTAssertEqual(occurrences(of: words, in: asked), 0)
+        rootStore.register(document: asked, for: try XCTUnwrap(x.path))
+        let held = rootStore.heldLines()
+        XCTAssertEqual(
+            NewPieceModifier.questions(
+                held: held, registry: try registry(), titles: [x.id: x.title],
+                declined: [], thisDevice: root.identities.author.fingerprint)
+                .map(\.docId),
+            [x.id], "and the root is asked")
+        XCTAssertEqual(
+            NewPieceModifier.questions(
+                held: held, registry: try registry(), titles: [x.id: x.title],
+                declined: [], thisDevice: her.identities.author.fingerprint),
+            [], "her own Mac is never asked about herself")
+        await asked.close()
+
+        // 5. Theirs.
+        _ = try await rootStore.pieceIsTheirs(person: stranger.fingerprint, docId: x.id)
+        let onTheRoot = try await load(xURL, session: "root-3")
+        XCTAssertEqual(occurrences(of: words, in: onTheRoot), 1, "the root applies, once")
+        XCTAssertTrue(onTheRoot.startedAPiece.isEmpty)
+        await onTheRoot.close()
+        be(her)
+        let onHers = try await load(xURL, session: "her-3")
+        XCTAssertEqual(occurrences(of: words, in: onHers), 1, "her Mac too, once")
+        XCTAssertNil(Posture(onHers.localWritePermit).reason,
+                     "hers now: nothing is waiting")
+        XCTAssertTrue(onHers.mayWriteItsText)
+        await onHers.close()
+    }
+
+    /// **Every creation records this Mac, and only a creation does** (OA-1):
+    /// a new document and a duplicate (every document in it — never the
+    /// original's starter); a group records nobody; a rename and a move leave
+    /// the field as it was.
+    func test_everyCreationRecordsThisMacAndARenameOrMoveNeverRewritesIt() async throws {
+        let identities = beThisMac()
+        let me = identities.author.deviceId
+        let project = try await ProjectStore.load(from: projectURL)
+        let documentStore = try await DocumentStore.open(url: projectURL)
+        project.documentStore = documentStore
+
+        let doc = try await project.addStructureItem(
+            parentId: nil, title: "New", kind: .document(extension: "md"))
+        XCTAssertEqual(doc.startedBy, me)
+        let group = try await project.addStructureItem(
+            parentId: nil, title: "Part", kind: .group)
+        XCTAssertNil(group.startedBy, "a group holds no text; nothing asks")
+        let inside = try await project.addStructureItem(
+            parentId: group.id, title: "Inside", kind: .document(extension: "md"))
+        XCTAssertEqual(inside.startedBy, me)
+
+        // Somebody else started the original; the copy is this Mac's.
+        let other = "author-" + String(repeating: "0f", count: 8)
+        project.manifest.structure = TreeWalk.mutate(
+            id: group.id, in: project.manifest.structure
+        ) { node in
+            var node = node
+            node.children = node.children?.map { var c = $0; c.startedBy = other; return c }
+            return node
+        }
+        let copy = try await project.duplicateStructureItem(id: group.id)
+        XCTAssertNil(copy.startedBy)
+        XCTAssertEqual(copy.children?.map(\.startedBy), [me],
+                       "a copy is a new piece, started here")
+        XCTAssertEqual(
+            TreeWalk.find(id: inside.id, in: project.manifest.structure)?.startedBy,
+            other, "and the original keeps its own")
+
+        _ = try await project.renameStructureItem(id: doc.id, newTitle: "Renamed")
+        try await project.moveStructureItem(id: doc.id, toParentId: group.id, atIndex: 0)
+        XCTAssertEqual(
+            TreeWalk.find(id: doc.id, in: project.manifest.structure)?.startedBy, me,
+            "a rename and a move carry it as it is")
+        let onDisk = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: manifestBytes())
+        XCTAssertEqual(TreeWalk.find(id: doc.id, in: onDisk.structure)?.startedBy, me)
+        XCTAssertEqual(
+            TreeWalk.find(id: copy.children?.first?.id ?? "", in: onDisk.structure)?
+                .startedBy, me, "saved")
+        await documentStore.close()
+    }
+
+    /// The other two creation sites: a new book's first piece and a
+    /// Collection's loose piece record this Mac too.
+    func test_aNewBooksFirstPieceAndALoosePieceRecordThisMac() async throws {
+        let me = beThisMac().author.deviceId
+        let parent = projectURL.appendingPathComponent("made-here", isDirectory: true)
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+
+        let novel = try await ProjectFactory.createNovelProject(named: "Novel", in: parent)
+        let novelManifest = try ProjectManifest.makeDecoder().decode(
+            ProjectManifest.self,
+            from: Data(contentsOf: novel.appendingPathComponent(ProjectManifest.fileName)))
+        XCTAssertEqual(novelManifest.structure.map(\.startedBy), [me])
+
+        let story = try await ProjectFactory.createShortStoryProject(named: "Story", in: parent)
+        let storyManifest = try ProjectManifest.makeDecoder().decode(
+            ProjectManifest.self,
+            from: Data(contentsOf: story.appendingPathComponent(ProjectManifest.fileName)))
+        XCTAssertEqual(storyManifest.structure.map(\.startedBy), [me])
+
+        let collection = try await ProjectFactory.createCollectionProject(
+            named: "Collection", in: parent)
+        let store = try await ProjectStore.load(from: collection)
+        let piece = try await store.addLoosePiece(title: "A Piece", mode: .prose)
+        XCTAssertEqual(piece.startedBy, me)
+        let onDisk = try ProjectManifest.makeDecoder().decode(
+            ProjectManifest.self,
+            from: Data(contentsOf: collection.appendingPathComponent(ProjectManifest.fileName)))
+        XCTAssertEqual(TreeWalk.find(id: piece.id, in: onDisk.structure)?.startedBy, me,
+                       "saved before its first open")
+    }
+
     // MARK: - §4.5's answer (Task 7 fix round 1, I1)
 
     /// **`pieceIsTheirs` ADDS a piece — it does not replace her scope.**

@@ -70,6 +70,44 @@ final class LoadQuestionsTests: XCTestCase {
             counts: counts, streams: [:], startedAPiece: perPiece)
     }
 
+    // MARK: - Only a root is asked (P3c plan 2 Task 4, Ruling AA)
+
+    /// **The window asks *is it theirs?* on a Mac holding its own root record,
+    /// and nowhere else** — both directions. The window used to hand the model
+    /// `TrustTable.myRoot`, which on an ADMITTED Mac is the root it judges by,
+    /// so Sam's own Mac was asked about Sam, and about Ada, with a *Theirs*
+    /// that could only be refused.
+    func test_theQuestionIsARootsAndIsNeverPutToAnAdmittedMac() {
+        let ada = String(repeating: "b2", count: 32)
+        let book = registry(people: [
+            person(sam, label: "Sam", admittedBy: root),
+            person(ada, label: "Ada", admittedBy: root),
+        ])
+        let adasPiece = union(counts: [ada: 3], startedAPiece: [ada: ["ch-2"]])
+        let samsPiece = union(counts: [sam: 2], startedAPiece: [sam: ["ch-3"]])
+
+        let onTheRoot = NewPieceModifier.questions(
+            held: adasPiece, registry: book, titles: ["ch-2": "The Orchard"],
+            declined: [], thisDevice: root)
+        XCTAssertEqual(onTheRoot.map(\.person), [ada], "the root is asked")
+        XCTAssertEqual(
+            NewPieceModifier.questions(
+                held: samsPiece, registry: book, titles: [:], declined: [],
+                thisDevice: root).map(\.person),
+            [sam])
+
+        XCTAssertEqual(
+            NewPieceModifier.questions(
+                held: samsPiece, registry: book, titles: [:], declined: [],
+                thisDevice: sam),
+            [], "her own Mac is never asked about herself")
+        XCTAssertEqual(
+            NewPieceModifier.questions(
+                held: adasPiece, registry: book, titles: [:], declined: [],
+                thisDevice: sam),
+            [], "nor about anybody else: an admitted Mac holds no root record")
+    }
+
     // MARK: - The question appears
 
     func test_aPieceNobodyHasClaimedIsAQuestionNamingHerAndThePiece() {

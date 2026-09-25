@@ -122,30 +122,52 @@ struct NewPieceModifier: ViewModifier {
         }
         let url = projectURL
         let identities = Document.loadIdentities
+        let thisDevice = identities.author.fingerprint
         let cache = Document.loadRegistryCache
         let resolved = await Task.detached(priority: .userInitiated) {
-            () -> (registry: Registry, me: String?)? in
+            () -> Registry? in
             do {
-                let verified = try TrustResolution.resolveVerified(
-                    projectURL: url, identities: identities, cache: cache)
-                return (verified.registry, verified.table.myRoot)
+                return try TrustResolution.resolveVerified(
+                    projectURL: url, identities: identities, cache: cache).registry
             } catch {
                 newPieceLog.error(
                     "a piece question could not read \(url.lastPathComponent, privacy: .public)'s registry: \(error.localizedDescription, privacy: .public)")
                 return nil
             }
         }.value
-        guard let resolved, let me = resolved.me else { return }
+        guard let resolved else { return }
         var titles: [String: String] = [:]
         for piece in PermitControl.pieces(
             in: projectStore?.manifest.structure ?? []) {
             titles[piece.id] = piece.title
         }
-        queue = LoadQuestions.newPieces(
-            held: held, registry: resolved.registry, titles: titles,
-            declined: documentStore.closedPieceQuestions(), me: me)
+        queue = Self.questions(
+            held: held, registry: resolved, titles: titles,
+            declined: documentStore.closedPieceQuestions(), thisDevice: thisDevice)
         takeDownAVanishedSheet()
         presentHeadIfIdle()
+    }
+
+    /// **What this Mac asks, and whether it asks at all** — pure, and pinned
+    /// windowlessly (tripwire 33).
+    ///
+    /// *Sam started X — is it hers?* is a ROOT's question (Ruling AA, P3c
+    /// plan 2 Task 4): only the root that admitted her can answer *Theirs*.
+    /// This used to ask `TrustTable.myRoot`, which on an ADMITTED Mac is the
+    /// root it judges by — so every admitted Mac in the book was put the
+    /// question, her own included, about herself, with an answer that could
+    /// only be refused. It now asks `AdmissionDecision.askingRoot`, the
+    /// admission sheet's own test (`Registry.holdsARootRecord`): a Mac holding
+    /// no root record of its own is asked nothing.
+    static func questions(
+        held: HeldLineUnion, registry: Registry, titles: [String: String],
+        declined: Set<OpLogDeviceState.DeclinedPiece>, thisDevice: String
+    ) -> [LoadQuestions.NewPiece] {
+        guard let me = AdmissionDecision.askingRoot(
+            in: registry, thisDevice: thisDevice) else { return [] }
+        return LoadQuestions.newPieces(
+            held: held, registry: registry, titles: titles,
+            declined: declined, me: me)
     }
 
     /// Close a sheet whose question has been answered elsewhere — a second

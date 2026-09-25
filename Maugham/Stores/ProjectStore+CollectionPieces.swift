@@ -87,7 +87,8 @@ extension ProjectStore {
             title: resolvedTitle,
             type: .document,
             path: relativePath,
-            pieceKind: .loose)
+            pieceKind: .loose,
+            startedBy: Self.thisMacAsAStarter)
 
         manifest.structure.append(item)
         manifest.modified = Date()
@@ -182,7 +183,8 @@ extension ProjectStore {
             path: relativePath,
             pieceKind: .reference,
             linkedProjectPath: targetURL.path,
-            linkedProjectBookmark: bookmarkData)
+            linkedProjectBookmark: bookmarkData,
+            startedBy: Self.thisMacAsAStarter)
 
         manifest.structure.append(item)
         manifest.modified = Date()
@@ -572,7 +574,11 @@ extension ProjectStore {
             // The review record travels with the prose (M3 P1): the writer's
             // finished passes describe the words, not the Collection row they
             // used to sit in, and the row itself is cleared below.
-            passStates: piece.passStates)
+            passStates: piece.passStates,
+            // So does who started it (P3c plan 2, Option A): a promotion
+            // MOVES the piece into a book of its own, and a move never
+            // rewrites its starter.
+            startedBy: piece.startedBy)
         // Carry over per-piece research as the new project's research items;
         // rewrite their paths from pieces/<NN>-<slug>/research/X to research/X.
         let carriedResearch: [ResearchItem] = manifest.research.compactMap { item in

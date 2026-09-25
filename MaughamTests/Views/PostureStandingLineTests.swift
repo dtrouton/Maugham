@@ -374,6 +374,65 @@ final class PostureStandingLineTests: XCTestCase {
         await doc.close()
     }
 
+    // MARK: - Option A's standing line (P3c plan 2 Task 4)
+
+    /// **Her started piece carries a line naming who would end the wait, and
+    /// *Theirs* takes it away in the open window** — the epoch bumps, the
+    /// reason goes, and it is the same Document: no reopen.
+    func test_herStartedPiecesLineNamesTheRootAndTheirsTakesItAway() async throws {
+        let (store, doc) = try await herStartedPieceOpen()
+        let waiting = store.posture(forDocId: PostureFixture.docId)
+        XCTAssertTrue(waiting.allows(.writeText), "not a refusal: she writes")
+        let line = try XCTUnwrap(PostureStandingLine.line(
+            for: waiting, title: "C1", docId: PostureFixture.docId))
+        XCTAssertEqual(line.kind, .waitingToBeClaimed)
+        XCTAssertEqual(line.sentence(root: "Sam"),
+                       "Waiting for Sam to say this piece is yours.")
+        XCTAssertEqual(line.sentence(root: nil),
+                       "Waiting for the book\u{2019}s author to say this piece is yours.")
+        XCTAssertFalse(line.offersEditAnyway)
+        XCTAssertTrue(PostureStandingLine.namesTheRoot(line.kind), "the view reads the label")
+        let label = await PostureStandingLine.rootLabel(projectURL: fixture.projectURL)
+        XCTAssertEqual(label, "Sam", "the root she was admitted by")
+
+        let epoch = store.postureEpoch
+        try await fixture.changeMyPermit(
+            to: .author(.pieces(["doc-other", PostureFixture.docId])), store: store)
+
+        XCTAssertGreaterThan(store.postureEpoch, epoch, "the window was told")
+        let theirs = store.posture(forDocId: PostureFixture.docId)
+        XCTAssertNil(theirs.reason, "nothing is waiting")
+        XCTAssertNil(PostureStandingLine.line(
+            for: theirs, title: "C1", docId: PostureFixture.docId), "the line is gone")
+        XCTAssertTrue(doc.mayWriteItsText, "and the same open document still writes")
+        XCTAssertFalse(doc.localWritePermit.isWaitingToBeClaimed)
+        await doc.close()
+    }
+
+    /// **The root's own Mac names no root** — the waiting placeholder and the
+    /// standing line both read `Document.rootLabel`, which answers nil on a Mac
+    /// holding its own root record (OA-2 made the root wait too).
+    func test_theRootsOwnMacNamesNoRoot() async throws {
+        fixture.beASigningMac()
+        let me = fixture.identities.author
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: me.fingerprint, name: "This Mac", kind: .mac,
+                actors: [DeviceActor.author.rawValue: me.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 1_000)),
+            signedBy: me, in: fixture.projectURL)
+        try RegistryWriter.write(
+            PersonRecord(
+                person: me.fingerprint, label: "Denver", ownName: "This Mac",
+                role: Permit.authorRole,
+                admittedAt: Date(timeIntervalSince1970: 1_000),
+                admittedBy: me.fingerprint),
+            signedBy: me, in: fixture.projectURL)
+        XCTAssertNil(Document.rootLabelForWaiting(in: fixture.projectURL))
+        let label = await PostureStandingLine.rootLabel(projectURL: fixture.projectURL)
+        XCTAssertNil(label)
+    }
+
     // MARK: - Both directions, through the door
 
     func test_aReviewersLineAppearsAndAPromotionTakesItAway() async throws {
