@@ -321,6 +321,22 @@ public enum Permit: Equatable, Hashable, Sendable {
         return true
     }
 
+    /// **Does manuscript text written under this permit CLAIM an unclaimed
+    /// piece?** — §4.5's other half (P3c plan 2 fix wave, Ruling U).
+    ///
+    /// A piece somebody started and nobody has claimed becomes the claimant's
+    /// the moment a book author's own hand writes its text
+    /// (`PermitPartition.UnownedPiece.aBookAuthorHasWrittenItsText`), and the
+    /// starter's held words are then set aside on every Mac. Two askers must
+    /// agree on who that is: the partition, which decides the claim from the
+    /// lines, and `OpLogStore.localWritePermit`, which asks it IN ADVANCE so a
+    /// book author's editor over such a piece can yield to its starter rather
+    /// than let a stray keystroke make the claim. One spelling, here.
+    public func claimsAPieceByWritingItsText(actor: DeviceActor?) -> Bool {
+        guard actor == .author, case .author(.book) = self else { return false }
+        return true
+    }
+
     /// **The permit a person RECORD says they hold** — the current-state
     /// convenience, and the one spelling of reading it (P3b Task 5).
     ///

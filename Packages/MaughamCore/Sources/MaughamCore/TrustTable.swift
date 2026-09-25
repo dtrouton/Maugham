@@ -934,6 +934,31 @@ public struct TrustTable: Equatable, Sendable {
         return sameWriter(key, fingerprint)
     }
 
+    /// **Does the writer `deviceId` names already author `documentClass`?**
+    /// (P3c plan 2 fix wave, Ruling U.) The permit in force NOW, from the
+    /// timeline (tripwire 43) — so it is true once the root has answered
+    /// *Theirs* (the answer adds the piece to her scope) and for a starter who
+    /// may write the whole book, and false for an author of some pieces whose
+    /// scope does not name it: the §4.5 case, where her words are held and a
+    /// book author's text would set them aside. A starter this register cannot
+    /// name authors nothing it can vouch for, and neither does one it names but
+    /// has not admitted — a stranger, another root's member, a Mac on no chain.
+    /// Their timeline would answer the whole-book DEFAULT, which is a statement
+    /// about people with no events, not about a writer nobody has let in: their
+    /// held words are exactly what a book author's text would set aside once
+    /// they are admitted. So the answer is false there.
+    nonisolated public func starterAuthors(
+        _ deviceId: String, _ documentClass: DocumentClass
+    ) -> Bool {
+        guard let key = starterKey(deviceId) else { return false }
+        switch verdict(forSealKey: key) {
+        case .mine, .admitted:
+            return timeline(forSealKey: key).current.authors(documentClass)
+        case .stranger, .otherRoot, .noChain, .revoked, .retired:
+            return false
+        }
+    }
+
     /// The owned AUTHOR key a recorded starter names, or nil — the one match
     /// of a starter id against this register.
     nonisolated private func starterKey(_ deviceId: String) -> String? {

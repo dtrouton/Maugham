@@ -144,6 +144,20 @@ final class PostureBook {
 /// `DocumentClass.translation` (P3c plan 2 Task 8 deleted that arm). Never to this
 /// device's own person — the root's own second Mac admitted under the
 /// writer's label is the writer.
+///
+/// **And any book author's yield to a piece's STARTER** (P3c plan 2 fix wave,
+/// Ruling U). Where somebody else started a piece and nobody has claimed it,
+/// a keystroke of this Mac's would make the text a book author's and set her
+/// held words aside on every Mac (§4.5). The permit says so
+/// (`LocalWritePermit.unsettledStarter`, decided by the one builder), and
+/// `assemble` yields on it with the same *Edit Anyway* — per window, per
+/// session — whether or not this Mac holds any of the piece's ops. It is not
+/// the root's alone: every book author's typing claims the piece. It lifts
+/// when the piece is claimed (*Theirs*, or a book author's text), at the next
+/// answer the door rebuilds — a trust change, a manifest adoption, a reopen;
+/// Ruling H's re-stamp on an external re-read is the starter's arm only, so
+/// another book author's text arriving leaves this yield standing until then
+/// (a lock, with Edit Anyway beside it — the safe direction).
 extension DocumentStore {
 
     // MARK: - Asking
@@ -168,16 +182,39 @@ extension DocumentStore {
     /// window's `PieceWriters` answer and its *Edit Anyway* set); the `Posture`
     /// itself is put together by Core's `PostureDoor.posture(permit:)`, the one
     /// place a permit becomes a posture on either surface (P3c plan 2, Task 1).
+    ///
+    /// **Two yields, one mechanism** (fix wave, Ruling U). Beside the root's
+    /// yield to a piece's OWNER there is any book author's yield to a piece's
+    /// STARTER: somebody else started it, nobody has claimed it, and one
+    /// keystroke here would set her words aside on every Mac. That fact is the
+    /// permit's (`LocalWritePermit.unsettledStarter`, decided once by the one
+    /// builder — never restated here); this function only names the starter
+    /// and honours *Edit Anyway* for it exactly as for the owner's yield. It
+    /// takes precedence, because it is the one whose keystroke costs somebody
+    /// else's words. It does not wait for the `PieceWriters` read: the permit
+    /// already holds the name.
     private func assemble(
         _ permit: LocalWritePermit, forDocId docId: String, as actor: DeviceActor
     ) -> Posture {
         let book = postureBook
+        if actor == .author, let starter = permit.unsettledStarter,
+           !book.overridden.contains(postureYieldPiece(forDocId: docId) ?? docId) {
+            return PostureDoor.posture(
+                permit: permit, yieldingTo: Self.starterName(starter))
+        }
         guard actor == .author, !book.yields.isEmpty,
               let piece = postureYieldPiece(forDocId: docId),
               !book.overridden.contains(piece),
               let yielding = book.yields[piece]
         else { return PostureDoor.posture(permit: permit) }
         return PostureDoor.posture(permit: permit, yieldingTo: yielding)
+    }
+
+    /// **What the standing line calls a piece's starter** — the register's
+    /// label or four-character code (`LocalWritePermit.UnsettledStarter.name`),
+    /// else, for a device whose record has not synced here, what it is.
+    static func starterName(_ starter: LocalWritePermit.UnsettledStarter) -> String {
+        starter.name ?? "Somebody else"
     }
 
     /// The piece a document is about, by its CLASS — the piece itself, or its

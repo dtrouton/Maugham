@@ -96,10 +96,24 @@ enum LoadQuestions {
         /// What *Not now* does, said plainly: nothing. It is not a refusal and
         /// it is not an answer — it is the writer saying they will decide
         /// later, and the words go on waiting exactly as they are.
+        ///
+        /// **And what writing in the piece meanwhile would do** (P3c plan 2
+        /// fix wave, Ruling U). §4.5 makes a piece nobody has claimed the
+        /// claimant's the moment a book author writes its text, and sets the
+        /// starter's words aside on every Mac. This Mac yields to the starter
+        /// until then — the editor offers *Edit Anyway* — so the sentence says
+        /// what pressing it and typing would cost, rather than promising that
+        /// nothing can happen.
         var notNowConsequence: String {
-            "Nothing is written and nothing is set aside. The question waits in "
-                + "People & Devices until you answer it."
+            "Nothing is written and nothing is set aside, and the piece stays "
+                + "locked here. The question waits in People & Devices until "
+                + "you answer it. If you write in the piece before then (Edit "
+                + "Anyway), its text becomes yours and \(possessive) words are "
+                + "set aside."
         }
+
+        /// *Sam\u{2019}s* — the starter's words, in the consequence.
+        private var possessive: String { "\(name)\u{2019}s" }
     }
 
     /// **Every piece question this window should raise**, ordered by person

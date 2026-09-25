@@ -514,7 +514,7 @@ public enum PermitPartition {
             else { continue }
             if what == .op(.bootstrap), let startedBy,
                !trust.isAStarter(startedBy, ofTheSameWriterAs: key) { continue }
-            if case .author(.book) = entry.judging { return true }
+            if entry.judging.claimsAPieceByWritingItsText(actor: .author) { return true }
         }
         return false
     }

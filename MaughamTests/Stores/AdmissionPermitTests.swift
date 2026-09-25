@@ -767,6 +767,156 @@ final class AdmissionPermitTests: XCTestCase {
         await onHers.close()
     }
 
+    // MARK: - Ruling U (fix wave): the root's hand in her unclaimed piece
+
+    /// Steps 1–2 of the end-to-end test above: she creates *The Orchard* on
+    /// her Mac and writes in it, so her lines are on disk for the root.
+    private func sheStartsTheOrchard(
+        _ her: Mac, words: String
+    ) async throws -> (item: StructureItem, url: URL) {
+        be(her)
+        let herProject = try await ProjectStore.load(from: projectURL)
+        let x = try await herProject.addStructureItem(
+            parentId: nil, title: "The Orchard", kind: .document(extension: "md"))
+        let xURL = projectURL.appendingPathComponent(try XCTUnwrap(x.path))
+        let typing = try await load(xURL, session: "her")
+        typing.setFullText(words)
+        try await typing.flushBurstNow()
+        await typing.close()
+        try Data((words + "\n").utf8).write(to: xURL)
+        return (x, xURL)
+    }
+
+    /// **After *Not now*, the root's editor over her piece YIELDS to her —
+    /// and *Edit Anyway* is how he claims it on purpose** (Ruling U; the
+    /// whole-branch review's C1). Real disk, two identities, both directions:
+    ///
+    /// 1. The root holds her lines and is asked; he presses *Not now*.
+    /// 2. His posture on the piece yields to its starter: the editor offers
+    ///    no writing verb, the standing line says whose piece is unsettled
+    ///    and offers Edit Anyway — in every window of his, and at the acting
+    ///    door as well as the drawing one.
+    /// 3. Her lines are still held, and still askable in People & Devices.
+    /// 4. Edit Anyway, in ONE window: that window offers his words again, a
+    ///    second window still yields. He types; her words are set aside on
+    ///    his Mac and on hers (§4.5 — he chose it), and nothing yields any
+    ///    more.
+    func test_afterNotNowTheRootYieldsToHerAndEditAnywayClaimsThePiece() async throws {
+        let (root, her, rootStore) = try await aRootAndHer()
+        let words = "Her week in the orchard."
+        let (x, xURL) = try await sheStartsTheOrchard(her, words: words)
+
+        // 1. The root holds her lines, is asked, and puts it off.
+        be(root)
+        let held = try await load(xURL, session: "root")
+        XCTAssertEqual(held.startedAPiece, [stranger.fingerprint])
+        XCTAssertEqual(occurrences(of: words, in: held), 0)
+        rootStore.register(document: held, for: try XCTUnwrap(x.path))
+        rootStore.notNowAboutPiece(person: stranger.fingerprint, docId: x.id)
+
+        // 2. The yield — acting door and drawing door alike.
+        let acting = await rootStore.settledPosture(forDocId: x.id)
+        XCTAssertEqual(acting.reason, .yieldingToItsStarter("Sam"))
+        XCTAssertFalse(acting.allows(.writeText), "no stray keystroke claims it")
+        XCTAssertTrue(acting.allows(.annotate))
+        let drawn = rootStore.posture(forDocId: x.id)
+        XCTAssertEqual(drawn.reason, .yieldingToItsStarter("Sam"))
+        let line = try XCTUnwrap(PostureStandingLine.line(
+            for: drawn, title: x.title, docId: x.id))
+        XCTAssertEqual(line.sentence(root: nil),
+                       "Sam started this piece — it isn’t settled whose it is yet.")
+        XCTAssertTrue(line.offersEditAnyway)
+        let secondWindow = try await DocumentStore.open(url: projectURL)
+        let elsewhere = await secondWindow.settledPosture(forDocId: x.id)
+        XCTAssertEqual(elsewhere.reason, .yieldingToItsStarter("Sam"),
+                       "every window of his yields until he says otherwise")
+
+        // 3. Still held, still askable.
+        await held.close()
+        let stillHeld = try await load(xURL, session: "root-2")
+        XCTAssertEqual(stillHeld.startedAPiece, [stranger.fingerprint], "held, not set aside")
+        rootStore.register(document: stillHeld, for: try XCTUnwrap(x.path))
+        XCTAssertEqual(
+            LoadQuestions.newPieces(
+                held: rootStore.heldLines(), registry: try registry(),
+                titles: [x.id: x.title], declined: [],
+                me: root.identities.author.fingerprint).map(\.docId),
+            [x.id], "the question still stands — Not now only stopped the announcing")
+
+        // 4. Edit Anyway, in this window only — and he types.
+        rootStore.overrideYield(docId: x.id)
+        let overridden = await rootStore.settledPosture(forDocId: x.id)
+        XCTAssertNil(overridden.reason)
+        XCTAssertTrue(overridden.allows(.writeText))
+        let stillYielding = await secondWindow.settledPosture(forDocId: x.id)
+        XCTAssertEqual(stillYielding.reason, .yieldingToItsStarter("Sam"),
+                       "per window, per session")
+        stillHeld.setFullText("TODO — outline")
+        try await stillHeld.flushBurstNow()
+        await stillHeld.close()
+
+        let claimed = try await load(xURL, session: "root-3")
+        XCTAssertEqual(occurrences(of: words, in: claimed), 0)
+        XCTAssertTrue(claimed.startedAPiece.isEmpty,
+                      "her lines are set aside now, not held — §4.5, and he chose it")
+        XCTAssertNil(claimed.localWritePermit.unsettledStarter,
+                     "and there is nothing left to yield over")
+        await claimed.close()
+        be(her)
+        let onHers = try await load(xURL, session: "her-2")
+        XCTAssertEqual(occurrences(of: words, in: onHers), 0, "set aside on her Mac too")
+        XCTAssertFalse(onHers.localWritePermit.writesAsItsStarter)
+        await onHers.close()
+    }
+
+    /// ***Theirs* ends the unsettled yield** (Ruling U, the other direction):
+    /// the piece joins her scope, so it is hers — the root's posture then
+    /// yields to its OWNER, plan 1's ordinary cooperative yield (*This is
+    /// Sam's piece*), and never again says it is unsettled.
+    func test_afterTheirsTheRootNoLongerYieldsAsIfItWereUnsettled() async throws {
+        let (root, her, rootStore) = try await aRootAndHer()
+        let (x, xURL) = try await sheStartsTheOrchard(her, words: "Hers.")
+        be(root)
+        let held = try await load(xURL, session: "root")
+        rootStore.register(document: held, for: try XCTUnwrap(x.path))
+        let before = await rootStore.settledPosture(forDocId: x.id)
+        XCTAssertEqual(before.reason, .yieldingToItsStarter("Sam"), "premise")
+        await held.close()
+
+        _ = try await rootStore.pieceIsTheirs(person: stranger.fingerprint, docId: x.id)
+        let after = await rootStore.settledPosture(forDocId: x.id)
+        XCTAssertEqual(after.reason, .yielding(to: "Sam"),
+                       "hers now: plan 1's owner yield, not the unsettled one")
+        let onTheRoot = try await load(xURL, session: "root-2")
+        XCTAssertNil(onTheRoot.localWritePermit.unsettledStarter)
+        await onTheRoot.close()
+    }
+
+    /// **The manifest arrives before the `.md` and the op log** (Ruling U's
+    /// second entry). The root's load has nothing to mint and nothing to wait
+    /// for — the document opens empty — and his posture yields to her all
+    /// the same, because the yield is decided from `startedBy`, not from what
+    /// has synced.
+    func test_theManifestBeforeTheMdStillYields() async throws {
+        let (root, her, rootStore) = try await aRootAndHer()
+        be(her)
+        let herProject = try await ProjectStore.load(from: projectURL)
+        let x = try await herProject.addStructureItem(
+            parentId: nil, title: "The Orchard", kind: .document(extension: "md"))
+        let xURL = projectURL.appendingPathComponent(try XCTUnwrap(x.path))
+        try? FileManager.default.removeItem(at: xURL)  // the `.md` has not synced
+
+        be(root)
+        let opened = try await load(xURL, session: "root")
+        XCTAssertEqual(opened.displayText, "", "nothing to mint, nothing to wait for")
+        XCTAssertTrue(OpLogStore.opLogFileURLs(forDocId: x.id, in: projectURL).isEmpty)
+        rootStore.register(document: opened, for: try XCTUnwrap(x.path))
+        let posture = await rootStore.settledPosture(forDocId: x.id)
+        XCTAssertEqual(posture.reason, .yieldingToItsStarter("Sam"))
+        XCTAssertFalse(posture.allows(.writeText))
+        await opened.close()
+    }
+
     // MARK: - Ruling L: a piece nobody opens, and a starter that is gone
 
     /// **(a) A creation WITH content mints its opening at creation** — a

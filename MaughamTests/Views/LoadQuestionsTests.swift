@@ -398,6 +398,25 @@ final class LoadQuestionsTests: XCTestCase {
         XCTAssertTrue(question.consequence.contains("join the draft"))
     }
 
+    /// ***Not now* tells the truth about what writing in the piece meanwhile
+    /// would do** (fix wave, Ruling U; the whole-branch review's C1). It used
+    /// to say only that nothing is set aside — and a book author typing in the
+    /// piece before answering sets every held word of hers aside on every Mac.
+    /// The Mac now yields to her, so the sentence names the lock, the one way
+    /// past it, and its cost.
+    func test_notNowSaysWhatWritingInThePieceMeanwhileWouldDo() {
+        let question = LoadQuestions.NewPiece(
+            person: sam, name: "Sam", docId: "ch-2", title: "The Orchard",
+            heldLines: 2)
+        XCTAssertEqual(
+            question.notNowConsequence,
+            "Nothing is written and nothing is set aside, and the piece stays "
+                + "locked here. The question waits in People & Devices until "
+                + "you answer it. If you write in the piece before then (Edit "
+                + "Anyway), its text becomes yours and Sam\u{2019}s words are "
+                + "set aside.")
+    }
+
     /// A question the writer ANSWERED is never put again either — the closed
     /// set is one set, however it was closed.
     func test_aPieceAlreadyAnsweredIsNotAskedAgain() {

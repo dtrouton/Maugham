@@ -35,7 +35,9 @@ public struct Posture: Equatable, Sendable {
 
     /// **The root's cooperative review posture** (spec §2, §8): the name of the
     /// person whose piece this is, when this Mac — a whole-book author — has
-    /// chosen to yield to them. While it is set every verb but `annotate`
+    /// chosen to yield to them. Or (Ruling U) the name of a piece's STARTER,
+    /// where somebody else started it and nobody has claimed it — `reason`
+    /// tells the two apart from the permit's own `unsettledStarter`. While it is set every verb but `annotate`
     /// answers false. The Mac's override (plan ruling R2) builds the posture
     /// WITHOUT it; nothing here knows about the override.
     public let yieldingTo: String?
@@ -121,6 +123,14 @@ public struct Posture: Equatable, Sendable {
         case notYourPiece
         /// The root, yielding cooperatively to the person whose piece it is.
         case yielding(to: String)
+        /// **A book author, yielding cooperatively to a piece's STARTER** (P3c
+        /// plan 2 fix wave, Ruling U): somebody else started this piece and
+        /// nobody has said whose it is. Her words in it are held on this Mac
+        /// and asked about, and a line of this Mac's text would claim the
+        /// piece and set them aside on every Mac — so, like `yielding`, every
+        /// verb but `annotate` waits for *Edit Anyway*. The associated name
+        /// is the starter's, as the Mac decided it.
+        case yieldingToItsStarter(String)
         /// A permit this build cannot read (a later build's rung or scope), or a
         /// statement it cannot place. Nothing is decided about the words.
         case cannotJudge
@@ -203,9 +213,19 @@ public struct Posture: Equatable, Sendable {
 
     /// Any verb refused. NB: an author of some pieces, inside her own piece,
     /// is unrestricted since Option A (she may start a piece of her own), and
-    /// in a piece she started that nobody has claimed she is restricted —
-    /// dispositions, checkpoints and tasks wait for the root — while `reason`
-    /// is `.waitingToBeClaimed` rather than a refusal of her words.
+    /// in a piece she started that nobody has claimed she is restricted while
+    /// `reason` is `.waitingToBeClaimed` rather than a refusal of her words.
+    ///
+    /// **What she may do there** (Ruling V, P3c plan 2 fix wave — the words
+    /// widened to match the table, not the table narrowed): write, accept or
+    /// reject a suggestion (a `claudeAccept` is manuscript text — applied on
+    /// her Mac, held elsewhere, exactly like her typing), set a pass state,
+    /// restructure and run a round (each probed as her words, ruling R3/R4).
+    /// What waits for *Theirs*: `.dispose` (stet, archive, triage, reopen),
+    /// ⌘S's checkpoint, tasks and translation. `.editStatement` answers yes on
+    /// the PIECE's posture and is unreachable there: the statement pane asks
+    /// the statement document's own posture, whose class
+    /// (`.pieceStatement`) takes no Option A arm and refuses.
     public var isRestricted: Bool {
         !Verb.allCases.allSatisfy { allows($0) }
     }
@@ -215,7 +235,14 @@ public struct Posture: Equatable, Sendable {
     /// the reason, never to decide a verb.
     public var reason: Reason? {
         if undecided { return nil }
-        if let yieldingTo { return .yielding(to: yieldingTo) }
+        if let yieldingTo {
+            // Which yield it is, from the permit's own fact: the Mac hands one
+            // name, and names the starter wherever the permit carries one
+            // (`DocumentStore+Posture.assemble`).
+            return permit.unsettledStarter != nil
+                ? .yieldingToItsStarter(yieldingTo)
+                : .yielding(to: yieldingTo)
+        }
         let text = Self.probe(.writeText).what
         return withAnswer(to: .writeText) { answer -> Reason? in
             switch answer {

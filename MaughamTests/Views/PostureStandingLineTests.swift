@@ -208,6 +208,21 @@ final class PostureStandingLineTests: XCTestCase {
         XCTAssertEqual(yielding?.offersEditAnyway, true, "the one reason she can lift")
         XCTAssertEqual(yielding?.docId, "d")
 
+        // Ruling U (fix wave): a book author yielding to a piece's STARTER.
+        let unsettled = PostureStandingLine.line(
+            for: Posture(
+                LocalWritePermit(
+                    permit: .bookAuthor, actor: .author, documentClass: .piece("d"),
+                    startedHere: false,
+                    unsettledStarter: .init(deviceId: "author-sam", name: "Sam")),
+                yieldingTo: "Sam"),
+            title: "Chapter 3", docId: "d")
+        XCTAssertEqual(unsettled?.kind, .yieldingToItsStarter(name: "Sam"))
+        XCTAssertEqual(unsettled?.sentence(root: nil),
+                       "Sam started this piece — it isn’t settled whose it is yet.")
+        XCTAssertEqual(unsettled?.offersEditAnyway, true,
+                       "Edit Anyway is how a book author who means it claims the piece")
+
         let unreadable = PostureStandingLine.line(
             for: Posture(permit(.unjudgeable(raw: "editor"), .piece("d"))),
             title: "Chapter 3", docId: "d")

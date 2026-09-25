@@ -442,8 +442,14 @@ extension ProjectStore {
     /// this store answers yes here; the loaded Document's own stamp is then
     /// the door (`Document.mayWriteItsText`).
     private func sweepMayWrite(docId: String, verb: Posture.Verb) async -> Bool {
-        guard let documentStore else { return true }
-        return await documentStore.settledPosture(forDocId: docId).allows(verb)
+        await sweepDoorAnswer(docId: docId)?.allows(verb) ?? true
+    }
+
+    /// The same acting answer, whole — nil where no `DocumentStore` stands
+    /// behind this store (the loaded Document's stamp is then the door).
+    private func sweepDoorAnswer(docId: String) async -> Posture? {
+        guard let documentStore else { return nil }
+        return await documentStore.settledPosture(forDocId: docId)
     }
 
     /// Thrown inside the statement dance when the loaded statement's stamp
@@ -519,7 +525,23 @@ extension ProjectStore {
             // one — the open text, or a non-empty derived body with a match.
             // An empty derived body proves nothing either way; on a Mac that
             // may not write the piece the load would refuse anyway.
-            if !(await sweepMayWrite(docId: doc.id, verb: .writeText)) {
+            //
+            // **One refusal still loads: the yield to a piece's STARTER** (fix
+            // wave, Ruling U). Such a piece's text on this Mac is her held
+            // words, or words that have not arrived — an empty derived body
+            // there proves nothing, and the load is what says *waiting* (M4).
+            // Loading it cannot mint (this Mac did not start it, so
+            // `LocalWritePermit.mayMintOpening` is false), and the write below
+            // asks the door's answer again, so nothing is rewritten.
+            let door = await sweepDoorAnswer(docId: doc.id)
+            let mayWrite = door?.allows(.writeText) ?? true
+            let yieldsToItsStarter: Bool
+            if case .yieldingToItsStarter? = door?.reason {
+                yieldsToItsStarter = true
+            } else {
+                yieldsToItsStarter = false
+            }
+            if !mayWrite, !yieldsToItsStarter {
                 let known: String? = openDoc?.displayText
                     ?? (try? derivedCache.materialize(forDocId: doc.id, in: url))
                 if let known, !known.isEmpty,
@@ -583,8 +605,9 @@ extension ProjectStore {
             }
 
             // The Document's own stamp — the door where no `DocumentStore`
-            // stands behind this store, and the answer the load just made.
-            guard resolved.mayWriteItsText else {
+            // stands behind this store, and the answer the load just made —
+            // and the door's own answer, for the one refusal that loaded.
+            guard mayWrite, resolved.mayWriteItsText else {
                 linksLeftIn.append(doc.title)
                 if isTransient { await resolved.close() }
                 continue

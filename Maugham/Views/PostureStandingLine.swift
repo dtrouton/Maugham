@@ -31,6 +31,11 @@ enum PostureStandingLine {
             case notYourPiece(title: String)
             /// The root, yielding on somebody else's piece.
             case yielding(to: String)
+            /// **A book author, yielding to a piece's starter** (P3c plan 2
+            /// fix wave, Ruling U): somebody else started it and nobody has
+            /// said whose it is. Edit Anyway lifts it — and writing then makes
+            /// the text this Mac's, setting the starter's words aside.
+            case yieldingToItsStarter(name: String)
             /// A permit this build cannot read.
             case cannotJudge
             /// **Her own words, in a piece she started that nobody has said
@@ -54,8 +59,10 @@ enum PostureStandingLine {
         /// Only the root's cooperative yield can be lifted from here; every
         /// other reason is a permit, and a permit is the root's to change.
         var offersEditAnyway: Bool {
-            if case .yielding? = kind { return true }
-            return false
+            switch kind {
+            case .yielding?, .yieldingToItsStarter?: return true
+            default: return false
+            }
         }
 
         /// The sentence. `root` is the label of the root this Mac is on, when
@@ -71,6 +78,8 @@ enum PostureStandingLine {
                 return "“\(title)” isn’t one of your pieces — you can leave notes."
             case .yielding(let name):
                 return "This is \(name)’s piece."
+            case .yieldingToItsStarter(let name):
+                return PostureStandingLine.startedByUnsettled(name)
             case .cannotJudge:
                 return "This Mac can’t read the permission it was given — "
                     + "update Maugham to write here."
@@ -94,6 +103,7 @@ enum PostureStandingLine {
         case .reviewer: kind = .reviewer
         case .notYourPiece: kind = .notYourPiece(title: title)
         case .yielding(let name): kind = .yielding(to: name)
+        case .yieldingToItsStarter(let name): kind = .yieldingToItsStarter(name: name)
         case .cannotJudge: kind = .cannotJudge
         // P3c plan 2, Option A: not a refusal — her words are offered — and
         // the line says who would end the wait. It goes the moment the root
@@ -104,6 +114,12 @@ enum PostureStandingLine {
         let kept = ownLinesKeptInHistory > 0
         guard kind != nil || kept else { return nil }
         return Line(kind: kind, docId: docId, keptInHistory: kept)
+    }
+
+    /// **Ruling U's sentence**: whose piece this may become is still open,
+    /// and this Mac is standing back from it.
+    static func startedByUnsettled(_ name: String) -> String {
+        "\(name) started this piece — it isn’t settled whose it is yet."
     }
 
     /// The clause for `Line.keptInHistory`; the view pairs it with a History

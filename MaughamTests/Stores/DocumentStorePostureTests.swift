@@ -975,6 +975,18 @@ extension DocumentStorePostureTests {
             AnnotationScopePolicy.yieldNotice(
                 posture: Posture(.unrestricted, yieldingTo: "Kit"), docId: "doc-a"),
             .init(reason: "Kit\u{2019}s piece", docId: "doc-a"))
+        // Ruling U (fix wave): the starter's yield says the standing line's
+        // own sentence, and offers the same Edit Anyway.
+        let unsettled = Posture(
+            LocalWritePermit(
+                permit: .bookAuthor, actor: .author, documentClass: .piece("doc-a"),
+                startedHere: false,
+                unsettledStarter: .init(deviceId: "author-kit", name: "Kit")),
+            yieldingTo: "Kit")
+        XCTAssertEqual(
+            AnnotationScopePolicy.yieldNotice(posture: unsettled, docId: "doc-a"),
+            .init(reason: "Kit started this piece \u{2014} it isn\u{2019}t settled "
+                  + "whose it is yet.", docId: "doc-a"))
     }
 
     /// **The door's `.translation` yield arm is deleted** (unreachable:

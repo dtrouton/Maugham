@@ -2940,6 +2940,152 @@ final class PermitLoadTests: XCTestCase {
         _ = try await appliedOpIds(on: rootsMac, carrier: carrier)
         XCTAssertEqual(carrier.whoKeptWritingInATakenPiece, [samPerson])
     }
+
+    // MARK: - Ruling U (fix wave): a book author's hand in her unclaimed piece
+
+    /// **The root's permit over a piece Sam started and nobody has claimed
+    /// carries the fact** — with her name, and whether or not any of her ops
+    /// have reached this Mac (the manifest can sync before the `.md` and the
+    /// op log: the permit is decided from `startedBy`, not from the files).
+    /// It widens and refuses nothing — the root may still write every piece —
+    /// and the posture it becomes yields to her only where the Mac hands the
+    /// yield in, so *Edit Anyway* (no yield) offers every verb again. Her own
+    /// Mac carries no such fact.
+    func test_aBookAuthorsHandInAPieceSomebodyElseStartedIsUnsettled() async throws {
+        try samIsAnAuthorOfSomePieces()
+        try writeManifest(startedBy: sam.author.deviceId)
+
+        // No op of hers here yet: the manifest-before-`.md` entry.
+        let early = permit(on: rootsMac)
+        XCTAssertEqual(
+            early.unsettledStarter,
+            .init(deviceId: sam.author.deviceId, name: "Sam"),
+            "decided from the piece's starter, not from its files")
+
+        try samsFile([op("herOpening", by: sam.author)])
+        let roots = permit(on: rootsMac)
+        XCTAssertEqual(roots.unsettledStarter?.name, "Sam")
+        XCTAssertEqual(roots.allows(.op(.typingBurst)), .yes, "it refuses nothing")
+
+        let yielded = PostureDoor.posture(permit: roots, yieldingTo: "Sam")
+        XCTAssertEqual(yielded.reason, .yieldingToItsStarter("Sam"))
+        XCTAssertFalse(yielded.allows(.writeText), "a stray keystroke cannot claim it")
+        XCTAssertFalse(yielded.allows(.acceptOrReject))
+        XCTAssertTrue(yielded.allows(.annotate), "notes are everybody's")
+        let anyway = PostureDoor.posture(permit: roots)
+        XCTAssertNil(anyway.reason, "Edit Anyway: the book author's hand, unrestricted")
+        XCTAssertTrue(anyway.allows(.writeText))
+
+        XCTAssertNil(permit(on: mac(sam, "sam-mac")).unsettledStarter,
+                     "never on the starter's own Mac")
+    }
+
+    /// **Claimed, the fact goes** — the first of the two ways a piece is
+    /// claimed: the root answers *Theirs* (the piece joins her scope, so it is
+    /// hers, and the root's ordinary yield to its owner is plan 1's, not this
+    /// one). The second — a book author writes its text, and §4.5 sets her
+    /// lines aside — is the next test.
+    func test_answeringTheirsEndsTheFact() async throws {
+        try samIsAnAuthorOfSomePieces()
+        try writeManifest(startedBy: sam.author.deviceId)
+        try samsFile([op("herOpening", by: sam.author)])
+        XCTAssertNotNil(permit(on: rootsMac).unsettledStarter, "premise")
+
+        try writeEvent("b", kind: .scopeChanged, role: Permit.authorRole,
+                       scope: Permit.piecesScope, pieces: ["doc-hers", docId])
+        XCTAssertNil(permit(on: rootsMac).unsettledStarter, "Theirs: hers now")
+    }
+
+    func test_aBookAuthorWritingItsTextEndsTheFact() async throws {
+        try samIsAnAuthorOfSomePieces()
+        try writeManifest(startedBy: sam.author.deviceId)
+        try samsFile([op("herOpening", by: sam.author)])
+        XCTAssertNotNil(permit(on: rootsMac).unsettledStarter, "premise")
+
+        try writeFile(by: root.author, ops: [op("rootsText", by: root.author)])
+        XCTAssertNil(permit(on: rootsMac).unsettledStarter,
+                     "the root has claimed it: there is nothing left to protect")
+    }
+
+    /// **Nobody else started it, so there is nothing to yield to**: a legacy
+    /// piece, a piece the root itself started, and a piece a co-writing
+    /// whole-book author started (her words apply everywhere; plan 1 never
+    /// yields to a whole-book author).
+    func test_noFactWhereNobodyElsesWordsAreAtStake() async throws {
+        try samIsAnAuthorOfSomePieces()
+        for starter in [nil, root.author.deviceId] as [String?] {
+            try writeManifest(startedBy: starter)
+            XCTAssertNil(permit(on: rootsMac).unsettledStarter,
+                         "started by \(starter ?? "nobody recorded")")
+        }
+        try writeEvent("b", kind: .scopeChanged)  // Sam: the whole book
+        let ada = LocalIdentities.softwareForTesting()
+        try RegistryWriter.write(
+            PersonRecord(
+                person: ada.author.fingerprint, label: "Ada", ownName: "Ada’s Mac",
+                admittedAt: Date(timeIntervalSince1970: 22), admittedBy: rootPerson),
+            signedBy: root.author, in: projectURL)
+        try RegistryWriter.write(
+            PermitEvent(
+                event: "\(ada.author.fingerprint).a", kind: .admitted,
+                subject: ada.author.fingerprint, role: Permit.authorRole,
+                scope: Permit.piecesScope, pieces: ["doc-adas"], mark: [:],
+                at: Date(timeIntervalSince1970: 42), by: rootPerson),
+            signedBy: root.author, in: projectURL)
+        try writeManifest(startedBy: sam.author.deviceId)
+        XCTAssertNil(permit(on: rootsMac).unsettledStarter,
+                     "a whole-book author's piece is hers already")
+    }
+
+    /// **A starter nobody has admitted yet yields too** — a stranger's device
+    /// record, never admitted. Its timeline would answer the whole-book
+    /// default (no events), which says nothing about a writer nobody has let
+    /// in: once she is admitted as an author of some pieces, a book author's
+    /// text would set her held words aside. Named by her code, since no label
+    /// has been given.
+    func test_aStarterNobodyHasAdmittedStillYields() async throws {
+        try samIsAnAuthorOfSomePieces()
+        let passerBy = LocalIdentities.softwareForTesting()
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: passerBy.author.fingerprint, name: "A stranger’s Mac",
+                kind: .mac,
+                actors: [DeviceActor.author.rawValue: passerBy.author.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 7)),
+            signedBy: passerBy.author, in: projectURL)
+        try writeManifest(startedBy: passerBy.author.deviceId)
+        XCTAssertEqual(
+            permit(on: rootsMac).unsettledStarter,
+            .init(deviceId: passerBy.author.deviceId,
+                  name: DeviceCode.short(passerBy.author.fingerprint)))
+    }
+
+    /// **Only a book author's hand yields** — an author of some pieces
+    /// writing nothing that could claim the piece carries no fact, and
+    /// neither does the root's assistant key.
+    func test_onlyABookAuthorsHandCarriesTheFact() async throws {
+        try samIsAnAuthorOfSomePieces()
+        let ada = LocalIdentities.softwareForTesting()
+        try RegistryWriter.write(
+            PersonRecord(
+                person: ada.author.fingerprint, label: "Ada", ownName: "Ada’s Mac",
+                admittedAt: Date(timeIntervalSince1970: 22), admittedBy: rootPerson),
+            signedBy: root.author, in: projectURL)
+        try RegistryWriter.write(
+            PermitEvent(
+                event: "\(ada.author.fingerprint).a", kind: .admitted,
+                subject: ada.author.fingerprint, role: Permit.authorRole,
+                scope: Permit.piecesScope, pieces: ["doc-adas"], mark: [:],
+                at: Date(timeIntervalSince1970: 42), by: rootPerson),
+            signedBy: root.author, in: projectURL)
+        try writeManifest(startedBy: sam.author.deviceId)
+        XCTAssertNil(permit(on: mac(ada, "ada-mac")).unsettledStarter)
+        let assistant = store(on: rootsMac).localWritePermit(as: .assistant) {
+            OpLogStore.documentClass(forDocId: self.docId, in: self.projectURL)
+        }
+        XCTAssertNil(assistant.unsettledStarter)
+        XCTAssertNotNil(permit(on: rootsMac).unsettledStarter, "control")
+    }
 }
 
 private extension JSONEncoder {

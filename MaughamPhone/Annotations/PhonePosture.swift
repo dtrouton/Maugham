@@ -217,6 +217,11 @@ final class PhonePosture {
                 + "version of Maugham doesn\u{2019}t recognise"
         case .yielding(let name):
             why = "This piece is \(name)\u{2019}s to settle"
+        case .yieldingToItsStarter(let name):
+            // Never drawn on the phone today (the yield is the Mac window's),
+            // but the switch is exhaustive and the words are true.
+            why = "\(name) started this piece and it isn\u{2019}t settled "
+                + "whose it is yet"
         case nil:
             why = "What you may do in this book is still being read"
         }

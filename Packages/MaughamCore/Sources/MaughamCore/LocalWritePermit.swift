@@ -58,15 +58,58 @@ public struct LocalWritePermit: Equatable, Sendable {
     /// and false everywhere else — every book nobody is narrowed in included.
     public let writesAsItsStarter: Bool
 
+    /// **Somebody else started this piece and nobody has claimed it** (P3c
+    /// plan 2 fix wave, Ruling U) — the other side of OA-3, on a book
+    /// author's Mac. Nil everywhere else.
+    ///
+    /// Set only where the writer's own hand here is a book author's (whose
+    /// manuscript text would CLAIM the piece — `Permit
+    /// .claimsAPieceByWritingItsText`), the piece's recorded starter is
+    /// somebody else and still standing (`TrustTable.starter(ofPieceStartedBy:)`
+    /// answers `.somebodyElse`; a revoked or retired starter binds nothing),
+    /// the starter's own permit does not author the piece (`TrustTable
+    /// .starterAuthors` — false until *Theirs*, and for a starter this register
+    /// cannot name yet), and no book author has written its text
+    /// (`OpLogStore.unownedPiece`). One keystroke there would set the
+    /// starter's words aside on every Mac (§4.5), so the Mac's posture door
+    /// YIELDS to the starter cooperatively — the root's *Edit Anyway*
+    /// (plan 1's) is how a book author who means it claims the piece. It is a
+    /// fact about the piece, and it is true whether or not this Mac has any
+    /// of its ops — the manifest can sync before the `.md` and the op log.
+    ///
+    /// It widens nothing and refuses nothing: `allows` answers exactly as it
+    /// would without it. What a surface may OFFER is the posture's, which
+    /// reads the yield the Mac hands it.
+    public let unsettledStarter: UnsettledStarter?
+
+    /// Who started a piece nobody has claimed, as the register names them.
+    public struct UnsettledStarter: Equatable, Sendable {
+        /// The recorded starter — `StructureItem.startedBy`, an author device
+        /// id.
+        public let deviceId: String
+        /// What this register calls its writer: their label, else their
+        /// four-character code (`TrustTable.label(forDeviceSlug:)`, the
+        /// waiting sentence's own resolution). Nil where the register cannot
+        /// name the device at all — its record has not synced here yet.
+        public let name: String?
+
+        public init(deviceId: String, name: String?) {
+            self.deviceId = deviceId
+            self.name = name
+        }
+    }
+
     public init(
         permit: Permit, actor: DeviceActor, documentClass: DocumentClass?,
-        startedHere: Bool? = nil, writesAsItsStarter: Bool = false
+        startedHere: Bool? = nil, writesAsItsStarter: Bool = false,
+        unsettledStarter: UnsettledStarter? = nil
     ) {
         self.permit = permit
         self.actor = actor
         self.documentClass = documentClass
         self.startedHere = startedHere
         self.writesAsItsStarter = writesAsItsStarter
+        self.unsettledStarter = unsettledStarter
     }
 
     /// The answer every book already on disk gives the writer's own hand:

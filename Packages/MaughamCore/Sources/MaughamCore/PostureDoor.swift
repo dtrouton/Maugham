@@ -46,7 +46,9 @@ public enum PostureDoor {
 
     /// **The one place a `LocalWritePermit` becomes a `Posture`.** `yieldingTo`
     /// is a name the caller has already decided on; nil everywhere but the
-    /// Mac's root yielding to a piece's owner.
+    /// Mac's root yielding to a piece's owner, and a book author's Mac
+    /// yielding to a piece's starter (Ruling U — the fact is the permit's
+    /// `unsettledStarter`; the yield, and its *Edit Anyway*, are the Mac's).
     public static func posture(
         permit: LocalWritePermit, yieldingTo: String? = nil
     ) -> Posture {

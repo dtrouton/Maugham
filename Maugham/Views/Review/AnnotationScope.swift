@@ -99,8 +99,17 @@ enum AnnotationScopePolicy {
     }
 
     static func yieldNotice(posture: Posture, docId: String) -> YieldNotice? {
-        guard case .yielding(let name)? = posture.reason else { return nil }
-        return YieldNotice(reason: yieldReason(name), docId: docId)
+        switch posture.reason {
+        case .yielding(let name)?:
+            return YieldNotice(reason: yieldReason(name), docId: docId)
+        case .yieldingToItsStarter(let name)?:
+            // Ruling U: the standing line's own sentence, so the header and
+            // the line over the editor say one thing about one piece.
+            return YieldNotice(
+                reason: PostureStandingLine.startedByUnsettled(name), docId: docId)
+        default:
+            return nil
+        }
     }
 
     /// *Sam's piece* — the header's words for a yield.

@@ -338,9 +338,28 @@ public final class OpLogStore {
             && OpLogStore.unownedPiece(
                 forDocId: piece, in: projectURL, trust: table, startedBy: starterId)
                 == .nobodyHasWrittenItsText
+        // **The same fact from the other side** (fix wave, Ruling U): a book
+        // author's hand in a piece somebody else started and nobody has
+        // claimed. Her arm and this one cannot both hold (hers needs a starter
+        // that is not somebody else), and the cheap questions come first:
+        // `unownedPiece` classifies the document's files and is asked last.
+        let unsettled: LocalWritePermit.UnsettledStarter?
+        if starter == .somebodyElse,
+           permit.claimsAPieceByWritingItsText(actor: actor),
+           !table.starterAuthors(starterId, cls),
+           OpLogStore.unownedPiece(
+               forDocId: piece, in: projectURL, trust: table, startedBy: starterId)
+               == .nobodyHasWrittenItsText {
+            unsettled = .init(
+                deviceId: starterId,
+                name: table.label(forDeviceSlug: DeviceSlug.make(from: starterId).raw))
+        } else {
+            unsettled = nil
+        }
         return LocalWritePermit(
             permit: permit, actor: actor, documentClass: cls,
-            startedHere: starter == .thisDevice, writesAsItsStarter: mine)
+            startedHere: starter == .thisDevice, writesAsItsStarter: mine,
+            unsettledStarter: unsettled)
     }
 
     /// **The verified table, or nil where this project has never had a
