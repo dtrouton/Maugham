@@ -251,6 +251,11 @@ extension DocumentStore {
     /// `TrustTable.unsignedSnapshot` and `RegistryAdmission`'s door already
     /// agree on (tripwire 47).
     ///
+    /// **Taken ONCE per book** (P3c Task 7, Ruling Q): where the book is
+    /// already narrowed, the governing snapshot's own mark is returned and
+    /// nothing is walked, so every later narrowing event carries the same
+    /// photograph and no event's date can move the cliff.
+    ///
     /// **And nothing pays for it that does not need it.** The sweep is a walk
     /// of every op-log file, every translation sidecar and every inbox
     /// manifest in the project; an ordinary admission narrows nobody, so it
@@ -263,6 +268,12 @@ extension DocumentStore {
     /// rather than narrow the book over a reading it knows is short.
     /// Internal rather than private, for `seenMarkOrRefuse`'s reason: the
     /// admission door lives one file over and must ask the same question.
+    /// Called once per sweep actually performed — never where a governing
+    /// photograph was carried forward instead (P3c Task 7, Ruling Q). The
+    /// counter a test pins *no sweep ran* by; nil in production.
+    nonisolated(unsafe) static var unsignedSweepObserverForTesting:
+        (@Sendable () -> Void)?
+
     func sweptUnsignedSnapshot(
         for permit: Permit, act: RegistryAdmissionError.Act = .permitChange
     ) async throws -> PermitMark? {
@@ -277,6 +288,22 @@ extension DocumentStore {
             do {
                 let resolved = try TrustResolution.resolveVerified(
                     projectURL: projectURL, identities: identities, cache: cache)
+                // **A book already narrowed carries its governing photograph
+                // FORWARD** (P3c Task 7, Ruling Q). The earliest narrowing
+                // governs by `(at, event)`, and `at` is the narrowing root's
+                // own clock: a later event whose clock reads earlier — two
+                // adopted roots a few minutes apart, or a clock that stepped
+                // back — governs instead. Were its photograph empty (`{}`), or
+                // taken now, the cliff would move; were it empty, every
+                // unsigned line ever written, P1-era text included, would be
+                // held on every Mac. The same happens with no skew at all on
+                // a fresh Mac whose sync delivers the later event first. The
+                // governor's own mark written forward makes the photograph
+                // identical whichever event governs — and costs no sweep.
+                if let governing = resolved.table.unsignedSnapshot {
+                    return .success(governing.mark)
+                }
+                DocumentStore.unsignedSweepObserverForTesting?()
                 return .success(try OpLogStore.unattributablePositions(
                     in: projectURL, trust: resolved.table,
                     // What this Mac remembers having applied from ANY other

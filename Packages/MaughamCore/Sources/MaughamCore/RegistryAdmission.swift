@@ -976,10 +976,18 @@ public enum RegistryAdmission {
         // — and `UnsignedSnapshot.governing` would then have a second
         // candidate to choose between where the ruling names exactly one.
         //
-        // It is NOT carried forward like `mark`. The snapshot is the FIRST
-        // narrowing's and the earliest governs, so a later event copying an
-        // older one's would add a second identical answer for a reader to pick
-        // between, with nothing to gain.
+        // **A later narrowing carries the GOVERNING photograph forward**
+        // (P3c Task 7, Ruling Q — this comment used to say the opposite). The
+        // earliest narrowing governs by `(at, event)`, and `at` is the
+        // narrowing root's own clock, so a later event can govern: two
+        // adopted roots whose clocks disagree, a clock that stepped back, or
+        // simply a fresh Mac whose sync delivered the later event first. A
+        // second identical answer is therefore exactly what is wanted — the
+        // photograph is the same whichever event a reader picks, and the
+        // cliff cannot move. The Mac's verbs pass the governor's mark in
+        // (`DocumentStore.sweptUnsignedSnapshot`); this writer just records
+        // what it is handed, and `refuseANarrowingWithNoSnapshot` still
+        // refuses a narrowing handed nothing at all.
         let at = now()
         func made(
             unsigned unsignedStreams: [String: PermitEvent.StreamMark]?

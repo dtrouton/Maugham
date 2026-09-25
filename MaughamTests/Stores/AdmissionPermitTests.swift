@@ -221,6 +221,122 @@ final class AdmissionPermitTests: XCTestCase {
         XCTAssertNotNil(try registry().person(stranger.fingerprint))
     }
 
+    // MARK: - Ruling Q: one photograph per book (P3c Task 7, carry 7)
+
+    /// An unsealed, chained stream — the shape a Mac with no Secure Enclave
+    /// writes, or a signing Mac before its first seal has synced — at
+    /// `<docId>.ghostmac.jsonl`. Appends when the file exists, so a test can
+    /// grow it after a narrowing.
+    private func appendToUnsignedStream(docId: String, opIds: [String]) throws -> URL {
+        let url = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: DeviceSlug.unsafeForTesting("ghostmac"),
+            in: projectURL)
+        var bytes = (try? Data(contentsOf: url)) ?? Data()
+        var head = bytes.split(separator: 0x0A, omittingEmptySubsequences: true)
+            .last.map { OpLogChain.lineHash(Data($0)) }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = JSONLAppendStore<Op>.dateEncoding
+        for id in opIds {
+            let element = try encoder.encode(Op(
+                opId: id, docId: docId, at: Date(timeIntervalSince1970: 0),
+                device: "author-ghostmac", session: "s", kind: .typingBurst,
+                changes: [.init(paragraphId: "aaaa", prior: nil, next: id)],
+                sequence: ["aaaa"]))
+            let line = OpLogChain.chainedLine(
+                elementJSON: element, prev: head ?? OpLogChain.genesis)
+            bytes.append(line)
+            bytes.append(0x0A)
+            head = OpLogChain.lineHash(line)
+        }
+        try bytes.write(to: url, options: .atomic)
+        return url
+    }
+
+    private func lines(of url: URL) throws -> [Data] {
+        try Data(contentsOf: url)
+            .split(separator: 0x0A, omittingEmptySubsequences: true)
+            .map { Data($0) }
+    }
+
+    /// **A later narrowing carries the governing photograph forward, and
+    /// sweeps nothing** (Ruling Q). Three pins over one real book:
+    ///
+    /// 1. *No sweep ran* on the second narrowing — the observer counts one,
+    ///    the first's — and its event carries the FIRST's photograph, although
+    ///    the unsigned stream has grown since and a fresh sweep would have
+    ///    drawn the line further on.
+    /// 2. **The skew.** The second event with an `at` EARLIER than the first's
+    ///    — two adopted roots whose clocks disagree, or a clock that stepped
+    ///    back — is the one `UnsignedSnapshot.governing` picks, and it judges
+    ///    every line exactly as the true first does: the P1-era text stays
+    ///    applied (*old*), the line written after it stays held (*new*).
+    /// 3. **The sync order.** A fresh Mac holding only the second event — its
+    ///    sync delivered that file first — judges the same.
+    func test_aLaterNarrowingCarriesTheGoverningPhotographAndSweepsNothing() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let piece = try await docId()
+        let ghost = try appendToUnsignedStream(docId: piece, opIds: ["g1", "g2"])
+
+        final class Count: @unchecked Sendable {
+            private let lock = NSLock(); private var n = 0
+            func bump() { lock.lock(); n += 1; lock.unlock() }
+            var value: Int { lock.lock(); defer { lock.unlock() }; return n }
+        }
+        let sweeps = Count()
+        DocumentStore.unsignedSweepObserverForTesting = { sweeps.bump() }
+        defer { DocumentStore.unsignedSweepObserverForTesting = nil }
+
+        _ = try await store.admit(
+            device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: PermitControl.permit(for: .reviewer, pieces: []))
+        XCTAssertEqual(sweeps.value, 1, "premise: the first narrowing sweeps")
+        let first = try XCTUnwrap(try events().last)
+        let photographed = try XCTUnwrap(first.unsigned)
+        XCTAssertNotNil(photographed[try XCTUnwrap(PermitMark.streamKey(of: ghost))],
+                        "premise: the first photograph names the ghost stream")
+
+        // The unsigned stream writes on after the first narrowing.
+        _ = try appendToUnsignedStream(docId: piece, opIds: ["g3"])
+
+        let kim = LocalIdentities.softwareForTesting().author
+        _ = try await store.admit(
+            device: kim.fingerprint, label: "Kim", ownName: "Kim’s Mac",
+            permit: PermitControl.permit(for: .reviewer, pieces: []))
+        let second = try XCTUnwrap(try events().first { $0.subject == kim.fingerprint })
+
+        // 1. No sweep, and the governor's own photograph.
+        XCTAssertEqual(sweeps.value, 1, "the second narrowing swept nothing")
+        XCTAssertEqual(second.unsigned, photographed,
+                       "it carries the governing photograph forward")
+
+        // 2. The skewed later event governs, and judges as the first does.
+        let key = try XCTUnwrap(PermitMark.streamKey(of: ghost))
+        let ghostLines = try lines(of: ghost)
+        func judged(_ events: [PermitEvent]) throws -> [PermitMark.Judgement.Side] {
+            try XCTUnwrap(UnsignedSnapshot.governing(events: events))
+                .side(streamKey: key, fileIsSegmentWithDigest: nil,
+                      lines: ghostLines).sides
+        }
+        let truth = try judged([first])
+        XCTAssertEqual(truth, [.old, .old, .new],
+                       "premise: g1 and g2 are P1-era text, g3 is held")
+        let skewed = PermitEvent(
+            event: second.event, kind: second.kind, subject: second.subject,
+            role: second.role, scope: second.scope, pieces: second.pieces,
+            mark: second.mark, unsigned: second.unsigned,
+            at: first.at.addingTimeInterval(-60), by: second.by)
+        XCTAssertEqual(UnsignedSnapshot.governing(events: [first, skewed])?.event,
+                       skewed.event, "premise: the skewed later event governs")
+        XCTAssertEqual(try judged([first, skewed]), truth,
+                       "a clock that reads earlier cannot move the cliff")
+
+        // 3. A fresh Mac that has only the later event.
+        XCTAssertEqual(try judged([second]), truth,
+                       "nor can the order the files happened to sync in")
+    }
+
     // MARK: - Minor 7: no sweep, no gate, where no event will be written
 
     /// **`admit` over somebody already standing here moves no permit** — Core

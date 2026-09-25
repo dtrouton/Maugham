@@ -89,11 +89,14 @@ enum PermitControl {
     ///    book has set aside and re-assert it under its own key. The manifest's
     ///    schema gate is what prevents that, and raising it is what shuts the
     ///    older build out (`DocumentStore.gateOldBuildsOut`).
-    /// 2. **A Mac in this book that signs nothing it writes starts waiting.**
-    ///    Where the book holds an unsigned stream, everything that Mac writes
-    ///    after this moment is held on every other machine until it is sent to
-    ///    the Inbox — and nothing it has already written moves, which is the
-    ///    half a writer will not assume and must be told.
+    /// 2. **A Mac nothing in this book signs for yet starts waiting.** Where
+    ///    the book holds an unsigned stream, everything it writes after this
+    ///    moment is held on every other machine — until that Mac's first signed
+    ///    change syncs here, or, if it signs nothing, until it is sent to the
+    ///    Inbox — and nothing it has already written moves, which is the half a
+    ///    writer will not assume and must be told. **Both cases, never one**
+    ///    (P3c Task 7, Ruling R): it may be a signing Mac whose first seal has
+    ///    not synced, so this says what `HeldLines` says about it.
     ///
     /// Pure, with both inputs given rather than looked up, so the same sentence
     /// is decidable with no window and no folder — and so the two callers
@@ -110,9 +113,12 @@ enum PermitControl {
             + "less than an author of the whole of it. Older versions of "
             + "Maugham will no longer open this book."
         if holdsAnUnsignedStream {
-            sentence += " And a Mac here signs nothing it writes: from now on "
-                + "its writing waits on the other Macs until it is sent to the "
-                + "Inbox. Nothing it has already written changes."
+            sentence += " And nothing in this book signs for one of the Macs "
+                + "writing in it yet: from now on its writing waits on the "
+                + "other Macs \u{2014} until "
+                + "that Mac\u{2019}s first signed change syncs here, or, if it "
+                + "signs nothing, until it is sent to the Inbox. Nothing it has "
+                + "already written changes."
         }
         return sentence
     }
