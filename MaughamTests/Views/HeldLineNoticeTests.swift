@@ -207,6 +207,46 @@ final class HeldLineNoticeTests: XCTestCase {
         XCTAssertFalse(row.putOff)
     }
 
+    /// **An admitted Mac's pane lists no pending piece** (P3c plan 2 Task 4 fix
+    /// round 1, M5) — the pane's *Theirs* is a root's, like the sheet's
+    /// (`NewPieceModifier.questions`, Ruling AA). Both directions over one
+    /// register: Ada, admitted under the same root, is shown nothing to
+    /// answer; the root is shown the question.
+    func test_anAdmittedMacsPaneListsNoPieceQuestion() throws {
+        let root = String(repeating: "a1", count: 32)
+        let ada = String(repeating: "c4", count: 32)
+        let registry = Registry(devices: [], people: [
+            PersonRecord(person: root, label: "Denver", ownName: "Mac",
+                         admittedAt: Date(timeIntervalSince1970: 1),
+                         admittedBy: root),
+            PersonRecord(person: sam, label: "Sam", ownName: "Sam’s Mac",
+                         admittedAt: Date(timeIntervalSince1970: 2),
+                         admittedBy: root),
+            PersonRecord(person: ada, label: "Ada", ownName: "Ada’s Mac",
+                         admittedAt: Date(timeIntervalSince1970: 3),
+                         admittedBy: root),
+        ])
+        func model(me: String, isRoot: Bool) -> PeopleAndDevicesModel {
+            PeopleAndDevicesModel.make(
+                registry: registry,
+                table: TrustTable.resolve(
+                    registry: registry, mine: .forTesting(author: .softwareForTesting()),
+                    joinedRoot: nil),
+                remembered: [:], requests: [], claimants: [],
+                standing: .init(code: "AAAA", isRoot: isRoot),
+                me: me,
+                held: [sam: 3],
+                pieces: [.init(id: "ch-2", title: "The Orchard")],
+                heldPieceStarts: [sam: ["ch-2": 3]])
+        }
+        XCTAssertEqual(model(me: root, isRoot: true).pendingPieces.count, 1,
+                       "the root is asked")
+        XCTAssertTrue(model(me: ada, isRoot: false).pendingPieces.isEmpty,
+                      "an admitted Mac is not")
+        XCTAssertTrue(model(me: sam, isRoot: false).pendingPieces.isEmpty,
+                      "nor is her own Mac, about herself")
+    }
+
     /// **A question the writer put off is listed HERE and nowhere else** — the
     /// sheet is silent about it for good, so hiding it here too would leave
     /// them no way back to a question they meant to answer later.

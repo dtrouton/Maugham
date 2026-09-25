@@ -26,6 +26,27 @@ final class MCPServerLifecycleTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: path))
     }
 
+    /// **A waiting piece is typed on the direct-dispatch path too** (P3c plan
+    /// 2 Task 4 fix round 1, M4): not -32603 "Internal error", but its own
+    /// code with the same `waiting_for_piece` payload `tools/call` returns.
+    func test_aWaitingPieceIsTypedWhenAMethodIsDispatchedDirectly() async throws {
+        let router = MCPRouter()
+        router.register(method: "wait") { _ in
+            throw DocumentLoadError.waitingForPiece(docId: "doc-x", from: "Sam")
+        }
+        let prefs = UserPreferences(defaults: ephemeralDefaults())
+        let line = Data(#"{"jsonrpc":"2.0","id":7,"method":"wait"}"#.utf8)
+        let data = await MCPServer.dispatch(lineData: line, router: router, preferences: prefs)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let error = try XCTUnwrap(object["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? Int, MCPError.waitingForPieceCode)
+        let message = try XCTUnwrap(error["message"] as? String)
+        XCTAssertTrue(message.contains("waiting_for_piece"), message)
+        XCTAssertTrue(message.contains("Waiting for this piece to arrive from Sam."), message)
+        XCTAssertFalse(message.contains("Internal error"), message)
+    }
+
     func test_request_dispatchesViaRouter() async throws {
         let path = tmpSocketPath()
         let router = MCPRouter()

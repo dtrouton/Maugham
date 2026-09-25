@@ -559,6 +559,14 @@ extension ProjectStore {
                         actor: .author,
                         session: "wiki-rename-\(UUID().uuidString.prefix(8))",
                         presenter: documentStore?.presenter)
+                } catch DocumentLoadError.waitingForPiece {
+                    // A piece this Mac may not open yet (its ops have not
+                    // arrived — since Option A, the root's own Mac waits for a
+                    // piece a collaborator started): its links cannot be
+                    // rewritten here, so the rename SAYS so rather than leaving
+                    // an old link silently (fix round 1, M4).
+                    linksLeftIn.append(doc.title)
+                    continue
                 } catch {
                     projectStoreLog.error(
                         "Wiki-rename: failed to load \(path, privacy: .public) for propagation: \(error.localizedDescription, privacy: .public)")
@@ -832,7 +840,54 @@ extension ProjectStore {
 
         manifest.modified = Date()
         try await saveManifest()
+        await mintOpenings(of: copy)
         return copy
+    }
+
+    /// **A creation that yields a piece WITH content mints its opening here,
+    /// on the starter's Mac** (controller Ruling L (a), P3c plan 2 Task 4 fix
+    /// round 1).
+    ///
+    /// The starter rule lets only the Mac that started a piece mint its
+    /// opening. A copy is started here and arrives with its source's words in
+    /// its `.md` — and a copy nobody on this Mac opens (a group's children,
+    /// a duplicate made from Plan, a Mac that quits first) would otherwise
+    /// wait on every other Mac for an opening that is never coming. So each
+    /// document in the copy is loaded once, through the ONE minting door
+    /// (`Document.load`, which runs `Bootstrap` and nothing else does), and
+    /// closed. The manifest recording this Mac as starter is already on disk,
+    /// so the load mints as that starter. An EMPTY piece mints nothing — the
+    /// load's `needsBootstrap` is false — and loads on every Mac as before.
+    ///
+    /// Best-effort, in the direction that keeps the copy: the manifest and the
+    /// copied `.md` are already written, so a load that refuses is logged and
+    /// the copy stays, openable exactly as it was before this rule.
+    func mintOpenings(of item: StructureItem) async {
+        let documents = TreeWalk.collect(in: [item]) {
+            $0.type == .document && $0.pieceKind != .reference
+        }
+        for document in documents {
+            guard let path = document.path else { continue }
+            do {
+                let loaded = try await Document.load(
+                    url: url.appendingPathComponent(path),
+                    actor: .author,
+                    session: "created-\(UUID().uuidString.prefix(8))",
+                    presenter: documentStore?.presenter)
+                // The bootstrap writes an anchored `.md` for the op log to
+                // join on; the render the book keeps on disk is the clean one
+                // (ADR 0019), written here exactly as a restore writes its
+                // first render (`renderRestoredPiece`).
+                do { try await loaded.performAutosave() } catch {
+                    projectStoreLog.error(
+                        "Creation: the render of \(path, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+                }
+                await loaded.close()
+            } catch {
+                projectStoreLog.error(
+                    "Creation: the opening of \(path, privacy: .public) was not minted: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     /// Recursively rebuild a StructureItem tree with fresh ids and rewritten

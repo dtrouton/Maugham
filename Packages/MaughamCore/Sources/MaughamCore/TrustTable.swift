@@ -876,6 +876,29 @@ public struct TrustTable: Equatable, Sendable {
         return .anotherOfThisWritersDevices
     }
 
+    /// **Does a piece's recorded starter still STAND in this register?**
+    /// (controller Ruling L (b), P3c plan 2 Task 4 fix round 1.)
+    ///
+    /// The starter rule (`LocalWritePermit.mayMintOpening`) waits for the Mac
+    /// that started a piece to mint its opening. That wait only ends if the
+    /// starter can still write: a device the root revoked, one that retired,
+    /// and one this register has never heard of will never mint anything
+    /// here, so a piece they started must not be unopenable for everybody.
+    /// Where this answers false the starter rule does not bind and today's
+    /// rule applies — whoever may write the piece's text mints it.
+    ///
+    /// Standing means the same forwards match `starter(ofPieceStartedBy:)`
+    /// makes (an owned AUTHOR key this register vouches for) AND a verdict of
+    /// `.mine` or `.admitted`. This device's own ids always stand
+    /// (`keyByDeviceId` holds them before any record of its own is written).
+    nonisolated public func starterIsStanding(_ deviceId: String) -> Bool {
+        guard let key = starterKey(deviceId) else { return false }
+        switch verdict(forSealKey: key) {
+        case .mine, .admitted: return true
+        case .stranger, .revoked, .retired, .otherRoot, .noChain: return false
+        }
+    }
+
     /// **Is `deviceId` — a piece's recorded starter — the same writer as the
     /// key `fingerprint`?** (controller ruling G.) Asked of a book author's
     /// `bootstrap` by §4.5's pass 1: her opening counts as writing the piece's

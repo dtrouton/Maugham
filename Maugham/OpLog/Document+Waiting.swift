@@ -109,17 +109,48 @@ extension Document {
         guard permit.permit.mayStartAPieceOfTheirOwn else {
             return error.localizedDescription
         }
-        // **A piece she may already write is waiting for its OPS, not for a
-        // person** (P3c plan 2, Option A). Since every creation records its
-        // starter, a narrowed book's piece is minted by that Mac alone — so
-        // her OWN piece started on another Mac, and a piece she started on her
-        // other Mac, wait here until the opening arrives. Nobody is deciding
-        // anything about either, so the sentence names no root.
-        if permit.permit.namesPiece(docId) || permit.writesAsItsStarter {
-            return DocumentLoadError.waitingForPiece(docId: docId, from: nil)
-                .localizedDescription
+        // **A piece somebody STARTED is waiting for its ops, not for a person**
+        // (P3c plan 2, Option A; fix round 1, M2). Where the starter rule bound
+        // and this Mac did not start the piece (`startedHere == false`), the
+        // load has already named the starter (or nobody, for her own other
+        // Mac), and so has the error — the same sentence a reviewer reads. Her
+        // OWN piece by name is the same case: nobody is deciding anything
+        // about it. Only a piece outside her pieces that nobody is recorded as
+        // starting is waiting for the ROOT.
+        if permit.startedHere == false || permit.permit.namesPiece(docId)
+            || permit.writesAsItsStarter {
+            return error.localizedDescription
         }
         return Self.waitingToBeToldItIsYours(root: root)
+    }
+
+    /// **The label of the Mac that started `docId`, for the waiting sentence**
+    /// (fix round 1, M2) — or nil where the starter is this writer's own other
+    /// device (she is not waiting for anybody) or this register cannot name
+    /// it. Only ever called on the refusing path, where the starter rule bound
+    /// and this Mac did not start the piece.
+    internal static func starterLabelForWaiting(
+        docId: String, in projectURL: URL
+    ) -> String? {
+        starterLabel(
+            ofPiece: docId, in: projectURL,
+            identities: loadIdentities, cache: loadRegistryCache)
+    }
+
+    nonisolated static func starterLabel(
+        ofPiece docId: String, in projectURL: URL,
+        identities: LocalIdentities, cache: RegistryCache
+    ) -> String? {
+        guard let starter = OpLogStore.startedBy(ofPiece: docId, in: projectURL),
+              let registry = try? TrustResolution.verifiedRegistry(
+                projectURL: projectURL, cache: cache) else { return nil }
+        let table = TrustTable.resolve(
+            registry: registry, mine: identities,
+            joinedRoot: cache.joinedRoot(for: projectURL))
+        guard table.starter(ofPieceStartedBy: starter) == .somebodyElse else {
+            return nil
+        }
+        return table.label(forDeviceSlug: DeviceSlug.make(from: starter).raw)
     }
 
     /// **Denver's words for a piece that is not hers yet** (P3c plan 2,

@@ -9549,3 +9549,140 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(try hits().isEmpty, "Self-check: Op.swift is admitted")
     }
 }
+
+// MARK: - Option A: every piece a creation makes records its starter
+
+/// **Every production `StructureItem(` construction records `startedBy:`, or
+/// says why not** (P3c plan 2 Task 4 fix round 1, M3; Ruling OA-1).
+///
+/// A construction that forgets the field does not fail: its piece silently
+/// falls back to today's rule, so the Mac that made it no longer mints its
+/// opening first and a collaborator's words can land behind somebody else's.
+/// The population is DERIVED — every `StructureItem(` in `Maugham/`,
+/// `MaughamPhone/` and MaughamCore's sources — and each file's count is a
+/// named entry, so a new construction anywhere is judged here.
+///
+/// **Its known limit**: a structure item made by COPYING another (`var copy =
+/// source`, `duplicatedItemTree`) constructs nothing and is not seen; the
+/// duplicate re-stamps `copy.startedBy` itself and is pinned by
+/// `AdmissionPermitTests.test_everyCreationRecordsThisMacAndARenameOrMoveNeverRewritesIt`.
+extension TripwireGrepTests {
+
+    /// File → how many `StructureItem(` constructions it holds, and what each
+    /// records. Count the array, never a prose number.
+    static let structureItemConstructions: [String: (count: Int, records: String)] = [
+        "ProjectStore+Structure.swift":
+            (1, "addStructureItem — this Mac, on a document; nil on a group"),
+        "ProjectStore+CollectionPieces.swift":
+            (3, "addLoosePiece, addProjectReference — this Mac; "
+                + "writePromotedManifest — carries the piece's own (a move)"),
+        "ProjectFactory.swift":
+            (2, "a new book's first piece — this Mac"),
+    ]
+
+    /// Constructions allowed to leave `startedBy:` out, by `"<file>#<n>"`
+    /// (the n-th construction in that file, from 1), each with its reason.
+    /// Empty today: every construction records a starter.
+    static let structureItemConstructionsWithoutAStarter: [String: String] = [:]
+
+    /// Every `StructureItem(` construction in `text`: its argument list, found
+    /// by balancing parentheses. A name that merely ENDS in `StructureItem(`
+    /// (`restoreStructureItem(`) is not one, and neither is a comment line.
+    static func structureItemConstructions(in text: String) -> [String] {
+        let chars = Array(text)
+        let needle = Array("StructureItem(")
+        var found: [String] = []
+        var i = 0
+        while i + needle.count <= chars.count {
+            guard Array(chars[i..<(i + needle.count)]) == needle else { i += 1; continue }
+            let before: Character? = i > 0 ? chars[i - 1] : nil
+            if let before, before.isLetter || before.isNumber || before == "_" {
+                i += needle.count; continue
+            }
+            // The line this sits on, to skip a comment.
+            var lineStart = i
+            while lineStart > 0, chars[lineStart - 1] != "\n" { lineStart -= 1 }
+            let linePrefix = String(chars[lineStart..<i])
+                .trimmingCharacters(in: .whitespaces)
+            if linePrefix.hasPrefix("//") || linePrefix.hasPrefix("*") {
+                i += needle.count; continue
+            }
+            var depth = 1
+            var j = i + needle.count
+            while j < chars.count, depth > 0 {
+                if chars[j] == "(" { depth += 1 }
+                if chars[j] == ")" { depth -= 1 }
+                j += 1
+            }
+            found.append(String(chars[(i + needle.count)..<max(i + needle.count, j - 1)]))
+            i = j
+        }
+        return found
+    }
+
+    /// The census over a set of `(file name, source)` pairs: the per-file
+    /// counts, and every construction missing `startedBy:` that is not allowed.
+    static func structureItemCensus(
+        _ files: [(name: String, text: String)]
+    ) -> (counts: [String: Int], missing: [String]) {
+        var counts: [String: Int] = [:]
+        var missing: [String] = []
+        for file in files {
+            let calls = structureItemConstructions(in: file.text)
+            guard !calls.isEmpty else { continue }
+            counts[file.name, default: 0] += calls.count
+            for (index, args) in calls.enumerated()
+            where !args.contains("startedBy:")
+                && structureItemConstructionsWithoutAStarter["\(file.name)#\(index + 1)"] == nil {
+                missing.append("\(file.name)#\(index + 1)")
+            }
+        }
+        return (counts, missing)
+    }
+
+    private func productionSources(under roots: [String]) -> [(name: String, text: String)] {
+        let here = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+        var files: [(name: String, text: String)] = []
+        for root in roots {
+            let dir = here.appendingPathComponent(root, isDirectory: true)
+            guard let walker = FileManager.default.enumerator(
+                at: dir, includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                files.append((url.lastPathComponent, text))
+            }
+        }
+        return files
+    }
+
+    func test_everyStructureItemAProductionFileConstructsRecordsItsStarter() {
+        let census = Self.structureItemCensus(productionSources(
+            under: ["Maugham", "MaughamPhone", "Packages/MaughamCore/Sources"]))
+        XCTAssertEqual(
+            census.counts, Self.structureItemConstructions.mapValues(\.count),
+            "a StructureItem construction appeared or went: name it in "
+            + "structureItemConstructions with what it records as its starter")
+        XCTAssertEqual(census.missing, [],
+                       "these constructions record no startedBy and give no reason")
+        XCTAssertFalse(census.counts.isEmpty,
+                       "the control: no construction found means the scan reads nothing")
+    }
+
+    /// The planted offender: a construction without `startedBy:` is caught, a
+    /// name ending in `StructureItem(` and a comment are not, and a nested
+    /// call inside the argument list does not end it early.
+    func test_theStarterCensusFiresOnAPlantedOffender() {
+        let planted = """
+        // StructureItem(id: "in a comment", title: "t", type: .document)
+        let a = restoreStructureItem(item)
+        let b = StructureItem(id: newId(prefix: "doc"), title: t, type: .document)
+        let c = StructureItem(
+            id: newId(prefix: "doc"), title: t, type: .document,
+            startedBy: Self.thisMacAsAStarter)
+        """
+        let census = Self.structureItemCensus([("Planted.swift", planted)])
+        XCTAssertEqual(census.counts, ["Planted.swift": 2])
+        XCTAssertEqual(census.missing, ["Planted.swift#1"], "the offender is named")
+    }
+}

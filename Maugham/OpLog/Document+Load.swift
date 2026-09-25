@@ -401,9 +401,17 @@ extension Document {
             // whoever may write its text mints it. The one predicate is
             // Core's (`LocalWritePermit.mayMintOpening`).
             guard writePermit.mayMintOpening else {
+                // WHO the wait is for (fix round 1, M2): where the starter
+                // rule bound and this Mac did not start the piece, it is
+                // waiting for the STARTER's ops — named by the starter's label,
+                // or nobody where the starter is this writer's own other Mac.
+                // Otherwise it is this device's permit that refuses, and the
+                // root (never itself) is who would change that.
                 throw DocumentLoadError.waitingForPiece(
                     docId: docId,
-                    from: Document.rootLabelForWaiting(in: projectURL))
+                    from: writePermit.startedHere == false
+                        ? Document.starterLabelForWaiting(docId: docId, in: projectURL)
+                        : Document.rootLabelForWaiting(in: projectURL))
             }
             _ = try await Bootstrap.run(
                 projectURL: projectURL, docId: docId,

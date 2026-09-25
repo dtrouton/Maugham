@@ -635,7 +635,8 @@ final class DocumentWaitingTests: XCTestCase {
             XCTAssertEqual(error, .waitingForPiece(docId: Self.docId, from: "Sam"))
             XCTAssertEqual(
                 Document.waitingSentence(error, docId: Self.docId, in: projectURL),
-                "Waiting for this piece to arrive.")
+                "Waiting for this piece to arrive from Sam.",
+                "the starter (here the root) is who the wait is for")
         }
         XCTAssertTrue(OpLogStore.opLogFileURLs(forDocId: Self.docId, in: projectURL).isEmpty,
                       "nothing minted")

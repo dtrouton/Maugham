@@ -316,6 +316,12 @@ public final class OpLogStore {
         else {
             return LocalWritePermit(permit: permit, actor: actor, documentClass: cls)
         }
+        // **A starter that no longer stands binds nothing** (Ruling L (b)): a
+        // revoked, retired or unknown device will never mint this piece's
+        // opening, so today's rule applies — the piece is not left unopenable.
+        guard table.starterIsStanding(starterId) else {
+            return LocalWritePermit(permit: permit, actor: actor, documentClass: cls)
+        }
         let starter = table.starter(ofPieceStartedBy: starterId)
         // **Option A's arm** — the same three facts the partition's own arm
         // asks (`PermitPartition.appliesOnItsWritersOwnMac`), on the write

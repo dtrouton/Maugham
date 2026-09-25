@@ -523,6 +523,17 @@ final class AdmissionPermitTests: XCTestCase {
         _ = try await rootStore.admit(
             device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac",
             permit: PermitControl.permit(for: .somePieces, pieces: ["ch-A"]))
+        // Her Mac declares itself, as its own open does
+        // (`RegistryPresence`): a starter this register cannot name does not
+        // stand (Ruling L (b)), so the root would fall back to today's rule.
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: stranger.fingerprint, name: "Sam’s Mac", kind: .mac,
+                actors: Dictionary(uniqueKeysWithValues: DeviceActor.allCases.map {
+                    ($0.rawValue, strangerDevice[$0].fingerprint)
+                }),
+                madeAt: Date(timeIntervalSince1970: 2_000)),
+            signedBy: stranger, in: projectURL)
         let her = Mac(
             identities: strangerDevice, state: strangerState,
             cache: RegistryCache(
@@ -600,11 +611,12 @@ final class AdmissionPermitTests: XCTestCase {
             await minted.close()
             XCTFail("the root minted an opening in a piece it did not start")
         } catch let error as DocumentLoadError {
-            XCTAssertEqual(error, .waitingForPiece(docId: x.id, from: nil),
-                           "and names no root: this Mac is the root")
+            XCTAssertEqual(error, .waitingForPiece(docId: x.id, from: "Sam"),
+                           "and names who it is waiting for — the starter, "
+                           + "never this Mac's own root label (fix round 1, M2)")
             XCTAssertEqual(
                 Document.waitingSentence(error, docId: x.id, in: projectURL),
-                "Waiting for this piece to arrive.")
+                "Waiting for this piece to arrive from Sam.")
         }
         XCTAssertTrue(OpLogStore.opLogFileURLs(forDocId: x.id, in: projectURL).isEmpty,
                       "nothing minted on the root's Mac")
@@ -645,6 +657,146 @@ final class AdmissionPermitTests: XCTestCase {
                      "hers now: nothing is waiting")
         XCTAssertTrue(onHers.mayWriteItsText)
         await onHers.close()
+    }
+
+    // MARK: - Ruling L: a piece nobody opens, and a starter that is gone
+
+    /// **(a) A creation WITH content mints its opening at creation** — a
+    /// duplicated GROUP's children, which nobody on the starter's Mac ever
+    /// opens, still open on another Mac straight away.
+    func test_aDuplicatedGroupsChildOpensOnTheOtherMacWithoutItsStarterOpeningIt()
+        async throws
+    {
+        let (root, her, rootStore) = try await aRootAndHer()
+        let project = try await ProjectStore.load(from: projectURL)
+        project.documentStore = rootStore
+        let group = try await project.addStructureItem(
+            parentId: nil, title: "Part", kind: .group)
+        let child = try await project.addStructureItem(
+            parentId: group.id, title: "Scene", kind: .document(extension: "md"))
+        try Data("The scene's words.\n".utf8)
+            .write(to: projectURL.appendingPathComponent(try XCTUnwrap(child.path)))
+
+        let copy = try await project.duplicateStructureItem(id: group.id)
+        let copied = try XCTUnwrap(copy.children?.first)
+        XCTAssertEqual(copied.startedBy, root.identities.author.deviceId)
+        XCTAssertFalse(
+            OpLogStore.opLogFileURLs(forDocId: copied.id, in: projectURL).isEmpty,
+            "the opening was minted at creation, on the starter's Mac")
+        let render = try String(
+            contentsOf: projectURL.appendingPathComponent(try XCTUnwrap(copied.path)),
+            encoding: .utf8)
+        XCTAssertFalse(render.contains("¶"),
+                       "and the `.md` it leaves is the clean render (ADR 0019)")
+
+        be(her)
+        let onHers = try await load(
+            projectURL.appendingPathComponent(try XCTUnwrap(copied.path)), session: "her")
+        XCTAssertTrue(onHers.displayText.contains("The scene's words."),
+                      "her Mac opens it: nothing is waiting")
+        await onHers.close()
+    }
+
+    /// **An EMPTY new piece needs no opening** — it loads on every Mac exactly
+    /// as before, the root's included, whoever started it and whether or not
+    /// its starter ever opened it.
+    func test_anEmptyNewPieceNeedsNoOpeningAndOpensOnEveryMac() async throws {
+        let (root, her, _) = try await aRootAndHer()
+        be(her)
+        let herProject = try await ProjectStore.load(from: projectURL)
+        let x = try await herProject.addStructureItem(
+            parentId: nil, title: "Blank", kind: .document(extension: "md"))
+        let xURL = projectURL.appendingPathComponent(try XCTUnwrap(x.path))
+
+        be(root)
+        let onTheRoot = try await load(xURL, session: "root")
+        XCTAssertEqual(onTheRoot.displayText, "")
+        await onTheRoot.close()
+        XCTAssertTrue(OpLogStore.opLogFileURLs(forDocId: x.id, in: projectURL).isEmpty,
+                      "nothing to mint, and nothing minted")
+    }
+
+    /// **(b) A starter that no longer stands binds nothing** — on real disk,
+    /// the root's Mac, a piece with words and no history: an unknown starter,
+    /// her revoked device and her retired device each fall back to today's
+    /// rule and the root mints. Her standing device (the control) makes the
+    /// root wait.
+    func test_aStarterThatNoLongerStandsFallsBackToTodaysRule() async throws {
+        let (root, her, rootStore) = try await aRootAndHer()
+        let project = try await ProjectStore.load(from: projectURL)
+        project.documentStore = rootStore
+        /// A piece with words and no history, recorded as started by `deviceId`.
+        func aPiece(startedBy deviceId: String) async throws -> (id: String, url: URL) {
+            be(root)
+            let item = try await project.addStructureItem(
+                parentId: nil, title: "P", kind: .document(extension: "md"))
+            let url = projectURL.appendingPathComponent(try XCTUnwrap(item.path))
+            try Data("Somebody's words.\n".utf8).write(to: url)
+            project.manifest.structure = TreeWalk.mutate(
+                id: item.id, in: project.manifest.structure
+            ) { var node = $0; node.startedBy = deviceId; return node }
+            try await project.saveManifest()
+            return (item.id, url)
+        }
+        func rootMints(_ piece: (id: String, url: URL)) async throws -> Bool {
+            be(root)
+            do {
+                let doc = try await load(piece.url, session: "root-\(UUID().uuidString)")
+                await doc.close()
+            } catch DocumentLoadError.waitingForPiece {
+                return false
+            }
+            return !OpLogStore.opLogFileURLs(forDocId: piece.id, in: projectURL).isEmpty
+        }
+        let herId = her.identities.author.deviceId
+
+        let control = try await rootMints(try await aPiece(startedBy: herId))
+        XCTAssertFalse(control, "the control: her standing device binds the root")
+
+        let unknown = try await rootMints(
+            try await aPiece(startedBy: "author-" + String(repeating: "0f", count: 8)))
+        XCTAssertTrue(unknown, "a starter this register never heard of")
+
+        let beforeRetiring = try await aPiece(startedBy: herId)
+        be(her)
+        _ = try RegistryAdmission.retire(
+            device: stranger.fingerprint, in: projectURL, by: stranger, cache: her.cache)
+        let retired = try await rootMints(beforeRetiring)
+        XCTAssertTrue(retired, "her retired device")
+
+        let beforeRevoking = try await aPiece(startedBy: herId)
+        _ = try await rootStore.revoke(person: stranger.fingerprint)
+        let revoked = try await rootMints(beforeRevoking)
+        XCTAssertTrue(revoked, "her revoked device")
+    }
+
+    /// **A rename on the root's Mac SAYS it left a link in a piece it is
+    /// waiting for** (fix round 1, M4): the piece a collaborator started has
+    /// no history here yet, so its links cannot be rewritten — and the rename
+    /// names it rather than leaving the old link silently.
+    func test_aRenameNamesAPieceItIsWaitingFor() async throws {
+        let (root, her, rootStore) = try await aRootAndHer()
+        let project = try await ProjectStore.load(from: projectURL)
+        project.documentStore = rootStore
+        let target = try await project.addStructureItem(
+            parentId: nil, title: "Old", kind: .document(extension: "md"))
+        project.documentStore = nil
+
+        be(her)
+        let herProject = try await ProjectStore.load(from: projectURL)
+        let x = try await herProject.addStructureItem(
+            parentId: nil, title: "The Orchard", kind: .document(extension: "md"))
+        // Her words' render has arrived; their ops have not.
+        try Data("See [[Old]].\n".utf8)
+            .write(to: projectURL.appendingPathComponent(try XCTUnwrap(x.path)))
+
+        be(root)
+        let rootProject = try await ProjectStore.load(from: projectURL)
+        rootProject.documentStore = rootStore
+        let outcome = try await rootProject.renameStructureItem(
+            id: target.id, newTitle: "New")
+        XCTAssertEqual(outcome.linksLeftIn, ["The Orchard"])
+        XCTAssertNotNil(outcome.sentence)
     }
 
     /// **Every creation records this Mac, and only a creation does** (OA-1):
