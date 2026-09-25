@@ -41,7 +41,7 @@ final class AnnotationLoadingTests: XCTestCase {
         let creation = suggestionOp(opId: "01CREATION", paragraphId: "k7m3", prior: "Old.", next: "New.")
         let accept = acceptOp(opId: "01ACCEPT", sourceAnnotationId: "01CREATION", paragraphId: "k7m3", prior: "Old.", next: "New.")
 
-        let open = AnnotationLoading.openAnnotations(ops: [creation, accept])
+        let open = AnnotationLoading.openAnnotations(ops: [creation, accept], amendments: .honourEverything)
         XCTAssertTrue(open.isEmpty,
             "an accepted suggestion is resolved (status != .open) and must not appear on the triage list")
     }
@@ -49,7 +49,7 @@ final class AnnotationLoadingTests: XCTestCase {
     func test_openAnnotations_includesUnresolvedComment() {
         let comment = commentOp(opId: "01COMMENT", paragraphId: "k7m3", body: "nice line")
 
-        let open = AnnotationLoading.openAnnotations(ops: [comment])
+        let open = AnnotationLoading.openAnnotations(ops: [comment], amendments: .honourEverything)
         XCTAssertEqual(open.count, 1)
         XCTAssertEqual(open.first?.id, "01COMMENT")
         XCTAssertEqual(open.first?.status, .open)
@@ -63,7 +63,7 @@ final class AnnotationLoadingTests: XCTestCase {
         let accept = acceptOp(opId: "01ACCEPT", sourceAnnotationId: "01CREATION", paragraphId: "k7m3", prior: "Old.", next: "New.")
         let comment = commentOp(opId: "01COMMENT", paragraphId: "k7m3", body: "nice line")
 
-        let all = AnnotationLoading.allAnnotations(ops: [creation, accept, comment])
+        let all = AnnotationLoading.allAnnotations(ops: [creation, accept, comment], amendments: .honourEverything)
         let byId = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
         XCTAssertEqual(all.count, 2, "both the resolved suggestion and the open comment are present")
         XCTAssertEqual(byId["01CREATION"]?.status, .accepted)

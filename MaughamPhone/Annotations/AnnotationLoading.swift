@@ -107,12 +107,12 @@ enum AnnotationLoading {
     /// (All) mode needs resolved annotations too, so we derive the full set once
     /// and let callers partition by `.status`.
     ///
-    /// `amendments` defaults to the pre-P3a rule for callers holding bare ops
-    /// (tests of the deriver's own shape); every production read goes through
-    /// `loadJudged` and passes its judgement (`TripwirePhoneGrepTest`'s
-    /// judged-read census).
+    /// `amendments` is REQUIRED (fix round 1): a caller holding bare ops says
+    /// which judgement it means — `.honourEverything` by name where the
+    /// un-narrowed answer is genuinely wanted. Every production read goes
+    /// through `loadJudged` and the `JudgedOps` overloads below.
     static func allAnnotations(
-        ops: [Op], amendments: AnnotationAmendments = .honourEverything
+        ops: [Op], amendments: AnnotationAmendments
     ) -> [Annotation] {
         // Single source of truth lives in MaughamCore (tripwire 19) — the Mac's
         // project-wide walk derives through the same pair. Do NOT reimplement.
@@ -136,7 +136,7 @@ enum AnnotationLoading {
     /// Open annotations only — the triage subset. Kept as the thin filter over
     /// `allAnnotations` so the two never drift.
     static func openAnnotations(
-        ops: [Op], amendments: AnnotationAmendments = .honourEverything
+        ops: [Op], amendments: AnnotationAmendments
     ) -> [Annotation] {
         AnnotationAggregation.openAnnotations(ops: ops, amendments: amendments)
     }

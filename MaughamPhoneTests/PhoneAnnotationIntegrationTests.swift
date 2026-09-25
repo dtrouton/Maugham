@@ -65,7 +65,7 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
 
         // The phone derives the open annotation and rejects it.
         let opsBefore = try await OpLogStore(projectURL: tmp).load(docId: docId)
-        let annotation = try XCTUnwrap(AnnotationLoading.openAnnotations(ops: opsBefore).first)
+        let annotation = try XCTUnwrap(AnnotationLoading.openAnnotations(ops: opsBefore, amendments: .honourEverything).first)
         XCTAssertEqual(annotation.status, .open)
 
         let writer = AnnotationWriter(
@@ -103,7 +103,7 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
         try await macStore.append(macComment())
 
         let opsBefore = try await OpLogStore(projectURL: tmp).load(docId: docId)
-        let annotation = try XCTUnwrap(AnnotationLoading.openAnnotations(ops: opsBefore).first)
+        let annotation = try XCTUnwrap(AnnotationLoading.openAnnotations(ops: opsBefore, amendments: .honourEverything).first)
         let writer = AnnotationWriter(
             projectRoot: tmp, docId: docId, identity: identity,
             appVersion: "0.1.0", osVersion: "iOS 17.4")
@@ -197,7 +197,7 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
         XCTAssertEqual(paragraphs["k7m3"], "The sun set.",
                        "the revert's changes must restore the pre-accept paragraph text")
 
-        let annotations = AnnotationLoading.allAnnotations(ops: ops)
+        let annotations = AnnotationLoading.allAnnotations(ops: ops, amendments: .honourEverything)
         let reopened = try XCTUnwrap(annotations.first { $0.id == suggestion.opId })
         XCTAssertEqual(reopened.status, .open, "accept-revert reopens the annotation")
         XCTAssertNil(reopened.resolvedAt)
@@ -253,7 +253,7 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
         XCTAssertEqual(paragraphs["k7m3"], "The sun bled out.",
                        "a changes-free revert does not itself touch manuscript text — the rewind's own checkpoint_restore is what does that")
 
-        let annotations = AnnotationLoading.allAnnotations(ops: ops)
+        let annotations = AnnotationLoading.allAnnotations(ops: ops, amendments: .honourEverything)
         let reopened = try XCTUnwrap(annotations.first { $0.id == suggestion.opId })
         XCTAssertEqual(reopened.status, .open, "accept-revert reopens the annotation even changes-free")
         XCTAssertNil(reopened.resolvedAt)
@@ -323,7 +323,7 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
             provenance: Op.Provenance(sessionId: "s2", sourceAnnotationId: creation.opId))
 
         // The re-derive helper the detail view uses no longer lists it as open.
-        XCTAssertTrue(AnnotationLoading.openAnnotations(ops: [creation, archive]).isEmpty)
+        XCTAssertTrue(AnnotationLoading.openAnnotations(ops: [creation, archive], amendments: .honourEverything).isEmpty)
 
         // And the full derivation classifies it archived (what the detail shows).
         let paragraphs = Deriver.derive(ops: [creation, archive]).paragraphs
@@ -388,7 +388,7 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
             identity: book.denverPhone, appVersion: "0.1.0", osVersion: "iOS 27")
         try await writer.accept(
             suggestion, currentParagraph: PhoneNarrowedBook.paragraphText,
-            verifyingAgainst: judged.ops, judgedBy: judged.amendments)
+            verifyingAgainst: judged)
 
         let onMac = try await book.macRead()
         XCTAssertEqual(onMac.first?.status, .accepted)
@@ -412,13 +412,13 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
         XCTAssertTrue(AnnotationLoading.allAnnotations(judged).isEmpty)
         // The view that opened before the Delete synced still holds it open.
         let stale = try XCTUnwrap(AnnotationLoading.allAnnotations(
-            ops: [book.opening(), suggestion]).first)
+            ops: [book.opening(), suggestion], amendments: .honourEverything).first)
         let writer = AnnotationWriter(
             projectRoot: book.projectURL, docId: PhoneNarrowedBook.docId,
             identity: book.denverPhone, appVersion: "0.1.0", osVersion: "iOS 27")
         XCTAssertThrowsError(try writer.makeAccept(
             for: stale, currentParagraph: PhoneNarrowedBook.paragraphText,
-            verifyingAgainst: judged.ops, judgedBy: judged.amendments)) { error in
+            verifyingAgainst: judged)) { error in
             guard case AnnotationWriter.WriteError.annotationWithdrawn = error else {
                 return XCTFail("expected annotationWithdrawn, got \(error)")
             }

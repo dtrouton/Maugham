@@ -261,15 +261,16 @@ final class PhoneAnnotationOwnershipTests: XCTestCase {
             "a note")
     }
 
-    /// Its converse: her own edit is hers, on both surfaces — and her phone
-    /// honours an edit her Mac made, because the two share a label.
+    /// Its converse: her own edit is hers, on both surfaces — across her two
+    /// devices. The note is written on Sam's Mac and edited on Sam's phone;
+    /// two keys, two person records, one label, so one writer.
     func test_herOwnEditIsHonouredOnBothSurfaces() async throws {
         try book.narrow()
         try book.writeFile(by: book.root.author, ops: [book.opening()])
-        try book.writeFile(by: book.samMac, ops: [
-            book.note("01SAMA", by: book.samMac),
+        try book.writeFile(by: book.samMac, ops: [book.note("01SAMA", by: book.samMac)])
+        try book.writeFile(by: book.samPhone, ops: [
             book.amend("01SAMEDIT", .annotationEdit, of: "01SAMA",
-                       by: book.samMac, body: "Sam's second thoughts"),
+                       by: book.samPhone, body: "Sam's second thoughts"),
         ])
 
         let onPhone = try await phone()
@@ -355,7 +356,7 @@ final class PhoneAnnotationOwnershipTests: XCTestCase {
         let judged = try await book.phoneRead(as: book.samPhone)
         let onPhone = AnnotationLoading.allAnnotations(judged)
         XCTAssertEqual(onPhone.first?.body, "Sam's words")
-        XCTAssertEqual(onPhone, AnnotationLoading.allAnnotations(ops: judged.ops),
+        XCTAssertEqual(onPhone, AnnotationLoading.allAnnotations(ops: judged.ops, amendments: .honourEverything),
                        "no narrowing, no difference from the pre-P3a rule")
     }
 }

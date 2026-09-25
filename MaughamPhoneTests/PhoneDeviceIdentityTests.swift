@@ -107,7 +107,12 @@ final class PhoneOneKeyTests: XCTestCase {
     override func tearDownWithError() throws {
         if let tmp { try? FileManager.default.removeItem(at: tmp) }
         tmp = nil
+        for url in narrowedBookRoots { try? FileManager.default.removeItem(at: url) }
+        narrowedBookRoots = []
     }
+
+    /// Every `PhoneNarrowedBook` a test made, removed in `tearDown`.
+    private var narrowedBookRoots: [URL] = []
 
     /// The three actors the phone is not, after the phone has done the thing
     /// that used to mint them.
@@ -134,7 +139,7 @@ final class PhoneOneKeyTests: XCTestCase {
         for _ in 0..<2 {
             let store = OpLogStore(projectURL: tmp)
             let ops = try await store.load(docId: docId)
-            XCTAssertFalse(AnnotationLoading.allAnnotations(ops: ops).isEmpty,
+            XCTAssertFalse(AnnotationLoading.allAnnotations(ops: ops, amendments: .honourEverything).isEmpty,
                            "the read path really ran")
         }
 
@@ -168,7 +173,7 @@ final class PhoneOneKeyTests: XCTestCase {
     @MainActor
     func test_theJudgedReadInANarrowedBookMintsNoKeyThePhoneWillNeverSignWith() async throws {
         let book = try PhoneNarrowedBook()
-        defer { book.remove() }
+        narrowedBookRoots += [book.projectURL, book.scratchURL]
         try book.writeRegister()
         try book.narrow()
         try book.writeFile(by: book.root.author, ops: [book.opening()])
@@ -179,6 +184,11 @@ final class PhoneOneKeyTests: XCTestCase {
         ])
         // Where this device can sign, the root admits it, so the read has the
         // whole register to judge by rather than a stranger's view of it.
+        // **The stated limit**: on a simulator with no enclave (`canSign`
+        // false) nothing can admit it, the read runs as a stranger's, and this
+        // test asserts only the key census below — which is its point; the
+        // behavioural half (Sam's edit judged away) is then the
+        // `PhoneAnnotationOwnershipTests` suite's alone, under software keys.
         let me = LocalIdentities.current.author
         let admitted = me.canSign
         if admitted {

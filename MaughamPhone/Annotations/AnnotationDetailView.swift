@@ -425,7 +425,7 @@ struct AnnotationDetailView: View {
                     docId: docId, from: OpLogStore(projectURL: projectURL))) ?? loaded
                 try await writer.accept(
                     current, currentParagraph: currentParagraph,
-                    verifyingAgainst: fresh.ops, judgedBy: fresh.amendments)
+                    verifyingAgainst: fresh)
             } catch AnnotationWriter.WriteError.malformedSuggestion {
                 errorMessage = "This suggestion is malformed and can’t be applied."
                 throw CancelledWrite()

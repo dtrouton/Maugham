@@ -150,18 +150,20 @@ struct AnnotationWriter: Sendable {
     /// loss), so we `assertionFailure` (Debug) then `throw .malformedSuggestion`
     /// rather than fabricate or drop the change.
     ///
-    /// `amendments` is the ownership judgement `ops` were read under
-    /// (`AnnotationLoading.loadJudged`, P3c plan 2 Task 5): the guard asks the
-    /// same withdrawn-or-not walk the Mac's accept guard asks, judged the same
-    /// way, so a reviewer's Delete of somebody else's note — which no Mac
-    /// honours — does not refuse this accept, and her Delete of her own does.
+    /// `loaded` is the merged ops WITH the ownership judgement they were read
+    /// under (`AnnotationLoading.loadJudged`, P3c plan 2 Task 5) — one value,
+    /// so the ops cannot reach this guard without their judgement. The guard
+    /// asks the same withdrawn-or-not walk the Mac's accept guard asks,
+    /// judged the same way, so a reviewer's Delete of somebody else's note —
+    /// which no Mac honours — does not refuse this accept, and her Delete of
+    /// her own does. A caller that genuinely wants the un-narrowed answer
+    /// says `.honourEverything` by name.
     func makeAccept(
         for annotation: Annotation, currentParagraph: String? = nil,
-        verifyingAgainst ops: [Op]? = nil,
-        judgedBy amendments: AnnotationAmendments = .honourEverything
+        verifyingAgainst loaded: AnnotationLoading.JudgedOps? = nil
     ) throws -> Op {
-        if let ops, AnnotationDeriver.isWithdrawn(
-            annotationId: annotation.id, in: ops, amendments: amendments) {
+        if let loaded, AnnotationDeriver.isWithdrawn(
+            annotationId: annotation.id, in: loaded.ops, amendments: loaded.amendments) {
             throw WriteError.annotationWithdrawn(annotationId: annotation.id)
         }
         let changes: [Op.ParagraphChange]
@@ -303,12 +305,11 @@ struct AnnotationWriter: Sendable {
     @discardableResult
     func accept(
         _ annotation: Annotation, currentParagraph: String? = nil,
-        verifyingAgainst ops: [Op]? = nil,
-        judgedBy amendments: AnnotationAmendments = .honourEverything
+        verifyingAgainst loaded: AnnotationLoading.JudgedOps? = nil
     ) async throws -> Op {
         try await append(makeAccept(
             for: annotation, currentParagraph: currentParagraph,
-            verifyingAgainst: ops, judgedBy: amendments))
+            verifyingAgainst: loaded))
     }
 
     @discardableResult

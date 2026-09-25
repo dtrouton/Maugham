@@ -904,10 +904,16 @@ final class TripwirePhoneGrepTest: XCTestCase {
     /// WITHOUT the ownership judgement. `AnnotationLoading.swift` is the one
     /// file allowed to spell them, because `loadJudged` is where the load and
     /// its judgement are put together and its derive overloads take the pair.
+    ///
+    /// Every `OpLogStore` read that hands back ops is named (fix round 1's M1
+    /// added the partial and single-file reads), and so is the permissive
+    /// judgement itself: `.honourEverything` spelled in production anywhere
+    /// but here is a derive that has chosen not to be judged.
     private let unjudgedAnnotationReads = [
-        ".load(docId:", "loadDiagnosed(", "loadSyncMerged(",
+        ".load(docId:", "loadDiagnosed(", "loadDiagnosedPartial(",
+        "loadFileDiagnosed(", "loadSyncMerged(",
         "AnnotationDeriver.derive(", "AnnotationDeriver.deriveWithdrawn(",
-        "AnnotationAggregation.",
+        "AnnotationAggregation.", ".honourEverything",
     ]
 
     /// **Every annotation read on the phone is judged** — through
@@ -943,6 +949,9 @@ final class TripwirePhoneGrepTest: XCTestCase {
         let b = try await store.loadDiagnosed(docId: docId)
         let c = AnnotationDeriver.derive(ops: ops, paragraphs: p)
         let d = AnnotationAggregation.openAnnotations(ops: ops)
+        let e = await store.loadDiagnosedPartial(docId: docId)
+        let f = try OpLogStore.loadFileDiagnosed(url, trust: t)
+        let g = AnnotationLoading.allAnnotations(ops: ops, amendments: .honourEverything)
         let good = try await AnnotationLoading.loadJudged(docId: docId, from: store)
         let fine = AnnotationLoading.allAnnotations(good)
         """.write(to: tmp.appendingPathComponent("UnjudgedRead.swift"),
@@ -954,40 +963,79 @@ final class TripwirePhoneGrepTest: XCTestCase {
         let offenders = try censusOffenders(
             in: tmp, patterns: unjudgedAnnotationReads,
             allowedIn: ["AnnotationLoading.swift"])
-        XCTAssertEqual(offenders.count, 4,
-            "Self-check: the four unjudged reads should be caught, and neither "
+        XCTAssertEqual(offenders.count, 7,
+            "Self-check: the seven unjudged reads should be caught, and neither "
             + "the comment, the judged spelling, nor the allow-listed file. "
             + "Caught:\n" + offenders.joined(separator: "\n"))
         XCTAssertFalse(offenders.contains(where: { $0.contains("let good") }))
         XCTAssertFalse(offenders.contains(where: { $0.contains("let fine") }))
     }
 
-    /// The reads a `JSONLAppendStore` offers. The phone's two chained stores
-    /// (`AnnotationWriter`, `InboxCaptureWriter`) take `ChainPolicy`'s default
-    /// single-signer trust, which is right ONLY for a store that writes: the
+    /// **C7: the phone's chained stores only write.** `AnnotationWriter` and
+    /// `InboxCaptureWriter` build `ChainPolicy` with its default single-signer
+    /// trust, which is the table's answer ONLY for a store that writes: the
     /// chained write asks nothing but *is this key mine*, while the chained
-    /// read takes the full verdict and would need the table (C7).
-    private let appendStoreReads = [
+    /// read takes the full verdict and would need the table.
+    ///
+    /// Three halves, so the census does not hang on one spelling in one file
+    /// (fix round 1's M1): every `ChainPolicy(` on the phone is in a NAMED
+    /// file; those files read through no store; and the reads only a
+    /// `JSONLAppendStore` offers appear in no phone source at all, so a store
+    /// built in one file cannot be read in another.
+    private let chainPolicyFiles: Set<String> = [
+        "AnnotationWriter.swift", "InboxCaptureWriter.swift",
+    ]
+    private let storeReads = [
         ".load(", ".loadDiagnosed(", ".loadStrict(",
         ".loadDiagnosedStrict(", ".loadVerifiedStrict(",
     ]
+    private let appendStoreOnlyReads = [
+        ".loadStrict(", ".loadDiagnosedStrict(", ".loadVerifiedStrict(",
+    ]
 
-    func test_thePhonesChainedStoresOnlyWrite() throws {
-        let offenders = try censusOffenders(
-            in: phoneSourceDir, patterns: appendStoreReads,
-            onlyFilesContaining: "JSONLAppendStore<")
-        XCTAssertTrue(offenders.isEmpty,
-            "A phone source that builds a `JSONLAppendStore` also reads through "
-            + "one. Its `ChainPolicy` carries the default single-signer trust, "
-            + "which is the table's answer for a write and not for a read: pass "
-            + "the verified table (`TrustTable.verdict(forSealKey:)`, from "
-            + "MaughamCore) to a store that reads. Offenders:\n"
-            + offenders.joined(separator: "\n"))
+    private func writeOnlyOffenders(in dir: URL) throws -> [String] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            XCTFail("could not enumerate \(dir.path)")
+            return []
+        }
+        var offenders: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let name = url.lastPathComponent
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                let lineStr = String(line)
+                if admissionExcludeLine(lineStr) { continue }
+                let where_ = "\(name):\(i + 1): " + lineStr.trimmingCharacters(in: .whitespaces)
+                if lineStr.contains("ChainPolicy("), !chainPolicyFiles.contains(name) {
+                    offenders.append("unnamed ChainPolicy — " + where_)
+                }
+                if chainPolicyFiles.contains(name),
+                   storeReads.contains(where: { lineStr.contains($0) }) {
+                    offenders.append("read in a chained writer — " + where_)
+                }
+                if appendStoreOnlyReads.contains(where: { lineStr.contains($0) }) {
+                    offenders.append("store read — " + where_)
+                }
+            }
+        }
+        return offenders
     }
 
-    /// CONTROL: a planted store that reads is caught; a file with no
-    /// `JSONLAppendStore` is not this census's business.
-    func test_theWriteOnlyStoreCensusFiresOnAPlantedOffender() throws {
+    func test_thePhonesChainedStoresOnlyWrite() throws {
+        let offenders = try writeOnlyOffenders(in: phoneSourceDir)
+        XCTAssertTrue(offenders.isEmpty,
+            "A phone source builds a `ChainPolicy` outside the two named "
+            + "writers, or reads through a chained store. The default "
+            + "single-signer trust is the table's answer for a write and not "
+            + "for a read: a store that reads takes the verified table "
+            + "(`TrustTable.verdict(forSealKey:)`, from MaughamCore). "
+            + "Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL: one planted offender per half, each caught; the sanctioned
+    /// shape and a comment are not.
+    func test_theWriteOnlyStoreCensusFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
         let tmp = fm.temporaryDirectory
             .appendingPathComponent("phone-write-only-\(UUID().uuidString)")
@@ -996,22 +1044,34 @@ final class TripwirePhoneGrepTest: XCTestCase {
         defer { try? fm.removeItem(at: tmp) }
 
         try """
-        let store = JSONLAppendStore<Op>(fileURL: url, chain: policy)
-        // A comment may say store.loadVerifiedStrict( here.
+        // A comment may say ChainPolicy( and store.load( here.
+        let store = JSONLAppendStore<Op>(fileURL: url, chain: ChainPolicy(
+            identity: identity, state: .shared, docId: docId, projectURL: root))
         try await store.append(op)
-        let read = try await store.loadVerifiedStrict()
-        """.write(to: tmp.appendingPathComponent("ReadingWriter.swift"),
+        let read = try await store.load()
+        """.write(to: tmp.appendingPathComponent("AnnotationWriter.swift"),
                   atomically: true, encoding: .utf8)
-        try "let identity = try DeviceIdentity.load(from: dir, actor: .author)\n"
-            .write(to: tmp.appendingPathComponent("NoStore.swift"),
-                   atomically: true, encoding: .utf8)
+        try """
+        let policy = ChainPolicy(identity: i, state: .shared, docId: d, projectURL: r)
+        let identity = try DeviceIdentity.load(from: dir, actor: .author)
+        """.write(to: tmp.appendingPathComponent("ThirdWriter.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        let elsewhere = try await sharedStore.loadVerifiedStrict()
+        """.write(to: tmp.appendingPathComponent("SomeReader.swift"),
+                  atomically: true, encoding: .utf8)
 
-        let offenders = try censusOffenders(
-            in: tmp, patterns: appendStoreReads,
-            onlyFilesContaining: "JSONLAppendStore<")
-        XCTAssertEqual(offenders.count, 1,
-            "Self-check: the one read should be caught. Caught:\n"
+        let offenders = try writeOnlyOffenders(in: tmp)
+        XCTAssertEqual(offenders.count, 3,
+            "Self-check: one offender per half. Caught:\n"
             + offenders.joined(separator: "\n"))
-        XCTAssertTrue(offenders.first?.contains("let read") ?? false)
+        XCTAssertTrue(offenders.contains { $0.contains("let read") },
+                      "a read in a named chained writer")
+        XCTAssertTrue(offenders.contains { $0.contains("let policy") },
+                      "a ChainPolicy in a file nobody named")
+        XCTAssertTrue(offenders.contains { $0.contains("let elsewhere") },
+                      "a store read anywhere else on the phone")
+        XCTAssertFalse(offenders.contains { $0.contains("let identity") },
+                       "`DeviceIdentity.load` in an unnamed file is not a store read")
     }
 }

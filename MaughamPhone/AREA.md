@@ -121,11 +121,14 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   amendmentPermits:)`, then `annotationAmendments(from:documentClass:)`),
   returning a `JudgedOps` — the ops and the ownership rule they are read
   under, together. The list, the detail's re-derive and the accept guard
-  (`AnnotationWriter.makeAccept(…judgedBy:)`) all take it, so in a narrowed
+  (`AnnotationWriter.makeAccept(…verifyingAgainst: JudgedOps)`) all take it, so in a narrowed
   book a reviewer's edit, Delete or reopen of somebody else's note is not
   honoured on the phone either, and her own restore made on a Mac is. An
   un-narrowed book reads exactly as before (`annotationAmendments` answers
-  `.honourEverything` with no register). `TripwirePhoneGrepTest.
+  `.honourEverything` with no register). No phone derive has a permissive
+  default — the bare-op wrappers take `amendments:` as a required argument,
+  so a caller wanting the un-narrowed answer names `.honourEverything`.
+  `TripwirePhoneGrepTest.
   test_everyAnnotationReadOnThePhoneIsJudged` keeps a second, unjudged read
   out. The two writers' `ChainPolicy` keeps the default single-signer trust
   because those stores only WRITE, and a write asks nothing but *is this key
