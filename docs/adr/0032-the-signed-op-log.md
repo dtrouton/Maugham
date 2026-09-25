@@ -2115,9 +2115,17 @@ is `LocalWritePermit.mayMintOpening`, the ONE predicate.
   her. Every other Mac holds the line and asks the root, as §4.5 always did.
 - **The write side.** `LocalWritePermit.writesAsItsStarter` widens a `.no` to
   `.yes` for manuscript text, by the author's hand, in such a piece, and for
-  nothing else (Ruling F). Dispositions, ⌘S's checkpoint, tasks and translation
-  in her unclaimed piece stay refused until the root answers, because the read
-  side would set them aside everywhere, her own Mac included.
+  nothing else (Ruling F, in Ruling V's words). So in her unclaimed piece she
+  may write, and accept or reject a suggestion — a `claudeAccept` is
+  manuscript text, applied on her Mac and held elsewhere exactly like her
+  typing. She may set a pass state, restructure and run a round, each of which
+  is probed as her words (plan 1's R3/R4) and writes a manifest field or
+  annotation-shaped lines. Stet, archive, triage and reopen (`.dispose`), ⌘S's
+  checkpoint, tasks and translation wait for *Theirs*, because the read side
+  would set them aside everywhere, her own Mac included. `.editStatement`
+  answers yes on the PIECE's posture and is unreachable there: the statement
+  pane asks the statement document's own posture, whose class
+  (`.pieceStatement`) takes no Option A arm and refuses.
 - **The posture.** Her posture there carries `Posture.Reason.waitingToBeClaimed`.
   It is not a refusal: every text verb is offered, and the standing line says
   *Waiting for Denver to say this piece is yours.* `.startAPiece` now asks
@@ -2143,6 +2151,36 @@ rule and by the words.
   `PermitTimeline.wasTakenFromThem`). A whole-book author narrowed to some
   pieces may still start a new one. The arm, History's held and *Theirs* rows,
   and the load question all ask this one predicate.
+
+**The other side of the same piece: a book author's hand yields to its starter**
+(Ruling U, the whole-branch fix wave). OA-2 kept the root from MINTING in front
+of her words, and that was not the only way in front of them. After *Not now*
+the root's piece derived empty with nothing on screen, and when the manifest
+synced before the `.md` there was not even a wait. One keystroke there made the
+text a book author's and set a week of hers aside on every Mac. So:
+
+- `OpLogStore.localWritePermit` carries the fact —
+  `LocalWritePermit.unsettledStarter`, with the starter's name — where the
+  writer's own hand is a book author's (`Permit.claimsAPieceByWritingItsText`,
+  the one spelling the partition's claim also asks), the piece's starter is
+  somebody else and still standing, the starter's own permit does not author
+  the piece (`TrustTable.starterAuthors`), and no book author has written its
+  text (`unownedPiece`). It is decided from `startedBy`, so it holds whether or
+  not this Mac has any of the piece's ops. It widens and refuses nothing in the
+  table.
+- The Mac's `DocumentStore+Posture.assemble` yields on it with plan 1's
+  machinery, ahead of the owner's yield: every verb but `annotate` waits, and
+  *Edit Anyway* (per window, per session) lifts it. The standing line says
+  *Sam started this piece — it isn't settled whose it is yet.*
+  (`Posture.Reason.yieldingToItsStarter`), and the queue's header says the same.
+  Acting doors honour it (Ruling T). The rename's link sweep still LOADS such a
+  piece, because only the load can say it is waiting, and loading cannot mint
+  here (this Mac did not start it). It writes nothing into the piece.
+- *Not now*'s sentence now says what writing in the piece meanwhile would do.
+- *Theirs* ends it, because the piece joins her scope, and from then on the root
+  yields to her as the piece's owner (plan 1). A book author's text ends it
+  too, and §4.5 sets her lines aside — which is what pressing Edit Anyway and
+  typing chooses.
 
 **Only the root is asked.** `NewPieceModifier.questions` asks only on a Mac
 holding its own root record (`AdmissionDecision.askingRoot`, plan 1's ruling
@@ -2273,11 +2311,13 @@ one `AnnotationAmendments` policy.
     no type exposes. Nothing is built.
 - **I2 — a held NOTE from an unsigned Mac has no way back.** The §7.4 door
   captures paragraphs only; held annotation, disposition and checkpoint lines
-  from such a Mac have no door and no admission to pardon them. **The
-  unsigned held sentence (`HeldLines.sentence(.unsigned)`) still says *what it
-  wrote can be brought back through the Inbox* after a count that can include
-  notes**, so Denver's 2026-09-23 ruling (the sentence stops promising the
-  Inbox for them) is not yet delivered. Carried to plan 3.
+  from such a Mac have no door and no admission to pardon them. Denver's
+  2026-09-23 ruling is delivered in the fix wave: `HeldLines.sentence(.unsigned)`
+  says the paragraphs can be brought back through the Inbox (or from History,
+  in the Inbox pane's own wording). It says the notes and other changes stay
+  held, with no way back. History's unsigned narrowing row
+  (`TrustEventSentence`) says the same. Where the caller has only a count (the
+  capture stream), both halves are said.
 - **I4 — the schema gate's in-session window.** The gate stops a v0.40 Mac
   OPENING a narrowed book. It does not stop a v0.40 Mac that already has the
   book open when it is narrowed. That session's saves write schema 8 back (a
@@ -2294,12 +2334,49 @@ one `AnnotationAmendments` policy.
 - **A piece whose starter nobody ever admits waits everywhere** (Ruling N's
   cost). A stranger's piece, or a hand-edited manifest naming a device that
   never exists, stays *waiting for this piece to arrive* on every Mac until the
-  piece is deleted or its starter is admitted.
+  piece is deleted or its starter is admitted. **Two more states have the same
+  shape**, and each recovers through a verb that already exists:
+  - **A starter that is an ADMITTED device whose Mac is gone without retiring**
+    — a machine restored from a backup gets a new enclave key, or a Mac is
+    simply lost. Its pieces with no ops yet wait until the root REVOKES the old
+    device (`starterStanding` → `.gone`, and today's rule applies). Nothing yet
+    tells the root that revoking is what unblocks them.
+  - **A project created on Mac A and first rooted on Mac B.**
+    `ProjectFactory`'s seeded first piece records A as its starter. Under B's
+    narrowing it waits until A is admitted (or revoked).
 - **Her screen and the root's disagree about an unclaimed piece until the root
   answers** (OA-3's intent). Hers shows her words; every other Mac holds them.
-- **In her unclaimed piece she writes words and notes, and nothing else**
-  (Ruling F). She cannot checkpoint, dispose of notes, file tasks or translate
-  there until *Theirs*.
+- **In her unclaimed piece she writes words and notes, and changes nothing that
+  waits for the root** (Ruling F, widened to the code's words by Ruling V). She
+  may write, accept or reject a suggestion (manuscript text — held on the
+  root's Mac until *Theirs*, like her typing), set a pass state, restructure
+  and run a round. She may not stet, archive, triage or reopen a note,
+  checkpoint, file tasks or translate there until *Theirs*. Editing the piece's
+  statement is refused by the statement's own posture, whatever the piece's
+  posture answers.
+- **A book author's yield to a piece's starter lifts at the next rebuilt answer,
+  not at the re-read** (Ruling U's cost). *Theirs* is a trust change and lifts
+  it at once. Another book author's text arriving in the piece claims it, but
+  the root's open window keeps yielding until the next trust change, manifest
+  adoption or reopen. Ruling H's re-stamp re-asks only the starter's own arm.
+  That is a lock with Edit Anyway beside it, so it errs the safe way. A starter
+  whose device record has not synced is named *Somebody else*, and a starter
+  this register names but has not admitted (a stranger, another root's member,
+  a Mac on no chain) yields too: nothing yet says the piece is theirs. The yield is the WINDOW's, like plan 1's:
+  windowless writers of the book author's text (none writes manuscript text
+  today) would not see it.
+- **A root whose own record was deleted asks no admission question until some
+  other resolve restores it.** `AdmissionDecision.mayHoldARootRecord` checks
+  the file by name before the verified read that would restore it from this
+  Mac's memory. The next load or posture refresh restores it, so the question
+  arrives one announcement late and nothing is decided meanwhile.
+- **A project-task ⌘Z refused while the window is still `.settling` is
+  consumed.** The undo manager has already popped it, so the notice's *try
+  again* means the verb, not the ⌘Z. It fails closed.
+- **The phone can call an unclaimed piece *waiting to be claimed* where her Mac
+  calls it *not your piece*.** The phone's `unownedPiece` walk skips an op-log
+  file iCloud has not downloaded. That is cosmetic: the phone writes no
+  manuscript text, and dispositions there are refused either way.
 - **Between a book author's text landing and her next re-read**, what she types
   in her started piece is set aside and kept in History, not lost (Ruling H's
   window).

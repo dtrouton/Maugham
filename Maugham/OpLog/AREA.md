@@ -1770,6 +1770,23 @@ is byte-neutral: `ProjectStoreDuplicateTests.test_aCopysBytesAreWhatItsFirstOpen
 It costs about 15 ms a document on the main actor with enclave signing, which
 is a stated limit.
 
+**The other side: a book author's hand yields to the starter** (Ruling U, the
+whole-branch fix wave). The same builder sets a fourth answer,
+`LocalWritePermit.unsettledStarter` (the starter's device id and name), where
+four things hold. The writer's own hand is a book author's
+(`Permit.claimsAPieceByWritingItsText`, which is also what the partition's
+*a book author has written its text* now asks). The starter is somebody else
+and not gone. The starter's own permit does not author the piece
+(`TrustTable.starterAuthors`, false for a starter not admitted here). And
+`unownedPiece == .nobodyHasWrittenItsText`. It is decided from `startedBy`, so
+it holds with or without any of the piece's ops on this Mac (the
+manifest-before-`.md` entry). It changes no table answer. The Mac's posture
+door turns it into a cooperative yield with *Edit Anyway*
+(`Posture.Reason.yieldingToItsStarter`). Ruling H's re-stamp does NOT re-ask
+it, so another book author's text arriving lifts it at the door's next rebuilt
+answer rather than at the re-read. That is a stated limit, and the safe
+direction.
+
 ## Sealed segments (ADR 0016, M2)
 
 When a device's own live tail `<docId>.<slug>.jsonl` exceeds

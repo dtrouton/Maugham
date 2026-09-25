@@ -429,10 +429,13 @@ addendum**, whose *limits* section is the honest list.
   says nothing about a held line, a permit or a narrowing.~~ **Closed by P3c
   plan 2** (Tasks 5 and 6): every phone annotation read is judged, the phone's
   verbs follow its posture, and Settings says what it may write in each book.
-- **`announcePendingHistory` is narrowed to strangers**, so a §4.5 piece
+- ~~**`announcePendingHistory` is narrowed to strangers**, so a §4.5 piece
   question first appears at the next project open rather than mid-session.
   Widening it puts a verified-registry read back on a path the writer's
-  keystrokes reach; a separate cheap post is the shape if it is wanted.
+  keystrokes reach; a separate cheap post is the shape if it is wanted.~~
+  **Closed by P3b itself** (Task 7's fix round, C2): the §4.5 question has its
+  own mid-session post (`DocumentStore.register` → the piece announcement), so
+  it no longer waits for the next open. Struck in P3c plan 2's fix wave.
 - **Two doors on one pane, with different leads** (*Set aside…* / *Waiting…*),
   and a `chainBroke` record still OFFERS the record door — decided by content
   and not by cause, which is right and is also where *the words come back*
@@ -796,9 +799,10 @@ commit `9c361146`). The ledger — every ruling with its cost — is
 `.superpowers/sdd/2026-09-24-signed-op-log-p3c-plan2-option-a-and-the-phone/progress.md`,
 and the ten task reports sit beside it. ADR 0032's *P3c plan 2* addendum is the
 design record, and its *limits* are the honest list. UNMERGED and UNRELEASED:
-P3 ships whole. **The whole-branch review is still owed** (fable, given the
-P3a, P3b and P3c ledgers and the plan's seam list, and told to assume there is
-a Critical).
+P3 ships whole. **The whole-branch review ran** (fable, 2026-09-25, NOT READY
+— one Critical, two Important, six Minors: `whole-branch-review.md` in the
+ledger's directory), **and one fix wave answered all of it** (see *The
+whole-branch fix wave* below).
 
 ## What shipped
 
@@ -874,6 +878,50 @@ a Critical).
   - the roadmap.
   - CLAUDE.md edits are proposed in Task 10's report, for the controller.
 
+## The whole-branch fix wave (2026-09-25)
+
+- **C1 → Ruling U: a book author's hand yields to the starter of a piece
+  nobody has claimed.** The build shared a premise: that closing the root's
+  MINT closed the root's way in front of her words. It did not. After *Not
+  now* the root's copy of her piece derived empty and took typing with nothing
+  on screen. When the manifest synced before the `.md`, there was not even a
+  wait. One keystroke set her week's words aside on every Mac.
+  - `OpLogStore.localWritePermit` now carries the fact
+    (`LocalWritePermit.unsettledStarter`, with her name). It is set where this
+    hand is a book author's (`Permit.claimsAPieceByWritingItsText`, which the
+    partition's claim now asks too), the starter is somebody else and standing,
+    her own permit does not author the piece (`TrustTable.starterAuthors`,
+    false for a starter not admitted here), and no book author has written its
+    text.
+  - The Mac's `assemble` yields on it with plan 1's machinery and *Edit
+    Anyway*. The standing line and the queue header say *Sam started this piece
+    — it isn't settled whose it is yet.* *Not now*'s sentence says what writing
+    there meanwhile would do.
+  - Pinned on real disk, both directions (`AdmissionPermitTests`):
+    - after *Not now* the root is yielded, in every window, at both doors, and
+      her lines stay held and askable;
+    - after Edit Anyway in one window the other still yields, he types, and her
+      words are set aside on both Macs;
+    - after *Theirs* the unsettled yield is gone and plan 1's owner yield
+      stands;
+    - the manifest-before-`.md` entry yields too.
+  - The rename's link sweep still loads such a piece, so it can say *waiting*
+    (M4). Loading cannot mint there, and nothing is rewritten.
+- **I1 — Denver's I2 ruling delivered.** `HeldLines.sentence(.unsigned)` and
+  History's unsigned narrowing row now count paragraphs as coming back through
+  the Inbox, and say notes and other changes stay held with no way back.
+- **I2 → Ruling V** — docs only. Ruling F's words widen to what the table
+  does; no test disagreed.
+- **Minors.**
+  - The two handoff gaps (the stale `announcePendingHistory` carry is struck,
+    and the unknown-path minor is on the plan-3 list).
+  - `BibleStratum`'s blank line and `ReplaceGate`'s `.research` arm.
+  - Documented:
+    - the `mayHoldARootRecord` short-circuit's one-announcement-late self-heal;
+    - two more stranded-piece states;
+    - a settling refusal consuming a project-task ⌘Z;
+    - the phone's `unownedPiece` skipping undownloaded files.
+
 ## The rulings, with their costs
 
 Plan rulings, approved by Denver with the plan (2026-09-24):
@@ -906,7 +954,9 @@ Controller rulings made on Denver's behalf (confirm):
   reached. *Cost:* none.
 - **F** — a piece taken from her gets no Option A arm, and the arm covers
   manuscript text only. *Cost:* she cannot checkpoint, dispose, file tasks or
-  translate in her new piece until *Theirs*.
+  translate in her new piece until *Theirs*. **Worded by Ruling V** (below):
+  "manuscript text" includes accepting or rejecting a suggestion, and her
+  words' probes also offer pass state, restructure and a round.
 - **G** — a book author's bootstrap claims a piece unless `startedBy` names
   somebody else. *Cost:* none found.
 - **H** — the stamp is re-asked after every applied external re-read, in the
@@ -940,6 +990,25 @@ Controller rulings made on Denver's behalf (confirm):
 - **T** — the Core red with no assertion is `xcodebuild test` killing
   `xctest`. The fix is the gate lock plus a CLAUDE.md build-flow line.
   *Cost:* raw `xcodebuild`/`swift test` runs still collide.
+- **U** (whole-branch C1) — any book author's posture on a piece whose
+  `startedBy` names somebody else, and that nobody has claimed, YIELDS
+  cooperatively to the starter. It uses plan 1's Edit Anyway (per window, per
+  session), and applies whether or not this Mac minted or holds anything.
+  *Not now*'s sentence says what typing there does. *Cost:* one Edit Anyway
+  press for a book author who really means to write in her piece. Also, as
+  built:
+  - another book author's text arriving lifts the yield only at the door's next
+    rebuilt answer, not at the re-read;
+  - a starter not admitted here yields too;
+  - an unnamed one is *Somebody else*.
+- **V** (whole-branch I2) — Ruling F's words widen to match the code. In her
+  unclaimed piece she may accept or reject a suggestion (manuscript text —
+  applied on her Mac, held elsewhere, like her typing), set pass state,
+  restructure and run a round. Stet, archive, triage, reopen, ⌘S's checkpoint,
+  tasks and translation wait for *Theirs*. `.editStatement` answers yes on the
+  piece's posture and is unreachable there, because the statement's own
+  posture refuses. *Cost:* an accept she makes before *Theirs* is held on the
+  root's Mac until then, like her typing.
 
 ## For the release notes (with P3a's, P3b's and plan 1's)
 
@@ -967,11 +1036,21 @@ Controller rulings made on Denver's behalf (confirm):
   `PaletteWallDoorHitAreaTests`.
 
 **Found while writing the docs**:
-- **I2's sentence is not delivered.** `HeldLines.sentence(.unsigned)` still
-  ends *what it wrote can be brought back through the Inbox* after a count
-  that can include notes, and the §7.4 door captures paragraphs only. Denver
-  ruled on 2026-09-23 that the sentence stops promising the Inbox for held
-  notes. Make it say paragraphs come back through the Inbox and notes do not.
+- ~~**I2's sentence is not delivered.**~~ Delivered in the whole-branch fix
+  wave (I1).
+
+**From the whole-branch review's triage** (carry):
+- A book author's starter-yield (Ruling U) lifts at the door's next rebuilt
+  answer, not at the external re-read that brings another book author's text
+  in. Extend Ruling H's re-stamp to `unsettledStarter` stamps, with a
+  real-disk pin, if the smoke shows a stale lock.
+- Nothing tells the root that REVOKING a vanished starter (a Mac restored as a
+  new machine, or lost) is what unblocks its waiting pieces, and a project
+  first rooted on another Mac leaves its seeded piece waiting. Both are stated
+  in the ADR's limits and the guide; a hint in People & Devices is the shape if
+  wanted.
+- `restoreStanding`'s double mirror walk wants a per-derive memo if the
+  Deleted section grows long (Minor 3; the ledger's T8 item, below).
 
 **Deferred minors worth doing** (from the ledger):
 - `Permit.refused` names a refused reopen *other* for the translator and
@@ -992,8 +1071,11 @@ Controller rulings made on Denver's behalf (confirm):
 - The phone's write-only census misses a plain `.load(` of a named writer's
   store from a third file (not live).
 - Pre-existing main-actor warnings at `PhoneDeviceRecord.swift:74`.
-- A stray blank line in `BibleStratum.swift`, and a redundant `.research` arm
-  in `ReplaceGate.mayReplace`.
+- ~~A stray blank line in `BibleStratum.swift`, and a redundant `.research`
+  arm in `ReplaceGate.mayReplace`.~~ Done in the fix wave.
+- The headless-only staleness window in the unknown-path cache (Task 9): a
+  headless store keeps a file created after a miss on its old fallback id
+  until the next trust change or adoption.
 - Plan 1's stated cost limits stand: a never-asked document still costs about
   0.36 ms a row, and `PostureBook.asked` is never pruned.
 
@@ -1002,6 +1084,9 @@ Controller rulings made on Denver's behalf (confirm):
 iCloud share. Cover P3a–P3c whole, with at least:
 - Option A end to end: she starts a piece on Mac 1, her Mac 2 waits then
   applies, the root waits then asks, *Theirs*, and a Duplicate of a group;
+  **plus Ruling U**: the root presses *Not now*, opens the piece and sees a
+  yielded editor (*Sam started this piece — it isn't settled whose it is
+  yet.*), then Edit Anyway, types, and her words are set aside on both Macs;
 - ruling P on both surfaces: her own Delete restored on the Mac and seen on
   the phone, and a restore of somebody else's note not offered;
 - a reviewer's phone offering no dispositions and still capturing, and

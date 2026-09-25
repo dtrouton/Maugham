@@ -246,7 +246,8 @@ a new Mac whose first signed change simply hasn't synced yet. What such a
 machine has ALREADY written stays in your draft, exactly as it is. What it
 writes from then on waits: a Mac whose first signed change arrives is judged
 the moment it does, and a Mac that signs nothing has its paragraphs brought
-back through the Inbox rather than arriving on their own. The panel says so
+back through the Inbox rather than arriving on their own. Only its paragraphs:
+a note it leaves, or a note it settles, stays held with no way back. The panel says so
 before you press anything, and People & Devices lists any such machine the
 book is holding.
 
@@ -324,8 +325,12 @@ and that is what the rest of this section turns on.
 
 - **On their Mac**, the piece is theirs to write while the book's author
   decides. The line over it reads *Waiting for Denver to say this piece is
-  yours.* They can type and leave notes. Settling notes, ⌘S's checkpoint,
-  tasks and translating wait until Denver has answered.
+  yours.* They can type, leave notes, accept or reject a suggestion, set its
+  review pass, rename or move it, and run a round on it. Stet, archive and
+  reopen, ⌘S's checkpoint, tasks and translating wait until Denver has
+  answered. So does the piece's own intent, which is Denver's to write until
+  then. Anything they accept or reject there counts as their words: it shows
+  on their Mac and waits on Denver's, like their typing.
 - **On their other Macs**, the piece waits for the first Mac's words to arrive
   (*Waiting for this piece to arrive.*), then shows them as theirs.
 - **On the book author's Mac**, the piece waits for their words to arrive —
@@ -333,15 +338,28 @@ and that is what the rest of this section turns on.
   its own in front of them. Then Maugham asks: *Sam started “The Orchard” — is
   it theirs?* **Theirs** adds the piece to what Sam may write, their words come
   in on every Mac, and the waiting line on Sam's Mac goes, with no reopening.
-  **Not now** does nothing, and you can answer later from People & Devices.
+  **Not now** writes nothing and sets nothing aside, and you can answer later
+  from People & Devices.
+- **Until you answer, your Mac keeps out of the piece.** Opening it shows *Sam
+  started this piece — it isn't settled whose it is yet.*, and the editor
+  doesn't take typing. That holds even when the piece arrived before any of
+  Sam's words did. **Edit Anyway** lets you write in it (in that window, until
+  you close it), but read the next point first.
 - Only the Mac that holds the book asks. Nobody else is ever shown the
   question.
-- **If the book's author writes in the piece before answering**, the piece is
-  the author's. Sam's words there are set aside on every Mac, theirs included,
-  and kept in History, not lost, and Sam's Mac stops taking typing in it.
+- **If the book's author writes in the piece before answering** — after
+  pressing Edit Anyway — the piece is the author's. Sam's words there are set
+  aside on every Mac, theirs included, and kept in History, not lost. Sam's
+  Mac stops taking typing in it, and the question goes, because nothing of
+  Sam's is waiting any more. The same is true of anybody who may write the
+  whole book, so their Macs keep out of the piece too.
 - **A copy is a new piece**, started by the Mac that made it. A piece started
   by a machine nobody has admitted waits on every Mac until that machine is
-  admitted, or the piece is deleted.
+  admitted, or the piece is deleted. So does a piece whose starting Mac is gone
+  without being retired — restored from a backup as a new machine, say, or
+  lost — until you revoke that Mac in People & Devices. It also covers a book
+  whose first chapter was made on one Mac and whose book author is another: that
+  chapter waits until the first Mac is admitted.
 
 Pieces made before this version remember no starter, and behave as they always
 did.
@@ -396,7 +414,9 @@ elsewhere, let in with no panel. And where a machine's history is waiting, the
 row says so and — for a machine nothing in this book signs for yet — carries a
 **Send to Inbox** button, which copies the waiting paragraphs into your Inbox
 as captures. Nothing is applied to your draft; you put them where they belong
-yourself, and the button goes on offering whatever has arrived since.
+yourself, and the button goes on offering whatever has arrived since. It
+carries paragraphs only, and the row says so: that machine's notes stay held,
+with no way back.
 Paragraphs you have already sent are never offered again, even once that
 Mac's first signed change arrives and its history is held under its own name
 instead.

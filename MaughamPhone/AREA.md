@@ -160,7 +160,15 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   any `…Posture(` as a posture being BUILT — which is why the cache is made by
   `PhonePosture.forANewLoad()`). The verb decisions are pure functions over a
   `Posture` (`PhonePostureTests`), and the Mac↔phone round trips are
-  `PhonePostureRoundTripTests`.
+  `PhonePostureRoundTripTests`. **One asymmetry, stated** (whole-branch
+  review of P3c plan 2): the builder's `unownedPiece` walk skips an op-log
+  file iCloud has not downloaded (`readCoordinated` answers nil → `continue`),
+  so her phone can answer `.waitingToBeClaimed` over a piece her Mac already
+  calls *not your piece* (a book author's text has arrived there). Cosmetic:
+  the phone writes no manuscript text, and dispositions in such a piece are
+  refused either way. The phone never yields (Ruling U's yield to a piece's
+  starter is the Mac window's); `PhonePosture.refusal` has an arm for it only
+  because the switch is exhaustive.
 - **`Auth/`** — `LaunchAuthGate` (opt-in Face ID).
 - `MaughamPhoneApp.swift` owns the shared stores (`ProjectsRoot`/`RecentsTracker`/
   one `DownloadCoordinator`/`ProjectsBrowser`/`LaunchAuthGate`) and runs the §3.13
