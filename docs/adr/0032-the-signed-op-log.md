@@ -1534,7 +1534,9 @@ unsigned stream in a narrowed book.
   only, and such a Mac can write nothing this book will take; closing it means
   deciding what a Mac that belongs to nobody should be SHOWN, which is P3c's
   question. Pinned as
-  `UnsignedDoorTests.test_aMacOnNoChainHearsNoNarrowingAtAll`.
+  `UnsignedDoorTests.test_aMacOnNoChainHearsNoNarrowingAtAll`. **P3c's answer
+  (NC-1, Denver 2026-09-24):** it is part of I1 — stated as a limit and filed
+  as a future enhancement, with nothing built. See the P3c plan-2 limits.
 - **Two admitting roots that have not adopted each other disagree about what is
   held** (`test_withoutAdoptionEachMacHearsOnlyItsOwnRootsNarrowing`). Each
   hears its own root's narrowing and drops the other's. That is what a claimant
@@ -1644,8 +1646,9 @@ surface offer this verb?*
   permit's own `allows` answers.
 - Pass state, structure and a round are not ops. Each is probed as *may you
   write this piece's text* (R3, R4).
-- *Start a piece* is asked in the hardest class, so it is a whole-book
-  author's act until plan 2.
+- *Start a piece* is asked in the hardest class, so in plan 1 it was a
+  whole-book author's act. Plan 2 widened it to an author of some pieces
+  (Option A — see the P3c plan-2 addendum below).
 - `reason` names why the words are not hers: `.reviewer`, `.notYourPiece`,
   `.yielding(to:)` or `.cannotJudge`. It reads the rung only to NAME the
   reason, never to decide a verb (tripwire 47).
@@ -1840,7 +1843,9 @@ Anyway**.
 - **Ruling P.** A reviewer's reopen of her OWN withdrawn note is refused for
   now, loudly. `annotationReopen` is a disposition in the table, and moving
   own-note reopen onto the ownership path is a storage-table change that must
-  move on the Mac and the phone together. It is plan 2's.
+  move on the Mac and the phone together. It is plan 2's. **Superseded by plan
+  2:** a reopen is now judged by what it undoes, on both surfaces — see the
+  P3c plan-2 addendum below.
 - **Ruling X,** the File menu, described above.
 - **Rulings AA–AC,** F10, described below.
 
@@ -1967,8 +1972,10 @@ off the main actor, so it stays per miss; see the limits.
   posture of `__project__` (`projectTaskRefusal`), refuses and says so, and
   `.settling` says *try again in a moment*; the callers are a counted list
   (`TripwireGrepTests.projectTaskOpAppendSites`).
-- **A reviewer cannot restore her own deleted note until plan 2** (ruling P).
-  The refusal is loud rather than silent.
+- ~~**A reviewer cannot restore her own deleted note until plan 2** (ruling P).
+  The refusal is loud rather than silent.~~ Closed in P3c plan 2 Task 2: a
+  reopen that undoes her own Delete is honoured on every Mac and on the phone
+  (see the plan-2 addendum).
 - **M5-AN-012's filing awaits a register ruling.** The claim is amended and
   pinned. Its filing stays NO_RULING_REACHES until Denver promotes spec §8's
   sentence to a RULING-n.
@@ -2008,10 +2015,308 @@ off the main actor, so it stays per miss; see the limits.
   correct answer in a state that should not persist.
 - **The dev build's `test_apply_edit` is ungated by design.** It is the smoke
   rig's typing surrogate and stands in for a keystroke; the census names it.
-- **The phone draws none of this.** Its banner is gone with Component A, and its
-  posture (dispositions per piece, `AnnotationOwnership`, ruling P's reopen
-  change) is plan 2's.
+- ~~**The phone draws none of this.**~~ Closed in P3c plan 2 (Tasks 5 and 6):
+  the phone judges every annotation read by the ownership rule, offers only
+  the verbs its posture allows, and says in Settings what it may write in each
+  book. See the plan-2 addendum.
 
+## Addendum — a piece of her own, her own note back, and the phone, 2026-09-25 (P3c plan 2)
+
+Plan 1 made the Mac honest about the permit. Plan 2 closes what it left:
+**Option A** (Denver's I3 ruling of 2026-09-23 — an author of some pieces may
+start a piece of her own and write in it while the root decides), **ruling P**
+(a reviewer may restore her own deleted note), **the phone** (it judges
+annotations and offers verbs exactly as the Mac does), and the carries P3b and
+plan 1 left. The plan is
+`docs/superpowers/plans/2026-09-24-signed-op-log-p3c-plan2-option-a-and-the-phone.md`;
+every controller ruling, with what it costs if wrong, is in its ledger
+(`.superpowers/sdd/2026-09-24-signed-op-log-p3c-plan2-option-a-and-the-phone/progress.md`).
+
+Nothing here changes what a line MEANS in a book that narrows nobody, with one
+stated exception. The starter rule and the phone's judgement are inert there.
+The reopen rule is inert for the author's hand. The exception: in a ROOTED
+book, narrowed or not, an ASSISTANT-signed reopen now passes the partition and
+is judged by the deriver, instead of being set aside as a `.lines` record
+(Ruling C). Nothing writes one today. A copy's creation-time mint runs in every
+book, and is byte-neutral: the same op from the same Mac, only earlier. The
+pre-plan-2 suites passed apart from the flips each task named.
+
+### One posture door, in Core, for both surfaces
+
+`PostureDoor` (MaughamCore) is now the one place a `LocalWritePermit` becomes a
+`Posture` (tripwire 19). Its core entry, `posture(permit:yieldingTo:)`, takes a
+yield the CALLER has already decided. The yield decision (`PieceWriters` and
+the Edit Anyway set) stays in the Mac's `DocumentStore+Posture`, and the phone
+never yields. Two convenience entries resolve the permit through the one
+builder (tripwire 46). The windowless Mac callers — `RulingPerformer`
+(`postureWithNoWindow`) and `TranslationWritePipeline` — call the door and are
+admitted no posture-census spelling. The rung words and the role-plus-pieces
+sentence moved to `PermitWords`, so the phone says what People & Devices says.
+
+### Option A — the piece records who started it
+
+**OA-1: the starter is a fact on the piece.** `StructureItem.startedBy` is the
+author device id of the Mac that created the piece. It is optional; an absent
+value decodes as nil and writes no key (ADR 0015). Every creation site writes
+it through `ProjectStore.thisMacAsAStarter`, which is the same identity the
+load asks. Nothing rewrites it: a rename, a move, a Trash restore and a
+promotion all carry the stored value.
+
+- A copy is a new piece, so Duplicate records THIS Mac, not the source's
+  starter.
+- A group records nothing, because nothing asks who started a group.
+- A linked-project reference records the Mac that linked it.
+
+The census is `TripwireGrepTests.test_everyStructureItemAProductionFileConstructsRecordsItsStarter`,
+over a derived population, with a planted offender.
+
+**Who a starter is** is the trust table's answer, in two questions:
+
+- `TrustTable.starter(ofPieceStartedBy:)` answers `.thisDevice`,
+  `.anotherOfThisWritersDevices` (the same person, still admitted) or
+  `.somebodyElse`.
+- `TrustTable.starterStanding(_:)` answers `.standing`, `.gone` or `.unknown`.
+  **Only a revoked or retired starter is `.gone`** (Rulings L (b), M and N).
+  Everything else is `.unknown` and still binds, so this Mac waits: an id the
+  register has never heard of, a stranger never admitted, another root's
+  member, a Mac on no chain, and a contested or non-author key. A non-root Mac
+  cannot tell *never admitted* from *not synced yet*, and a stranger's piece is
+  not another Mac's to open.
+
+**OA-2: who mints the opening.** In a narrowed book the load's bootstrap guard
+is `LocalWritePermit.mayMintOpening`, the ONE predicate.
+
+- A piece with a standing starter is minted on THAT Mac alone. That includes
+  the root's Mac, which waits for a piece a collaborator started rather than
+  putting a root-signed opening in front of her words. It also includes her
+  own second Mac, which waits for her first Mac's opening (Ruling K).
+- A piece with no `startedBy` (made before this build), a piece whose starter
+  is gone, and every un-narrowed book keep the older rule: whoever may write
+  the piece's text mints it.
+- A creation that yields a piece WITH content mints its opening at creation,
+  on the starter's Mac (Ruling L (a)). That is Duplicate, including a
+  duplicated group's children. `ProjectStore.mintOpenings` loads each copy once
+  through `Document.load` and writes the clean render. It does this in every
+  book, so a piece copied before a later narrowing is never left unopenable.
+  An empty new piece needs no opening and opens everywhere as before.
+- Where this Mac may not mint, the load refuses with `waitingForPiece`. Its
+  error names the STARTER where this Mac did not start the piece
+  (*Waiting for this piece to arrive from Sam.*). It never names this Mac's own
+  root label on the root's own Mac. MCP answers it typed
+  (`MCPError.waitingForPieceCode`), and a rename's link sweep names the waiting
+  piece among the links it left.
+
+**OA-3: her own Mac applies her own lines.**
+
+- **The read side.** In §4.5's *nobody has written its text* arm,
+  `PermitPartition.appliesOnItsWritersOwnMac` applies a line only where three
+  things hold: the line is signed by one of this writer's own keys, the piece's
+  starter is hers (this Mac or her other Mac), and the piece was not taken from
+  her. Every other Mac holds the line and asks the root, as §4.5 always did.
+- **The write side.** `LocalWritePermit.writesAsItsStarter` widens a `.no` to
+  `.yes` for manuscript text, by the author's hand, in such a piece, and for
+  nothing else (Ruling F). Dispositions, ⌘S's checkpoint, tasks and translation
+  in her unclaimed piece stay refused until the root answers, because the read
+  side would set them aside everywhere, her own Mac included.
+- **The posture.** Her posture there carries `Posture.Reason.waitingToBeClaimed`.
+  It is not a refusal: every text verb is offered, and the standing line says
+  *Waiting for Denver to say this piece is yours.* `.startAPiece` now asks
+  `allowsStartingAPiece()`. That is true for a book author and an author of
+  some pieces, and false for a reviewer, an unjudgeable permit and every
+  narrowed actor. Plan 1's R3 and ruling W widen with it.
+
+**When the arm closes.** Two predicates, each spelled once, are shared by the
+rule and by the words.
+
+- **A book author's text claims the piece.** A book author's bootstrap still
+  counts as writing the piece's text, UNLESS the piece's `startedBy` names
+  somebody other than that book author (Ruling G). So an Add-File import, a
+  seed and a legacy bootstrapped piece keep §4.5's answer, and only the Option
+  A race is un-claimed.
+- **Her open window follows.** The Document's stamp is re-asked after every
+  external re-read that APPLIED another hand's change. The re-stamp and the
+  drawn answer change in one main-actor turn (Ruling H;
+  `DocumentStore.withPostureFollowingReStamp`). An echo of her own burst
+  re-asks nothing.
+- **What "taken from her" means.** A piece is taken from her only where an
+  earlier permit's piece LIST named it (Rulings I and J;
+  `PermitTimeline.wasTakenFromThem`). A whole-book author narrowed to some
+  pieces may still start a new one. The arm, History's held and *Theirs* rows,
+  and the load question all ask this one predicate.
+
+**Only the root is asked.** `NewPieceModifier.questions` asks only on a Mac
+holding its own root record (`AdmissionDecision.askingRoot`, plan 1's ruling
+AA). Before this, an admitted Mac was asked about anyone's started piece it
+held.
+
+**`startedBy` is a courtesy about who mints. It is not enforcement.** The
+manifest is unsigned and cooperative, and the partition still judges every
+line (see the limits).
+
+### Ruling P — a reopen is judged by what it undoes
+
+`Permit.group(of:)` now files `.annotationReopen` with edit and withdraw
+(`.ownAnnotation`), so the partition passes it on the reviewer row and records
+its as-of-the-line permit. `AnnotationDeriver` then judges it twice, through
+one `AnnotationAmendments` policy.
+
+- **Undoing a withdrawal (the withdraw pass).** The reopen is judged by
+  ownership against the WITHDRAWAL it undoes (Ruling D): author rights, or the
+  same writer as the one who deleted it. So she undoes her own Delete, and the
+  root's Delete of her note stays the root's. `withdrawalStates` is the one
+  walk behind `derive`, `deriveWithdrawn` and `isWithdrawn`.
+- **Undoing an archive, a rejection or a stet (the lifecycle fold).** The
+  reopen is a disposition and needs author rights alone
+  (`AnnotationOwnership.mayDispose` — no same-person arm). So her own note the
+  root archived stays archived.
+- **The raw mirror asks the same judgement.** The reject/splice repair, the
+  rewind's return journey and `RewindImpact.preview` walk
+  `AnnotationDeriver.isHonouredLifecycleOp`, never the bare lifecycle kinds.
+- **The Mac's doors branch the same way.** `reopenAnnotation` asks
+  `requireRestoreHonoured` (the deriver's own walk over the mirror plus the
+  reopen) where it undoes a withdrawal. Elsewhere it asks
+  `requireDispositionPermitted`, which probes a reopen as a stet
+  (`dispositionProbe`).
+- **Restore is decided by key.** The Deleted section's Restore is drawn from
+  `Document.restoreStanding` — the door's own answer over the very reopen a
+  press would append — never from a display name. A refused press is said, not
+  swallowed.
+- **RP-1 (the cost).** A reviewer's reopen of somebody else's archived note is
+  no longer set aside as a `.lines` record. It passes the partition and is
+  quietly not honoured, like her edit of somebody else's note, so History
+  records nothing. The same holds for an assistant-signed reopen in any rooted
+  book (Ruling C). Nothing writes one through MCP today.
+
+### The phone
+
+- **Every annotation read is judged.** `AnnotationLoading.loadJudged` makes the
+  Mac's own pair of Core calls and returns `JudgedOps`: the ops together with
+  the ownership rule they are read under. The list, the detail's re-derive and
+  the accept guard all take it. No phone derive has a permissive default.
+  `TripwirePhoneGrepTest.test_everyAnnotationReadOnThePhoneIsJudged` keeps a
+  second read out. The two chained writers keep the single-signer trust,
+  because they only write (C7, pinned).
+- **The phone offers what its posture allows.** `PhonePosture` is a per-load
+  cache over `PostureDoor`. It keeps one `OpLogStore` per project and
+  re-prepares the table off the main actor only when the registry's signature
+  moves. Accept, Reject and Reopen & Revert follow `.acceptOrReject`; Archive
+  and Reopen follow `.dispose`. The phone has no withdraw, so its Reopen is a
+  disposition alone (Ruling A). A refused verb is hidden, and every perform
+  re-asks before it writes. Capture is offered on every rung, and nothing under
+  `Capture/` asks a posture.
+- **Settings says what this phone may write** in each book, in `PermitWords`'
+  words, through `DeviceStanding.permit`. A book with no register draws no role
+  line. It re-reads on foreground and on pull (C5). There is no file presenter
+  (iOS tripwire 5).
+- **The phone signs nothing new.** It signs its own device record, as before,
+  and no person record, event or claim. Its refusal sentences are its own,
+  because the Mac has no per-verb refusal to share (Ruling P of this plan).
+
+### The carries
+
+- **A later narrowing carries the governing photograph forward** (Ruling Q). A
+  narrowing verb whose table already has a governing `UnsignedSnapshot` sweeps
+  nothing and writes the governor's own mark into its event. The photograph is
+  then byte-identical whichever event governs, so neither a skewed clock nor
+  the order the files sync in can move the cliff. Writing `{}` instead would
+  have let a skewed later event govern and hold every unsigned line ever
+  written. Only the first narrowing sweeps, so only the first can refuse over
+  an unreadable folder.
+- **The table's chain is the chain.** People & Devices, `PieceWriters` (and so
+  the root's yields) and `DeviceStanding` list `TrustTable.myChain` — my root's
+  chain plus every adopted root's — rather than `chain(underRoot:)`. An adopted
+  root now appears as its own person row, with no Revoke and no Change
+  (Ruling R).
+- **The unsigned words are true of a Mac whose first seal has not synced.**
+  `HeldLines`, `TrustEventSentence` and the first-narrowing notice name both
+  cases. The held door's sent-memory is keyed by the lines themselves
+  (`<docId>|<opId>#<paragraphId>` under `<docId>|held`), so words sent before a
+  seal synced are not offered again once the same lines are held under a key.
+- **Plan 1's behaviour carries**:
+  - the project-stream task door;
+  - the late capture re-describing an open admission sheet;
+  - a corrupt person file counting as worth a look;
+  - a non-root Mac skipping the admission resolve;
+  - the margin card failing closed;
+  - Keep mine offering only writable homes;
+  - the root's Edit Anyway in the project-scope queue (ruling AJ);
+  - `archiveTask` arming no compound undo when it wrote nothing.
+
+  Each is struck from plan 1's limits above, or is in the relevant AREA.md.
+- **Hygiene.** The guarded-mutator census has its planted offender, and the
+  manuscript-writer census counts per spelling. Find asks posture once per
+  document, and the revert picker names titles. Three statement-verb wrappers
+  are one rule.
+- **Ruling T — a red Core run with no assertion is an `xcodebuild test`
+  somewhere else.** Every `xcodebuild test` on a Mac SIGKILLs every process
+  named `xctest` as it begins testing, and SwiftPM's parallel runner hosts each
+  Core test in one. This was proven with a renamed `/bin/sleep`, and it
+  explains the three "hang" sightings this plan saw. `./scripts/test.sh core`
+  runs Core behind the machine-wide gate lock. A raw `xcodebuild` from another
+  session still bypasses it.
+
+### What P3c plan 2 does NOT do — the limits, stated
+
+- **I1 — a Mac that signs nothing, or is on no chain, is shown nothing about a
+  narrowing** (Denver, 2026-09-23 and 2026-09-24: document, and file as a
+  future enhancement). These are two Macs with one cause.
+  - **An enclave-less Mac** can write no device record, so it is on no chain.
+    It hears no narrowing event, because the event population is filtered by
+    signer to my root and the roots I have adopted. Nothing on it says the book
+    was narrowed, while every word it writes after the photograph waits on
+    every other Mac.
+  - **NC-1 — a Mac on no chain** (a collaborator's Mac before its admission)
+    is the same state: no narrowing heard, every unattributable line applied
+    locally, and no standing line. It errs the permissive way on its own
+    screen only, and such a Mac can write nothing this book will take.
+  - Closing either needs an unfiltered *did anybody narrow this book* read that
+    no type exposes. Nothing is built.
+- **I2 — a held NOTE from an unsigned Mac has no way back.** The §7.4 door
+  captures paragraphs only; held annotation, disposition and checkpoint lines
+  from such a Mac have no door and no admission to pardon them. **The
+  unsigned held sentence (`HeldLines.sentence(.unsigned)`) still says *what it
+  wrote can be brought back through the Inbox* after a count that can include
+  notes**, so Denver's 2026-09-23 ruling (the sentence stops promising the
+  Inbox for them) is not yet delivered. Carried to plan 3.
+- **I4 — the schema gate's in-session window.** The gate stops a v0.40 Mac
+  OPENING a narrowed book. It does not stop a v0.40 Mac that already has the
+  book open when it is narrowed. That session's saves write schema 8 back (a
+  P3 build heals it to 9 at its next open, so the two ping-pong until the old
+  session closes). Its bursts apply a reviewer's refused text and re-assert it
+  under a book-author key. Filed as a future enhancement. The release's open
+  question (*an old build over a book that is not narrowed*) is its neighbour.
+- **`startedBy` is cooperative, not enforcement.** The manifest is unsigned.
+  A modified client could claim to have started a piece; the most that buys is
+  its own lines applied on its own screen, and the root asked, which §4.5 did
+  anyway. Every line is still judged by the partition. An older build rewriting
+  the manifest drops the field, which is moot for a narrowed book (the schema
+  gate keeps older builds out) and makes the piece a legacy piece otherwise.
+- **A piece whose starter nobody ever admits waits everywhere** (Ruling N's
+  cost). A stranger's piece, or a hand-edited manifest naming a device that
+  never exists, stays *waiting for this piece to arrive* on every Mac until the
+  piece is deleted or its starter is admitted.
+- **Her screen and the root's disagree about an unclaimed piece until the root
+  answers** (OA-3's intent). Hers shows her words; every other Mac holds them.
+- **In her unclaimed piece she writes words and notes, and nothing else**
+  (Ruling F). She cannot checkpoint, dispose of notes, file tasks or translate
+  there until *Theirs*.
+- **Between a book author's text landing and her next re-read**, what she types
+  in her started piece is set aside and kept in History, not lost (Ruling H's
+  window).
+- **Creation mints on the main actor.** The opening a Duplicate mints costs
+  about 15 ms a document with enclave signing (0.76 s for a 50-document group,
+  measured). A group of about 65 documents or more would pass a second. Detach
+  it if a smoke shows it.
+- **A refused reopen leaves no trace** (RP-1, Ruling C). Nothing in History
+  says a reviewer's reopen of somebody else's note was not honoured.
+- **A yielded root restoring her own Delete in a collaborator's piece presses
+  Edit Anyway first** (Ruling S). Her restore is a disposition by author
+  rights, which the cooperative yield hides.
+- **Small mis-statements, carried to plan 3.** A refused reopen is named *other* by
+  `Permit.refused` for the translator and maugham actors. The restore door says
+  *not permitted* when another Mac's withdraw sorts after her reopen by clock
+  skew. The rewind window's CLOSED-piece path keeps the old preview answer,
+  because a closed piece has no judgement table.
 
 ## Consequences
 
@@ -2158,6 +2463,18 @@ off the main actor, so it stays per miss; see the limits.
   are not walked at all (a counting seam on the verifier is the only way to see
   it, since the ops come out the same either way), and prints the book-scale
   numbers behind an env gate.
+
+- P3c plan 2's censuses, each with a planted offender:
+  `TripwireGrepTests.test_everyStructureItemAProductionFileConstructsRecordsItsStarter`
+  (every production `StructureItem(` records its starter, over a derived
+  population); `TripwirePhoneGrepTest.test_everyAnnotationReadOnThePhoneIsJudged`
+  and `test_thePhonesChainedStoresOnlyWrite` (the phone reads notes one judged
+  way, and its chained writers only write);
+  `test_thePhoneAsksItsPostureInOnePlace` and `test_captureNeverAsksAPosture`;
+  and `TripwireGrepTests.projectTaskOpAppendSites` (every project-stream task
+  op passes the door). The Mac↔phone agreement is
+  `PhonePostureRoundTripTests` and `PhoneAnnotationOwnershipTests`, both over
+  real signed records.
 
 ## Related
 

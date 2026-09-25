@@ -137,8 +137,15 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   6).** `Annotations/PhonePosture.swift` is the phone's one door: a per-load
   cache over MaughamCore's `PostureDoor` (tripwires 19, 46, 51), the table
   warmed off the main actor (`OpLogStore.prepareTrust`) before the permit is
-  asked. `AnnotationsStore` makes a fresh one on every reload and when the app
-  returns to the front. Accept / Mark answered, Reject… / Reply… and Reopen &
+  asked. It keeps ONE `OpLogStore` per project for the load (built through an
+  injectable `makeStore`), and re-prepares that store's table only when the
+  registry's signature has moved since it was last prepared — so a re-ask over
+  an unchanged register verifies nothing, and a permit change or revocation
+  (which writes a record) is seen at the next ask, off the main actor.
+  `AnnotationsStore.reload()` (pull-to-refresh) makes a new `PhonePosture`;
+  returning to the front calls `refresh()` on the SAME instance, which forgets
+  the answers and invalidates every store's trust, so a detail view already
+  holding it sees the refresh too. Accept / Mark answered, Reject… / Reply… and Reopen &
   Revert follow `Posture.Verb.acceptOrReject`; Archive and Reopen follow
   `.dispose` (the phone has no withdraw, so its Reopen is `.dispose` alone —
   controller Ruling A). A refused verb is HIDDEN, never disabled; until the
@@ -213,7 +220,12 @@ The phone can now feed and read the Mac's sensory-palette wall (`docs/superpower
   `TrustResolution.resolveVerified` (the reconciled register every phone op-log
   read already uses, so a deleted register is read from this phone's memory,
   not as never-was). **C5:** Settings re-reads on `scenePhase == .active` and on
-  pull-to-refresh — the phone still has no file presenter (tripwire 5).
+  pull-to-refresh — the phone still has no file presenter (tripwire 5). An
+  admitted phone in a rooted book that narrows nobody reads *Author of the
+  whole book* — true, and People & Devices' own words (controller Ruling O).
+  Whether this phone is in the book at all asks `TrustTable.myChain` (my root's
+  chain plus every adopted root's; P3c plan 2 Task 7), so a phone admitted by a
+  root its Mac adopted is in the book.
 - **Which books.** A chain is a project's, not a device's, so the rows are per project: the ones `RecentsTracker` calls recent (opened or captured into), intersected with what `ProjectsBrowser` has manifests for. Listing every folder under the root would be a wall of *not yet admitted* for books this phone has never opened.
 
 ## iOS tripwires / gotchas (most from the 2026-05-30 smoke; each broke something)
