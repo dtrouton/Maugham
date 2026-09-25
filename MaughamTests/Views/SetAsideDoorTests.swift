@@ -468,6 +468,24 @@ final class SetAsideDoorTests: XCTestCase {
             at: Date(timeIntervalSince1970: 0))
         XCTAssertNotEqual(SetAsideDoor.heldLineId(docId: "doc-1", words),
                           SetAsideDoor.heldLineId(docId: "doc-2", words))
+
+        // The behaviour, not only the strings (P3c plan 2 Task 9, restoring
+        // the pin Task 7's rekey dropped): the same stream's line, sent from
+        // doc-1's row, is neither counted as sent nor withheld on doc-2's.
+        let doc1Sent = SetAsideDoor.heldCaptures(docId: "doc-1", words: [words], sent: [:])
+        let memory = [SetAsideDoor.heldDoorKey(docId: "doc-1"): Set(doc1Sent.map(\.id))]
+        XCTAssertEqual(
+            SetAsideDoor.heldWordCounts(
+                docId: "doc-1", wordsByHolder: [unsignedHolder: [words]], sent: memory),
+            .init(unsent: [:], sent: [unsignedHolder: 1]),
+            "control: doc-1's own row counts its send")
+        let doc2 = SetAsideDoor.heldWordCounts(
+            docId: "doc-2", wordsByHolder: [unsignedHolder: [words]], sent: memory)
+        XCTAssertEqual(doc2, .init(unsent: [unsignedHolder: 1], sent: [:]),
+                       "doc-2's row does not count doc-1's send")
+        XCTAssertEqual(
+            SetAsideDoor.heldCaptures(docId: "doc-2", words: [words], sent: memory).count, 1,
+            "and doc-2's press still files its own paragraph")
     }
 
     // MARK: - Remembered by the lines, not by the holder (P3c Task 7, M2)
@@ -480,13 +498,22 @@ final class SetAsideDoorTests: XCTestCase {
         }
     }
 
-    /// **Sent before the seal synced: not offered again after it. Never sent:
-    /// offered.** A signing Mac whose first seal has not reached this folder
-    /// is held as an unsigned stream; the writer sends its three paragraphs to
-    /// the Inbox; the seal arrives and the SAME lines are now held under its
-    /// key, with one new paragraph beside them. The memory made under the
-    /// first holder must still say those three were sent — and must not say
-    /// the new one was.
+    /// **The memory is the LINES', whichever holder they are held under** —
+    /// pinned on the pure functions, because no production row exercises it
+    /// today. A signing Mac whose first seal has not reached this folder is
+    /// held as an unsigned stream, and the writer can send its paragraphs to
+    /// the Inbox from that row. When the seal syncs, the same lines are held
+    /// under a stranger or a permit-pending holder instead — and the held
+    /// door counts and offers UNSIGNED holders alone
+    /// (`DocumentStore.unsignedHeldWordCounts`), so today no row draws a door
+    /// over them at all and nothing could re-offer them.
+    ///
+    /// What this pins is the rule that would hold if one ever did: a memory
+    /// made under the first holder still says the sent lines were sent when
+    /// they are counted under another holder's key, and does not say a line
+    /// written since was. That keeps the Task 7 re-key (by line, not by holder)
+    /// honest against a future change of holder or of an unsigned holder's
+    /// stream key.
     func test_wordsSentUnderOneHolderAreStillSentUnderAnother() throws {
         let fingerprintHolder = String(repeating: "c3", count: 32)
         let before = heldWords(["op-1", "op-2", "op-3"])

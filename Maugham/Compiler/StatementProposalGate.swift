@@ -162,7 +162,7 @@ enum StatementProposalGate {
     /// Clears the slot. **Not behind the ruling door**: a proposal is the
     /// assistant's staging file under `.maugham/`, not the statement — nothing
     /// the writer wrote moves. The banner draws Discard only where Adopt would
-    /// be drawn (`StatementProposalBanner.offersVerbs`), because deciding what
+    /// be drawn (`StatementSurfaceVerbs.offered`), because deciding what
     /// becomes of a proposal to a statement is the statement's writer's call.
     static func discard(_ kind: ProposableStatement, store: ProjectStore) throws {
         try StatementProposalStore(projectURL: store.url).discard(kind)

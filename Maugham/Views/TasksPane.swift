@@ -240,11 +240,23 @@ struct TasksPane: View {
     /// "Archive all done" is drawn where this scope's own tasks may be
     /// archived; the batch itself then skips any task the posture refuses.
     private var mayArchiveInScope: Bool {
+        Self.offersArchiveAllDone(
+            in: scope,
+            document: activeDoc().map { posture(ofTaskDocument: $0.docId) },
+            project: posture(ofTaskDocument: ProjectStore.projectTasksDocId))
+    }
+
+    /// **Where "Archive all done" is drawn** — the SCOPE's own stream asked
+    /// directly (P3c plan 2 Task 9): document scope asks the shown document,
+    /// project scope asks the project stream (`__project__`) and never proxies
+    /// through whichever document the window happens to show. `document` is
+    /// nil where none is shown, which offers nothing in document scope.
+    static func offersArchiveAllDone(
+        in scope: ScopeChoice, document: Posture?, project: Posture
+    ) -> Bool {
         switch scope {
-        case .document:
-            return activeDoc().map { posture(ofTaskDocument: $0.docId).allows(.task) } ?? false
-        case .project:
-            return creation.project || creation.document
+        case .document: return document?.allows(.task) ?? false
+        case .project: return project.allows(.task)
         }
     }
 

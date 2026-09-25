@@ -63,9 +63,14 @@ public enum AnnotationInverse {
     /// Compensating edit for undoing an annotationEdit: another edit carrying
     /// the prior body (and prior suggested replacement, when present).
     ///
-    /// Takes no collaborator id: the revert is a NEW edit authored by whoever
-    /// pressed ⌘Z, not a restoration of the original op's own field, and
-    /// `author_collaborator_id` is decoded and never written (P3 spec §8).
+    /// Takes no collaborator id: the revert is a NEW edit, not a restoration
+    /// of the original op's own field, and `author_collaborator_id` is decoded
+    /// and never written (P3 spec §8). What it is stamped with is only what
+    /// the caller passes — `device:` is the Document's own (the actor it was
+    /// loaded as, on the Mac that undid it), not a record of which hand
+    /// pressed ⌘Z — and, like every line, it is attributed to the key that
+    /// signs it (RULING-55). `authorSourceKind`/`authorDisplayName` are the
+    /// caller's label for the note's author, carried as given.
     public static func editRevertOp(
         annotationId: String,
         priorBody: String,

@@ -267,8 +267,9 @@ Find in Project's **Replace** and **Replace All** for chapters that aren't
 yours (a research note's matches still replace). **⌘S** still flashes,
 because your fingers expect it, but writes nothing — a checkpoint of text you
 can't change would mark nothing of yours — and **⇧⌘S** says so instead of
-asking for a label. The File menu's **New Prose Story**, **New Screenplay**
-and **Link Existing Project…** are greyed.
+asking for a label. In a collection, the File menu's **New Prose Story**,
+**New Screenplay** and **Link Existing Project…** are greyed (they add a
+collection's pieces, so no other kind of book greys them).
 
 An **author of some pieces** has all of that in their own chapters. Everywhere
 else they are a reviewer, and the line says *"Chapter 3" isn't one of your

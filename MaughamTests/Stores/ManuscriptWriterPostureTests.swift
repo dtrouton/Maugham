@@ -300,10 +300,21 @@ final class ManuscriptWriterPostureTests: XCTestCase {
         XCTAssertFalse(HistoryPane.offersRewind(reviewer), "a reviewer reads history")
         XCTAssertFalse(HistoryPane.offersRewind(nil), "no door behind the pane fails closed")
 
-        XCTAssertTrue(HistoryPane.offersRevert([reviewer, bookAuthor]),
-                      "one document she may write is enough to open the picker")
-        XCTAssertFalse(HistoryPane.offersRevert([reviewer, reviewer]))
-        XCTAssertFalse(HistoryPane.offersRevert([nil]))
+        // Revert follows the picker's own list (Task 9: asked through the
+        // picker's `mayWrite`, over its documents).
+        let checkpointRow = [HistoryEntry.checkpoint(Checkpoint(
+            checkpointId: "cp", label: "A", labelSource: .user,
+            at: Date(), device: "d", activeDoc: "doc-a",
+            docPointers: [:], manuscriptWordCount: 1))]
+        XCTAssertTrue(HistoryPane.offersRevert(
+            for: checkpointRow, docIds: ["doc-b", "doc-a"], mayWrite: { $0 == "doc-a" }),
+            "one document she may write is enough to open the picker")
+        XCTAssertFalse(HistoryPane.offersRevert(
+            for: checkpointRow, docIds: ["doc-a", "doc-b"], mayWrite: { _ in false }))
+        XCTAssertFalse(HistoryPane.offersRevert(
+            for: checkpointRow, docIds: ["doc-a"],
+            mayWrite: PartialRestorePicker.mayWrite(through: nil)),
+            "no door behind the pane fails closed")
 
         XCTAssertTrue(RewindWindow.offersRestore(bookAuthor))
         XCTAssertFalse(RewindWindow.offersRestore(reviewer))
@@ -356,6 +367,87 @@ final class ManuscriptWriterPostureTests: XCTestCase {
             mayReplace: { _ in false })
         XCTAssertFalse(ProjectSearchView.offersReplaceAll(none),
                        "a reviewer whose results are all manuscript sees no Replace All")
+    }
+
+    // MARK: - Asked once per document, and only what is listed (P3c plan 2 Task 9)
+
+    /// **Find asks each DOCUMENT's posture once**, not each match row's: a
+    /// chapter with many matches is one question, a research match none — and
+    /// every row reads the answer its own document got, both directions.
+    func test_findAsksEachDocumentsPostureOnceNotEachMatch() {
+        let inA = (0..<6).map { _ in match("manuscript/a.md", "A") }
+        let inB = (0..<4).map { _ in match("manuscript/b.md", "B") }
+        let note = SearchMatch(
+            documentPath: "research/n.md", documentTitle: "N", documentSource: .research,
+            lineNumber: 1, charRangeInDocument: NSRange(location: 0, length: 3),
+            linePreview: "Bob", matchRangeInLine: NSRange(location: 0, length: 3))
+        let results = SearchResults(
+            query: "Bob", options: SearchOptions(), matches: inA + inB + [note])
+
+        var asked: [String] = []
+        let gate = ProjectSearchView.ReplaceGate(results) { path in
+            asked.append(path)
+            return path == "manuscript/a.md" ? self.bookAuthor : self.reviewer
+        }
+        XCTAssertEqual(asked.sorted(), ["manuscript/a.md", "manuscript/b.md"],
+                       "ten manuscript matches, two documents, two questions; the note none")
+        XCTAssertTrue(inA.allSatisfy(gate.mayReplace), "hers: every row")
+        XCTAssertFalse(inB.contains(where: gate.mayReplace), "not hers: no row")
+        XCTAssertTrue(gate.mayReplace(note), "a research note is outside the permit")
+
+        let noDoor = ProjectSearchView.ReplaceGate(results) { _ in nil }
+        XCTAssertFalse(noDoor.mayReplace(inA[0]), "no door behind the host fails closed")
+        XCTAssertEqual(asked.count, 2, "control: the second gate asked its own closure")
+    }
+
+    /// **History's Revert asks as little as it can**: nothing where no row is
+    /// a checkpoint, and only until the first document the picker would list.
+    func test_historysRevertAsksOnlyUntilThePickerHasADocument() {
+        let checkpointRow = HistoryEntry.checkpoint(Checkpoint(
+            checkpointId: "cp", label: "A", labelSource: .user,
+            at: Date(), device: "d", activeDoc: "doc-a",
+            docPointers: [:], manuscriptWordCount: 1))
+        var asked: [String] = []
+        let mayWrite: (String) -> Bool = { asked.append($0); return $0 == "doc-b" }
+
+        XCTAssertFalse(HistoryPane.offersRevert(
+            for: [], docIds: ["doc-a", "doc-b", "doc-c"], mayWrite: mayWrite))
+        XCTAssertEqual(asked, [], "no checkpoint row: nothing to draw, nothing asked")
+
+        XCTAssertTrue(HistoryPane.offersRevert(
+            for: [checkpointRow], docIds: ["doc-a", "doc-b", "doc-c"], mayWrite: mayWrite))
+        XCTAssertEqual(asked, ["doc-a", "doc-b"], "stops at the first listed document")
+
+        asked = []
+        XCTAssertFalse(HistoryPane.offersRevert(
+            for: [checkpointRow], docIds: ["doc-a", "doc-c"], mayWrite: mayWrite))
+        XCTAssertEqual(asked, ["doc-a", "doc-c"], "a reviewer's list: every one, once")
+    }
+
+    /// **The revert picker says what it left alone by TITLE**, in Replace
+    /// All's words; a document the manifest does not name keeps its id rather
+    /// than vanishing from the sentence.
+    func test_theRevertPickersLeftAloneSentenceNamesTitles() {
+        let structure = [
+            StructureItem(id: "part", title: "Part One", type: .group, children: [
+                StructureItem(id: "doc-a", title: "The Harbour", type: .document,
+                              path: "manuscript/a.md"),
+            ]),
+            StructureItem(id: "doc-b", title: "Nightfall", type: .document,
+                          path: "manuscript/b.md"),
+        ]
+        XCTAssertEqual(
+            PartialRestorePicker.leftAloneSentence(
+                for: ["doc-a", "doc-b", "doc-gone"], in: structure),
+            "Left as it was — this Mac may not change the text of "
+                + "The Harbour, Nightfall, doc-gone.")
+        XCTAssertEqual(
+            PartialRestorePicker.leftAloneSentence(for: ["doc-a"], in: structure),
+            ProjectStore.leftAloneSentence(["The Harbour"]),
+            "the same words as Replace All's")
+        XCTAssertNil(PartialRestorePicker.leftAloneSentence(for: [], in: structure))
+        XCTAssertEqual(PartialRestorePicker.titles(of: ["doc-a"], in: nil), ["doc-a"],
+                       "no manifest: the id, never nothing")
     }
 
     // MARK: - Replace and the rename sweep, through the real registry

@@ -1052,7 +1052,8 @@ struct HistoryPane: View {
                     let offersRewind = Self.offersRewind(
                         documentStore?.posture(forDocId: activeDocId))
                     let offersRevert = Self.offersRevert(
-                        allDocIds.map { documentStore?.posture(forDocId: $0) })
+                        for: entries, docIds: allDocIds,
+                        mayWrite: PartialRestorePicker.mayWrite(through: documentStore))
                     // The book's own entries lead the document's (ruling C).
                     // They are FEW — an admission, a revocation, a claim — and
                     // they are the context every entry below them is written
@@ -2246,8 +2247,21 @@ extension HistoryPane {
 
     /// **Whether a checkpoint row offers *Revert here…*** — only where the
     /// picker it opens would list at least one document this Mac may write
-    /// (`PartialRestorePicker.offeredDocIds`). Every `nil` fails closed.
-    static func offersRevert(_ postures: [Posture?]) -> Bool {
-        postures.contains { $0?.allows(.writeText) ?? false }
+    /// (`PartialRestorePicker.offeredDocIds`), asked through the picker's own
+    /// `mayWrite` over the picker's own list. No `DocumentStore` behind the
+    /// pane fails closed (`mayWrite(through: nil)` answers false).
+    ///
+    /// **Asks as little as it can** (P3c plan 2 Task 9): nothing at all when
+    /// no row is a checkpoint — there is no Revert to draw — and otherwise
+    /// only until the first document the picker would list, rather than
+    /// putting every document of the book into the drawing door's asked set
+    /// on every body pass.
+    static func offersRevert(
+        for entries: [HistoryEntry], docIds: [String], mayWrite: (String) -> Bool
+    ) -> Bool {
+        guard entries.contains(where: {
+            if case .checkpoint = $0 { return true } else { return false }
+        }) else { return false }
+        return docIds.contains(where: mayWrite)
     }
 }

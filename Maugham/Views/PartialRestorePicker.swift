@@ -114,9 +114,12 @@ struct PartialRestorePicker: View {
 
     var body: some View {
         let mayWrite = Self.mayWrite(through: documentStore)
+        let offered = Self.offeredDocIds(allDocIds, mayWrite: mayWrite)
         RestorePickerContent(
             checkpoint: checkpoint,
-            allDocIds: Self.offeredDocIds(allDocIds, mayWrite: mayWrite),
+            allDocIds: offered,
+            titles: Self.titles(
+                of: offered, in: documentStore?.projectStore?.manifest.structure),
             offersWholeProject: Self.offersWholeProject(allDocIds, mayWrite: mayWrite),
             scope: $scope,
             // A seeded scope this Mac may not write selects no row and arms
@@ -190,11 +193,23 @@ struct PartialRestorePicker: View {
         return (writable, leftAlone)
     }
 
-    /// What the sheet says when the door left documents alone.
-    static func leftAloneSentence(for docIds: [String]) -> String? {
-        guard !docIds.isEmpty else { return nil }
-        return "Left as it was — this Mac may not change the text of "
-            + docIds.joined(separator: ", ") + "."
+    /// What the sheet says when the door left documents alone — by their
+    /// TITLES (P3c plan 2 Task 9; the sentence named raw doc ids), in Replace
+    /// All's own words (`ProjectStore.leftAloneSentence`), since both say the
+    /// same thing about the same kind of refusal.
+    static func leftAloneSentence(
+        for docIds: [String], in structure: [StructureItem]?
+    ) -> String? {
+        ProjectStore.leftAloneSentence(titles(of: docIds, in: structure))
+    }
+
+    /// Each document's title from the window's live manifest; a document the
+    /// manifest does not name (or no manifest at all) is named by its id
+    /// rather than dropped, so the sentence never under-reports.
+    static func titles(of docIds: [String], in structure: [StructureItem]?) -> [String] {
+        docIds.map { id in
+            structure.flatMap { TreeWalk.find(id: id, in: $0)?.title } ?? id
+        }
     }
 
     // MARK: - Restore logic
@@ -253,7 +268,8 @@ struct PartialRestorePicker: View {
             }
         }
         isRestoring = false
-        if let sentence = Self.leftAloneSentence(for: leftAlone) {
+        if let sentence = Self.leftAloneSentence(
+            for: leftAlone, in: documentStore?.projectStore?.manifest.structure) {
             leftAloneSentence = sentence
             return
         }
@@ -293,6 +309,8 @@ struct PartialRestorePicker: View {
 private struct RestorePickerContent: View {
     let checkpoint: Checkpoint
     let allDocIds: [String]
+    /// The rows' names, parallel to `allDocIds` — titles, not ids (Task 9).
+    let titles: [String]
     let offersWholeProject: Bool
     @Binding var scope: PartialRestorePicker.ScopeChoice?
     let scopeIsOffered: Bool
@@ -314,8 +332,8 @@ private struct RestorePickerContent: View {
                     Text("Whole project")
                         .tag(PartialRestorePicker.ScopeChoice?.some(.wholeProject))
                 }
-                ForEach(allDocIds, id: \.self) { docId in
-                    Text("Document: \(docId)")
+                ForEach(Array(zip(allDocIds, titles)), id: \.0) { docId, title in
+                    Text("Document: \(title)")
                         .tag(PartialRestorePicker.ScopeChoice?.some(.document(docId)))
                 }
             }

@@ -32,6 +32,15 @@ final class PostureBook {
     /// epoch — asked only while somebody is yielded to.
     @ObservationIgnored fileprivate var pieceOf: [String: String?] = [:]
 
+    /// path → the id `resolveDocId` answered for a path that is neither open
+    /// nor in the live manifest, in THIS epoch (m4) — a research note, a
+    /// headless store's every path, a file the manifest does not hold yet.
+    /// Without it each such question decoded the manifest from disk, once per
+    /// view-body call. Forgotten with the permits on every clearing bump (a
+    /// trust change, a manifest adoption), so an adopted manifest that now
+    /// names the path is read afresh.
+    @ObservationIgnored fileprivate var docIdOfUnknownPath: [String: String] = [:]
+
     /// The permit answered for each `(docId, actor)` in THIS epoch.
     @ObservationIgnored fileprivate var permits: [Key: LocalWritePermit] = [:]
 
@@ -71,6 +80,9 @@ final class PostureBook {
 
     /// Test-observable: how many times the door has asked the builder.
     @ObservationIgnored fileprivate(set) var builderCalls = 0
+
+    /// Test-observable: how many times a path was resolved from disk.
+    @ObservationIgnored fileprivate(set) var unknownPathResolves = 0
 
     init() {}
 }
@@ -434,6 +446,7 @@ extension DocumentStore {
         guard clearing else { return }
         postureBook.permits.removeAll()
         postureBook.pieceOf.removeAll()
+        postureBook.docIdOfUnknownPath.removeAll()
     }
 
     /// How many keys a refresh warms between yields of the main actor. The
@@ -628,7 +641,10 @@ extension DocumentStore {
 
     /// The id a path names: the open document's, else the manifest's (a
     /// manuscript item first, then a statement — `resolveDocId`'s own order),
-    /// else what `resolveDocId` answers from disk.
+    /// else what `resolveDocId` answers from disk — ONCE per path per epoch
+    /// (m4): that answer is cached until the next clearing bump. The open
+    /// document and the live manifest are still asked first every time, so a
+    /// path that opens or joins the manifest is never answered from the cache.
     private func postureDocId(forPath path: String) -> String {
         if let open = document(for: path) { return open.docId }
         if let manifest = projectStore?.manifest {
@@ -639,7 +655,12 @@ extension DocumentStore {
                 return statement.id
             }
         }
-        return (try? resolveDocId(for: projectURL.appendingPathComponent(path))) ?? path
+        let book = postureBook
+        if let known = book.docIdOfUnknownPath[path] { return known }
+        book.unknownPathResolves += 1
+        let id = (try? resolveDocId(for: projectURL.appendingPathComponent(path))) ?? path
+        book.docIdOfUnknownPath[path] = id
+        return id
     }
 
     // MARK: - Test seams
@@ -650,4 +671,8 @@ extension DocumentStore {
     /// How many times the door has asked the one builder — a cache hit asks it
     /// nothing, so a redraw that moves this is a redraw of misses.
     var postureBuilderCallsForTesting: Int { postureBook.builderCalls }
+
+    /// How many times a path neither open nor in the live manifest was
+    /// resolved from disk — a cached miss resolves nothing.
+    var postureUnknownPathResolvesForTesting: Int { postureBook.unknownPathResolves }
 }

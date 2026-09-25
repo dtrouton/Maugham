@@ -279,14 +279,14 @@ final class AdmissionPermitTests: XCTestCase {
         let piece = try await docId()
         let ghost = try appendToUnsignedStream(docId: piece, opIds: ["g1", "g2"])
 
-        final class Count: @unchecked Sendable {
-            private let lock = NSLock(); private var n = 0
-            func bump() { lock.lock(); n += 1; lock.unlock() }
-            var value: Int { lock.lock(); defer { lock.unlock() }; return n }
+        // This folder's own count (Task 9: keyed and locked, so no other
+        // test's sweep can land in it and nothing needs clearing).
+        let url = projectURL!
+        let baseline = DocumentStore.unsignedSweepsForTesting.count(in: url)
+        struct Sweeps { let url: URL; let baseline: Int
+            var value: Int { DocumentStore.unsignedSweepsForTesting.count(in: url) - baseline }
         }
-        let sweeps = Count()
-        DocumentStore.unsignedSweepObserverForTesting = { sweeps.bump() }
-        defer { DocumentStore.unsignedSweepObserverForTesting = nil }
+        let sweeps = Sweeps(url: url, baseline: baseline)
 
         _ = try await store.admit(
             device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac",

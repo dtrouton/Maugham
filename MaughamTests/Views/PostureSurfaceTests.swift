@@ -912,9 +912,9 @@ final class PostureSurfaceTests: XCTestCase {
                        Posture.settling]
         let offered = [bookAuthor, piecesAuthorOnHerPieceStatement]
         for (posture, expected) in refused.map({ ($0, false) }) + offered.map({ ($0, true) }) {
-            XCTAssertEqual(RulingsStratumView.offersVerbs(posture), expected, "\(posture)")
-            XCTAssertEqual(StatementProposalBanner.offersVerbs(posture), expected, "\(posture)")
-            XCTAssertEqual(BibleStratumView.offersGraduation(posture), expected, "\(posture)")
+            // One rule for the rulings stratum, the proposal banner and the
+            // bible stratum (Task 9 collapsed their three copies).
+            XCTAssertEqual(StatementSurfaceVerbs.offered(under: posture), expected, "\(posture)")
         }
     }
 
@@ -1887,5 +1887,131 @@ final class PostureSurfaceTests: XCTestCase {
                        + "\u{2014} only an author can add one.")
         XCTAssertEqual(TreeStructureVerbs.mayStartAPiece(posture(.reviewer, in: .projectStream)),
                        false, "the pane's own answer for a reviewer is the one this reads")
+    }
+
+    // MARK: - Plan 1's hygiene (P3c plan 2 Task 9)
+
+    /// **The three statement surfaces ask ONE rule** — no second spelling of
+    /// it survives in any of them.
+    func test_theThreeStatementSurfacesAskTheOneRule() throws {
+        let views = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Maugham/Views")
+        for file in ["RulingsStratum.swift", "StatementProposalBanner.swift", "BibleStratum.swift"] {
+            let code = try String(contentsOf: views.appendingPathComponent(file), encoding: .utf8)
+                .split(separator: "\n")
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            XCTAssertTrue(code.contains { $0.contains("StatementSurfaceVerbs.offered(under:") },
+                          "\(file) asks the one rule")
+            let own = code.filter { $0.contains(".allows(.editStatement)") }
+            let allowed = file == "RulingsStratum.swift" ? 1 : 0  // the rule itself
+            XCTAssertEqual(own.count, allowed, "\(file) spells a rule of its own: \(own)")
+        }
+    }
+
+    /// **"Archive all done" asks the SCOPE's own stream** — project scope the
+    /// project stream, never whichever document the window shows.
+    func test_archiveAllDoneAsksTheScopesOwnStream() {
+        typealias Pane = TasksPane
+        XCTAssertTrue(Pane.offersArchiveAllDone(
+            in: .project, document: reviewer, project: bookAuthor),
+            "a reviewer's shown chapter does not hide the project's own archive")
+        XCTAssertFalse(Pane.offersArchiveAllDone(
+            in: .project, document: bookAuthor, project: reviewer),
+            "…nor does an allowed chapter lend the project stream its answer")
+        XCTAssertFalse(Pane.offersArchiveAllDone(
+            in: .project, document: nil, project: reviewer))
+        XCTAssertTrue(Pane.offersArchiveAllDone(
+            in: .document, document: piecesAuthorInA, project: reviewer))
+        XCTAssertFalse(Pane.offersArchiveAllDone(
+            in: .document, document: piecesAuthorInB, project: bookAuthor))
+        XCTAssertFalse(Pane.offersArchiveAllDone(
+            in: .document, document: nil, project: bookAuthor),
+            "no document shown: nothing in document scope")
+    }
+
+    /// **Only a collection's window says anything about starting a piece** —
+    /// a novel's publishes nil, so its File menu is as it always was, while a
+    /// collection's publishes the door's answer in both directions.
+    func test_onlyACollectionsWindowPublishesStartAPiece() async throws {
+        let h = try await makeStatementHarness()
+        try await become(.reviewer, h)
+        XCTAssertEqual(StartAPieceDoor.drawn(store: h.store), false,
+                       "premise: the door itself says no for a reviewer")
+        XCTAssertNil(StartAPieceDoor.published(store: h.store),
+                     "a novel's window publishes nothing")
+        XCTAssertTrue(StartAPieceDoor.menuIsEnabled(
+            mayStartAPiece: StartAPieceDoor.published(store: h.store)))
+
+        h.store.manifest.type = .screenplay
+        XCTAssertNil(StartAPieceDoor.published(store: h.store), "nor a screenplay's")
+
+        h.store.manifest.type = .collection
+        XCTAssertEqual(StartAPieceDoor.published(store: h.store), false,
+                       "a collection's window says no for a reviewer")
+        try await become(.bookAuthor, h)
+        XCTAssertEqual(StartAPieceDoor.published(store: h.store), true,
+                       "and yes for an author")
+        XCTAssertNil(StartAPieceDoor.published(store: nil))
+    }
+
+    /// **The pass-order nudge, end to end without a window** — from the
+    /// window's own posture door, through the decision the pane draws, to the
+    /// host's pass-state write and the nudge going away. The advice draws for
+    /// everybody; the verbs only where a pass may be ruled.
+    func test_thePassOrderNudgeFromThePostureDoorToTheWrite() async throws {
+        let h = try await makeStatementHarness()
+        h.documentStore.updateUIState {
+            $0.activePassMemory.record(piece: "doc-a", passId: "line")
+        }
+        var written: [(String, String, PassState?)] = []
+        func decide(_ docId: String, project: Bool = false) -> AnnotationsPane.PassOrderNudgeDecision? {
+            AnnotationsPane.passOrderNudgeDecision(
+                isProjectScope: project, docId: docId,
+                memory: h.documentStore.uiState.activePassMemory,
+                passes: h.store.manifest.effectiveReviewPasses,
+                passStates: TreeWalk.find(id: docId, in: h.store.manifest.structure)?.passStates,
+                posture: { h.documentStore.posture(forDocId: $0) },
+                onSetPassState: { written.append(($0, $1, $2)) })
+        }
+
+        let authors = try XCTUnwrap(decide("doc-a"), "Line before Structural: advised")
+        XCTAssertEqual(authors.pass.id, "structural")
+        XCTAssertNil(decide("doc-a", project: true), "document scope only")
+
+        try await become(.reviewer, h)
+        let reviewers = try XCTUnwrap(decide("doc-a"), "the advice draws for a reviewer")
+        XCTAssertNil(reviewers.onMarkDone, "…with no verb that rules the pass")
+        XCTAssertNil(reviewers.onSkip)
+
+        try await become(.author(.pieces(["doc-b"])), h)
+        XCTAssertNil(try XCTUnwrap(decide("doc-a")).onMarkDone,
+                     "somebody else's piece: no verb")
+
+        try await become(.author(.pieces(["doc-a"])), h)
+        let hers = try XCTUnwrap(decide("doc-a"))
+        let skip = try XCTUnwrap(hers.onSkip, "her own piece: the verbs")
+        skip()
+        let markDone = try XCTUnwrap(hers.onMarkDone)
+        markDone()
+        XCTAssertEqual(written.map(\.0), ["doc-a", "doc-a"])
+        XCTAssertEqual(written.map(\.1), ["structural", "structural"],
+                       "each verb names the EARLIER pass, not the one being worked")
+        XCTAssertEqual(written.map(\.2), [.skipped, .done])
+
+        // What the host does with it (`ProjectWindow`'s closure writes the
+        // store); once written, the next render advises nothing.
+        try await h.store.setPassState(id: "doc-a", passId: "structural", .done)
+        XCTAssertNil(decide("doc-a"), "the earlier pass is closed: the nudge goes")
+
+        // And the pane draws exactly this decision.
+        let pane = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Maugham/Views/AnnotationsPane.swift"),
+            encoding: .utf8)
+        let nudge = try XCTUnwrap(pane.range(of: "private var passOrderNudge: some View {"))
+        let body = String(pane[nudge.upperBound...].prefix(600))
+        XCTAssertTrue(body.contains("Self.passOrderNudgeDecision("))
+        XCTAssertTrue(body.contains("documentStore.posture(forDocId:"))
     }
 }

@@ -282,6 +282,21 @@ extension RulingsStratum {
     }
 }
 
+/// **Whether a statement surface draws its writing verbs** — the ONE rule
+/// the three statement surfaces share (P3c plan 2 Task 9 collapsed three
+/// one-line copies of it): a ruling row's Edit, Revoke and an orphan's Remove
+/// (`RulingsStratumView`), a proposal's Adopt and Discard
+/// (`StatementProposalBanner`), and a reading's Bless and Correct
+/// (`BibleStratumView`). Each graduates or changes words under a statement
+/// through `RulingPerformer` or the proposal gate, so each asks
+/// `.editStatement` of the statement it would write. Hidden, never disabled;
+/// the verb's own door refuses a press that arrives anyway.
+enum StatementSurfaceVerbs {
+    static func offered(under posture: Posture) -> Bool {
+        posture.allows(.editStatement)
+    }
+}
+
 /// The rulings stratum as the writer meets it: their own words, in their own
 /// ink, itemized under the essay they were made against.
 ///
@@ -300,7 +315,7 @@ struct RulingsStratumView: View {
     /// What this window may offer over THIS statement (P3c Task 7), asked by
     /// the pane of the drawing door. Required, so a host cannot forget it and
     /// draw every verb. The rows always draw — a reviewer reads every ruling;
-    /// only Edit, Revoke and Remove follow it (`offersVerbs`).
+    /// only Edit, Revoke and Remove follow it (`StatementSurfaceVerbs`).
     let posture: Posture
     /// Which paragraph ids are currently live in this statement's scope, so a
     /// directive whose anchor no longer exists draws as an orphan rather than
@@ -323,13 +338,6 @@ struct RulingsStratumView: View {
     /// the essay above them is a preamble — so calling them rulings there names
     /// the mechanism instead of the thing. Static and pure so the whole product
     /// of kinds can be asked of it.
-    /// **Whether a row's verbs are drawn** — Edit, Revoke, and an orphan's
-    /// Remove (P3c Task 7). The one rule: `.editStatement` of the statement
-    /// these rows belong to. Hidden, never disabled; `RulingPerformer`'s own
-    /// door refuses a press that arrives anyway.
-    static func offersVerbs(_ posture: Posture) -> Bool {
-        posture.allows(.editStatement)
-    }
 
     static func title(for kind: Statement.Kind) -> String {
         if case .lessons = kind { return "Ledger" }
@@ -392,7 +400,7 @@ struct RulingsStratumView: View {
                             Text(parsed.note ?? "")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            if Self.offersVerbs(posture) {
+                            if StatementSurfaceVerbs.offered(under: posture) {
                                 Button("Revoke") { revoke(ruling, at: index(of: ruling)) }
                                     .buttonStyle(.plain)
                                     .font(.caption2)
@@ -423,7 +431,7 @@ struct RulingsStratumView: View {
             Text(RulingsStratum.orphanCaption)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
-            if Self.offersVerbs(posture) {
+            if StatementSurfaceVerbs.offered(under: posture) {
                 Button(RulingsStratum.removeTitle) { revoke(ruling, at: index) }
                     .buttonStyle(.plain)
                     .font(.caption2)
@@ -441,7 +449,7 @@ struct RulingsStratumView: View {
             // The field is the Edit verb opened: a demotion arriving while it
             // is open closes it with the verbs, rather than leaving a live
             // field whose Return would be refused.
-            if editingIndex == index, Self.offersVerbs(posture) {
+            if editingIndex == index, StatementSurfaceVerbs.offered(under: posture) {
                 StratumEditField(
                     seed: ruling.text,
                     isOpen: Binding(get: { editingIndex == index },
@@ -460,7 +468,7 @@ struct RulingsStratumView: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
-            if Self.offersVerbs(posture) {
+            if StatementSurfaceVerbs.offered(under: posture) {
                 HStack(spacing: 12) {
                     // `Button(.plain)` and never `.onTapGesture` (tripwire 9).
                     Button("Edit") { editingIndex = index }

@@ -1050,25 +1050,53 @@ struct AnnotationsPane: View {
     /// choosing a state in the ladder always was.
     @ViewBuilder
     private var passOrderNudge: some View {
-        if !scope.isProject,
-           let docId = document?.docId,
-           let earlier = PassOrderAdvice.advice(
-                forPiece: docId, memory: activePassMemory,
-                passes: reviewPasses, passStates: piecePassStates) {
-            // **The verbs follow the piece's posture; the advice does not**
-            // (P3c Task 6, plan ruling R3): a reviewer working a lane is still
-            // told the earlier pass is open — she simply is not offered the
-            // ruling that closes it.
-            let offersVerbs = PassLadder.offersRulings(
-                under: documentStore.posture(forDocId: docId))
+        if let nudge = Self.passOrderNudgeDecision(
+            isProjectScope: scope.isProject, docId: document?.docId,
+            memory: activePassMemory, passes: reviewPasses,
+            passStates: piecePassStates,
+            posture: { documentStore.posture(forDocId: $0) },
+            onSetPassState: onSetPassState) {
             PassOrderNudgeRow(
-                pass: earlier,
-                onMarkDone: offersVerbs
-                    ? { onSetPassState(docId, earlier.id, .done) } : nil,
-                onSkip: offersVerbs
-                    ? { onSetPassState(docId, earlier.id, .skipped) } : nil)
+                pass: nudge.pass, onMarkDone: nudge.onMarkDone, onSkip: nudge.onSkip)
             Divider()
         }
+    }
+
+    /// What the pass-order nudge draws: the earlier open pass, and the two
+    /// verbs that close it.
+    struct PassOrderNudgeDecision {
+        let pass: ReviewPass
+        let onMarkDone: (() -> Void)?
+        let onSkip: (() -> Void)?
+    }
+
+    /// **The nudge, decided without a window** (P3c plan 2 Task 9) — the whole
+    /// of `passOrderNudge`'s wiring, so a test can drive it from the window's
+    /// posture door to the host's pass-state write.
+    ///
+    /// Document scope only, and only where `PassOrderAdvice` names an earlier
+    /// open pass. **The verbs follow the piece's posture; the advice does not**
+    /// (P3c Task 6, plan ruling R3): a reviewer working a lane is still told
+    /// the earlier pass is open — she simply is not offered the ruling that
+    /// closes it. Each verb writes the NAMED earlier pass through the host's
+    /// `onSetPassState`, never the store directly.
+    static func passOrderNudgeDecision(
+        isProjectScope: Bool, docId: String?,
+        memory: ActivePassMemory, passes: [ReviewPass],
+        passStates: [String: PassState]?,
+        posture: (String) -> Posture,
+        onSetPassState: @escaping (String, String, PassState?) -> Void
+    ) -> PassOrderNudgeDecision? {
+        guard !isProjectScope, let docId,
+              let earlier = PassOrderAdvice.advice(
+                forPiece: docId, memory: memory,
+                passes: passes, passStates: passStates)
+        else { return nil }
+        let offersVerbs = PassLadder.offersRulings(under: posture(docId))
+        return PassOrderNudgeDecision(
+            pass: earlier,
+            onMarkDone: offersVerbs ? { onSetPassState(docId, earlier.id, .done) } : nil,
+            onSkip: offersVerbs ? { onSetPassState(docId, earlier.id, .skipped) } : nil)
     }
 
     // MARK: - Document scope

@@ -268,11 +268,18 @@ extension DocumentStore {
     /// rather than narrow the book over a reading it knows is short.
     /// Internal rather than private, for `seenMarkOrRefuse`'s reason: the
     /// admission door lives one file over and must ask the same question.
-    /// Called once per sweep actually performed — never where a governing
+    /// Bumped once per sweep actually performed — never where a governing
     /// photograph was carried forward instead (P3c Task 7, Ruling Q). The
-    /// counter a test pins *no sweep ran* by; nil in production.
-    nonisolated(unsafe) static var unsignedSweepObserverForTesting:
-        (@Sendable () -> Void)?
+    /// counter a test pins *no sweep ran* by.
+    ///
+    /// **Keyed by the project folder and behind a lock** (P3c plan 2 Task 9).
+    /// Task 7's hook was a `nonisolated(unsafe)` closure one test set and
+    /// cleared: a second test setting it in the same process — or a sweep
+    /// still in flight from an earlier one — would have raced it or counted
+    /// into the wrong answer. A test reads the count for its OWN folder, so
+    /// nothing is set and nothing needs clearing. It counts in production
+    /// too: one locked increment beside a sweep that walks the whole folder.
+    static let unsignedSweepsForTesting = UnsignedSweepCounter()
 
     func sweptUnsignedSnapshot(
         for permit: Permit, act: RegistryAdmissionError.Act = .permitChange
@@ -303,7 +310,7 @@ extension DocumentStore {
                 if let governing = resolved.table.unsignedSnapshot {
                     return .success(governing.mark)
                 }
-                DocumentStore.unsignedSweepObserverForTesting?()
+                DocumentStore.unsignedSweepsForTesting.bump(projectURL)
                 return .success(try OpLogStore.unattributablePositions(
                     in: projectURL, trust: resolved.table,
                     // What this Mac remembers having applied from ANY other
@@ -1633,5 +1640,26 @@ public struct PieceIsTheirsRefused: Error, LocalizedError {
             + "question was asked, so saying the piece is theirs would give "
             + "them access you haven’t chosen. Set what they may write in "
             + "People & Devices instead."
+    }
+}
+
+/// **Unsigned-snapshot sweeps performed, per project folder** — see
+/// `DocumentStore.unsignedSweepsForTesting`. Sendable by its lock, so the
+/// detached sweep and a test on the main actor can both reach it.
+final class UnsignedSweepCounter: Sendable {
+    private let counts = OSAllocatedUnfairLock(initialState: [String: Int]())
+
+    func bump(_ projectURL: URL) {
+        let key = Self.key(projectURL)
+        counts.withLock { $0[key, default: 0] += 1 }
+    }
+
+    func count(in projectURL: URL) -> Int {
+        let key = Self.key(projectURL)
+        return counts.withLock { $0[key] ?? 0 }
+    }
+
+    private static func key(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
     }
 }
