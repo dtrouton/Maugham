@@ -316,10 +316,12 @@ public final class OpLogStore {
         else {
             return LocalWritePermit(permit: permit, actor: actor, documentClass: cls)
         }
-        // **A starter that no longer stands binds nothing** (Ruling L (b)): a
-        // revoked, retired or unknown device will never mint this piece's
-        // opening, so today's rule applies — the piece is not left unopenable.
-        guard table.starterIsStanding(starterId) else {
+        // **A starter that is GONE binds nothing** (Rulings L (b), M): a
+        // revoked, retired or never-admitted device will never mint this
+        // piece's opening, so today's rule applies and the piece is not left
+        // unopenable. A starter this register has never heard of is still
+        // COMING (its record has not synced) and binds: this Mac waits.
+        guard table.starterStanding(starterId) != .gone else {
             return LocalWritePermit(permit: permit, actor: actor, documentClass: cls)
         }
         let starter = table.starter(ofPieceStartedBy: starterId)

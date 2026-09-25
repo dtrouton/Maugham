@@ -1343,24 +1343,26 @@ final class TrustTableTests: XCTestCase {
         XCTAssertEqual(retired.starter(ofPieceStartedBy: authorId(other)), .somebodyElse)
     }
 
-    /// **Ruling L (b): a starter that no longer stands binds nothing** — both
-    /// directions. This Mac, her other Mac and Sam's admitted Mac stand; a
-    /// revoked or retired device, an assistant key and a device this register
-    /// never heard of do not, so the starter rule falls back to today's.
-    func test_aStarterStandsOnlyWhileItsDeviceIsMineOrAdmitted() {
+    /// **Rulings L (b) and M: where a starter stands** — all three answers.
+    /// This Mac, her other Mac and Sam's admitted Mac stand; a revoked or
+    /// retired device and a key that is not a writer's hand are gone; a device
+    /// this register has never heard of is unknown (still coming).
+    func test_aStarterStandsIsGoneOrIsStillComing() {
         let (other, sam) = (foreignKey(), foreignKey())
         let table = starterTable(other: other, sam: sam)
-        XCTAssertTrue(table.starterIsStanding(mine.author.deviceId))
-        XCTAssertTrue(table.starterIsStanding(authorId(other)))
-        XCTAssertTrue(table.starterIsStanding(authorId(sam)), "somebody else, admitted")
-        XCTAssertFalse(table.starterIsStanding(authorId(foreignKey())), "unknown here")
-        XCTAssertFalse(table.starterIsStanding("author-not-a-device"))
-        XCTAssertFalse(table.starterIsStanding(mine.assistant.deviceId),
+        XCTAssertEqual(table.starterStanding(mine.author.deviceId), .standing)
+        XCTAssertEqual(table.starterStanding(authorId(other)), .standing)
+        XCTAssertEqual(table.starterStanding(authorId(sam)), .standing,
+                       "somebody else, admitted")
+        XCTAssertEqual(table.starterStanding(authorId(foreignKey())), .unknown,
+                       "never heard of here: its record may still be coming")
+        XCTAssertEqual(table.starterStanding("author-not-a-device"), .unknown)
+        XCTAssertEqual(table.starterStanding(mine.assistant.deviceId), .gone,
                        "a piece is started by a writer's hand")
-        XCTAssertFalse(starterTable(other: other, sam: sam, otherRevoked: true)
-            .starterIsStanding(authorId(other)), "revoked")
-        XCTAssertFalse(starterTable(other: other, sam: sam, otherRetired: true)
-            .starterIsStanding(authorId(other)), "retired")
+        XCTAssertEqual(starterTable(other: other, sam: sam, otherRevoked: true)
+            .starterStanding(authorId(other)), .gone, "revoked")
+        XCTAssertEqual(starterTable(other: other, sam: sam, otherRetired: true)
+            .starterStanding(authorId(other)), .gone, "retired")
     }
 
     /// **The other device must be the same WRITER, by the root's label** — the

@@ -876,26 +876,35 @@ public struct TrustTable: Equatable, Sendable {
         return .anotherOfThisWritersDevices
     }
 
-    /// **Does a piece's recorded starter still STAND in this register?**
-    /// (controller Ruling L (b), P3c plan 2 Task 4 fix round 1.)
-    ///
-    /// The starter rule (`LocalWritePermit.mayMintOpening`) waits for the Mac
-    /// that started a piece to mint its opening. That wait only ends if the
-    /// starter can still write: a device the root revoked, one that retired,
-    /// and one this register has never heard of will never mint anything
-    /// here, so a piece they started must not be unopenable for everybody.
-    /// Where this answers false the starter rule does not bind and today's
-    /// rule applies — whoever may write the piece's text mints it.
-    ///
-    /// Standing means the same forwards match `starter(ofPieceStartedBy:)`
-    /// makes (an owned AUTHOR key this register vouches for) AND a verdict of
-    /// `.mine` or `.admitted`. This device's own ids always stand
+    /// **Where a piece's recorded starter stands in this register** (controller
+    /// Rulings L (b) and M, P3c plan 2 Task 4).
+    public enum StarterStanding: Equatable, Sendable {
+        /// This device, or a device this register shows as admitted: the
+        /// starter rule binds, and only it mints the opening.
+        case standing
+        /// A device the register shows will never mint here — revoked,
+        /// retired, a stranger nobody admitted, a claimant of another root, a
+        /// contested key, or a key that is not a writer's hand. The starter
+        /// rule does not bind: today's rule applies (whoever may write the
+        /// piece's text mints it), so the piece is not unopenable for good.
+        case gone
+        /// A device id this register has never heard of — most likely its
+        /// device record has not synced yet. Treated as still COMING
+        /// (Ruling M): the starter rule binds and this Mac waits, which keeps
+        /// OA-2's race closed while her record is on its way.
+        case unknown
+    }
+
+    /// **Where the starter `deviceId` stands** — the one answer the write-side
+    /// builder (`OpLogStore.localWritePermit`) asks before the starter rule
+    /// may bind. This device's own ids are always `.standing`
     /// (`keyByDeviceId` holds them before any record of its own is written).
-    nonisolated public func starterIsStanding(_ deviceId: String) -> Bool {
-        guard let key = starterKey(deviceId) else { return false }
+    nonisolated public func starterStanding(_ deviceId: String) -> StarterStanding {
+        guard deviceKey(forDeviceId: deviceId) != nil else { return .unknown }
+        guard let key = starterKey(deviceId) else { return .gone }
         switch verdict(forSealKey: key) {
-        case .mine, .admitted: return true
-        case .stranger, .revoked, .retired, .otherRoot, .noChain: return false
+        case .mine, .admitted: return .standing
+        case .stranger, .revoked, .retired, .otherRoot, .noChain: return .gone
         }
     }
 

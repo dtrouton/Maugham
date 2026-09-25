@@ -523,17 +523,9 @@ final class AdmissionPermitTests: XCTestCase {
         _ = try await rootStore.admit(
             device: stranger.fingerprint, label: "Sam", ownName: "Sam’s Mac",
             permit: PermitControl.permit(for: .somePieces, pieces: ["ch-A"]))
-        // Her Mac declares itself, as its own open does
-        // (`RegistryPresence`): a starter this register cannot name does not
-        // stand (Ruling L (b)), so the root would fall back to today's rule.
-        try RegistryWriter.write(
-            DeviceRecord(
-                device: stranger.fingerprint, name: "Sam’s Mac", kind: .mac,
-                actors: Dictionary(uniqueKeysWithValues: DeviceActor.allCases.map {
-                    ($0.rawValue, strangerDevice[$0].fingerprint)
-                }),
-                madeAt: Date(timeIntervalSince1970: 2_000)),
-            signedBy: stranger, in: projectURL)
+        // Her Mac's own DEVICE record is deliberately NOT written: the
+        // manifest recording her as starter arrives before it (Ruling M).
+        // The root's person record for her is what this register knows her by.
         let her = Mac(
             identities: strangerDevice, state: strangerState,
             cache: RegistryCache(
@@ -716,12 +708,15 @@ final class AdmissionPermitTests: XCTestCase {
                       "nothing to mint, and nothing minted")
     }
 
-    /// **(b) A starter that no longer stands binds nothing** — on real disk,
-    /// the root's Mac, a piece with words and no history: an unknown starter,
-    /// her revoked device and her retired device each fall back to today's
-    /// rule and the root mints. Her standing device (the control) makes the
-    /// root wait.
-    func test_aStarterThatNoLongerStandsFallsBackToTodaysRule() async throws {
+    /// **(b) and Ruling M: where the starter stands decides who mints** — on
+    /// real disk, on the root's Mac, a piece with words and no history:
+    ///
+    /// - standing (her admitted device) → the root waits and ONLY she mints;
+    /// - unknown to this register (no record of it at all yet) → still
+    ///   coming: the root waits;
+    /// - a stranger (a device record, never admitted), her retired device and
+    ///   her revoked device → gone: today's rule, and the root mints.
+    func test_whereTheStarterStandsDecidesWhoMints() async throws {
         let (root, her, rootStore) = try await aRootAndHer()
         let project = try await ProjectStore.load(from: projectURL)
         project.documentStore = rootStore
@@ -738,10 +733,10 @@ final class AdmissionPermitTests: XCTestCase {
             try await project.saveManifest()
             return (item.id, url)
         }
-        func rootMints(_ piece: (id: String, url: URL)) async throws -> Bool {
-            be(root)
+        func mints(_ piece: (id: String, url: URL), on mac: Mac) async throws -> Bool {
+            be(mac)
             do {
-                let doc = try await load(piece.url, session: "root-\(UUID().uuidString)")
+                let doc = try await load(piece.url, session: "s-\(UUID().uuidString)")
                 await doc.close()
             } catch DocumentLoadError.waitingForPiece {
                 return false
@@ -750,24 +745,50 @@ final class AdmissionPermitTests: XCTestCase {
         }
         let herId = her.identities.author.deviceId
 
-        let control = try await rootMints(try await aPiece(startedBy: herId))
-        XCTAssertFalse(control, "the control: her standing device binds the root")
+        let hers = try await aPiece(startedBy: herId)
+        let rootMintedHers = try await mints(hers, on: root)
+        XCTAssertFalse(rootMintedHers, "standing: the root waits")
+        let sheMintedHers = try await mints(hers, on: her)
+        XCTAssertTrue(sheMintedHers, "and only she mints")
 
-        let unknown = try await rootMints(
-            try await aPiece(startedBy: "author-" + String(repeating: "0f", count: 8)))
-        XCTAssertTrue(unknown, "a starter this register never heard of")
+        let unknown = try await aPiece(
+            startedBy: "author-" + String(repeating: "0f", count: 8))
+        let rootMintedUnknown = try await mints(unknown, on: root)
+        XCTAssertFalse(rootMintedUnknown,
+                       "unknown to this register: still coming, so the root waits")
+
+        let passerBy = LocalIdentities.forTesting(author: .softwareForTesting())
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: passerBy.author.fingerprint, name: "A stranger's Mac", kind: .mac,
+                actors: [DeviceActor.author.rawValue: passerBy.author.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 3_000)),
+            signedBy: passerBy.author, in: projectURL)
+        let stranger = try await mints(
+            try await aPiece(startedBy: passerBy.author.deviceId), on: root)
+        XCTAssertTrue(stranger, "a stranger nobody admitted: gone, today's rule")
 
         let beforeRetiring = try await aPiece(startedBy: herId)
         be(her)
+        // Her device record has arrived by now; a device retires its own.
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: self.stranger.fingerprint, name: "Sam’s Mac", kind: .mac,
+                actors: Dictionary(uniqueKeysWithValues: DeviceActor.allCases.map {
+                    ($0.rawValue, strangerDevice[$0].fingerprint)
+                }),
+                madeAt: Date(timeIntervalSince1970: 2_000)),
+            signedBy: self.stranger, in: projectURL)
         _ = try RegistryAdmission.retire(
-            device: stranger.fingerprint, in: projectURL, by: stranger, cache: her.cache)
-        let retired = try await rootMints(beforeRetiring)
-        XCTAssertTrue(retired, "her retired device")
+            device: self.stranger.fingerprint, in: projectURL,
+            by: self.stranger, cache: her.cache)
+        let retired = try await mints(beforeRetiring, on: root)
+        XCTAssertTrue(retired, "her retired device: gone, today's rule")
 
         let beforeRevoking = try await aPiece(startedBy: herId)
-        _ = try await rootStore.revoke(person: stranger.fingerprint)
-        let revoked = try await rootMints(beforeRevoking)
-        XCTAssertTrue(revoked, "her revoked device")
+        _ = try await rootStore.revoke(person: self.stranger.fingerprint)
+        let revoked = try await mints(beforeRevoking, on: root)
+        XCTAssertTrue(revoked, "her revoked device: gone, today's rule")
     }
 
     /// **A rename on the root's Mac SAYS it left a link in a piece it is
