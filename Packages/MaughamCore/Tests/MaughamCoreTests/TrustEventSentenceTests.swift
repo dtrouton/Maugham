@@ -245,8 +245,8 @@ final class TrustEventSentenceTests: XCTestCase {
             "This book was narrowed while nothing in it said who signs for "
             + "\u{201C}author-9f3c\u{201D}. Anything that stream has written "
             + "since is waiting \u{2014} for its Mac\u{2019}s first signed "
-            + "change to sync here, or, if it signs nothing, to be sent to the "
-            + "Inbox.")
+            + "change to sync here, or, if it signs nothing, for its paragraphs "
+            + "to be sent to the Inbox; its notes stay held, with no way back.")
     }
 
     /// **Nothing is coming.** A stream with no key can never have a record, so

@@ -272,14 +272,53 @@ public enum HeldLines {
             // **Both cases, never one** (P3c Task 7, carry M2): a signing Mac
             // whose first seal has not synced is judged the moment it does,
             // and only a Mac that signs nothing needs the way back in.
-            let where_ = wayBackIn == .theInboxDoor
-                ? "can be brought back through the Inbox."
-                : "is brought back from History."
             return "\(noun) \(verb) waiting from \(unsignedWriter). "
                 + "If that Mac’s first signed change just hasn’t synced here, "
-                + "this changes when it does; if it signs nothing, what it wrote "
-                + where_
+                + "this changes when it does; if it signs nothing, "
+                + unsignedWayBack(what, wayBackIn: wayBackIn)
         }
+    }
+
+    /// **What comes back from a Mac that signs nothing — PARAGRAPHS only**
+    /// (Denver's I2 ruling, 2026-09-23; delivered in P3c plan 2's fix wave).
+    ///
+    /// §7.4's door (`DocumentStore.sendHeldWordsToInbox`) captures a held
+    /// span's paragraphs as Inbox rows and nothing else. A held note, a
+    /// disposition of one, a checkpoint or a task from such a Mac has no door
+    /// and no admission to pardon it, so the sentence counts the paragraphs as
+    /// coming back and says the rest stays held with no way back — never the
+    /// old promise over a noun that could read *2 paragraphs and 1 note*.
+    /// Where the caller has only a count (the capture stream, which holds no
+    /// ops), the kinds are unknown and the sentence says both halves.
+    private static func unsignedWayBack(_ what: Waiting?, wayBackIn: WayBackIn) -> String {
+        func door(plural: Bool) -> String {
+            wayBackIn == .theInboxDoor
+                ? "can be brought back through the Inbox"
+                : "\(plural ? "are" : "is") brought back from History"
+        }
+        let onlyParagraphs = wayBackIn == .theInboxDoor
+            ? "only paragraphs come back, through the Inbox"
+            : "only paragraphs come back, from History"
+        guard let what else {
+            return "any paragraphs it wrote \(door(plural: true)); its notes "
+                + "stay held, with no way back."
+        }
+        let changes = what.other + (what.paragraphs == 0 ? what.prose : what.anonymousProse)
+        let rest: String?
+        switch (what.notes > 0, changes > 0) {
+        case (true, true): rest = "its notes and other changes stay"
+        case (true, false): rest = what.notes == 1 ? "its note stays" : "its notes stay"
+        case (false, true): rest = changes == 1 ? "its other change stays" : "its other changes stay"
+        case (false, false): rest = nil
+        }
+        guard what.paragraphs > 0 else {
+            return "\(rest ?? "what it wrote stays") held, with no way back — "
+                + "\(onlyParagraphs)."
+        }
+        let plural = what.paragraphs != 1
+        let paragraphs = "its \(plural ? "paragraphs" : "paragraph") \(door(plural: plural))"
+        guard let rest else { return "\(paragraphs)." }
+        return "\(paragraphs); \(rest) held, with no way back."
     }
 
     // MARK: - What is waiting (P3b smoke find F2)
