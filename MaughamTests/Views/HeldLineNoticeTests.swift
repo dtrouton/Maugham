@@ -379,7 +379,7 @@ final class HeldLineNoticeTests: XCTestCase {
         // inbox row decodes to `OpKind.unknown`, so §7.4's verb offers it
         // nothing and there is no control to draw beside this line.
         let unsignedNotice = try XCTUnwrap(notices.first {
-            $0.localizedCaseInsensitiveContains("signs nothing it writes")
+            $0.localizedCaseInsensitiveContains(HeldLines.unsignedWriter)
         }, "\(notices)")
         XCTAssertTrue(
             unsignedNotice.localizedCaseInsensitiveContains("from History"),

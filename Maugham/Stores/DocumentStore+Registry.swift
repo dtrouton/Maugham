@@ -1424,28 +1424,27 @@ extension DocumentStore {
     /// count: no door is better than a door that promises half a span.
     func unsignedHeldWordCounts(
         forDocId docId: String, holders: [String]
-    ) async -> [String: Int] {
+    ) async -> SetAsideDoor.HeldWordCounts {
         let unsigned = holders.filter { HeldLines.isUnsignedHolder($0) }
-        guard !unsigned.isEmpty else { return [:] }
-        var counts: [String: Int] = [:]
+        guard !unsigned.isEmpty else { return .none }
+        // **Remembered by the LINES, not by the holder** (P3c Task 7, M2). A
+        // signing Mac whose first seal has not synced is held as an unsigned
+        // stream today and under its key tomorrow; the paragraphs are the same
+        // paragraphs, and a memory keyed by the holder offered them again.
+        // **What is left, not what is there** (fix round 2, C1): a held span
+        // is live, so the door offers the paragraphs this Mac has not already
+        // made a capture of — never all of them again, and never none of them
+        // because one press happened once. Both are `SetAsideDoor`'s rule.
+        var wordsByHolder: [String: [OpLogQuarantine.SetAsideWords]] = [:]
         for holder in unsigned {
             guard let words = try? await unsignedHeldWords(
                 forDocId: docId, heldBy: holder), !words.isEmpty
             else { continue }
-            // **What is left, not what is there** (fix round 2, C1). A held
-            // span is live: the stream goes on writing, and the door must
-            // offer the paragraphs this Mac has not already made a capture of
-            // — never all of them again, and never none of them because one
-            // press happened once.
-            let already = uiState.sentRecoveredOpIds[
-                SetAsideDoor.heldKey(docId: docId, holder: holder)] ?? []
-            let unsent = words.filter {
-                !already.contains(SetAsideDoor.captureId($0))
-            }
-            guard !unsent.isEmpty else { continue }
-            counts[holder] = unsent.count
+            wordsByHolder[holder] = words
         }
-        return counts
+        return SetAsideDoor.heldWordCounts(
+            docId: docId, wordsByHolder: wordsByHolder,
+            sent: uiState.sentRecoveredOpIds)
     }
 
     /// The words themselves — the walk's held lines for this holder, decoded
@@ -1469,8 +1468,9 @@ extension DocumentStore {
     /// The same act the record door performs, over a different source: nothing
     /// is applied, nothing on disk moves, the lines stay held exactly as they
     /// were, and the words arrive as ordinary captures signed by this Mac's own
-    /// author actor. The press is remembered per (holder, document) so the door
-    /// is not offered twice over the same span.
+    /// author actor. The press is remembered per paragraph, by the lines
+    /// themselves (`SetAsideDoor.heldLineId`), so the door never offers the
+    /// same paragraph twice — whatever holder it is held under by then.
     ///
     /// Answers how many captures landed. Zero — a re-read that found nothing —
     /// writes no memory either, because there is nothing to have sent and the
@@ -1479,17 +1479,13 @@ extension DocumentStore {
     func sendHeldWordsToInbox(
         forDocId docId: String, heldBy holder: String
     ) async throws -> Int {
-        let key = SetAsideDoor.heldKey(docId: docId, holder: holder)
-        let already = uiState.sentRecoveredOpIds[key] ?? []
+        // One memory per DOCUMENT, of the lines themselves (P3c Task 7, M2):
+        // `holder` chooses which lines to read, and never how they are
+        // remembered — see `SetAsideDoor.heldDoorKey`.
+        let key = SetAsideDoor.heldDoorKey(docId: docId)
         let words = try await unsignedHeldWords(forDocId: docId, heldBy: holder)
-        let attribution = SetAsideDoor.unsignedAttribution
-        let captures = words
-            .filter { !already.contains(SetAsideDoor.captureId($0)) }
-            .map {
-                SetAsideDoor.Capture(
-                    id: SetAsideDoor.captureId($0), text: $0.text,
-                    attribution: attribution)
-            }
+        let captures = SetAsideDoor.heldCaptures(
+            docId: docId, words: words, sent: uiState.sentRecoveredOpIds)
         guard !captures.isEmpty else { return 0 }
         // Recorded as each one LANDS (fix round 2, M2): a manifest that stops
         // being writable halfway leaves a re-press with only the rest to do,

@@ -164,6 +164,10 @@ struct HistoryPane: View {
     /// pass had a provenance at all — so Task 7's held sentences were
     /// intermittently not drawn, and a renamed person's was a reload behind.
     @State private var heldWordCounts: [String: Int] = [:]
+    /// Holder → how many of the paragraphs held under it NOW this Mac has
+    /// already sent (P3c Task 7, M2) — the same read as the counts above,
+    /// counted off the lines rather than off a memory keyed by the holder.
+    @State private var heldSentCounts: [String: Int] = [:]
     /// Device fingerprint → the name that device's registry record gives it,
     /// for the pending sentence (signed op log P2a). Empty when this project
     /// has no registry, and empty when one could not be read: a name is
@@ -600,7 +604,7 @@ struct HistoryPane: View {
         provenance: OpLogProvenance?, startedAPiece: Set<String>,
         takenFrom: Set<String> = [],
         names: [String: String], words: [String: Int] = [:],
-        sent: [String: Set<String>] = [:], docId: String = ""
+        sent: [String: Int] = [:]
     ) -> [SetAsideDoor.HeldRow] {
         guard let provenance else { return [] }
         let strangers = Set(provenance.pendingStrangersByDevice.keys)
@@ -629,10 +633,11 @@ struct HistoryPane: View {
                     holder: holder,
                     sentence: sentence,
                     unsent: unsigned ? (words[holder] ?? 0) : 0,
-                    sentCount: unsigned
-                        ? (sent[SetAsideDoor.heldKey(
-                            docId: docId, holder: holder)]?.count ?? 0)
-                        : 0)
+                    // Counted off the LINES by the store (P3c Task 7, M2),
+                    // never off a memory keyed by this holder: the same
+                    // paragraphs are held under a different holder the day a
+                    // signing Mac's first seal syncs.
+                    sentCount: unsigned ? (sent[holder] ?? 0) : 0)
             }
             return nil
         }
@@ -1307,8 +1312,10 @@ struct HistoryPane: View {
     /// asks nothing and costs nothing.
     private func reloadHeldWordCounts() async {
         let holders = Array(documentProvenance?.pendingByDevice.keys ?? [:].keys)
-        heldWordCounts = await documentStore?.unsignedHeldWordCounts(
-            forDocId: activeDocId, holders: holders) ?? [:]
+        let counts = await documentStore?.unsignedHeldWordCounts(
+            forDocId: activeDocId, holders: holders) ?? .none
+        heldWordCounts = counts.unsent
+        heldSentCounts = counts.sent
     }
 
     /// The holders this document is currently holding lines under, as one
@@ -1329,8 +1336,7 @@ struct HistoryPane: View {
             takenFrom: documentStore?
                 .document(forDocId: activeDocId)?.keptWritingInATakenPiece ?? [],
             names: chainDeviceNames, words: heldWordCounts,
-            sent: documentStore?.uiState.sentRecoveredOpIds ?? [:],
-            docId: activeDocId)
+            sent: heldSentCounts)
     }
 
     /// The names the two chain sentences are told in, resolved off the main

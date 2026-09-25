@@ -102,10 +102,15 @@ public enum TrustEventSentence {
             // quotes.
             let stream = HeldLines.streamOfUnsignedHolder(event.subject)
                 ?? event.subject
+            // **True in both cases** (P3c Task 7, carry M2): the stream may
+            // be a signing Mac whose first seal has not synced here yet, so
+            // the sentence never says *there is no device to admit* — it says
+            // what the two cases share and what each is waiting for.
             return "This book was narrowed while nothing in it said who signs "
                 + "for \u{201C}\(stream)\u{201D}. Anything that stream has "
-                + "written since is waiting: there is no device to admit, and "
-                + "its way back in is the Inbox."
+                + "written since is waiting \u{2014} for its Mac\u{2019}s "
+                + "first signed change to sync here, or, if it signs nothing, to "
+                + "be sent to the Inbox."
         }
     }
 

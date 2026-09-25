@@ -23,9 +23,15 @@ import Foundation
 ///   that decided it says so: `AmendmentPermits.recordStartedAPiece`, carried
 ///   into `holder(of:registry:startedAPiece:)` as an INPUT.
 /// - **unsigned** — a line written after the first narrowing by a file this
-///   register can name no key for (`UnsignedSnapshot`). There is no device to
-///   admit, because there is no key: nothing on that Mac signs what it writes.
-///   Its one way back in is the Inbox.
+///   register can name no key for (`UnsignedSnapshot`). That is two cases this
+///   Mac cannot tell apart and must not claim to (P3c Task 7, carry M2): a Mac
+///   that signs nothing it will ever write — a VM, a machine with no Secure
+///   Enclave — and a Mac that signs perfectly well whose FIRST seal has not
+///   synced into this folder yet. The second stops being unsigned the moment
+///   its seal arrives and is judged like any other device from then on; the
+///   first's one way back in is the Inbox. So nothing here says *there is no
+///   device to admit*: what is true in both is that nothing this book holds
+///   says who signs for the stream (People & Devices' own wording).
 ///
 /// **The unsigned holder is a string no fingerprint can be**, and that is what
 /// makes the classification total rather than a guess. A seal key is 64 hex
@@ -172,8 +178,14 @@ public enum HeldLines {
     /// answers to *whose words are these*, and the wrong one is easy to reach
     /// for: a Mac with no enclave has no key, but telling a writer their other
     /// machine *has no key* describes a missing part rather than what is
-    /// actually true of it, which is that nothing it writes is signed.
-    public static let unsignedWriter = "a Mac that signs nothing it writes"
+    /// actually true of it.
+    ///
+    /// **And it must be true in BOTH cases the holder covers** (P3c Task 7,
+    /// carry M2). It used to say *a Mac that signs nothing it writes*, which is
+    /// false about a signing Mac whose first seal has not reached this folder
+    /// yet — the case that arrives on every new collaborator's first day. What
+    /// this Mac knows in both is that nothing in the book signs for it.
+    public static let unsignedWriter = "a Mac nothing in this book signs for yet"
 
     /// **Where an unsigned stream's words come back**, said in the one place
     /// that knows whether the reader is standing in it (P3b Task 10).
@@ -257,11 +269,16 @@ public enum HeldLines {
                 + "of Maugham can’t tell what they are allowed to write here; "
                 + "a newer one will."
         case .unsigned:
+            // **Both cases, never one** (P3c Task 7, carry M2): a signing Mac
+            // whose first seal has not synced is judged the moment it does,
+            // and only a Mac that signs nothing needs the way back in.
             let where_ = wayBackIn == .theInboxDoor
                 ? "can be brought back through the Inbox."
                 : "is brought back from History."
             return "\(noun) \(verb) waiting from \(unsignedWriter). "
-                + "There is no device to admit — what it wrote \(where_)"
+                + "If that Mac’s first signed change just hasn’t synced here, "
+                + "this changes when it does; if it signs nothing, what it wrote "
+                + where_
         }
     }
 

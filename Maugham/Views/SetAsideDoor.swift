@@ -33,7 +33,9 @@ import MaughamCore
 ///   still growing and reported the live count as *sent*.) The memory is
 ///   device-local, keyed per door, and shared with the held-line door beside
 ///   it, for its reason: what this Mac has handed its writer is this Mac's
-///   business, and the archives are not the place to write it.
+///   business, and the archives are not the place to write it. (The held door
+///   remembers `<docId>|<opId>#<paragraphId>` under one key per document, and
+///   never keys by holder — `heldDoorKey` says why.)
 ///
 /// Pure over what a refresh already read, like every other model behind these
 /// panes: the disk read is `rows(records:in:…)`'s one pass, and the view draws
@@ -370,12 +372,94 @@ enum SetAsideDoor {
         }
     }
 
-    /// The key this Mac remembers a held-span send under — per DOCUMENT and per
-    /// holder, because a holder is a whole stream and a stream runs through
-    /// every chapter it wrote in. Sending one chapter's waiting paragraphs must
-    /// not close the door on another's.
-    static func heldKey(docId: String, holder: String) -> String {
-        "\(docId)|\(holder)"
+    /// **The door key a held-span send is remembered under** — per DOCUMENT,
+    /// and deliberately NOT per holder (P3c Task 7, carry M2).
+    ///
+    /// It used to be `<docId>|<holder>`, and the holder is the one thing about
+    /// a held line that is NOT a fact about the line: it is the walk's current
+    /// opinion of whose it is. A signing Mac whose first seal has not synced
+    /// here yet reads as an unsigned stream (`unsigned:<slug>`), and the moment
+    /// the seal arrives the SAME lines are held under its key instead — so a
+    /// memory keyed by the holder forgot every paragraph the writer had already
+    /// sent, and offered them again. What is remembered is therefore the LINES
+    /// (`heldLineId`), and this key only groups them by the chapter they are
+    /// in.
+    ///
+    /// No colon, so it can never equal an older `<docId>|unsigned:<stream>`
+    /// key: those stay in `UIState.sentRecoveredOpIds` unread (tripwire 11, no
+    /// migration), and a paragraph sent under one before this build is offered
+    /// once more — the safe direction, a duplicate capture rather than a lost
+    /// one, and only on the dev Macs that ran P3b.
+    static func heldDoorKey(docId: String) -> String {
+        "\(docId)|held"
+    }
+
+    /// **What this Mac remembers one sent held paragraph by**:
+    /// `<docId>|<opId>#<paragraphId>` — the record door's `captureId`, with
+    /// the chapter in front. The op and the paragraph are what the line IS, so
+    /// the same words held under a different holder tomorrow are the same id.
+    static func heldLineId(
+        docId: String, _ words: OpLogQuarantine.SetAsideWords
+    ) -> String {
+        "\(docId)|\(captureId(words))"
+    }
+
+    /// **What the held door can still give back, and what it already has**,
+    /// per holder, for one document — the disk half of History's held rows,
+    /// resolved by `DocumentStore.unsignedHeldWordCounts` on a reload.
+    ///
+    /// `sent` is how many of the paragraphs held under that holder NOW are
+    /// ones this Mac has already made a capture of — a count of what was
+    /// SENT, taken from the lines themselves, so it is right whichever holder
+    /// they were sent under.
+    struct HeldWordCounts: Equatable, Sendable {
+        var unsent: [String: Int] = [:]
+        var sent: [String: Int] = [:]
+
+        static let none = HeldWordCounts()
+    }
+
+    /// **The held door's two counts, off the lines** — pure over what the
+    /// store's walk read (`wordsByHolder`) and this Mac's memory (`sent`, the
+    /// whole of `UIState.sentRecoveredOpIds`). A holder with no words is left
+    /// out of both maps, so a re-read that found nothing offers no door.
+    ///
+    /// **The holder chooses which lines are counted, and never how they are
+    /// remembered** (P3c Task 7, M2): a paragraph sent while its stream was
+    /// held as unsigned is still *sent* once the same line is held under a
+    /// key, and a paragraph never sent is offered whatever it is held under.
+    static func heldWordCounts(
+        docId: String,
+        wordsByHolder: [String: [OpLogQuarantine.SetAsideWords]],
+        sent: [String: Set<String>]
+    ) -> HeldWordCounts {
+        let already = sent[heldDoorKey(docId: docId)] ?? []
+        var counts = HeldWordCounts()
+        for (holder, words) in wordsByHolder where !words.isEmpty {
+            let sentHere = words.filter {
+                already.contains(heldLineId(docId: docId, $0))
+            }.count
+            if sentHere > 0 { counts.sent[holder] = sentHere }
+            if words.count > sentHere { counts.unsent[holder] = words.count - sentHere }
+        }
+        return counts
+    }
+
+    /// **The captures a held-door press would file**: the paragraphs this Mac
+    /// has not already sent from this document, each carrying the id it will
+    /// be remembered by (`heldLineId`) — pure, for `heldWordCounts`' reason.
+    static func heldCaptures(
+        docId: String, words: [OpLogQuarantine.SetAsideWords],
+        sent: [String: Set<String>]
+    ) -> [Capture] {
+        let already = sent[heldDoorKey(docId: docId)] ?? []
+        return words
+            .map { (id: heldLineId(docId: docId, $0), words: $0) }
+            .filter { !already.contains($0.id) }
+            .map {
+                Capture(id: $0.id, text: $0.words.text,
+                        attribution: unsignedAttribution)
+            }
     }
 
     /// **Who a recovered held paragraph is from**, in `HeldLines`' own words.

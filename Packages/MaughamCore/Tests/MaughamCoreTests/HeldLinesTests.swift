@@ -132,10 +132,45 @@ final class HeldLinesTests: XCTestCase {
         let sentence = try XCTUnwrap(HeldLines.sentence(
             .unsigned(stream: "author-beef"), notes: 4))
         XCTAssertTrue(sentence.localizedCaseInsensitiveContains("Inbox"))
-        // It DOES say the word *admit*, and only to rule it out — *there is no
-        // device to admit*. What it must never be is the admission SENTENCE.
+        // What it must never be is the admission SENTENCE.
         XCTAssertFalse(
             sentence.localizedCaseInsensitiveContains("waiting for admission"))
+    }
+
+    /// **The pre-first-seal stranger** (P3c Task 7, carry M2). An unsigned
+    /// stream is two cases this Mac cannot tell apart — a Mac that signs
+    /// nothing it will ever write, and a signing Mac whose first seal has not
+    /// synced here yet — so neither the held sentence nor History's dated
+    /// entry may say *there is no device to admit* or *signs nothing it
+    /// writes* as a fact. Both say what the two cases share and what each is
+    /// waiting for, as People & Devices' unsigned row already does.
+    func test_theUnsignedWordsAreTrueOfAMacWhoseFirstSealHasNotSynced() throws {
+        let entry = TrustEventSentence.sentence(
+            for: TrustEvent(
+                date: Date(timeIntervalSince1970: 0), kind: .unsigned,
+                subject: HeldLines.unsignedHolder(
+                    forStreamKey: "d.ghost", deviceSlug: "ghost")),
+            labels: [:])
+        let held = [
+            HeldLines.sentence(.unsigned(stream: "ghost"), notes: 2),
+            HeldLines.sentence(.unsigned(stream: "ghost"), notes: 1,
+                               wayBackIn: .historysHeldRows),
+        ].compactMap { $0 }
+        XCTAssertEqual(held.count, 2)
+        for sentence in held + [entry, HeldLines.unsignedWriter] {
+            XCTAssertFalse(
+                sentence.localizedCaseInsensitiveContains("no device to admit"),
+                sentence)
+            XCTAssertFalse(
+                sentence.localizedCaseInsensitiveContains("signs nothing it writes"),
+                sentence)
+        }
+        for sentence in held + [entry] {
+            XCTAssertTrue(sentence.contains("sync"),
+                          "the signing Mac's case is named: \(sentence)")
+            XCTAssertTrue(sentence.contains("if it signs nothing"),
+                          "…and so is the other one: \(sentence)")
+        }
     }
 
     /// Nothing waiting is no sentence at all, in every arm — so no surface has
