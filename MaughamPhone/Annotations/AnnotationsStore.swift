@@ -33,11 +33,13 @@ final class AnnotationsStore {
         self.recents = recents
     }
 
-    /// Drop every posture this load asked, so the next note opened asks the
-    /// door again — on a reload, and when the app returns to the front (C5:
-    /// the permit changes on the Mac, and the phone has no file presenter).
+    /// Drop every posture this load asked, and every table behind them, so
+    /// the next ask resolves the register afresh — when the app returns to
+    /// the front (C5: the permit changes on the Mac, and the phone has no file
+    /// presenter). The SAME cache is refreshed rather than replaced, so a
+    /// detail view already holding it sees the refresh too.
     func forgetPostures() {
-        postures = PhonePosture.forANewLoad()
+        postures.refresh()
     }
 
     func loadIfNeeded() async {
@@ -50,7 +52,8 @@ final class AnnotationsStore {
     func reload() async {
         isLoading = true
         defer { isLoading = false; didLoad = true }
-        forgetPostures()
+        // A reload is a new load: new stores, nothing remembered.
+        postures = PhonePosture.forANewLoad()
 
         var results: [ProjectAnnotations] = []
         for project in projectsBrowser.projects {

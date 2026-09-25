@@ -153,10 +153,12 @@ final class PhonePostureTests: XCTestCase {
     func test_theLoadAsksTheDoorOncePerPieceAndAPerformAsksAgain() async {
         var asked: [String] = []
         var answer = Self.posture(.bookAuthor, nil)
-        let cache = PhonePosture { docId, _ in
-            asked.append(docId)
-            return answer
-        }
+        let cache = PhonePosture(
+            prepare: { _ in },
+            ask: { docId, _, _ in
+                asked.append(docId)
+                return answer
+            })
         let url = URL(fileURLWithPath: "/tmp/book")
 
         let first = await cache.posture(forDocId: "doc-a", in: url)
@@ -298,17 +300,73 @@ final class PhonePostureRoundTripTests: XCTestCase {
                        "a register nobody is narrowed in")
     }
 
-    /// **A promotion shows on the next ask** — the cache is per load, and a
-    /// new load (a pull, a foreground) asks the door again.
-    func test_aPromotionMadeOnTheMacShowsOnTheNextLoad() async throws {
+    /// A counting load over one device's own store: how many stores it made
+    /// and how many times it prepared a table.
+    private final class Counts {
+        var stores = 0
+        var prepares = 0
+    }
+
+    private func countingLoad(_ who: DeviceIdentity, _ counts: Counts) -> PhonePosture {
+        let book = self.book!
+        return PhonePosture(
+            makeStore: { _ in
+                counts.stores += 1
+                return book.store(for: .forAuthor(who), "phone-\(who.fingerprint.prefix(8))")
+            },
+            prepare: { store in
+                counts.prepares += 1
+                await store.prepareTrust()
+            })
+    }
+
+    /// **One table per load** (fix round 1): N asks across M documents in one
+    /// project make one store and prepare its table once; a re-ask over an
+    /// unchanged register prepares nothing; a permit change that landed since
+    /// the load moves the registry signature, so the re-ask before a write
+    /// prepares again and SEES it; and a foreground refresh prepares again
+    /// whatever the signature says.
+    func test_oneLoadPreparesTheTableOnceAndAgainOnlyWhenTheRegisterMoves() async throws {
+        try book.writeRegister()
+        let counts = Counts()
+        let load = countingLoad(book.samPhone, counts)
+        let url = book.projectURL
+
+        for _ in 0..<3 {
+            for docId in [PhoneNarrowedBook.docId, Self.secondDoc] {
+                let answer = await load.posture(forDocId: docId, in: url)
+                XCTAssertEqual(verbs(answer), Set(PhonePosture.Verb.allCases))
+            }
+        }
+        _ = await load.askAgain(forDocId: PhoneNarrowedBook.docId, in: url)
+        _ = await load.askAgain(forDocId: Self.secondDoc, in: url)
+        XCTAssertEqual(counts.stores, 1, "one store per project for the load")
+        XCTAssertEqual(counts.prepares, 1, "six asks and two re-asks, one table")
+
+        // The root narrows Sam while the note sits open. The re-ask before a
+        // write sees it.
+        try book.narrow()
+        let now = await load.askAgain(forDocId: PhoneNarrowedBook.docId, in: url)
+        XCTAssertEqual(verbs(now), [], "the narrowing that landed since the load is seen")
+        XCTAssertEqual(counts.prepares, 2, "the signature moved, so the table was prepared again")
+        XCTAssertEqual(counts.stores, 1)
+
+        // A foreground return refreshes: prepared again, still one store.
+        load.refresh()
+        _ = await load.posture(forDocId: Self.secondDoc, in: url)
+        _ = await load.posture(forDocId: PhoneNarrowedBook.docId, in: url)
+        XCTAssertEqual(counts.prepares, 3)
+        XCTAssertEqual(counts.stores, 1)
+    }
+
+    /// **A promotion shows on the next ask** after a foreground refresh (or a
+    /// new load), on the same load's one store.
+    func test_aPromotionMadeOnTheMacShowsAfterARefresh() async throws {
         try book.writeRegister()
         try book.narrow()
-        let store = book.store(for: .forAuthor(book.samPhone), "phone-sam")
         let url = book.projectURL
-        let load1 = PhonePosture { docId, projectURL in
-            await PhonePosture.settled(forDocId: docId, in: projectURL, using: store)
-        }
-        let before = await load1.posture(forDocId: PhoneNarrowedBook.docId, in: url)
+        let load = countingLoad(book.samPhone, Counts())
+        let before = await load.posture(forDocId: PhoneNarrowedBook.docId, in: url)
         XCTAssertEqual(verbs(before), [])
 
         // The root promotes Sam to an author of the whole book.
@@ -319,12 +377,9 @@ final class PhonePostureRoundTripTests: XCTestCase {
                 scope: Permit.bookScope, pieces: [], mark: [:],
                 at: Date(timeIntervalSince1970: 60), by: book.root.author.fingerprint),
             signedBy: book.root.author, in: url)
-        store.invalidateTrust()
 
-        let load2 = PhonePosture { docId, projectURL in
-            await PhonePosture.settled(forDocId: docId, in: projectURL, using: store)
-        }
-        let after = await load2.posture(forDocId: PhoneNarrowedBook.docId, in: url)
+        load.refresh()
+        let after = await load.posture(forDocId: PhoneNarrowedBook.docId, in: url)
         XCTAssertEqual(verbs(after), Set(PhonePosture.Verb.allCases))
     }
 }

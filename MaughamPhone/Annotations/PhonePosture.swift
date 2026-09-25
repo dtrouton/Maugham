@@ -10,8 +10,10 @@ import MaughamCore
 /// docId)`, with the table warmed OFF the main actor first
 /// (`OpLogStore.prepareTrust`, the Mac door's own shape), and remembers the
 /// answer for as long as the load that asked it — `AnnotationsStore` makes a
-/// fresh cache on every reload, so a promotion made on the Mac shows on the
-/// next pull, the next foreground, or the next time a note is opened.
+/// fresh cache on every reload and `refresh()`es it on every foreground, so a
+/// promotion made on the Mac shows on the next pull or foreground. Each
+/// project gets ONE `OpLogStore` for the load, so its verified table is
+/// resolved once and reused until the registry's signature moves.
 ///
 /// **Which verb needs what** is `offers(_:under:)`, a pure function over a
 /// `Posture`, so every decision the detail view draws is pinned without a
@@ -35,9 +37,14 @@ import MaughamCore
 @MainActor
 final class PhonePosture {
 
-    /// Answers a settled posture for one document. Production is
-    /// `PhonePosture.settled(forDocId:in:)`; a test injects its own store.
-    typealias Resolve = @MainActor (_ docId: String, _ projectURL: URL) async -> Posture
+    /// Makes the one `OpLogStore` a project gets for the life of this load.
+    typealias MakeStore = @MainActor (_ projectURL: URL) -> OpLogStore
+    /// Resolves a store's verified table off the main actor. Production is
+    /// `OpLogStore.prepareTrust`; a test counts it.
+    typealias Prepare = @MainActor (_ store: OpLogStore) async -> Void
+    /// Asks the door, on a store whose table is warm. Production is
+    /// `PostureDoor.posture(forDocId:in:using:)`; a test injects answers.
+    typealias Ask = @MainActor (_ docId: String, _ projectURL: URL, _ store: OpLogStore) -> Posture
 
     private struct Key: Hashable {
         let projectURL: URL
@@ -45,13 +52,30 @@ final class PhonePosture {
     }
 
     private var answers: [Key: Posture] = [:]
-    private let resolve: Resolve
+    /// **ONE store per project for the life of the load** (Task 6 fix round
+    /// 1). `OpLogStore`'s resolved table is per INSTANCE, so a store per ask
+    /// paid a folder read and a P256 verify per record on every first ask,
+    /// every re-ask before a write and every foreground return.
+    private var stores: [URL: OpLogStore] = [:]
+    /// The registry signature (`TrustResolution.signature(of:)`) each
+    /// project's table was last prepared under. A re-ask prepares again only
+    /// when it has MOVED — a revocation or a permit change writes a record,
+    /// which moves it — or after `refresh()` forgot it.
+    private var preparedUnder: [URL: String] = [:]
+    private let makeStore: MakeStore
+    private let prepare: Prepare
+    private let ask: Ask
 
-    init(resolve: @escaping Resolve = { docId, projectURL in
-        await PhonePosture.settled(
-            forDocId: docId, in: projectURL, using: OpLogStore(projectURL: projectURL))
-    }) {
-        self.resolve = resolve
+    init(
+        makeStore: @escaping MakeStore = { OpLogStore(projectURL: $0) },
+        prepare: @escaping Prepare = { await $0.prepareTrust() },
+        ask: @escaping Ask = { docId, projectURL, store in
+            PostureDoor.posture(forDocId: docId, in: projectURL, using: store)
+        }
+    ) {
+        self.makeStore = makeStore
+        self.prepare = prepare
+        self.ask = ask
     }
 
     /// A new, empty cache for one load. Spelled as a factory rather than a
@@ -69,17 +93,47 @@ final class PhonePosture {
     func posture(forDocId docId: String, in projectURL: URL) async -> Posture {
         let key = Key(projectURL: projectURL, docId: docId)
         if let known = answers[key] { return known }
-        let answer = await resolve(docId, projectURL)
-        answers[key] = answer
-        return answer
+        return await askAgain(forDocId: docId, in: projectURL)
     }
 
     /// **Re-ask before writing.** Never the cached answer: a perform acts on
     /// what the door says now, and the cache is brought up to date with it.
+    /// The TABLE is reused unless the registry's signature moved since it was
+    /// prepared, so a revocation that landed since the load is seen, and a
+    /// re-ask over an unchanged register verifies nothing.
     func askAgain(forDocId docId: String, in projectURL: URL) async -> Posture {
-        let answer = await resolve(docId, projectURL)
+        let store = await warmStore(for: projectURL)
+        let answer = ask(docId, projectURL, store)
         answers[Key(projectURL: projectURL, docId: docId)] = answer
         return answer
+    }
+
+    /// **Forget what this load knows** — the answers, and every store's
+    /// table — so the next ask resolves the register afresh. The foreground
+    /// return (C5) calls it: the phone has no file presenter, and a change
+    /// that left the signature where it was must still be seen on return.
+    func refresh() {
+        answers.removeAll()
+        preparedUnder.removeAll()
+        for store in stores.values { store.invalidateTrust() }
+    }
+
+    /// The project's one store, its table prepared under the register as it
+    /// stands now.
+    private func warmStore(for projectURL: URL) async -> OpLogStore {
+        let store: OpLogStore
+        if let known = stores[projectURL] {
+            store = known
+        } else {
+            store = makeStore(projectURL)
+            stores[projectURL] = store
+        }
+        let signature = TrustResolution.signature(of: projectURL)
+        if preparedUnder[projectURL] != signature {
+            await prepare(store)
+            preparedUnder[projectURL] = signature
+        }
+        return store
     }
 
     /// The door's settled answer: the verified table resolved off the main
