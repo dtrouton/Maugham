@@ -226,6 +226,15 @@ struct InboxCaptureWriter: Sendable {
         // write — and quiet, because a record that already says this touches
         // no file.
         PhoneDeviceRecord.ensure(in: projectRoot, identity: identity)
+        // **The default single-signer trust, on purpose** (P3c plan 2, C7).
+        // This store only ever APPENDS and SEALS — it never reads for the
+        // phone (the phone's reads go through `OpLogStore`, whose `trust()` is
+        // the verified table) — and the chained write asks one question of
+        // the closure, *is this key `.mine`*, because the truncating rewrite
+        // is licensed by this file having one writer. The phone holds one key,
+        // so the default answers that exactly as the table would
+        // (`PhoneChainPolicyTests`). A READ through this store would need the
+        // table; `TripwirePhoneGrepTest`'s write-only census keeps one out.
         let store = JSONLAppendStore<InboxEntry>(
             fileURL: url,
             chain: ChainPolicy(

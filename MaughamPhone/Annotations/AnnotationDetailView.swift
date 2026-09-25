@@ -49,11 +49,13 @@ struct AnnotationDetailView: View {
     /// The reloaded paragraph map, for best-effort "current paragraph text" on
     /// non-suggestion kinds. Empty until the appear re-derive runs.
     @State private var paragraphs: [String: String] = [:]
-    /// The ops `rederive()` loaded, kept around so the Reopen-&-Revert action
+    /// The ops `rederive()` loaded (with the ownership judgement they were
+    /// read under — the accept guard's fallback), kept around so the Reopen-&-Revert action
     /// can locate the latest `claudeAccept` op for `current` without a second
     /// disk read (mirrors the Mac's `Document.revertAcceptedAnnotation`, which
     /// scans its in-memory `_opLogMirror` the same way).
-    @State private var loadedOps: [Op] = []
+    @State private var loaded: AnnotationLoading.JudgedOps = .nothingLoaded
+    private var loadedOps: [Op] { loaded.ops }
     /// Drives the drift-confirm sheet before a Reopen-&-Revert (Mac parity:
     /// `AnnotationsPane.revert` gates behind `acceptedTextDrifted`).
     @State private var showRevertDriftConfirm = false
@@ -416,11 +418,14 @@ struct AnnotationDetailView: View {
                 // Verify against a FRESH read (not the view's loaded snapshot):
                 // a withdraw that synced in while this view sat open must
                 // refuse the splice (RULING-33; same shared rule as the Mac).
-                let freshOps = (try? await OpLogStore(projectURL: projectURL)
-                    .load(docId: docId)) ?? loadedOps
+                // Judged (P3c plan 2, Task 5): a withdrawal only counts if the
+                // Mac would honour it — a reviewer's Delete of somebody else's
+                // note deletes nothing, on the Mac or here.
+                let fresh = (try? await AnnotationLoading.loadJudged(
+                    docId: docId, from: OpLogStore(projectURL: projectURL))) ?? loaded
                 try await writer.accept(
                     current, currentParagraph: currentParagraph,
-                    verifyingAgainst: freshOps)
+                    verifyingAgainst: fresh.ops, judgedBy: fresh.amendments)
             } catch AnnotationWriter.WriteError.malformedSuggestion {
                 errorMessage = "This suggestion is malformed and can’t be applied."
                 throw CancelledWrite()
@@ -553,12 +558,13 @@ struct AnnotationDetailView: View {
     /// (and the paragraph map for context). Best-effort: a failed reload leaves
     /// the loaded values in place and the actions available.
     private func rederive() async {
-        guard let ops = try? await OpLogStore(projectURL: projectURL).load(docId: docId) else {
+        guard let judged = try? await AnnotationLoading.loadJudged(
+            docId: docId, from: OpLogStore(projectURL: projectURL)) else {
             return
         }
-        loadedOps = ops
-        paragraphs = Deriver.derive(ops: ops).paragraphs
-        let derived = AnnotationDeriver.derive(ops: ops, paragraphs: paragraphs)
+        loaded = judged
+        paragraphs = Deriver.derive(ops: judged.ops).paragraphs
+        let derived = AnnotationLoading.allAnnotations(judged, paragraphs: paragraphs)
         let fresh = derived.first(where: { $0.id == current.id })
         if let fresh { current = fresh }   // refresh context/status when still present
         let decision = ResolvedEntryDecision.afterRederive(

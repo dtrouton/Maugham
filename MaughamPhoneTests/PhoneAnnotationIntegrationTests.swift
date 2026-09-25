@@ -17,6 +17,20 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
 
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: tmp)
+        for url in narrowedBookRoots { try? FileManager.default.removeItem(at: url) }
+        narrowedBookRoots = []
+    }
+
+    /// Every `PhoneNarrowedBook` a test made, removed in `tearDown`.
+    private var narrowedBookRoots: [URL] = []
+
+    @MainActor
+    private func narrowedBook() throws -> PhoneNarrowedBook {
+        let book = try PhoneNarrowedBook()
+        narrowedBookRoots += [book.projectURL, book.scratchURL]
+        try book.writeRegister()
+        try book.narrow()
+        return book
     }
 
     private let docId = "doc-0f677d7e"
@@ -315,5 +329,99 @@ final class PhoneAnnotationIntegrationTests: XCTestCase {
         let paragraphs = Deriver.derive(ops: [creation, archive]).paragraphs
         let all = AnnotationDeriver.derive(ops: [creation, archive], paragraphs: paragraphs)
         XCTAssertEqual(all.first?.status, .archived)
+    }
+
+    // MARK: - A narrowed book, both directions (P3c plan 2, Task 5)
+
+    /// **The phone's write, read back on the Mac, in a narrowed book.**
+    /// Denver's phone — an author of the whole book — rejects Kim's note; the
+    /// Mac's own read (its `Document+Load` pair of Core calls) applies the
+    /// phone's sealed line and honours the disposition, and the phone reads the
+    /// same.
+    @MainActor
+    func test_inANarrowedBookThePhonesRejectIsHonouredOnTheMac() async throws {
+        let book = try narrowedBook()
+        try book.writeFile(by: book.root.author, ops: [book.opening()])
+        try book.writeFile(by: book.kim, ops: [book.note("01KIMA", by: book.kim)])
+
+        let before = try await book.phoneRead(as: book.denverPhone)
+        let note = try XCTUnwrap(AnnotationLoading.allAnnotations(before).first)
+        XCTAssertEqual(note.status, .open)
+
+        let writer = AnnotationWriter(
+            projectRoot: book.projectURL, docId: PhoneNarrowedBook.docId,
+            identity: book.denverPhone, appVersion: "0.1.0", osVersion: "iOS 27")
+        try await writer.reject(note, reason: "Not this one.")
+
+        let onMac = try await book.macRead()
+        XCTAssertEqual(onMac.first?.status, .rejected,
+                       "the phone's disposition reaches the Mac")
+        XCTAssertEqual(onMac.first?.userResponse, "Not this one.")
+        let onPhone = AnnotationLoading.allAnnotations(
+            try await book.phoneRead(as: book.denverPhone))
+        XCTAssertEqual(onPhone.first?.status, .rejected)
+    }
+
+    /// **The accept guard asks the judged walk.** Sam (a reviewer) deleted
+    /// Kim's suggestion on his Mac — a Delete no Mac honours — so Denver's
+    /// phone may still accept it, and the Mac reads it accepted. Judged by
+    /// `.honourEverything` instead, the phone refused with *You deleted this
+    /// suggestion on another device*, about a suggestion every Mac still shows
+    /// open.
+    @MainActor
+    func test_theAcceptGuardIgnoresADeleteNoMacHonours() async throws {
+        let book = try narrowedBook()
+        try book.writeFile(by: book.root.author, ops: [book.opening()])
+        try book.writeFile(by: book.kim, ops: [
+            book.note("01KIMA", by: book.kim, kind: .claudeSuggestion,
+                      next: "The sun sank over the harbour."),
+        ])
+        try book.writeFile(by: book.samMac, ops: [
+            book.amend("01SAMB", .annotationWithdraw, of: "01KIMA", by: book.samMac),
+        ])
+
+        let judged = try await book.phoneRead(as: book.denverPhone)
+        let suggestion = try XCTUnwrap(AnnotationLoading.allAnnotations(judged).first,
+                                       "Sam's Delete deletes nothing, on the phone too")
+        let writer = AnnotationWriter(
+            projectRoot: book.projectURL, docId: PhoneNarrowedBook.docId,
+            identity: book.denverPhone, appVersion: "0.1.0", osVersion: "iOS 27")
+        try await writer.accept(
+            suggestion, currentParagraph: PhoneNarrowedBook.paragraphText,
+            verifyingAgainst: judged.ops, judgedBy: judged.amendments)
+
+        let onMac = try await book.macRead()
+        XCTAssertEqual(onMac.first?.status, .accepted)
+    }
+
+    /// Its converse: Kim deletes her OWN suggestion, which every Mac honours,
+    /// and the phone's accept is refused.
+    @MainActor
+    func test_theAcceptGuardRefusesADeleteEveryMacHonours() async throws {
+        let book = try narrowedBook()
+        try book.writeFile(by: book.root.author, ops: [book.opening()])
+        let suggestion = book.note(
+            "01KIMA", by: book.kim, kind: .claudeSuggestion,
+            next: "The sun sank over the harbour.")
+        try book.writeFile(by: book.kim, ops: [
+            suggestion,
+            book.amend("01KIMB", .annotationWithdraw, of: "01KIMA", by: book.kim),
+        ])
+
+        let judged = try await book.phoneRead(as: book.denverPhone)
+        XCTAssertTrue(AnnotationLoading.allAnnotations(judged).isEmpty)
+        // The view that opened before the Delete synced still holds it open.
+        let stale = try XCTUnwrap(AnnotationLoading.allAnnotations(
+            ops: [book.opening(), suggestion]).first)
+        let writer = AnnotationWriter(
+            projectRoot: book.projectURL, docId: PhoneNarrowedBook.docId,
+            identity: book.denverPhone, appVersion: "0.1.0", osVersion: "iOS 27")
+        XCTAssertThrowsError(try writer.makeAccept(
+            for: stale, currentParagraph: PhoneNarrowedBook.paragraphText,
+            verifyingAgainst: judged.ops, judgedBy: judged.amendments)) { error in
+            guard case AnnotationWriter.WriteError.annotationWithdrawn = error else {
+                return XCTFail("expected annotationWithdrawn, got \(error)")
+            }
+        }
     }
 }

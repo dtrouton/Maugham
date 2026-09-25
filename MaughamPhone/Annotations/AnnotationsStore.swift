@@ -70,8 +70,12 @@ final class AnnotationsStore {
             for url in OpLogStore.opLogFileURLs(forDocId: docId, in: project.url) {
                 try? await downloads.ensureDownloaded(url)
             }
-            guard let ops = try? await store.load(docId: docId) else { continue }
-            all.append(contentsOf: AnnotationLoading.allAnnotations(ops: ops)
+            // Judged as the Mac judges it (P3c plan 2, Task 5): whose note an
+            // amendment is about is decided by the same Core rule, off the
+            // same load, so a note a Mac shows is the note this list shows.
+            guard let judged = try? await AnnotationLoading.loadJudged(
+                docId: docId, from: store) else { continue }
+            all.append(contentsOf: AnnotationLoading.allAnnotations(judged)
                 .map { LoadedAnnotation(annotation: $0, docId: docId) })
         }
         return all

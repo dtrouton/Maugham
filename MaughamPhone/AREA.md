@@ -115,6 +115,21 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   back together. Reopen / Reopen & Revert shipped phone-v0.5.0 (ADR 0023, schema
   v3): rejected/archived → `annotationReopen`; accepted → full `claudeAcceptRevert`
   with drift-confirm.
+  **Every annotation read is JUDGED (signed op log P3c plan 2, Task 5).**
+  `AnnotationLoading.loadJudged` is the phone's one op-log read for notes:
+  the Mac's own pair of Core calls (`OpLogStore.loadDiagnosed(docId:
+  amendmentPermits:)`, then `annotationAmendments(from:documentClass:)`),
+  returning a `JudgedOps` — the ops and the ownership rule they are read
+  under, together. The list, the detail's re-derive and the accept guard
+  (`AnnotationWriter.makeAccept(…judgedBy:)`) all take it, so in a narrowed
+  book a reviewer's edit, Delete or reopen of somebody else's note is not
+  honoured on the phone either, and her own restore made on a Mac is. An
+  un-narrowed book reads exactly as before (`annotationAmendments` answers
+  `.honourEverything` with no register). `TripwirePhoneGrepTest.
+  test_everyAnnotationReadOnThePhoneIsJudged` keeps a second, unjudged read
+  out. The two writers' `ChainPolicy` keeps the default single-signer trust
+  because those stores only WRITE, and a write asks nothing but *is this key
+  mine* (`PhoneChainPolicyTests`; `test_thePhonesChainedStoresOnlyWrite`).
 - **`Auth/`** — `LaunchAuthGate` (opt-in Face ID).
 - `MaughamPhoneApp.swift` owns the shared stores (`ProjectsRoot`/`RecentsTracker`/
   one `DownloadCoordinator`/`ProjectsBrowser`/`LaunchAuthGate`) and runs the §3.13

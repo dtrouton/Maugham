@@ -158,4 +158,71 @@ final class PhoneOneKeyTests: XCTestCase {
             LocalIdentities.current.existingActors.allSatisfy { $0 == .author },
             "the only key this device can hold is the author's")
     }
+
+    /// **The same measurement, in a book WITH a register and a narrowing**
+    /// (P3c plan 2, Task 5). The judged read resolves the verified table — a
+    /// registry folder read, a reconcile against this device's memory, the
+    /// ownership rule built from it — which is exactly the kind of path that
+    /// reaches for "the device" and could name an actor to get there. It must
+    /// mint nothing the phone will never sign with.
+    @MainActor
+    func test_theJudgedReadInANarrowedBookMintsNoKeyThePhoneWillNeverSignWith() async throws {
+        let book = try PhoneNarrowedBook()
+        defer { book.remove() }
+        try book.writeRegister()
+        try book.narrow()
+        try book.writeFile(by: book.root.author, ops: [book.opening()])
+        try book.writeFile(by: book.kim, ops: [book.note("01KIMA", by: book.kim)])
+        try book.writeFile(by: book.samMac, ops: [
+            book.amend("01SAMEDIT", .annotationEdit, of: "01KIMA",
+                       by: book.samMac, body: "Sam's words"),
+        ])
+        // Where this device can sign, the root admits it, so the read has the
+        // whole register to judge by rather than a stranger's view of it.
+        let me = LocalIdentities.current.author
+        let admitted = me.canSign
+        if admitted {
+            try RegistryWriter.write(
+                DeviceRecord(
+                    device: me.fingerprint, name: "This iPhone", kind: .phone,
+                    actors: [DeviceActor.author.rawValue: me.fingerprint],
+                    madeAt: Date(timeIntervalSince1970: 5)),
+                signedBy: me, in: book.projectURL)
+            try RegistryWriter.write(
+                PersonRecord(
+                    person: me.fingerprint, label: "Denver", ownName: "This iPhone",
+                    admittedAt: Date(timeIntervalSince1970: 20),
+                    admittedBy: book.root.author.fingerprint),
+                signedBy: book.root.author, in: book.projectURL)
+        }
+
+        // `AnnotationsStore.loadedAnnotations`' own body, and the detail view's:
+        // a store built with no `identities:` label, then the judged read.
+        for _ in 0..<2 {
+            let judged = try await AnnotationLoading.loadJudged(
+                docId: PhoneNarrowedBook.docId, from: OpLogStore(projectURL: book.projectURL))
+            if admitted {
+                XCTAssertEqual(
+                    AnnotationLoading.allAnnotations(judged).first?.body, "a note",
+                    "the read really ran, and judged Sam's edit away")
+            }
+        }
+
+        let dir = DeviceState.directory
+        for actor in Self.notThePhone {
+            XCTAssertFalse(
+                DeviceIdentity.hasPersistedIdentity(for: actor),
+                "The phone minted a \(actor.rawValue) key reading a narrowed book.")
+            for name in [DeviceIdentity.blobFilename(for: actor),
+                         DeviceIdentity.tokenFilename(for: actor)] {
+                XCTAssertFalse(
+                    FileManager.default.fileExists(
+                        atPath: dir.appendingPathComponent(name).path),
+                    "\(name) is in the phone's device folder")
+            }
+        }
+        XCTAssertTrue(
+            LocalIdentities.current.existingActors.allSatisfy { $0 == .author },
+            "the only key this device can hold is the author's")
+    }
 }
