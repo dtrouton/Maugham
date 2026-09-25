@@ -133,6 +133,27 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   out. The two writers' `ChainPolicy` keeps the default single-signer trust
   because those stores only WRITE, and a write asks nothing but *is this key
   mine* (`PhoneChainPolicyTests`; `test_thePhonesChainedStoresOnlyWrite`).
+  **What the detail OFFERS is the posture's (signed op log P3c plan 2, Task
+  6).** `Annotations/PhonePosture.swift` is the phone's one door: a per-load
+  cache over MaughamCore's `PostureDoor` (tripwires 19, 46, 51), the table
+  warmed off the main actor (`OpLogStore.prepareTrust`) before the permit is
+  asked. `AnnotationsStore` makes a fresh one on every reload and when the app
+  returns to the front. Accept / Mark answered, Reject… / Reply… and Reopen &
+  Revert follow `Posture.Verb.acceptOrReject`; Archive and Reopen follow
+  `.dispose` (the phone has no withdraw, so its Reopen is `.dispose` alone —
+  controller Ruling A). A refused verb is HIDDEN, never disabled; until the
+  door answers, `PhonePosture.unanswered` (the door's `settling`) offers no
+  disposition. Every perform re-asks (`askAgain`) before it writes and SAYS a
+  refusal (`PhonePosture.refusal`). **Capture is on every rung** — an inbox row
+  is the reviewer row — so nothing under `Capture/` consults a posture
+  (`TripwirePhoneGrepTest.test_captureNeverAsksAPosture`), and nothing but
+  `PhonePosture.swift` names `PostureDoor.` or `Posture.settling`
+  (`test_thePhoneAsksItsPostureInOnePlace`; the Mac's
+  `test_postureIsAskedOfThePermitInOnePlace` scans this target too, and reads
+  any `…Posture(` as a posture being BUILT — which is why the cache is made by
+  `PhonePosture.forANewLoad()`). The verb decisions are pure functions over a
+  `Posture` (`PhonePostureTests`), and the Mac↔phone round trips are
+  `PhonePostureRoundTripTests`.
 - **`Auth/`** — `LaunchAuthGate` (opt-in Face ID).
 - `MaughamPhoneApp.swift` owns the shared stores (`ProjectsRoot`/`RecentsTracker`/
   one `DownloadCoordinator`/`ProjectsBrowser`/`LaunchAuthGate`) and runs the §3.13
@@ -182,6 +203,17 @@ The phone can now feed and read the Mac's sensory-palette wall (`docs/superpower
 - **Settings shows facts and offers no control** (spec §4.11). This phone's four-character **code** (`DeviceCode.short`) on its own line, because its whole job is to be compared with the code on the Mac's admission sheet; then one line per book this phone has been in — *Denver on Denver's MacBook's chain since 9 Sep*, or *Not yet admitted — the Mac will ask*. Admission is a Mac act in this milestone, so there is nothing here to press; a pull-to-refresh re-reads, since the state changes on the other machine.
 - **The sentence is `DeviceStanding`'s, in MaughamCore**, so the Mac's People & Devices draws the same fact for itself in the same words — two spellings would break the one comparison the writer is asked to make. A registry record that is present and unreadable answers with the READ's own sentence (RULING-54), never *not yet admitted*.
 - **A retired phone is told so, in the Mac's own words with the phone's own noun.** `DeviceStanding.retiredAt` is read from this device's own record BEFORE the chain guard, because a retirement is the device's word about itself, signed by its own key, and it is true whether or not anybody admitted it. `retirementNotice(device: "iPhone")` draws under the standing sentence: the machine keeps applying what it writes locally (a key removes its own future AUTHORITY, not its ability to write) while every peer quarantines it, which is a divergence visible from nowhere else. The Mac's People & Devices says the same thing about itself from the same function with `"Mac"` in it — tripwire 19, and the reason the noun is an argument. **There is no un-retire on either surface**; a device that retired comes back only as a new key.
+- **What this phone may write in each book** (P3c plan 2, Task 6). Each row
+  also carries a role line: `DeviceStanding.permit` (`table.myTimeline.current`,
+  nil where there is no admission — no register, not yet admitted, revoked)
+  said through `DeviceStanding.permitSentence` → Core's `PermitWords`, the same
+  words the Mac's People & Devices draws, with the pieces named by this book's
+  titles. A book with no register draws no role line. The pure half is
+  `Settings/BookStandingRow.swift`; it resolves through
+  `TrustResolution.resolveVerified` (the reconciled register every phone op-log
+  read already uses, so a deleted register is read from this phone's memory,
+  not as never-was). **C5:** Settings re-reads on `scenePhase == .active` and on
+  pull-to-refresh — the phone still has no file presenter (tripwire 5).
 - **Which books.** A chain is a project's, not a device's, so the rows are per project: the ones `RecentsTracker` calls recent (opened or captured into), intersected with what `ProjectsBrowser` has manifests for. Listing every folder under the root would be a wall of *not yet admitted* for books this phone has never opened.
 
 ## iOS tripwires / gotchas (most from the 2026-05-30 smoke; each broke something)

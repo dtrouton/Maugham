@@ -42,6 +42,15 @@ struct AnnotationDetailView: View {
     /// the list can reload and drop the now-resolved item from the open set —
     /// the visible "handled" signal. Default no-op for previews/tests.
     var onResolved: () -> Void = {}
+    /// This load's posture cache (P3c plan 2, Task 6): which verbs this phone
+    /// may offer for `docId`. Owned by `AnnotationsStore` and replaced on every
+    /// reload, so a permit changed on the Mac shows on the next pull.
+    let postures: PhonePosture
+
+    /// What the door answered for this piece. Starts unanswered — only the
+    /// reviewer row, so no disposition is drawn before the door has spoken —
+    /// and is re-asked by every perform before it writes.
+    @State private var posture: Posture = PhonePosture.unanswered
 
     /// The freshest copy we have. Starts as the loaded `annotation`; replaced by
     /// the re-derived value (or left as-is if the reload fails / can't find it).
@@ -76,6 +85,7 @@ struct AnnotationDetailView: View {
     @State private var errorMessage: String?
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     init(
         annotation: Annotation,
@@ -83,6 +93,7 @@ struct AnnotationDetailView: View {
         projectURL: URL,
         docId: String,
         recents: RecentsTracker,
+        postures: PhonePosture,
         onResolved: @escaping () -> Void = {}
     ) {
         self.annotation = annotation
@@ -90,6 +101,7 @@ struct AnnotationDetailView: View {
         self.projectURL = projectURL
         self.docId = docId
         self.recents = recents
+        self.postures = postures
         self.onResolved = onResolved
         _current = State(initialValue: annotation)
         self.openedResolved = (annotation.status != .open)
@@ -119,6 +131,13 @@ struct AnnotationDetailView: View {
         .task {
             recents.recordOpen(projectId)
             await rederive()
+            posture = await postures.posture(forDocId: docId, in: projectURL)
+        }
+        // C5: back at the front, ask the door again — the Mac may have
+        // changed this phone's permit while the app was away.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { posture = await postures.askAgain(forDocId: docId, in: projectURL) }
         }
         .sheet(isPresented: $showRejectSheet) {
             rejectSheet
@@ -251,9 +270,30 @@ struct AnnotationDetailView: View {
     /// Accept / Reject… / Archive, disabled while a write is in flight. For a
     /// Query the affirmative reads "Mark answered" and the reject sheet reads
     /// "Reply" — both still feed `userResponse`, no extra op kinds (see header).
+    ///
+    /// **Only the verbs this phone's posture offers are drawn** (P3c plan 2,
+    /// Task 6): a reviewer sees none, an author of some pieces sees them on
+    /// her pieces only. Hidden, not disabled — the decision is
+    /// `PhonePosture.openNoteVerbs`, pinned without a window.
     @ViewBuilder
     private var actionButtons: some View {
         VStack(spacing: 12) {
+            ForEach(PhonePosture.openNoteVerbs(under: posture), id: \.self) { verb in
+                verbButton(verb)
+            }
+
+            if resolving {
+                ProgressView().padding(.top, 4)
+            }
+        }
+        .disabled(resolving)
+        .padding(.top, 8)
+    }
+
+    @ViewBuilder
+    private func verbButton(_ verb: PhonePosture.Verb) -> some View {
+        switch verb {
+        case .accept:
             Button {
                 Task { await performAccept() }
             } label: {
@@ -261,7 +301,7 @@ struct AnnotationDetailView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-
+        case .reject:
             Button {
                 rejectText = ""
                 showRejectSheet = true
@@ -270,7 +310,7 @@ struct AnnotationDetailView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
-
+        case .archive:
             Button {
                 Task { await performArchive() }
             } label: {
@@ -278,13 +318,9 @@ struct AnnotationDetailView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
-
-            if resolving {
-                ProgressView().padding(.top, 4)
-            }
+        case .reopen, .reopenAndRevert:
+            EmptyView()
         }
-        .disabled(resolving)
-        .padding(.top, 8)
     }
 
     private var acceptLabel: String { current.kind == .query ? "Mark answered" : "Accept" }
@@ -323,10 +359,15 @@ struct AnnotationDetailView: View {
     /// on since the accept. `AnnotationInverse` (MaughamCore) owns which
     /// resolutions are reopenable at all (tripwire 19); this view only decides
     /// which affordance to show for the status it already has in hand.
+    ///
+    /// Drawn only where this phone's posture offers it (P3c plan 2, Task 6):
+    /// Reopen follows `.dispose`, Reopen & Revert `.acceptOrReject`
+    /// (`PhonePosture.reopenVerb`), so a reviewer's phone offers no reopen of
+    /// somebody else's archive.
     @ViewBuilder
     private var reopenAffordance: some View {
-        switch current.status {
-        case .rejected, .archived, .stetted:
+        switch PhonePosture.reopenVerb(for: current.status, under: posture) {
+        case .reopen?:
             Button {
                 Task { await performReopen() }
             } label: {
@@ -335,7 +376,7 @@ struct AnnotationDetailView: View {
             }
             .buttonStyle(.bordered)
             .disabled(resolving)
-        case .accepted:
+        case .reopenAndRevert?:
             Button {
                 requestRevert()
             } label: {
@@ -344,7 +385,7 @@ struct AnnotationDetailView: View {
             }
             .buttonStyle(.bordered)
             .disabled(resolving)
-        case .open:
+        case .accept?, .reject?, .archive?, nil:
             EmptyView()
         }
     }
@@ -407,7 +448,7 @@ struct AnnotationDetailView: View {
     }
 
     private func performAccept() async {
-        await runWrite { writer in
+        await runWrite(.accept) { writer in
             // A malformed `.suggestedChange` throws here rather than appending an
             // empty accept (which would mark it accepted while materializing
             // nothing — silent data loss). Surface it as an alert.
@@ -443,19 +484,19 @@ struct AnnotationDetailView: View {
 
     private func performReject() async {
         let reason = rejectText.trimmingCharacters(in: .whitespacesAndNewlines)
-        await runWrite { writer in
+        await runWrite(.reject) { writer in
             try await writer.reject(current, reason: reason.isEmpty ? nil : reason)
         }
     }
 
     private func performArchive() async {
-        await runWrite { writer in
+        await runWrite(.archive) { writer in
             try await writer.archive(current)
         }
     }
 
     private func performReopen() async {
-        await runWrite { writer in
+        await runWrite(.reopen) { writer in
             do {
                 try await writer.reopen(current)
             } catch AnnotationWriter.WriteError.notReopenable {
@@ -479,7 +520,7 @@ struct AnnotationDetailView: View {
     }
 
     private func performRevert() async {
-        await runWrite { writer in
+        await runWrite(.reopenAndRevert) { writer in
             guard let acceptOp = latestAcceptOp else {
                 errorMessage = "Couldn't find the accepted change to revert."
                 throw CancelledWrite()
@@ -531,10 +572,24 @@ struct AnnotationDetailView: View {
     /// success marks the annotation resolved-here and dismisses back to the list.
     /// `CancelledWrite` is the internal "already surfaced an error, stop" signal;
     /// any other thrown error becomes a generic alert.
-    private func runWrite(_ body: (AnnotationWriter) async throws -> Void) async {
+    ///
+    /// **It re-asks the posture before writing** (P3c plan 2, Task 6): the
+    /// verb was drawn under the answer this view had, and the Mac may have
+    /// changed her permit since. A settled answer, fresh from the door; a
+    /// refusal is said, and nothing is written.
+    private func runWrite(
+        _ verb: PhonePosture.Verb,
+        _ body: (AnnotationWriter) async throws -> Void
+    ) async {
         guard !resolving else { return }
         resolving = true
         defer { resolving = false }
+        let now = await postures.askAgain(forDocId: docId, in: projectURL)
+        posture = now
+        guard PhonePosture.offers(verb, under: now) else {
+            errorMessage = PhonePosture.refusal(verb, under: now)
+            return
+        }
         do {
             try await body(makeWriter())
             didResolveHere = true

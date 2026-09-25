@@ -19,6 +19,9 @@ struct AnnotationsListView: View {
     /// Bumped by a detail view after it resolves an annotation, so the store
     /// reloads and counts recompute at every level.
     @State private var resolveTick = 0
+    /// C5 (P3c plan 2, Task 6): returning to the app forgets the load's
+    /// postures, so a permit changed on the Mac shows on the next note opened.
+    @Environment(\.scenePhase) private var scenePhase
 
     init(projectsBrowser: ProjectsBrowser, downloads: DownloadCoordinator, recents: RecentsTracker, authGate: LaunchAuthGate) {
         self.projectsBrowser = projectsBrowser
@@ -48,6 +51,9 @@ struct AnnotationsListView: View {
                         .pickerStyle(.segmented)
                         .frame(maxWidth: 220)
                     }
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { store.forgetPostures() }
                 }
                 .onChange(of: resolveTick) { _, _ in
                     Task { if authGate.isUnlocked { await store.reload() } }

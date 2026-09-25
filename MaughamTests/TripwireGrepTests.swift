@@ -9111,6 +9111,10 @@ final class TripwireGrepTests: XCTestCase {
         // MaughamCore's `PostureDoor`, which this census does not scan, so
         // neither is admitted any spelling. A `Posture(` built in either again
         // is caught.
+        // P3c plan 2 Task 6: the phone's one door. It asks Core's
+        // `PostureDoor` (unscanned) and holds the door's not-yet answer as its
+        // unanswered state — that spelling and nothing else.
+        "PhonePosture.swift": ["Posture.settling"],
     ]
 
     /// **The door's own acting accessor is an ASK, not a second table** (P3c
@@ -9250,6 +9254,21 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertEqual(asThePerformer.ask.count, 10,
             "Self-check: RulingPerformer.swift is admitted no spelling. Caught:\n"
             + asThePerformer.ask.joined(separator: "\n"))
+
+        // The phone's door is admitted its not-yet answer and nothing else
+        // (P3c plan 2 Task 6): a builder, a `Posture(` or a fallback there is
+        // still caught.
+        try fm.moveItem(at: tmp.appendingPathComponent("RulingPerformer.swift"),
+                        to: tmp.appendingPathComponent("PhonePosture.swift"))
+        let asThePhone = try hits()
+        XCTAssertEqual(asThePhone.ask.count, 9,
+            "Self-check: PhonePosture.swift is admitted `Posture.settling` "
+            + "alone. Caught:\n" + asThePhone.ask.joined(separator: "\n"))
+        XCTAssertFalse(asThePhone.ask.contains(where: { $0.contains("let undecided") }))
+        XCTAssertTrue(asThePhone.ask.contains(where: { $0.contains("let mine") }),
+            "a Posture( built in the phone's door is caught")
+        try fm.moveItem(at: tmp.appendingPathComponent("PhonePosture.swift"),
+                        to: tmp.appendingPathComponent("RulingPerformer.swift"))
 
         // The door may ask every spelling, and is still caught naming Component A.
         try fm.moveItem(at: tmp.appendingPathComponent("RulingPerformer.swift"),

@@ -21,11 +21,23 @@ final class AnnotationsStore {
     private(set) var banner: AnnotationsBanner.Banner = .none
     private(set) var isLoading = false
     private(set) var didLoad = false
+    /// **This load's posture cache** (P3c plan 2, Task 6) — what each piece's
+    /// detail may offer. Replaced on every reload, so a permit changed on the
+    /// Mac shows on the next pull (the phone has no file presenter, iOS
+    /// tripwire 5).
+    private(set) var postures = PhonePosture.forANewLoad()
 
     init(projectsBrowser: ProjectsBrowser, downloads: DownloadCoordinator, recents: RecentsTracker) {
         self.projectsBrowser = projectsBrowser
         self.downloads = downloads
         self.recents = recents
+    }
+
+    /// Drop every posture this load asked, so the next note opened asks the
+    /// door again — on a reload, and when the app returns to the front (C5:
+    /// the permit changes on the Mac, and the phone has no file presenter).
+    func forgetPostures() {
+        postures = PhonePosture.forANewLoad()
     }
 
     func loadIfNeeded() async {
@@ -38,6 +50,7 @@ final class AnnotationsStore {
     func reload() async {
         isLoading = true
         defer { isLoading = false; didLoad = true }
+        forgetPostures()
 
         var results: [ProjectAnnotations] = []
         for project in projectsBrowser.projects {

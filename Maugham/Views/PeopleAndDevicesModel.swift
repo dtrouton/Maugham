@@ -1229,15 +1229,15 @@ struct PeopleAndDevicesModel: Equatable {
     }
 
     /// The titles of the pieces a permit names, in the binder's own order, with
-    /// an id this manifest does not carry drawn as what it is. A document id is
-    /// not a thing a writer has ever seen, so it is never shown raw.
+    /// an id this manifest does not carry drawn as what it is. The rule is
+    /// Core's `PermitWords.pieceTitles`, so the phone's Settings names the same
+    /// pieces the same way (P3c plan 2, Task 6; tripwire 19).
     private static func titles(
         of chosen: Set<String>, among pieces: [PermitControl.Piece]
     ) -> [String] {
-        guard !chosen.isEmpty else { return [] }
-        let known = Set(pieces.map(\.id))
-        return pieces.filter { chosen.contains($0.id) }.map(\.title)
-            + chosen.subtracting(known).sorted().map { _ in unknownPiece }
+        PermitWords.pieceTitles(
+            of: chosen, among: pieces.map { (id: $0.id, title: $0.title) },
+            unknownPiece: unknownPiece)
     }
 
     /// What a piece id this Mac cannot find is called on a row.

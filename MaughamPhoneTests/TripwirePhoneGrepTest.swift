@@ -1074,4 +1074,93 @@ final class TripwirePhoneGrepTest: XCTestCase {
         XCTAssertFalse(offenders.contains { $0.contains("let identity") },
                        "`DeviceIdentity.load` in an unnamed file is not a store read")
     }
+
+    // MARK: - The phone asks its posture in one place, and capture never asks
+    //         (P3c plan 2, Task 6)
+
+    /// The spellings of reaching the posture door or its not-yet answer.
+    /// `PhonePosture.swift` is the phone's one door: it asks MaughamCore's
+    /// `PostureDoor` and holds `Posture.settling` as its unanswered state, and
+    /// every view asks `PhonePosture` rather than either. (The Mac's census,
+    /// `TripwireGrepTests.test_postureIsAskedOfThePermitInOnePlace`, already
+    /// scans this target for the permit's own ask spellings.)
+    private let phonePostureDoorSpellings = ["PostureDoor.", "Posture.settling"]
+
+    /// Anything a capture could ask a posture through. Capture is on every
+    /// rung — an inbox row is the reviewer row — so nothing under `Capture/`
+    /// may consult one: a capture hidden behind a posture is a reviewer who
+    /// can no longer send the writer anything.
+    private let captureAsksAPosture = ["Posture", "posture", ".allows("]
+
+    private var phoneCaptureDir: URL {
+        phoneSourceDir.appendingPathComponent("Capture", isDirectory: true)
+    }
+
+    func test_thePhoneAsksItsPostureInOnePlace() throws {
+        let offenders = try censusOffenders(
+            in: phoneSourceDir, patterns: phonePostureDoorSpellings,
+            allowedIn: ["PhonePosture.swift"])
+        XCTAssertTrue(offenders.isEmpty,
+            "A phone source reaches the posture door, or spells its not-yet "
+            + "answer, outside `PhonePosture`. Ask "
+            + "`PhonePosture.posture(forDocId:in:)` and decide a verb with "
+            + "`PhonePosture.offers` (tripwires 19, 51). Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    func test_captureNeverAsksAPosture() throws {
+        let offenders = try censusOffenders(
+            in: phoneCaptureDir, patterns: captureAsksAPosture)
+        XCTAssertTrue(offenders.isEmpty,
+            "A capture source consults a posture. Capture is offered on every "
+            + "rung: an inbox row is the reviewer row. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL: both censuses fire on planted offenders, let a comment
+    /// through, and the door's own file is admitted its spellings.
+    func test_thePhonePostureCensusesFireOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-posture-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let planted = """
+        // A comment may say PostureDoor. and Posture.settling and posture.
+        let asked = PostureDoor.posture(forDocId: d, in: u, using: s)
+        let undecided = Posture.settling
+        let fine = PhonePosture.offers(.accept, under: posture)
+        """
+        try planted.write(to: tmp.appendingPathComponent("SomeView.swift"),
+                          atomically: true, encoding: .utf8)
+        try planted.write(to: tmp.appendingPathComponent("PhonePosture.swift"),
+                          atomically: true, encoding: .utf8)
+        let door = try censusOffenders(
+            in: tmp, patterns: phonePostureDoorSpellings,
+            allowedIn: ["PhonePosture.swift"])
+        XCTAssertEqual(door.count, 2,
+            "Self-check: both door spellings caught in a view, none in the "
+            + "door's own file, the comment let through. Caught:\n"
+            + door.joined(separator: "\n"))
+        XCTAssertFalse(door.contains { $0.contains("let fine") })
+        XCTAssertFalse(door.contains { $0.hasPrefix("PhonePosture.swift") })
+
+        try """
+        // A capture is on every rung; no posture is asked.
+        guard posture.allows(.annotate) else { return }
+        let hidden = PhonePosture.offersCapture(under: p)
+        let written = try await writer.writeText(text, to: project)
+        """.write(to: tmp.appendingPathComponent("CaptureView.swift"),
+                  atomically: true, encoding: .utf8)
+        try fm.removeItem(at: tmp.appendingPathComponent("SomeView.swift"))
+        try fm.removeItem(at: tmp.appendingPathComponent("PhonePosture.swift"))
+        let capture = try censusOffenders(in: tmp, patterns: captureAsksAPosture)
+        XCTAssertEqual(capture.count, 2,
+            "Self-check: a capture asking a posture is caught, twice. Caught:\n"
+            + capture.joined(separator: "\n"))
+        XCTAssertFalse(capture.contains { $0.contains("let written") })
+    }
 }
+

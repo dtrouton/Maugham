@@ -57,4 +57,44 @@ public enum PermitWords {
         }
         return "\(rung.title): \(pieceTitles.joined(separator: ", "))"
     }
+
+    /// **The titles of the pieces a permit names, in the binder's own order**,
+    /// with an id this manifest does not carry drawn as `unknownPiece` — a
+    /// document id is not a thing a writer has ever seen, so it is never shown
+    /// raw (P3c plan 2, Task 6: moved from the Mac's People & Devices so the
+    /// phone's Settings names the same pieces the same way, tripwire 19).
+    ///
+    /// `pieces` is every piece the manifest carries, as (id, title) pairs in
+    /// binder order; `unknownPiece` is the surface's own noun for one it
+    /// cannot find (*this Mac*, *this iPhone*).
+    public static func pieceTitles(
+        of chosen: Set<String>,
+        among pieces: [(id: String, title: String)],
+        unknownPiece: String
+    ) -> [String] {
+        guard !chosen.isEmpty else { return [] }
+        let known = Set(pieces.map(\.id))
+        return pieces.filter { chosen.contains($0.id) }.map(\.title)
+            + chosen.subtracting(known).sorted().map { _ in unknownPiece }
+    }
+
+    /// Every piece a manifest's structure carries, in binder order. Groups are
+    /// not pieces: a permit's scope names documents.
+    public static func pieces(in structure: [StructureItem]) -> [(id: String, title: String)] {
+        TreeWalk.collect(in: structure) { $0.type == .document }
+            .map { (id: $0.id, title: $0.title) }
+    }
+
+    /// **What `permit` says somebody may write, in this book's own titles** —
+    /// the rung read through `Permit.rung(of:)` (never compared to a literal,
+    /// tripwire 47) and the pieces through `pieceTitles`.
+    public static func sentence(
+        for permit: Permit, in structure: [StructureItem], unknownPiece: String
+    ) -> String {
+        sentence(
+            rung: Permit.rung(of: permit),
+            pieceTitles: pieceTitles(
+                of: Set(permit.wirePieces), among: pieces(in: structure),
+                unknownPiece: unknownPiece))
+    }
 }
