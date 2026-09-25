@@ -1,5 +1,6 @@
 import XCTest
 @testable import Maugham
+@testable import MaughamCore
 
 @MainActor
 final class ProjectStoreDuplicateTests: XCTestCase {
@@ -91,6 +92,48 @@ final class ProjectStoreDuplicateTests: XCTestCase {
             _ = try await store.duplicateStructureItem(id: "nope")
             XCTFail("expected throw")
         } catch ProjectStoreError.structureMissing {}
+        await ds.close()
+    }
+
+    // MARK: - The creation-time opening is byte-neutral (P3c plan 2 Task 4)
+
+    /// **A copy's bytes are exactly what its first open would have written**
+    /// (fix round 3, Minor 3). Duplicate now mints the copy's opening at
+    /// creation and renders it (Ruling L (a)); before, the first open did.
+    /// Pinned for the shapes a render could normalise: a Fountain piece,
+    /// trailing blank lines, and CRLF line endings — each compared with the
+    /// render the SOURCE's own first open writes, since the copy is its words.
+    func test_aCopysBytesAreWhatItsFirstOpenWouldHaveWritten() async throws {
+        let (url, store, ds) = try await makeNovel()
+        let cases: [(ext: String, body: String)] = [
+            ("fountain", "INT. HOUSE - DAY\n\nShe walks in.\n\nANNA\nHello.\n"),
+            ("md", "One.\n\nTwo.\n\n\n\n"),
+            ("md", "One.\r\n\r\nTwo.\r\n"),
+        ]
+        for (index, shape) in cases.enumerated() {
+            let source = try await store.addStructureItem(
+                parentId: nil, title: "Source \(index)",
+                kind: .document(extension: shape.ext))
+            let sourceURL = url.appendingPathComponent(source.path!)
+            try Data(shape.body.utf8).write(to: sourceURL)
+
+            let copy = try await store.duplicateStructureItem(id: source.id)
+            let copyBytes = try Data(contentsOf: url.appendingPathComponent(copy.path!))
+
+            let firstOpen = try await Document.load(
+                url: sourceURL, actor: .author, session: "first-open", presenter: nil)
+            try await firstOpen.performAutosave()
+            let sourceText = firstOpen.displayText
+            await firstOpen.close()
+            XCTAssertEqual(copyBytes, try Data(contentsOf: sourceURL),
+                           "case \(index): the copy holds its first open's render")
+
+            let copied = try await Document.load(
+                url: url.appendingPathComponent(copy.path!), actor: .author,
+                session: "copy-open", presenter: nil)
+            XCTAssertEqual(copied.displayText, sourceText, "case \(index): the same words")
+            await copied.close()
+        }
         await ds.close()
     }
 }

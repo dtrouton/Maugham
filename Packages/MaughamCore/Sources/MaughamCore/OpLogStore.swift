@@ -316,11 +316,11 @@ public final class OpLogStore {
         else {
             return LocalWritePermit(permit: permit, actor: actor, documentClass: cls)
         }
-        // **A starter that is GONE binds nothing** (Rulings L (b), M): a
-        // revoked, retired or never-admitted device will never mint this
+        // **A starter that is GONE binds nothing** (Rulings L (b), M, N): a
+        // device the register shows revoked or retired will never mint this
         // piece's opening, so today's rule applies and the piece is not left
-        // unopenable. A starter this register has never heard of is still
-        // COMING (its record has not synced) and binds: this Mac waits.
+        // unopenable. Every other starter — unknown, a stranger, another
+        // root's member, a Mac on no chain — binds: this Mac waits.
         guard table.starterStanding(starterId) != .gone else {
             return LocalWritePermit(permit: permit, actor: actor, documentClass: cls)
         }

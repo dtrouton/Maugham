@@ -877,21 +877,23 @@ public struct TrustTable: Equatable, Sendable {
     }
 
     /// **Where a piece's recorded starter stands in this register** (controller
-    /// Rulings L (b) and M, P3c plan 2 Task 4).
+    /// Rulings L (b), M and N, P3c plan 2 Task 4).
     public enum StarterStanding: Equatable, Sendable {
         /// This device, or a device this register shows as admitted: the
         /// starter rule binds, and only it mints the opening.
         case standing
-        /// A device the register shows will never mint here — revoked,
-        /// retired, a stranger nobody admitted, a claimant of another root, a
-        /// contested key, or a key that is not a writer's hand. The starter
-        /// rule does not bind: today's rule applies (whoever may write the
-        /// piece's text mints it), so the piece is not unopenable for good.
+        /// A device the register shows REVOKED or RETIRED — and nothing else
+        /// (Ruling N). It will never mint here, so the starter rule does not
+        /// bind: today's rule applies (whoever may write the piece's text
+        /// mints it), and the piece is not unopenable for good.
         case gone
-        /// A device id this register has never heard of — most likely its
-        /// device record has not synced yet. Treated as still COMING
-        /// (Ruling M): the starter rule binds and this Mac waits, which keeps
-        /// OA-2's race closed while her record is on its way.
+        /// Everything else, and this Mac WAITS (Rulings M, N): a device id no
+        /// record here names (its record has not synced), a stranger whose
+        /// admission may not have synced (a non-root Mac cannot tell *never
+        /// admitted* from *not arrived yet*, and a never-admitted stranger's
+        /// piece is not another Mac's to open either way), another root's
+        /// member, a Mac on no chain, a contested key, and a key that is not a
+        /// writer's hand. The starter rule binds.
         case unknown
     }
 
@@ -900,11 +902,11 @@ public struct TrustTable: Equatable, Sendable {
     /// may bind. This device's own ids are always `.standing`
     /// (`keyByDeviceId` holds them before any record of its own is written).
     nonisolated public func starterStanding(_ deviceId: String) -> StarterStanding {
-        guard deviceKey(forDeviceId: deviceId) != nil else { return .unknown }
-        guard let key = starterKey(deviceId) else { return .gone }
+        guard let key = starterKey(deviceId) else { return .unknown }
         switch verdict(forSealKey: key) {
         case .mine, .admitted: return .standing
-        case .stranger, .revoked, .retired, .otherRoot, .noChain: return .gone
+        case .revoked, .retired: return .gone
+        case .stranger, .otherRoot, .noChain: return .unknown
         }
     }
 

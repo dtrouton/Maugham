@@ -24,9 +24,12 @@ import MaughamCore
 /// to show: the file on disk is a derived render of a history this device has
 /// not got.
 public enum DocumentLoadError: Error, Equatable {
-    /// This device may not write this piece, and the piece has no history here
-    /// yet. `root` is the label of the root that would add it, where the
-    /// registry names one.
+    /// This device may not mint this piece's opening, and the piece has no
+    /// history here yet. `from` names who the wait is for: the STARTER's label
+    /// where the piece records a starter and this Mac is not it (P3c plan 2,
+    /// Option A), else the root that would add it to this device's pieces —
+    /// or nobody, where the register cannot name one, where the starter is
+    /// this writer's own other device, and on the root's own Mac.
     case waitingForPiece(docId: String, from: String?)
 }
 
