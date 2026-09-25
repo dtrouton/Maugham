@@ -9508,6 +9508,81 @@ final class TripwireGrepTests: XCTestCase {
             "and a file that is not on the list fails the census it feeds")
     }
 
+    // MARK: - The project stream's task door (P3c plan 2 Task 8)
+
+    /// **Every project-stream task op passes one door, and its callers are a
+    /// counted list.** `ProjectStore.appendProjectTaskOp` asks
+    /// `projectTaskRefusal()` (the drawing posture of `__project__`) before it
+    /// appends; every production call of it — the create, its ⌘Z inverse, the
+    /// pane's archive and its inverse — is named here with a count per file.
+    /// A NEW caller is a new way to write a project task and must be decided
+    /// here; a caller that vanished is a verb that moved. Count the array,
+    /// never a prose number.
+    static let projectTaskOpAppendSites: [String: Int] = [
+        // `createProjectPaneTask`'s append, and its ⌘Z inverse's.
+        "ProjectStore+Tasks.swift": 2,
+        // `archiveProjectTask`'s append (whose ⌘Z is registered only when it
+        // landed), and its inverse's.
+        "TasksPane.swift": 2,
+    ]
+
+    static func projectTaskOpAppendExcludeLine(_ line: String) -> Bool {
+        admissionExcludeLine(line) || line.contains("func appendProjectTaskOp(")
+    }
+
+    private func projectTaskOpAppendCounts(in roots: [URL]) throws -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for root in roots {
+            for hit in try grepSwift(
+                in: root, patterns: ["appendProjectTaskOp("],
+                excludeLine: Self.projectTaskOpAppendExcludeLine) {
+                counts[String(hit.prefix(while: { $0 != ":" })), default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    func test_everyProjectTaskOpPassesTheProjectStreamsDoor() throws {
+        XCTAssertEqual(try projectTaskOpAppendCounts(in: admissionRoots),
+                       Self.projectTaskOpAppendSites,
+            "A project-stream task op is appended from a site this census does "
+            + "not name, or a named site moved. Add it to "
+            + "`projectTaskOpAppendSites` with its reason in the same commit.")
+
+        // The door is INSIDE the one append, before anything is written.
+        let file = sourceDir.appendingPathComponent("Stores/ProjectStore+Tasks.swift")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        let body = try XCTUnwrap(
+            text.components(separatedBy: "func appendProjectTaskOp(").dropFirst().first)
+        let door = try XCTUnwrap(body.range(of: "projectTaskRefusal()"),
+            "appendProjectTaskOp must ask the project stream's door")
+        let write = try XCTUnwrap(body.range(of: "_projectOpLogMirror.append("))
+        XCTAssertLessThan(door.lowerBound, write.lowerBound,
+            "the door is asked before the mirror is written")
+    }
+
+    /// The census's control: a planted caller is counted, the declaration and
+    /// a comment are not, and a file off the list fails the census.
+    func test_theProjectTaskOpAppendCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-projecttask-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try """
+        // A comment may say appendProjectTaskOp( freely.
+        public func appendProjectTaskOp(_ op: Op) -> Bool { true }
+        store.appendProjectTaskOp(op)
+        """.write(to: tmp.appendingPathComponent("ASecondProjectTaskWriter.swift"),
+                  atomically: true, encoding: .utf8)
+        let planted = try projectTaskOpAppendCounts(in: [tmp])
+        XCTAssertEqual(planted, ["ASecondProjectTaskWriter.swift": 1],
+            "Self-check: the call is counted, the declaration and the comment "
+            + "are not. Counted: \(planted)")
+        XCTAssertNotEqual(planted, Self.projectTaskOpAppendSites)
+    }
+
     // MARK: - author_collaborator_id is decoded and never written (P3c Task 4)
 
     /// The argument label that WRITES the retired field into an op. Reading it

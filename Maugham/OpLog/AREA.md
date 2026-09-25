@@ -1288,8 +1288,12 @@ the same way: `reopenAnnotation` asks `requireRestoreHonoured` (the deriver's
 own walk over the mirror plus the reopen) where it undoes a withdrawal and
 `requireDispositionPermitted` otherwise, which probes a reopen as a stet
 (`dispositionProbe`) — asked about itself, a reopen would answer the reviewer
-row. The Deleted view's Restore follows who DELETED the note
-(`WithdrawnAnnotation.withdrawnBy`, `AnnotationRowVerbs.restoresDeleted`).
+row. The Deleted view's Restore follows who DELETED the note, asked of the
+door's own judgement BY KEY (`Document.restoreStanding` — `requireRestoreHonoured`
+over the very reopen a press would append; P3c plan 2 Task 8), never of the
+display name a withdraw op stamps (`WithdrawnAnnotation.withdrawnBy` is for
+reading, not deciding); `AnnotationRowVerbs.restoresDeleted` draws it, and the
+pane says a refused press through the notice channel instead of `try?`.
 **Every reader of the raw mirror asks the same judgement**: a reopen the
 deriver does not honour now reaches `_opLogMirror`, so the withdrawn check in
 `reopenAnnotation` is the judged `isWithdrawn`, and the reject/splice repair,
@@ -1326,8 +1330,11 @@ its text splice is refused, so an op is never refused while its splice lands.
 Both decline an undo out loud (`UndoDecline.taskNotPermitted`). The load's own
 anchors and the rebalance were already gated on the same question. The
 PROJECT stream's task verbs (`ProjectStore.createProjectPaneTask`/
-`archiveProjectTask`) have no door — surface-only, a stated limit in ADR 0032's
-P3c addendum.
+`TasksPane.archiveProjectTask`) have one since P3c plan 2 Task 8:
+`ProjectStore.appendProjectTaskOp` asks the drawing posture of `__project__`
+(`projectTaskRefusal`) before it appends, says a refusal through the notice
+channel (`.settling` says *try again in a moment*), and answers whether it
+appended so no ⌘Z is registered for a refused act.
 
 **Every manuscript writer outside the editor has a door** (P3c whole-branch fix
 wave, C1). A burst's EMISSION is deliberately not permit-guarded — the

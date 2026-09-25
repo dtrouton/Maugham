@@ -1184,12 +1184,14 @@ struct AnnotationsPane: View {
                                 // A restore undoes a WITHDRAWAL, so it follows
                                 // the deleter (ruling P, Ruling D): what SHE
                                 // deleted is hers to restore whatever her
-                                // rung. Hidden where the door would refuse it.
+                                // rung. Asked of the door's own judgement, by
+                                // KEY (P3c plan 2 Task 8) — never by the
+                                // display name a withdraw op stamps — and
+                                // hidden where the door would refuse it.
                                 if AnnotationRowVerbs.restoresDeleted(
                                     posture: posture,
-                                    deletedByHer: AnnotationOwnership.isOwn(
-                                        author: note.withdrawnBy,
-                                        localName: userPreferences.collaboratorDisplayName)) {
+                                    standing: document.restoreStanding(
+                                        annotationId: note.id)) {
                                     Button("Restore") { reopen(document, id: note.id) }
                                         .buttonStyle(.bordered).controlSize(.small)
                                 }
@@ -1300,6 +1302,12 @@ struct AnnotationsPane: View {
         let rowDocument = documentStore.document(forDocId: section.item.id)
         let livePids = Set(rowDocument?.sequence
             ?? sequences[section.item.id] ?? [])
+        // Ruling AJ (P3c plan 2 Task 8): the root yielding on this piece hides
+        // its rows' verbs, so the header says whose piece it is and offers the
+        // same Edit Anyway the standing line over the editor offers.
+        let yield = AnnotationScopePolicy.yieldNotice(
+            posture: documentStore.posture(forDocId: section.item.id),
+            docId: section.item.id)
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 Text(section.item.title)
@@ -1309,6 +1317,16 @@ struct AnnotationsPane: View {
                     .font(.caption2).foregroundStyle(.secondary)
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                if let yield {
+                    Text(yield.reason)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Button(AnnotationScopePolicy.editAnywayTitle) {
+                        documentStore.overrideYield(docId: yield.docId)
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                }
                 Spacer(minLength: 4)
                 if rowDocument == nil {
                     Image(systemName: "lock")
@@ -1917,9 +1935,28 @@ struct AnnotationsPane: View {
     /// ever passes it.
     private func reopen(_ document: Document, id: String) {
         Task {
-            try? await document.reopenAnnotation(id: id, undoManager: undoManager)
+            do {
+                try await document.reopenAnnotation(id: id, undoManager: undoManager)
+            } catch {
+                Self.sayRefused(error, in: document)
+            }
             noteChanged()
         }
+    }
+
+    /// **A refused Reopen / Restore is SAID** (P3c plan 2 Task 8). The pane
+    /// used to hand `reopenAnnotation` a bare `try?`, so a Restore the door
+    /// refused — a Delete that is not hers to undo, drawn a frame before the
+    /// refusal was knowable — did nothing at all (RULING-22's shape). The
+    /// refusal's own sentence now goes to the window's notice channel
+    /// (`MaughamEvent.postNotice`, the house path;
+    /// `TranslationReviewPaneLogic.reply`'s shape) and comes back to the caller.
+    @MainActor
+    @discardableResult
+    static func sayRefused(_ error: Error, in document: Document) -> String {
+        let sentence = error.localizedDescription
+        MaughamEvent.postNotice(sentence, projectURL: document.opStore.projectURL)
+        return sentence
     }
 
     /// Revert an accepted suggestion from the pane (visible under the
@@ -2146,11 +2183,23 @@ struct AnnotationRowVerbs: Equatable {
     /// withdrawal): what she deleted herself is hers to restore whatever her
     /// rung — so her own note, since a reviewer's Delete of anybody else's is
     /// never honoured — and anybody's is a posture that may settle notes
-    /// here. The root's Delete of her note is the root's. Hidden otherwise;
-    /// the door behind it is `Document.requireRestoreHonoured`, which asks the
-    /// deriver's own walk.
-    static func restoresDeleted(posture: Posture, deletedByHer: Bool) -> Bool {
-        deletedByHer || posture.allows(.dispose)
+    /// here. The root's Delete of her note is the root's. Hidden otherwise.
+    ///
+    /// `standing` is the DOOR's answer (`Document.restoreStanding`, which asks
+    /// `requireRestoreHonoured` of the very op a press would append), so the
+    /// drawn Restore and the act agree by construction (P3c plan 2 Task 8):
+    /// it used to be decided by display name while the door decides by key.
+    /// A restore honoured only as the deleter is the reviewer row and is
+    /// always drawn; one honoured on author rights is a disposition's footing
+    /// and follows the posture, so the root's cooperative yield still hides it.
+    static func restoresDeleted(
+        posture: Posture, standing: Document.RestoreStanding
+    ) -> Bool {
+        switch standing {
+        case .refused: return false
+        case .asTheDeleter: return true
+        case .withAuthorRights: return posture.allows(.dispose)
+        }
     }
 
     /// **The P1 surface, by name** — every verb its kind has. For a row built

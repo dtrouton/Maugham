@@ -550,7 +550,9 @@ struct TasksPane: View {
                 taskId: task.id,
                 taskBody: task.body,
                 taskKind: task.kind.rawValue))
-        store.appendProjectTaskOp(op)
+        // The project stream's door (P3c plan 2 Task 8) refuses and says so;
+        // no ⌘Z is registered for an archive that did not happen.
+        guard store.appendProjectTaskOp(op) else { return }
 
         guard let inverse = TaskInverse.inverse(
             undoing: .taskArchive, prior: task,

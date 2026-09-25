@@ -654,7 +654,8 @@ struct TranslationReviewPane: View {
                 },
                 onCancel: { spotCheckSheet = nil },
                 seed: seed,
-                defaultHome: authorVerbs.keepMineHome(language: language))
+                defaultHome: authorVerbs.keepMineHome(language: language),
+                offering: authorVerbs.keepMineHomes(language: language))
         case .makeRule(let id, let seed):
             RoundRuleSheet(
                 seed: seed, language: language,

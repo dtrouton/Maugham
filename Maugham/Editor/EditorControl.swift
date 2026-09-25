@@ -23,9 +23,10 @@ final class EditorControl {
     /// 5) — mirrored from the drawing posture door with the membrane above, so
     /// the margin card's dispositions follow a demotion or a promotion with no
     /// reopen (`ReviewCardActions.actions(for:isOwn:posture:)`). Nil: no
-    /// manuscript posture known (a research note, a surface predating P3c) —
-    /// the card draws every verb its kind has, and the Document's own door is
-    /// what refuses.
+    /// posture known (no manuscript document selected, a research note) — the
+    /// card draws the fail-closed set, her own note's Edit and Delete and no
+    /// disposition (P3c plan 2 Task 8), and the Document's own door refuses
+    /// anyway.
     var posture: Posture? = nil
 
     /// Selected translation language, or nil when the editor shows the source

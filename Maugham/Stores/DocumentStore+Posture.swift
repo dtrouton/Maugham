@@ -28,8 +28,8 @@ final class PostureBook {
         let actor: DeviceActor
     }
 
-    /// docId → the piece it is ABOUT (a piece, its statement, its
-    /// translation), in THIS epoch — asked only while somebody is yielded to.
+    /// docId → the piece it is ABOUT (a piece, or its statement), in THIS
+    /// epoch — asked only while somebody is yielded to.
     @ObservationIgnored fileprivate var pieceOf: [String: String?] = [:]
 
     /// The permit answered for each `(docId, actor)` in THIS epoch.
@@ -124,8 +124,12 @@ final class PostureBook {
 /// permit whose scope NAMES pieces; a co-writing whole-book author names none
 /// and is never yielded to — the writer's-hand posture on that piece carries
 /// `yieldingTo`, until `overrideYield(docId:)` in this window. The piece's
-/// statement and its translation yield with it (controller ruling H): the
-/// yield keys on the piece a document's CLASS is about. Never to this
+/// statement yields with it (controller ruling H): the yield keys on the piece
+/// a document's CLASS is about (`yieldPiece(of:)`). Its translation yields with
+/// it by construction rather than by class — every translation surface asks
+/// this door by the PIECE's own id (the Translation pane its document's, the
+/// desk the piece's as the translator), because no document id resolves to
+/// `DocumentClass.translation` (P3c plan 2 Task 8 deleted that arm). Never to this
 /// device's own person — the root's own second Mac admitted under the
 /// writer's label is the writer.
 extension DocumentStore {
@@ -164,9 +168,9 @@ extension DocumentStore {
         return PostureDoor.posture(permit: permit, yieldingTo: yielding)
     }
 
-    /// The piece a document is about, by its CLASS — the piece itself, its
-    /// statement, its translation — cached per epoch. From the live manifest
-    /// where the window holds one (pure), else the file.
+    /// The piece a document is about, by its CLASS — the piece itself, or its
+    /// statement — cached per epoch. From the live manifest where the window
+    /// holds one (pure), else the file.
     private func postureYieldPiece(forDocId docId: String) -> String? {
         let book = postureBook
         if let known = book.pieceOf[docId] { return known }
@@ -176,8 +180,27 @@ extension DocumentStore {
         } else {
             cls = Document.documentClass(forDocId: docId, in: projectURL)
         }
-        book.pieceOf[docId] = .some(cls.piece)
-        return cls.piece
+        let piece = Self.yieldPiece(of: cls)
+        book.pieceOf[docId] = .some(piece)
+        return piece
+    }
+
+    /// **Which piece a class yields with** — the yield lookup's one switch,
+    /// spelled here rather than read off `DocumentClass.piece`, whose
+    /// `.translation` arm is the PERMIT's (a translation stream is judged as its
+    /// piece's) and was unreachable from this door: `DocumentClass.resolve`,
+    /// the only way a document id becomes a class, never answers
+    /// `.translation`. That arm is deleted here (P3c plan 2 Task 8) rather than
+    /// kept as a promise nothing keeps; a translation yields because its
+    /// surfaces ask by the piece's own id, which resolves `.piece`. No
+    /// `default:`, so a class a later build adds has to say whether it yields.
+    static func yieldPiece(of cls: DocumentClass) -> String? {
+        switch cls {
+        case .piece(let id): return id
+        case .pieceStatement(let piece): return piece
+        case .translation, .projectStatement, .projectStream, .inbox, .unplaceable:
+            return nil
+        }
     }
 
     /// The same door, for the document the window shows by PATH. Resolves the

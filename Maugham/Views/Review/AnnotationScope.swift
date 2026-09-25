@@ -74,6 +74,40 @@ enum AnnotationScopePolicy {
     static func showsBulkAffordances(_ scope: AnnotationScope) -> Bool {
         !scope.isProject
     }
+
+    /// **A yielded piece's section says why its rows carry no verbs** (P3c
+    /// plan 2 Task 8, controller ruling AJ).
+    ///
+    /// The root yields cooperatively on somebody else's piece (plan ruling R2):
+    /// the posture hides every verb but `annotate`, so in the project-scope
+    /// queue that piece's notes arrive with nothing to press and nothing saying
+    /// why — and *Edit Anyway* lived only in the standing line over the editor,
+    /// a surface this queue does not show. This is the section header's half:
+    /// the reason, named as the standing line names it, and whether the header
+    /// offers *Edit Anyway* (which calls `DocumentStore.overrideYield(docId:)`,
+    /// the same verb as the line's). Nil for every other posture — a
+    /// reviewer's or a pieces author's refusal is a permit, and a permit is
+    /// the root's to change, not this window's to lift.
+    ///
+    /// Read from `Posture.reason` alone (tripwire 51): nothing here compares a
+    /// rung or re-derives who writes the piece.
+    struct YieldNotice: Equatable {
+        /// *Sam's piece* — the rows' reason.
+        let reason: String
+        /// The document *Edit Anyway* lifts the yield on.
+        let docId: String
+    }
+
+    static func yieldNotice(posture: Posture, docId: String) -> YieldNotice? {
+        guard case .yielding(let name)? = posture.reason else { return nil }
+        return YieldNotice(reason: yieldReason(name), docId: docId)
+    }
+
+    /// *Sam's piece* — the header's words for a yield.
+    static func yieldReason(_ name: String) -> String { "\(name)\u{2019}s piece" }
+
+    /// The button's title — the standing line's own words.
+    static let editAnywayTitle = "Edit Anyway"
 }
 
 /// **The cross-document queue's sections** — the board's rows with the

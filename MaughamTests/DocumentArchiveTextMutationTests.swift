@@ -222,4 +222,59 @@ final class DocumentArchiveTextMutationTests: XCTestCase {
         XCTAssertEqual(doc.paragraph(id: pid),
             "First middle [[todo: B]]<!--t-bbbbbb--> last.")
     }
+
+    // MARK: - didSplice only if the splice wrote (P3c plan 2 Task 8)
+
+    /// **A splice that did not write is not a splice.** On a read-only
+    /// recovery view both text primitives refuse, so the paragraph is
+    /// unchanged — and `archiveTask` used to set `didSplice` anyway,
+    /// registering the COMPOUND undo for text that never moved and leaving the
+    /// D2 flag armed for the next, unrelated editor push. Now it reads the
+    /// paragraph back.
+    func test_anInlineArchiveThatWroteNothingArmsNoCompoundUndo() async throws {
+        let stored = "Anna walked [[todo: tighten]]<!--t-9k2x6a--> away."
+        let (project, path) = try makeProject(initialMd: stored)
+        defer { try? FileManager.default.removeItem(at: project) }
+        let docURL = project.appendingPathComponent(path)
+        let first = try await Document.load(
+            url: docURL, device: "m", session: "s", presenter: nil)
+        let docId = first.docId
+        try await first.flushBurstNow()
+        await first.close()
+        // Squat a second device's file so only the read-only partial view opens
+        // (`ReadOnlyRecoveryTests`' shape): every mutation there refuses.
+        let badURL = OpLogStore.opLogFileURL(
+            forDocId: docId, deviceSlug: DeviceSlug.make(from: "bad"), in: project)
+        try FileManager.default.createDirectory(at: badURL, withIntermediateDirectories: true)
+        let doc = try await Document.load(
+            url: docURL, device: "m", session: "s", presenter: nil,
+            recovery: .readOnlyPartial)
+        XCTAssertTrue(doc.isReadOnlyRecovery, "premise: a view that writes nothing")
+        let pid = try await paragraphIds(of: doc)[0]
+        let before = doc.paragraph(id: pid)
+        XCTAssertNotNil(before)
+
+        doc.archiveTask(id: synthId(for: doc, anchor: "9k2x6a"), undoManager: UndoManager())
+
+        XCTAssertEqual(doc.paragraph(id: pid), before, "premise: the splice wrote nothing")
+        XCTAssertFalse(doc._undoCoherentApplyPending,
+                       "no splice, so no undo-coherent push is pending")
+        await doc.close()
+    }
+
+    /// The other direction: a splice that wrote arms the flag for the push it
+    /// is about to make, exactly as before.
+    func test_anInlineArchiveThatWroteArmsTheCompoundUndo() async throws {
+        let stored = "Anna walked [[todo: tighten]]<!--t-9k2x6a--> away."
+        let doc = try await makeDocument(initialMd: stored)
+        defer { try? FileManager.default.removeItem(at: doc.opStore.projectURL) }
+        let pid = try await paragraphIds(of: doc)[0]
+
+        doc.archiveTask(id: synthId(for: doc, anchor: "9k2x6a"), undoManager: UndoManager())
+
+        XCTAssertEqual(doc.paragraph(id: pid), "Anna walked away.")
+        XCTAssertTrue(doc._undoCoherentApplyPending,
+                      "the splice wrote, so its push is undo-coherent")
+        await doc.close()
+    }
 }

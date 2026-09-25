@@ -77,20 +77,29 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertFalse(notHers.ownNote, "…and only of her own")
     }
 
-    /// **A deleted note's Restore follows who deleted it** (ruling P,
-    /// Ruling D): what she deleted is hers to restore whatever her rung;
-    /// what somebody else deleted — the root's Delete of her own note
-    /// included — only where she may settle notes.
+    /// **A deleted note's Restore follows the door's own standing** (ruling
+    /// P, Ruling D; P3c plan 2 Task 8 moved the input from a display-name
+    /// `deletedByHer` to `Document.RestoreStanding`, the door's judgement by
+    /// key). Honoured only as the deleter is the reviewer row, drawn whatever
+    /// the posture; honoured on author rights follows the posture; refused is
+    /// never drawn.
     func test_aDeletedNotesRestoreFollowsWhoDeletedIt() {
-        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: reviewer, deletedByHer: true),
+        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: reviewer, standing: .asTheDeleter),
                       "her own Delete")
-        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(posture: reviewer, deletedByHer: false),
+        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(posture: reviewer, standing: .refused),
                        "somebody else's Delete")
-        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: bookAuthor, deletedByHer: false),
+        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: bookAuthor, standing: .withAuthorRights),
                       "the book author restores anybody's")
-        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(posture: piecesAuthorInB, deletedByHer: false),
-                       "outside her pieces, only her own")
-        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: .settling, deletedByHer: true))
+        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(posture: bookAuthor, standing: .refused),
+                       "never over the door's refusal, whatever the posture")
+        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(posture: piecesAuthorInB, standing: .withAuthorRights),
+                       "a posture that may not settle notes hides the author-rights footing")
+        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: .settling, standing: .asTheDeleter))
+        let yielding = Posture(.unrestricted, yieldingTo: "Sam")
+        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(posture: yielding, standing: .withAuthorRights),
+                       "the root's cooperative yield hides a disposition's footing")
+        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: yielding, standing: .asTheDeleter),
+                      "the deleter's footing is the reviewer row, which no yield touches")
     }
 
     func test_aBookAuthorsRowOffersEveryVerb() {
@@ -1677,7 +1686,11 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertFalse(pieces.answerAsRuling)
         XCTAssertFalse(pieces.rule)
         XCTAssertFalse(pieces.sideWithTheNote(hasQuery: true))
-        XCTAssertEqual(TranslationAuthorVerbs.decide(document: bookAuthor, editionBrief: bookAuthor),
+        // P3c plan 2 Task 8: Keep mine's homes are decided apart, so the
+        // book author's EVERY verb needs her piece-intent posture said too —
+        // a host that does not say it gets the narrower Keep mine.
+        XCTAssertEqual(TranslationAuthorVerbs.decide(
+            document: bookAuthor, editionBrief: bookAuthor, pieceIntent: bookAuthor),
                        .unrestricted)
         let ruleOnly = TranslationAuthorVerbs.decide(
             document: piecesAuthorInB, editionBrief: bookAuthor)
@@ -1801,6 +1814,59 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertEqual(all.keepMineHome(language: "es"), .edition("es"))
         XCTAssertEqual(DepartureRowView.offers(isSettled: true, verbs: all), [],
                        "a settled row offers neither again")
+    }
+
+    /// **Keep mine's sheet offers only the homes that may be written** (P3c
+    /// plan 2 Task 8). It used to offer both whenever either could be, open on
+    /// the one that may, and let the door refuse the other in words. Every
+    /// combination, both directions — and the sheet's own picker list is the
+    /// same filter.
+    func test_keepMinesSheetOffersOnlyTheHomesThatMayBeWritten() {
+        let reviewerOnTheBrief = posture(.reviewer, in: .projectStatement)
+        let piecesAuthorInA = posture(.author(.pieces(["doc-a"])), in: .piece("doc-a"))
+        let piecesAuthorOnAsIntent = posture(
+            .author(.pieces(["doc-a"])), in: .pieceStatement(piece: "doc-a"))
+        let reviewerOnAsIntent = posture(.reviewer, in: .pieceStatement(piece: "doc-a"))
+
+        let intentOnly = TranslationAuthorVerbs.decide(
+            document: piecesAuthorInA, editionBrief: reviewerOnTheBrief,
+            pieceIntent: piecesAuthorOnAsIntent)
+        XCTAssertEqual(intentOnly.keepMineHomes(language: "es"), [.everyEdition],
+                       "the brief may not be written, so it is not offered")
+
+        let briefOnly = TranslationAuthorVerbs.decide(
+            document: bookAuthor, editionBrief: bookAuthor, pieceIntent: reviewerOnAsIntent)
+        XCTAssertEqual(briefOnly.keepMineHomes(language: "es"), [.edition("es")],
+                       "the intent may not be written, so Every edition is not offered")
+
+        let both = TranslationAuthorVerbs.decide(
+            document: bookAuthor, editionBrief: bookAuthor, pieceIntent: bookAuthor)
+        XCTAssertEqual(both.keepMineHomes(language: "es"), [.everyEdition, .edition("es")])
+
+        let neither = TranslationAuthorVerbs.decide(
+            document: posture(.reviewer, in: .piece("doc-a")),
+            editionBrief: reviewerOnTheBrief, pieceIntent: reviewerOnAsIntent)
+        XCTAssertEqual(neither.keepMineHomes(language: "es"), [])
+        XCTAssertFalse(neither.keepMine, "and Keep mine itself is not offered")
+        XCTAssertEqual(TranslationAuthorVerbs.unrestricted.keepMineHomes(language: "es"),
+                       [.everyEdition, .edition("es")])
+        XCTAssertEqual(TranslationAuthorVerbs.none.keepMineHomes(language: "es"), [])
+
+        // Every home the sheet opens on is one it offers.
+        for verbs in [intentOnly, briefOnly, both] {
+            XCTAssertTrue(verbs.keepMineHomes(language: "es")
+                .contains(verbs.keepMineHome(language: "es")))
+        }
+
+        // The sheet draws exactly the offered homes; ⌘⌥C's (no offering) all.
+        let target = TranslatorsNote.Target(
+            docId: "doc-a", paragraphId: "aaaa", excerpt: "x", editions: ["es"])
+        XCTAssertEqual(TranslatorsNote.homes(
+            for: target, offering: intentOnly.keepMineHomes(language: "es")), [.everyEdition])
+        XCTAssertEqual(TranslatorsNote.homes(
+            for: target, offering: briefOnly.keepMineHomes(language: "es")), [.edition("es")])
+        XCTAssertEqual(TranslatorsNote.homes(for: target, offering: nil),
+                       [.everyEdition, .edition("es")])
     }
 
     /// **The Collection's empty state says what she can do** (ruling AF):

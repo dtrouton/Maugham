@@ -27,11 +27,57 @@ extension ProjectStore {
     /// content-agnostic — no new case needed.
     public static let projectTasksDocId = "__project__"
 
+    // MARK: - The project stream's task door (P3c plan 2 Task 8)
+
+    /// **Why this Mac may not file a task op on the project stream right now,
+    /// or nil where it may.**
+    ///
+    /// Plan 1 gave every DOCUMENT's task ops a door (`Document+Tasks`) and left
+    /// the project stream's verbs surface-only — `createProjectPaneTask` and
+    /// `TasksPane.archiveProjectTask` wrote whatever reached them. Both are
+    /// synchronous, so they ask the DRAWING posture (`posture(forDocId:)`) of
+    /// `__project__`: the answer every surface that offered the verb drew from.
+    /// `.settling` — the window's table still on its way — refuses and says to
+    /// try again in a moment, because a first-frame press must not become a
+    /// line the register then sets aside. A store no window holds asks Core's
+    /// `PostureDoor` directly (`RulingPerformer.postureWithNoWindow`'s shape).
+    ///
+    /// Asked inside `appendProjectTaskOp`, the one place every project-stream
+    /// task op is appended — the two verbs, their ⌘Z inverses and their redos
+    /// all pass it (`TripwireGrepTests.projectTaskOpAppendSites` counts the
+    /// callers).
+    func projectTaskRefusal() -> String? {
+        let posture: Posture
+        if let documentStore {
+            posture = documentStore.posture(forDocId: Self.projectTasksDocId)
+        } else {
+            posture = PostureDoor.posture(
+                forDocId: Self.projectTasksDocId, in: url, as: .author,
+                using: Document.makeLoadOpStore(projectURL: url, presenter: nil))
+        }
+        if posture.isSettling { return Self.projectTaskSettlingRefusal }
+        return posture.allows(.task) ? nil : Self.projectTaskNotPermittedRefusal
+    }
+
+    /// Said where the window's answer is still on its way.
+    static let projectTaskSettlingRefusal =
+        "This book\u{2019}s permissions are still being read \u{2014} try again in a moment."
+
+    /// Said where the posture refuses a project task outright.
+    static let projectTaskNotPermittedRefusal =
+        "Your part in this book doesn\u{2019}t reach the project\u{2019}s own tasks, "
+        + "so nothing was changed."
+
     // MARK: - Mutation
 
     /// Create a new project-scope pane task. Returns a synthetic preview
     /// `WriterTask`; the next `listTasksAcrossProject(filter:)` call will
     /// re-derive and produce a matching task.
+    ///
+    /// **Refused at the project stream's door** (P3c plan 2 Task 8) — the
+    /// refusal is said and nothing is appended or registered; the preview is
+    /// still returned, `Document.createPaneTask`'s shape (its door refuses
+    /// inside `appendTaskOpInternal` and returns the preview too).
     @discardableResult
     public func createProjectPaneTask(
         body: String, parentTaskId: String? = nil, undoManager: UndoManager? = nil
@@ -55,7 +101,7 @@ extension ProjectStore {
                 taskPriority: priority,
                 taskParentId: parentTaskId,
                 taskKind: TaskKind.paneCreated.rawValue))
-        appendProjectTaskOp(op)
+        let appended = appendProjectTaskOp(op)
         let preview = WriterTask(
             id: opId, kind: .paneCreated,
             anchor: TaskAnchor(
@@ -67,7 +113,8 @@ extension ProjectStore {
         // ⌘Z: undo archives the just-created project pane task; redo re-creates
         // (a fresh id, per the create-undo convention). The `preview` IS the
         // pre-mutation snapshot — the task didn't exist before this call.
-        if let inverse = TaskInverse.inverse(
+        // Nothing to undo where the door refused the create.
+        if appended, let inverse = TaskInverse.inverse(
             undoing: .taskCreate, prior: preview,
             docId: Self.projectTasksDocId, device: projectOpDevice,
             session: projectOpSession, sessionId: projectOpSession) {
@@ -101,7 +148,19 @@ extension ProjectStore {
     /// `projectTasksVersion`, and fires a fire-and-forget disk append.
     /// JSONLAppendStore dedupes by opId so even pathological re-entry is
     /// safe on disk.
-    public func appendProjectTaskOp(_ op: Op) {
+    ///
+    /// **The door first** (`projectTaskRefusal`, P3c plan 2 Task 8): a
+    /// refusal is SAID through the window's notice channel and nothing is
+    /// appended; answers whether the op was appended, so a caller registers
+    /// no ⌘Z for an act that did not happen.
+    @discardableResult
+    public func appendProjectTaskOp(_ op: Op) -> Bool {
+        if let refusal = projectTaskRefusal() {
+            projectStoreLog.error(
+                "project task op \(op.kind.rawValue, privacy: .public) refused at the project stream's door")
+            MaughamEvent.postNotice(refusal, projectURL: url)
+            return false
+        }
         ensureProjectOpLogLoaded()
         _projectOpLogMirror.append(op)
         _projectLogVersion &+= 1
@@ -121,6 +180,7 @@ extension ProjectStore {
                     "project task op append failed: \(error.localizedDescription, privacy: .public)")
             }
         }
+        return true
     }
 
     /// The one store the project stream appends through — see

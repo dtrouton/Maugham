@@ -76,6 +76,13 @@ struct AdmissionModifier: ViewModifier {
                 refusal = nil
             }
             .task(id: projectURL) { await recompute(forced: false, cause: .open) }
+            // **A capture arriving while a sheet is up re-describes it** (P3c
+            // plan 2 Task 8, F10's late capture). The inbox's own refresh
+            // counter is the trigger — `InboxPane`'s `.task(id:
+            // store.refreshes)` precedent, no new event — and only the
+            // descriptions move (`AdmissionQueue.redescribed`), never who is
+            // asked or in what order.
+            .task(id: documentStore?.inboxStore.refreshes) { redescribe() }
             .onProjectEvent(.maughamAdmissionRequested, url: projectURL, window: window) { note in
                 let forced = note.userInfo?[MaughamEvent.admissionForcedKey] as? Bool ?? false
                 Task {
@@ -165,6 +172,14 @@ struct AdmissionModifier: ViewModifier {
         let me = identities.author.fingerprint
         let requests = await AdmissionDecision.refreshedRequests(
             cause: cause,
+            // The question is the ROOT's (Ruling AA): a Mac holding no root
+            // record here skips everything below — one file checked by name,
+            // off the main actor (P3c plan 2 Task 8).
+            holdsARootRecord: {
+                await Task.detached(priority: .userInitiated) {
+                    AdmissionDecision.mayHoldARootRecord(me, in: url)
+                }.value
+            },
             heldLines: { documentStore.heldLinesByDevice() },
             // The streams those held lines were in (P3b Task 4), read from the
             // same union in the same moment: a key that is not a person's must
@@ -222,6 +237,18 @@ struct AdmissionModifier: ViewModifier {
         // in a SECOND window reaches this one's sheet.
         guard let requests else { return }
         admissions.rederived(described(requests, in: documentStore))
+    }
+
+    /// Re-describe the queue from the open documents' and the capture
+    /// stream's current held lines — no registry read, no recount.
+    @MainActor
+    private func redescribe() {
+        guard let documentStore, !admissions.queue.isEmpty else { return }
+        let described = described(admissions.queue, in: documentStore)
+        let byHolder = Dictionary(
+            described.map { ($0.fingerprint, $0.described) },
+            uniquingKeysWith: { first, _ in first })
+        admissions.redescribed { byHolder[$0.fingerprint] ?? nil }
     }
 
     /// **Each request with what it has waiting, and where** (P3b smoke find

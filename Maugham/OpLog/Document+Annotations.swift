@@ -1184,9 +1184,17 @@ extension Document {
         if undoneKind != .annotationWithdraw {
             try requireDispositionPermitted(.annotationReopen)
         }
-        guard case .op(let op) = AnnotationInverse.reopenOp(
+        let built: Op?
+        if undoneKind == .annotationWithdraw {
+            built = restoreOp(annotationId: id)
+        } else if case .op(let op) = AnnotationInverse.reopenOp(
             undoing: undoneKind, annotationId: id, currentStatus: current?.status,
-            docId: docId, device: device, session: session) else {
+            docId: docId, device: device, session: session) {
+            built = op
+        } else {
+            built = nil
+        }
+        guard let op = built else {
             documentLog.error("reopenAnnotation: factory declined for \(id, privacy: .public) — ignoring")
             return
         }
@@ -1413,6 +1421,53 @@ extension Document {
             annotationId: src, in: _opLogMirror + [reopen],
             amendments: annotationAmendments)
         else { throw PostureRefusal(kind: reopen.kind) }
+    }
+
+    /// **Whether Restore on a deleted note would be honoured, and on what
+    /// footing** (P3c plan 2 Task 8, carried from Task 2's re-review).
+    ///
+    /// Restore used to be DRAWN by display name (`AnnotationOwnership.isOwn`
+    /// over `WithdrawnAnnotation.withdrawnBy`) while the door above decides
+    /// by KEY — the deriver's own walk, whose same-person arm is the trust
+    /// table's `sameWriter`. Where the root and a reviewer share a display
+    /// name, the root's Delete of her note drew Restore and the door refused
+    /// it. This asks the DOOR's own question of the op the door would be
+    /// handed (`requireRestoreHonoured`, the reopen `AnnotationInverse` mints
+    /// for a withdrawal), so the drawing and the act cannot disagree; nothing
+    /// here restates the rule.
+    enum RestoreStanding: Equatable {
+        /// The door would refuse it: not withdrawn here, a husk, or a Delete
+        /// that is not hers to undo.
+        case refused
+        /// Honoured only because she is the same writer as the one who deleted
+        /// it — the ownership arm, which every rung holds (the reviewer row,
+        /// like Edit and Delete of her own note).
+        case asTheDeleter
+        /// Honoured on author rights over this document's notes — a
+        /// disposition's footing, which the window's posture may still hide
+        /// (the root's cooperative yield).
+        case withAuthorRights
+    }
+
+    func restoreStanding(annotationId id: String) -> RestoreStanding {
+        guard !isClosed, !isReadOnlyRecovery,
+              isWithdrawn(annotationId: id),
+              let reopen = restoreOp(annotationId: id)
+        else { return .refused }
+        do { try requireRestoreHonoured(reopen) } catch { return .refused }
+        return annotationAmendments.honoursAsDisposition(reopen)
+            ? .withAuthorRights : .asTheDeleter
+    }
+
+    /// The reopen a Restore appends — `AnnotationInverse`'s, for a withdrawal.
+    /// The one builder `reopenAnnotation`'s withdrawal arm and
+    /// `restoreStanding` share, so the op judged for the drawing is the op the
+    /// door is handed.
+    internal func restoreOp(annotationId id: String) -> Op? {
+        guard case .op(let op) = AnnotationInverse.reopenOp(
+            undoing: .annotationWithdraw, annotationId: id, currentStatus: nil,
+            docId: docId, device: device, session: session) else { return nil }
+        return op
     }
 
     /// **⌘Z and ⇧⌘Z's half of the door** (P3c Task 5). An undo registered

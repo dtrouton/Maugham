@@ -684,7 +684,16 @@ extension Document {
             } else {
                 setParagraph(id: location.paragraphId, text: mutated)
             }
-            didSplice = true
+            // **Spliced only if the splice WROTE** (P3c plan 2 Task 8). Both
+            // primitives can refuse or no-op on their own — a husk or a
+            // read-only recovery view (`rejectMutationIfNotWritable`), the
+            // text door (`rejectTextWriteIfNotPermitted`), a splice that left
+            // the line as it was — and a `didSplice` set regardless registered
+            // the COMPOUND undo for text that never changed and left the D2
+            // flag armed for the next, unrelated editor push. The paragraph
+            // either changed from `para` or it did not.
+            didSplice = paragraphs[location.paragraphId] != para
+            if !didSplice { _undoCoherentApplyPending = false }
         }
 
         // --- Undo registration ---

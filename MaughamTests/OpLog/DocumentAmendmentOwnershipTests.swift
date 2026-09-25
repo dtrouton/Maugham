@@ -707,14 +707,107 @@ final class DocumentAmendmentOwnershipTests: XCTestCase {
 
         let again = try await openDoc(docURL)
         XCTAssertEqual(again.withdrawnAnnotations().map(\.id), [mine])
-        XCTAssertNil(again.withdrawnAnnotations().first?.withdrawnBy,
-                     "not hers — Restore is not drawn for her")
+        // What the pane draws Restore from is the door's own standing (P3c
+        // plan 2 Task 8). This fixture's `withdrawal` stamps no author, so a
+        // nil `withdrawnBy` proves nothing about the drawing — the standing
+        // does, and the same-name case below proves it by key.
+        XCTAssertEqual(again.restoreStanding(annotationId: mine), .refused,
+                       "the door would refuse her Restore, so the pane draws none")
         let count = again._opLogMirror.count
         do {
             try await again.reopenAnnotation(id: mine)
             XCTFail("the root's Delete of her note is the root's")
         } catch is Document.PostureRefusal {}
         XCTAssertEqual(again._opLogMirror.count, count, "the door appended nothing")
+        await again.close()
+    }
+
+    /// **Restore is drawn by KEY, never by display name** (P3c plan 2 Task
+    /// 8, carried from Task 2's re-review). The root's Delete of her note,
+    /// stamped as production stamps it — with a display name that happens to
+    /// be HERS. Asked by name (`isOwn(author: withdrawnBy)`, the old drawing)
+    /// this reads as her own Delete and draws Restore; the door, which judges
+    /// by key, refuses it. The standing is the door's, so it refuses too, and
+    /// her own Delete in the same book stands `.asTheDeleter` — both
+    /// directions.
+    func test_restoreIsDrawnByKeyNotByTheDeletersDisplayName() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        try beAReviewerHere(root: root)
+        try writeFile(by: root, ops: [opening(by: root)])
+
+        let doc = try await openDoc(docURL)
+        let rootDeletes = try await doc.addReviewerAnnotation(
+            kind: .comment, paragraphId: "aaaa", span: nil,
+            body: "the root deletes this", authorName: "Denver")
+        let sheDeletes = try await doc.addReviewerAnnotation(
+            kind: .comment, paragraphId: "aaaa", span: nil,
+            body: "she deletes this", authorName: "Denver")
+        try await doc.withdrawReviewerAnnotation(id: sheDeletes, authorName: "Denver")
+        await doc.close()
+
+        var namedWithdraw = withdrawal(ULID.generate(), of: rootDeletes, by: root)
+        namedWithdraw = Op(
+            opId: namedWithdraw.opId, docId: namedWithdraw.docId, at: namedWithdraw.at,
+            device: namedWithdraw.device, session: namedWithdraw.session,
+            kind: .annotationWithdraw, changes: [],
+            provenance: .init(
+                sourceAnnotationId: rootDeletes,
+                authorSourceKind: AnnotationAuthor.SourceKind.human.rawValue,
+                authorDisplayName: "Denver"))
+        try writeFile(by: root, ops: [opening(by: root), namedWithdraw])
+
+        let again = try await openDoc(docURL)
+        let byId = Dictionary(uniqueKeysWithValues:
+            again.withdrawnAnnotations().map { ($0.id, $0) })
+        XCTAssertTrue(AnnotationOwnership.isOwn(
+            author: byId[rootDeletes]?.withdrawnBy, localName: "Denver"),
+            "premise: by NAME the root's Delete reads as hers")
+        XCTAssertEqual(again.restoreStanding(annotationId: rootDeletes), .refused,
+                       "by KEY it is the root's, and Restore is not drawn")
+        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(
+            posture: Posture(.unrestricted),
+            standing: again.restoreStanding(annotationId: rootDeletes)),
+            "hidden whatever the posture")
+        XCTAssertEqual(again.restoreStanding(annotationId: sheDeletes), .asTheDeleter,
+                       "her own Delete is hers to restore as a reviewer")
+        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(
+            posture: .settling,
+            standing: again.restoreStanding(annotationId: sheDeletes)),
+            "drawn even before the posture has settled — the reviewer row")
+
+        // The press agrees with the drawing, both ways — and a refusal is
+        // said through the house notice path.
+        var said: [String] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let m = note.userInfo?[MaughamEvent.noticeMessageKey] as? String { said.append(m) }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        do {
+            try await again.reopenAnnotation(id: rootDeletes, undoManager: nil)
+            XCTFail("the door refuses the root's Delete")
+        } catch {
+            let sentence = AnnotationsPane.sayRefused(error, in: again)
+            XCTAssertEqual(said, [sentence], "a refused Restore is SAID, not swallowed")
+        }
+        XCTAssertEqual(again.withdrawnAnnotations().map(\.id).sorted(),
+                       [rootDeletes, sheDeletes].sorted())
+        try await again.reopenAnnotation(id: sheDeletes, undoManager: nil)
+        XCTAssertEqual(again.withdrawnAnnotations().map(\.id), [rootDeletes],
+                       "her own Restore lands")
+
+        // The pane's Restore hands a refusal to `sayRefused`, never to `try?`.
+        let pane = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Views/AnnotationsPane.swift"), encoding: .utf8)
+        let start = try XCTUnwrap(pane.range(of: "private func reopen(_ document: Document"))
+        let body = pane[start.lowerBound...].prefix(400)
+        XCTAssertTrue(body.contains("Self.sayRefused(error, in: document)"),
+                      "the pane says the refusal")
+        XCTAssertFalse(body.contains("try? await document.reopenAnnotation"),
+                       "and swallows nothing")
         await again.close()
     }
 

@@ -1961,22 +1961,26 @@ off the main actor, so it stays per miss; see the limits.
 - **A read-only iCloud share is an OS lock and no role.** It locks the editor on
   that Mac because the file system will not take the write. It says nothing
   about the person's permit, and no permit is inferred from it (R1).
-- **Project-stream tasks are hidden in the pane but have no door.**
-  `ProjectStore.createProjectPaneTask`/`archiveProjectTask` are unguarded. The
-  reviewer's pane never draws them, and the read side sets aside a reviewer's
-  `__project__` task op. A door there needs a permit on `ProjectStore`.
+- ~~**Project-stream tasks are hidden in the pane but have no door.**~~ Closed
+  in P3c plan 2 Task 8: `ProjectStore.appendProjectTaskOp` — the one append
+  both verbs, their ⌘Z inverses and their redos reach — asks the DRAWING
+  posture of `__project__` (`projectTaskRefusal`), refuses and says so, and
+  `.settling` says *try again in a moment*; the callers are a counted list
+  (`TripwireGrepTests.projectTaskOpAppendSites`).
 - **A reviewer cannot restore her own deleted note until plan 2** (ruling P).
   The refusal is loud rather than silent.
 - **M5-AN-012's filing awaits a register ruling.** The claim is amended and
   pinned. Its filing stays NO_RULING_REACHES until Denver promotes spec §8's
   sentence to a RULING-n.
-- **A late capture does not refresh an open F10 sheet.** A capture arriving
-  after the sheet is up leaves it reading *Nothing from it has reached this Mac
-  yet* until the next settle or load.
-- **A corrupt `people/<fp>.json` hides a record-only stranger.** The pre-check
-  skips the verified read and fails toward silence until the next verified
-  read. A forged `retiredAt` on an unmatched device file does the same (ruling
-  AC).
+- ~~**A late capture does not refresh an open F10 sheet.**~~ Closed in P3c
+  plan 2 Task 8: the sheet re-describes on the inbox's own refresh counter
+  (`AdmissionQueue.redescribed`), which moves descriptions and nothing else.
+- **A forged `retiredAt` on an unmatched device file hides a record-only
+  stranger** (ruling AC): the pre-check skips the verified read and fails
+  toward silence until the next verified read. (A corrupt `people/<fp>.json`
+  did the same until P3c plan 2 Task 8; a matched person file must now parse,
+  and one that does not is looked at. The same task skips the whole refresh on
+  a Mac holding no root record here, by one filename — `mayHoldARootRecord`.)
 - **A never-asked document still costs a door check and a builder check on the
   main actor** (about 0.36 ms a row). Only the redraw after a trust change was
   made cheap; the drawing path's per-miss signature check stays (ruling AE),
