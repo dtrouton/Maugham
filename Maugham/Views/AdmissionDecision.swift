@@ -542,6 +542,16 @@ enum AdmissionDecision {
     /// listing beside it: a file that will not read or parse answers *look*
     /// (true), and so does a self-admitted one — the verified read
     /// (`askingRoot`, `Registry.holdsARootRecord`) is what decides.
+    ///
+    /// **A root whose own record was DELETED reads here as a Mac with none**
+    /// (whole-branch review, Minor 1). The verified resolve that would put it
+    /// back from this Mac's memory (`TrustResolution.resolveVerified` through
+    /// `RegistryCache`) is never reached on this path, so that root asks no
+    /// admission question until some other resolve restores the record — the
+    /// next `Document.load`'s `localWritePermit`, or any posture refresh —
+    /// and the question is then put at the next announcement. One
+    /// announcement late, and self-healing; nothing is admitted or refused
+    /// meanwhile.
     nonisolated static func mayHoldARootRecord(
         _ thisDevice: String, in projectURL: URL
     ) -> Bool {

@@ -239,7 +239,6 @@ struct BibleStratumView: View {
     /// never disabled.
     let posture: Posture
 
-
     /// Which row's correction field is open, by fact id. A `BibleFact.id` is a
     /// ULID the store minted and does not move with its text, so it is a stable
     /// handle here — unlike a `Ruling`'s, which is why the stratum above keys on

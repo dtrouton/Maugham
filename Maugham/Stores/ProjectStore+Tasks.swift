@@ -46,6 +46,14 @@ extension ProjectStore {
     /// task op is appended — the two verbs, their ⌘Z inverses and their redos
     /// all pass it (`TripwireGrepTests.projectTaskOpAppendSites` counts the
     /// callers).
+    ///
+    /// **A refusal while `.settling` CONSUMES a ⌘Z** (whole-branch review,
+    /// Minor 5). The undo manager has already popped the entry by the time its
+    /// inverse reaches this door, so the refused inverse is dropped rather
+    /// than put back — fail closed, and the notice says *try again*, but what
+    /// the writer tries again is the verb itself: that ⌘Z step is gone, and
+    /// the task stands as it was. Rare (the first frames of a window over a
+    /// registered book), and never a line the register sets aside.
     func projectTaskRefusal() -> String? {
         let posture: Posture
         if let documentStore {

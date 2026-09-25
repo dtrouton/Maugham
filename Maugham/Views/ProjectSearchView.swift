@@ -307,11 +307,10 @@ struct ProjectSearchView: View {
             manuscriptPaths = answers
         }
 
+        /// Only manuscript paths are ever answered, so a research match falls
+        /// to its own rule and anything else unanswered fails CLOSED.
         func mayReplace(_ match: SearchMatch) -> Bool {
-            switch match.documentSource {
-            case .research: return true
-            case .manuscript: return manuscriptPaths[match.documentPath] ?? false
-            }
+            manuscriptPaths[match.documentPath] ?? (match.documentSource == .research)
         }
     }
 
