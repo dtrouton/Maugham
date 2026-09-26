@@ -1955,8 +1955,11 @@ final class TripwireGrepTests: XCTestCase {
     ///
     /// The scan is per test function: a press call (`press(` as a statement,
     /// or a raw `accessibilityPerformPress` perform) followed by
-    /// `pumpUntil(` / `waitUntil(` / `pump(` before the function's closing
-    /// brace, comment lines ignored. Mount-and-read tests, censuses and
+    /// `pumpUntil(` / `waitUntil(` / `pump(` / `waitOut(` before the
+    /// function's closing brace, comment lines ignored. (`waitOut(` joined in
+    /// plan 3's C14: a fixed wait is the same shape as a poll.) A synthesised
+    /// mouse CLICK is the same defect by another input, and has its own arm
+    /// below — `clickRepresentatives`. Mount-and-read tests, censuses and
     /// measurements do not match, and the self-check below says so.
     static let pressThenWaitRepresentatives: Set<String> = [
         "AnnotationsPaneChoiceTests.swift test_theSheetCommitsTheWriterSentence",
@@ -1968,6 +1971,10 @@ final class TripwireGrepTests: XCTestCase {
         "ReferencesPaneTests.swift test_theShelfDrawsARowPerPinAndAClickPromotesIt",
         "ReviewRoundCockpitTests.swift test_clearingTheAskReachesTheHostAndStartsNoRun",
         "StatementDraftHandoffTests.swift test_aMintThatDepositedTheWritersCharacterKeepsItsStatement",
+        // Found when the arm learned `waitOut(` (plan 3, C14): the same file's
+        // words-never-lost invariant — a mint that FOUND its statement must never
+        // delete it on rollback — with the same keystroke press as its siblings.
+        "StatementDraftHandoffTests.swift test_aMintThatFoundItsStatementNeverRollsItBack",
         "StatementDraftHandoffTests.swift test_aMintThatNeitherBoundNorDepositedLeavesNoStatement",
     ]
 
@@ -2018,7 +2025,9 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     private static func isWaitCall(_ trimmed: String) -> Bool {
-        for token in ["pumpUntil(", "waitUntil(", "pump("] where trimmed.contains(token) { return true }
+        for token in ["pumpUntil(", "waitUntil(", "pump(", "waitOut("] where trimmed.contains(token) {
+            return true
+        }
         return false
     }
 
@@ -2068,6 +2077,10 @@ final class TripwireGrepTests: XCTestCase {
                 try await press("Go", in: window)
                 waitUntil({ done }, timeout: 2)
             }
+            func test_waitsOutAfterAPress() async throws {
+                press(try axButtons(labelled: "Go", in: window)[0])
+                await waitOut(0.3)
+            }
         }
         """.write(to: tmp.appendingPathComponent("SomeSuite.swift"),
                   atomically: true, encoding: .utf8)
@@ -2097,7 +2110,329 @@ final class TripwireGrepTests: XCTestCase {
             "SomeSuite.swift test_awaitsAPressThenWaits",
             "SomeSuite.swift test_pollsAfterAPress",
             "SomeSuite.swift test_sleepsAfterARawPerform",
+            "SomeSuite.swift test_waitsOutAfterAPress",
         ])
+    }
+
+    // MARK: - Tripwire 33, the click arm
+
+    /// **The click arm (plan 3 carry C14).** A synthesised mouse click is the
+    /// press's twin — a real `NSEvent` pair through a mounted window, then a
+    /// wait for what it did — and it was outside the census because its waits
+    /// live where a body scan cannot see them: inside the helper that builds
+    /// the event (`waitOut`, a `pump` after the pair), or in an `until:`
+    /// closure handed to it. The click itself is visible everywhere, so the arm
+    /// censuses the CLICK (ruling C14-1), not the click-then-wait.
+    ///
+    /// **Every click test is named here, with why it survives.** A click stays
+    /// only where it guards what no windowless test can — a hit area, the real
+    /// delivery path, a cold click — one representative per wiring per file.
+    /// A new one fails `test_noNewTestClicksOutsideTheNamedRepresentatives`:
+    /// pin its decision without a window (a pure predicate, a source census, a
+    /// mount-and-read that the control is DRAWN), or, if a click really is the
+    /// only guard, add it here in the same commit with the reason beside it.
+    static let clickRepresentatives: Set<String> = [
+        // The real entry point: `CanvasEventNSView.mouseDown(with:)` takes first
+        // responder, and every other canvas test clicks through the seam that
+        // does not. Synchronous — the override is called directly, nothing waits.
+        "CanvasEventViewTests.swift test_aClickTakesFirstResponderSoTheKeyboardReachesTheCanvas",
+        // A hit area: the door's live band swept down (and across) the icon.
+        // SwiftUI hit-tests inside one hosting view, so no `hitTest` can see it.
+        "PaletteWallDoorHitAreaTests.swift test_theWholeOpenWallIconOpensTheWall",
+        // The sweep's control — without a miss it can see, the sweep asserts nothing.
+        "PaletteWallDoorHitAreaTests.swift test_control_theSweepCanSeeAMiss",
+        // The real delivery path: the door's click through the real
+        // `PaletteWallModifier`, whose persona observer is what the press's
+        // token ordering exists to survive.
+        "PaletteWallDoorTests.swift test_pressingTheDoorInPlanLandsTheWriterInAuthorWithTheWallOpen",
+        // The real delivery path: the only proof the altitude overlay's card can
+        // be reached by a mouse at all (a `Button(.plain)` in a `LazyVGrid`).
+        "ProjectAltitudeCentreTests.swift test_clickingACorkboardCardOpensThatChapterInTheHostThatWasAlreadyUp",
+        // The real delivery path: a slugline `Button` inside Plan's `List(.sidebar)`.
+        "ProjectSubjectReachabilityTests.swift test_aSluglineOnPlansTreePostsTheScreenplaysNavigation",
+        // The real delivery path, one per control on the board: a chip carries
+        // its own cell's two ids, and a count its own row's piece.
+        "ReviewBoardPaneTests.swift test_aChipClickCarriesItsOwnCellsIdentity",
+        "ReviewBoardPaneTests.swift test_aCountClickCarriesItsOwnRowsPiece",
+        // The real delivery path: a chip clicked through the window's layered
+        // board, over the corkboard it covers, making the hop.
+        "ReviewBoardRoutingTests.swift test_aChipClickOpensThatChapterInTheHostAndRemembersThePass",
+        // The real delivery path: a scene row's `Button` still takes the click
+        // inside a `List(selection:)` — `selectRowIndexes` never reaches a Button.
+        "SceneNavigatorProjectRowTests.swift test_clickingASceneNavigatesAndTakesTheSubjectOffTheProject",
+        // A cold click, per section: each section's chevron is the first event
+        // its fresh window sees, and THIS triangle writes THAT flag — the
+        // chevron has no accessibility hook to press.
+        "SectionChevronTests.swift test_bothSectionsCarryAChevronThatTogglesTheirOwnFlag",
+        // A hit area: the chevron's four edges, a fresh window per sample.
+        "SectionChevronTests.swift test_theWholeChevronIsClickableTopToBottom",
+        // A hit area: a click on the row's NAME selects (stage 3b's regression,
+        // invisible to a `rect.midX` click) — and, with the watcher installed,
+        // stays one click: the persona does not move.
+        "TreeTravelTests.swift test_aSingleClickOnTheRowsNameSelectsIt",
+        // The real delivery path: the travel is an `NSEvent` local monitor
+        // reading `clickCount == 2`, which only `NSApp`'s own dispatch runs.
+        "TreeTravelTests.swift test_aDoubleClickOnTheRowsNameTravelsToAuthor",
+
+        // Swept in the commits that follow (plan 3, C14).
+        "PaletteWallDoorHitAreaTests.swift test_theWholeOpenWallIconIsLiveAcrossItsWidth",
+        "PaletteWallDoorTests.swift test_pressingTheDoorInAuthorOpensInPlaceAndTravelsNowhere",
+        "ProjectAltitudeCentreTests.swift test_publishOpensTheChapterFromTheSameCardClick",
+        "ReviewBoardPaneTests.swift test_aReferenceRowCarriesNoCountEither",
+        "ReviewBoardPaneTests.swift test_aReferenceRowOffersNothingToClickAnywhereOnIt",
+        "ReviewBoardPaneTests.swift test_anUnreadablePieceOffersNoClick",
+        "ReviewBoardPaneTests.swift test_control_theSameSweepOverALoosePieceDoesReachAChip",
+        "SceneNavigatorProjectRowTests.swift test_clickingASceneWithADocumentSubjectLeavesItAlone",
+        "SceneNavigatorProjectRowTests.swift test_fromTheProjectAnEmptyScreenplayCanReachADocumentAgain",
+        "SceneNavigatorProjectRowTests.swift test_plantedOffender_aScriptRowWithTheOldProjectionIsStillATrap",
+        "SceneNavigatorProjectRowTests.swift test_theRowUnderTheProjectIsTheScriptAndNotTheFirstSlugline",
+        "SectionChevronTests.swift test_theChevronTakesAColdClickWithNoHoverFirst",
+        "TreeTravelTests.swift test_aDoubleClickPastTheNameDoesNotTravel",
+        "TreeTravelTests.swift test_aSingleClickOnTheChapterRowOnlySelects",
+        "TreeTravelTests.swift test_aStoppedWatcherTravelsNowhereButStillSelects",
+    ]
+
+    /// Every `File.swift test_name` under `dir` whose body synthesises a mouse
+    /// click. Pure over the text, so the self-check can plant offenders.
+    ///
+    /// A test function is a CLICK test when its body builds or sends a
+    /// `.leftMouseDown`/`.leftMouseUp` event or calls `mouseDown(with:)`
+    /// itself, or calls a function defined IN THE SAME FILE that does — the
+    /// helpers are derived per file, transitively (a helper that reaches the
+    /// event through another in-file helper counts), and never listed. A helper
+    /// of the same name in another file is NOT followed: the arm reads a call
+    /// by its spelling, and following spellings across files would count every
+    /// `click(` in the tree as the one that happens to build an event.
+    ///
+    /// Comment lines and the bodies of multi-line string literals are not code
+    /// and are skipped (the self-checks' planted files live in literals).
+    static func clickTests(under dir: URL) throws -> [String] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        var hits: [String] = []
+        for case let url as URL in walker
+        where url.pathExtension == "swift" && !url.path.contains("/TestSupport/") {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            let functions = Self.functionBodies(in: text)
+            // The in-file helpers, closed under in-file calls.
+            var helpers = Set(functions
+                .filter { !$0.name.hasPrefix("test_") && Self.buildsAMouseClick($0.body) }
+                .map(\.name))
+            var grew = true
+            while grew {
+                grew = false
+                for function in functions
+                where !function.name.hasPrefix("test_") && !helpers.contains(function.name)
+                    && helpers.contains(where: { Self.calls($0, in: function.body) }) {
+                    helpers.insert(function.name)
+                    grew = true
+                }
+            }
+            for function in functions where function.name.hasPrefix("test_") {
+                if Self.buildsAMouseClick(function.body)
+                    || helpers.contains(where: { Self.calls($0, in: function.body) }) {
+                    hits.append("\(url.lastPathComponent) \(function.name)")
+                }
+            }
+        }
+        return hits.sorted()
+    }
+
+    private static let mouseClickTokens = [".leftMouseDown", ".leftMouseUp", "mouseDown(with:"]
+
+    private static func buildsAMouseClick(_ body: [String]) -> Bool {
+        body.contains { line in mouseClickTokens.contains { line.contains($0) } }
+    }
+
+    /// Whether `body` calls `name(` — `name` not the tail of a longer
+    /// identifier, so `click(` is not found in `doubleClick(`.
+    private static func calls(_ name: String, in body: [String]) -> Bool {
+        let needle = name + "("
+        for line in body {
+            var searchFrom = line.startIndex
+            while let found = line.range(of: needle, range: searchFrom..<line.endIndex) {
+                if found.lowerBound == line.startIndex { return true }
+                let before = line[line.index(before: found.lowerBound)]
+                if !(before.isLetter || before.isNumber || before == "_") { return true }
+                searchFrom = found.upperBound
+            }
+        }
+        return false
+    }
+
+    /// Every `func` in `text` with the code lines of its body (trimmed; comment
+    /// lines and string-literal bodies removed). A body runs from its
+    /// declaration to the first code line at or left of the declaration's own
+    /// indentation — its closing brace, or, for a body-less declaration, the
+    /// next member. A line opening with `)` is a multi-line signature's close,
+    /// not the end. Nested functions are part of their enclosing body.
+    private static func functionBodies(in text: String) -> [(name: String, body: [String])] {
+        var result: [(name: String, body: [String])] = []
+        var current: (name: String, indent: Int, body: [String])?
+        var inString = false
+        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(raw)
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let delimiters = Self.stringDelimiterCount(in: trimmed)
+            if inString || delimiters % 2 == 1 {
+                if delimiters % 2 == 1 { inString.toggle() }
+                continue
+            }
+            if trimmed.isEmpty || trimmed.hasPrefix("//") { continue }
+            let indent = line.prefix { $0 == " " }.count
+            if let open = current, indent <= open.indent, !trimmed.hasPrefix(")") {
+                result.append((open.name, open.body))
+                current = nil
+                if trimmed.hasPrefix("}") { continue }
+            }
+            if current == nil, let name = Self.declaredFunctionName(trimmed) {
+                let opens = trimmed.filter { $0 == "{" }.count
+                if opens > 0, opens == trimmed.filter({ $0 == "}" }).count {
+                    result.append((name, [trimmed]))   // a one-line body
+                } else {
+                    current = (name, indent, [])
+                }
+                continue
+            }
+            current?.body.append(trimmed)
+        }
+        if let open = current { result.append((open.name, open.body)) }
+        return result
+    }
+
+    /// How many multi-line string delimiters open or close on `line` — three
+    /// quotes not escaped by a backslash (`\"""` inside a literal is content).
+    private static func stringDelimiterCount(in line: String) -> Int {
+        let delimiter = String(repeating: "\"", count: 3)
+        var count = 0
+        var searchFrom = line.startIndex
+        while let found = line.range(of: delimiter, range: searchFrom..<line.endIndex) {
+            let escaped = found.lowerBound > line.startIndex
+                && line[line.index(before: found.lowerBound)] == "\\"
+            if !escaped { count += 1 }
+            searchFrom = found.upperBound
+        }
+        return count
+    }
+
+    /// The name a line declares with `func`, whatever modifiers precede it.
+    private static func declaredFunctionName(_ trimmed: String) -> String? {
+        guard let range = trimmed.range(of: "func ") else { return nil }
+        let head = trimmed[..<range.lowerBound]
+        let modifiers = head.split(separator: " ")
+        let allowed: Set<Substring> = ["private", "fileprivate", "internal", "public",
+                                       "static", "class", "override", "final",
+                                       "nonisolated", "mutating", "@MainActor",
+                                       "@discardableResult", "@objc", "@available"]
+        guard modifiers.allSatisfy({ allowed.contains($0) || $0.hasPrefix("@") }) else {
+            return nil
+        }
+        let name = trimmed[range.upperBound...].prefix { $0 == "_" || $0.isLetter || $0.isNumber }
+        return name.isEmpty ? nil : String(name)
+    }
+
+    func test_noNewTestClicksOutsideTheNamedRepresentatives() throws {
+        let testsDir = repoRoot.appendingPathComponent("MaughamTests", isDirectory: true)
+        let found = Set(try Self.clickTests(under: testsDir))
+        let offenders = found.subtracting(Self.clickRepresentatives).sorted()
+        XCTAssertTrue(offenders.isEmpty,
+            "A test synthesises a mouse click — tripwire 33's click arm. A click "
+            + "is a press through the window, and its wait hides in the helper "
+            + "or an `until:` closure. Pin the decision without a window and "
+            + "assert only that the control is drawn; if a click is genuinely the "
+            + "only guard (a hit area, the real delivery path, a cold click), add "
+            + "it to `clickRepresentatives` in the same commit, with the reason. "
+            + "Offenders:\n" + offenders.joined(separator: "\n"))
+        let retired = Self.clickRepresentatives.subtracting(found).sorted()
+        XCTAssertTrue(retired.isEmpty,
+            "`clickRepresentatives` names a test that no longer clicks (renamed, "
+            + "cut, or converted) — take it off the list so the list stays a "
+            + "census rather than a memory:\n" + retired.joined(separator: "\n"))
+    }
+
+    /// Self-check for the click arm. Fires on a click through an in-file helper
+    /// (and through a helper that only reaches the event by calling another
+    /// in-file helper), on a direct `mouseDown(with:)`, and on a test that builds
+    /// the event itself. **Stays quiet on a test calling a helper of the same
+    /// name defined in ANOTHER file** — the arm needs the helper in the test's
+    /// own file, so `OtherSuite.swift`'s `click(` must not be counted, and it
+    /// is planted here to prove it is not. Also quiet on prose naming the
+    /// event, on a helper that is never called, and on a planted offender
+    /// inside a string literal.
+    func test_theClickArmFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-click-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        final class ClickSuite: XCTestCase {
+            func test_clicksThroughAnInFileHelper() async throws {
+                await click(at: .zero, in: window)
+                XCTAssertTrue(done)
+            }
+            func test_clicksThroughAHelperOfAHelper() async throws {
+                await tap(row: 2, in: window)
+            }
+            func test_callsTheOverrideDirectly() throws {
+                view.mouseDown(with: event)
+            }
+            func test_buildsTheEventItself() throws {
+                let down = NSEvent.mouseEvent(with: .leftMouseDown, location: .zero,
+                                              modifierFlags: [], timestamp: 0,
+                                              windowNumber: 0, context: nil,
+                                              eventNumber: 0, clickCount: 1, pressure: 1)
+                window.sendEvent(down!)
+            }
+            func test_neverClicks() throws {
+                // click(at:) is discussed here and .leftMouseDown too
+                XCTAssertEqual(unclicked(), 1)
+                let text = \"""
+                    func test_plantedInAString() { view.mouseDown(with: e) }
+                    \"""
+                XCTAssertFalse(text.isEmpty)
+            }
+            private func tap(row: Int, in window: NSWindow) async {
+                await click(at: CGPoint(x: 0, y: row), in: window)
+            }
+            private func click(at point: CGPoint, in window: NSWindow) async {
+                for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                    _ = type
+                }
+            }
+            private func unused() {
+                view.mouseDown(with: event)
+            }
+            private func unclicked() -> Int { 1 }
+        }
+        """.write(to: tmp.appendingPathComponent("ClickSuite.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        final class OtherSuite: XCTestCase {
+            func test_callsAClickDefinedInAnotherFile() async throws {
+                await click(at: .zero, in: window)
+                XCTAssertTrue(done)
+            }
+            private func click(at point: CGPoint, in window: NSWindow) async {
+                window.performClose(nil)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("OtherSuite.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let found = try Self.clickTests(under: tmp)
+        XCTAssertEqual(found, [
+            "ClickSuite.swift test_buildsTheEventItself",
+            "ClickSuite.swift test_callsTheOverrideDirectly",
+            "ClickSuite.swift test_clicksThroughAHelperOfAHelper",
+            "ClickSuite.swift test_clicksThroughAnInFileHelper",
+        ], "the click arm must fire on every planted click and on nothing else "
+            + "— `OtherSuite.swift`'s `click(` is a helper of the same NAME in "
+            + "another file and builds no event, so counting it would be the "
+            + "arm guessing by spelling")
     }
 
     /// Recurrence-tripper: `TestMCPToolCatalog` is a dev-only tool catalog for
