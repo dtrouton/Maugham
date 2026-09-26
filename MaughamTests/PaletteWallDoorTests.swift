@@ -453,22 +453,6 @@ final class PaletteWallDoorTests: XCTestCase {
                        "the open arm did not run over the arrival")
     }
 
-    /// The door's control, one layer up from the button's own: pressed OUTSIDE
-    /// Plan it opens the wall in place and writes no persona at all.
-    func test_pressingTheDoorInAuthorOpensInPlaceAndTravelsNowhere() async throws {
-        let store = try await novel()
-        let box = WallPersonaBox()
-        box.persona = .author
-        let window = try await hostTravelProbe(store: store, box: box)
-
-        try clickTheDoor(in: window)
-        await pumpUntil(deadline: 5) { box.showsPaletteWall }
-
-        XCTAssertTrue(box.showsPaletteWall, "the door in Author opens in place")
-        XCTAssertEqual(box.persona, .author, "and moves nobody")
-        XCTAssertFalse(box.wallTravelPending, "and arms nothing")
-    }
-
     /// **The window's own wiring**, which no assertion above can see: both
     /// tree shells' `onOpenPaletteWall` closures must reach the door's decision
     /// rather than writing `showsPaletteWall = true` themselves. Reverting
@@ -671,7 +655,9 @@ final class PaletteWallDoorTests: XCTestCase {
     /// skips in any process no assistive client attaches to — which is
     /// every process this suite has ever run in. The travel is the load-bearing
     /// behaviour of stage 3b Task 4 and it cannot be pinned by a test that
-    /// skips, so the two end-to-end cases drive the door the way a writer does.
+    /// skips, so the end-to-end case drives the door the way a writer does (the Author
+    /// arm is `test_pressPaletteWallDoor_outsidePlanOpensInPlaceAndMovesNobody`,
+    /// windowless — tripwire 33).
     ///
     /// It also subsumes the enablement claim: a disabled
     /// `Button` swallows a click, so a press that reaches its action proves the
