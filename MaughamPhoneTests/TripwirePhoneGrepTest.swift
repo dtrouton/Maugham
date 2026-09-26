@@ -992,6 +992,18 @@ final class TripwirePhoneGrepTest: XCTestCase {
     private let appendStoreOnlyReads = [
         ".loadStrict(", ".loadDiagnosedStrict(", ".loadVerifiedStrict(",
     ]
+    /// **The chained store never leaves the function that builds it** (P3
+    /// plan 3 Task 7). Each writer builds its store as a local `let store`
+    /// and appends and seals through it; nothing else can reach it, which is
+    /// what makes "reads through no store" checkable in two files. A store
+    /// DECLARED with a type (a property, a parameter) or RETURNED is one a
+    /// third file could read with the plain `.load(` every `OpLogStore` read
+    /// also spells — the gap the name-scoped half above cannot see.
+    private let chainedStoreEscapes = [": JSONLAppendStore", "-> JSONLAppendStore"]
+    /// And from the other side: the writers' store is named `store`, so any
+    /// phone file reaching `.store` as a MEMBER (not the `.store(` method
+    /// spelling) outside the two writers is reaching for it.
+    private let writersStoreAccess = #"\.store\b(?!\()"#
 
     private func writeOnlyOffenders(in dir: URL) throws -> [String] {
         let fm = FileManager.default
@@ -1016,6 +1028,14 @@ final class TripwirePhoneGrepTest: XCTestCase {
                 }
                 if appendStoreOnlyReads.contains(where: { lineStr.contains($0) }) {
                     offenders.append("store read — " + where_)
+                }
+                if chainPolicyFiles.contains(name),
+                   chainedStoreEscapes.contains(where: { lineStr.contains($0) }) {
+                    offenders.append("chained store escapes its function — " + where_)
+                }
+                if !chainPolicyFiles.contains(name),
+                   lineStr.range(of: writersStoreAccess, options: .regularExpression) != nil {
+                    offenders.append("a writer's store reached from outside it — " + where_)
                 }
             }
         }
@@ -1060,10 +1080,28 @@ final class TripwirePhoneGrepTest: XCTestCase {
         let elsewhere = try await sharedStore.loadVerifiedStrict()
         """.write(to: tmp.appendingPathComponent("SomeReader.swift"),
                   atomically: true, encoding: .utf8)
+        try """
+        struct InboxCaptureWriter {
+            var store: JSONLAppendStore<InboxEntry>
+        }
+        """.write(to: tmp.appendingPathComponent("InboxCaptureWriter.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        // A comment may say writer.store here.
+        let leaked = try await writer.store.load()
+        let fine = OpLogStore.store(forDocId: d, deviceSlug: s)
+        """.write(to: tmp.appendingPathComponent("ThirdFile.swift"),
+                  atomically: true, encoding: .utf8)
 
         let offenders = try writeOnlyOffenders(in: tmp)
-        XCTAssertEqual(offenders.count, 3,
-            "Self-check: one offender per half. Caught:\n"
+        XCTAssertTrue(offenders.contains { $0.contains("var store: JSONLAppendStore") },
+                      "a chained store declared as a property of a writer")
+        XCTAssertTrue(offenders.contains { $0.contains("let leaked") },
+                      "a writer's store read from a third file")
+        XCTAssertFalse(offenders.contains { $0.contains("let fine") },
+                       "the `.store(` method spelling is not the writer's store")
+        XCTAssertEqual(offenders.count, 5,
+            "Self-check: one offender per half, and both sides of the writers' store. Caught:\n"
             + offenders.joined(separator: "\n"))
         XCTAssertTrue(offenders.contains { $0.contains("let read") },
                       "a read in a named chained writer")

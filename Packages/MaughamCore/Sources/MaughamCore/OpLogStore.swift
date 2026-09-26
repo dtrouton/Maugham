@@ -149,6 +149,13 @@ public final class OpLogStore {
     /// life of a window would make the admission sheet quietly do nothing.
     private var resolvedTrust: (signature: String, table: TrustTable)?
 
+    /// How many times this store has actually RESOLVED its table (a folder
+    /// read plus a verify per record), as opposed to answering from the one in
+    /// hand. Read by tests that pin *one table per load* on real disk — the
+    /// phone's `PhonePosture` asks `prepareTrust` on every re-ask and leaves the
+    /// signature comparison to this store (P3 plan 3 Task 7).
+    private(set) var trustResolutionCount = 0
+
     /// The table, re-resolving it whenever the registry folder has changed
     /// since the one in hand was built.
     ///
@@ -178,6 +185,7 @@ public final class OpLogStore {
                 projectURL: projectURL, identities: identities, cache: cache)
         }.value
         resolvedTrust = (signature, table)
+        trustResolutionCount += 1
         return table
     }
 
@@ -211,6 +219,7 @@ public final class OpLogStore {
         let table = try TrustResolution.resolve(
             projectURL: projectURL, identities: identities, cache: registryCache)
         resolvedTrust = (signature, table)
+        trustResolutionCount += 1
         return table
     }
 
