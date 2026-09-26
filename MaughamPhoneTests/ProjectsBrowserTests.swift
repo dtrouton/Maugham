@@ -26,7 +26,7 @@ final class ProjectsBrowserTests: XCTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory
+        root = TestTemp.root
             .appendingPathComponent("ProjectsBrowserTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }

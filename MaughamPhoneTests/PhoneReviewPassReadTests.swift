@@ -40,7 +40,7 @@ private struct AlwaysLocalDownloader: UbiquitousDownloader {
 final class PhoneReviewPassReadTests: XCTestCase {
 
     private func makeProjectFolder(_ name: String, json: Data) throws -> URL {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("PhoneReviewPassRead-\(UUID().uuidString)", isDirectory: true)
         let dir = root.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

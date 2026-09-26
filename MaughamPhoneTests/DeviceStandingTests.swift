@@ -19,7 +19,7 @@ final class DeviceStandingTests: XCTestCase {
     private var projectURL: URL!
 
     override func setUp() async throws {
-        let temp = FileManager.default.temporaryDirectory
+        let temp = TestTemp.root
             .appendingPathComponent("standing-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
         projectURL = temp.appendingPathComponent("Book", isDirectory: true)

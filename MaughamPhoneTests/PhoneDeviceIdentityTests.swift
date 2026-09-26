@@ -24,7 +24,7 @@ final class PhoneDeviceIdentityTests: XCTestCase {
         try XCTSkipUnless(
             SecureEnclave.isAvailable,
             "no Secure Enclave in this simulator — the phone writes unsigned ops here")
-        directory = FileManager.default.temporaryDirectory
+        directory = TestTemp.root
             .appendingPathComponent("phone-identity-\(UUID().uuidString)", isDirectory: true)
     }
 
@@ -98,7 +98,7 @@ final class PhoneOneKeyTests: XCTestCase {
     private let docId = "doc-1a2b3c4d"
 
     override func setUpWithError() throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("phone-one-key-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent(".maugham/ops"), withIntermediateDirectories: true)

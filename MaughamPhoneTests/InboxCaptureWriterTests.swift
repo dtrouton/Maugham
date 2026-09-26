@@ -17,7 +17,7 @@ final class InboxCaptureWriterTests: XCTestCase {
 
     override func setUpWithError() throws {
         identity = .softwareForTesting()
-        root = FileManager.default.temporaryDirectory
+        root = TestTemp.root
             .appendingPathComponent("inbox-capture-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }

@@ -18,7 +18,7 @@ final class CoordinatedFileIOReadWriteTests: XCTestCase {
     private let io = CoordinatedFileIO()
 
     override func setUpWithError() throws {
-        tempDir = FileManager.default.temporaryDirectory
+        tempDir = TestTemp.root
             .appendingPathComponent("CoordinatedFileIORWTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
     }

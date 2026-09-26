@@ -28,9 +28,9 @@ struct PhoneNarrowedBook {
     let kim = DeviceIdentity.softwareForTesting()
 
     init() throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("phone-narrowed-\(UUID().uuidString)", isDirectory: true)
-        scratchURL = FileManager.default.temporaryDirectory
+        scratchURL = TestTemp.root
             .appendingPathComponent("phone-narrowed-scratch-\(UUID().uuidString)", isDirectory: true)
         let fm = FileManager.default
         try fm.createDirectory(

@@ -51,7 +51,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
     /// temp dir (not under MaughamPhone/) and confirms the grep catches it.
     func test_identityLiteralTripwireFiresOnPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("phone-tripwire-identity-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -115,7 +115,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
     /// confirms the grep pattern matches it.
     func test_phoneOpLogFilenameTripwireFiresOnPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("phone-tripwire-oplog-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -217,7 +217,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
     /// both a hand-rolled `.mzseg` template and a `sealTailIfNeeded` call.
     func test_phoneSegmentScopeTripwireFiresOnPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("phone-tripwire-mzseg-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -344,7 +344,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
     /// with the production check.
     func test_phoneManuscriptReadTripwireFiresOnPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("phone-tripwire-adr0018-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -405,7 +405,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
     /// Self-check: prove the tripwire FIRES on planted raw subdir literals.
     func test_inboxSubdirLiteralTripwireFiresOnPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("phone-tripwire-inbox-subdir-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -466,7 +466,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
     /// NAME them through.
     func test_handBuiltDeviceIdTripwireFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("phone-tripwire-deviceid-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -518,7 +518,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
     /// `PaletteAim` value, and lets prose that merely NAMES them through.
     func test_paletteAimCensusFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("phone-tripwire-aim-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -648,7 +648,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
     /// comment naming the key through.
     func test_phoneSealLineCensusFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("phone-tripwire-seal-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -752,7 +752,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
     /// and let the comment naming them through.
     func test_phoneAdmissionCensusFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("phone-tripwire-admission-\(UUID().uuidString)")
             .resolvingSymlinksInPath()
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -832,7 +832,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
 
     func test_theRegistryWriterPhoneCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("phone-writer-selfcheck-\(UUID().uuidString)")
             .resolvingSymlinksInPath()
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -937,7 +937,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
     /// the judged spelling and a comment through.
     func test_theJudgedReadCensusFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("phone-judged-read-\(UUID().uuidString)")
             .resolvingSymlinksInPath()
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -1037,7 +1037,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
     /// shape and a comment are not.
     func test_theWriteOnlyStoreCensusFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("phone-write-only-\(UUID().uuidString)")
             .resolvingSymlinksInPath()
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -1121,7 +1121,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
     /// through, and the door's own file is admitted its spellings.
     func test_thePhonePostureCensusesFireOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("phone-posture-\(UUID().uuidString)")
             .resolvingSymlinksInPath()
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -1161,6 +1161,91 @@ final class TripwirePhoneGrepTest: XCTestCase {
             "Self-check: a capture asking a posture is caught, twice. Caught:\n"
             + capture.joined(separator: "\n"))
         XCTAssertFalse(capture.contains { $0.contains("let written") })
+    }
+}
+
+// MARK: - One temp root for every test (signed op log P3 plan 3, Task 1)
+
+/// The phone's twin of `TripwireGrepTests.test_noTestNamesTheTempDirectoryButTestTemp`:
+/// every phone test builds under `TestTemp`, and nothing else in
+/// `MaughamPhoneTests/` names the temp directory. The allow-list is FILE plus
+/// SPELLING and is EMPTY — no phone test asserts on a production temp path.
+extension TripwirePhoneGrepTest {
+
+    /// Spelled in halves so this file does not match itself.
+    static let tempDirectoryNeedles = ["temporary" + "Directory", "NSTemporary" + "Directory("]
+
+    static let tempDirectoryAllowed: [(file: String, spelling: String, reason: String)] = []
+
+    static func rawTempDirectorySites(
+        under dir: URL,
+        allowed: [(file: String, spelling: String, reason: String)] = tempDirectoryAllowed
+    ) throws -> [String] {
+        var offenders: [String] = []
+        guard let walker = FileManager.default.enumerator(
+            at: dir, includingPropertiesForKeys: nil) else { return [] }
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let name = url.lastPathComponent
+            if name == "TestTemp.swift" { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false)
+                .enumerated() {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("//") { continue }
+                guard tempDirectoryNeedles.contains(where: { trimmed.contains($0) }) else {
+                    continue
+                }
+                if allowed.contains(where: { $0.file == name && trimmed.contains($0.spelling) }) {
+                    continue
+                }
+                offenders.append("\(name):\(i + 1): \(trimmed)")
+            }
+        }
+        return offenders
+    }
+
+    func test_noTestNamesTheTempDirectoryButTestTemp() throws {
+        let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let offenders = try Self.rawTempDirectorySites(under: dir)
+        XCTAssertTrue(offenders.isEmpty,
+            "\(offenders.count) phone test lines name the machine's temp directory — "
+            + "build under TestTemp.root (or TestTemp.workerRoot for a class fixture):\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// The control: each spelling is caught, a local `fm` alias included; a
+    /// comment is not; `TestTemp.swift` is the one home; and an allowance is
+    /// file PLUS spelling.
+    func test_theTempDirectoryCensusFiresOnPlantedOffenders() throws {
+        let tmp = TestTemp.root.appendingPathComponent("phone-tripwire-temp-selfcheck")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let td = "temporary" + "Directory"
+        let ns = "NSTemporary" + "Directory"
+        try """
+        // FileManager.default.\(td) in a comment is fine
+        let a = FileManager.default.\(td).appendingPathComponent("x")
+        let fm = FileManager.default
+        let b = fm.\(td)
+        let c = URL(fileURLWithPath: \(ns)())
+        """.write(to: tmp.appendingPathComponent("PlantedTests.swift"),
+                  atomically: true, encoding: .utf8)
+        try "let r = FileManager.default.\(td)".write(
+            to: tmp.appendingPathComponent("TestTemp.swift"), atomically: true, encoding: .utf8)
+        try """
+        let p = label(\(td): temp)
+        let q = FileManager.default.\(td).path
+        """.write(to: tmp.appendingPathComponent("Allowed.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try Self.rawTempDirectorySites(
+            under: tmp,
+            allowed: [(file: "Allowed.swift", spelling: "\(td): temp)", reason: "planted")])
+        XCTAssertEqual(offenders.filter { $0.hasPrefix("PlantedTests.swift") }.count, 3,
+            offenders.joined(separator: "\n"))
+        XCTAssertFalse(offenders.contains { $0.hasPrefix("TestTemp.swift") })
+        XCTAssertEqual(offenders.filter { $0.hasPrefix("Allowed.swift") }.count, 1,
+            "the allowed spelling passes; another spelling in the same file is caught:\n"
+            + offenders.joined(separator: "\n"))
     }
 }
 

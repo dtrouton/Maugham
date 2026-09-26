@@ -17,7 +17,7 @@ final class PhoneDeviceRecordTests: XCTestCase {
     private var identity: DeviceIdentity!
 
     override func setUp() async throws {
-        projectRoot = FileManager.default.temporaryDirectory
+        projectRoot = TestTemp.root
             .appendingPathComponent("phone-presence-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectRoot, withIntermediateDirectories: true)
