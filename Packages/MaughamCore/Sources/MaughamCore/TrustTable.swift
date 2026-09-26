@@ -934,6 +934,40 @@ public struct TrustTable: Equatable, Sendable {
         return sameWriter(key, fingerprint)
     }
 
+    /// **Is `deviceId` — a piece's recorded starter — somebody OTHER than the
+    /// writer of the key `fingerprint`?** (P3 closing smoke, F1; Denver's
+    /// ruling of 2026-09-26: *refuse, don't ask*.)
+    ///
+    /// Asked by the partition of a scoped author's own manuscript line in a
+    /// piece outside her scope. §4.5's question — *is this piece hers?* — is
+    /// only true to ask where she could have started the piece: where its
+    /// recorded starter is one of HER devices, or where none is recorded (a
+    /// piece made before starters were). A piece whose manifest names a
+    /// starter the register KNOWS is another writer — the root, or anybody
+    /// else — is outside her scope like any other piece, and her line in it is
+    /// refused rather than held.
+    ///
+    /// The same forwards match as `isAStarter`, and the other half of it: a
+    /// starter this register cannot yet PLACE answers FALSE — it may be her
+    /// own other Mac, and a refusal made on a guess would set her words
+    /// aside, so such a line keeps waiting. *Cannot place* is
+    /// `starterStanding`'s `.unknown`, asked rather than restated (one
+    /// classifier): an id no record names, a contested or non-author key, and
+    /// a device named ONLY by its own device record — a stranger, another
+    /// root's member, a Mac on no chain. A device writes its record at open,
+    /// long before the root's person record for it exists or syncs, and until
+    /// then it has no label to share with her; judging it *somebody else*
+    /// would refuse her lines and then re-admit them as the admission lands
+    /// (fix round 1, Important 1). Only a starter this register has placed —
+    /// mine, admitted, revoked or retired — can be somebody else.
+    nonisolated public func startedBySomebodyElse(
+        _ deviceId: String, thanTheWriterOf fingerprint: String
+    ) -> Bool {
+        guard starterStanding(deviceId) != .unknown,
+              let key = starterKey(deviceId) else { return false }
+        return !sameWriter(key, fingerprint)
+    }
+
     /// **Does the writer `deviceId` names already author `documentClass`?**
     /// (P3c plan 2 fix wave, Ruling U.) The permit in force NOW, from the
     /// timeline (tripwire 43) — so it is true once the root has answered

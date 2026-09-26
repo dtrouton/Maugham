@@ -2748,8 +2748,11 @@ final class PermitLoadTests: XCTestCase {
 
     /// **Only HER lines apply on her Mac** — the line's key must be this
     /// writer's as well as the piece. Another author of some pieces writing
-    /// in the piece Sam started is held on Sam's Mac exactly as anywhere.
-    func test_somebodyElsesLinesInThePieceSheStartedAreHeldOnHerMac() async throws {
+    /// in the piece Sam started is not applied on Sam's Mac — and since the
+    /// P3 closing smoke's F1 (Denver's ruling, *refuse, don't ask*) it is not
+    /// held either: the piece records SAM as its starter, so it is outside
+    /// Ada's scope like any other, and her line is set aside, unasked.
+    func test_somebodyElsesLinesInThePieceSheStartedAreSetAsideOnHerMac() async throws {
         try samIsAnAuthorOfSomePieces()
         let ada = LocalIdentities.softwareForTesting()
         let adaPerson = ada.author.fingerprint
@@ -2770,8 +2773,10 @@ final class PermitLoadTests: XCTestCase {
 
         let carrier = AmendmentPermits()
         let onSams = try await appliedOpIds(on: mac(sam, "sam-mac"), carrier: carrier)
-        XCTAssertEqual(onSams, [], "Ada's words wait for the root on Sam's Mac too")
-        XCTAssertEqual(carrier.whoStartedAPiece, [adaPerson])
+        XCTAssertEqual(onSams, [], "Ada's words are not applied on Sam's Mac")
+        XCTAssertTrue(carrier.whoStartedAPiece.isEmpty,
+                      "Sam started this piece, not Ada — nobody is asked")
+        XCTAssertFalse(linesRecords().isEmpty, "set aside, like any out-of-scope line")
     }
 
     /// **A starter that names somebody else** — another admitted person's
@@ -2796,8 +2801,12 @@ final class PermitLoadTests: XCTestCase {
                        "nor does the root: Ada's Mac opens Ada's piece")
 
         try samsFile([op("herOpening", by: sam.author)])
-        let onHers = try await appliedOpIds(on: samsMac)
+        let carrier = AmendmentPermits()
+        let onHers = try await appliedOpIds(on: samsMac, carrier: carrier)
         XCTAssertEqual(onHers, [])
+        // **F1**: set aside on her own Mac, and not a question.
+        XCTAssertTrue(carrier.whoStartedAPiece.isEmpty)
+        XCTAssertFalse(linesRecords().isEmpty)
     }
 
     /// **Once a book author writes the piece's text, it is theirs — on her
@@ -2878,10 +2887,15 @@ final class PermitLoadTests: XCTestCase {
         }
     }
 
-    /// **A modified manifest naming the ROOT's own device as the starter**
-    /// (review M2): the root's Mac may mint, but her lines there are still
-    /// held and the root asked — never applied on the root's Mac.
-    func test_aStarterNamingTheRootDoesNotApplyHerLinesOnTheRootsMac() async throws {
+    /// **A manifest naming the ROOT's own device as the starter** — review
+    /// M2's case, and the P3 closing smoke's F1: the root made the piece and
+    /// never opened it, so it has no op log, and Sam (an author of other
+    /// pieces) wrote in it. The root's Mac asked *Sam started "Chapter 1" — is
+    /// it theirs?*, which was false. **Denver's ruling (2026-09-26): refuse,
+    /// don't ask.** Her line is set aside like any out-of-scope line, on the
+    /// root's Mac and on hers, and nothing records it as *she started a
+    /// piece*, so no load question is raised. The root's Mac may still mint.
+    func test_aStarterNamingTheRootSetsHerLinesAsideAndAsksNobody() async throws {
         try samIsAnAuthorOfSomePieces()
         try writeManifest(startedBy: root.author.deviceId)
         try samsFile([op("herOpening", by: sam.author)])
@@ -2889,8 +2903,16 @@ final class PermitLoadTests: XCTestCase {
         let carrier = AmendmentPermits()
         let onRoots = try await appliedOpIds(on: rootsMac, carrier: carrier)
         XCTAssertEqual(onRoots, [])
-        XCTAssertEqual(carrier.whoStartedAPiece, [samPerson], "and the root is asked")
+        XCTAssertTrue(carrier.whoStartedAPiece.isEmpty, "the root is not asked")
+        let provenance = try await store(on: rootsMac).loadDiagnosed(docId: docId).provenance
+        XCTAssertEqual(provenance.pendingOpLines, 0, "not held")
+        XCTAssertEqual(
+            linesRecords().map(\.reason),
+            ["written into the manuscript by a device that may not write it here"])
         XCTAssertTrue(permit(on: rootsMac).startedHere == true)
+
+        let onHers = try await appliedOpIds(on: mac(sam, "sam-mac"))
+        XCTAssertEqual(onHers, [], "and her own Mac does not show it either")
     }
 
     /// **Narrowed from the whole book, she can still start a piece** — every

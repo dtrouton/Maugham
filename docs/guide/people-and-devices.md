@@ -365,8 +365,17 @@ and that is what the rest of this section turns on.
   whose first chapter was made on one Mac and whose book author is another: that
   chapter waits until the first Mac is admitted.
 
+**Writing in a piece somebody else started.** If an author of some pieces
+writes in a piece the book remembers somebody else starting — yours, say, or
+another author's — Maugham doesn't ask whose it is. Their words there are set
+aside on every Mac, theirs included, like anything else they write outside
+their pieces: kept in History, where **Send to Inbox** brings them back. To
+let them write there, add the piece to what they may write in People &
+Devices. (If you already answered **Theirs** for such a piece, that answer
+stands.)
+
 Pieces made before this version remember no starter, and behave as they always
-did.
+did: writing in one is still a question.
 
 **A piece waiting for a Mac that is gone.** In a book where somebody may write
 less than the whole of it, only the Mac that started a piece can create its

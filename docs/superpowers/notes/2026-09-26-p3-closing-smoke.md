@@ -108,4 +108,24 @@ Four Macs on this machine, plus the second Apple ID for the iCloud share.
 
 ## Finds
 
-(none yet)
+- **R1 (rig, not product) — B, C and D do not see changes live.** Their homes reach the book through a symlinked `TestWorkspace`, and their open windows did not pick up A's or each other's pieces, op-log files or manifest writes until relaunched (C and D kept a three-chapter outline after B added four pieces; B's open Sams Third kept Sam's words after the root wrote there, and showed the root's text on reopen). A, on the real path, saw everything live. Worked around by relaunching. A real Mac on iCloud has no symlink; the rig could open by the resolved path.
+- **F1 — the load question says "Sam started \"Chapter 1\"" for a piece the ROOT started.** Chapter 1 was made with the book on A (`startedBy` = A), never opened there, so it had no op log. Sam (author of Two only) wrote in it. A asked *Sam started "Chapter 1" — is it theirs?* The wording is false (the manifest names A as the starter), and whether it should be a question at all is open: her line is outside her scope in a piece whose recorded starter is this Mac.
+
+  **DENVER RULED (2026-09-26): refuse, don't ask.** A piece whose manifest records a starter that is not her is outside her scope: her line is set aside like any out-of-scope line (History, Send to Inbox). The §4.5 question is asked only for a piece SHE started, or a legacy piece with no recorded starter.
+- **O1 — a demoted writer who keeps typing costs one conflict backup per arrival** on the holding Mac (Probe: 20, the cap). **DENVER RULED: keep it** — bounded, and it is evidence.
+- Not run this round (Denver, 2026-09-26): the phone items, WF1's second Apple ID, the held-span Send to Inbox door (F1 blocked it), Ruling Q (no enclave-less Mac in the rig), a reviewer's restore on C's window. Left to their tests.
+
+## Passed so far
+
+- Task 3: the admission sheet counted Kit's two paragraphs in the closed chapter Three ("2 paragraphs waiting in \"Three\"") and did not ask twice.
+- Option A: Theirs brought Sam's words in (Sams Piece, and Sams Second by accident).
+- Ruling U: Not now → the yield line and a locked editor; Edit Anyway + typing set Sam's words aside, in History (Sams Third); on B they were set aside on reopen (R1).
+- The Critical's fix, live: Sam typed five times while A held Sams Second open — no new conflict backups, the `.md` held her words.
+- Task 4: the root's yield on Sams Fourth lifted, without a reopen, when Kit's text arrived.
+- Sam's scope: her line in Two (hers) applied on A.
+- Send to Inbox from a set-aside record (Sams Third): brought her paragraph in; a second look offered nothing.
+- A demotion while Kit typed (Probe): lines after 36 stopped on A, earlier ones stayed.
+- A truncated stream (Sam's Two, 8 → 4 lines): History's loss drawer; Change… refused before Acknowledge and worked after.
+- Task 8: Sams Stranded (ops removed) waited on A; Sam's row said *1 piece is waiting for this Mac…*; after Revoke it opened.
+- Duplicate of a group on A: fast; the copies opened.
+- The load-burst census on this Mac: 32 projects, 226 files, nothing unreadable, no load bursts under a non-author actor.

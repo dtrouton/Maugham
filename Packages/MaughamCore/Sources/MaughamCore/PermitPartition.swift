@@ -50,6 +50,17 @@ public enum PermitPartition {
     /// applied); refused→pending must never happen, which is why the answer is
     /// *a book author has written it*, a fact that only ever becomes more
     /// true.
+    ///
+    /// **The one exception, stated** (P3 closing smoke F1): a line refused
+    /// because the piece's recorded starter is somebody else
+    /// (`TrustTable.startedBySomebodyElse`) can return to pending — or, on her
+    /// Mac, applied — where that starter later becomes hers or unplaceable:
+    /// the root renames the starter's device to share her label, or the
+    /// starter's key becomes contested. Both are rare, deliberate acts, not
+    /// the ordinary sync path (a starter known only by its device record is
+    /// never refused, for exactly this reason). The words are never lost; the
+    /// cost is a stale `.lines` record whose Send to Inbox could duplicate
+    /// words that then apply.
     public enum UnownedPiece: Equatable, Hashable, Sendable {
         /// Nobody holding an author-of-the-whole-book permit has applied a
         /// manuscript-text line in this document — an opening (`bootstrap`)
@@ -116,9 +127,11 @@ public enum PermitPartition {
     ///     (`RevocationSplit.partition`'s `highestOpIdSeen` is the same shape
     ///     for the same reason.)
     ///   - startedBy: the piece's recorded starter (`StructureItem.startedBy`),
-    ///     for Option A — asked at most once per file, and only where one of
-    ///     THIS writer's own lines reached §4.5's hold. Nil (the default, and
-    ///     a piece made before this build) is today's rule: held everywhere.
+    ///     asked at most once per file, and only where a scoped author's own
+    ///     manuscript line reached §4.5's shape: first for F1's refusal (a
+    ///     starter the register knows is somebody else refuses her line), then
+    ///     for Option A. Nil (the default, and a piece made before this build)
+    ///     is §4.5's question: held everywhere.
     ///
     /// **Neutral by construction for a book with no events.** Every admitted
     /// person's timeline is then one entry — author of the whole book — and
@@ -162,8 +175,15 @@ public enum PermitPartition {
         var resolvedClass: DocumentClass?
         var unownedAnswer: UnownedPiece?
         // Option A's starter, read at most once per file and only where one of
-        // this writer's own lines reached §4.5.
+        // this writer's own lines reached §4.5 (F1's refusal and Option A's
+        // own-Mac arm both ask it, through this one memo).
         var startedByAnswer: String??
+        func recordedStarter() -> String? {
+            if let known = startedByAnswer { return known }
+            let read = startedBy()
+            startedByAnswer = .some(read)
+            return read
+        }
         // **Is the governing permit of an amendment line worth writing down?**
         // (fix round 1; narrowed by the final fix wave's W1.) Only where
         // somebody in this book is NARROWED: where every permit is *author of
@@ -232,8 +252,19 @@ public enum PermitPartition {
             case .cannotJudge:
                 holding[index] = trust.person(forSealKey: key)
             case let .no(refused):
+                // **§4.5 is asked only of a piece she could have started**
+                // (P3 closing smoke F1, Denver's ruling of 2026-09-26: *refuse,
+                // don't ask*). A piece whose manifest records a starter this
+                // register knows is somebody else — the root included — is
+                // outside her scope like any other, and her line falls through
+                // to the refusal below on EVERY Mac, hers included: no hold, no
+                // *she started a piece*, so no load question. Asked before
+                // `unowned`, which is the expensive one. A *Theirs* already
+                // given never reaches here — it settled the piece into her
+                // scope, so the table answered `.yes` above.
                 if permit.startsAPieceNobodyHasClaimed(
-                    what, in: documentClass, actor: judging) {
+                    what, in: documentClass, actor: judging),
+                   !startedBySomebodyElse(key: key, trust: trust, startedBy: recordedStarter) {
                     let answer = unownedAnswer ?? unowned()
                     unownedAnswer = answer
                     if answer == .nobodyHasWrittenItsText {
@@ -247,12 +278,7 @@ public enum PermitPartition {
                         // is a manifest read and is asked only after it.
                         if appliesOnItsWritersOwnMac(
                             key: key, trust: trust, class: documentClass,
-                            startedBy: {
-                                if let known = startedByAnswer { return known }
-                                let read = startedBy()
-                                startedByAnswer = .some(read)
-                                return read
-                            }) {
+                            startedBy: recordedStarter) {
                             continue
                         }
                         let holder = trust.person(forSealKey: key)
@@ -863,8 +889,10 @@ public enum PermitPartition {
     ///    the root's Mac before Theirs*.
     /// 2. **One of her own devices started the piece**
     ///    (`TrustTable.starter(ofPieceStartedBy:)`). A piece with no starter
-    ///    recorded (made before this build), or one somebody else started,
-    ///    keeps today's rule on her Mac too.
+    ///    recorded (made before this build), or one whose starter this
+    ///    register cannot name yet, keeps §4.5's question on her Mac too. A
+    ///    piece the register knows somebody else started never reaches here:
+    ///    her line was refused first (F1).
     /// 3. **The piece was not TAKEN from her.** A root that removed a piece
     ///    from her scope has said whose it is not; she keeps writing there
     ///    only as today's rule allows (held, and the root asked). Asked of
@@ -893,6 +921,27 @@ public enum PermitPartition {
         case .thisDevice, .anotherOfThisWritersDevices: return true
         case .somebodyElse: return false
         }
+    }
+
+    /// **Does a recorded starter put this line outside §4.5 altogether?**
+    /// (P3 closing smoke F1, Denver's ruling of 2026-09-26.)
+    ///
+    /// True where the piece's manifest records a starter the register knows
+    /// is a writer OTHER than this line's (`TrustTable.startedBySomebodyElse`):
+    /// the line is then refused for scope, exactly as in a piece a book author
+    /// has written. False — §4.5's question stands — where no starter is
+    /// recorded (a piece made before starters were), where the starter is one
+    /// of this line's writer's own devices (Option A), and where the register
+    /// cannot yet name the starter (it may be her other Mac).
+    ///
+    /// Relative to the LINE's writer, never to this device: the same answer
+    /// on the root's Mac, on hers and on a third Mac, which is what keeps the
+    /// book in one state.
+    private static func startedBySomebodyElse(
+        key: String, trust: TrustTable, startedBy: () -> String?
+    ) -> Bool {
+        guard let starter = startedBy() else { return false }
+        return trust.startedBySomebodyElse(starter, thanTheWriterOf: key)
     }
 
     /// **Spec §4.4's third sentence** — *…after it stopped being hers.*
