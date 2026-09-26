@@ -7,7 +7,7 @@ import XCTest
 /// to read or move files outside the project root (A5).
 final class SafeRelativePathTests: XCTestCase {
     private func tempRoot() -> URL {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("srp-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url

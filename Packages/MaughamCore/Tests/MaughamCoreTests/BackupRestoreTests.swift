@@ -5,7 +5,7 @@ final class BackupRestoreTests: XCTestCase {
     let when = Date(timeIntervalSince1970: 1_700_000_000)
 
     func makeTree(_ files: [String: String]) throws -> URL {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("rs-\(UUID().uuidString)")
+        let root = TestTemp.root.appendingPathComponent("rs-\(UUID().uuidString)")
         for (rel, body) in files {
             let url = root.appendingPathComponent(rel)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -14,7 +14,7 @@ final class BackupRestoreTests: XCTestCase {
         return root
     }
     func destDir() -> URL {
-        let d = FileManager.default.temporaryDirectory.appendingPathComponent("rsd-\(UUID().uuidString)")
+        let d = TestTemp.root.appendingPathComponent("rsd-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
     }
@@ -83,7 +83,7 @@ final class BackupRestoreTests: XCTestCase {
         try "sig".write(to: dest.appendingPathComponent("01A/\(BackupSignature.signatureName)"),
                         atomically: true, encoding: .utf8)
         let gen = BackupRestore.listGenerations(across: [dest])[0]
-        let target = FileManager.default.temporaryDirectory.appendingPathComponent("restored-\(UUID().uuidString)")
+        let target = TestTemp.root.appendingPathComponent("restored-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: target) }
 
         let result = try BackupRestore.restoreBeside(gen, to: target)
@@ -115,7 +115,7 @@ final class BackupRestoreTests: XCTestCase {
         _ = try BackupWriter.write(source: source, to: dest, generationId: "01A", at: when)
         try "ROT".write(to: dest.appendingPathComponent("01A/a.md"), atomically: true, encoding: .utf8)
         let gen = BackupRestore.listGenerations(across: [dest])[0]
-        let target = FileManager.default.temporaryDirectory.appendingPathComponent("r-\(UUID().uuidString)")
+        let target = TestTemp.root.appendingPathComponent("r-\(UUID().uuidString)")
         XCTAssertThrowsError(try BackupRestore.restoreBeside(gen, to: target)) {
             XCTAssertEqual($0 as? RestoreError, .generationCorrupt(mismatchedPaths: ["a.md"]))
         }

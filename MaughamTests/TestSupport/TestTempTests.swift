@@ -101,6 +101,20 @@ final class TestTempSessionTests: XCTestCase {
     }
 }
 
+/// The dead-worker sweep lists the machine's whole temp directory, so it runs
+/// at most once in ten minutes across every process that asks.
+final class TestTempSweepThrottleTests: XCTestCase {
+    func test_oneSweepInTenMinutesWhateverTheNumberOfProcesses() {
+        let stamp = TestTemp.root.appendingPathComponent("sweep.stamp")
+        let start = Date()
+        XCTAssertTrue(TestTempSession.claimSweep(stamp: stamp, now: start), "the first asks")
+        XCTAssertFalse(TestTempSession.claimSweep(stamp: stamp, now: start.addingTimeInterval(5)),
+            "the next process in the same gate does not list the directory again")
+        XCTAssertTrue(TestTempSession.claimSweep(stamp: stamp, now: start.addingTimeInterval(601)),
+            "a later gate does")
+    }
+}
+
 /// The real observer, end to end. XCTest runs a class's tests in name order in
 /// one process; where a runner hosts each test in a process of its own
 /// (`swift test --parallel`), the second test has nothing to compare and skips.

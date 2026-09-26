@@ -3,7 +3,7 @@ import XCTest
 
 final class ProjectIntegrityTests: XCTestCase {
     private func makeProject() -> URL {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("pi-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(
             at: url.appendingPathComponent(".maugham/ops"), withIntermediateDirectories: true)

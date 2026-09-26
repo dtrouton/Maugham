@@ -29,13 +29,13 @@ final class RegistryRepairTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("repair-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(
             at: projectURL, withIntermediateDirectories: true)
-        cacheURL = FileManager.default.temporaryDirectory
+        cacheURL = TestTemp.root
             .appendingPathComponent("repair-cache-\(UUID().uuidString).json")
-        memoryURL = FileManager.default.temporaryDirectory
+        memoryURL = TestTemp.root
             .appendingPathComponent("repair-memory-\(UUID().uuidString).json")
         mine = .softwareForTesting()
         phone = .softwareForTesting()

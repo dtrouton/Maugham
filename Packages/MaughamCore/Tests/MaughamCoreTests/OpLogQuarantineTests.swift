@@ -4,7 +4,7 @@ import XCTest
 final class OpLogQuarantineTests: XCTestCase {
     private var tmp: URL!
     override func setUp() {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("olq-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(
             at: tmp.appendingPathComponent(".maugham/ops"), withIntermediateDirectories: true)
@@ -779,7 +779,7 @@ final class SetAsideChangeCountTests: XCTestCase {
     private var tmp: URL!
 
     override func setUp() {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("setaside-count-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(
             at: tmp.appendingPathComponent(".maugham/ops"), withIntermediateDirectories: true)

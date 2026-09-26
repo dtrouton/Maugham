@@ -20,7 +20,7 @@ final class TrustEventsTests: XCTestCase {
     override func setUp() {
         super.setUp()
         mine = .softwareForTesting()
-        project = FileManager.default.temporaryDirectory
+        project = TestTemp.root
             .appendingPathComponent("trust-events-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(
             at: project, withIntermediateDirectories: true)

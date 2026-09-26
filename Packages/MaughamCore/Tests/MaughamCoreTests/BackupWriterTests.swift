@@ -3,7 +3,7 @@ import XCTest
 
 final class BackupWriterTests: XCTestCase {
     func makeTree(_ files: [String: String]) throws -> URL {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("bw-\(UUID().uuidString)")
         for (rel, body) in files {
             let url = root.appendingPathComponent(rel)
@@ -23,7 +23,7 @@ final class BackupWriterTests: XCTestCase {
     }
 
     func test_relativeFilePaths_emptyDirIsEmpty() throws {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("bw-empty-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -32,7 +32,7 @@ final class BackupWriterTests: XCTestCase {
 
     private let when = Date(timeIntervalSince1970: 1_700_000_000)
     private func destDir() -> URL {
-        let d = FileManager.default.temporaryDirectory
+        let d = TestTemp.root
             .appendingPathComponent("dest-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
@@ -92,7 +92,7 @@ final class BackupWriterTests: XCTestCase {
     }
 
     func test_generationIds_missingDestinationIsEmpty() throws {
-        let dest = FileManager.default.temporaryDirectory
+        let dest = TestTemp.root
             .appendingPathComponent("nope-\(UUID().uuidString)")
         XCTAssertEqual(try BackupWriter.generationIds(at: dest), [])
     }

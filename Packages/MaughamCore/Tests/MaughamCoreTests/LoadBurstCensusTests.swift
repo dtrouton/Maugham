@@ -23,7 +23,7 @@ final class LoadBurstCensusTests: XCTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory
+        root = TestTemp.root
             .appendingPathComponent("LoadBurstCensus-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: root, withIntermediateDirectories: true)

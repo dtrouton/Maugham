@@ -39,15 +39,15 @@ final class RegistryAdmissionTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("admission-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(
             at: projectURL, withIntermediateDirectories: true)
-        cacheURL = FileManager.default.temporaryDirectory
+        cacheURL = TestTemp.root
             .appendingPathComponent("admission-cache-\(UUID().uuidString).json")
-        otherCacheURL = FileManager.default.temporaryDirectory
+        otherCacheURL = TestTemp.root
             .appendingPathComponent("admission-cache-other-\(UUID().uuidString).json")
-        memoryURL = FileManager.default.temporaryDirectory
+        memoryURL = TestTemp.root
             .appendingPathComponent("admission-memory-\(UUID().uuidString).json")
         mine = .softwareForTesting()
         phone = .softwareForTesting()

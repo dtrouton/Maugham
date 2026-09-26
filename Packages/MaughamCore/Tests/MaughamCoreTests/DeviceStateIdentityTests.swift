@@ -17,7 +17,7 @@ final class DeviceStateIdentityTests: XCTestCase {
     private var stateURL: URL!
 
     override func setUp() {
-        stateURL = FileManager.default.temporaryDirectory
+        stateURL = TestTemp.root
             .appendingPathComponent("device-state-identity-\(UUID().uuidString).json")
     }
 

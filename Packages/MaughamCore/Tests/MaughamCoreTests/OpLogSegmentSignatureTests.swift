@@ -15,7 +15,7 @@ final class OpLogSegmentSignatureTests: XCTestCase {
     private var state: OpLogDeviceState!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("sig-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/ops"),

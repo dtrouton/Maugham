@@ -36,7 +36,7 @@ final class PermitMarkTests: XCTestCase {
     private var otherState: OpLogDeviceState!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("permit-mark-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/ops"),

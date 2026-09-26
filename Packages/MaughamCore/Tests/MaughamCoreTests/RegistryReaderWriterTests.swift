@@ -16,7 +16,7 @@ final class RegistryReaderWriterTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("registry-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(
             at: projectURL, withIntermediateDirectories: true)

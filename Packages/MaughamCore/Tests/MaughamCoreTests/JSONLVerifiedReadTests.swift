@@ -14,7 +14,7 @@ final class JSONLVerifiedReadTests: XCTestCase {
     private var state: OpLogDeviceState!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("verified-read-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/inbox"),

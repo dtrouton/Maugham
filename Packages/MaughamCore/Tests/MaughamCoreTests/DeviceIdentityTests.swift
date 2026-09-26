@@ -17,7 +17,7 @@ final class DeviceIdentityTests: XCTestCase {
 
     /// A fresh, empty directory that tearDown will remove.
     private func makeDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("device-identity-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         directories.append(url)
@@ -324,7 +324,7 @@ final class DeviceStateSweepTests: XCTestCase {
     private var base: URL!
 
     override func setUpWithError() throws {
-        base = FileManager.default.temporaryDirectory
+        base = TestTemp.root
             .appendingPathComponent("device-sweep-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
     }
@@ -434,7 +434,7 @@ final class LocalIdentitiesTests: XCTestCase {
     /// none of that may put a key in its container for an actor it will never
     /// sign with.
     func test_aFreshDeviceFolderTrustsNothingUntilAWriterNamesAnActor() throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("lazy-identities-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }

@@ -22,12 +22,12 @@ final class RegistryCacheTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("registry-cache-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham"),
             withIntermediateDirectories: true)
-        cacheURL = FileManager.default.temporaryDirectory
+        cacheURL = TestTemp.root
             .appendingPathComponent("registry-cache-file-\(UUID().uuidString).json")
         root = .softwareForTesting()
         phone = .softwareForTesting()
@@ -1027,7 +1027,7 @@ final class RegistryCacheTests: XCTestCase {
     }
 
     func test_aProjectOnAnUnmountedVolumeKeepsItsMemory() throws {
-        let volume = FileManager.default.temporaryDirectory
+        let volume = TestTemp.root
             .appendingPathComponent("volume-\(UUID().uuidString)")
         let project = volume.appendingPathComponent("Book")
         try FileManager.default.createDirectory(

@@ -3,7 +3,7 @@ import XCTest
 
 final class ManifestShadowTests: XCTestCase {
     private func tempProject() -> URL {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("ms-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url

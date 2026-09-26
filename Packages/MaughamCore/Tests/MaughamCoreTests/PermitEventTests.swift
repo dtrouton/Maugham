@@ -43,11 +43,11 @@ final class PermitEventTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("permit-event-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(
             at: projectURL, withIntermediateDirectories: true)
-        cacheURL = FileManager.default.temporaryDirectory
+        cacheURL = TestTemp.root
             .appendingPathComponent("permit-event-cache-\(UUID().uuidString).json")
         root = .softwareForTesting()
         sam = .softwareForTesting()

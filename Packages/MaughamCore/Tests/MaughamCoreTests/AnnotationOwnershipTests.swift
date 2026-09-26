@@ -25,7 +25,7 @@ final class AnnotationOwnershipTests: XCTestCase {
     private var cache: RegistryCache!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("ann-own-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL, withIntermediateDirectories: true)

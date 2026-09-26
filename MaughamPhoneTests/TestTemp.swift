@@ -151,10 +151,32 @@ final class TestTempSession: NSObject, XCTestObservation, @unchecked Sendable {
             DispatchQueue.main.async { XCTestObservationCenter.shared.addTestObserver(self) }
         }
         // Yesterday's crashed or killed workers. Off this thread: `$TMPDIR` is
-        // the whole machine's, and its size is not ours to bound.
+        // the whole machine's, and its size is not ours to bound — a listing
+        // of it took 10 s at 149,114 entries. And at most once in ten minutes
+        // across every process: `swift test --parallel` starts one process per
+        // Core test, and 1,874 listings of the machine's temp directory would
+        // be a gate's worth of I/O spent finding nothing.
         let base = workerFolder.deletingLastPathComponent()
+        guard Self.claimSweep(stamp: base.appendingPathComponent("MaughamTests-sweep.stamp"))
+        else { return }
         DispatchQueue.global(qos: .utility).async {
             TestTemp.sweepDeadWorkers(in: base)
         }
+    }
+
+    /// True when no process has started a sweep in the last ten minutes, and
+    /// marks this one as having done so.
+    static func claimSweep(stamp: URL, now: Date = Date()) -> Bool {
+        let fm = FileManager.default
+        if let modified = (try? fm.attributesOfItem(atPath: stamp.path))?[.modificationDate] as? Date,
+           now.timeIntervalSince(modified) < 600 {
+            return false
+        }
+        if fm.fileExists(atPath: stamp.path) {
+            try? fm.setAttributes([.modificationDate: now], ofItemAtPath: stamp.path)
+        } else {
+            fm.createFile(atPath: stamp.path, contents: nil)
+        }
+        return true
     }
 }
