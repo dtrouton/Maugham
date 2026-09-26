@@ -215,11 +215,10 @@ public final class Document {
         starterRestampsForTesting += 1
         let projectURL = opStore.projectURL
         let docId = self.docId
+        // One manifest read for the class and the starter (P3 plan 3 Task 6).
         stamp(localWritePermit: opStore.localWritePermit(
             as: localWritePermit.actor,
-            documentClass: {
-                Document.documentClass(forDocId: docId, in: projectURL)
-            }))
+            placement: ManifestPlacement(docId: docId, in: projectURL)))
     }
 
     /// **Whose annotation it is** (P3a Task 6, spec §4.2) — resolved once by

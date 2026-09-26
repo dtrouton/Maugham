@@ -8,28 +8,40 @@ import Foundation
 /// that needed one — the window's door, the ruling performer's windowless
 /// fallback, the translation pipeline — wrapped that builder in a `Posture(`
 /// of its own, and the phone would have been a fourth. Now there is ONE place
-/// that turns a `LocalWritePermit` into a `Posture`: `posture(permit:)`, which
-/// the two convenience entries funnel through.
+/// that turns a `LocalWritePermit` into a `Posture`:
+/// `posture(permit:yieldingTo:)`, which the three convenience entries —
+/// `posture(forDocId:in:as:using:)`, `posture(as:using:documentClass:)` and
+/// `postureYieldingToItsStarter(forDocId:in:as:using:)` — funnel through.
 ///
-/// **What stays out of Core.** Whom the root yields to is the Mac's decision
-/// (it reads `PieceWriters` and the window's *Edit Anyway* set), so this door
-/// takes the yield as an already-decided name and decides nothing about it.
+/// **Which yield is decided where.** The STARTER yield (Ruling U) is decided
+/// here, from the permit's own `unsettledStarter` — a fact the one builder
+/// already decided, so `postureYieldingToItsStarter` only hands its name to
+/// `posture(permit:yieldingTo:)`; on the phone, which has no *Edit Anyway*,
+/// that yield is a lock (Ruling W). The root's OWNER yield stays the Mac's
+/// (it reads `PieceWriters` and the window's *Edit Anyway* set), and so does
+/// the Mac's honouring of *Edit Anyway* over either yield: the Mac decides
+/// the name and hands it in, and this door decides nothing about it.
 /// Caching is the caller's too: the Mac's door keeps a per-epoch cache and
-/// resolves the class off its live manifest (ruling AD), then hands the
-/// permit it cached to `posture(permit:)`.
+/// resolves the class and the starter off its live manifest (ruling AD), then
+/// hands the permit it cached to `posture(permit:yieldingTo:)`.
+///
+/// **One manifest read per ask** (P3 plan 3 Task 6): the two entries that
+/// start from a project URL hand the builder one `ManifestPlacement`, so a
+/// narrowed book decodes its manifest once for both the class and the
+/// starter, and a book that needs neither decodes nothing.
 public enum PostureDoor {
 
     /// The posture for `docId`, for `actor`'s key, with the document's class
-    /// read off the manifest on disk (`OpLogStore.documentClass(forDocId:in:)`)
-    /// — the entry for a caller holding a project URL and nothing else.
+    /// and its piece's starter read off the manifest on disk, once
+    /// (`ManifestPlacement`) — the entry for a caller holding a project URL and
+    /// nothing else.
     @MainActor
     public static func posture(
         forDocId docId: String, in projectURL: URL,
         as actor: DeviceActor = .author, using store: OpLogStore
     ) -> Posture {
-        posture(as: actor, using: store) {
-            OpLogStore.documentClass(forDocId: docId, in: projectURL)
-        }
+        posture(permit: store.localWritePermit(
+            as: actor, placement: ManifestPlacement(docId: docId, in: projectURL)))
     }
 
     /// The posture for `actor`'s key in a class the CALLER names — a reader
@@ -58,9 +70,8 @@ public enum PostureDoor {
         forDocId docId: String, in projectURL: URL,
         as actor: DeviceActor = .author, using store: OpLogStore
     ) -> Posture {
-        let permit = store.localWritePermit(as: actor) {
-            OpLogStore.documentClass(forDocId: docId, in: projectURL)
-        }
+        let permit = store.localWritePermit(
+            as: actor, placement: ManifestPlacement(docId: docId, in: projectURL))
         return posture(permit: permit, yieldingTo: permit.unsettledStarter?.yieldName)
     }
 

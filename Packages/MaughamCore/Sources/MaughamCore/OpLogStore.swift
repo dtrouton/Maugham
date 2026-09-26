@@ -251,6 +251,23 @@ public final class OpLogStore {
         return (try? await trust()) != nil
     }
 
+    /// **The same builder, asked through ONE manifest read** (P3 plan 3 Task
+    /// 6) — the class and the starter both from `placement`, so a narrowed
+    /// book decodes its manifest once per ask rather than once per question,
+    /// and a book that never needs either decodes nothing. Every caller that
+    /// resolves both off a manifest comes here; a caller that CONSTRUCTS its
+    /// class (the translation pipeline's `.translation(piece:)`) keeps the
+    /// closure form below.
+    public func localWritePermit(
+        as actor: DeviceActor = .author,
+        placement: ManifestPlacement
+    ) -> LocalWritePermit {
+        localWritePermit(
+            as: actor,
+            documentClass: { placement.documentClass },
+            startedBy: { placement.startedBy(ofPiece: $0) })
+    }
+
     /// **May this device's own hand write here, and what?** — the ONE question
     /// asked before a line exists (P3a Task 8).
     ///

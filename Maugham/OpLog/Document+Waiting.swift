@@ -106,9 +106,8 @@ extension Document {
         let opStore = OpLogStore(
             projectURL: projectURL, identities: loadIdentities,
             state: loadDeviceState, cache: loadRegistryCache)
-        let permit = opStore.localWritePermit {
-            Document.documentClass(forDocId: docId, in: projectURL)
-        }
+        let permit = opStore.localWritePermit(
+            placement: ManifestPlacement(docId: docId, in: projectURL))
         guard permit.permit.mayStartAPieceOfTheirOwn else {
             return error.localizedDescription
         }

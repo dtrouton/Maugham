@@ -3119,6 +3119,136 @@ final class PermitLoadTests: XCTestCase {
         XCTAssertEqual(adas.unsettledStarter,
                        .init(deviceId: sam.author.deviceId, name: "Sam"))
     }
+
+    // MARK: - One manifest decode per ask (P3 plan 3 Task 6)
+
+    /// Ada, an author of the whole book on a Mac of her own — the starter
+    /// that is somebody else to both Sam and the root.
+    private func admitAda() throws -> LocalIdentities {
+        let ada = LocalIdentities.softwareForTesting()
+        try RegistryWriter.write(
+            PersonRecord(
+                person: ada.author.fingerprint, label: "Ada", ownName: "Ada’s Mac",
+                admittedAt: Date(timeIntervalSince1970: 22), admittedBy: rootPerson),
+            signedBy: root.author, in: projectURL)
+        return ada
+    }
+
+    /// How many manifest reads `body` makes.
+    private func manifestReads(_ body: () -> Void) -> Int {
+        let reads = Counter()
+        OpLogStore.manifestReadObserverForTesting = { reads.tick() }
+        defer { OpLogStore.manifestReadObserverForTesting = nil }
+        body()
+        return reads.count
+    }
+
+    /// **A narrowed book decodes the manifest ONCE per ask** — the class and
+    /// the starter are two answers about one file, so every door that asks
+    /// both reads it once: the builder handed a `ManifestPlacement`, and both
+    /// of Core's posture entries. Before this each of them read it twice (the
+    /// class, then the starter).
+    func test_aNarrowedBookReadsTheManifestOncePerAsk() throws {
+        try samIsAnAuthorOfSomePieces()
+        try writeManifest(startedBy: sam.author.deviceId)
+        let rootStore = store(on: rootsMac)
+        XCTAssertNotNil(permit(on: rootsMac).unsettledStarter,
+                        "premise: the starter was read, so both questions were asked")
+
+        XCTAssertEqual(manifestReads {
+            _ = rootStore.localWritePermit(
+                placement: ManifestPlacement(docId: docId, in: projectURL))
+        }, 1, "the builder, handed one placement")
+        XCTAssertEqual(manifestReads {
+            _ = PostureDoor.posture(forDocId: docId, in: projectURL, using: rootStore)
+        }, 1, "PostureDoor.posture(forDocId:)")
+        XCTAssertEqual(manifestReads {
+            _ = PostureDoor.postureYieldingToItsStarter(
+                forDocId: docId, in: projectURL, using: rootStore)
+        }, 1, "PostureDoor.postureYieldingToItsStarter")
+    }
+
+    /// **And the book that has narrowed nobody reads no more than it did** —
+    /// none for the writer's own hand under the whole book (the class is never
+    /// asked), one where the actor's row needs the class, and never a second
+    /// for the starter, which only a narrowed book asks.
+    func test_anUnNarrowedBookReadsNoExtraManifest() throws {
+        try writeRootRecord()
+        try admitSam()
+        try writeManifest(startedBy: sam.author.deviceId)
+        let rootStore = store(on: rootsMac)
+
+        XCTAssertEqual(manifestReads {
+            _ = rootStore.localWritePermit(
+                placement: ManifestPlacement(docId: docId, in: projectURL))
+            _ = PostureDoor.posture(forDocId: docId, in: projectURL, using: rootStore)
+            _ = PostureDoor.postureYieldingToItsStarter(
+                forDocId: docId, in: projectURL, using: rootStore)
+        }, 0, "the author's hand under the whole book never asks the class")
+        XCTAssertEqual(manifestReads {
+            _ = rootStore.localWritePermit(
+                as: .assistant, placement: ManifestPlacement(docId: docId, in: projectURL))
+        }, 1, "the assistant's row asks the class, and nothing asks the starter")
+    }
+
+    /// **The one read answers exactly as the two did**, across the Option A
+    /// fixtures: her own Mac in a piece she started, the root's Mac over it
+    /// (Ruling U's yield), a legacy piece with no starter, and a piece
+    /// somebody else started — each asked both ways, for every actor.
+    func test_theOneReadAnswersAsTheTwoReadsDidAcrossTheOptionAFixtures() throws {
+        try samIsAnAuthorOfSomePieces()
+        let ada = try admitAda()
+        let samsMac = mac(sam, "sam-mac")
+        let fixtures: [(String, String?, Mac)] = [
+            ("her Mac, a piece she started", sam.author.deviceId, samsMac),
+            ("the root's Mac, a piece she started", sam.author.deviceId, rootsMac),
+            ("a piece with no starter", nil, samsMac),
+            ("a piece somebody else started", ada.author.deviceId, samsMac),
+        ]
+        for (name, starter, onMac) in fixtures {
+            try writeManifest(startedBy: starter)
+            for actor in DeviceActor.allCases {
+                let twoReads = store(on: onMac).localWritePermit(as: actor) {
+                    OpLogStore.documentClass(forDocId: self.docId, in: self.projectURL)
+                }
+                let oneRead = store(on: onMac).localWritePermit(
+                    as: actor, placement: ManifestPlacement(docId: docId, in: projectURL))
+                XCTAssertEqual(oneRead, twoReads, "\(name), \(actor)")
+            }
+        }
+    }
+
+    /// **A held manifest is the ONLY manifest** — the Mac's door hands in its
+    /// live copy, and both answers come from that one value, never the class
+    /// from it and the starter from disk (ruling AD's reason). The disk here
+    /// says the opposite on both counts, and is not read at all.
+    func test_aHeldManifestAnswersBothQuestionsAndReadsNoDisk() throws {
+        try writeManifest(startedBy: nil)
+        let live = ProjectManifest(
+            type: .collection, title: "A book", author: "Denver",
+            created: Date(timeIntervalSince1970: 0),
+            modified: Date(timeIntervalSince1970: 0),
+            structure: [
+                StructureItem(
+                    id: "doc-other", title: "Other", type: .document,
+                    path: "pieces/other.md", startedBy: sam.author.deviceId),
+            ],
+            research: [],
+            statements: [
+                Statement(id: docId, kind: .intent, scope: .document("doc-other"),
+                          path: "intent.md"),
+            ])
+        var placement: ManifestPlacement!
+        XCTAssertEqual(manifestReads {
+            placement = ManifestPlacement(docId: docId, manifest: live)
+            XCTAssertEqual(placement.documentClass, .pieceStatement(piece: "doc-other"),
+                           "the class, from the held manifest")
+            XCTAssertEqual(placement.startedBy(ofPiece: "doc-other"), sam.author.deviceId,
+                           "the starter, from the same one")
+        }, 0, "the disk is never read")
+        XCTAssertEqual(ManifestPlacement(docId: docId, in: projectURL).documentClass,
+                       .piece(docId), "premise: the disk says otherwise")
+    }
 }
 
 private extension JSONEncoder {

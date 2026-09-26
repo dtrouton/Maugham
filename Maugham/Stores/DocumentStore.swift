@@ -1917,7 +1917,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         }
         // A piece that moved or a statement that arrived is a document whose
         // CLASS may have changed, and whose writers may have (P3c Task 2).
-        postureManifestAdopted()
+        postureManifestAdopted(incoming)
 
         // **A manifest that arrived from somewhere else is the other half of
         // the gate's problem** (P3b fix round 1, ruling 2). This is the path an

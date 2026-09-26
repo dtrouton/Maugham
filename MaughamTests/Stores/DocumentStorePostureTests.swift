@@ -885,6 +885,131 @@ final class DocumentStorePostureTests: XCTestCase {
         await statement.close()
     }
 
+    // MARK: - The posture door's own bookkeeping (P3 plan 3 Task 6)
+
+    /// Write `items` into the manifest on disk in place of its structure,
+    /// keeping the fixture's own chapter — and tell NOBODY, as this Mac's own
+    /// write through another door would not.
+    private func writeStructure(adding items: [StructureItem]) throws {
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        var manifest = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+        manifest.structure = [StructureItem(
+            id: Self.docId, title: "C1", type: .document, path: Self.docPath)] + items
+        try ProjectManifest.makeEncoder().encode(manifest)
+            .write(to: manifestURL, options: .atomic)
+    }
+
+    /// **A fabricated id is not kept past the manifest it was fabricated
+    /// from** — a piece created after a miss resolves to its REAL id on the
+    /// next ask, with no adoption in between. And the other direction: while
+    /// the manifest is unchanged, the miss is still resolved once
+    /// (`test_anUnknownPathIsResolvedOncePerEpoch`, m4).
+    func test_aPieceCreatedAfterAMissResolvesToItsRealIdOnTheNextAsk() async throws {
+        beASigningMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        await store.postureSettled()
+        let newPath = "manuscript/c2.md"
+
+        let miss = store.postureDocIdForTesting(forPath: newPath)
+        XCTAssertNotEqual(miss, "doc-new", "premise: no manifest names it yet")
+        let resolves = store.postureUnknownPathResolvesForTesting
+        XCTAssertEqual(store.postureDocIdForTesting(forPath: newPath), miss)
+        XCTAssertEqual(store.postureUnknownPathResolvesForTesting, resolves,
+                       "an unchanged manifest: the miss is answered from the cache")
+
+        try "New.\n".write(to: projectURL.appendingPathComponent(newPath),
+                            atomically: true, encoding: .utf8)
+        try writeStructure(adding: [StructureItem(
+            id: "doc-new", title: "C2", type: .document, path: newPath)])
+
+        XCTAssertEqual(store.postureDocIdForTesting(forPath: newPath), "doc-new",
+                       "created after the miss: its real id, on the next ask")
+        let named = store.postureUnknownPathResolvesForTesting
+        XCTAssertEqual(store.postureDocIdForTesting(forPath: newPath), "doc-new")
+        XCTAssertEqual(store.postureUnknownPathResolvesForTesting, named,
+                       "and a NAMED id is kept for the epoch")
+    }
+
+    /// **An adoption drops the asked key of a piece that has gone, and keeps
+    /// every live one** — a piece still in the adopted manifest, the open
+    /// document, and the project's own task stream.
+    func test_anAdoptionDropsAGonePiecesAskedKeyAndKeepsTheLiveOnes() async throws {
+        beASigningMac()
+        try writeStructure(adding: [
+            StructureItem(id: "doc-gone", title: "Gone", type: .document,
+                          path: "manuscript/gone.md"),
+            StructureItem(id: "doc-stays", title: "Stays", type: .document,
+                          path: "manuscript/stays.md"),
+        ])
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument(in: store)
+        await store.postureSettled()
+        for docId in [Self.docId, "doc-gone", "doc-stays",
+                      ProjectStore.projectTasksDocId] {
+            _ = store.posture(forDocId: docId)
+        }
+        XCTAssertTrue(store.postureAskedDocIdsForTesting.contains("doc-gone"),
+                      "premise: asked")
+
+        // Another Mac deletes the piece; its manifest arrives. The open
+        // chapter is dropped from the manifest too, and stays because it is
+        // open.
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        var manifest = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+        manifest.structure = [StructureItem(
+            id: "doc-stays", title: "Stays", type: .document,
+            path: "manuscript/stays.md")]
+        try ProjectManifest.makeEncoder().encode(manifest).write(to: manifestURL)
+        store.presenterDidChangeSubitem(at: manifestURL)
+        await store.postureSettled()
+
+        let asked = store.postureAskedDocIdsForTesting
+        XCTAssertFalse(asked.contains("doc-gone"), "a deleted piece's key is gone")
+        XCTAssertTrue(asked.contains("doc-stays"), "a piece still in the manifest stays")
+        XCTAssertTrue(asked.contains(Self.docId), "the open document stays")
+        XCTAssertTrue(asked.contains(ProjectStore.projectTasksDocId),
+                      "the project's own stream stays")
+        await doc.close()
+    }
+
+    /// **The builder answers the class AND the starter from ONE manifest** —
+    /// the window's live copy where it holds one, and never the class from it
+    /// and the starter from disk; the file only where the store is headless.
+    /// The live copy and the disk disagree on both counts here.
+    func test_theBuilderReadsTheClassAndTheStarterFromTheSameManifest() async throws {
+        beASigningMac()
+        try writeStructure(adding: [StructureItem(
+            id: "doc-piece", title: "P", type: .document,
+            path: "manuscript/p.md", startedBy: "device-on-disk")])
+
+        let headless = try await DocumentStore.open(url: projectURL)
+        let fromDisk = headless.postureManifestPlacementForTesting(forDocId: "stmt-x")
+        XCTAssertEqual(fromDisk.documentClass, .piece("stmt-x"),
+                       "headless: the file, which lists no such statement")
+        XCTAssertEqual(fromDisk.startedBy(ofPiece: "doc-piece"), "device-on-disk")
+
+        let windowed = try await DocumentStore.open(url: projectURL)
+        let projectStore = try await ProjectStore.load(from: projectURL)
+        projectStore.documentStore = windowed
+        windowed.projectStore = projectStore
+        var live = projectStore.manifest
+        live.structure = [StructureItem(
+            id: "doc-piece", title: "P", type: .document,
+            path: "manuscript/p.md", startedBy: "device-live")]
+        live.statements = [Statement(
+            id: "stmt-x", kind: .intent, scope: .document("doc-piece"),
+            path: "intent/x.md")]
+        projectStore.manifest = live
+
+        let fromLive = windowed.postureManifestPlacementForTesting(forDocId: "stmt-x")
+        XCTAssertEqual(fromLive.documentClass, .pieceStatement(piece: "doc-piece"),
+                       "the class, from the live manifest")
+        XCTAssertEqual(fromLive.startedBy(ofPiece: "doc-piece"), "device-live",
+                       "and the starter from the SAME live manifest, not the disk")
+    }
+
     // MARK: - Helpers
 
     private func filesUnderMaugham() throws -> [String] {

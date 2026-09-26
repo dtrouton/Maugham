@@ -1703,8 +1703,14 @@ in a book that narrows nobody.
 **The fact is on the piece.** `StructureItem.startedBy` is the author device id
 of the Mac that created it (optional; absent decodes nil and writes no key).
 `ProjectManifest.startedBy(ofPiece:)` walks the tree, and
-`OpLogStore.startedBy(ofPiece:in:)` is the disk read. The Mac's posture door
-passes its LIVE manifest's starter instead, so a posture miss decodes nothing.
+`OpLogStore.startedBy(ofPiece:in:)` is the disk read. A write-permit ask
+that needs both the class and the starter reads them through ONE
+`ManifestPlacement` (`OpLogStore.localWritePermit(as:placement:)`, P3 plan 3
+Task 6), which decodes the manifest once and answers both from that one value
+— the load (whose amendment table reuses it), the re-stamp, the waiting
+sentence and both of `PostureDoor`'s URL entries. The Mac's posture door hands
+its LIVE manifest to the placement instead, so a posture miss decodes nothing,
+and never the class from the live copy and the starter from disk.
 Creation sites write it through `ProjectStore.thisMacAsAStarter`
 (`Document.loadIdentities.author.deviceId`, the identity the load asks), and
 nothing rewrites it. The census is
