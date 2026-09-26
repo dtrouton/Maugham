@@ -1782,8 +1782,12 @@ Denver's ruling of 2026-09-26: *refuse, don't ask*). Before the arm asks
 root, or anybody else), her manuscript line is refused for scope on every Mac,
 hers included — no hold, no `recordStartedAPiece`, so no load question. Her own
 starter keeps Option A; no recorded starter keeps §4.5's question; a starter the
-register cannot name yet (maybe her other Mac, not synced) keeps waiting.
-Relative to the LINE's writer, never to this device. An earlier *Theirs* is
+register cannot place yet keeps waiting — `starterStanding`'s `.unknown`, which
+includes a device named only by its own device record (her new Mac before the
+root admits it). Relative to the LINE's writer, never to this device. A refusal
+can return to pending only if a placed starter later becomes hers or
+unplaceable (a root rename to her label, a contested key); see
+`PermitPartition.UnownedPiece`. An earlier *Theirs* is
 untouched: it settled the piece into her scope, so the table answers `.yes`
 before the starter is read. See ADR 0032's plan-3 addendum.
 

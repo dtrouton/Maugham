@@ -2624,10 +2624,17 @@ and the phone's judged annotation read. The write side needed no change: on her
 Mac, `LocalWritePermit.writesAsItsStarter` is already false for a piece
 somebody else started, so her editor there is refused (*not your piece*).
 
-**A starter the register cannot name yet still waits.** It may be her own
-other Mac whose record has not synced. Refusing on a guess would set her words
-aside, so such a line is held as before. The ruling covers starters the
-register KNOWS are somebody else.
+**A starter the register cannot place yet still waits.** *Cannot place* is
+`TrustTable.starterStanding`'s `.unknown`, asked rather than restated: an id no
+record names, a contested or non-author key, and a device named ONLY by its own
+device record (a stranger, another root's member, a Mac on no chain). The last
+is the ordinary case: a Mac writes its device record when it opens the book,
+long before the root admits it under a label. Sam's new second Mac can start a
+piece and be *somebody else* to every register until the admission lands (fix
+round 1). It may be her own other Mac, and refusing on a guess would set her
+words aside and then re-admit them, so such a line is held as before. The
+ruling covers starters the register has PLACED (mine, admitted, revoked or
+retired) and knows are somebody else.
 
 **What it changes on disk.** A held line is re-judged at every read, so a line
 held before this build becomes a set-aside record at the next load on every
@@ -2640,6 +2647,15 @@ read. Her lines apply, nothing contradicts the answer, and no question comes
 back. A remembered *Not now* for such a piece is simply never consulted again,
 because nothing asks. Pinned by `PermitPartitionTests`' `test_F1_*` cases and
 `PermitLoadTests.test_aStarterNamingTheRootSetsHerLinesAsideAndAsksNobody`.
+
+**Refused can still become pending, in two named ways.** §4.5's rule is
+that a refused line never returns to pending. F1's refusal keeps that on the
+ordinary sync path, because an unplaced starter is never refused. It can still
+flip where a placed starter later becomes hers or unplaceable: the root
+renames the starter's device to share her label, or the starter's key becomes
+contested. Both are rare, deliberate acts. The words are never lost. The cost
+is a stale `.lines` record, whose Send to Inbox could duplicate words that then
+apply. This is also stated on `PermitPartition.UnownedPiece`.
 
 **The cost.** `startedBy` sits in the unsigned manifest. Before this ruling a
 wrong or forged starter could only HOLD her lines. Now a manifest that names
