@@ -499,7 +499,8 @@ struct ProjectSettingsSheet: View {
     /// would read as *nobody may write in this book*.
     ///
     /// **What is waiting is everything this window is holding** — the open
-    /// documents' own loads and the project's capture stream, unioned by
+    /// documents' own loads, the closed documents' last sweep (carry C4) and
+    /// the project's capture stream, unioned by
     /// `DocumentStore.heldLinesByDevice` and turned into requests by
     /// `AdmissionDecision.requests`, which is the list the admission sheet
     /// queues. One derivation, because a pane counting only captures would say

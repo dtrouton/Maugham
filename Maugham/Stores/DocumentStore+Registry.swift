@@ -1362,7 +1362,8 @@ extension DocumentStore {
     // MARK: - Who is waiting, across this window
 
     /// **Held lines by device, over everything this window can see** — the open
-    /// documents' own loads and the project's capture stream.
+    /// documents' own loads, the closed documents' last sweep (carry C4,
+    /// `DocumentStore+ClosedHeldLines.swift`) and the project's capture stream.
     ///
     /// One computation, because two surfaces ask it about the same decision:
     /// the admission sheet's queue, and People & Devices' pending rows. A
@@ -1371,8 +1372,11 @@ extension DocumentStore {
     /// the other column would be about a device that pane never listed.
     ///
     /// The counts are already in hand — stamped on each open `Document` by its
-    /// load and re-stamped by every external-change merge, and counted by the
-    /// inbox on its own refresh — so this reads them and touches no disk. It
+    /// load and re-stamped by every external-change merge, swept off the main
+    /// actor for every closed one, and counted by the inbox on its own refresh
+    /// — so this reads them and touches no disk. **Per docId, the open
+    /// document's provenance if it is open, else the closed map's** — never
+    /// both, so a document is counted once however it got there. It
     /// asks the inbox for what that refresh last counted and does not refresh
     /// it: a caller that wants the stream re-read says so itself, which is what
     /// Project Settings does before it asks.
@@ -1399,17 +1403,29 @@ extension DocumentStore {
         var streams: [String: Set<String>] = [:]
         var startedAPiece: [String: [String: Int]] = [:]
         var waiting: [String: [String: HeldLines.Waiting]] = [:]
-        for document in allOpenDocuments() {
-            guard let provenance = document.provenance else { continue }
+        func fold(_ provenance: OpLogProvenance, docId: String) {
             for (device, count) in provenance.pendingByDevice {
                 counts[device, default: 0] += count
             }
             for (device, what) in provenance.pendingWaitingByDevice {
-                waiting[device, default: [:]][document.docId] = what
+                waiting[device, default: [:]][docId] = what
             }
             for (device, slugs) in provenance.pendingStreamsByDevice {
                 streams[device, default: []].formUnion(slugs)
             }
+        }
+        let open = allOpenDocuments()
+        let openIds = Set(open.map(\.docId))
+        // **The closed half** (carry C4): the last sweep's answer for every
+        // document nobody has open. `startedAPiece` stays the open documents'
+        // — the walk records it on the load's carrier, which a sweep has not
+        // got — so §4.5's question is still put when the piece is opened.
+        for (docId, provenance) in closedProvenance where !openIds.contains(docId) {
+            fold(provenance, docId: docId)
+        }
+        for document in open {
+            guard let provenance = document.provenance else { continue }
+            fold(provenance, docId: document.docId)
             // **Where the docId joins the walk's answer** (P3b Task 7). The
             // partition decided WHO opened a piece nobody has claimed; only
             // this fold knows WHICH piece, because a document knows its own id

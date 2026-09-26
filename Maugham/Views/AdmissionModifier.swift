@@ -142,13 +142,19 @@ struct AdmissionModifier: ViewModifier {
     /// banner's, History's, and Project Settings' — did nothing at all, with
     /// the captures held and no recourse from any surface.
     ///
-    /// **Open documents only, on the manuscript half.** A closed document's
-    /// held lines would cost a full read of its log to discover, and this runs
-    /// at every project open — so a book whose stranger has written only in
-    /// chapters nobody has opened yet is asked about when one of them is
-    /// opened, not before. The load itself is what announces
-    /// (`DocumentStore.register`), so no chapter can be opened without the
-    /// question being put. **And a stranger's device RECORD puts it too**
+    /// **Closed documents too, once their sweep lands** (carry C4). A closed
+    /// document's held lines cost a full read of its log to discover, so they
+    /// are not read here: `DocumentStore+ClosedHeldLines.swift` sweeps them
+    /// off the main actor at project open and after every trust change, one
+    /// document at a time, and posts `postAdmissionRequested` when what it
+    /// found for a stranger changed — which arrives here as `.announcement`.
+    /// So the open-time sheet may first describe itself from the open
+    /// documents and the inbox and re-describe seconds later (ruling C4-1);
+    /// a book whose stranger has written only in chapters nobody has opened
+    /// is asked about once that sweep lands, without anybody opening one. The
+    /// load itself still announces (`DocumentStore.register`), and §4.5's
+    /// piece question is still the open documents' alone — a sweep carries no
+    /// record of who started a piece. **And a stranger's device RECORD puts it too**
     /// (P3b smoke find F10): the registry settle that brings one runs this, and
     /// the refresh's pre-check finds the record by a folder listing, so a
     /// collaborator who has written only in closed chapters — or not yet at
