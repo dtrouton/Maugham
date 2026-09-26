@@ -164,11 +164,25 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   review of P3c plan 2): the builder's `unownedPiece` walk skips an op-log
   file iCloud has not downloaded (`readCoordinated` answers nil → `continue`),
   so her phone can answer `.waitingToBeClaimed` over a piece her Mac already
-  calls *not your piece* (a book author's text has arrived there). Cosmetic:
-  the phone writes no manuscript text, and dispositions in such a piece are
-  refused either way. The phone never yields (Ruling U's yield to a piece's
-  starter is the Mac window's); `PhonePosture.refusal` has an arm for it only
-  because the switch is exhaustive.
+  calls *not your piece* (a book author's text has arrived there). The
+  phone DOES write manuscript text — Accept, Reject and Reopen & Revert write
+  `claudeAccept`/`claudeReject`/`claudeAcceptRevert` — so in that window her
+  phone may offer an Accept or Reject her Mac refuses. Dispositions are refused
+  either way, and a line she writes there is judged by the partition like any
+  other: a line her permit does not cover is set aside, and it moves nobody
+  else's words. **A book author's phone LOCKS in a piece somebody else started
+  that nobody has claimed** (Ruling W). A book author's manuscript-text line
+  there — even a Reject that changes nothing — claims the piece and sets the
+  starter's words aside on every Mac (§4.5), so `PhonePosture` asks Core's
+  `PostureDoor.postureYieldingToItsStarter`, which yields wherever the permit
+  carries `unsettledStarter`. The Mac lifts that yield with *Edit Anyway*; the
+  phone has none, so it is a lock. Accept, Reject and Reopen & Revert are
+  hidden, and every write goes through `PhonePosture.perform`, which re-asks
+  and refuses with *<Sam> started this piece and it isn't settled whose it is
+  yet, so nothing was written — settle it from your Mac.* The note is settled
+  from a Mac (*Theirs*, or *Edit Anyway*). Pinned on real disk by
+  `PhonePostureRoundTripTests.
+  test_aBookAuthorsPhoneOffersNoDispositionInAPieceSomebodyElseStarted`.
 - **`Auth/`** — `LaunchAuthGate` (opt-in Face ID).
 - `MaughamPhoneApp.swift` owns the shared stores (`ProjectsRoot`/`RecentsTracker`/
   one `DownloadCoordinator`/`ProjectsBrowser`/`LaunchAuthGate`) and runs the §3.13

@@ -451,6 +451,11 @@ take:
   Capturing into the Inbox still works.
 - An **author of some pieces** has every verb on notes in their own pieces, and
   a reviewer's in the rest.
+- In a piece **somebody else started that nobody has settled yet**, a whole-book
+  author's phone has no Accept, Reject, Archive or Reopen. Pressing one there
+  would make the piece yours and set their words aside, and the phone has no
+  Edit Anyway, so it says *Sam started this piece and it isn't settled whose it
+  is yet, so nothing was written — settle it from your Mac.*
 - Capture works for everybody.
 
 If something changes on a Mac while a note is open, the phone checks again

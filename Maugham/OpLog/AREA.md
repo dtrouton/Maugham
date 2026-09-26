@@ -1785,7 +1785,13 @@ door turns it into a cooperative yield with *Edit Anyway*
 (`Posture.Reason.yieldingToItsStarter`). Ruling H's re-stamp does NOT re-ask
 it, so another book author's text arriving lifts it at the door's next rebuilt
 answer rather than at the re-read. That is a stated limit, and the safe
-direction.
+direction. The phone asks the same fact through Core's
+`PostureDoor.postureYieldingToItsStarter` and, having no *Edit Anyway*, locks:
+Accept, Reject and Reopen & Revert are manuscript-text lines, so they are
+hidden and refused at the re-ask (Ruling W). **A piece's statement carries no
+such fact, deliberately**: the builder sets it only for the `.piece` class,
+because a statement is not the piece's text and claims nothing (§4.5). Editing
+the statement of an unclaimed piece is not a lock to add.
 
 ## Sealed segments (ADR 0016, M2)
 

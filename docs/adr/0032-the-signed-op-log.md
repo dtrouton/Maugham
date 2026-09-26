@@ -2181,6 +2181,22 @@ text a book author's and set a week of hers aside on every Mac. So:
   yields to her as the piece's owner (plan 1). A book author's text ends it
   too, and §4.5 sets her lines aside — which is what pressing Edit Anyway and
   typing chooses.
+- **The phone locks** (Ruling W, the fix wave's re-review N1). A book
+  author's phone writes manuscript text too — Accept, Reject and Reopen &
+  Revert write `claudeAccept`/`claudeReject`/`claudeAcceptRevert`, and even a
+  Reject that changes nothing is a manuscript-text line the partition counts as
+  a claim. So the phone asks Core's `PostureDoor.postureYieldingToItsStarter`,
+  which hands the permit's starter to `posture(permit:yieldingTo:)` exactly as
+  the Mac's door does. The phone has no *Edit Anyway*, so there the yield is a
+  lock: those verbs are hidden, a press that got past them is refused at the
+  re-ask before writing (*Sam started this piece and it isn't settled whose it
+  is yet, so nothing was written — settle it from your Mac.*), and the piece is
+  settled on a Mac.
+- **A piece's STATEMENT carries no starter yield, on purpose** (re-review N2).
+  The fact is set only for the `.piece` class. A statement is not the piece's
+  manuscript text and claims nothing (§4.5), so a book author editing the
+  statement of Sam's unclaimed piece sets none of her words aside. Do not
+  "fix" it into a lock.
 
 **Only the root is asked.** `NewPieceModifier.questions` asks only on a Mac
 holding its own root record (`AdmissionDecision.askingRoot`, plan 1's ruling
@@ -2362,9 +2378,10 @@ one `AnnotationAmendments` policy.
   That is a lock with Edit Anyway beside it, so it errs the safe way. A starter
   whose device record has not synced is named *Somebody else*, and a starter
   this register names but has not admitted (a stranger, another root's member,
-  a Mac on no chain) yields too: nothing yet says the piece is theirs. The yield is the WINDOW's, like plan 1's:
-  windowless writers of the book author's text (none writes manuscript text
-  today) would not see it.
+  a Mac on no chain) yields too: nothing yet says the piece is theirs. On the
+  Mac the yield is the WINDOW's, like plan 1's: windowless writers of the book
+  author's text (none writes manuscript text today) would not see it. The
+  phone asks the same fact through Core (Ruling W) and locks.
 - **A root whose own record was deleted asks no admission question until some
   other resolve restores it.** `AdmissionDecision.mayHoldARootRecord` checks
   the file by name before the verified read that would restore it from this
