@@ -70,14 +70,18 @@ enum PhoneDeviceRecord {
         identities: LocalIdentities? = nil,
         // The phone's own name, as a display string — what People & Devices
         // shows beside the label the writer chooses. Never an identity: this
-        // device IS its key's fingerprint (tripwire 35).
-        name: String = UIDevice.current.name,
+        // device IS its key's fingerprint (tripwire 35). Nil is this device's
+        // own name, read in the body: a default argument is evaluated in the
+        // CALLER's isolation, and both writers call from off the main actor,
+        // where `UIDevice.current` may not be read.
+        name: String? = nil,
         declare: (URL, LocalIdentities, String) throws -> URL? = {
             try RegistryPresence.ensureDeviceRecord(
                 in: $0, identities: $1, name: $2, kind: .phone)
         }
     ) {
         let identities = identities ?? .forAuthor(identity)
+        let name = name ?? UIDevice.current.name
         let key = projectRoot.standardizedFileURL.path
         let facts = Declaration(
             device: identity.fingerprint,
