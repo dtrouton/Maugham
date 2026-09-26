@@ -87,12 +87,14 @@ final class TestLifecycleToolsTests: XCTestCase {
     }
 
     @MainActor
-    func test_resetWorkspace_emptiesRoot() async throws {
+    func test_resetWorkspace_removesRoot() async throws {
         let junk = TestWorkspace.root.appendingPathComponent("junk.txt")
         try? FileManager.default.createDirectory(at: TestWorkspace.root, withIntermediateDirectories: true)
         try "x".write(to: junk, atomically: true, encoding: .utf8)
         _ = try await TestResetWorkspaceTool.handle(paramsJSON: nil, registry: ProjectRegistry())
         XCTAssertFalse(FileManager.default.fileExists(atPath: junk.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: TestWorkspace.root.path))
+        // The root goes too, and is not re-made empty (plan 3's C17): the next
+        // create makes it, and an empty leaf left here is one nothing removes.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: TestWorkspace.root.path))
     }
 }
