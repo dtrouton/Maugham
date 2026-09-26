@@ -14,17 +14,28 @@ public enum DeviceState {
     /// directory would have one worker's fresh mint answering another worker's
     /// `current`. The live app is one process and keeps the bare path.
     public static var directory: URL {
-        let lib = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-        let base = lib
-            .appendingPathComponent("Application Support")
-            .appendingPathComponent(BuildVariant.current.supportFolderName)
-            .appendingPathComponent("device")
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil else {
             return base
         }
         if sweepFlag.claim() { sweepDeadWorkerLeaves(in: base) }
         return base.appendingPathComponent(
             "xctest-worker-\(ProcessInfo.processInfo.processIdentifier)")
+    }
+
+    /// The device directory itself — the live app's, and the parent of every
+    /// `xctest-worker-<pid>` leaf.
+    public static var base: URL {
+        FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Application Support")
+            .appendingPathComponent(BuildVariant.current.supportFolderName)
+            .appendingPathComponent("device")
+    }
+
+    /// Remove the dead workers' leaves under `base`: the sweep `directory`
+    /// runs once a process, for a caller that wants it without minting a leaf
+    /// (the test host's launch sweep).
+    public static func sweepDeadWorkerLeaves() {
+        sweepDeadWorkerLeaves(in: base)
     }
 
     /// Create `url` and every parent it needs. Idempotent.

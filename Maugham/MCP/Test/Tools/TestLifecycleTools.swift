@@ -83,7 +83,7 @@ public enum TestCheckpointTool: MCPTool {
 }
 
 /// `test_reset_workspace` — dev-only lifecycle tool. Deletes everything under
-/// `TestWorkspace.root` (and recreates an empty root). `TestWorkspace.reset()`
+/// `TestWorkspace.root`, the root included (the next create makes it again). `TestWorkspace.reset()`
 /// itself is fenced to only ever touch paths under the root, so this can never
 /// reach the writer's real manuscripts.
 public enum TestResetWorkspaceTool: MCPTool {
