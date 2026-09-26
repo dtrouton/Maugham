@@ -192,9 +192,12 @@ edges. Fixed:
 - **Ping-pong damping + conflicts retention + new filename (F7).** When op-log
   sync lags the `.md` (iCloud's normal failure mode) or a version-skewed device
   writes anchored files, the discard handler could bounce rewrites indefinitely.
-  Now the handler counts **distinct-byte** discards per session; after
-  `discardDampThreshold` (3) it stops auto-rewriting (still snapshots, op log
-  stays authoritative in memory) and logs once — a local edit resets the counter.
+  Now the handler counts discards per session; after `discardDampThreshold` (3)
+  it stops auto-rewriting (still snapshots, op log stays authoritative in
+  memory) and logs once — a local edit resets the counter. (It first counted
+  only DISTINCT bytes; ADR 0032's P3 plan-3 fix wave made every discard count,
+  because two Macs whose renders differ alternate between two byte-strings and
+  a distinct count never reached the threshold.)
   `.maugham/conflicts/` is capped at the newest **20 per docId**, pruned on every
   write. Backup filenames are now `<stem>-<docId>-<kind>-<stamp>.<ext>`; the
   `docId` prevents two same-stem Collection pieces from cross-pruning each other.
