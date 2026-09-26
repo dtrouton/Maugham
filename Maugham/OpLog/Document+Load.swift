@@ -611,11 +611,13 @@ extension Document {
         // piece restored from *Removed Elsewhere* is loaded to write its first
         // render, and snapshotting "" there would leave an empty "backup" of
         // nothing in `.maugham/conflicts/`.
+        var divergedAtLoad = false
         if logExists && FileManager.default.fileExists(atPath: url.path) {
             let derivedRender = MarkdownDisplayFilter.stripAnchors(
                 Materializer.materialize(
                     paragraphs: initial.paragraphs, sequence: initial.sequence))
             if MarkdownDisplayFilter.stripAnchors(storedBytes) != derivedRender {
+                divergedAtLoad = true
                 do {
                     let newest = Document.newestConflictBackup(
                         forFileAt: url, docId: docId)
@@ -697,6 +699,19 @@ extension Document {
         // nobody has claimed — the one held line the writer can answer today.
         doc.startedAPiece = amendmentPermits.whoStartedAPiece
         doc.keptWritingInATakenPiece = amendmentPermits.whoKeptWritingInATakenPiece
+        // **A diverged `.md` is re-rendered, not only snapshotted** (P3 plan
+        // 3, carry C12, ruling C12-1's closed half). A trust change or a sync
+        // that reached this piece while it was closed re-derived nothing on
+        // disk; its next open is where the render catches up. The "diverged"
+        // backup above stays, as evidence. Scheduled through the ordinary
+        // debounce, so `performAutosave`'s guards decide, and asked last,
+        // once `provenance` is stamped: a load HOLDING lines renders nothing
+        // on its own account (`rendersOnItsOwnAccount`). A load that refused
+        // (`waitingForPiece`) never reaches here, and a recovery load is a
+        // different function whose scheduler does nothing.
+        if divergedAtLoad && doc.rendersOnItsOwnAccount {
+            doc.autosaveScheduler.schedule(())
+        }
         return doc
     }
 }
