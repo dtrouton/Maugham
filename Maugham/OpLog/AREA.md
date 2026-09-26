@@ -1774,6 +1774,19 @@ not taken from her. Every other Mac holds the line and records
 memoised closure filled from disk by `permitContext(forDocId:)`, so every
 reader reaches it through the one context builder.
 
+**§4.5 is asked only of a piece she could have started** (P3 closing smoke F1,
+Denver's ruling of 2026-09-26: *refuse, don't ask*). Before the arm asks
+`unowned`, the partition asks `startedBySomebodyElse` →
+`TrustTable.startedBySomebodyElse(_:thanTheWriterOf:)`: where the piece's
+`startedBy` names a writer the register KNOWS is not this line's writer (the
+root, or anybody else), her manuscript line is refused for scope on every Mac,
+hers included — no hold, no `recordStartedAPiece`, so no load question. Her own
+starter keeps Option A; no recorded starter keeps §4.5's question; a starter the
+register cannot name yet (maybe her other Mac, not synced) keeps waiting.
+Relative to the LINE's writer, never to this device. An earlier *Theirs* is
+untouched: it settled the piece into her scope, so the table answers `.yes`
+before the starter is read. See ADR 0032's plan-3 addendum.
+
 **What claims the piece** (controller Ruling G). A book author's writing of the
 piece's text claims it, and so does a book author's `bootstrap` — UNLESS the
 piece's `startedBy` names somebody other than that book author

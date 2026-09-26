@@ -2590,6 +2590,63 @@ from the flips each task named.
   family's real events are counted. *Cost if wrong:* more representatives
   listed in the canvas family.
 
+### The closing smoke's F1 — refuse, don't ask (Denver, 2026-09-26)
+
+**The find.** The root made "Chapter 1" (`startedBy` = the root's Mac) and
+never opened it, so it had no op log. Sam, an author of piece "Two" only, wrote
+in it. The root's Mac asked *Sam started "Chapter 1" — is it theirs?* That was
+false: the manifest names the root as the starter. §4.5's arm asked only
+whether a book author had written the piece's text, never who the manifest
+says started it, so any unwritten piece outside her scope became a question.
+
+**Denver's ruling: refuse, don't ask.** A piece whose manifest records a
+starter who is not her is outside her scope. Her line there is set aside like
+any other out-of-scope line: History's set-aside record, and *Send to Inbox*.
+The rule has three cases:
+
+- **The recorded starter is somebody else** (the root, or any other writer the
+  register names): her manuscript line is REFUSED for scope on every Mac,
+  including her own. It is not held, it is not recorded as *she started a
+  piece*, and so no load question is raised.
+- **The recorded starter is one of her own devices**: Option A, unchanged. Her
+  own Macs apply the line, every other Mac holds it and asks the root.
+- **No starter is recorded** (a piece made before starters were): §4.5's
+  question, unchanged.
+
+**Where it is decided.** In the partition's one §4.5 arm, before `unowned` is
+asked (`PermitPartition.partition` → `startedBySomebodyElse`, which asks
+`TrustTable.startedBySomebodyElse(_:thanTheWriterOf:)`). It is asked relative
+to the LINE's writer, never to this device, so the root's Mac, her Mac and a
+third Mac give the same answer. Every reader reaches it through the one
+context builder (`OpLogStore.permitContext`): the Mac's load, the closed-document
+sweep, the admission sheet and load questions (which read `whoStartedAPiece`),
+and the phone's judged annotation read. The write side needed no change: on her
+Mac, `LocalWritePermit.writesAsItsStarter` is already false for a piece
+somebody else started, so her editor there is refused (*not your piece*).
+
+**A starter the register cannot name yet still waits.** It may be her own
+other Mac whose record has not synced. Refusing on a guess would set her words
+aside, so such a line is held as before. The ruling covers starters the
+register KNOWS are somebody else.
+
+**What it changes on disk.** A held line is re-judged at every read, so a line
+held before this build becomes a set-aside record at the next load on every
+Mac, her own included. Nothing was applied while it was held, so nothing is
+lost. It is kept in History and *Send to Inbox* brings the words back.
+
+**An earlier *Theirs* stands.** *Theirs* is a signed permit event that settles
+the piece into her scope, so the table answers `.yes` before the starter is
+read. Her lines apply, nothing contradicts the answer, and no question comes
+back. A remembered *Not now* for such a piece is simply never consulted again,
+because nothing asks. Pinned by `PermitPartitionTests`' `test_F1_*` cases and
+`PermitLoadTests.test_aStarterNamingTheRootSetsHerLinesAsideAndAsksNobody`.
+
+**The cost.** `startedBy` sits in the unsigned manifest. Before this ruling a
+wrong or forged starter could only HOLD her lines. Now a manifest that names
+somebody else as the starter of a piece she really started sets her lines
+aside. The words are kept, and *Send to Inbox* is the way back, but the book
+no longer asks.
+
 ### What P3 plan 3 does NOT do — the limits, stated
 
 - **OB-1 — an old build over a book that is not narrowed** (Denver's ruling,
