@@ -81,7 +81,8 @@ final class PaletteWallDoorHitAreaTests: XCTestCase {
 
     // MARK: - The door
 
-    /// **Every point of the icon opens the wall, top edge to bottom edge.**
+    /// **Every point of the icon opens the wall, top edge to bottom edge, and
+    /// left edge to right.**
     ///
     /// The premise is read off the window this display actually granted, never
     /// off the window that was asked for (CI's screen is 1024pt wide and
@@ -116,14 +117,10 @@ final class PaletteWallDoorHitAreaTests: XCTestCase {
             + "\(Self.sweepStep)pt) against the `+` menu's \(door.menu.height)pt "
             + "beside it in the same header — two accessories on one row, one of "
             + "them a fraction of the target the other is")
-    }
 
-    /// The same claim across the icon, because the region was narrow as well as
-    /// short (13pt against the icon's 15.5).
-    func test_theWholeOpenWallIconIsLiveAcrossItsWidth() async throws {
-        let mount = try await mountTree()
-        let door = try doorGeometry(in: mount.window)
-
+        // **And across the icon**, because the region was narrow as well as
+        // short (13pt against the icon's 15.5). Folded in from its own test
+        // (plan 3, C14): one hit-area representative per control, tripwire 33.
         var dead: [Double] = []
         for x in [door.icon.minX + 0.5, door.icon.midX, door.icon.maxX - 0.5] {
             let fired = await click(at: CGPoint(x: x, y: door.icon.midY),
@@ -135,8 +132,8 @@ final class PaletteWallDoorHitAreaTests: XCTestCase {
                       + "wall — the door is narrower than the glyph it draws")
     }
 
-    /// **The control that makes the two above mean something.** A sweep that
-    /// fired on every click would pass them over any geometry at all; this one
+    /// **The control that makes the sweep above mean something.** A sweep that
+    /// fired on every click would pass it over any geometry at all; this one
     /// aims at dead space in the same header row and must reach nothing.
     ///
     /// **It aims at the row's middle, not `header.minX + 8`.** That used to be
