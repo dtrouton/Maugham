@@ -602,14 +602,14 @@ extension Permit {
             // The pipeline and `write_translation`: translation records, and
             // nothing else, anywhere.
             guard group == .translationRecord else {
-                return .no(Permit.refused(group, documentClass))
+                return .no(Permit.refused(what, documentClass))
             }
             person = self
         case .maugham:
             // The app on nobody's instruction: the task priority rebalance,
             // and nothing else, anywhere.
             guard what == .op(.taskPriorityChange) else {
-                return .no(Permit.refused(group, documentClass))
+                return .no(Permit.refused(what, documentClass))
             }
             person = self
         }
@@ -889,6 +889,20 @@ extension Permit {
             if case .projectStream = documentClass { return true }
             return authors(documentClass)
         }
+    }
+
+    /// **The noun for a refusal of one particular WRITTEN thing** — the
+    /// group's noun, except a reopen (P3 plan 3 Task 5). The table files
+    /// `annotationReopen` with edit and withdraw (ruling P) because the
+    /// partition cannot see what a reopen undoes, which is right for whether
+    /// it is ALLOWED and wrong for what the writer is told was refused: a
+    /// reopen settles a note again, and `RefusedWhat.disposition` already
+    /// names it. Reached only from the two narrowed keys' gates, which are the
+    /// only refusals the reviewer row's groups can meet. Edit and withdraw keep
+    /// the group's *something else* — they amend a note and settle nothing.
+    static func refused(_ what: Written, _ documentClass: DocumentClass) -> RefusedWhat {
+        if what == .op(.annotationReopen) { return refused(.disposition, documentClass) }
+        return refused(group(of: what), documentClass)
     }
 
     /// The noun for a refusal: what the group was, refined by where it landed.

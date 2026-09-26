@@ -293,12 +293,19 @@ final class PermitTableTests: XCTestCase {
         case .translator:
             return group == .translationRecord
                 ? cell(.translationRecord, classIndex, permitIndex)
-                : .no(noun(group, classIndex))
+                : .no(noun(refusedGroup(what, group), classIndex))
         case .maugham:
             return what == .op(.taskPriorityChange)
                 ? cell(.task, classIndex, permitIndex)
-                : .no(noun(group, classIndex))
+                : .no(noun(refusedGroup(what, group), classIndex))
         }
+    }
+
+    /// The group whose NOUN a refusal carries: the kind's own, except a
+    /// reopen, which the table files with edit and withdraw (ruling P) and the
+    /// writer is told about as the disposition it undoes (P3 plan 3 Task 5).
+    private func refusedGroup(_ what: Written, _ group: Permit.WrittenGroup) -> Permit.WrittenGroup {
+        what == .op(.annotationReopen) ? .disposition : group
     }
 
     private func specGroup(of what: Written) -> Permit.WrittenGroup {
@@ -793,6 +800,37 @@ final class PermitTableTests: XCTestCase {
             .no(.manuscriptText))
         XCTAssertEqual(
             Permit.author(.book).allows(.inboxRow, in: .inbox, actor: .translator), .no(.other))
+    }
+
+    /// **A narrowed key's reopen is refused as the disposition it undoes**
+    /// (P3 plan 3 Task 5). The table files `annotationReopen` with edit and
+    /// withdraw (ruling P), so the translator and the rebalance key reach the
+    /// noun for it through their own gates — and `RefusedWhat.disposition`
+    /// already names *reopen* among the things it covers. Edit and withdraw
+    /// stay *something else*: they amend a note, they settle nothing.
+    func test_aNarrowedKeysReopenIsRefusedAsADispositionAndEditAndWithdrawAreNot() {
+        for actor in [DeviceActor.translator, .maugham] {
+            for permit in [Permit.bookAuthor, .author(.pieces([Self.hers])), .reviewer] {
+                XCTAssertEqual(
+                    permit.allows(.op(.annotationReopen), in: .piece(Self.hers), actor: actor),
+                    .no(.disposition), "\(actor) · \(permit)")
+                XCTAssertEqual(
+                    permit.allows(.op(.annotationReopen), in: .projectStatement, actor: actor),
+                    .no(.statement), "on a statement a disposition is a statement · \(actor)")
+                for amend in [OpKind.annotationEdit, .annotationWithdraw] {
+                    XCTAssertEqual(
+                        permit.allows(.op(amend), in: .piece(Self.hers), actor: actor),
+                        .no(.other), "\(amend) · \(actor) · \(permit)")
+                }
+            }
+        }
+        // The two keys the table does not narrow still answer the reviewer row.
+        XCTAssertEqual(
+            Permit.reviewer.allows(.op(.annotationReopen), in: .piece(Self.theirs), actor: .author),
+            .yes)
+        XCTAssertEqual(
+            Permit.reviewer.allows(.op(.annotationReopen), in: .piece(Self.theirs), actor: .assistant),
+            .yes)
     }
 
     // MARK: - A statement this build cannot place
