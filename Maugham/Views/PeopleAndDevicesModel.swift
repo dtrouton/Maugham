@@ -685,9 +685,14 @@ struct PeopleAndDevicesModel: Equatable {
     ///
     /// A piece waits exactly when ALL of these hold, and draws nothing when any
     /// does not:
-    /// - **this Mac is the book's root** (`AdmissionDecision.askingRoot`, the
-    ///   admission sheet's own test) — the Mac that can revoke; any other Mac
-    ///   is told nothing, since it has nobody to revoke;
+    /// - **this Mac may revoke that starter** — the very predicate that makes
+    ///   the starter's Revoke live on its person row (`revocable`, the verb's
+    ///   own rule: the root that admitted them, they are not a root, not
+    ///   already revoked). A line telling the writer to revoke beside a
+    ///   disabled Revoke is a suggestion this Mac cannot act on (controller
+    ///   ruling, Task 8), so a Mac that cannot revoke them — a non-root, a
+    ///   root that did not admit them, or a row with no person record at all,
+    ///   such as an absent one — is told nothing;
     /// - **the book is narrowed** (`TrustTable.hasNarrowingPermits`, which is
     ///   `PermitTimeline.narrows` asked of every person) — in an un-narrowed
     ///   book whoever may write a piece mints its opening, so nothing strands;
@@ -702,11 +707,18 @@ struct PeopleAndDevicesModel: Equatable {
         pieces: [PermitControl.Piece], unopened: Set<String>,
         registry: Registry, table: TrustTable, me: String
     ) -> [String: Int] {
-        guard AdmissionDecision.askingRoot(in: registry, thisDevice: me) != nil,
-              table.hasNarrowingPermits else { return [:] }
+        guard table.hasNarrowingPermits else { return [:] }
+        // The starters this Mac may revoke, by the device id each person's
+        // author key is written as — derived forwards, never parsed back.
+        let revocableStarters = Set(registry.people
+            .filter { revocable($0, in: registry, me: me) }
+            .map { DeviceIdentity.deviceId(
+                actor: DeviceActor.author.rawValue, fingerprint: $0.person) })
+        guard !revocableStarters.isEmpty else { return [:] }
         var counts: [String: Int] = [:]
         for piece in pieces {
             guard let starter = piece.startedBy,
+                  revocableStarters.contains(starter),
                   unopened.contains(piece.id),
                   table.starter(ofPieceStartedBy: starter) != .thisDevice,
                   table.starterStanding(starter) != .gone

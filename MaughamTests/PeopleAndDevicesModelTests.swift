@@ -1727,9 +1727,10 @@ final class PeopleAndDevicesStrandedPieceTests: XCTestCase {
         XCTAssertNil(model.waitingLine(forDevice: mac.fingerprint))
     }
 
-    /// **The absent row too** — a Mac this one remembers naming whose records
-    /// are gone from the folder. Its standing is `.unknown`, which waits.
-    func test_anAbsentRowForTheStarterCarriesTheLine() throws {
+    /// **An absent row never carries it** (controller ruling): a Mac with no
+    /// person record left in the folder has no Revoke anywhere, so a line
+    /// telling the writer to revoke it would point at nothing.
+    func test_anAbsentRowCarriesNoLineBecauseNothingThereCanBeRevoked() throws {
         let model = model(
             registry(samRecords: false), pieces: pieces(startedBy: sam),
             unopened: ["ch1", "ch2"],
@@ -1737,10 +1738,60 @@ final class PeopleAndDevicesStrandedPieceTests: XCTestCase {
                 label: "Sam", ownName: "Sam's Mac", labelledAt: admitted)])
 
         XCTAssertTrue(model.absent.contains { $0.fingerprint == sam.fingerprint })
-        XCTAssertEqual(
-            model.waitingLine(forDevice: sam.fingerprint),
-            "2 pieces are waiting for this Mac. If it is gone for good, "
-            + "revoke it and they will open.")
+        XCTAssertNil(model.waitingLine(forDevice: sam.fingerprint))
+    }
+
+    /// **Only the Mac that can revoke THAT starter** (controller ruling, both
+    /// directions). This Mac is a root, but Sam was admitted by another root
+    /// this Mac has adopted — his Revoke here is disabled, so the line is not
+    /// drawn; the root that admitted him (the positive pins above) sees it.
+    func test_aRootThatDidNotAdmitTheStarterDrawsNothing() throws {
+        let other = DeviceIdentity.softwareForTesting()
+        var base = registry()
+        let samRecord = PersonRecord(
+            person: sam.fingerprint, label: "Sam", ownName: "Sam",
+            role: "author",
+            admittedAt: admitted, admittedBy: other.fingerprint)
+        let otherRoot = PersonRecord(
+            person: other.fingerprint, label: "Olga", ownName: "Olga",
+            role: "author",
+            admittedAt: admitted, admittedBy: other.fingerprint)
+        base = Registry(
+            devices: base.devices + [device(other, name: "Olga's Mac")],
+            people: base.people.filter { $0.person != sam.fingerprint }
+                + [samRecord, otherRoot],
+            claims: [ClaimRecord(
+                newRoot: mac.fingerprint, adopted: [other.fingerprint],
+                claimedAt: admitted)],
+            events: base.events)
+        let table = TrustTable.resolve(
+            registry: base, mine: .forAuthor(mac), joinedRoot: nil)
+        let model = PeopleAndDevicesModel.make(
+            registry: base, table: table, remembered: [:],
+            requests: [], claimants: [],
+            standing: DeviceStanding(
+                code: DeviceCode.short(mac.fingerprint), label: "Denver",
+                rootLabel: "Denver", admitted: true, isRoot: true),
+            me: mac.fingerprint,
+            pieces: pieces(startedBy: sam), unopenedPieces: ["ch1", "ch2"])
+
+        let row = try XCTUnwrap(model.people.first { $0.fingerprint == sam.fingerprint },
+                                "Sam is on this Mac's chain through the adopted root")
+        XCTAssertFalse(row.canRevoke, "premise: Sam is not this Mac's to revoke")
+        XCTAssertEqual(table.starterStanding(starterId(sam)), .standing,
+                       "premise: Sam's pieces still wait")
+        XCTAssertNil(model.waitingLine(forDevice: sam.fingerprint))
+    }
+
+    /// And the positive direction on the same row: the root that admitted Sam
+    /// sees the line beside a LIVE Revoke.
+    func test_theRootThatAdmittedTheStarterSeesTheLineBesideALiveRevoke() throws {
+        let model = model(registry(), pieces: pieces(startedBy: sam),
+                          unopened: ["ch1"])
+
+        let row = try XCTUnwrap(model.people.first { $0.fingerprint == sam.fingerprint })
+        XCTAssertTrue(row.canRevoke)
+        XCTAssertNotNil(model.waitingLine(forDevice: sam.fingerprint))
     }
 
     // MARK: - The host's read: op-log file presence
