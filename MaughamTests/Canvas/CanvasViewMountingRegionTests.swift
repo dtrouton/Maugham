@@ -1202,25 +1202,32 @@ final class CanvasViewMountingRegionTests: CanvasViewMountingCase {
     }
 
     /// **The discoverable route, end to end, knowing nothing.** The card is
-    /// selected by a real CLICK rather than by assigning `model.selection`,
-    /// because the whole claim of this route is that a writer finds it without
-    /// being told; a test that set the selection by hand would be told.
+    /// selected by a CLICK rather than by assigning `model.selection`, because
+    /// the whole claim of this route is that a writer finds it without being
+    /// told; a test that set the selection by hand would be told.
     ///
-    /// No modifier anywhere in it.
+    /// No modifier anywhere in it — which is why it drives the seam rather than
+    /// a synthesised `NSEvent` since plan 3's C14 (tripwire 33's click arm): the
+    /// seam is what `mouseDown(with:)` calls, and the one thing a real event adds
+    /// here, the ⇧ flag, this route does not use. The press-inside-the-mark rule
+    /// itself is `CanvasLineGestureTests.test_aPressInsideTheSelectedCardsConnectHandleConnects`.
     func test_aDragFromTheSelectedCardsConnectHandleReachesTheSceneTheSameWay() throws {
         let model = makeModel()
         let window = host(CanvasView(model: model, projectRoot: try twoCardProjectRoot(),
                                      paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
 
-        try sendRealClick(in: window, at: insideTheFirstCard)
+        events.applyMouseDown(at: insideTheFirstCard, clickCount: 1)
+        events.applyMouseUp(at: insideTheFirstCard)
+        pump()
         XCTAssertEqual(model.selection, .node(scrapID),
                        "precondition: a plain click selects the card, and selection is "
                        + "what draws the mark")
         let origin = try XCTUnwrap(model.scene.node(scrapID)?.origin)
 
-        try sendRealDrag(in: window, from: try connectMarkCentre(of: scrapID, in: model),
-                         through: [CGPoint(x: 350, y: 150), insideTheSecondCard],
-                         shift: false)
+        drag(events, from: try connectMarkCentre(of: scrapID, in: model),
+             through: [CGPoint(x: 350, y: 150), insideTheSecondCard])
+        pump()
 
         XCTAssertEqual(model.scene.lines.count, 1,
                        "a drag out of the mark on a selected card made no line — the "
@@ -1241,6 +1248,9 @@ final class CanvasViewMountingRegionTests: CanvasViewMountingCase {
     /// Without that, a 14 pt patch on the right edge of every unselected card on
     /// the canvas would refuse to move it, and would instead do something the
     /// writer could not have predicted from anything on screen.
+    ///
+    /// Through the seam since plan 3's C14 (tripwire 33's click arm); the rule is
+    /// also `CanvasLineGestureTests.test_theSamePointOnAnUnselectedCardDoesNot`.
     func test_theFirstPressOnAnUnselectedCardsMarkPositionMovesItRatherThanDrawingALine() throws {
         let model = makeModel()
         let window = host(CanvasView(model: model, projectRoot: try twoCardProjectRoot(),
@@ -1250,9 +1260,9 @@ final class CanvasViewMountingRegionTests: CanvasViewMountingCase {
         // Where the mark WOULD be, if the card were selected.
         let markPosition = try connectMarkCentre(of: scrapID, in: model)
 
-        try sendRealDrag(in: window, from: markPosition,
-                         through: [CGPoint(x: 350, y: 150), insideTheSecondCard],
-                         shift: false)
+        drag(try eventView(in: window), from: markPosition,
+             through: [CGPoint(x: 350, y: 150), insideTheSecondCard])
+        pump()
 
         XCTAssertTrue(model.scene.lines.isEmpty,
                       "the mark was not on screen when the writer pressed, so they "
@@ -1307,17 +1317,19 @@ final class CanvasViewMountingRegionTests: CanvasViewMountingCase {
     /// the region inspector's two cached lists in the other column.
     ///
     /// Both directions, because the "no bump" half alone is satisfied by a build
-    /// that never bumps at all.
+    /// that never bumps at all. Through the seam, ⇧ handed in, since plan 3's
+    /// C14 (tripwire 33's click arm) — the question is the revision, not the flag.
     func test_aShiftPressThatDriftedAndMadeNoLineIsNotAStructuralChange() throws {
         let model = makeModel()
         let window = host(CanvasView(model: model, projectRoot: try twoCardProjectRoot(),
                                      paletteSwatchHexes: { [] }))
+        let events = try eventView(in: window)
         let before = model.sceneRevision
 
         // Pressed with ⇧ on a card and released a point away — still over the
         // card it started from, which is not a line.
-        try sendRealDrag(in: window, from: insideTheFirstCard,
-                         through: [CGPoint(x: 61, y: 31)], shift: true)
+        drag(events, from: insideTheFirstCard, through: [CGPoint(x: 61, y: 31)], shift: true)
+        pump()
         XCTAssertTrue(model.scene.lines.isEmpty,
                       "precondition: the release was over the source card, so there "
                       + "is no line")
@@ -1325,9 +1337,9 @@ final class CanvasViewMountingRegionTests: CanvasViewMountingCase {
                        "a connect drag that made nothing changed nothing, and must "
                        + "not rebuild the accessibility tree or the inspector's lists")
 
-        try sendRealDrag(in: window, from: insideTheFirstCard,
-                         through: [CGPoint(x: 250, y: 120), insideTheSecondCard],
-                         shift: true)
+        drag(events, from: insideTheFirstCard,
+             through: [CGPoint(x: 250, y: 120), insideTheSecondCard], shift: true)
+        pump()
         XCTAssertEqual(model.scene.lines.count, 1, "precondition: this one made a line")
         XCTAssertGreaterThan(model.sceneRevision, before,
                              "and a line that WAS made is a structural change — "
@@ -1342,22 +1354,26 @@ final class CanvasViewMountingRegionTests: CanvasViewMountingCase {
     /// string the writer sees in the Edit menu.
     ///
     /// Run through BOTH routes: they share one implementation today, and a later
-    /// change is exactly what would give them two.
+    /// change is exactly what would give them two. Through the seam since plan
+    /// 3's C14 (tripwire 33's click arm): the step's name is the claim.
     func test_drawingALineIsOneUndoStepCalledDrawLine() throws {
         for byShift in [true, false] {
             let route = byShift ? "⇧-drag" : "the connect mark"
             let model = makeModel()
             let window = host(CanvasView(model: model, projectRoot: try twoCardProjectRoot(),
                                          paletteSwatchHexes: { [] }))
+            let events = try eventView(in: window)
             var start = insideTheFirstCard
             if !byShift {
-                try sendRealClick(in: window, at: insideTheFirstCard)
+                events.applyMouseDown(at: insideTheFirstCard, clickCount: 1)
+                events.applyMouseUp(at: insideTheFirstCard)
+                pump()
                 start = try connectMarkCentre(of: scrapID, in: model)
             }
 
-            try sendRealDrag(in: window, from: start,
-                             through: [CGPoint(x: 350, y: 150), insideTheSecondCard],
-                             shift: byShift)
+            drag(events, from: start,
+                 through: [CGPoint(x: 350, y: 150), insideTheSecondCard], shift: byShift)
+            pump()
             XCTAssertEqual(model.scene.lines.count, 1,
                            "precondition for \(route): a line was drawn, so an "
                            + "unchanged stack below means the step went missing "

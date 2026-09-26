@@ -398,12 +398,16 @@ class CanvasViewMountingCase: XCTestCase {
     /// these tests are about; that was a discipline no compiler enforced and a
     /// loaded machine could break on its own, which is exactly how the mounted
     /// flick test flaked on CI.
+    ///
+    /// `shift` is the seam's own `shiftHeld` — the flag handed in by hand. Where
+    /// the claim is that production READS ⇧ off the event, use `sendRealDrag`.
     func drag(_ events: CanvasEventNSView,
                       from start: CGPoint,
-                      through path: [CGPoint]) {
+                      through path: [CGPoint],
+                      shift: Bool = false) {
         let frame = 1.0 / 60
         var t = CACurrentMediaTime()
-        events.applyMouseDown(at: start, clickCount: 1, timestamp: t)
+        events.applyMouseDown(at: start, clickCount: 1, shiftHeld: shift, timestamp: t)
         for point in path {
             t += frame
             events.applyMouseDragged(to: point, timestamp: t)
@@ -1070,12 +1074,6 @@ class CanvasViewMountingCase: XCTestCase {
         pump()
     }
 
-    /// One real click, which is how a writer selects a card — and therefore the
-    /// only honest way to reveal the connect mark in a test whose whole claim is
-    /// that a writer can reach the gesture knowing nothing.
-    func sendRealClick(in window: NSWindow, at point: CGPoint) throws {
-        try sendRealDrag(in: window, from: point, through: [], shift: false)
-    }
 
     /// Where the connect mark is on a card, read off the live scene.
     func connectMarkCentre(of id: CanvasNodeID, in model: CanvasModel) throws -> CGPoint {
@@ -1095,17 +1093,20 @@ class CanvasViewMountingCase: XCTestCase {
     // MARK: - Selecting a line, and taking it back
 
     /// A canvas with the two fixture cards and one line between them, drawn the
-    /// way the writer draws it — a ⇧-drag through the real event path, which is
-    /// also what leaves the line SELECTED.
+    /// way the writer draws it — a ⇧-drag, which is also what leaves the line
+    /// SELECTED. Through the seam since plan 3's C14 (tripwire 33's click arm):
+    /// this is every line test's SETUP, and that ⇧ is read off a real event is
+    /// `CanvasViewMountingRegionTests.test_aShiftDragBetweenTwoCardsReachesTheSceneThroughTheRealEventPath`'s
+    /// claim alone.
     ///
     /// Returns the line's id and the midpoint of its segment, both read off the
     /// live scene. The cards' heights are re-derived on load, so a hard-coded
     /// midpoint would be aiming at a line that is not there.
     func drawALine(in window: NSWindow,
                            _ model: CanvasModel) throws -> (id: CanvasLineID, midpoint: CGPoint) {
-        try sendRealDrag(in: window, from: insideTheFirstCard,
-                         through: [CGPoint(x: 250, y: 120), insideTheSecondCard],
-                         shift: true)
+        drag(try eventView(in: window), from: insideTheFirstCard,
+             through: [CGPoint(x: 250, y: 120), insideTheSecondCard], shift: true)
+        pump()
         let line = try XCTUnwrap(model.scene.lines.first,
                                  "the ⇧-drag drew no line, so nothing below is about "
                                  + "clicking one")

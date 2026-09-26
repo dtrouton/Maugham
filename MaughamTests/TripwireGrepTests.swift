@@ -2141,16 +2141,6 @@ final class TripwireGrepTests: XCTestCase {
         // the seam every other canvas test drives takes the flag by hand — the
         // 1C-a shape. Sent synchronously, pumped once; nothing polls.
         "CanvasViewMountingRegionTests.swift test_aShiftDragBetweenTwoCardsReachesTheSceneThroughTheRealEventPath",
-        // Swept in the next commit (plan 3, C14 — the superclass-file ruling).
-        "CanvasViewMountingRegionTests.swift test_aDoubleClickOnALineDoesNotMintAScrapUnderIt",
-        "CanvasViewMountingRegionTests.swift test_aDragFromTheSelectedCardsConnectHandleReachesTheSceneTheSameWay",
-        "CanvasViewMountingRegionTests.swift test_aShiftPressThatDriftedAndMadeNoLineIsNotAStructuralChange",
-        "CanvasViewMountingRegionTests.swift test_backspaceDeletesTheSelectedLineThroughTheRealResponderChain",
-        "CanvasViewMountingRegionTests.swift test_deleteRemovesTheSelectedLineAndLeavesBothCards",
-        "CanvasViewMountingRegionTests.swift test_deleteWithALineSelectedMidGestureIsRefused",
-        "CanvasViewMountingRegionTests.swift test_deletingACardTakesItsLinesAndOneUndoBringsBothBack",
-        "CanvasViewMountingRegionTests.swift test_drawingALineIsOneUndoStepCalledDrawLine",
-        "CanvasViewMountingRegionTests.swift test_theFirstPressOnAnUnselectedCardsMarkPositionMovesItRatherThanDrawingALine",
         // A hit area: the door's live band swept down (and across) the icon.
         // SwiftUI hit-tests inside one hosting view, so no `hitTest` can see it.
         "PaletteWallDoorHitAreaTests.swift test_theWholeOpenWallIconOpensTheWall",
