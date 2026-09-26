@@ -2173,11 +2173,6 @@ final class TripwireGrepTests: XCTestCase {
         // The real delivery path: the travel is an `NSEvent` local monitor
         // reading `clickCount == 2`, which only `NSApp`'s own dispatch runs.
         "TreeTravelTests.swift test_aDoubleClickOnTheRowsNameTravelsToAuthor",
-
-        // Swept in the commits that follow (plan 3, C14).
-        "TreeTravelTests.swift test_aDoubleClickPastTheNameDoesNotTravel",
-        "TreeTravelTests.swift test_aSingleClickOnTheChapterRowOnlySelects",
-        "TreeTravelTests.swift test_aStoppedWatcherTravelsNowhereButStillSelects",
     ]
 
     /// Every `File.swift test_name` under `dir` whose body synthesises a mouse

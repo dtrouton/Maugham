@@ -217,9 +217,18 @@ final class TreeTravelReceiverTests: XCTestCase {
 /// `BinderProjectRowTests.test_theProjectRowIsNeitherDraggableNorADropTarget`'s
 /// own shape.
 ///
-/// **The five click tests here need the test host to be the ACTIVE
+/// **The two click tests here need the test host to be the ACTIVE
 /// application, and say so out loud when it isn't** — see `click(at:…)`'s
-/// premise helpers for the measurement. Seeing them SKIPPED in a gate means
+/// premise helpers for the measurement. They are tripwire 33's click
+/// representatives for this file: a click on the NAME selects (the hit area
+/// stage 3b broke) and stays one click, and a double-click on it travels
+/// through the local monitor (the real delivery path). Three more were cut in
+/// plan 3's C14 — the double-click past the name (the mark's extent is the
+/// kept name test's `label.width < row width` read and
+/// `TreeTravelGestureAttachmentTests.test_theGestureAttachesBeforeTheRowWidens`),
+/// the stopped watcher (the watcher is installed under the kept single click,
+/// which still selects), and a second single-click-only-selects (the kept
+/// name test asserts the same three things). Seeing them SKIPPED in a gate means
 /// the machine could not give them a key window (a locked screen, or a front
 /// app that would not yield), not that the tree stopped working.
 @MainActor
@@ -251,8 +260,9 @@ final class TreeTravelRowMountingTests: XCTestCase {
     /// writer could select a chapter by clicking its icon or the empty space to
     /// the right of its title, but clicking the title did nothing at all. Every
     /// test in this file was green throughout, because
-    /// `test_aSingleClickOnTheChapterRowOnlySelects` (below, now clicking the
-    /// name) clicked `rect.midX` against a project's DEFAULT short title — and
+    /// `test_aSingleClickOnTheChapterRowOnlySelects` (cut in plan 3's C14 as
+    /// this test's duplicate) clicked `rect.midX` against a project's DEFAULT
+    /// short title — and
     /// at a 420pt tree width the midpoint of the row falls in the trailing
     /// `Spacer`, past where the text ends, which is the one part of the row
     /// that never broke. That is the whole gap: a click is not "on the row", it
@@ -330,123 +340,6 @@ final class TreeTravelRowMountingTests: XCTestCase {
                        + "writer to Author — Denver's travel rule")
         XCTAssertEqual(probe.subject, .item(firstDoc.id),
                        "on that row's OWN subject")
-    }
-
-    /// **The control the pair above needs**: the same double-click, at the same
-    /// row, on the whitespace PAST the name, travels nowhere. Without it, a
-    /// mark that had quietly widened onto the row container would satisfy both
-    /// tests above while changing what the writer can double-click — and the
-    /// widening is invisible to every other assertion here, because a wider
-    /// mark still selects and still drags.
-    func test_aDoubleClickPastTheNameDoesNotTravel() async throws {
-        let store = try await novel(named: "PastTheName")
-        let firstDoc = try XCTUnwrap(store.manifest.structure.first)
-        try await store.renameStructureItem(id: firstDoc.id, newTitle: "Ch")
-        let (window, probe, table) = try await hostBinder(store: store)
-        let ready = await pumpUntil(deadline: 5) { probe.window != nil }
-        XCTAssertTrue(ready, "the probe's window never resolved — premise")
-
-        let rect = table.rect(ofRow: 1)
-        let label = try XCTUnwrap(labelFrame(ofRow: 1, in: table))
-        let past = (label.maxX + rect.maxX) / 2
-        XCTAssertGreaterThan(past, label.maxX,
-                             "there is no whitespace past this label to click "
-                             + "— premise failing")
-
-        try await click(at: CGPoint(x: past, y: rect.midY),
-                        in: table, window: window, clicks: 2)
-        await waitOut(0.5)
-
-        XCTAssertEqual(probe.persona, .plan,
-                       "the travel mark is the label leaf, not the row — a "
-                       + "double-click on the row's empty trailing space is "
-                       + "not a travel")
-        XCTAssertEqual(table.selectedRow, 1,
-                       "…though it still selects, like any other click on the "
-                       + "row")
-    }
-
-    /// **`TreeTravelClickWatcher.stop()` really removes the monitor** — the
-    /// one claim that method's "test-only" doc makes, and this is the caller
-    /// that makes it true rather than unexercised code whose comment asserts
-    /// something nothing checks.
-    ///
-    /// It also pins the half that matters most about the whole mechanism: with
-    /// the watcher gone the click STILL selects. The monitor is not in the
-    /// dispatch path, so removing it takes the travel away and leaves
-    /// `List(selection:)` exactly as it was — which is the same property, seen
-    /// from the other side, that makes the fix safe for selection and drag.
-    ///
-    /// **Hosted on the tree rather than on a bare marked label**, though a
-    /// label plus a monitor is the whole mechanism and a smaller host was
-    /// tried first. Measured: in a plain `NSHostingView` window the watcher
-    /// receives the synthetic double-click with `locationInWindow` reading the
-    /// REAL cursor position rather than the posted one — resolved subject
-    /// `nil`, no post, for a mechanism that is working. Routed through an
-    /// `NSTableView` the posted location survives, which is why every click
-    /// test in this file goes through a real tree.
-    func test_aStoppedWatcherTravelsNowhereButStillSelects() async throws {
-        let store = try await novel(named: "StoppedWatcher")
-        let firstDoc = try XCTUnwrap(store.manifest.structure.first)
-        try await store.renameStructureItem(
-            id: firstDoc.id, newTitle: "A Chapter With A Rather Long Name")
-        let (window, probe, table) = try await hostBinder(store: store)
-        let ready = await pumpUntil(deadline: 5) { probe.window != nil }
-        XCTAssertTrue(ready, "the probe's window never resolved — premise")
-
-        TreeTravelClickWatcher.shared.stop()
-        // The watcher is process-global and every other mounted suite in this
-        // worker has already run its `TreeTravelModifier.onAppear`, which will
-        // not fire again to re-install it.
-        defer { TreeTravelClickWatcher.shared.start() }
-
-        let label = try XCTUnwrap(labelFrame(ofRow: 1, in: table))
-        try await click(at: CGPoint(x: label.midX, y: label.midY),
-                        in: table, window: window, clicks: 2)
-        await waitOut(0.5)
-
-        XCTAssertEqual(probe.persona, .plan,
-                       "a stopped watcher must not travel — its monitor is "
-                       + "still installed")
-        XCTAssertEqual(table.selectedRow, 1,
-                       "…while the very same click still selects, because the "
-                       + "monitor never sat in the dispatch path to begin with")
-    }
-
-    /// A single click — the first half of any double-click — must only
-    /// select. The dim moves (a subject write via `List(selection:)`); the
-    /// persona does not, because `.maughamTreeTravel` is never posted by one
-    /// click alone.
-    ///
-    /// **Clicks the NAME, not `rect.midX`.** It clicked the row's midpoint
-    /// until 2026-08-12, which against a default short title is the trailing
-    /// `Spacer` — see `test_aSingleClickOnTheRowsNameSelectsIt` for what that
-    /// cost.
-    func test_aSingleClickOnTheChapterRowOnlySelects() async throws {
-        let store = try await novel(named: "SingleClick")
-        let firstDoc = try XCTUnwrap(store.manifest.structure.first)
-        let (window, probe, table) = try await hostBinder(store: store)
-
-        let label = try XCTUnwrap(labelFrame(ofRow: 1, in: table))
-        try await click(at: CGPoint(x: label.midX, y: label.midY),
-                        in: table, window: window)
-        await pumpUntil(deadline: 5) { probe.subject == .item(firstDoc.id) }
-
-        // **The delivery premise, asserted before the contract** — a synthetic
-        // click that AppKit never turned into a click leaves the row unselected,
-        // and read off the subject alone that is indistinguishable from a broken
-        // selection binding. It cost a whole debugging session on 2026-08-12 to
-        // tell those two apart (`click`'s own note has the measurement), so the
-        // harness's half now fails in its own words.
-        XCTAssertEqual(table.selectedRow, 1,
-                       "the synthetic click was never recognised as a click — "
-                       + "this is the harness's premise failing, not the row's "
-                       + "selection binding")
-        XCTAssertEqual(probe.subject, .item(firstDoc.id))
-        XCTAssertEqual(probe.persona, .plan,
-                       "a single click must never move the persona — that "
-                       + "needs the second click of a double-click, which "
-                       + "this test never sends")
     }
 
     func test_theChapterRowStillMountsItsDragMachinery() async throws {
@@ -777,7 +670,7 @@ final class TreeTravelRowMountingTests: XCTestCase {
     /// the host IS active, a click that fails to select is a real failure and
     /// the test's own assertions say so in their own words.
     ///
-    /// **The check lives in `click` rather than in the five tests** so a click
+    /// **The check lives in `click` rather than in the click tests** so a click
     /// test added later cannot forget it — the same reason the quiescing drain
     /// below is here and not at the call sites.
     ///
@@ -918,8 +811,11 @@ final class TreeTravelRowMountingTests: XCTestCase {
 /// `.background`, so it takes the frame of whatever it is attached to, and
 /// attached after those calls it would take the ROW's frame — making a
 /// double-click anywhere on the row a travel, including the empty space past
-/// the title. `TreeTravelRowMountingTests.test_aDoubleClickPastTheNameDoesNotTravel`
-/// is the behavioural half of the same contract.
+/// the title. The mounted half of the same contract is the kept name click's
+/// `label.width < row width` read in
+/// `TreeTravelRowMountingTests.test_aSingleClickOnTheRowsNameSelectsIt` (the
+/// double-click past the name that also pinned it was cut in plan 3's C14,
+/// tripwire 33).
 ///
 /// The second half — `test_noTreeRowCarriesASwiftUITapGesture` — is the one
 /// the stage 3b regression needed and the ordering check could not be: that
