@@ -13,7 +13,7 @@ import MaughamCore
 final class WikiRenamePreCheckOpLogTests: XCTestCase {
 
     func test_preCheck_readsOpLog_notStaleMd_renamePropagatesToStaleDoc() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("WikiPreCheck-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)

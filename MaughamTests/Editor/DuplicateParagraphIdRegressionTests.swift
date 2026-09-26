@@ -37,7 +37,7 @@ final class DuplicateParagraphIdRegressionTests: XCTestCase {
     // ~1.05M id space) and produced duplicate ids in the document. Post-fix
     // every id is unique.
     func test_largePaste_mintsUniqueIdsOnly() async throws {
-        let projectURL = FileManager.default.temporaryDirectory
+        let projectURL = TestTemp.root
             .appendingPathComponent("dup-id-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: projectURL) }
         try FileManager.default.createDirectory(

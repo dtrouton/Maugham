@@ -4,7 +4,7 @@ import XCTest
 @MainActor
 final class RenamePieceTests: XCTestCase {
     private func makeCollection() async throws -> (URL, ProjectStore) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RP-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(

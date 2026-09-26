@@ -6,7 +6,7 @@ final class CanvasRegionCodecTests: XCTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {
-        root = URL(fileURLWithPath: NSTemporaryDirectory())
+        root = TestTemp.root
             .appendingPathComponent("canvas-region-codec-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }

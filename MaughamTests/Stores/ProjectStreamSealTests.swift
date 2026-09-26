@@ -30,7 +30,7 @@ final class ProjectStreamSealTests: XCTestCase {
     }
 
     private func makeProject() throws -> URL {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("PROJ-SEAL-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

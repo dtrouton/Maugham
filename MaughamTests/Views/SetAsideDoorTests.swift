@@ -780,7 +780,7 @@ final class SetAsideDoorTests: XCTestCase {
     // MARK: - Fixtures
 
     private func makeProject() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("setaside-door-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: url.appendingPathComponent(".maugham/ops"),

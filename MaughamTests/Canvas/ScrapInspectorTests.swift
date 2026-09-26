@@ -18,7 +18,7 @@ final class ScrapInspectorTests: XCTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {
-        root = URL(fileURLWithPath: NSTemporaryDirectory())
+        root = TestTemp.root
             .appendingPathComponent("scrap-inspector-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }

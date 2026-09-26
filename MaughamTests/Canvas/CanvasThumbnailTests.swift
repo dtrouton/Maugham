@@ -51,7 +51,7 @@ final class CanvasThumbnailTests: XCTestCase {
     private static let sourceHeight = 1600
 
     override func setUpWithError() throws {
-        root = URL(fileURLWithPath: NSTemporaryDirectory())
+        root = TestTemp.root
             .appendingPathComponent("canvas-thumbnails-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent("canvas_assets"), withIntermediateDirectories: true)

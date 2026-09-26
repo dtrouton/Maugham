@@ -12,7 +12,7 @@ import MaughamCore
 final class RecoveredHistorySheetTests: XCTestCase {
 
     private func makeDocument(_ initialMd: String = "One.") async throws -> Document {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RecoveredHistorySheet-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)

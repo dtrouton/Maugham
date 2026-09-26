@@ -33,7 +33,7 @@ final class EditorIntegrationHarness {
         cursorLocation: Int? = nil
     ) {
         // Offscreen project directory.
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("EIH-\(UUID().uuidString)")
         try! FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)

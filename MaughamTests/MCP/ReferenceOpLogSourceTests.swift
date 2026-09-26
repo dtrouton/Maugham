@@ -19,7 +19,7 @@ final class ReferenceOpLogSourceTests: XCTestCase {
     // MARK: - list_all_links: closed doc must scan op log for [[wiki]] tokens
 
     func test_listAllLinks_closedDoc_usesOpLogNotStaleMd() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("ROLS-LAL-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -71,7 +71,7 @@ final class ReferenceOpLogSourceTests: XCTestCase {
     // MARK: - find_references: closed doc must scan op log for [[wiki]] refs
 
     func test_findReferences_closedDoc_usesOpLogNotStaleMd() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("ROLS-FR-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -124,7 +124,7 @@ final class ReferenceOpLogSourceTests: XCTestCase {
     // MARK: - list_scenes: closed doc must parse op log for scene headings
 
     func test_listScenes_closedDoc_usesOpLogNotStaleFountain() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("ROLS-LS-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

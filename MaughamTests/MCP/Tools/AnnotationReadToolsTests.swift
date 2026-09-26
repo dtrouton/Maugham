@@ -16,7 +16,7 @@ final class AnnotationReadToolsTests: XCTestCase {
     }
 
     private func makeHarness() async throws -> Harness {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("ART-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

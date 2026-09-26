@@ -18,7 +18,7 @@ final class MCPTasksTests: XCTestCase {
     }
 
     private func makeHarness(initialMd: String = "Hello.") async throws -> Harness {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("MCPT-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)

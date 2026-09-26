@@ -28,7 +28,7 @@ final class StarterTemplateDefectProbeTests: XCTestCase {
     override func setUp() async throws {
         // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
         try await TectonicProbe.requireReady()
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("StarterDefectProbe-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         projectURL = try await ProjectFactory.createNovelProject(named: "DefectProbe", in: tmp)

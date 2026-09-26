@@ -10,7 +10,7 @@ import MaughamCore
 final class DocumentToolsWordCountTests: XCTestCase {
 
     func test_readDocument_wordCount_excludesAnchorTokens() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("WCFresh-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

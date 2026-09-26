@@ -5,7 +5,7 @@ import MaughamCore
 @MainActor
 final class ResolveReferenceTests: XCTestCase {
     func test_resolveReference_bookmarkResolves_returnsURL() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RR-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let collection = try await ProjectFactory.createCollectionProject(
@@ -25,7 +25,7 @@ final class ResolveReferenceTests: XCTestCase {
     }
 
     func test_resolveReference_bookmarkFails_pathSucceeds_resolvesViaFallback() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RR-fb-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let collection = try await ProjectFactory.createCollectionProject(
@@ -48,7 +48,7 @@ final class ResolveReferenceTests: XCTestCase {
     }
 
     func test_resolveReference_bothFail_returnsUnresolved() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RR-un-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let collection = try await ProjectFactory.createCollectionProject(

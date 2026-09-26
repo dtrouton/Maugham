@@ -21,7 +21,7 @@ final class StyleFileProductionPathTests: XCTestCase {
     var pid: String!
 
     override func setUp() async throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("StyleFileProdPath-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         projectURL = try await ProjectFactory.createNovelProject(named: "Prod", in: tmp)

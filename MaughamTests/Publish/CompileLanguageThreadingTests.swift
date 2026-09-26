@@ -20,7 +20,7 @@ final class CompileLanguageThreadingTests: XCTestCase {
     var pid: String!
 
     override func setUp() async throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("CompileLang-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         projectURL = try await ProjectFactory.createNovelProject(named: "Lang", in: tmp)

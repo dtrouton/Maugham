@@ -695,7 +695,7 @@ final class CanvasLineGestureTests: XCTestCase {
     /// every unrelated ⌘Z.
     func test_undoingBackPastALineClearsAStaleLineSelection() {
         let model = CanvasModel()
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("canvas-line-select-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }

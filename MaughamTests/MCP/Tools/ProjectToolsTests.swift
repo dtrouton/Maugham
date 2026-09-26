@@ -5,7 +5,7 @@ import MaughamCore
 @MainActor
 final class ProjectToolsTests: XCTestCase {
     private func makeProject(title: String = "Demo") async throws -> (URL, ProjectStore) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("PT-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -85,7 +85,7 @@ extension ProjectToolsTests {
         legacyStatus: String?,
         reviewPasses: [ReviewPass] = []
     ) async throws -> (URL, ProjectStore) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("PT-rev-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -275,7 +275,7 @@ extension ProjectToolsTests {
 
 extension ProjectToolsTests {
     func test_listProjects_includesCollection() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("MCP-coll-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(
@@ -290,7 +290,7 @@ extension ProjectToolsTests {
     }
 
     func test_getOutline_Collection_returnsPiecesFlat() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("MCP-out-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(

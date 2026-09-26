@@ -290,7 +290,7 @@ final class ProjectASTAnchorTests: XCTestCase {
     /// (closed doc → `derivedCache`) and on a language edition, whose ids come
     /// from the translation deriver's entries.
     func test_projectStoreASTSource_handsParagraphsOnBothPaths() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("ASTAnchors-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }

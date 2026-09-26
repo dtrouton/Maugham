@@ -14,7 +14,7 @@ final class PublishingEndToEndTests: XCTestCase {
     override func setUp() async throws {
         // Reads the real premise: tectonic bundled AND its TeX bundle obtainable.
         try await TectonicProbe.requireReady()
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("PublishE2E-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         // ProjectFactory.createNovelProject installs the publish starter automatically.

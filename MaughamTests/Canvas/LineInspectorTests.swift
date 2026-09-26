@@ -22,7 +22,7 @@ final class LineInspectorTests: XCTestCase {
     private let l2 = CanvasLineID("l2")
 
     override func setUpWithError() throws {
-        root = URL(fileURLWithPath: NSTemporaryDirectory())
+        root = TestTemp.root
             .appendingPathComponent("line-inspector-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }

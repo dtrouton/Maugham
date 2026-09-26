@@ -978,7 +978,7 @@ final class CanvasRendererTests: XCTestCase {
     /// never decoded are both visible here.
     @MainActor
     func test_anItemNodeWithAPictureDrawsIt() async throws {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+        let root = TestTemp.root
             .appendingPathComponent("canvas-item-render-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let path = "canvas_assets/image-20260730-220430.png"

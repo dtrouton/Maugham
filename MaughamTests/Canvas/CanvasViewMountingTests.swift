@@ -200,7 +200,7 @@ class CanvasViewMountingCase: XCTestCase {
     }
 
     func makeRoot() throws -> URL {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("canvas-mount-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         roots.append(root)

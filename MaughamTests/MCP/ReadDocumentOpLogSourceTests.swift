@@ -23,7 +23,7 @@ final class ReadDocumentOpLogSourceTests: XCTestCase {
     }
 
     private func makeHarness(initialMd: String) async throws -> Harness {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RDOLS-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

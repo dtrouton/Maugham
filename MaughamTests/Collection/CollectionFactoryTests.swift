@@ -4,7 +4,7 @@ import XCTest
 @MainActor
 final class CollectionFactoryTests: XCTestCase {
     func test_createCollectionProject_createsPiecesDirectory() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("CF-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -23,7 +23,7 @@ final class CollectionFactoryTests: XCTestCase {
     }
 
     func test_createCollectionProject_manifestStructureEmpty() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("CF2-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }

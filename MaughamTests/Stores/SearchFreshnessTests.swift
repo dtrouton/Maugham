@@ -11,7 +11,7 @@ import MaughamCore
 final class SearchFreshnessTests: XCTestCase {
 
     func test_openDoc_unflushedEdit_isSearchable() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("SearchFresh-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

@@ -14,7 +14,7 @@ final class PieceStyleToolsTests: XCTestCase {
     var realPieceTitle: String!
 
     override func setUp() async throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("PieceStyleToolsTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         projectURL = try await ProjectFactory.createNovelProject(named: "T", in: tmp)

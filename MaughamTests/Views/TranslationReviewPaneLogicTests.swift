@@ -171,7 +171,7 @@ final class TranslationReviewPaneLogicTests: XCTestCase {
     /// translator's — one tombstone per id, in one batch, under the author's
     /// key (P1b).
     func test_purgeOrphans_emitsExactlyOneTombstonePerId_inOneBatch() async throws {
-        let dir = FileManager.default.temporaryDirectory
+        let dir = TestTemp.root
             .appendingPathComponent("TRP-purge-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -214,7 +214,7 @@ final class TranslationReviewPaneLogicTests: XCTestCase {
     }
 
     func test_purgeOrphans_roundTrip_purgedOrphanIsAbsentFromNextDerivation() async throws {
-        let dir = FileManager.default.temporaryDirectory
+        let dir = TestTemp.root
             .appendingPathComponent("TRP-purge-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }

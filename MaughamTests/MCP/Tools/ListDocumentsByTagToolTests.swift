@@ -5,7 +5,7 @@ import MaughamCore
 @MainActor
 final class ListDocumentsByTagToolTests: XCTestCase {
     private func makeProject() async throws -> (URL, ProjectStore, ProjectRegistry) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LDBT-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

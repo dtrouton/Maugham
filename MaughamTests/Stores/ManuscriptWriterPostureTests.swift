@@ -468,7 +468,7 @@ final class ManuscriptWriterPostureTests: XCTestCase {
     /// A book of three chapters — A, B and C — each mentioning Bob, and B and
     /// C each linking to A.
     private func makeThreePieceProject() throws -> URL {
-        let dir = FileManager.default.temporaryDirectory
+        let dir = TestTemp.root
             .appendingPathComponent("ManuscriptWriters-\(UUID().uuidString)")
         roots.append(dir)
         try FileManager.default.createDirectory(
