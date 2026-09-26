@@ -63,6 +63,29 @@ extension DocumentStore {
         enqueueClosedPass(only: ids)
     }
 
+    // MARK: - What counts
+
+    /// **The closed entries that count right now**: every entry whose document
+    /// is not open and whose piece the LIVE manifest still lists.
+    ///
+    /// Derived at read time rather than pruned at each removal site (fix round
+    /// 1): a local trash, a delete, a structural verb or an adopted manifest
+    /// all remove a piece by changing `projectStore.manifest`, so asking the
+    /// manifest here covers every one of them — including ones added later —
+    /// with no list of verbs to keep in step. A piece that comes back (Trash's
+    /// restore) counts again from the same entry until the next pass
+    /// refreshes it. With no project attached (a headless store, the moment of
+    /// open) there is no live manifest and nothing is filtered; each pass
+    /// prunes against the manifest on disk. In memory only — no disk.
+    func countedClosedProvenance(
+        excludingOpen openIds: Set<String>
+    ) -> [(docId: String, provenance: OpLogProvenance)] {
+        let listed = projectStore.map { Self.sweptDocIds(in: $0.manifest) }
+        return closedProvenance
+            .filter { !openIds.contains($0.key) && (listed?.contains($0.key) ?? true) }
+            .map { (docId: $0.key, provenance: $0.value) }
+    }
+
     // MARK: - The close / open / adoption moves
 
     /// A document leaving the registry takes its live provenance into the
@@ -202,7 +225,8 @@ extension DocumentStore {
     private func closedStrangerHolding() -> ClosedStrangerHolding {
         var counts: [String: Int] = [:]
         var streams: [String: Set<String>] = [:]
-        for (docId, provenance) in closedProvenance where document(forDocId: docId) == nil {
+        let openIds = Set(allOpenDocuments().map(\.docId))
+        for (_, provenance) in countedClosedProvenance(excludingOpen: openIds) {
             for (holder, count) in provenance.pendingStrangersByDevice where count > 0 {
                 counts[holder, default: 0] += count
             }

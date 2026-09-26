@@ -237,6 +237,59 @@ final class ClosedHeldLinesTests: XCTestCase {
         await store.close()
     }
 
+    // MARK: - A local removal (fix round 1)
+
+    /// The window's two stores, wired both ways as `ProjectWindow.load` wires
+    /// them — so the live manifest is the one a local structural verb edits.
+    private func openWindow() async throws -> (ProjectStore, DocumentStore) {
+        let project = try await ProjectStore.load(from: projectURL)
+        let store = try await DocumentStore.open(url: projectURL)
+        project.documentStore = store
+        store.projectStore = project
+        await settle(store)
+        return (project, store)
+    }
+
+    /// **Trashing an open chapter holding a stranger's span stops its count
+    /// at once**, with no pass run — every local removal edits the live
+    /// manifest, and the union asks it.
+    func test_trashingAnOpenChapterStopsItsCountWithNoSweep() async throws {
+        try await bootstrapTheBookAndCloseIt()
+        try await writeStrangerFile(opIds: ["02", "03"])
+        let (project, store) = try await openWindow()
+        let doc = try await Document.load(
+            url: docURL, actor: .author, session: "s", presenter: nil)
+        store.register(document: doc, for: path)
+        XCTAssertEqual(store.heldLinesByDevice()[stranger.fingerprint], 2)
+        let landed = store.closedPassesLandedForTesting
+
+        try await project.deleteStructureItem(id: docId)
+
+        XCTAssertEqual(store.closedPassesLandedForTesting, landed, "no pass ran")
+        XCTAssertNil(store.heldLinesByDevice()[stranger.fingerprint],
+                     "a trashed chapter's held lines are not waiting in this book")
+        XCTAssertNil(store.heldLines().waiting[stranger.fingerprint]?[docId])
+        await store.close()
+    }
+
+    /// The other direction: a chapter the live manifest still lists keeps its
+    /// count after it closes, with the project attached.
+    func test_aChapterTheLiveManifestStillListsKeepsItsCount() async throws {
+        try await bootstrapTheBookAndCloseIt()
+        try await writeStrangerFile(opIds: ["02", "03"])
+        let (_, store) = try await openWindow()
+        XCTAssertEqual(store.heldLinesByDevice()[stranger.fingerprint], 2,
+                       "swept while closed")
+        let doc = try await Document.load(
+            url: docURL, actor: .author, session: "s", presenter: nil)
+        store.register(document: doc, for: path)
+        await doc.close()
+        store.unregister(path: path)
+        XCTAssertEqual(store.heldLinesByDevice()[stranger.fingerprint], 2,
+                       "closed again and still listed: still counted")
+        await store.close()
+    }
+
     /// **A piece the manifest no longer lists does not count.**
     func test_aChapterTheManifestNoLongerListsStopsCounting() async throws {
         try await bootstrapTheBookAndCloseIt()

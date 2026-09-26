@@ -1417,10 +1417,10 @@ extension DocumentStore {
         let open = allOpenDocuments()
         let openIds = Set(open.map(\.docId))
         // **The closed half** (carry C4): the last sweep's answer for every
-        // document nobody has open. `startedAPiece` stays the open documents'
+        // document nobody has open and the live manifest still lists. `startedAPiece` stays the open documents'
         // — the walk records it on the load's carrier, which a sweep has not
         // got — so §4.5's question is still put when the piece is opened.
-        for (docId, provenance) in closedProvenance where !openIds.contains(docId) {
+        for (docId, provenance) in countedClosedProvenance(excludingOpen: openIds) {
             fold(provenance, docId: docId)
         }
         for document in open {
