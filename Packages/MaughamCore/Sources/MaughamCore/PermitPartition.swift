@@ -50,6 +50,17 @@ public enum PermitPartition {
     /// applied); refused→pending must never happen, which is why the answer is
     /// *a book author has written it*, a fact that only ever becomes more
     /// true.
+    ///
+    /// **The one exception, stated** (P3 closing smoke F1): a line refused
+    /// because the piece's recorded starter is somebody else
+    /// (`TrustTable.startedBySomebodyElse`) can return to pending — or, on her
+    /// Mac, applied — where that starter later becomes hers or unplaceable:
+    /// the root renames the starter's device to share her label, or the
+    /// starter's key becomes contested. Both are rare, deliberate acts, not
+    /// the ordinary sync path (a starter known only by its device record is
+    /// never refused, for exactly this reason). The words are never lost; the
+    /// cost is a stale `.lines` record whose Send to Inbox could duplicate
+    /// words that then apply.
     public enum UnownedPiece: Equatable, Hashable, Sendable {
         /// Nobody holding an author-of-the-whole-book permit has applied a
         /// manuscript-text line in this document — an opening (`bootstrap`)

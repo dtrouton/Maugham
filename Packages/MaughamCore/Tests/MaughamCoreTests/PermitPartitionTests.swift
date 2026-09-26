@@ -117,7 +117,9 @@ final class PermitPartitionTests: XCTestCase {
 
     /// The book: this Mac is the root, Sam's Mac is admitted, and `events` is
     /// whatever has happened to Sam's permit.
-    private func table(events: [PermitEvent] = []) -> TrustTable {
+    private func table(
+        events: [PermitEvent] = [], extraDevices: [DeviceRecord] = []
+    ) -> TrustTable {
         let registry = Registry(
             devices: [
                 DeviceRecord(
@@ -125,7 +127,7 @@ final class PermitPartitionTests: XCTestCase {
                     actors: [DeviceActor.author.rawValue: root],
                     madeAt: Date(timeIntervalSince1970: 1)),
                 samsDeviceRecord(),
-            ],
+            ] + extraDevices,
             people: [
                 PersonRecord(
                     person: root, label: "Denver", ownName: "Denver’s MacBook",
@@ -592,12 +594,13 @@ final class PermitPartitionTests: XCTestCase {
         XCTAssertEqual(held(theirs), ["herOpening"])
     }
 
-    /// **Guard 1 alone — the LINE must be this writer's.** On the root's Mac,
-    /// with the manifest naming HER device as the starter, the starter is hers
-    /// but this Mac is not: her line is held and the root is asked. (Review
-    /// M2's case — a manifest naming the root's own device — is now F1's, and
-    /// is refused below.)
-    func test_guardOneTheLineMustBeThisWritersOwn() throws {
+    /// **The root's Mac holds her line in a piece SHE started.** The line is
+    /// not this Mac's writer's, so Option A's own-Mac arm does not apply it
+    /// (guard 1 — and, relative to this device, guard 2 rejects it too, so
+    /// this does not isolate either guard): held, and the root is asked.
+    /// (Review M2's case — a manifest naming the root's own device — is now
+    /// F1's, and is refused below.)
+    func test_theRootsMacHoldsHerLineInAPieceSheStarted() throws {
         let trust = table(events: [samAuthorOf(["doc-hers"])])
         let result = partition(
             walk(try herOpeningFile(), trust: trust), class: .piece(docId),
@@ -695,10 +698,11 @@ final class PermitPartitionTests: XCTestCase {
         XCTAssertEqual(amendments.whoStartedAPiece, [samPerson])
     }
 
-    /// **A starter this register cannot name yet waits** — it may be her own
-    /// other Mac whose record has not synced, and a refusal made on a guess
-    /// would set her words aside. Held, as before the ruling; the ruling is
-    /// about a starter the register KNOWS is somebody else.
+    /// **A starter no record here names waits** — the NO-RECORD sub-case of
+    /// *cannot place yet* (the device-record-only sub-case is the next test).
+    /// It may be her own other Mac whose record has not synced, and a refusal
+    /// made on a guess would set her words aside. Held, as before the ruling;
+    /// the ruling is about a starter the register KNOWS is somebody else.
     func test_F1_aStarterThisRegisterCannotNameStillWaits() throws {
         let trust = table(events: [samAuthorOf(["doc-hers"])])
         let stranger = LocalIdentities.softwareForTesting()
@@ -707,6 +711,33 @@ final class PermitPartitionTests: XCTestCase {
             startedBy: stranger.author.deviceId)
         XCTAssertEqual(held(result), ["herOpening"])
         XCTAssertTrue(result.quarantined.isEmpty)
+    }
+
+    /// **A starter named ONLY by its own device record waits too** (fix round
+    /// 1, Important 1). Sam gets a second Mac; it opens the book (writing its
+    /// device record) and starts a piece; Sam writes in it from her first,
+    /// admitted Mac. Until the root admits the second Mac under "Sam", no
+    /// person record says whose it is — a stranger to this register, which
+    /// `starterStanding` calls `.unknown`. Refusing here would write a `.lines`
+    /// record that the admission then contradicts (refused→pending on the
+    /// ordinary path), so her line is held.
+    func test_F1_aStarterKnownOnlyByItsDeviceRecordStillWaits() throws {
+        let samsOtherMac = LocalIdentities.softwareForTesting()
+        let otherFingerprint = samsOtherMac.author.fingerprint
+        let deviceRecordOnly = DeviceRecord(
+            device: otherFingerprint, name: "Sam’s iMac", kind: .mac,
+            actors: [DeviceActor.author.rawValue: otherFingerprint],
+            madeAt: Date(timeIntervalSince1970: 6))
+        let trust = table(
+            events: [samAuthorOf(["doc-hers"])], extraDevices: [deviceRecordOnly])
+        XCTAssertEqual(trust.starterStanding(samsOtherMac.author.deviceId), .unknown,
+                       "the premise: a device record alone places nobody")
+        let (result, amendments) = partitionRecording(
+            walk(try herOpeningFile(), trust: trust), trust: trust,
+            startedBy: samsOtherMac.author.deviceId)
+        XCTAssertEqual(held(result), ["herOpening"])
+        XCTAssertTrue(result.quarantined.isEmpty, "not refused on a guess")
+        XCTAssertEqual(amendments.whoStartedAPiece, [samPerson])
     }
 
     /// **A *Theirs* the root already gave stands.** *Theirs* is a signed

@@ -948,14 +948,23 @@ public struct TrustTable: Equatable, Sendable {
     /// refused rather than held.
     ///
     /// The same forwards match as `isAStarter`, and the other half of it: a
-    /// starter this register cannot name (its record has not synced, a
-    /// contested key, an id that is not a writer's hand) answers FALSE — it
-    /// may yet be her own other Mac, and a refusal made on a guess would set
-    /// her words aside, so such a line keeps waiting.
+    /// starter this register cannot yet PLACE answers FALSE — it may be her
+    /// own other Mac, and a refusal made on a guess would set her words
+    /// aside, so such a line keeps waiting. *Cannot place* is
+    /// `starterStanding`'s `.unknown`, asked rather than restated (one
+    /// classifier): an id no record names, a contested or non-author key, and
+    /// a device named ONLY by its own device record — a stranger, another
+    /// root's member, a Mac on no chain. A device writes its record at open,
+    /// long before the root's person record for it exists or syncs, and until
+    /// then it has no label to share with her; judging it *somebody else*
+    /// would refuse her lines and then re-admit them as the admission lands
+    /// (fix round 1, Important 1). Only a starter this register has placed —
+    /// mine, admitted, revoked or retired — can be somebody else.
     nonisolated public func startedBySomebodyElse(
         _ deviceId: String, thanTheWriterOf fingerprint: String
     ) -> Bool {
-        guard let key = starterKey(deviceId) else { return false }
+        guard starterStanding(deviceId) != .unknown,
+              let key = starterKey(deviceId) else { return false }
         return !sameWriter(key, fingerprint)
     }
 
