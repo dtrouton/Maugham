@@ -108,14 +108,16 @@ public enum TrustEventSentence {
             // what the two cases share and what each is waiting for.
             // **Paragraphs only come back** (Denver's I2 ruling, 2026-09-23):
             // §7.4's door captures a held span's paragraphs and nothing else,
-            // so a note that stream wrote has no way back — said here as
-            // `HeldLines.sentence(.unsigned)` says it.
+            // so a note, a task or anything else that stream wrote has no
+            // way back — said here as `HeldLines.sentence(.unsigned)` says it
+            // (whole-branch re-review N4: not *its notes*, which left its
+            // tasks and other changes unsaid).
             return "This book was narrowed while nothing in it said who signs "
                 + "for \u{201C}\(stream)\u{201D}. Anything that stream has "
                 + "written since is waiting \u{2014} for its Mac\u{2019}s "
                 + "first signed change to sync here, or, if it signs nothing, "
-                + "for its paragraphs to be sent to the Inbox; its notes stay "
-                + "held, with no way back."
+                + "for its paragraphs to be sent to the Inbox; everything else "
+                + "it wrote stays held, with no way back."
         }
     }
 

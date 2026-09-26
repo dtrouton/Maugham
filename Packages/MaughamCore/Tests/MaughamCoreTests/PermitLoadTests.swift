@@ -3086,6 +3086,39 @@ final class PermitLoadTests: XCTestCase {
         XCTAssertNil(assistant.unsettledStarter)
         XCTAssertNotNil(permit(on: rootsMac).unsettledStarter, "control")
     }
+
+    /// **Not the root's alone** (whole-branch re-review N3): a whole-book
+    /// co-author who is NOT the root — and who is never asked the *Theirs*
+    /// question — carries the fact on her own Mac, because her keystroke
+    /// claims Sam's piece exactly as the root's would.
+    func test_aWholeBookCoAuthorsMacCarriesTheFactToo() async throws {
+        try samIsAnAuthorOfSomePieces()
+        let ada = LocalIdentities.softwareForTesting()
+        try RegistryWriter.write(
+            PersonRecord(
+                person: ada.author.fingerprint, label: "Ada", ownName: "Ada’s Mac",
+                admittedAt: Date(timeIntervalSince1970: 22), admittedBy: rootPerson),
+            signedBy: root.author, in: projectURL)
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: ada.author.fingerprint, name: "Ada’s Mac", kind: .mac,
+                actors: [DeviceActor.author.rawValue: ada.author.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 8)),
+            signedBy: ada.author, in: projectURL)
+        try RegistryWriter.write(
+            PermitEvent(
+                event: "\(ada.author.fingerprint).a", kind: .admitted,
+                subject: ada.author.fingerprint, role: Permit.authorRole,
+                scope: Permit.bookScope, pieces: [], mark: [:],
+                at: Date(timeIntervalSince1970: 42), by: rootPerson),
+            signedBy: root.author, in: projectURL)
+        try writeManifest(startedBy: sam.author.deviceId)
+
+        let adas = permit(on: mac(ada, "ada-mac"))
+        XCTAssertEqual(adas.allows(.op(.typingBurst)), .yes, "premise: the whole book")
+        XCTAssertEqual(adas.unsettledStarter,
+                       .init(deviceId: sam.author.deviceId, name: "Sam"))
+    }
 }
 
 private extension JSONEncoder {

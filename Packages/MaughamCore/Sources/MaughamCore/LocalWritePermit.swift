@@ -97,6 +97,12 @@ public struct LocalWritePermit: Equatable, Sendable {
             self.deviceId = deviceId
             self.name = name
         }
+
+        /// **What a yield to them calls them** — `name`, else, for a device
+        /// whose record has not synced here, what it is. The one spelling on
+        /// both surfaces (the Mac's standing line, the phone's refusal —
+        /// tripwire 19).
+        public var yieldName: String { name ?? "Somebody else" }
     }
 
     public init(

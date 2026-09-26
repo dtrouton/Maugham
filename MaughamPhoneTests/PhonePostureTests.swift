@@ -56,7 +56,17 @@ final class PhonePostureTests: XCTestCase {
             offers: [.accept, .reject, .reopenAndRevert]),
         Row(name: "not yet answered",
             posture: PhonePosture.unanswered, offers: []),
+        // Ruling W: a book author in a piece somebody else started that nobody
+        // has claimed — a lock on the phone, which has no Edit Anyway.
+        Row(name: "a book author, yielding to a piece's starter",
+            posture: yieldingToItsStarter, offers: []),
     ]
+
+    private static let yieldingToItsStarter = PostureDoor.posture(
+        permit: LocalWritePermit(
+            permit: .bookAuthor, actor: .author, documentClass: .piece("doc-sams"),
+            unsettledStarter: .init(deviceId: "sams-mac", name: "Sam")),
+        yieldingTo: "Sam")
 
     // MARK: - Verbs
 
@@ -146,6 +156,16 @@ final class PhonePostureTests: XCTestCase {
             XCTAssertTrue(sentence.contains(why), sentence)
             XCTAssertTrue(sentence.hasSuffix("so nothing was written."), sentence)
         }
+    }
+
+    /// Ruling W: the starter's yield names her, says nothing was written, and
+    /// says where the piece is settled — the phone has no *Edit Anyway*.
+    func test_aRefusalInAPieceSomebodyElseStartedSaysToSettleItFromTheMac() {
+        XCTAssertEqual(Self.yieldingToItsStarter.reason, .yieldingToItsStarter("Sam"))
+        XCTAssertEqual(
+            PhonePosture.refusal(.reject, under: Self.yieldingToItsStarter),
+            "Sam started this piece and it isn\u{2019}t settled whose it is yet, "
+                + "so nothing was written \u{2014} settle it from your Mac.")
     }
 
     // MARK: - The cache is per load, and a perform re-asks
@@ -298,6 +318,131 @@ final class PhonePostureRoundTripTests: XCTestCase {
         let registered = await phone(book.samPhone, PhoneNarrowedBook.docId)
         XCTAssertEqual(verbs(registered), Set(PhonePosture.Verb.allCases),
                        "a register nobody is narrowed in")
+    }
+
+    // MARK: - Ruling W: a piece somebody else started is locked on the phone
+
+    /// The Mac-written narrowed book of Ruling U: Sam (both devices) an author
+    /// of the second piece alone, and the first piece STARTED on Sam's Mac —
+    /// her opening its only text, nobody's claim on it — holding Kim's note.
+    private func samsUnclaimedPieceWithANote() throws -> Annotation {
+        try book.writeRegister()
+        for who in [book.samMac, book.samPhone] {
+            try RegistryWriter.write(
+                PermitEvent(
+                    event: "\(who.fingerprint).01", kind: .admitted,
+                    subject: who.fingerprint, role: Permit.authorRole,
+                    scope: Permit.piecesScope, pieces: [Self.secondDoc], mark: [:],
+                    at: Date(timeIntervalSince1970: 40), by: book.root.author.fingerprint),
+                signedBy: book.root.author, in: book.projectURL)
+        }
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(timeIntervalSince1970: 1), modified: Date(timeIntervalSince1970: 1),
+            structure: [
+                StructureItem(id: PhoneNarrowedBook.docId, title: "C1",
+                              type: .document, path: "manuscript/c1.md",
+                              startedBy: book.samMac.deviceId),
+                StructureItem(id: Self.secondDoc, title: "C2",
+                              type: .document, path: "manuscript/c2.md"),
+            ],
+            research: [])
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        try enc.encode(manifest).write(
+            to: book.projectURL.appendingPathComponent(ProjectManifest.fileName))
+
+        let opening = Op(
+            opId: "01SAMOPENING00000000000000", docId: PhoneNarrowedBook.docId,
+            at: Date(timeIntervalSince1970: 90), device: book.samMac.deviceId,
+            session: "s", kind: .typingBurst,
+            changes: [.init(paragraphId: PhoneNarrowedBook.paragraphId, prior: nil,
+                            next: PhoneNarrowedBook.paragraphText)],
+            sequence: [PhoneNarrowedBook.paragraphId])
+        let note = book.note("01KIMA", by: book.kim, kind: .claudeSuggestion,
+                             next: "The sun sank over the harbour.")
+        try book.writeFile(by: book.samMac, ops: [opening])
+        try book.writeFile(by: book.kim, ops: [note])
+        return try XCTUnwrap(AnnotationLoading.allAnnotations(
+            ops: [opening, note], amendments: .honourEverything).first)
+    }
+
+    private var denversPhoneFile: URL {
+        OpLogStore.opLogFileURL(
+            forDocId: PhoneNarrowedBook.docId, deviceSlug: book.denverPhone.slug,
+            in: book.projectURL)
+    }
+
+    /// **The root's phone in a piece Sam started that nobody has claimed**
+    /// (Ruling W). Accept, Reject and Reopen & Revert write manuscript-text
+    /// lines, and one from a book author there claims the piece and sets
+    /// Sam's words aside on every Mac — so the phone draws none of them, a
+    /// forced press writes nothing and says why, and the note can still be
+    /// settled once the root answers *Theirs* on a Mac.
+    func test_aBookAuthorsPhoneOffersNoDispositionInAPieceSomebodyElseStarted()
+        async throws
+    {
+        let note = try samsUnclaimedPieceWithANote()
+        let url = book.projectURL
+        let load = countingLoad(book.denverPhone, Counts())
+
+        let locked = await load.posture(forDocId: PhoneNarrowedBook.docId, in: url)
+        XCTAssertEqual(locked.reason, .yieldingToItsStarter("Sam"))
+        XCTAssertEqual(PhonePosture.openNoteVerbs(under: locked), [])
+        XCTAssertNil(PhonePosture.reopenVerb(for: .accepted, under: locked),
+                     "no Reopen & Revert")
+        XCTAssertTrue(PhonePosture.offersCapture(under: locked))
+        XCTAssertTrue(locked.allows(.annotate), "notes are everybody's")
+        // Her other piece — not started by anybody else — is the book's as today.
+        let unstarted = await load.posture(forDocId: Self.secondDoc, in: url)
+        XCTAssertEqual(verbs(unstarted), Set(PhonePosture.Verb.allCases))
+
+        // A press that got past the drawn verbs (drawn before the manifest
+        // synced): refused, said, and nothing written.
+        let writer = AnnotationWriter(
+            projectRoot: url, docId: PhoneNarrowedBook.docId,
+            identity: book.denverPhone, appVersion: "0.1.0", osVersion: "iOS 27")
+        for verb in [PhonePosture.Verb.reject, .accept] {
+            var wrote = false
+            let outcome = try await load.perform(
+                verb, forDocId: PhoneNarrowedBook.docId, in: url
+            ) {
+                wrote = true
+                try await writer.reject(note, reason: "Not this one.")
+            }
+            XCTAssertFalse(wrote, "\(verb)")
+            XCTAssertEqual(outcome.posture.reason, .yieldingToItsStarter("Sam"))
+            XCTAssertTrue(
+                outcome.refusal?.contains("settle it from your Mac") == true,
+                outcome.refusal ?? "no refusal")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: denversPhoneFile.path),
+                       "the phone wrote no line")
+
+        // The root answers Theirs on a Mac: the piece joins Sam's scope, and
+        // the phone offers the note's verbs again.
+        for who in [book.samMac, book.samPhone] {
+            try RegistryWriter.write(
+                PermitEvent(
+                    event: "\(who.fingerprint).02", kind: .scopeChanged,
+                    subject: who.fingerprint, role: Permit.authorRole,
+                    scope: Permit.piecesScope,
+                    pieces: [Self.secondDoc, PhoneNarrowedBook.docId], mark: [:],
+                    at: Date(timeIntervalSince1970: 60), by: book.root.author.fingerprint),
+                signedBy: book.root.author, in: url)
+        }
+        load.refresh()
+        let settled = await load.posture(forDocId: PhoneNarrowedBook.docId, in: url)
+        XCTAssertNil(settled.reason)
+        XCTAssertEqual(verbs(settled), Set(PhonePosture.Verb.allCases))
+        let outcome = try await load.perform(
+            .reject, forDocId: PhoneNarrowedBook.docId, in: url
+        ) {
+            try await writer.reject(note, reason: "Not this one.")
+        }
+        XCTAssertNil(outcome.refusal)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: denversPhoneFile.path),
+                      "after Theirs the reject is written")
     }
 
     /// A counting load over one device's own store: how many stores it made

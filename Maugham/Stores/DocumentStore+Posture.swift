@@ -200,7 +200,7 @@ extension DocumentStore {
         if actor == .author, let starter = permit.unsettledStarter,
            !book.overridden.contains(postureYieldPiece(forDocId: docId) ?? docId) {
             return PostureDoor.posture(
-                permit: permit, yieldingTo: Self.starterName(starter))
+                permit: permit, yieldingTo: starter.yieldName)
         }
         guard actor == .author, !book.yields.isEmpty,
               let piece = postureYieldPiece(forDocId: docId),
@@ -208,13 +208,6 @@ extension DocumentStore {
               let yielding = book.yields[piece]
         else { return PostureDoor.posture(permit: permit) }
         return PostureDoor.posture(permit: permit, yieldingTo: yielding)
-    }
-
-    /// **What the standing line calls a piece's starter** — the register's
-    /// label or four-character code (`LocalWritePermit.UnsettledStarter.name`),
-    /// else, for a device whose record has not synced here, what it is.
-    static func starterName(_ starter: LocalWritePermit.UnsettledStarter) -> String {
-        starter.name ?? "Somebody else"
     }
 
     /// The piece a document is about, by its CLASS — the piece itself, or its

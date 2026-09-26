@@ -214,6 +214,21 @@ final class HeldLinesTests: XCTestCase {
                 + "just hasn’t synced here, this changes when it does; if it signs "
                 + "nothing, its paragraph is brought back from History; its notes "
                 + "and other changes stay held, with no way back.")
+        // Changes alone — a task, or prose naming no paragraph — say no
+        // *other* (N4), and a paragraph beside them does.
+        XCTAssertEqual(
+            say(HeldLines.Waiting(prose: 1, anonymousProse: 1, other: 1), notes: 2),
+            "2 changes are waiting from \(HeldLines.unsignedWriter). If that Mac’s "
+                + "first signed change just hasn’t synced here, this changes when it "
+                + "does; if it signs nothing, its changes stay held, with no way back "
+                + "— only paragraphs come back, through the Inbox.")
+        XCTAssertEqual(
+            say(HeldLines.Waiting(paragraphIds: ["aaaa"], prose: 1, other: 1), notes: 2),
+            "1 paragraph and 1 change are waiting from \(HeldLines.unsignedWriter). "
+                + "If that Mac’s first signed change just hasn’t synced here, this "
+                + "changes when it does; if it signs nothing, its paragraph can be "
+                + "brought back through the Inbox; its other change stays held, "
+                + "with no way back.")
         // The capture stream holds no ops: the kinds are unknown, so both
         // halves are said.
         XCTAssertEqual(

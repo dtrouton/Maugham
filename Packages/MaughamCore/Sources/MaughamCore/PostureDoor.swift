@@ -44,11 +44,32 @@ public enum PostureDoor {
         posture(permit: store.localWritePermit(as: actor, documentClass: documentClass))
     }
 
+    /// **A surface with no *Edit Anyway*** — the phone (P3c plan 2 fix wave,
+    /// Ruling W). The posture for `docId` as `posture(forDocId:in:as:using:)`
+    /// answers it, except that wherever the permit carries
+    /// `unsettledStarter` (somebody else started the piece and nobody has
+    /// claimed it) it YIELDS to the starter, and — with no override to lift
+    /// it — the yield is a lock: every verb but `annotate` refused until the
+    /// piece is settled on a Mac. The fact is the permit's, decided once by
+    /// `OpLogStore.localWritePermit`; this entry only hands its name to
+    /// `posture(permit:yieldingTo:)`, exactly as the Mac's door does.
+    @MainActor
+    public static func postureYieldingToItsStarter(
+        forDocId docId: String, in projectURL: URL,
+        as actor: DeviceActor = .author, using store: OpLogStore
+    ) -> Posture {
+        let permit = store.localWritePermit(as: actor) {
+            OpLogStore.documentClass(forDocId: docId, in: projectURL)
+        }
+        return posture(permit: permit, yieldingTo: permit.unsettledStarter?.yieldName)
+    }
+
     /// **The one place a `LocalWritePermit` becomes a `Posture`.** `yieldingTo`
     /// is a name the caller has already decided on; nil everywhere but the
-    /// Mac's root yielding to a piece's owner, and a book author's Mac
-    /// yielding to a piece's starter (Ruling U — the fact is the permit's
-    /// `unsettledStarter`; the yield, and its *Edit Anyway*, are the Mac's).
+    /// Mac's root yielding to a piece's owner, and a book author yielding to
+    /// a piece's starter (Ruling U — the fact is the permit's
+    /// `unsettledStarter`; on the Mac the yield carries *Edit Anyway*, and on
+    /// the phone, which has none, it is a lock — Ruling W).
     public static func posture(
         permit: LocalWritePermit, yieldingTo: String? = nil
     ) -> Posture {

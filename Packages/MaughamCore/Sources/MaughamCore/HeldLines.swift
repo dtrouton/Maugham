@@ -304,11 +304,16 @@ public enum HeldLines {
                 + "stay held, with no way back."
         }
         let changes = what.other + (what.paragraphs == 0 ? what.prose : what.anonymousProse)
+        // *Other* only beside something it is other than — a paragraph or a
+        // note already said (whole-branch re-review N4: changes alone read
+        // *its other changes* with nothing before them).
+        let other = what.paragraphs > 0 ? "other " : ""
         let rest: String?
         switch (what.notes > 0, changes > 0) {
         case (true, true): rest = "its notes and other changes stay"
         case (true, false): rest = what.notes == 1 ? "its note stays" : "its notes stay"
-        case (false, true): rest = changes == 1 ? "its other change stays" : "its other changes stay"
+        case (false, true):
+            rest = changes == 1 ? "its \(other)change stays" : "its \(other)changes stay"
         case (false, false): rest = nil
         }
         guard what.paragraphs > 0 else {

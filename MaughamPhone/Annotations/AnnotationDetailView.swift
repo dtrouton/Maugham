@@ -575,8 +575,8 @@ struct AnnotationDetailView: View {
     ///
     /// **It re-asks the posture before writing** (P3c plan 2, Task 6): the
     /// verb was drawn under the answer this view had, and the Mac may have
-    /// changed her permit since. A settled answer, fresh from the door; a
-    /// refusal is said, and nothing is written.
+    /// changed her permit since. A settled answer, fresh from the door
+    /// (`PhonePosture.perform`); a refusal is said, and nothing is written.
     private func runWrite(
         _ verb: PhonePosture.Verb,
         _ body: (AnnotationWriter) async throws -> Void
@@ -584,14 +584,17 @@ struct AnnotationDetailView: View {
         guard !resolving else { return }
         resolving = true
         defer { resolving = false }
-        let now = await postures.askAgain(forDocId: docId, in: projectURL)
-        posture = now
-        guard PhonePosture.offers(verb, under: now) else {
-            errorMessage = PhonePosture.refusal(verb, under: now)
-            return
-        }
         do {
-            try await body(makeWriter())
+            let outcome = try await postures.perform(
+                verb, forDocId: docId, in: projectURL
+            ) {
+                try await body(makeWriter())
+            }
+            posture = outcome.posture
+            if let refusal = outcome.refusal {
+                errorMessage = refusal
+                return
+            }
             didResolveHere = true
             onResolved()   // tell the list to reload so this item leaves the open set
             dismiss()

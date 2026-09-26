@@ -29,6 +29,16 @@ import MaughamCore
 ///   every permit contains, and `Posture` has no capture verb on purpose; the
 ///   Capture tab never asks this type (`TripwirePhoneGrepTest` keeps it so).
 ///
+/// **A piece somebody else started that nobody has claimed is LOCKED here**
+/// (P3c plan 2 fix wave, Ruling W). Accept, Reject and Reopen & Revert write
+/// manuscript-text lines (`claudeAccept`/`claudeReject`/`claudeAcceptRevert`),
+/// and a book author's manuscript-text line in such a piece claims it and sets
+/// its starter's words aside on every Mac (§4.5) — even a Reject that changes
+/// nothing. The Mac yields there with *Edit Anyway*; the phone has no *Edit
+/// Anyway*, so it asks Core's `PostureDoor.postureYieldingToItsStarter`, which
+/// yields wherever the permit carries `unsettledStarter` and leaves only
+/// `annotate` — the piece is settled from a Mac.
+///
 /// **Hide, don't disable.** A refused verb is not drawn. And because a posture
 /// can change between drawing a verb and pressing it — the Mac narrowed her
 /// while the note sat open — each perform re-asks through `settled(…)` before
@@ -43,7 +53,8 @@ final class PhonePosture {
     /// `OpLogStore.prepareTrust`; a test counts it.
     typealias Prepare = @MainActor (_ store: OpLogStore) async -> Void
     /// Asks the door, on a store whose table is warm. Production is
-    /// `PostureDoor.posture(forDocId:in:using:)`; a test injects answers.
+    /// `PostureDoor.postureYieldingToItsStarter(forDocId:in:using:)` (Ruling
+    /// W); a test injects answers.
     typealias Ask = @MainActor (_ docId: String, _ projectURL: URL, _ store: OpLogStore) -> Posture
 
     private struct Key: Hashable {
@@ -70,7 +81,8 @@ final class PhonePosture {
         makeStore: @escaping MakeStore = { OpLogStore(projectURL: $0) },
         prepare: @escaping Prepare = { await $0.prepareTrust() },
         ask: @escaping Ask = { docId, projectURL, store in
-            PostureDoor.posture(forDocId: docId, in: projectURL, using: store)
+            PostureDoor.postureYieldingToItsStarter(
+                forDocId: docId, in: projectURL, using: store)
         }
     ) {
         self.makeStore = makeStore
@@ -108,6 +120,24 @@ final class PhonePosture {
         return answer
     }
 
+    /// **The perform door** (Ruling W): re-ask (`askAgain`), and run `write`
+    /// only where that settled answer offers `verb`. A refusal is returned as
+    /// its sentence (`refusal(_:under:)`) and nothing is written. The detail
+    /// view's every write passes here, so what a press may write is decided
+    /// off the same answer the verbs are drawn from — pinned on real disk
+    /// without a window (tripwire 33).
+    func perform(
+        _ verb: Verb, forDocId docId: String, in projectURL: URL,
+        write: () async throws -> Void
+    ) async rethrows -> (posture: Posture, refusal: String?) {
+        let now = await askAgain(forDocId: docId, in: projectURL)
+        guard Self.offers(verb, under: now) else {
+            return (now, Self.refusal(verb, under: now))
+        }
+        try await write()
+        return (now, nil)
+    }
+
     /// **Forget what this load knows** — the answers, and every store's
     /// table — so the next ask resolves the register afresh. The foreground
     /// return (C5) calls it: the phone has no file presenter, and a change
@@ -143,7 +173,8 @@ final class PhonePosture {
         forDocId docId: String, in projectURL: URL, using store: OpLogStore
     ) async -> Posture {
         await store.prepareTrust()
-        return PostureDoor.posture(forDocId: docId, in: projectURL, using: store)
+        return PostureDoor.postureYieldingToItsStarter(
+            forDocId: docId, in: projectURL, using: store)
     }
 
     // MARK: - The verbs (pure)
@@ -218,10 +249,10 @@ final class PhonePosture {
         case .yielding(let name):
             why = "This piece is \(name)\u{2019}s to settle"
         case .yieldingToItsStarter(let name):
-            // Never drawn on the phone today (the yield is the Mac window's),
-            // but the switch is exhaustive and the words are true.
-            why = "\(name) started this piece and it isn\u{2019}t settled "
-                + "whose it is yet"
+            // Ruling W: a lock on the phone, which has no *Edit Anyway*.
+            return "\(name) started this piece and it isn\u{2019}t settled "
+                + "whose it is yet, so nothing was written \u{2014} settle it "
+                + "from your Mac."
         case nil:
             why = "What you may do in this book is still being read"
         }
