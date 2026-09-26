@@ -1052,6 +1052,16 @@ Controller rulings made on Denver's behalf (confirm):
 - `restoreStanding`'s double mirror walk wants a per-derive memo if the
   Deleted section grows long (Minor 3; the ledger's T8 item, below).
 
+**From the final targeted fix's re-review (Ruling W)**:
+- The phone's detail view sets its posture after the write, so a write that
+  throws can leave a verb drawn that the fresh answer refuses. Pressing it is
+  still refused, so only the drawing is wrong (`AnnotationDetailView`
+  ~:589–593). The fix is to assign the posture before the write, or to state
+  the limit.
+- `PostureDoor.swift`'s header still says the door decides nothing about
+  yields and lists two entries. `postureYieldingToItsStarter` now decides the
+  starter yield in Core, and there are three entries.
+
 **Deferred minors worth doing** (from the ledger):
 - `Permit.refused` names a refused reopen *other* for the translator and
   maugham actors.
