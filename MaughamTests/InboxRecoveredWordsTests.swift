@@ -19,7 +19,7 @@ final class InboxRecoveredWordsTests: XCTestCase {
     private var cache: RegistryCache!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("inbox-recovered-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/inbox"),
@@ -28,7 +28,7 @@ final class InboxRecoveredWordsTests: XCTestCase {
             at: projectURL.appendingPathComponent(".maugham/ops"),
             withIntermediateDirectories: true)
         identity = .softwareForTesting()
-        cacheURL = FileManager.default.temporaryDirectory
+        cacheURL = TestTemp.root
             .appendingPathComponent("inbox-recovered-cache-\(UUID().uuidString).json")
         cache = RegistryCache(fileURL: cacheURL, identity: identity.fingerprint)
     }

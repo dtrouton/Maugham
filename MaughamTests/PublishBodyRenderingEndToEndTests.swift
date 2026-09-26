@@ -12,7 +12,7 @@ final class PublishBodyRenderingEndToEndTests: XCTestCase {
     var tmp: URL!
 
     override func setUp() async throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("PublishBodyE2E-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try await PublishStarter.install(into: tmp, force: false)

@@ -31,7 +31,7 @@ final class DiagnosticsStoreTests: XCTestCase {
     }
 
     private func makeProject() throws -> URL {
-        let tmp = track(FileManager.default.temporaryDirectory
+        let tmp = track(TestTemp.root
             .appendingPathComponent("DiagnosticsStore-\(UUID())"))
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         return tmp

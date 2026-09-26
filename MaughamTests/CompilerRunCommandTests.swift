@@ -179,7 +179,7 @@ final class CompilerRunCommandTests: XCTestCase {
     }
 
     private func makeProjectRoot() throws -> URL {
-        let root = track(FileManager.default.temporaryDirectory
+        let root = track(TestTemp.root
             .appendingPathComponent("CompilerRunCommand-\(UUID())"))
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root

@@ -20,7 +20,7 @@ final class TaskRewindTests: XCTestCase {
     private func makeDocument(
         initialMd: String = "Hello."
     ) async throws -> Document {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("TaskRewindTest-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

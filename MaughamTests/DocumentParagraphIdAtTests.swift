@@ -19,7 +19,7 @@ final class DocumentParagraphIdAtTests: XCTestCase {
     /// `resolveProjectURL` falls back to `tmp/` (2 levels up from the .md),
     /// giving each test an isolated `.maugham/` sidecar directory.
     private func makeDoc(text: String) async throws -> Document {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("PIDAt-\(UUID().uuidString)")
         let manuscriptDir = tmp.appendingPathComponent("manuscript")
         try FileManager.default.createDirectory(

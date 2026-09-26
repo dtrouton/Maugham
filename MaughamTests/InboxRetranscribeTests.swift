@@ -9,7 +9,7 @@ import MaughamCore
 final class InboxRetranscribeTests: XCTestCase {
 
     private func makeProject() throws -> URL {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("retx-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent(".maugham/inbox"),

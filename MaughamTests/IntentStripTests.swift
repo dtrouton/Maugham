@@ -473,7 +473,7 @@ final class IntentStripTests: XCTestCase {
     func test_theMarkFollowsWhicheverVerbJudgedTheIntentLast() throws {
         let intent = "Cold, and never wistful."
         let store = DiagnosticsStore(
-            projectRoot: FileManager.default.temporaryDirectory
+            projectRoot: TestTemp.root
                 .appendingPathComponent("IntentStripSlots-\(UUID())"),
             device: DeviceSlug.make(from: "test-mac"))
         let docId = "docMarkSlots"

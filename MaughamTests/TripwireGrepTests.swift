@@ -283,7 +283,7 @@ final class TripwireGrepTests: XCTestCase {
     /// catches the code line and lets the comment line through.
     func test_noSkipsHiddenFilesInProductionScans_seesAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-hidden-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -415,7 +415,7 @@ final class TripwireGrepTests: XCTestCase {
     /// match nothing. A planted file carrying each spelling is caught.
     func test_theToolchainCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-toolchain-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -492,7 +492,7 @@ final class TripwireGrepTests: XCTestCase {
     /// that are NOT uses — the declaration and a comment naming it — are not.
     func test_thePasslessEditorNameCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-passless-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -669,7 +669,7 @@ final class TripwireGrepTests: XCTestCase {
     /// matches nothing. A planted flag is caught; a comment naming it is not.
     func test_theIsCoachCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-iscoach-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -695,7 +695,7 @@ final class TripwireGrepTests: XCTestCase {
     /// a comment naming either value is not.
     func test_theTwoReaderCensusesFireOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-two-readers-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -783,7 +783,7 @@ final class TripwireGrepTests: XCTestCase {
     /// the call is not.
     func test_theRunKindMintCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-runkind-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -857,7 +857,7 @@ final class TripwireGrepTests: XCTestCase {
     /// that are NOT calls — the declaration and a comment naming it — are not.
     func test_theResearchNoteCallerCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-research-note-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -1006,7 +1006,7 @@ final class TripwireGrepTests: XCTestCase {
     /// neither a `.intent` call beside it nor a comment naming the verb is.
     func test_theLessonsLedgerCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-lessons-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -1047,7 +1047,7 @@ final class TripwireGrepTests: XCTestCase {
     /// anchored only `rule(` and `edit(`, so it would have sailed through.
     func test_theLessonsLedgerCensusCatchesARevokeToo() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-lessons-revoke-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -1141,7 +1141,7 @@ final class TripwireGrepTests: XCTestCase {
     /// the verb and a call of the PLURAL one through.
     func test_theSingleRecordPermitVerbCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-permitverb-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -1207,7 +1207,7 @@ final class TripwireGrepTests: XCTestCase {
     /// is.
     func test_theFirstReaderCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-firstreader-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -1249,7 +1249,7 @@ final class TripwireGrepTests: XCTestCase {
     /// `rule(` alone would sail past both.
     func test_theFirstReaderCensusCatchesARevokeAndAnEditToo() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-firstreader-revoke-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -1369,7 +1369,7 @@ final class TripwireGrepTests: XCTestCase {
     /// exemption shape is.
     func test_theProcessSignalsCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-process-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(
             at: tmp.appendingPathComponent("statistics"), withIntermediateDirectories: true)
@@ -1449,7 +1449,7 @@ final class TripwireGrepTests: XCTestCase {
     /// comment naming the property is not.
     func test_theStageWordCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-laneword-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -1572,7 +1572,7 @@ final class TripwireGrepTests: XCTestCase {
     /// neither the honest `try` beside them nor a comment naming the verb is.
     func test_theTranslationReadCensusFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-translationread-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -1616,7 +1616,7 @@ final class TripwireGrepTests: XCTestCase {
     /// silently never matches).
     func test_opLogFilenameTripwireFiresOnPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-docid-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -1644,7 +1644,7 @@ final class TripwireGrepTests: XCTestCase {
     /// allowed exclusions (Hashable conformance, comment lines) still pass.
     func test_hashValueTripwireFiresOnPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-hashvalue-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -1682,7 +1682,7 @@ final class TripwireGrepTests: XCTestCase {
     /// a legitimate internal move through).
     func test_userContentMoverTripwireFiresOnPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -1713,7 +1713,7 @@ final class TripwireGrepTests: XCTestCase {
     /// write, and that the funnel's own marked fallback write is excluded.
     func test_paletteWriteTripwireFiresOnPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-palette-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -1767,7 +1767,7 @@ final class TripwireGrepTests: XCTestCase {
 
     func test_segmentNameTripwireFiresOnPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-mzseg-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -1870,7 +1870,7 @@ final class TripwireGrepTests: XCTestCase {
     /// the pattern list and exclusion predicate with the production check.
     func test_manuscriptReadTripwireFiresOnPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-adr0018-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -2047,7 +2047,7 @@ final class TripwireGrepTests: XCTestCase {
     /// and prose naming both.
     func test_thePressThenWaitGuardFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-pressthenwait-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -2238,7 +2238,7 @@ final class TripwireGrepTests: XCTestCase {
     /// regex breakage — is what passes them).
     func test_adr0021TripwireFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-adr0021-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -2370,7 +2370,7 @@ final class TripwireGrepTests: XCTestCase {
     /// Self-check: the census fires on a planted read of the variant's path.
     func test_theAppSocketCensusWouldFireOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-app-socket-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -2432,7 +2432,7 @@ final class TripwireGrepTests: XCTestCase {
     /// census above had no planted-offender companion, unlike its siblings.
     func test_theSealedSpawnerCensusWouldFireOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-sealed-spawner-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -2502,7 +2502,7 @@ final class TripwireGrepTests: XCTestCase {
     /// companion green over a list it no longer shares.
     func test_theSpotCheckCensusWouldFireOnAPlantedMint() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-spot-check-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -2574,7 +2574,7 @@ final class TripwireGrepTests: XCTestCase {
     /// have been written down as empty.
     func test_theEditorSurfaceCensusFiresOnAPlantedFourthMount() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-editorsurface-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -2657,7 +2657,7 @@ final class TripwireGrepTests: XCTestCase {
     /// and stays quiet on prose.
     func test_theTestWindowGuardFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-testwindow-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -2740,7 +2740,7 @@ final class TripwireGrepTests: XCTestCase {
     /// forbidden token wouldn't catch a second occurrence of a REQUIRED one).
     func test_applyExternalTextCensusFiresOnPlantedSecondCallSite() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-applyexternaltext-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -3035,7 +3035,7 @@ final class TripwireGrepTests: XCTestCase {
     /// set below collapses to a single element.
     func test_aFramelessPaneIsReportedByPathSoTwoOfTheSameNameAreDistinguishable() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-cuv-path-selfcheck-\(UUID().uuidString)")
         defer { try? fm.removeItem(at: tmp) }
 
@@ -3076,7 +3076,7 @@ final class TripwireGrepTests: XCTestCase {
     /// like DetailPaneToggle.swift).
     func test_contentUnavailableViewFrameGuardFiresOnPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-cuv-frame-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -3145,7 +3145,7 @@ final class TripwireGrepTests: XCTestCase {
     ///   is a worse census than the blind one it replaced.
     func test_theGuardReadsTheTrailingClosureFormToo() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-cuv-brace-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -3377,7 +3377,7 @@ final class TripwireGrepTests: XCTestCase {
     /// literal, or a valid literal.
     func test_paragraphIdAlphabetLintFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-paragraphid-alphabet-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -3536,7 +3536,7 @@ final class TripwireGrepTests: XCTestCase {
     /// clause that matches nothing.
     func test_theNilChainCensusFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-nil-chain-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -3710,7 +3710,7 @@ final class TripwireGrepTests: XCTestCase {
     /// the calls reversed and confirms the test fails with useful guidance.
     func test_coercionCallSitesCensusFiresOnPlantedSwap() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-coercion-swapped-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -3773,7 +3773,7 @@ final class TripwireGrepTests: XCTestCase {
     /// sibling.
     func test_paragraphIDMintTripwireFiresOnPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-mint-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -3832,7 +3832,7 @@ final class TripwireGrepTests: XCTestCase {
     /// Self-check: prove the tripwire FIRES on planted raw subdir literals.
     func test_inboxSubdirLiteralTripwireFiresOnPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-inbox-subdir-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -4090,7 +4090,7 @@ final class TripwireGrepTests: XCTestCase {
     /// rather than assumed.
     func test_canvasUndoBracketCensusFiresOnAPlantedInsideVerb() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-canvas-bracket-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -4266,7 +4266,7 @@ final class TripwireGrepTests: XCTestCase {
     /// matches and a census that reads nothing look identical from the outside.
     func test_canvasAssetWellTripwiresFireOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-canvas-assets-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -4369,7 +4369,7 @@ final class TripwireGrepTests: XCTestCase {
     /// identical from the outside.
     func test_theCanvasDropRouteTripwiresFireOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-canvas-drop-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -4757,7 +4757,7 @@ final class TripwireGrepTests: XCTestCase {
         // is indistinguishable from one reading an empty tree — which is the
         // shape this whole round has been about.
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-truncation-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -4884,7 +4884,7 @@ final class TripwireGrepTests: XCTestCase {
     /// reads nothing and a census that passes look identical from the outside.
     func test_theMountMarkerCensusFiresOnAPlantedReader() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-mount-marker-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -5012,7 +5012,7 @@ final class TripwireGrepTests: XCTestCase {
     /// not confuse `unlockStatementOpen` for a take.
     func test_theStatementOpenGateCensusFiresOnAPlantedTaker() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-statement-gate-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -5119,7 +5119,7 @@ final class TripwireGrepTests: XCTestCase {
     /// fire on the fixed one.
     func test_theDropDestinationBoolCensusFiresOnTheShapeThatShipped() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-drop-bool-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -5347,7 +5347,7 @@ final class TripwireGrepTests: XCTestCase {
     /// prove it sees a host that stopped routing.
     func test_theDropRoutingCensusFiresOnAHostThatStoppedRouting() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-drop-routing-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -5453,7 +5453,7 @@ final class TripwireGrepTests: XCTestCase {
     /// a REQUIRED token is exactly the shape that can pass while blind.
     func test_binderTreeSectionsCensusFiresOnAHostMissingItsPresentations() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-tree-sections-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -5538,7 +5538,7 @@ final class TripwireGrepTests: XCTestCase {
     /// comment naming it must not count.
     func test_consumingScrollRequestsCensusFiresOnAHostMissingTheCall() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-scroll-consumption-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -5682,7 +5682,7 @@ final class TripwireGrepTests: XCTestCase {
     /// reintroducing each of them, right below that same comment, must.
     func test_deadStripCensusFiresOnPlantedOffendersAndIgnoresComments() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-deadstrip-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -5818,7 +5818,7 @@ final class TripwireGrepTests: XCTestCase {
     /// line numbers) must not.
     func test_personaDecisionCensusFiresOnAPlantedDirectWrite() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-persona-decision-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -5940,7 +5940,7 @@ final class TripwireGrepTests: XCTestCase {
     /// from the outside.
     func test_tw25TripwireFiresOnPlantedScaleEffectOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-tw25-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -5975,7 +5975,7 @@ final class TripwireGrepTests: XCTestCase {
     /// rather than `.scaleEffect`).
     func test_tw25TripwireFiresOnPlantedMagnificationOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-tw25-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -6008,7 +6008,7 @@ final class TripwireGrepTests: XCTestCase {
     /// distinct from both the property assignment above and `.scaleEffect(`.
     func test_tw25TripwireFiresOnPlantedSetMagnificationOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-tw25-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -6153,7 +6153,7 @@ final class TripwireGrepTests: XCTestCase {
     /// category, an `os.Logger` call naming the verb) must not.
     func test_theWriterCopyBanFiresOnPlantedOffendersAndSparesDiagnostics() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-writercopy-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -6217,7 +6217,7 @@ final class TripwireGrepTests: XCTestCase {
     /// switch, so the empty result above is read absence, not a pattern typo.
     func test_theStatusColorTripwireFiresOnAPlantedSwitch() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-statuscolor-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -6299,7 +6299,7 @@ final class TripwireGrepTests: XCTestCase {
     /// forbidden token wouldn't catch a second occurrence of a REQUIRED one).
     func test_theFingerprintJoinCensusFiresOnAPlantedSecondSite() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-fingerprintjoin-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -6414,7 +6414,7 @@ final class TripwireGrepTests: XCTestCase {
     /// catch a third occurrence of a REQUIRED one.
     func test_theTranslationBatchCensusFiresOnAPlantedThirdSite() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-translationbatch-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -6552,7 +6552,7 @@ final class TripwireGrepTests: XCTestCase {
     /// through, in a file outside the allowed set.
     func test_imprintDeclarationCensusFiresOnPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-imprint-declaration-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -6665,7 +6665,7 @@ final class TripwireGrepTests: XCTestCase {
     /// missing `imprint:`.
     func test_publicationConstructionCensusFiresOnPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-publication-imprint-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -6729,7 +6729,7 @@ final class TripwireGrepTests: XCTestCase {
     /// `allCases` is caught.
     func test_compilerModelChoiceCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-compiler-model-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -6952,7 +6952,7 @@ final class TripwireGrepTests: XCTestCase {
     /// through.
     func test_theSoftwarePrivateKeyCensusFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-softkey-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -7071,7 +7071,7 @@ final class TripwireGrepTests: XCTestCase {
     /// through.
     func test_theDeviceIdentityCensusesFireOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-deviceid-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -7156,7 +7156,7 @@ final class TripwireGrepTests: XCTestCase {
     /// the allow-list entry is honoured by name.
     func test_theSealLineCensusFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-seal-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -7378,7 +7378,7 @@ final class TripwireGrepTests: XCTestCase {
     /// CONTROL: both censuses fire on planted offenders and pass a clean file.
     func test_theSpawnCensusesFireOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-spawn-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -7716,7 +7716,7 @@ final class TripwireGrepTests: XCTestCase {
     /// through, and honour the allow-lists by name.
     func test_theAdmissionCensusesFireOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-admission-selfcheck-\(UUID().uuidString)")
             .resolvingSymlinksInPath()
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -7825,7 +7825,7 @@ final class TripwireGrepTests: XCTestCase {
     /// allow-list by name.
     func test_theRegistryWriterAndAvailabilityCensusesFireOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-writers-selfcheck-\(UUID().uuidString)")
             .resolvingSymlinksInPath()
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -8189,7 +8189,7 @@ final class TripwireGrepTests: XCTestCase {
             func holdIt(_ stream: String) -> String { "unsigned:\\(stream)" }
             func isIt(_ device: String) -> Bool { device.hasPrefix("unsigned:") }
             """
-        let dir = FileManager.default.temporaryDirectory
+        let dir = TestTemp.root
             .appendingPathComponent("held-lines-census-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: dir, withIntermediateDirectories: true)
@@ -8379,7 +8379,7 @@ final class TripwireGrepTests: XCTestCase {
     /// kind; a comment naming either is not.
     func test_theTaskOpEmitterCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-mcp-taskop-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -8418,7 +8418,7 @@ final class TripwireGrepTests: XCTestCase {
     /// caught reaching for another.
     func test_thePermitCensusesFireOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-permit-selfcheck-\(UUID().uuidString)")
             .resolvingSymlinksInPath()
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -8999,7 +8999,7 @@ final class TripwireGrepTests: XCTestCase {
             func why() -> HeldKeyStanding { .contested }
             func rung() -> Permit { Permit.permit(offering: .reviewer, pieces: []) }
             """
-        let dir = FileManager.default.temporaryDirectory
+        let dir = TestTemp.root
             .appendingPathComponent("p3b-census-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: dir, withIntermediateDirectories: true)
@@ -9173,7 +9173,7 @@ final class TripwireGrepTests: XCTestCase {
     /// NAME — admits only that name's own spellings.
     func test_thePostureCensusFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-posture-selfcheck-\(UUID().uuidString)")
             .resolvingSymlinksInPath()
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -9496,7 +9496,7 @@ final class TripwireGrepTests: XCTestCase {
     /// fails the census it feeds.
     func test_theGuardedMutatorCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-guarded-selfcheck-\(UUID().uuidString)")
             .resolvingSymlinksInPath()
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -9525,7 +9525,7 @@ final class TripwireGrepTests: XCTestCase {
     /// comment and not the declaration, and a file off the list fails it.
     func test_theManuscriptWriterCensusFiresOnPlantedOffenders() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-writers-selfcheck-\(UUID().uuidString)")
             .resolvingSymlinksInPath()
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -9562,7 +9562,7 @@ final class TripwireGrepTests: XCTestCase {
     /// number of calls, one spelling traded for another, is a door that moved.
     func test_theManuscriptWriterCensusCountsEachSpellingNotEachFile() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-writers-swap-\(UUID().uuidString)")
             .resolvingSymlinksInPath()
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -9651,7 +9651,7 @@ final class TripwireGrepTests: XCTestCase {
     /// a comment are not, and a file off the list fails the census.
     func test_theProjectTaskOpAppendCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-projecttask-\(UUID().uuidString)")
             .resolvingSymlinksInPath()
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -9703,7 +9703,7 @@ final class TripwireGrepTests: XCTestCase {
     /// not, and the same file named `Op.swift` is admitted.
     func test_theCollaboratorIdCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("tripwire-collabid-selfcheck-\(UUID().uuidString)")
             .resolvingSymlinksInPath()
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -9864,5 +9864,154 @@ extension TripwireGrepTests {
         let census = Self.structureItemCensus([("Planted.swift", planted)])
         XCTAssertEqual(census.counts, ["Planted.swift": 2])
         XCTAssertEqual(census.missing, ["Planted.swift#1"], "the offender is named")
+    }
+}
+
+// MARK: - One temp root for every test (signed op log P3 plan 3, Task 1)
+
+/// **Every test builds under `TestTemp`, and nothing else names the machine's
+/// temp directory.**
+///
+/// `$TMPDIR` reached 208,937 entries and its link-count cap, almost all of them
+/// this project's own fixtures: every test named the temp directory itself, so
+/// a fixture that forgot its `removeItem` — or whose `removeItem` raced an
+/// async write — lived for ever, and at 543,002 entries a launch-time listing
+/// of it hung whole gates. `TestTemp.root` is removed when its test finishes
+/// whatever the test did; this census is what keeps a new test from reaching
+/// past it.
+///
+/// Over `MaughamTests/` and `Packages/MaughamCore/Tests/` (the phone's twin is
+/// `TripwirePhoneGrepTest.test_noTestNamesTheTempDirectoryButTestTemp`). The
+/// three `TestTemp.swift` files are the one home. The allow-list is FILE plus
+/// SPELLING, and each entry says why a test must name a PRODUCTION temp path.
+extension TripwireGrepTests {
+
+    /// Spelled in halves so this file does not match itself.
+    static let tempDirectoryNeedles = ["temporary" + "Directory", "NSTemporary" + "Directory("]
+
+    struct TempDirectoryAllowance {
+        let file: String
+        let spelling: String
+        let reason: String
+    }
+
+    static let tempDirectoryAllowed: [TempDirectoryAllowance] = [
+        TempDirectoryAllowance(
+            file: "TestHostSocketPathTests.swift",
+            spelling: "temporary" + "Directory: temp)",
+            reason: "the argument LABEL of production's TestHost.mcpSocketPath, over a fixture path"),
+        TempDirectoryAllowance(
+            file: "TestHostSocketPathTests.swift",
+            spelling: "temporary" + "Directory: FileManager.default.temporary" + "Directory)",
+            reason: "sun_path's 104 bytes are checked against the REAL temp root production binds under; "
+                + "a TestTemp root is ~60 bytes longer and would fail for the wrong reason"),
+    ]
+
+    /// Every line under `dirs` naming the temp directory, minus comments, the
+    /// `TestTemp.swift` files, and allow-listed file-plus-spelling pairs.
+    /// Also returns which allowances matched nothing, so a stale entry is loud.
+    static func rawTempDirectorySites(
+        under dirs: [URL],
+        allowed: [TempDirectoryAllowance] = tempDirectoryAllowed
+    ) throws -> (offenders: [String], unusedAllowances: [String]) {
+        var offenders: [String] = []
+        var used = Set<Int>()
+        for dir in dirs {
+            guard let walker = FileManager.default.enumerator(
+                at: dir, includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let name = url.lastPathComponent
+                if name == "TestTemp.swift" { continue }
+                let text = try String(contentsOf: url, encoding: .utf8)
+                for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false)
+                    .enumerated() {
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    if trimmed.hasPrefix("//") { continue }
+                    guard tempDirectoryNeedles.contains(where: { trimmed.contains($0) }) else {
+                        continue
+                    }
+                    if let hit = allowed.indices.first(where: {
+                        allowed[$0].file == name && trimmed.contains(allowed[$0].spelling)
+                    }) {
+                        used.insert(hit)
+                        continue
+                    }
+                    offenders.append("\(name):\(i + 1): \(trimmed)")
+                }
+            }
+        }
+        let unused = allowed.indices.filter { !used.contains($0) }
+            .map { "\(allowed[$0].file) — \(allowed[$0].spelling)" }
+        return (offenders, unused)
+    }
+
+    func test_noTestNamesTheTempDirectoryButTestTemp() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let census = try Self.rawTempDirectorySites(under: [
+            repoRoot.appendingPathComponent("MaughamTests", isDirectory: true),
+            repoRoot.appendingPathComponent("Packages/MaughamCore/Tests", isDirectory: true),
+        ])
+        XCTAssertTrue(census.offenders.isEmpty,
+            "\(census.offenders.count) test lines name the machine's temp directory — "
+            + "build under TestTemp.root (or TestTemp.workerRoot for a class fixture):\n"
+            + census.offenders.joined(separator: "\n"))
+        XCTAssertTrue(census.unusedAllowances.isEmpty,
+            "allow-list entries that match nothing any more — remove them:\n"
+            + census.unusedAllowances.joined(separator: "\n"))
+    }
+
+    /// The control: every spelling is caught — the `FileManager.default` one,
+    /// a local `fm` alias, a bare `NSTemporaryDirectory()` — a comment is not,
+    /// and the allow-list is file PLUS spelling: the allowed spelling passes in
+    /// its file, and a different spelling in that same file is still caught.
+    func test_theTempDirectoryCensusFiresOnPlantedOffenders() throws {
+        let tmp = TestTemp.root.appendingPathComponent("tripwire-temp-selfcheck")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let td = "temporary" + "Directory"
+        let ns = "NSTemporary" + "Directory"
+        try """
+        // FileManager.default.\(td) in a comment is fine
+        let a = FileManager.default.\(td).appendingPathComponent("x")
+        let fm = FileManager.default
+        let b = fm.\(td)
+        let c = URL(fileURLWithPath: \(ns)())
+        let d = \(ns)() + "/y"
+        """.write(to: tmp.appendingPathComponent("PlantedTests.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        let p = TestHost.mcpSocketPath(pid: 1, \(td): temp)
+        let q = FileManager.default.\(td).path
+        """.write(to: tmp.appendingPathComponent("TestHostSocketPathTests.swift"),
+                  atomically: true, encoding: .utf8)
+        try "let r = FileManager.default.\(td)".write(
+            to: tmp.appendingPathComponent("TestTemp.swift"), atomically: true, encoding: .utf8)
+
+        let census = try Self.rawTempDirectorySites(under: [tmp])
+        let byFile = Dictionary(grouping: census.offenders) { String($0.prefix { $0 != ":" }) }
+        XCTAssertEqual(byFile["PlantedTests.swift"]?.count, 4,
+            "all four spellings, and not the comment:\n" + census.offenders.joined(separator: "\n"))
+        XCTAssertEqual(byFile["TestHostSocketPathTests.swift"]?.count, 1,
+            "the allowed spelling passes in its file; any other spelling there is caught:\n"
+            + census.offenders.joined(separator: "\n"))
+        XCTAssertTrue(byFile["TestHostSocketPathTests.swift"]?.first?.contains(".path") == true)
+        XCTAssertNil(byFile["TestTemp.swift"], "TestTemp.swift is the one home")
+        XCTAssertEqual(census.unusedAllowances.count, 1,
+            "the planted tree uses one of the two allowances; the other is reported unused")
+    }
+
+    /// The three `TestTemp.swift` copies (and their tests) are one file in three
+    /// places — a test bundle cannot import another's sources — so a fix made in
+    /// one and not the others is a drift this catches.
+    func test_theThreeTestTempFilesAreIdentical() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+        for name in ["TestTemp.swift", "TestTempTests.swift"] {
+            let copies = try [
+                "MaughamTests/TestSupport/", "MaughamPhoneTests/",
+                "Packages/MaughamCore/Tests/MaughamCoreTests/",
+            ].map { try String(contentsOf: repoRoot.appendingPathComponent($0 + name), encoding: .utf8) }
+            XCTAssertEqual(Set(copies).count, 1, "the three \(name) copies have drifted")
+        }
     }
 }

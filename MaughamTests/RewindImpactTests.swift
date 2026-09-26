@@ -14,7 +14,7 @@ final class RewindImpactTests: XCTestCase {
     private struct Harness { let doc: Document; let pid: String }
 
     private func makeHarness(_ initialMd: String) async throws -> Harness {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RewindImpact-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)

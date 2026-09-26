@@ -61,7 +61,7 @@ final class RecentsStoreTests: XCTestCase {
 
     func test_persistsAcrossInstances() throws {
         // Use a real temp directory so the prune-on-init guard doesn't drop it.
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RecentsStoreTest-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -73,7 +73,7 @@ final class RecentsStoreTests: XCTestCase {
 
     func test_init_prunesMissingFolders() throws {
         // Create one real folder, persist a list with both real + fake paths, reload.
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RecentsStorePrune-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }

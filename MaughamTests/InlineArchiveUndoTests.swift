@@ -23,7 +23,7 @@ final class InlineArchiveUndoTests: XCTestCase {
     // MARK: - Fixture (mirrors DocumentArchiveTextMutationTests).
 
     private func makeProject(initialMd: String) throws -> (URL, String) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("INLINE-ARCHIVE-UNDO-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)

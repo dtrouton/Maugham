@@ -93,7 +93,7 @@ final class PublishConfigImprintValidationTests: XCTestCase {
     var publishDir: URL!
 
     override func setUpWithError() throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("PCImprintValidation-\(UUID().uuidString)")
         publishDir = tmp.appendingPathComponent(".maugham/publish", isDirectory: true)
         try FileManager.default.createDirectory(at: publishDir, withIntermediateDirectories: true)

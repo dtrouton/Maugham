@@ -30,7 +30,7 @@ final class MockTranscriber: Transcriber, @unchecked Sendable {
 final class InboxTranscriptionWorkerTests: XCTestCase {
 
     private func project() throws -> URL {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("worker-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent(".maugham/inbox/audio"),

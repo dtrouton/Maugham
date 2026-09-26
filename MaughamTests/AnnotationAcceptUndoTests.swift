@@ -38,7 +38,7 @@ final class AnnotationAcceptUndoTests: XCTestCase {
     /// returning the doc + its single bootstrap paragraph id (4-char
     /// alphabet-restricted, tripwire 8).
     private func makeHarness(initialMd: String) async throws -> Harness {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("AAU-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("manuscript"),

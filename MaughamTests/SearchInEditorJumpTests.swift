@@ -5,7 +5,7 @@ import MaughamCore
 @MainActor
 final class SearchInEditorJumpTests: XCTestCase {
     func test_findMatchSelected_resolvesPathToManuscriptItem() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("FindJump-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

@@ -29,7 +29,7 @@ final class TranslationRoundActionsTests: XCTestCase {
     /// every directive here is anchored to — plus the publish config the desk's
     /// derivations expect.
     private func makeHarness() async throws -> Harness {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("RoundActions-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

@@ -25,13 +25,13 @@ final class InboxPendingTests: XCTestCase {
     }
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("inbox-pending-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/inbox"),
             withIntermediateDirectories: true)
         identity = .softwareForTesting()
-        cacheURL = FileManager.default.temporaryDirectory
+        cacheURL = TestTemp.root
             .appendingPathComponent("inbox-pending-cache-\(UUID().uuidString).json")
         cache = RegistryCache(fileURL: cacheURL, identity: identity.fingerprint)
     }
@@ -204,7 +204,7 @@ final class InboxPendingTests: XCTestCase {
     func test_thePaneDrawsTheBannerAndAnAdmitControl() async throws {
         // A real project, because the pane's Admit… names the book it posts
         // about. The inbox and the registry are this suite's own temp folder's.
-        let parent = FileManager.default.temporaryDirectory
+        let parent = TestTemp.root
             .appendingPathComponent("inbox-pending-project-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: parent) }

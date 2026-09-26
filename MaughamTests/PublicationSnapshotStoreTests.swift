@@ -6,7 +6,7 @@ final class PublicationSnapshotStoreTests: XCTestCase {
     var tmp: URL!
 
     override func setUpWithError() throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("PubSnapStoreTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
     }

@@ -1841,7 +1841,7 @@ final class DepartmentRunTests: XCTestCase {
     /// closed. Only chapter 1 is registered, because Global Constraint 1's
     /// target is about the window's open document and nothing else here is.
     private func makeProject(extraChapters: Int = 0) async throws -> Fixture {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("DRT-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -2137,7 +2137,7 @@ final class DepartmentRunTests: XCTestCase {
     private func makeDesignProject(
         publishTree: Bool = true, manuscript: Bool = true
     ) async throws -> DesignFixture {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("DRT-design-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
 

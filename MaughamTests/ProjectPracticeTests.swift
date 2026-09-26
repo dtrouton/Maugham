@@ -59,7 +59,7 @@ final class ProjectPracticeTests: XCTestCase {
     private func makeProject(
         type: ProjectType, docs: [Doc], extraStructure: [StructureItem] = []
     ) async throws -> Fixture {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("ProjectPractice-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("manuscript"),

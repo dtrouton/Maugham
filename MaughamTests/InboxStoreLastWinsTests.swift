@@ -10,7 +10,7 @@ import MaughamCore
 final class InboxStoreLastWinsTests: XCTestCase {
 
     private func makeProject() throws -> URL {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("inbox-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent(".maugham/inbox"),
@@ -177,7 +177,7 @@ final class InboxStoreLastWinsTests: XCTestCase {
     /// presented as empty — `refresh()` records it, so the pane can say a
     /// device's captures are unreadable rather than showing nothing.
     func test_anUnreadableManifestIsRecordedNotSilentlyEmpty() async throws {
-        let dir = FileManager.default.temporaryDirectory
+        let dir = TestTemp.root
             .appendingPathComponent("inbox-unreadable-\(UUID().uuidString)")
         let url = dir
         try FileManager.default.createDirectory(
@@ -206,7 +206,7 @@ final class InboxStoreLastWinsTests: XCTestCase {
     /// and the row leaves the trash view — on the same quiet clock as the
     /// project trash (RULING-39's), while a fresh one survives untouched.
     func test_aTrashedCaptureAgesOutAtThirtyDaysAndAFreshOneSurvives() async throws {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("inbox-sweep-\(UUID().uuidString)")
         let audioDir = url.appendingPathComponent(".maugham/inbox/audio")
         try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)

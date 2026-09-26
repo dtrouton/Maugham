@@ -134,7 +134,7 @@ final class ClaudeCLISessionTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        tempDir = FileManager.default.temporaryDirectory
+        tempDir = TestTemp.root
             .appendingPathComponent("ClaudeCLISessionTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tempDir, withIntermediateDirectories: true)

@@ -14,13 +14,13 @@ final class InboxChainTests: XCTestCase {
     private var identity: DeviceIdentity!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("inbox-chain-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/inbox"),
             withIntermediateDirectories: true)
         identity = .softwareForTesting()
-        cacheURL = FileManager.default.temporaryDirectory
+        cacheURL = TestTemp.root
             .appendingPathComponent("inbox-chain-cache-\(UUID().uuidString).json")
         cache = RegistryCache(fileURL: cacheURL, identity: identity.fingerprint)
     }

@@ -34,7 +34,7 @@ final class RewindUndoTests: XCTestCase {
     /// Builds a wired Document over `initialMd` and returns it plus its single
     /// bootstrap paragraph id (4-char alphabet-restricted, tripwire 8).
     private func makeHarness(_ initialMd: String) async throws -> Harness {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RewindUndo-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("manuscript"),

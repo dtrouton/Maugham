@@ -8,7 +8,7 @@ final class PreviewCompilerTests: XCTestCase {
     var tmp: URL!
 
     override func setUp() async throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("PreviewCompilerTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try await PublishStarter.install(into: tmp, force: false)
@@ -52,7 +52,7 @@ final class PreviewCompilerTests: XCTestCase {
     /// FAILURE and must say so — the Result carries the cause in `errors`, so
     /// the tool renders the failed shape instead of completed-with-empty-path.
     func testPreview_withNoConfigReturnsTheCauseAsAnError() async throws {
-        let bare = FileManager.default.temporaryDirectory
+        let bare = TestTemp.root
             .appendingPathComponent("PreviewNoConfig-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: bare, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: bare) }

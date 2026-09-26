@@ -19,7 +19,7 @@ final class TranslationRoundStoreTests: XCTestCase {
     }
 
     private func makeStore() throws -> TranslationRoundStore {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("RoundStore-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return TranslationRoundStore(projectURL: root)

@@ -15,7 +15,7 @@ final class InboxMonotonicWrittenAtTests: XCTestCase {
     // MARK: - Fixtures
 
     private func makeProject() throws -> URL {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("inbox-monotonic-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent(".maugham/inbox"),

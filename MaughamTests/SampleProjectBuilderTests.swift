@@ -13,7 +13,7 @@ final class SampleProjectBuilderTests: XCTestCase {
     }
 
     private func tempParent() throws -> URL {
-        let parent = URL(fileURLWithPath: NSTemporaryDirectory())
+        let parent = TestTemp.root
             .appendingPathComponent("samples-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: parent, withIntermediateDirectories: true)

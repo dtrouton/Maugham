@@ -17,7 +17,7 @@ import MaughamCore
 final class DocumentLiveEditOrphanPruneTests: XCTestCase {
 
     private func makeDoc(text: String = "") async throws -> Document {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("DLEOP-\(UUID().uuidString)")
         let manuscriptDir = tmp.appendingPathComponent("manuscript")
         try FileManager.default.createDirectory(

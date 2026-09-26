@@ -29,7 +29,7 @@ final class DocumentLoadSequenceRecoveryTests: XCTestCase {
     /// on the current paragraph sequence. Mimics the production
     /// "user split a paragraph mid-session" failure mode.
     private func makeDivergentFixture() throws -> Fixture {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("DLSRT-\(UUID().uuidString)")
         let projectURL = tmp
         let manuscriptDir = tmp.appendingPathComponent("manuscript")
@@ -136,7 +136,7 @@ final class DocumentLoadSequenceRecoveryTests: XCTestCase {
     /// sequence ⊆ parsed). The fix is the new Recovery #4 orphan-drop:
     /// restrict `paragraphs.keys` to `Set(sequence)` unconditionally.
     func test_load_dropsOrphanParagraphsWhenSequenceAndParsedAgree() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("DLSRT-orphan-\(UUID().uuidString)")
         let manuscriptDir = tmp.appendingPathComponent("manuscript")
         let opsDir = tmp.appendingPathComponent(".maugham/ops")

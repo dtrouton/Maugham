@@ -78,7 +78,7 @@ final class RecoveryPaneModelTests: XCTestCase {
     /// being gone. Either left the writer waiting forever on a document that
     /// opens perfectly well.
     func test_theProbeAnswersBlockageCleared_notReadability() throws {
-        let dir = FileManager.default.temporaryDirectory
+        let dir = TestTemp.root
             .appendingPathComponent("probe-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }

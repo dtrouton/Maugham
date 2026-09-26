@@ -7,7 +7,7 @@ final class ProjectSearchReplaceTests: XCTestCase {
     /// ADR 0018: each doc is bootstrapped via Document.load so the op log is
     /// seeded before search runs — search reads from the op log, not the .md.
     private func makeProject(manuscript: [(String, String)]) async throws -> URL {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("SearchReplace-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

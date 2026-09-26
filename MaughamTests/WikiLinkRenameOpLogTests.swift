@@ -28,7 +28,7 @@ final class WikiLinkRenameOpLogTests: XCTestCase {
         docs: [(id: String, title: String, body: String)],
         statements: [Statement] = []
     ) throws -> URL {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("WikiRenameOpLog-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)
