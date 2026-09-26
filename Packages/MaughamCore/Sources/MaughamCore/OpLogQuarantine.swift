@@ -618,7 +618,8 @@ public enum OpLogQuarantine {
         var changes: [SetAsideChange] = []
         for entry in ordered {
             guard let bytes = try? Data(contentsOf: entry.url) else { continue }  // adr-0018-ok: a set-aside `.lines` archive — forensics this counts, never manuscript truth
-            for slice in bytes.split(separator: 0x0A, omittingEmptySubsequences: true) {
+            let slices: [Data] = bytes.split(omittingEmptySubsequences: true, whereSeparator: { (byte: UInt8) in byte == 0x0A })
+            for slice in slices {
                 let line = Data(slice)
                 guard !OpLogChain.isSealLine(line) else { continue }
                 let id = changeIdentity(ofLine: line)
@@ -740,9 +741,9 @@ public enum OpLogQuarantine {
         guard record.kind == .lines else { return [] }
         let url = quarantinedFileURL(for: record, in: projectURL)
         guard let bytes = try? Data(contentsOf: url) else { return [] }  // adr-0018-ok: a set-aside `.lines` archive — forensics the writer may ask for back, never manuscript truth
-        return recoverableWords(inLines: bytes
-            .split(separator: 0x0A, omittingEmptySubsequences: true)
-            .map(Data.init))
+        let slices: [Data] = bytes.split(omittingEmptySubsequences: true, whereSeparator: { (byte: UInt8) in byte == 0x0A })
+        let lines: [Data] = slices.map { (slice: Data) -> Data in Data(slice) }
+        return recoverableWords(inLines: lines)
     }
 
     /// **A revocation's sentence is the one the writer's LAST choice made
@@ -821,7 +822,8 @@ public enum OpLogQuarantine {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = JSONLAppendStore<Op>.dateDecoding
         var writers: Set<String> = []
-        for slice in bytes.split(separator: 0x0A, omittingEmptySubsequences: true) {
+        let slices: [Data] = bytes.split(omittingEmptySubsequences: true, whereSeparator: { (byte: UInt8) in byte == 0x0A })
+        for slice in slices {
             let line = Data(slice)
             guard !OpLogChain.isSealLine(line),
                   PermitPartition.writtenOp(line) != nil,
