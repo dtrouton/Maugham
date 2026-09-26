@@ -284,6 +284,7 @@ extension Document {
         doc.autosaveScheduler = DebounceScheduler<Void>(delay: .milliseconds(750)) { _ in }
         doc.recomputeDisplayText()
         doc._opLogMirror = partial.ops
+        doc.invalidateRestoreStandingMemo()
         doc._annotationsCacheValid = false
         doc._hasAnyAnnotationOps = partial.ops.contains {
             Document.isAnnotationOpKind($0.kind)
@@ -663,6 +664,7 @@ extension Document {
         }
         doc.recomputeDisplayText()
         doc._opLogMirror = ops
+        doc.invalidateRestoreStandingMemo()
         doc._annotationsCacheValid = false
         doc._hasAnyAnnotationOps = ops.contains {
             Document.isAnnotationOpKind($0.kind)
@@ -679,14 +681,9 @@ extension Document {
         // derivation honours. Resolved here because the table `localWritePermit`
         // warmed is still warm; the projection it feeds is rebuilt at every
         // burst boundary and must not reach for a register of its own.
-        doc.annotationAmendments = opStore.annotationAmendments(
-            from: amendmentPermits
-        ) {
-            // `OpLogStore`'s own door rather than `Document.documentClass`,
-            // which is the same function behind a `@MainActor` extension this
-            // `@Sendable` closure cannot reach.
-            OpLogStore.documentClass(forDocId: docId, in: projectURL)
-        }
+        doc.annotationAmendments = Document.judgedAmendments(
+            opStore: opStore, permits: amendmentPermits, docId: docId)
+        doc.invalidateRestoreStandingMemo()
         // Signed op log P1: what this document's history turned out to be made
         // of. STAMPED, never posted — a notice from this windowless context is
         // dropped by the receive helpers' liveness guard, exactly the pending
@@ -807,6 +804,50 @@ private func findItemByPath(_ path: String, in items: [StructureItem]) -> Struct
            let found = findItemByPath(path, in: kids) { return found }
     }
     return nil
+}
+
+extension Document {
+    /// **Whose annotation it is, for one document** — the table a load builds
+    /// (P3a Task 6), spelled once so the load, the external re-read and a
+    /// closed piece's history (`closedPieceHistory`) cannot build it
+    /// differently (P3 plan 3 Task 5). `permits` is what the same read's
+    /// partition collected.
+    static func judgedAmendments(
+        opStore: OpLogStore, permits: AmendmentPermits, docId: String
+    ) -> AnnotationAmendments {
+        // Bound out here: the class closure is `@Sendable` and may reach
+        // neither a Document nor a main-actor property of the store.
+        // `OpLogStore`'s own door rather than `Document.documentClass`, which
+        // is the same function behind a `@MainActor` extension.
+        let projectURL = opStore.projectURL
+        return opStore.annotationAmendments(from: permits) {
+            OpLogStore.documentClass(forDocId: docId, in: projectURL)
+        }
+    }
+
+    /// **A piece nobody has open, read as a load reads it** (P3 plan 3 Task
+    /// 5) — its ops and the amendment table a load would judge them by, for
+    /// the rewind window's closed branch. Before this the window kept
+    /// `.honourEverything` for a closed piece, so its preview honoured a
+    /// reviewer's reopen of the root's archive that the same piece, opened,
+    /// does not: two answers to one question (RULING-8).
+    ///
+    /// The load's own store (`makeLoadOpStore`: the same identities, device
+    /// state and registry memory), its trust warmed first (`prepareTrust`),
+    /// then the same partitioned read and the same table. A read that fails
+    /// answers no ops, as the window's `try?` always did.
+    static func closedPieceHistory(
+        docId: String, projectURL: URL
+    ) async -> (ops: [Op], amendments: AnnotationAmendments) {
+        let opStore = makeLoadOpStore(projectURL: projectURL, presenter: nil)
+        await opStore.prepareTrust()
+        let permits = AmendmentPermits()
+        guard let loaded = try? await opStore.loadDiagnosed(
+            docId: docId, amendmentPermits: permits)
+        else { return ([], .honourEverything) }
+        return (loaded.ops,
+                judgedAmendments(opStore: opStore, permits: permits, docId: docId))
+    }
 }
 
 /// Indirection so BurstScheduler's fire closure can reference the

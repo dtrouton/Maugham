@@ -1295,6 +1295,22 @@ over the very reopen a press would append; P3c plan 2 Task 8), never of the
 display name a withdraw op stamps (`WithdrawnAnnotation.withdrawnBy` is for
 reading, not deciding); `AnnotationRowVerbs.restoresDeleted` draws it, and the
 pane says a refused press through the notice channel instead of `try?`.
+**P3 plan 3 Task 5** adds three things here. A Restore beaten only by ORDER —
+another Mac's Delete whose opId sorts after the reopen minted now, i.e. clock
+skew — refuses with `PostureRefusal.Cause.deletedAgainElsewhere` and its own
+sentence (*Another device deleted this note after you restored it. Restore it
+again to keep it.*), decided by asking the deriver again without this note's
+later-sorting withdrawals and reopens: only where the note was withdrawn there
+AND her reopen brings it back, so it is never said about a note that was not
+hers to restore; the reopen's opId is never re-minted. `restoreStanding` is
+memoised per derive (`restoreStandingMemo`), cleared by
+`invalidateRestoreStandingMemo()` at every site that assigns or appends to
+`_opLogMirror` or assigns `annotationAmendments` — a census in
+`DocumentAmendmentOwnershipTests` derives those sites; and it DRAWS Restore in
+the skew case. And the rewind window's closed branch judges a closed piece as
+a load would (`Document.closedPieceHistory`, over `Document.judgedAmendments`,
+the one builder the load and the external re-read share), so its preview no
+longer honours a reopen the open piece does not.
 **Every reader of the raw mirror asks the same judgement**: a reopen the
 deriver does not honour now reaches `_opLogMirror`, so the withdrawn check in
 `reopenAnnotation` is the judged `isWithdrawn`, and the reject/splice repair,

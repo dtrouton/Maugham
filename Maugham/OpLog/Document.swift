@@ -321,6 +321,22 @@ public final class Document {
     /// in sync by every mutation path that calls opStore.append.
     internal var _opLogMirror: [Op] = []
 
+    /// `restoreStanding`'s memo (P3 plan 3 Task 5), keyed by annotation id.
+    /// Ignored by observation: it is filled from inside a view's `body`.
+    @ObservationIgnored internal var restoreStandingMemo: [String: RestoreStanding] = [:]
+
+    /// Test-observable: how many times `restoreStanding` walked rather than
+    /// answering from its memo.
+    @ObservationIgnored internal var restoreStandingWalksForTesting = 0
+
+    /// **Clear `restoreStanding`'s memo** — called at every site that assigns
+    /// or appends to `_opLogMirror` or assigns `annotationAmendments` (P3 plan
+    /// 3 Task 5). A site that changes either without calling this leaves a
+    /// stale Restore drawn on the Deleted row.
+    internal func invalidateRestoreStandingMemo() {
+        restoreStandingMemo.removeAll()
+    }
+
     /// The ONE mirror-append (RULING-36: the timeline is the writer's own,
     /// under any clock). `handleExternalLogChange` replaces the mirror with a
     /// sorted merge; a LOCAL op minted after that sorts before a merged-in
@@ -336,6 +352,7 @@ public final class Document {
         } else {
             _opLogMirror.append(op)
         }
+        invalidateRestoreStandingMemo()
     }
 
     /// Diagnostic accessor: size of the in-memory op log mirror.
@@ -1779,6 +1796,7 @@ public final class Document {
         sequence = []
         displayText = ""
         _opLogMirror = []
+        invalidateRestoreStandingMemo()
         _annotationsCache = []
         _annotationsCacheValid = false
         _tasksCache = []

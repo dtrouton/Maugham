@@ -887,4 +887,224 @@ final class DocumentAmendmentOwnershipTests: XCTestCase {
                        "the assistant is never the author of a disposition")
         await doc.close()
     }
+
+    // MARK: - P3 plan 3 Task 5: the skew sentence, the memo, the closed preview
+
+    private static let skewSentence =
+        "Another device deleted this note after you restored it. Restore it again to keep it."
+
+    /// **Her Restore, beaten by a clock-ahead Delete, is told so.** She
+    /// deleted her own note; the root, whose clock runs ahead, deleted it too
+    /// — a withdrawal that sorts after any reopen this run mints. Her Restore
+    /// is hers to make, and only the order stands in the way, so the door says
+    /// another device deleted it, not that this Mac may not. Nothing appended.
+    func test_herRestoreBeatenByAClockAheadDeleteSaysAnotherDeviceDeletedIt() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        try beAReviewerHere(root: root)
+        try writeFile(by: root, ops: [opening(by: root)])
+
+        let doc = try await openDoc(docURL)
+        let mine = try await doc.addReviewerAnnotation(
+            kind: .comment, paragraphId: "aaaa", span: nil,
+            body: "mine", authorName: "Denver")
+        try await doc.withdrawReviewerAnnotation(id: mine, authorName: "Denver")
+        await doc.close()
+        try writeFile(by: root, ops: [
+            opening(by: root), withdrawal("09ZZZ", of: mine, by: root),
+        ])
+
+        let again = try await openDoc(docURL)
+        XCTAssertEqual(again.withdrawnAnnotations().map(\.id), [mine])
+        XCTAssertEqual(again.restoreStanding(annotationId: mine), .asTheDeleter,
+                       "hers to restore, so Restore is drawn — the sentence asks her to press it")
+        let count = again._opLogMirror.count
+        do {
+            try await again.reopenAnnotation(id: mine)
+            XCTFail("a Delete sorting after her reopen keeps the note deleted")
+        } catch let refusal as Document.PostureRefusal {
+            XCTAssertEqual(refusal.cause, .deletedAgainElsewhere)
+            XCTAssertEqual(refusal.localizedDescription, Self.skewSentence)
+        }
+        XCTAssertEqual(again._opLogMirror.count, count, "the door appended nothing")
+        await again.close()
+    }
+
+    /// **Never for somebody else's note — the ordinary sentence stands.**
+    /// Kim's note, deleted by Kim, and deleted again by the clock-ahead root;
+    /// and Sid's note, made and deleted on a Mac whose clock runs ahead of
+    /// this one, so every op about it sorts after her reopen. Neither Delete
+    /// was hers to undo, so neither refusal may blame the order.
+    func test_theSkewSentenceIsNeverSaidAboutSomebodyElsesNote() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        let kim = try makeReviewer(label: "Kim", admittedBy: root)
+        let sid = try makeReviewer(label: "Sid", admittedBy: root)
+        try beAReviewerHere(root: root)
+        try writeFile(by: kim, ops: [
+            note("01KKK", by: kim), withdrawal("01KKL", of: "01KKK", by: kim),
+        ])
+        try writeFile(by: root, ops: [
+            opening(by: root), withdrawal("09ZZZ", of: "01KKK", by: root),
+        ])
+        try writeFile(by: sid, ops: [
+            note("09SSS", by: sid), withdrawal("09SST", of: "09SSS", by: sid),
+        ])
+
+        let doc = try await openDoc(docURL)
+        XCTAssertEqual(Set(doc.withdrawnAnnotations().map(\.id)), ["01KKK", "09SSS"])
+        let ordinary = Document.PostureRefusal(kind: .annotationReopen).localizedDescription
+        XCTAssertNotEqual(ordinary, Self.skewSentence)
+        for id in ["01KKK", "09SSS"] {
+            XCTAssertEqual(doc.restoreStanding(annotationId: id), .refused, id)
+            let count = doc._opLogMirror.count
+            do {
+                try await doc.reopenAnnotation(id: id)
+                XCTFail("\(id) is not this reviewer's to restore")
+            } catch let refusal as Document.PostureRefusal {
+                XCTAssertEqual(refusal.cause, .notPermitted, id)
+                XCTAssertEqual(refusal.localizedDescription, ordinary, id)
+            }
+            XCTAssertEqual(doc._opLogMirror.count, count, id)
+        }
+        await doc.close()
+    }
+
+    /// **`restoreStanding` walks once per derive** — two asks, one walk — and
+    /// an append clears it, so the next ask walks again and the answer
+    /// follows the note (a Restore makes it `.refused`: nothing to restore).
+    func test_restoreStandingIsMemoisedAndAnAppendClearsIt() async throws {
+        let docURL = try makeProject()
+        let doc = try await openDoc(docURL)
+        let id = try await doc.addReviewerAnnotation(
+            kind: .comment, paragraphId: try XCTUnwrap(doc.sequence.first), span: nil,
+            body: "mine", authorName: "Denver")
+        try await doc.withdrawReviewerAnnotation(id: id, authorName: "Denver")
+
+        let walks = doc.restoreStandingWalksForTesting
+        let first = doc.restoreStanding(annotationId: id)
+        XCTAssertNotEqual(first, .refused, "premise: her own Delete is hers to restore")
+        XCTAssertEqual(doc.restoreStanding(annotationId: id), first)
+        XCTAssertEqual(doc.restoreStandingWalksForTesting - walks, 1, "two asks, one walk")
+
+        try await doc.reopenAnnotation(id: id)
+        XCTAssertEqual(doc.restoreStanding(annotationId: id), .refused,
+                       "the append cleared the memo: restored, so nothing to restore")
+        XCTAssertEqual(doc.restoreStandingWalksForTesting - walks, 2, "and it walked again")
+        await doc.close()
+    }
+
+    /// **Every site that changes what `restoreStanding` reads clears its
+    /// memo** — derived from the code, not listed: every assignment or append
+    /// to `_opLogMirror` and every assignment of `annotationAmendments` in
+    /// `Maugham/` is followed within a few lines by
+    /// `invalidateRestoreStandingMemo()`. A site that skips it is a stale
+    /// Restore drawn on the Deleted row.
+    func test_everyMirrorOrAmendmentWriteClearsTheRestoreMemo() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Maugham")
+        var sites: [String] = []
+        var offenders: [String] = []
+        let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)!
+        for case let url as URL in files where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for site in Self.memoWriteSites(in: text) {
+                sites.append("\(url.lastPathComponent):\(site.line)")
+                if !site.cleared { offenders.append("\(url.lastPathComponent):\(site.line)") }
+            }
+        }
+        XCTAssertGreaterThanOrEqual(sites.count, 8, "the census found the sites: \(sites)")
+        XCTAssertEqual(offenders, [], "a mirror/amendment write that leaves the memo stale")
+
+        // The control: a planted offender is caught, and its fix is not.
+        let planted = """
+            func f() {
+                _opLogMirror = []
+                doSomethingElse()
+            }
+            func g() {
+                self.annotationAmendments = .honourEverything
+                invalidateRestoreStandingMemo()
+            }
+            """
+        let found = Self.memoWriteSites(in: planted)
+        XCTAssertEqual(found.map(\.cleared), [false, true])
+    }
+
+    private static func memoWriteSites(in text: String) -> [(line: Int, cleared: Bool)] {
+        let lines = text.components(separatedBy: "\n")
+        let write = try! NSRegularExpression(pattern:
+            #"_opLogMirror\s*=[^=]|_opLogMirror\.(append|sort|remove|insert|replace)|annotationAmendments\s*=[^=]"#)
+        var out: [(Int, Bool)] = []
+        for (i, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("//") || trimmed.contains("internal var ") { continue }
+            let range = NSRange(line.startIndex..., in: line)
+            guard write.firstMatch(in: line, range: range) != nil else { continue }
+            // The next few lines of the SAME function: a window stops at the
+            // next `func`, so a clear in the function below cannot vouch for it.
+            var end = i + 1
+            while end < min(lines.count, i + 8), !lines[end].contains("func ") { end += 1 }
+            let window = lines[i..<end].joined(separator: "\n")
+            out.append((i + 1, window.contains("invalidateRestoreStandingMemo()")))
+        }
+        return out
+    }
+
+    /// **A closed piece previews as it does open** — the rewind window's
+    /// closed branch builds the table a load builds. The root's note on the
+    /// second paragraph, archived by the root, and a reviewer's reopen of it
+    /// the deriver does not honour: rewinding to before that paragraph
+    /// archives nothing, open or closed. Under the old `.honourEverything`
+    /// the closed preview honoured her reopen and counted a note to archive.
+    func test_aClosedPiecePreviewsTheSameAsTheOpenPiece() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        let kim = try makeReviewer(label: "Kim", admittedBy: root)
+        let second = Op(
+            opId: "01CCC", docId: Self.docId, at: Date(timeIntervalSince1970: 1_450),
+            device: root.deviceId, session: "s", kind: .typingBurst,
+            changes: [.init(paragraphId: "bbbb", prior: nil, next: "Second paragraph.")],
+            sequence: ["aaaa", "bbbb"])
+        let noteOnSecond = Op(
+            opId: "01DDD", docId: Self.docId, at: Date(timeIntervalSince1970: 1_500),
+            device: root.deviceId, session: "s", kind: .claudeComment,
+            changes: [.init(paragraphId: "bbbb", prior: nil, next: "")],
+            provenance: .init(
+                annotationBody: "the root's note", authorSourceKind: "human",
+                authorDisplayName: "Sam"))
+        try writeFile(by: root, ops: [
+            opening(by: root), second, noteOnSecond,
+            archive("01EEE", of: "01DDD", by: root),
+        ])
+        try writeFile(by: kim, ops: [reopen("01FFF", of: "01DDD", by: kim)])
+
+        let doc = try await openDoc(docURL)
+        let openOps = try await doc.opLog()
+        let open = RewindImpact.preview(
+            ops: openOps, cursorOpId: "01AAA", amendments: doc.annotationAmendments)
+        await doc.close()
+        XCTAssertEqual(open.annotationsToArchive, 0, "premise: open, her reopen is not honoured")
+
+        let closed = await Document.closedPieceHistory(
+            docId: Self.docId, projectURL: projectURL)
+        XCTAssertTrue(closed.ops.contains { $0.opId == "01FFF" },
+                      "premise: her reopen passes the partition and is in the history")
+        XCTAssertNotEqual(
+            RewindImpact.preview(ops: closed.ops, cursorOpId: "01AAA"), open,
+            "premise: honouring everything would preview differently")
+        XCTAssertEqual(
+            RewindImpact.preview(
+                ops: closed.ops, cursorOpId: "01AAA", amendments: closed.amendments),
+            open, "closed, it previews as it does open")
+
+        // And the window's closed branch is the one that asks for it.
+        let window = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Views/RewindWindow.swift"), encoding: .utf8)
+        XCTAssertTrue(window.contains("Document.closedPieceHistory("))
+        XCTAssertFalse(window.contains("OpLogStore(projectURL: projectURL)\n            ops ="),
+                       "the unjudged closed read is gone")
+    }
 }

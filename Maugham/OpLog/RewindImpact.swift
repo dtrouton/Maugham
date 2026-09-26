@@ -41,8 +41,9 @@ enum RewindImpact {
     /// `amendments` is the document's own judgement (`Document
     /// .annotationAmendments`), so the preview reads the statuses the pane
     /// shows and skips a reopen the deriver does not honour (ruling P). A
-    /// caller with no document — a closed piece read off disk — has no table
-    /// and keeps the pre-P3a answer.
+    /// closed piece passes the table a load would build
+    /// (`Document.closedPieceHistory`, P3 plan 3 Task 5); the default is for
+    /// callers with no book behind them.
     static func preview(
         ops: [Op], cursorOpId: String?,
         amendments: AnnotationAmendments = .honourEverything

@@ -1378,9 +1378,34 @@ extension Document {
         /// What the sentence says was left alone — the note, for a disposition;
         /// the text, for a restore (P3c whole-branch fix wave, C1).
         var leftAsItWas: String = "the note"
+        /// Why, where the reason is not this Mac's rung (P3 plan 3 Task 5).
+        var cause: Cause = .notPermitted
+
+        enum Cause: Equatable {
+            /// The door's own answer: this Mac may not write this here.
+            case notPermitted
+            /// **Her Restore was hers to make, and another device's Delete
+            /// sorts after it** — clock skew between two Macs, and nothing
+            /// about her permit. Only ever set by `requireRestoreHonoured`,
+            /// and only where the same reopen WOULD be honoured without the
+            /// later-sorting withdrawals, so it is never said about a note
+            /// that was not hers to restore.
+            case deletedAgainElsewhere
+        }
+
+        /// The skew case's sentence (P3 plan 3 Task 5), verbatim.
+        static let deletedAgainElsewhereSentence =
+            "Another device deleted this note after you restored it. "
+            + "Restore it again to keep it."
+
         var errorDescription: String? {
-            "this Mac may not write \(kind.rawValue) in this piece, "
-                + "so \(leftAsItWas) was left as it was"
+            switch cause {
+            case .deletedAgainElsewhere:
+                return Self.deletedAgainElsewhereSentence
+            case .notPermitted:
+                return "this Mac may not write \(kind.rawValue) in this piece, "
+                    + "so \(leftAsItWas) was left as it was"
+            }
         }
     }
 
@@ -1415,12 +1440,40 @@ extension Document {
     /// `annotationAmendments`), never restated here. So her own Delete is hers
     /// to undo whatever her rung, the root's Delete of her note is not, and a
     /// note somebody else deleted is not hers to restore.
+    ///
+    /// **The skew case has its own sentence** (P3 plan 3 Task 5). The deriver
+    /// walks a note's withdrawals and reopens in opId order, and an opId is
+    /// its WRITER's clock: another Mac whose clock runs ahead can have a
+    /// Delete in the mirror that sorts after the reopen minted here now. Her
+    /// Restore is then refused for order, not for permission, and telling her
+    /// *this Mac may not* would be the wrong sentence. So the refusal asks the
+    /// deriver once more, over the mirror WITHOUT this note's withdrawals and
+    /// reopens that sort after hers: if there the note was withdrawn and her
+    /// reopen brings it back, the only thing standing in her way is a Delete
+    /// that sorts later, and the cause says so. Never for somebody else's
+    /// note — there her reopen is not honoured even before the later ops, so
+    /// the ordinary sentence stands. The reopen's opId is NOT re-minted to sort
+    /// later: that would be a second opinion about order, in the writer's name.
     internal func requireRestoreHonoured(_ reopen: Op) throws {
         guard let src = reopen.provenance?.sourceAnnotationId else { return }
-        guard !AnnotationDeriver.isWithdrawn(
+        guard AnnotationDeriver.isWithdrawn(
             annotationId: src, in: _opLogMirror + [reopen],
             amendments: annotationAmendments)
-        else { throw PostureRefusal(kind: reopen.kind) }
+        else { return }
+        let before = _opLogMirror.filter {
+            !($0.opId > reopen.opId
+              && ($0.kind == .annotationWithdraw || $0.kind == .annotationReopen)
+              && $0.provenance?.sourceAnnotationId == src)
+        }
+        let honouredInItsPlace =
+            AnnotationDeriver.isWithdrawn(
+                annotationId: src, in: before, amendments: annotationAmendments)
+            && !AnnotationDeriver.isWithdrawn(
+                annotationId: src, in: before + [reopen],
+                amendments: annotationAmendments)
+        throw PostureRefusal(
+            kind: reopen.kind,
+            cause: honouredInItsPlace ? .deletedAgainElsewhere : .notPermitted)
     }
 
     /// **Whether Restore on a deleted note would be honoured, and on what
@@ -1449,12 +1502,40 @@ extension Document {
         case withAuthorRights
     }
 
+    ///
+    /// **Memoised per derive** (P3 plan 3 Task 5): the pane asks this once per
+    /// Deleted row per redraw, and each answer is two walks of the mirror.
+    /// The answer turns on the mirror and the amendment table and nothing
+    /// else a redraw can change (the reopen it judges is this device's own,
+    /// minted fresh, and only its opId varies), so `restoreStandingMemo` is
+    /// cleared wherever either changes — `invalidateRestoreStandingMemo()`'s
+    /// callers, which are exactly the sites that assign or append to
+    /// `_opLogMirror` or assign `annotationAmendments`. `isClosed` and the
+    /// recovery flag are asked BEFORE the memo, so a husk never answers from it.
+    ///
+    /// The skew refusal (`PostureRefusal.Cause.deletedAgainElsewhere`) DRAWS
+    /// Restore: its sentence asks her to restore it again, the right is hers,
+    /// and only the order stood in the way. Every other refusal hides it.
     func restoreStanding(annotationId id: String) -> RestoreStanding {
-        guard !isClosed, !isReadOnlyRecovery,
-              isWithdrawn(annotationId: id),
+        guard !isClosed, !isReadOnlyRecovery else { return .refused }
+        if let memo = restoreStandingMemo[id] { return memo }
+        restoreStandingWalksForTesting += 1
+        let answer = restoreStandingWalk(annotationId: id)
+        restoreStandingMemo[id] = answer
+        return answer
+    }
+
+    private func restoreStandingWalk(annotationId id: String) -> RestoreStanding {
+        guard isWithdrawn(annotationId: id),
               let reopen = restoreOp(annotationId: id)
         else { return .refused }
-        do { try requireRestoreHonoured(reopen) } catch { return .refused }
+        do {
+            try requireRestoreHonoured(reopen)
+        } catch let refusal as PostureRefusal where refusal.cause == .deletedAgainElsewhere {
+            // Hers to restore; drawn on the footing it would be honoured on.
+        } catch {
+            return .refused
+        }
         return annotationAmendments.honoursAsDisposition(reopen)
             ? .withAuthorRights : .asTheDeleter
     }

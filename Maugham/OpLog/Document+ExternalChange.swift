@@ -189,19 +189,14 @@ extension Document {
             flagSweep(reason)
         }
         self._opLogMirror = ops
+        self.invalidateRestoreStandingMemo()
         // P3a Task 6 fix round 1: and the permits those ops' amendments were
         // written under, re-collected by the load above. A merge is how another
         // device's edit or withdrawal arrives, and the rule that judges it has
         // to be the one that was in force when it was written.
-        // Bound out here: the class closure is `@Sendable` and may reach
-        // neither `self` nor a main-actor property of the store.
-        let classDocId = self.docId
-        let classProjectURL = opStore.projectURL
-        self.annotationAmendments = opStore.annotationAmendments(
-            from: amendmentPermits
-        ) {
-            OpLogStore.documentClass(forDocId: classDocId, in: classProjectURL)
-        }
+        self.annotationAmendments = Document.judgedAmendments(
+            opStore: opStore, permits: amendmentPermits, docId: docId)
+        self.invalidateRestoreStandingMemo()
         // Re-derive the sticky flag from the merged log: cross-Mac sync
         // could deliver annotation ops on a doc that previously had none.
         self._hasAnyAnnotationOps = ops.contains {
