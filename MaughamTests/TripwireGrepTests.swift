@@ -2175,10 +2175,6 @@ final class TripwireGrepTests: XCTestCase {
         "TreeTravelTests.swift test_aDoubleClickOnTheRowsNameTravelsToAuthor",
 
         // Swept in the commits that follow (plan 3, C14).
-        "SceneNavigatorProjectRowTests.swift test_clickingASceneWithADocumentSubjectLeavesItAlone",
-        "SceneNavigatorProjectRowTests.swift test_fromTheProjectAnEmptyScreenplayCanReachADocumentAgain",
-        "SceneNavigatorProjectRowTests.swift test_plantedOffender_aScriptRowWithTheOldProjectionIsStillATrap",
-        "SceneNavigatorProjectRowTests.swift test_theRowUnderTheProjectIsTheScriptAndNotTheFirstSlugline",
         "SectionChevronTests.swift test_theChevronTakesAColdClickWithNoHoverFirst",
         "TreeTravelTests.swift test_aDoubleClickPastTheNameDoesNotTravel",
         "TreeTravelTests.swift test_aSingleClickOnTheChapterRowOnlySelects",
