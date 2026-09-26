@@ -174,12 +174,12 @@ final class InboxBylineTests: XCTestCase {
     /// each device that has captured, off the registry it verified for its
     /// trust table — never a second read, and never per row.
     func test_theStoreResolvesEachCapturingDeviceOnceARefresh() async throws {
-        let projectURL = FileManager.default.temporaryDirectory
+        let projectURL = TestTemp.root
             .appendingPathComponent("inbox-byline-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/inbox"),
             withIntermediateDirectories: true)
-        let cacheURL = FileManager.default.temporaryDirectory
+        let cacheURL = TestTemp.root
             .appendingPathComponent("inbox-byline-cache-\(UUID().uuidString).json")
         defer {
             try? FileManager.default.removeItem(at: projectURL)

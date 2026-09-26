@@ -25,14 +25,14 @@ final class InboxPermitTests: XCTestCase {
     private var cache: RegistryCache!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("inbox-permit-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/inbox"),
             withIntermediateDirectories: true)
         mine = .softwareForTesting()
         theirs = .softwareForTesting()
-        cacheURL = FileManager.default.temporaryDirectory
+        cacheURL = TestTemp.root
             .appendingPathComponent("inbox-permit-cache-\(UUID().uuidString).json")
         cache = RegistryCache(fileURL: cacheURL, identity: mine.author.fingerprint)
     }

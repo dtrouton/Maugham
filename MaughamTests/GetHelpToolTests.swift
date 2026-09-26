@@ -3,7 +3,7 @@ import XCTest
 
 final class GetHelpToolTests: XCTestCase {
     private func tempIndex() throws -> HelpTopicIndex {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+        let dir = TestTemp.root
             .appendingPathComponent("ghi-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try #"[{"slug":"focus","title":"Focus","order":1}]"#
@@ -16,7 +16,7 @@ final class GetHelpToolTests: XCTestCase {
     /// Injected skills index with one skill (`editing-pass`) so `respond`'s
     /// skills-branching can be exercised without touching the bundled skills.
     private func tempSkills() throws -> SkillIndex {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+        let dir = TestTemp.root
             .appendingPathComponent("ghi-skills-\(UUID().uuidString)")
         let skillDir = dir.appendingPathComponent("editing-pass")
         try FileManager.default.createDirectory(at: skillDir, withIntermediateDirectories: true)
@@ -124,7 +124,7 @@ final class GetHelpToolTests: XCTestCase {
     /// topic of the same name — pin the precedence so a future help topic
     /// named "skills" can't silently shadow this branch.
     func test_skillsTopic_takesPrecedenceOverHelpTopicNamed() throws {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+        let dir = TestTemp.root
             .appendingPathComponent("ghi-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try #"[{"slug":"skills","title":"Skills (help topic)","order":1}]"#

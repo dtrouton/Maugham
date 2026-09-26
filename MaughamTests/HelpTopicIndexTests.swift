@@ -3,7 +3,7 @@ import XCTest
 
 final class HelpTopicIndexTests: XCTestCase {
     private func makeGuideDir() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+        let dir = TestTemp.root
             .appendingPathComponent("guide-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let index = """

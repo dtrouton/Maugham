@@ -644,6 +644,89 @@ struct PeopleAndDevicesModel: Equatable {
     /// 1). Last, because everything above is a fact about who may write and
     /// this is a fact about a file.
     let unverifiable: [Unverifiable]
+    /// **Pieces waiting for the Mac that started them** (P3 plan 3 Task 8),
+    /// counted by that Mac's recorded device id (`StructureItem.startedBy`).
+    /// Empty everywhere but the root's Mac in a narrowed book; see
+    /// `waitingForStarters` for the rule and `waitingLine(forDevice:)` for
+    /// what a row draws.
+    var waitingForStarter: [String: Int] = [:]
+
+    // MARK: - Pieces waiting for their starter
+
+    /// **What unblocks a stranded piece, on the row of the Mac it waits for**
+    /// (P3 plan 3 Task 8) — or nil, which draws nothing.
+    ///
+    /// Under Option A only the Mac that started a piece mints its opening in
+    /// a narrowed book, so a Mac that vanished without being revoked leaves
+    /// its pieces waiting on every other Mac for ever. Revoking it is the one
+    /// remedy (a revoked starter is `.gone`, and today's rule opens the piece),
+    /// and until this line that remedy was on no screen.
+    ///
+    /// Keyed by the row's AUTHOR fingerprint, which a starter's device id is
+    /// derived from forwards (`DeviceIdentity.deviceId`) — never a parse of
+    /// the id back into a key — so a Device row and an absent row, which both
+    /// carry one, answer the same way.
+    func waitingLine(forDevice fingerprint: String) -> String? {
+        let id = DeviceIdentity.deviceId(
+            actor: DeviceActor.author.rawValue, fingerprint: fingerprint)
+        guard let count = waitingForStarter[id], count > 0 else { return nil }
+        return Self.waitingSentence(count)
+    }
+
+    /// The line, in the brief's words. One piece is said in the singular.
+    static func waitingSentence(_ count: Int) -> String {
+        let waiting = count == 1
+            ? "1 piece is waiting for this Mac."
+            : "\(count) pieces are waiting for this Mac."
+        return waiting + " If it is gone for good, revoke it and they will open."
+    }
+
+    /// **Which pieces wait for which starter** — the rule, as a value.
+    ///
+    /// A piece waits exactly when ALL of these hold, and draws nothing when any
+    /// does not:
+    /// - **this Mac may revoke that starter** — the very predicate that makes
+    ///   the starter's Revoke live on its person row (`revocable`, the verb's
+    ///   own rule: the root that admitted them, they are not a root, not
+    ///   already revoked). A line telling the writer to revoke beside a
+    ///   disabled Revoke is a suggestion this Mac cannot act on (controller
+    ///   ruling, Task 8), so a Mac that cannot revoke them — a non-root, a
+    ///   root that did not admit them, or a row with no person record at all,
+    ///   such as an absent one — is told nothing;
+    /// - **the book is narrowed** (`TrustTable.hasNarrowingPermits`, which is
+    ///   `PermitTimeline.narrows` asked of every person) — in an un-narrowed
+    ///   book whoever may write a piece mints its opening, so nothing strands;
+    /// - **the piece records a starter, and it is not this Mac**
+    ///   (`TrustTable.starter(ofPieceStartedBy:)` ≠ `.thisDevice`) — this Mac
+    ///   mints its own pieces' openings at the next load;
+    /// - **that starter still binds** (`TrustTable.starterStanding` is
+    ///   `.standing` or `.unknown`) — a `.gone` starter's piece already opens;
+    /// - **no opening for it is on disk** (`unopened`, which the host fills
+    ///   from op-log file presence — the load's own `needsBootstrap` test).
+    static func waitingForStarters(
+        pieces: [PermitControl.Piece], unopened: Set<String>,
+        registry: Registry, table: TrustTable, me: String
+    ) -> [String: Int] {
+        guard table.hasNarrowingPermits else { return [:] }
+        // The starters this Mac may revoke, by the device id each person's
+        // author key is written as — derived forwards, never parsed back.
+        let revocableStarters = Set(registry.people
+            .filter { revocable($0, in: registry, me: me) }
+            .map { DeviceIdentity.deviceId(
+                actor: DeviceActor.author.rawValue, fingerprint: $0.person) })
+        guard !revocableStarters.isEmpty else { return [:] }
+        var counts: [String: Int] = [:]
+        for piece in pieces {
+            guard let starter = piece.startedBy,
+                  revocableStarters.contains(starter),
+                  unopened.contains(piece.id),
+                  table.starter(ofPieceStartedBy: starter) != .thisDevice,
+                  table.starterStanding(starter) != .gone
+            else { continue }
+            counts[starter, default: 0] += 1
+        }
+        return counts
+    }
 
     // MARK: - Making it
 
@@ -684,7 +767,10 @@ struct PeopleAndDevicesModel: Equatable {
     ///     FILES, never about this Mac's own enclave, because the Mac that
     ///     signs nothing is usually somebody else's.
     ///   - pieces: the book's manuscript documents, for drawing a permit's
-    ///     piece list as titles.
+    ///     piece list as titles, each with its recorded starter.
+    ///   - unopenedPieces: the pieces with no op-log file on disk at all — no
+    ///     opening has reached this Mac — which the host reads off the main
+    ///     actor. Empty says nothing is waiting.
     static func make(
         registry: Registry,
         table: TrustTable,
@@ -699,6 +785,7 @@ struct PeopleAndDevicesModel: Equatable {
         heldStreams: [String: Set<String>] = [:],
         unsignedStreams: [String] = [],
         pieces: [PermitControl.Piece] = [],
+        unopenedPieces: Set<String> = [],
         heldPieceStarts: [String: [String: Int]] = [:],
         heldWaiting: [String: [String: HeldLines.Waiting]] = [:],
         heldCaptures: [String: Int] = [:],
@@ -928,7 +1015,10 @@ struct PeopleAndDevicesModel: Equatable {
             merged: merged,
             claimants: stillClaiming,
             absent: absent,
-            unverifiable: unverifiable)
+            unverifiable: unverifiable,
+            waitingForStarter: waitingForStarters(
+                pieces: pieces, unopened: unopenedPieces,
+                registry: registry, table: table, me: me))
     }
 
     /// One person's row, with the devices whose records name them nested under

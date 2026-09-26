@@ -246,7 +246,7 @@ final class ClaimDecisionTests: XCTestCase {
     }
 
     private func makeProject() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("claim-decision-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url

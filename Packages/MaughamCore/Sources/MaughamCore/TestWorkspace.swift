@@ -24,16 +24,28 @@ public enum TestWorkspace {
     /// (Claude Desktop driving the dev build's test tools) is one process and
     /// keeps the bare root, unchanged.
     public static var root: URL {
-        let lib = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-        let base = lib
-            .appendingPathComponent("Application Support")
-            .appendingPathComponent(BuildVariant.current.supportFolderName)
-            .appendingPathComponent("TestWorkspace")
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil else {
             return base
         }
         return base.appendingPathComponent(
             "xctest-worker-\(ProcessInfo.processInfo.processIdentifier)")
+    }
+
+    /// The workspace directory itself — the live app's root, and the parent
+    /// of every `xctest-worker-<pid>` leaf.
+    public static var base: URL {
+        FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Application Support")
+            .appendingPathComponent(BuildVariant.current.supportFolderName)
+            .appendingPathComponent("TestWorkspace")
+    }
+
+    /// Remove the leaves of test workers that are gone — `DeviceState`'s pid
+    /// rule over this tree (plan 3's C17: 943 leaves had piled up here, one per
+    /// worker of every gate, because nothing ever removed one). Never the bare
+    /// root's own projects, and never a live worker's leaf.
+    public static func sweepDeadWorkerLeaves() {
+        DeviceState.sweepDeadWorkerLeaves(in: base)
     }
 
     /// Throw unless `url` is `root` itself or a descendant. Compares resolved
@@ -47,13 +59,18 @@ public enum TestWorkspace {
         }
     }
 
-    /// Delete everything under the workspace root (creating a clean, empty
-    /// root). Only ever touches paths under `root`.
+    /// Delete everything under the workspace root, the root included. Only
+    /// ever touches paths under `root`.
+    ///
+    /// It does not recreate the root empty (plan 3's C17): every writer into
+    /// the workspace creates the directories it writes into
+    /// (`TestCreateProjectTool` creates the root, `ProjectFactory` creates with
+    /// intermediates), and an empty leaf re-made at the end of a test was the
+    /// one thing each worker was sure to leave behind.
     public static func reset() throws {
         let fm = FileManager.default
         if fm.fileExists(atPath: root.path) {
             try fm.removeItem(at: root)
         }
-        try fm.createDirectory(at: root, withIntermediateDirectories: true)
     }
 }

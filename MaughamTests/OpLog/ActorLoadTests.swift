@@ -22,7 +22,7 @@ final class ActorLoadTests: XCTestCase {
     private var identities: LocalIdentities!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("actorload-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent("manuscript"),

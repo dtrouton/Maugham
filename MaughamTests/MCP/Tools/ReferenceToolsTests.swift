@@ -5,7 +5,7 @@ import MaughamCore
 @MainActor
 final class ReferenceToolsTests: XCTestCase {
     fileprivate func makeProject(type: ProjectType = .novel) async throws -> (URL, ProjectRegistry) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RT-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -58,7 +58,7 @@ final class ReferenceToolsTests: XCTestCase {
 
 extension ReferenceToolsTests {
     func test_findReferences_byResearchId_returnsLinkedChapters() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("FR-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -102,7 +102,7 @@ extension ReferenceToolsTests {
     func test_findReferences_byResearchTitle_resolvesAndReturnsLinkedChapters() async throws {
         // Same fixture shape as test_findReferences_byResearchId_returnsLinkedChapters,
         // but pass the title "Sarah" instead of the id "res-sarah".
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("FRT-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -157,7 +157,7 @@ extension ReferenceToolsTests {
     /// Three-document screenplay project; each .fountain has its own scene
     /// heading. list_scenes should aggregate across all docs.
     func test_listScenes_walksAllDocuments() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LS3-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -221,7 +221,7 @@ extension ReferenceToolsTests {
     /// by the scene's lines. The pre-fix behavior was page_start: 1.0,
     /// page_length: 0 — useless for "where am I against page target".
     func test_listScenes_shortScript_hasFractionalPagePositions() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LSF-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -269,7 +269,7 @@ extension ReferenceToolsTests {
     /// find_references should also accept a relative path string (the form an
     /// agent gets from list_research or os-level file listings).
     func test_findReferences_byResearchPath_resolvesAndReturnsLinkedChapters() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("FRP-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -315,7 +315,7 @@ extension ReferenceToolsTests {
     /// increasing across documents (script-relative), not document-relative
     /// where each doc restarts at 0.
     func test_listScenes_pagesAreScriptRelative() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LSP-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -388,7 +388,7 @@ extension ReferenceToolsTests {
     /// id="scene-0". Compound the doc id into the scene id so it's actually
     /// unique across the script.
     func test_listScenes_idsAreUniqueAcrossDocs() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LSU-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -438,7 +438,7 @@ extension ReferenceToolsTests {
     /// When the underlying document id already starts with "scene-",
     /// the composite scene id shouldn't double the prefix.
     func test_listScenes_compositeId_doesNotDoublePrefix() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LSDP-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -477,7 +477,7 @@ extension ReferenceToolsTests {
     }
 
     func test_findReferences_pieceOwnedResearch_returnsOwningPiece() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("FR-PR-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(named: "C", in: tmp)
@@ -505,7 +505,7 @@ extension ReferenceToolsTests {
     /// A project whose links live in RESEARCH notes rather than in the
     /// manuscript — which is the only shape canvas promotion can produce.
     private func makeResearchLinkedProject() async throws -> (URL, ProjectRegistry) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RTLR-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -623,7 +623,7 @@ extension ReferenceToolsTests {
     /// "what points at this" when asked about that chapter's own intent
     /// statement.
     func test_findReferences_resolvesAStatementTargetByIdAndComposedTitle() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("FRST-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

@@ -46,7 +46,7 @@ final class AnnotationsCharacterization: XCTestCase {
     private struct Harness { let doc: Document; let pid: String; let url: URL }
 
     private func makeHarness(_ initialMd: String = "One.") async throws -> Harness {
-        let tmp = track(FileManager.default.temporaryDirectory
+        let tmp = track(TestTemp.root
             .appendingPathComponent("AnnChar-\(UUID().uuidString)"))
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("manuscript"), withIntermediateDirectories: true)

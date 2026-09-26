@@ -21,7 +21,7 @@ final class WriteTranslationToolTests: XCTestCase {
     private func makeHarness(
         body: String = "First paragraph with **bold** word.\n\nSecond paragraph plain."
     ) async throws -> Harness {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("WTT-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

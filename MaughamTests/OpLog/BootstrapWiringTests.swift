@@ -36,7 +36,7 @@ final class BootstrapWiringTests: XCTestCase {
         docId: String = "doc-wiring-test",
         body: String = "First paragraph.\n\nSecond paragraph.\n"
     ) async throws -> Fixture {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("BWT-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)

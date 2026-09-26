@@ -88,6 +88,16 @@ Dead helpers, spies, probes and hosting blocks went with them (≈3,000 lines).
   `click(at:)`) — self-skips without a key window, one sighting since
   08-12, and the only detector of the shipped click-on-the-name regression
   (2026-08-12). A judgment call Denver can overrule.
+  **Revisited 2026-09-26 (P3 plan 3, C14):** the click family got its own arm
+  of tripwire 33. Every synthesised mouse click is now a named member of
+  `TripwireGrepTests.clickRepresentatives`, each with its reason — a hit area,
+  the real delivery path, or a cold click, one per wiring per file — and helpers
+  are followed through the file declaring a test class's superclass, so the
+  canvas-mounting harness's real events count. The census found 39 click tests
+  that day (29 in-file, 10 through the canvas harness); the ones not kept were
+  cut or converted, each against a named windowless pin (the canvas ten to the
+  `applyMouseDown` seam), and `waitOut(` joined the press arm's waits. Count the
+  array, not this note.
 - `AssistantColumnTests`' close-press and `IntentStripTests`,
   `PlanTreeStructureCreationTests`, `ReviewRoundCockpitLetterScrollTests`,
   `DesignGateTests.test_theDeskListensForTheGatesVerdict`,

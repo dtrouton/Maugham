@@ -5,7 +5,7 @@ import MaughamCore
 @MainActor
 final class LinkedResearchTests: XCTestCase {
     private func makeProject() async throws -> (URL, ProjectStore) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LinkedResearch-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

@@ -9,7 +9,7 @@ import MaughamCore
 final class RewindForensicProvenanceTests: XCTestCase {
 
     private func makeProjectWithDoc() async throws -> (Document, String) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("MaughamForensicTest-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
 

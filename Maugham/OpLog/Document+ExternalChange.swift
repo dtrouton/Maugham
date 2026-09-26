@@ -26,20 +26,26 @@ extension Document {
         try Document.writeConflictBackup(
             forFileAt: url, docId: docId, text: diskMd, kind: "discarded")
 
-        // F7 ping-pong damping. Count discards with DISTINCT bytes; a byte-
-        // identical re-delivery of a snapshot we've already seen doesn't advance
-        // the counter (`insert` reports it was already present). Once the count
-        // reaches `discardDampThreshold`, stop auto-rewriting: the op log stays
-        // authoritative in memory and we keep snapshotting, but we no longer
-        // bounce the `.md` back at a peer that keeps re-writing it. Log once.
-        // A local edit clears the counter (`noteLocalEdit`), re-arming rewriting.
-        let isDistinct = noteDiscardDistinct(diskMd)
-        if isDistinct { _distinctDiscardCount += 1 }
-        if _distinctDiscardCount >= Document.discardDampThreshold {
+        // F7 ping-pong damping. Count EVERY discard, a byte-identical
+        // re-delivery included. Two Macs that judge a piece differently (one
+        // holds lines the other applies; or a load on a Mac that renders
+        // differently) each discard the other's `.md` and rewrite their own,
+        // so after the first round every delivery is a REPEAT of bytes this
+        // document has already seen — counting only distinct bytes never
+        // reached the threshold and the pair traded rewrites without bound (P3
+        // plan 3's whole-branch Critical). Skipping the rewrite for a repeat
+        // instead is NOT the fix: the same outside edit, re-applied, would
+        // then survive on disk, and outside `.md` edits are never honoured.
+        // Once the count reaches `discardDampThreshold`, stop auto-rewriting:
+        // the op log stays authoritative in memory and we keep snapshotting,
+        // but we no longer bounce the `.md` back. Log once. A local edit
+        // clears the counter (`noteLocalEdit`), re-arming rewriting.
+        _discardCount += 1
+        if _discardCount >= Document.discardDampThreshold {
             if !_discardDampLogged {
                 _discardDampLogged = true
                 documentLog.error(
-                    "external-discard ping-pong damped for \(self.docId, privacy: .public) after \(self._distinctDiscardCount, privacy: .public) distinct discards — snapshotting only, no longer rewriting the .md until a local edit")
+                    "external-discard ping-pong damped for \(self.docId, privacy: .public) after \(self._discardCount, privacy: .public) discards — snapshotting only, no longer rewriting the .md until a local edit")
             }
             return
         }
@@ -189,19 +195,14 @@ extension Document {
             flagSweep(reason)
         }
         self._opLogMirror = ops
+        self.invalidateRestoreStandingMemo()
         // P3a Task 6 fix round 1: and the permits those ops' amendments were
         // written under, re-collected by the load above. A merge is how another
         // device's edit or withdrawal arrives, and the rule that judges it has
         // to be the one that was in force when it was written.
-        // Bound out here: the class closure is `@Sendable` and may reach
-        // neither `self` nor a main-actor property of the store.
-        let classDocId = self.docId
-        let classProjectURL = opStore.projectURL
-        self.annotationAmendments = opStore.annotationAmendments(
-            from: amendmentPermits
-        ) {
-            OpLogStore.documentClass(forDocId: classDocId, in: classProjectURL)
-        }
+        self.annotationAmendments = Document.judgedAmendments(
+            opStore: opStore, permits: amendmentPermits, docId: docId)
+        self.invalidateRestoreStandingMemo()
         // Re-derive the sticky flag from the merged log: cross-Mac sync
         // could deliver annotation ops on a doc that previously had none.
         self._hasAnyAnnotationOps = ops.contains {
@@ -279,6 +280,35 @@ extension Document {
         if pureAppend {
             _undoCoherentApplyPending = true
         }
+
+        // **The derived `.md` follows the re-read** (P3 plan 3, carry C12,
+        // ruling C12-1). This re-read applied somebody else's change — an op
+        // syncing in, an admission letting a held span through, a revocation
+        // taking one out — and until now nothing rendered it: the `.md`
+        // stayed stale until the writer's next keystroke. Scheduled, never
+        // performed: the same debounce a keystroke uses, and
+        // `performAutosave`'s own guards (closed, recovery, `rendersToDisk`)
+        // decide. Rendering is not a text write, so a Mac that may not write
+        // this piece's words still renders the words the book holds.
+        //
+        // Its own write comes back as the presenter's `.otherProjectFile`
+        // callback, and `handleExternalDiskChange`'s echo guard
+        // (`lastDiskEcho = .afterWrite`) absorbs it.
+        if rendersOnItsOwnAccount { autosaveScheduler.schedule(()) }
+    }
+
+    /// **May a re-read or a load re-render the `.md` when nobody typed?**
+    /// (P3 plan 3, carry C12.) Not while this document is HOLDING lines: a
+    /// stranger's span, a piece-starter's text waiting to be claimed, a line
+    /// this build cannot judge. Such a Mac's render omits words the Mac that
+    /// wrote them renders, so it is a view waiting for a decision rather than
+    /// a staler copy of the same bytes — and writing it would blank those
+    /// words in the one human-readable copy iCloud carries (at worst, an
+    /// EMPTY `.md` over the piece's only text). The decision that lets them
+    /// in re-reads the document, which renders then. A keystroke on such a
+    /// Mac still writes the `.md`, exactly as it did before this carry.
+    internal var rendersOnItsOwnAccount: Bool {
+        provenance?.hasPendingHistory != true
     }
 
     // MARK: - Conflict backups (forensic snapshots of discarded / diverged bytes)

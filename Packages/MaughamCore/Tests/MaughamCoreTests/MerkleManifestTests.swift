@@ -3,7 +3,7 @@ import XCTest
 
 final class MerkleManifestTests: XCTestCase {
     private func tempRoot(_ files: [String: String]) throws -> URL {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("mk-\(UUID().uuidString)")
         for (rel, body) in files {
             let url = root.appendingPathComponent(rel)

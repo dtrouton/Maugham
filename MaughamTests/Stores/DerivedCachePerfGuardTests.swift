@@ -38,7 +38,7 @@ final class DerivedCachePerfGuardTests: XCTestCase {
     /// (c) project-open + first search ≤ 1 derive per doc; (a) second identical
     /// search performs 0 derives.
     func test_openThenSearch_oneDerivePerDoc_andSecondSearchZero() async throws {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("DerivedPerf-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try appendOp(root: root, docId: "doc-a", opId: "01a", paraId: "aaaa", text: "Alpha content here.")
@@ -71,7 +71,7 @@ final class DerivedCachePerfGuardTests: XCTestCase {
 
     /// (b) editing one doc invalidates only that doc.
     func test_editingOneDoc_invalidatesOnlyThatDoc() async throws {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("DerivedPerf-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try appendOp(root: root, docId: "doc-a", opId: "01a", paraId: "aaaa", text: "Alpha content here.")

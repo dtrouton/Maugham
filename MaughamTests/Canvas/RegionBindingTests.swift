@@ -12,7 +12,7 @@ final class RegionBindingTests: XCTestCase {
     private let c = CanvasNodeID("c")
 
     override func setUpWithError() throws {
-        root = URL(fileURLWithPath: NSTemporaryDirectory())
+        root = TestTemp.root
             .appendingPathComponent("region-binding-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }

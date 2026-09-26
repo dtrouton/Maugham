@@ -39,7 +39,7 @@ final class TypingLatencyProbeTests: XCTestCase {
     /// and the project URL the caller is responsible for removing.
     private func makeDoc(body: String, ext: String) async throws
         -> (doc: Document, projectURL: URL) {
-        let projectURL = FileManager.default.temporaryDirectory
+        let projectURL = TestTemp.root
             .appendingPathComponent("typing-probe-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent("manuscript"),

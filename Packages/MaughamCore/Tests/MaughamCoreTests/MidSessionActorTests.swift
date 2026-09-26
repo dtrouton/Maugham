@@ -31,7 +31,7 @@ final class MidSessionActorTests: XCTestCase {
     private var cache: RegistryCache!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("midsession-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/ops"),

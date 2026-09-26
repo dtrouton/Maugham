@@ -1244,7 +1244,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// production run above says nothing either.
     func test_theOneSpellingCensusFiresOnAPlantedRestatement() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("one-spelling-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -1494,7 +1494,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// the one that silently dropped a pending ask.
     func test_theCockpitsPendingAskIsPromotedByARound() throws {
         let diagnostics = DiagnosticsStore(
-            projectRoot: FileManager.default.temporaryDirectory
+            projectRoot: TestTemp.root
                 .appendingPathComponent("CockpitAsk-\(UUID())"),
             device: DeviceSlug.make(from: "test-mac"))
         let window = mountCockpit(
@@ -1972,7 +1972,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// substitution is the subprocess — production would spawn a billing
     /// `claude -p` here. Mirrors `CompilerRunCommandTests.makeLiveDocumentHarness`.
     private func makeHarness() async throws -> Harness {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("ReviewRoundCockpit-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         roots.append(root)

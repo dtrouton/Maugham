@@ -8,7 +8,7 @@ final class DocumentTaskAnchorPersistTests: XCTestCase {
     // MARK: - Fixture (mirrors DocumentTasksTests).
 
     private func makeProject(initialMd: String = "Hello.") throws -> (URL, String) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("ANCHOR-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)

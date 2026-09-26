@@ -349,7 +349,7 @@ final class HistoryPaneProvenanceNoticeTests: XCTestCase {
     }
 
     private func makeProject() -> URL {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("histprov-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(
             at: url.appendingPathComponent(".maugham/ops"),
@@ -728,13 +728,13 @@ final class HistoryPaneChainNoticeTests: XCTestCase {
     /// own key material or the process-wide memory.
     private func makeCache() -> RegistryCache {
         RegistryCache(
-            fileURL: FileManager.default.temporaryDirectory
+            fileURL: TestTemp.root
                 .appendingPathComponent("histchain-cache-\(UUID().uuidString).json"),
             identity: "test-identity-fingerprint")
     }
 
     private func makeProject() -> URL {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("histchain-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(
             at: url.appendingPathComponent(".maugham/ops"),

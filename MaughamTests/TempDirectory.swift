@@ -7,7 +7,7 @@ final class TempDirectory {
     let url: URL
 
     init(file: StaticString = #file, line: UInt = #line) {
-        let base = FileManager.default.temporaryDirectory
+        let base = TestTemp.root
         let name = "MaughamTests-\(UUID().uuidString)"
         self.url = base.appendingPathComponent(name, isDirectory: true)
         do {

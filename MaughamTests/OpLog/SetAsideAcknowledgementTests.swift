@@ -219,7 +219,7 @@ final class SetAsideAcknowledgementTests: XCTestCase {
     }
 
     private func makeProject() -> URL {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("setaside-ack-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(
             at: url.appendingPathComponent(".maugham/ops"),
@@ -413,7 +413,7 @@ final class SetAsideAcknowledgementPaneTests: XCTestCase {
     /// this, a census that silently walked nothing would pass forever.
     func test_theCensusFiresOnAPlantedThirdReader() throws {
         let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("setaside-census-selfcheck-\(UUID().uuidString)")
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
@@ -527,13 +527,13 @@ final class InboxStoreRefreshGenerationTests: XCTestCase {
     private var cache: RegistryCache!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("inbox-generation-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/inbox"),
             withIntermediateDirectories: true)
         identity = .softwareForTesting()
-        cacheURL = FileManager.default.temporaryDirectory
+        cacheURL = TestTemp.root
             .appendingPathComponent("inbox-generation-cache-\(UUID().uuidString).json")
         cache = RegistryCache(fileURL: cacheURL, identity: identity.fingerprint)
     }

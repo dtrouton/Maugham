@@ -300,7 +300,7 @@ final class PracticeSectionTests: XCTestCase {
     private let chapterTwo = Doc(id: "ch-2", title: "Chapter Two", path: "manuscript/c2.md")
 
     private func makeProject(docs: [Doc]) async throws -> Fixture {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("PracticeSection-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("manuscript"),

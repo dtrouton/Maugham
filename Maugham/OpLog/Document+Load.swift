@@ -284,6 +284,7 @@ extension Document {
         doc.autosaveScheduler = DebounceScheduler<Void>(delay: .milliseconds(750)) { _ in }
         doc.recomputeDisplayText()
         doc._opLogMirror = partial.ops
+        doc.invalidateRestoreStandingMemo()
         doc._annotationsCacheValid = false
         doc._hasAnyAnnotationOps = partial.ops.contains {
             Document.isAnnotationOpKind($0.kind)
@@ -379,9 +380,13 @@ extension Document {
         // permit resolves on this actor (`OpLogStore.trustOnThisActor`), which
         // also warms the table `loadDiagnosed` reads below. A project with no
         // register at all — every book written before P2a — asks nothing.
-        let writePermit = opStore.localWritePermit {
-            Document.documentClass(forDocId: docId, in: projectURL)
-        }
+        //
+        // **One manifest read for the whole load** (P3 plan 3 Task 6): the
+        // class and the piece's starter here, and the class again for the
+        // amendment table below, are answers about one file — so one
+        // `ManifestPlacement` decodes it once, and only if one is asked.
+        let placement = ManifestPlacement(docId: docId, in: projectURL)
+        let writePermit = opStore.localWritePermit(placement: placement)
 
         if needsBootstrap {
             // Spec §4.6. A document with no op log usually means a new or
@@ -611,11 +616,13 @@ extension Document {
         // piece restored from *Removed Elsewhere* is loaded to write its first
         // render, and snapshotting "" there would leave an empty "backup" of
         // nothing in `.maugham/conflicts/`.
+        var divergedAtLoad = false
         if logExists && FileManager.default.fileExists(atPath: url.path) {
             let derivedRender = MarkdownDisplayFilter.stripAnchors(
                 Materializer.materialize(
                     paragraphs: initial.paragraphs, sequence: initial.sequence))
             if MarkdownDisplayFilter.stripAnchors(storedBytes) != derivedRender {
+                divergedAtLoad = true
                 do {
                     let newest = Document.newestConflictBackup(
                         forFileAt: url, docId: docId)
@@ -661,6 +668,7 @@ extension Document {
         }
         doc.recomputeDisplayText()
         doc._opLogMirror = ops
+        doc.invalidateRestoreStandingMemo()
         doc._annotationsCacheValid = false
         doc._hasAnyAnnotationOps = ops.contains {
             Document.isAnnotationOpKind($0.kind)
@@ -677,14 +685,10 @@ extension Document {
         // derivation honours. Resolved here because the table `localWritePermit`
         // warmed is still warm; the projection it feeds is rebuilt at every
         // burst boundary and must not reach for a register of its own.
-        doc.annotationAmendments = opStore.annotationAmendments(
-            from: amendmentPermits
-        ) {
-            // `OpLogStore`'s own door rather than `Document.documentClass`,
-            // which is the same function behind a `@MainActor` extension this
-            // `@Sendable` closure cannot reach.
-            OpLogStore.documentClass(forDocId: docId, in: projectURL)
-        }
+        doc.annotationAmendments = Document.judgedAmendments(
+            opStore: opStore, permits: amendmentPermits, docId: docId,
+            placement: placement)
+        doc.invalidateRestoreStandingMemo()
         // Signed op log P1: what this document's history turned out to be made
         // of. STAMPED, never posted — a notice from this windowless context is
         // dropped by the receive helpers' liveness guard, exactly the pending
@@ -697,6 +701,19 @@ extension Document {
         // nobody has claimed — the one held line the writer can answer today.
         doc.startedAPiece = amendmentPermits.whoStartedAPiece
         doc.keptWritingInATakenPiece = amendmentPermits.whoKeptWritingInATakenPiece
+        // **A diverged `.md` is re-rendered, not only snapshotted** (P3 plan
+        // 3, carry C12, ruling C12-1's closed half). A trust change or a sync
+        // that reached this piece while it was closed re-derived nothing on
+        // disk; its next open is where the render catches up. The "diverged"
+        // backup above stays, as evidence. Scheduled through the ordinary
+        // debounce, so `performAutosave`'s guards decide, and asked last,
+        // once `provenance` is stamped: a load HOLDING lines renders nothing
+        // on its own account (`rendersOnItsOwnAccount`). A load that refused
+        // (`waitingForPiece`) never reaches here, and a recovery load is a
+        // different function whose scheduler does nothing.
+        if divergedAtLoad && doc.rendersOnItsOwnAccount {
+            doc.autosaveScheduler.schedule(())
+        }
         return doc
     }
 }
@@ -717,6 +734,18 @@ extension Document {
 /// and the editor's live Document gets a fabricated id no other lookup
 /// can find.
 internal func resolveDocId(for url: URL) throws -> String {
+    try resolveDocIdTellingIfNamed(for: url).docId
+}
+
+/// `resolveDocId`, telling the caller whether a manifest NAMED the id (a
+/// structure item or a statement at that path) or it was fabricated — a hash,
+/// because no manifest lists the path. The posture door's path cache keeps a
+/// fabricated id only while the manifest it was fabricated from is unchanged
+/// (P3 plan 3 Task 6); every other caller asks `resolveDocId` and cannot tell
+/// the two apart.
+internal func resolveDocIdTellingIfNamed(
+    for url: URL
+) throws -> (docId: String, named: Bool) {
     var probe = url.deletingLastPathComponent()
     let fm = FileManager.default
     // Cap the walk at 16 ancestors so a malformed URL can't infinite-loop.
@@ -731,7 +760,7 @@ internal func resolveDocId(for url: URL) throws -> String {
                     ProjectManifest.self, from: data) {
                     if let item = findItemByPath(
                         relativePath, in: manifest.structure) {
-                        return item.id
+                        return (item.id, true)
                     }
                     // Statements (M1A) are ordinary Documents with ordinary op
                     // logs, so they need the same manifest-borne identity a
@@ -743,7 +772,7 @@ internal func resolveDocId(for url: URL) throws -> String {
                     // against.
                     if let statement = manifest.statements.first(
                         where: { $0.path == relativePath }) {
-                        return statement.id
+                        return (statement.id, true)
                     }
                 }
             }
@@ -751,7 +780,7 @@ internal func resolveDocId(for url: URL) throws -> String {
             // don't keep climbing into an unrelated parent project.
             let relativeFallback = url.path
                 .replacingOccurrences(of: probe.path + "/", with: "")
-            return "doc-\(StableHash.fnv1a64Hex(relativeFallback))"
+            return ("doc-\(StableHash.fnv1a64Hex(relativeFallback))", false)
         }
         let parent = probe.deletingLastPathComponent()
         if parent.path == probe.path { break }   // hit root
@@ -760,7 +789,7 @@ internal func resolveDocId(for url: URL) throws -> String {
     // No manifest found — hash-fallback against the basename so test fixtures
     // still get a stable id.
     let basename = url.lastPathComponent
-    return "doc-\(StableHash.fnv1a64Hex(basename))"
+    return ("doc-\(StableHash.fnv1a64Hex(basename))", false)
 }
 
 /// Walks up the directory tree from a doc's URL until it finds the directory
@@ -792,6 +821,58 @@ private func findItemByPath(_ path: String, in items: [StructureItem]) -> Struct
            let found = findItemByPath(path, in: kids) { return found }
     }
     return nil
+}
+
+extension Document {
+    /// **Whose annotation it is, for one document** — the table a load builds
+    /// (P3a Task 6), spelled once so the load, the external re-read and a
+    /// closed piece's history (`closedPieceHistory`) cannot build it
+    /// differently (P3 plan 3 Task 5). `permits` is what the same read's
+    /// partition collected.
+    ///
+    /// `placement` is the caller's own manifest read where it already holds
+    /// one (the load, which asked the write permit through it — P3 plan 3
+    /// Task 6), so the class is not decoded a second time; nil reads the
+    /// manifest on disk, once, if the table asks for the class at all.
+    static func judgedAmendments(
+        opStore: OpLogStore, permits: AmendmentPermits, docId: String,
+        placement: ManifestPlacement? = nil
+    ) -> AnnotationAmendments {
+        // Bound out here: the class closure is `@Sendable` and may reach
+        // neither a Document nor a main-actor property of the store.
+        // `ManifestPlacement` is `Sendable` and reads through `OpLogStore`'s
+        // own door rather than `Document.documentClass`, which is the same
+        // function behind a `@MainActor` extension.
+        let placement = placement
+            ?? ManifestPlacement(docId: docId, in: opStore.projectURL)
+        return opStore.annotationAmendments(from: permits) {
+            placement.documentClass
+        }
+    }
+
+    /// **A piece nobody has open, read as a load reads it** (P3 plan 3 Task
+    /// 5) — its ops and the amendment table a load would judge them by, for
+    /// the rewind window's closed branch. Before this the window kept
+    /// `.honourEverything` for a closed piece, so its preview honoured a
+    /// reviewer's reopen of the root's archive that the same piece, opened,
+    /// does not: two answers to one question (RULING-8).
+    ///
+    /// The load's own store (`makeLoadOpStore`: the same identities, device
+    /// state and registry memory), its trust warmed first (`prepareTrust`),
+    /// then the same partitioned read and the same table. A read that fails
+    /// answers no ops, as the window's `try?` always did.
+    static func closedPieceHistory(
+        docId: String, projectURL: URL
+    ) async -> (ops: [Op], amendments: AnnotationAmendments) {
+        let opStore = makeLoadOpStore(projectURL: projectURL, presenter: nil)
+        await opStore.prepareTrust()
+        let permits = AmendmentPermits()
+        guard let loaded = try? await opStore.loadDiagnosed(
+            docId: docId, amendmentPermits: permits)
+        else { return ([], .honourEverything) }
+        return (loaded.ops,
+                judgedAmendments(opStore: opStore, permits: permits, docId: docId))
+    }
 }
 
 /// Indirection so BurstScheduler's fire closure can reference the

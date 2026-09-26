@@ -74,7 +74,7 @@ enum OpLogGrowthFixture {
     static func generate(spec: Spec, seed: UInt64 = 42) async throws -> Result {
         var rng = SeededRandom(seed: seed)
         let fm = FileManager.default
-        let projectURL = fm.temporaryDirectory
+        let projectURL = TestTemp.root
             .appendingPathComponent("oplog-growth-\(spec.label)-\(UUID().uuidString)")
         let manuscriptDir = projectURL.appendingPathComponent("manuscript")
         try fm.createDirectory(at: manuscriptDir, withIntermediateDirectories: true)

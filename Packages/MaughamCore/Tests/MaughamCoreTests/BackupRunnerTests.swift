@@ -5,7 +5,7 @@ final class BackupRunnerTests: XCTestCase {
     let when = Date(timeIntervalSince1970: 1_700_000_000)
 
     func makeTree(_ files: [String: String]) throws -> URL {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("br-\(UUID().uuidString)")
         for (rel, body) in files {
             let url = root.appendingPathComponent(rel)
@@ -16,7 +16,7 @@ final class BackupRunnerTests: XCTestCase {
         return root
     }
     func destDir() -> URL {
-        let d = FileManager.default.temporaryDirectory.appendingPathComponent("brd-\(UUID().uuidString)")
+        let d = TestTemp.root.appendingPathComponent("brd-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
     }
@@ -38,7 +38,7 @@ final class BackupRunnerTests: XCTestCase {
     // Regression: an idle ⌘S only appends a `.checkpoint` breadcrumb op to the op
     // log; that must NOT spawn a new generation (was the "saves every time" bug).
     func test_run_skipsWhenOnlyACheckpointOpWasAppended() throws {
-        let proj = FileManager.default.temporaryDirectory.appendingPathComponent("brp-\(UUID().uuidString)")
+        let proj = TestTemp.root.appendingPathComponent("brp-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: proj.appendingPathComponent(".maugham/ops"), withIntermediateDirectories: true)
         let dest = destDir()

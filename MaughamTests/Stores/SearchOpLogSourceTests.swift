@@ -9,7 +9,7 @@ import MaughamCore
 final class SearchOpLogSourceTests: XCTestCase {
 
     func test_manuscriptSearch_readsOpLog_notStaleMd() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("SearchOpLog-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

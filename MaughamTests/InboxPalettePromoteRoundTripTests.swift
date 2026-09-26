@@ -13,7 +13,7 @@ final class InboxPalettePromoteRoundTripTests: XCTestCase {
 
     private func openProject() async throws
         -> (URL, ProjectStore, InboxStore, DocumentStore) {
-        let parent = FileManager.default.temporaryDirectory
+        let parent = TestTemp.root
             .appendingPathComponent("palette-promote-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createNovelProject(named: "PalettePromote", in: parent)

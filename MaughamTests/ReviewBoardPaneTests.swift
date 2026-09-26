@@ -368,44 +368,6 @@ final class ReviewBoardPaneTests: XCTestCase {
         XCTAssertTrue(calls.writes.isEmpty, "a click rules on nothing")
     }
 
-    /// **A reference row has nothing to click anywhere on it.** Its chips are
-    /// absent (asserted above), and the row must not have quietly become a
-    /// control of its own instead: a reviewer aiming at the pass columns of a
-    /// piece reviewed elsewhere lands on the row itself.
-    ///
-    /// Swept rather than aimed — the board is a project holding ONLY the
-    /// reference, so every point in the column is fair game and the test needs
-    /// no row geometry to be right about.
-    func test_aReferenceRowOffersNothingToClickAnywhereOnIt() async throws {
-        let window = mount(structure: [doc("ref", "Another Novel", kind: .reference)])
-        pump(0.3)
-        XCTAssertTrue(chips(in: window).isEmpty, "premise: no chips at all")
-
-        await sweepClicks(over: window)
-
-        XCTAssertTrue(calls.navigations.isEmpty,
-                      "a reference row offered a click — its passes belong to "
-                      + "the project it points at, and a control here would be "
-                      + "a decision made in the wrong window")
-        XCTAssertTrue(calls.writes.isEmpty)
-    }
-
-    /// The control the sweep above needs to mean anything: the same sweep over
-    /// the same board with the piece LOOSE does reach a chip. Without it, a
-    /// board that mounted nothing at all — or a sweep that missed the column
-    /// entirely — would read exactly like a reference row behaving.
-    func test_control_theSameSweepOverALoosePieceDoesReachAChip() async throws {
-        let window = mount(structure: [doc("ref", "Another Novel", kind: .loose)])
-        _ = try await chipsSettling(in: window, expecting: Self.passes.count)
-
-        await sweepClicks(over: window)
-
-        XCTAssertFalse(calls.navigations.isEmpty,
-                       "the sweep never reached a chip, so the reference row's "
-                       + "silence above is about the sweep and not about the row")
-        XCTAssertTrue(calls.navigations.allSatisfy { $0.piece == "ref" })
-    }
-
     // MARK: - The coach is never a column (two loops P1 Task 8)
 
     /// **The standing guarantee the seat row's three tests were really
@@ -768,18 +730,19 @@ final class ReviewBoardPaneTests: XCTestCase {
     /// **An unreadable piece's cell is not a control.** "Open the notes we
     /// could not read" is a button that cannot do what it offers; the honest
     /// affordance is the dash and a tooltip saying why.
+    ///
+    /// Asserted as what is DRAWN — exactly one row of chips and no count
+    /// button, since a count cell is the only other button the board has. It
+    /// also swept the board with clicks until plan 3's C14; a control that is
+    /// not drawn cannot be clicked, so the sweep said nothing the count does
+    /// not (tripwire 33).
     func test_anUnreadablePieceOffersNoClick() async throws {
         let window = mount(structure: [doc("ch1", "Chapter One")],
                            unreadable: ["ch1"])
         let found = try await chipsSettling(in: window, expecting: Self.passes.count)
-        pump(0.2)
 
         XCTAssertEqual(found.count, Self.passes.count,
                        "the dash must not be a button")
-        await sweepClicks(over: window)
-        XCTAssertTrue(calls.opened.isEmpty,
-                      "an unreadable piece offered a click into notes it "
-                      + "cannot show")
     }
 
     /// A reference row is chip-less AND countless: the notes on the project it
@@ -794,8 +757,6 @@ final class ReviewBoardPaneTests: XCTestCase {
         XCTAssertTrue(chips(in: window).isEmpty,
                       "the reference row drew a control — it has neither chips "
                       + "nor a count")
-        await sweepClicks(over: window)
-        XCTAssertTrue(calls.opened.isEmpty)
     }
 
     // MARK: - Mounted: the two scrolling axes are the pane's
@@ -1125,35 +1086,6 @@ final class ReviewBoardPaneTests: XCTestCase {
             pump(0.03)
         }
         if let settled { _ = await pumpUntil(deadline: 3, settled) }
-    }
-
-    /// Click a coarse grid of points over the whole hosted column. Used where
-    /// the question is "is there anything clickable HERE at all" rather than
-    /// "does this control work" — it needs no row geometry, so it cannot be
-    /// wrong about where a row ended up.
-    ///
-    /// **The vertical pitch is below the board's own row height**, so no grid
-    /// row can fall BETWEEN two sample points. It was a flat eight rows over
-    /// the window's height until a row above the grid moved everything down by
-    /// ~20pt and `test_control_theSameSweepOverALoosePieceDoesReachAChip`
-    /// stopped reaching a chip (the seat row, since removed with the seat —
-    /// two loops P1 Task 8): a sweep whose resolution is tuned to one layout
-    /// reports "nothing clickable" the next time anything above the grid
-    /// changes height, and the negative test it controls for goes green for
-    /// the wrong reason.
-    private func sweepClicks(over window: NSWindow) async {
-        guard let content = window.contentView else { return }
-        let bounds = content.bounds
-        let pitch = ReviewBoardPane.pieceRowHeight - 6
-        var y = pitch / 2
-        while y < bounds.height {
-            for column in 1...5 {
-                let point = CGPoint(x: bounds.width * CGFloat(column) / 6, y: y)
-                await click(at: content.convert(point, to: nil), in: window)
-            }
-            y += pitch
-        }
-        pump(0.2)
     }
 
     private func scrollViews(in window: NSWindow) -> [NSScrollView] {

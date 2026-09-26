@@ -5,7 +5,7 @@ import MaughamCore
 @MainActor
 final class ListAllLinksToolTests: XCTestCase {
     private func makeProject() async throws -> (URL, ProjectStore, ProjectRegistry) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LAL-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -82,7 +82,7 @@ final class ListAllLinksToolTests: XCTestCase {
     }
 
     func test_listAllLinks_unresolvedWikiLink_emittedAsUnresolved() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LALU-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -126,7 +126,7 @@ final class ListAllLinksToolTests: XCTestCase {
     /// Smoke caught a chapter linked to a research GROUP returning the group's
     /// id as to_title (group titles weren't indexed). Resolve via group title.
     func test_listAllLinks_linkToResearchGroup_resolvesGroupTitle() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LALG-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -166,7 +166,7 @@ final class ListAllLinksToolTests: XCTestCase {
     }
 
     func test_listAllLinks_emitsPieceResearchEdges_forCollections() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LAL-PR-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(named: "C", in: tmp)
@@ -213,7 +213,7 @@ final class ListAllLinksToolTests: XCTestCase {
     /// research) pair. Mirror the UI redundancy rule: containment wins, the
     /// linked_research edge is skipped.
     func test_listAllLinks_dormantManualLink_emitsOnlyPieceResearch() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LAL-DORM-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(named: "C", in: tmp)
@@ -247,7 +247,7 @@ final class ListAllLinksToolTests: XCTestCase {
     /// A project whose links live in RESEARCH notes rather than in the
     /// manuscript — which is the only shape canvas promotion can produce.
     private func makeResearchLinkedProject() async throws -> (URL, ProjectRegistry) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LALR-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -415,7 +415,7 @@ final class ListAllLinksToolTests: XCTestCase {
     /// title was never in `titleIndex`, so the link stayed `wiki_unresolved`
     /// forever (issue #24).
     func test_aLinkToAStatementComposedTitleResolves() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LAL-STMT-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -458,7 +458,7 @@ final class ListAllLinksToolTests: XCTestCase {
     /// inserted into `titleIndex` first (lowest precedence) precisely so this
     /// holds.
     func test_titleCollisionPrefersResearchAndDocsOverStatements() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LAL-COLLIDE-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -496,7 +496,7 @@ final class ListAllLinksToolTests: XCTestCase {
     /// self-link — the research-note rule (line 144), applied to the third
     /// source loop.
     func test_aStatementNamingItselfEmitsNoSelfEdge() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LAL-STMTSELF-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let manifest = ProjectManifest(

@@ -17,7 +17,7 @@ final class DocumentArchiveTextMutationTests: XCTestCase {
     // MARK: - Fixture (mirrors DocumentTaskAlignmentTests).
 
     private func makeProject(initialMd: String) throws -> (URL, String) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("ARCHIVE-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)

@@ -7,7 +7,7 @@ final class OpLogDeviceStateTests: XCTestCase {
     private var tmp: URL!
 
     override func setUp() {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("olds-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
     }

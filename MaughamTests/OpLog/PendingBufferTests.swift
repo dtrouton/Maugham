@@ -9,7 +9,7 @@ final class PendingBufferTests: XCTestCase {
     private let device = "Denvers-Mac.local"
 
     override func setUp() async throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("PBT-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
     }

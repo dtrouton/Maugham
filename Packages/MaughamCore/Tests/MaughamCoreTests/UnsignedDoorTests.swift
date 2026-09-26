@@ -37,7 +37,7 @@ final class UnsignedDoorTests: XCTestCase {
     private var memory: AdmissionMemory!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("unsigned-door-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/ops"),

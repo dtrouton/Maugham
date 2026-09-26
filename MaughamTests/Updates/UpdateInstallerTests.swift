@@ -142,7 +142,7 @@ final class UpdateInstallerTests: XCTestCase {
     /// - the install destination is NEVER absent (it exists both before AND after)
     /// - the staged path contains the OLD content (ready to be cleaned up)
     func test_atomicSwap_sameVolume_swapsContentAndNeverLeavesDestinationAbsent() throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
         let staged   = tmp.appendingPathComponent("test-swap-staged-\(UUID().uuidString)")
         let installed = tmp.appendingPathComponent("test-swap-installed-\(UUID().uuidString)")
         defer {
@@ -184,7 +184,7 @@ final class UpdateInstallerTests: XCTestCase {
     /// Swapping a missing staged path throws `sourceNotFound` — the installed
     /// bundle is untouched (no half-complete state).
     func test_atomicSwap_throwsSourceNotFound_whenStagedMissing() {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
         let missingStaged = tmp.appendingPathComponent("test-swap-MISSING-\(UUID().uuidString)")
         let installed = tmp.appendingPathComponent("test-swap-installed-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: installed) }
@@ -241,7 +241,7 @@ final class UpdateInstallerTests: XCTestCase {
         }
 
         let staged   = otherVol.appendingPathComponent("maugham-test-staged-\(UUID().uuidString)")
-        let installed = fm.temporaryDirectory.appendingPathComponent(
+        let installed = TestTemp.root.appendingPathComponent(
             "maugham-test-installed-\(UUID().uuidString)")
         defer {
             try? fm.removeItem(at: staged)

@@ -218,7 +218,7 @@ final class UIStatePersonaTests: XCTestCase {
     }
 
     func test_loadOrEmpty_rejectsStateFromANewerSchema() throws {
-        let dir = FileManager.default.temporaryDirectory
+        let dir = TestTemp.root
             .appendingPathComponent("UIStatePersonaTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }

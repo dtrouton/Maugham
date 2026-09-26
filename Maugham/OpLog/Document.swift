@@ -200,16 +200,25 @@ public final class Document {
     /// started setting aside. Asked only of a stamp that carries the arm, so
     /// every other Document pays nothing. The builder is the one builder
     /// (tripwire 46), asked exactly as the load asks it.
+    ///
+    /// **And the yield's arm too** (Ruling U, carried in P3 plan 3): a book
+    /// author's hand over a piece somebody else started carries
+    /// `unsettledStarter` only while nobody has written its text
+    /// (`unownedPiece` → `.nobodyHasWrittenItsText`) — the same fact about
+    /// its lines, so another book author's text arriving lifts the root's
+    /// yield at this re-read rather than at the next trust change. The cost
+    /// is one `unownedPiece` walk per applied re-read, on stamped documents
+    /// only.
     internal func restampWhereItsStarterArmMayHaveClosed() {
-        guard localWritePermit.writesAsItsStarter else { return }
+        guard localWritePermit.writesAsItsStarter
+            || localWritePermit.unsettledStarter != nil else { return }
         starterRestampsForTesting += 1
         let projectURL = opStore.projectURL
         let docId = self.docId
+        // One manifest read for the class and the starter (P3 plan 3 Task 6).
         stamp(localWritePermit: opStore.localWritePermit(
             as: localWritePermit.actor,
-            documentClass: {
-                Document.documentClass(forDocId: docId, in: projectURL)
-            }))
+            placement: ManifestPlacement(docId: docId, in: projectURL)))
     }
 
     /// **Whose annotation it is** (P3a Task 6, spec §4.2) — resolved once by
@@ -311,6 +320,22 @@ public final class Document {
     /// in sync by every mutation path that calls opStore.append.
     internal var _opLogMirror: [Op] = []
 
+    /// `restoreStanding`'s memo (P3 plan 3 Task 5), keyed by annotation id.
+    /// Ignored by observation: it is filled from inside a view's `body`.
+    @ObservationIgnored internal var restoreStandingMemo: [String: RestoreStanding] = [:]
+
+    /// Test-observable: how many times `restoreStanding` walked rather than
+    /// answering from its memo.
+    @ObservationIgnored internal var restoreStandingWalksForTesting = 0
+
+    /// **Clear `restoreStanding`'s memo** — called at every site that assigns
+    /// or appends to `_opLogMirror` or assigns `annotationAmendments` (P3 plan
+    /// 3 Task 5). A site that changes either without calling this leaves a
+    /// stale Restore drawn on the Deleted row.
+    internal func invalidateRestoreStandingMemo() {
+        restoreStandingMemo.removeAll()
+    }
+
     /// The ONE mirror-append (RULING-36: the timeline is the writer's own,
     /// under any clock). `handleExternalLogChange` replaces the mirror with a
     /// sorted merge; a LOCAL op minted after that sorts before a merged-in
@@ -326,6 +351,7 @@ public final class Document {
         } else {
             _opLogMirror.append(op)
         }
+        invalidateRestoreStandingMemo()
     }
 
     /// Diagnostic accessor: size of the in-memory op log mirror.
@@ -612,54 +638,35 @@ public final class Document {
 
     /// F7 ping-pong damping. The discard handler auto-rewrites the `.md` with
     /// op-log truth on every while-open external edit. If op-log sync lags the
-    /// `.md` (iCloud's normal failure mode) or a version-skewed peer keeps
-    /// writing anchored files, two devices bounce rewrites indefinitely. After
-    /// `discardDampThreshold` discards with DISTINCT bytes in a session we stop
-    /// auto-rewriting (still snapshot, op log still authoritative in memory) and
-    /// log ONCE. Any local edit re-arms rewriting (via `noteLocalEdit`).
-    /// `_discardedByteHashes` dedups byte-identical repeat deliveries so a
-    /// re-fired presenter callback for the same bytes doesn't advance the count.
-    /// It stores stable 64-bit hashes (`StableHash.fnv1a64Hex`, NOT the
-    /// process-seed-randomised `String.hashValue` — tripwire) rather than full
-    /// manuscript strings, and is capped at `discardSnapshotCap`, evicting oldest
-    /// — damping only needs distinctness, so a hash collision (merely
-    /// under-counts, safely) and a bounded window are both tolerable, and a
-    /// runaway ping-pong loop can't grow it unbounded (Minor 5). Plain
-    /// per-instance state (not observable) — same lifecycle as `_orderingDirty`;
-    /// reset on `noteLocalEdit`, never persisted.
+    /// `.md` (iCloud's normal failure mode), a version-skewed peer keeps
+    /// writing anchored files, or two Macs judge a piece's lines differently
+    /// (one holds what the other applies), two devices bounce rewrites
+    /// indefinitely. After `discardDampThreshold` discards in a session we
+    /// stop auto-rewriting (still snapshot, op log still authoritative in
+    /// memory) and log ONCE. Any local edit re-arms rewriting (via
+    /// `noteLocalEdit`).
+    ///
+    /// EVERY discard counts, a byte-identical re-delivery included (P3 plan
+    /// 3's whole-branch Critical). Two Macs whose renders differ alternate
+    /// between two byte-strings, so after the first round every delivery is a
+    /// repeat; the old distinct-bytes count stayed at 1 and the pair traded
+    /// rewrites without bound. The cost is that a presenter re-firing for the
+    /// same bytes spends one of the threshold's discards — damping then
+    /// engages early, which only stops a rewrite of a derived render.
+    /// Plain per-instance state (not observable) — same lifecycle as
+    /// `_orderingDirty`; reset on `noteLocalEdit`, never persisted.
     internal static let discardDampThreshold = 3
-    internal static let discardSnapshotCap = 8
-    internal var _distinctDiscardCount = 0
-    internal var _discardedByteHashes: [String] = []
+    internal var _discardCount = 0
     internal var _discardDampLogged = false
-
-    /// Records a discard's bytes by stable hash and reports whether they are
-    /// distinct from the recently-seen set (a byte-identical re-delivery returns
-    /// false and must not advance the damping count). Insertion-ordered + capped
-    /// at `discardSnapshotCap`, evicting oldest, so the window is bounded
-    /// (Minor 5). Uses `StableHash.fnv1a64Hex` for determinism; the hash is never
-    /// persisted, but the codebase forbids `String.hashValue` for id-shaped work.
-    func noteDiscardDistinct(_ bytes: String) -> Bool {
-        let h = StableHash.fnv1a64Hex(bytes)
-        if _discardedByteHashes.contains(h) { return false }
-        _discardedByteHashes.append(h)
-        if _discardedByteHashes.count > Self.discardSnapshotCap {
-            _discardedByteHashes.removeFirst(
-                _discardedByteHashes.count - Self.discardSnapshotCap)
-        }
-        return true
-    }
 
     /// Re-arm discard rewriting after a local edit — the writer is clearly the
     /// live source again, so a subsequent external divergence is a fresh event,
     /// not part of a bounce. Called from every local-edit path
     /// (`setFullText`/`setParagraph`) when a real change occurs. Cheap: an Int
-    /// reset plus (usually-empty) array clear on the typing hot path.
+    /// reset on the typing hot path.
     func noteLocalEdit() {
-        guard _distinctDiscardCount != 0 || !_discardedByteHashes.isEmpty
-            || _discardDampLogged else { return }
-        _distinctDiscardCount = 0
-        _discardedByteHashes.removeAll()
+        guard _discardCount != 0 || _discardDampLogged else { return }
+        _discardCount = 0
         _discardDampLogged = false
     }
 
@@ -1769,11 +1776,11 @@ public final class Document {
         sequence = []
         displayText = ""
         _opLogMirror = []
+        invalidateRestoreStandingMemo()
         _annotationsCache = []
         _annotationsCacheValid = false
         _tasksCache = []
         _tasksCacheValid = false
-        _discardedByteHashes = []
         // Drop the last-written-bytes snapshot (a full manuscript copy) while
         // honouring EchoState's two-call-site construction contract.
         lastDiskEcho = .afterWrite(bytes: "")

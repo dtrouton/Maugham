@@ -7,7 +7,7 @@ final class PromotePieceTests: XCTestCase {
     private func makeCollectionWithPiece(
         mode: PieceMode
     ) async throws -> (collection: URL, store: ProjectStore, piece: StructureItem) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("PP-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let collectionURL = try await ProjectFactory.createCollectionProject(
@@ -452,7 +452,7 @@ final class PromotePieceTests: XCTestCase {
 
     func test_promotedProject_carriedResearch_isDerivedForItsDocument() async throws {
         // Collection with a piece that owns one research note.
-        let parent = FileManager.default.temporaryDirectory
+        let parent = TestTemp.root
             .appendingPathComponent("promote-derive-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(named: "C", in: parent)

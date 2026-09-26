@@ -26,7 +26,7 @@ final class AnnotationWriterTests: XCTestCase {
     }
 
     private func makeWriter(
-        projectRoot: URL = FileManager.default.temporaryDirectory,
+        projectRoot: URL = TestTemp.root,
         identity: DeviceIdentity? = nil
     ) -> AnnotationWriter {
         AnnotationWriter(
@@ -44,7 +44,7 @@ final class AnnotationWriterTests: XCTestCase {
     private func makeProjectRoot(
         _ label: String, file: StaticString = #filePath, line: UInt = #line
     ) throws -> URL {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("\(label)-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }

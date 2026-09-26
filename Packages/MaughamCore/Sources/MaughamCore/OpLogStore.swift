@@ -149,6 +149,13 @@ public final class OpLogStore {
     /// life of a window would make the admission sheet quietly do nothing.
     private var resolvedTrust: (signature: String, table: TrustTable)?
 
+    /// How many times this store has actually RESOLVED its table (a folder
+    /// read plus a verify per record), as opposed to answering from the one in
+    /// hand. Read by tests that pin *one table per load* on real disk — the
+    /// phone's `PhonePosture` asks `prepareTrust` on every re-ask and leaves the
+    /// signature comparison to this store (P3 plan 3 Task 7).
+    private(set) var trustResolutionCount = 0
+
     /// The table, re-resolving it whenever the registry folder has changed
     /// since the one in hand was built.
     ///
@@ -178,6 +185,7 @@ public final class OpLogStore {
                 projectURL: projectURL, identities: identities, cache: cache)
         }.value
         resolvedTrust = (signature, table)
+        trustResolutionCount += 1
         return table
     }
 
@@ -211,6 +219,7 @@ public final class OpLogStore {
         let table = try TrustResolution.resolve(
             projectURL: projectURL, identities: identities, cache: registryCache)
         resolvedTrust = (signature, table)
+        trustResolutionCount += 1
         return table
     }
 
@@ -249,6 +258,23 @@ public final class OpLogStore {
         guard TrustResolution.hasAnythingToResolve(
             in: projectURL, cache: registryCache) else { return true }
         return (try? await trust()) != nil
+    }
+
+    /// **The same builder, asked through ONE manifest read** (P3 plan 3 Task
+    /// 6) — the class and the starter both from `placement`, so a narrowed
+    /// book decodes its manifest once per ask rather than once per question,
+    /// and a book that never needs either decodes nothing. Every caller that
+    /// resolves both off a manifest comes here; a caller that CONSTRUCTS its
+    /// class (the translation pipeline's `.translation(piece:)`) keeps the
+    /// closure form below.
+    public func localWritePermit(
+        as actor: DeviceActor = .author,
+        placement: ManifestPlacement
+    ) -> LocalWritePermit {
+        localWritePermit(
+            as: actor,
+            documentClass: { placement.documentClass },
+            startedBy: { placement.startedBy(ofPiece: $0) })
     }
 
     /// **May this device's own hand write here, and what?** — the ONE question
@@ -650,6 +676,62 @@ public final class OpLogStore {
             }
         }
         return held
+    }
+
+    /// **What a load of this document WOULD say it is made of, without loading
+    /// it** (signed op log P3 plan 3, carry C4).
+    ///
+    /// The admission sheet counts held lines across the book, and until this
+    /// it could count only what an OPEN document's load had stamped — so a
+    /// stranger who had written only in chapters nobody had opened was asked
+    /// about when one of them was opened, and not before. The Mac's closed-
+    /// document sweep asks this, one document at a time, off the main actor.
+    ///
+    /// **One classifier, and this is not a second one.** The files are
+    /// `opLogFileURLs`' listing, the permit context is built exactly as
+    /// `loadDiagnosed` builds it (no statements handed over, no amendment
+    /// carrier — neither moves a count), every file goes through the same
+    /// `classify`, and a file that reads as nothing contributes the same empty
+    /// `FileProvenance` `loadFileDiagnosed` returns for one. So the `files` of
+    /// the answer are the load's, file by file; `ClosedProvenanceTests` pins
+    /// that over a stranger's span, a §4.5 hold and an unsigned tail.
+    ///
+    /// **The one field it does not carry is `ownStreams`** — which streams are
+    /// this device's own is the load's to say from identities this function
+    /// is not given, and no held-line reader asks it.
+    ///
+    /// **It reads and never writes**: `state` is asked what it remembers (a
+    /// weaker picture without it could count a line the load sets aside), and
+    /// none of the load's three writes — the adopted head, the verified
+    /// segment digest, the forensic record — is made here. No presenter: it
+    /// only reads, so there is no write of this process's own to keep from
+    /// bouncing back.
+    ///
+    /// **It throws rather than coming back short** — a file present and
+    /// unreadable is `readCoordinated`'s to raise (RULING-54).
+    ///
+    /// `trust` is not optional: the caller resolves one table for a whole
+    /// sweep, off the main actor, as `ProjectStore.recountFromOpLogs` does.
+    public nonisolated static func provenance(
+        forDocId docId: String, in projectURL: URL,
+        trust: TrustTable, state: OpLogDeviceState?
+    ) throws -> OpLogProvenance {
+        let urls = opLogFileURLs(forDocId: docId, in: projectURL)
+        guard !urls.isEmpty else { return OpLogProvenance() }
+        let permit = permitContext(forDocId: docId, in: projectURL, trust: trust)
+        var files: [FileProvenance] = []
+        for url in urls {
+            guard let bytes = try readCoordinated(url: url, presenter: nil) else {
+                files.append(FileProvenance(
+                    name: url.lastPathComponent,
+                    isSealedSegment: url.pathExtension == OpLogSegment.fileExtension))
+                continue
+            }
+            files.append(classify(
+                url: url, bytes: bytes, state: state, trust: trust,
+                permit: permit).provenance)
+        }
+        return OpLogProvenance(files: files)
     }
 
     /// The result of `loadDiagnosedPartial` — the recovery spec §4's read.

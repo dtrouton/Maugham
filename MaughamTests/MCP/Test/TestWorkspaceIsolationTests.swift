@@ -46,4 +46,52 @@ final class TestWorkspaceIsolationTests: XCTestCase {
                       + "a sibling worker's files — the cross-worker collision "
                       + "this seam exists to prevent")
     }
+
+    /// `reset()` removes the leaf and does not make it again (plan 3's C17):
+    /// every writer into the workspace creates what it writes into, so an empty
+    /// leaf re-made at a test's end was the one thing each worker left behind.
+    func test_resetLeavesNoLeafBehind() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: TestWorkspace.root, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: TestWorkspace.root.appendingPathComponent("f.txt"))
+
+        try TestWorkspace.reset()
+
+        XCTAssertFalse(fm.fileExists(atPath: TestWorkspace.root.path),
+            "reset() re-made an empty leaf that nothing will ever remove")
+    }
+
+    /// The test host's launch sweep removes a dead worker's leaf under BOTH
+    /// per-process trees in Application Support, and keeps a live one.
+    func test_theHostsLaunchSweepRemovesDeadWorkersLeavesAndKeepsLiveOnes() throws {
+        let fm = FileManager.default
+        // Asked FIRST: `DeviceState.directory` sweeps once a process on its
+        // first use, and that sweep must not be what removes the planted leaf.
+        let liveDevice = DeviceState.directory
+        try fm.createDirectory(at: liveDevice, withIntermediateDirectories: true)
+        // No process has this pid: macOS's pid_max is 99,998.
+        let deadName = "xctest-worker-2000000000"
+        var dead: [URL] = []
+        for base in [TestWorkspace.base, DeviceState.base] {
+            let leaf = base.appendingPathComponent(deadName, isDirectory: true)
+            try fm.createDirectory(at: leaf, withIntermediateDirectories: true)
+            try Data("blob".utf8).write(to: leaf.appendingPathComponent("device-key.blob"))
+            dead.append(leaf)
+        }
+        defer { for leaf in dead { try? fm.removeItem(at: leaf) } }
+        let liveWorkspace = TestWorkspace.root
+        try fm.createDirectory(at: liveWorkspace, withIntermediateDirectories: true)
+        defer { try? TestWorkspace.reset() }
+
+        TestHost.sweepDeadWorkerLeaves()
+
+        for leaf in dead {
+            XCTAssertFalse(fm.fileExists(atPath: leaf.path),
+                "a leaf whose process is gone is rubbish: \(leaf.path)")
+        }
+        XCTAssertTrue(fm.fileExists(atPath: liveWorkspace.path),
+            "this worker's own workspace leaf is in use")
+        XCTAssertTrue(fm.fileExists(atPath: liveDevice.path),
+            "and so is its device leaf")
+    }
 }

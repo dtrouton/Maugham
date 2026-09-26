@@ -44,7 +44,7 @@ final class ExportsListViewTests: XCTestCase {
     // MARK: - Pre-existing scan() coverage (async since Task 6)
 
     func testModel_listsExportsContents() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("ExportsTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)
@@ -64,7 +64,7 @@ final class ExportsListViewTests: XCTestCase {
     }
 
     func testModel_emptyDirectory_returnsEmpty() async {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("EmptyExports-\(UUID().uuidString)")
         let model = ExportsListView.Model(projectURL: tmp)
         let entries = await model.scan()
@@ -72,7 +72,7 @@ final class ExportsListViewTests: XCTestCase {
     }
 
     func testModel_missingExportsDir_returnsEmpty() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("NoExports-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)
@@ -84,7 +84,7 @@ final class ExportsListViewTests: XCTestCase {
     }
 
     func testModel_filtersToPDFAndEPUBOnly() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("MixedExports-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)
@@ -102,7 +102,7 @@ final class ExportsListViewTests: XCTestCase {
     }
 
     func testModel_sortsByModificationDateDescending() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("SortExports-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)
@@ -269,7 +269,7 @@ final class ExportsListViewTests: XCTestCase {
     // MARK: - Fixtures
 
     private func makeProject() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("ExportsRecordTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: url.appendingPathComponent("Exports", isDirectory: true),

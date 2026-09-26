@@ -30,7 +30,7 @@ final class UnsignedSnapshotTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("unsigned-snapshot-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/ops"),

@@ -199,7 +199,7 @@ final class TranslatorOrchestratorTests: XCTestCase {
         /// with writes still to do.
         holdIngest: Gate? = nil
     ) throws -> Harness {
-        let root = track(FileManager.default.temporaryDirectory
+        let root = track(TestTemp.root
             .appendingPathComponent("TranslatorOrchestrator-\(UUID())"))
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let configURL = root.appendingPathComponent("translator-mcp.json")

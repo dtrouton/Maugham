@@ -10,7 +10,7 @@ final class ResearchScopeTests: XCTestCase {
     /// Hand-built single-chapter project (LinkedResearchTests pattern) with one
     /// shared research item, for novel / shortStory / screenplay cases.
     private func makeProject(type: ProjectType) async throws -> (URL, ProjectStore) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("Scope-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -43,7 +43,7 @@ final class ResearchScopeTests: XCTestCase {
 
     /// Real collection with one loose piece (PieceResearchTests pattern).
     private func makeCollection() async throws -> (URL, ProjectStore, StructureItem) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("ScopeColl-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(named: "T", in: tmp)
@@ -98,7 +98,7 @@ final class ResearchScopeTests: XCTestCase {
     }
 
     func test_note_collectionReferencePiece_throws() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("ScopeRef-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let ref = StructureItem(
@@ -121,7 +121,7 @@ final class ResearchScopeTests: XCTestCase {
     }
 
     func test_note_structureGroupId_throws() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("ScopeGrp-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

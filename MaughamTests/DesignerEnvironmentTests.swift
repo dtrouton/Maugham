@@ -82,7 +82,7 @@ final class DesignerEnvironmentTests: XCTestCase {
     }
 
     private func makeRoot() throws -> URL {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("DesignerEnv-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root

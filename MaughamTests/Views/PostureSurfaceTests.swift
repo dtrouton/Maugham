@@ -454,7 +454,7 @@ final class PostureSurfaceTests: XCTestCase {
 
     /// A book of two chapters, `doc-a` and `doc-b`, each with one open note.
     private func makeTwoPieceProject() throws -> URL {
-        let dir = FileManager.default.temporaryDirectory
+        let dir = TestTemp.root
             .appendingPathComponent("PostureSurface-\(UUID().uuidString)")
         roots.append(dir)
         try FileManager.default.createDirectory(

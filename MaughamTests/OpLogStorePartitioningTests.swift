@@ -11,7 +11,7 @@ final class OpLogStorePartitioningTests: XCTestCase {
     private let docId = "d_01HQ7T3JKM2N4P5R6S8VWX0Y2Z"
 
     private func makeProject() throws -> URL {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("oplogpart-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent(".maugham/ops"),

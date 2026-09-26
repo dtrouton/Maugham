@@ -16,7 +16,7 @@ import MaughamCore
 final class DocumentDoubleCloseTests: XCTestCase {
 
     private func makeDoc(text: String) async throws -> Document {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("DoubleClose-\(UUID().uuidString)")
         let manuscriptDir = tmp.appendingPathComponent("manuscript")
         try FileManager.default.createDirectory(

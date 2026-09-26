@@ -5,7 +5,7 @@ import MaughamCore
 @MainActor
 final class DeclaredWorldStoreTests: XCTestCase {
     private func makeProject() throws -> URL {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("DeclaredWorldStore-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         return tmp

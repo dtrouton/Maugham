@@ -199,7 +199,7 @@ final class ManifestRaisingTests: XCTestCase {
     // MARK: - Reading the one field
 
     func test_theNumberIsReadFromAFileThisBuildCannotFullyDecode() throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("raising-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: tmp) }
         // A later build's manifest: the number is legible, the rest is not
@@ -213,7 +213,7 @@ final class ManifestRaisingTests: XCTestCase {
 
     func test_aFileThatIsNotThereHasNoNumber() {
         XCTAssertNil(ProjectManifest.schemaVersion(
-            ofFileAt: FileManager.default.temporaryDirectory
+            ofFileAt: TestTemp.root
                 .appendingPathComponent("no-such-\(UUID().uuidString).json")))
     }
 }

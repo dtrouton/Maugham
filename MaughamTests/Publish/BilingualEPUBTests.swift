@@ -27,7 +27,7 @@ final class BilingualEPUBTests: XCTestCase {
     var build: URL!
 
     override func setUp() async throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("BilingualEPUB-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try await PublishStarter.install(into: tmp, force: false)

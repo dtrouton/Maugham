@@ -196,6 +196,64 @@ final class PhonePostureTests: XCTestCase {
         let cached = await cache.posture(forDocId: "doc-a", in: url)
         XCTAssertFalse(PhonePosture.offers(.archive, under: cached))
     }
+
+    private struct WriteFailed: Error {}
+
+    /// **The fresh answer reaches the view even when the write throws** (P3
+    /// plan 3 Task 7). The re-ask before the write is what the view must draw
+    /// from next; a write that throws must not leave the old answer drawn.
+    /// Here the load drew every verb, the Mac made her a piece's starter since
+    /// (her words move, a disposition waits), she pressed Reject and the write
+    /// threw: Archive — which the fresh answer refuses — is no longer drawn.
+    func test_aWriteThatThrowsStillHandsBackTheFreshAnswer() async {
+        var answer = Self.posture(.bookAuthor, nil)
+        let cache = PhonePosture(prepare: { _ in }, ask: { _, _, _ in answer })
+        let url = URL(fileURLWithPath: "/tmp/book")
+        var drawn = await cache.posture(forDocId: "doc-new", in: url)
+        XCTAssertTrue(PhonePosture.openNoteVerbs(under: drawn).contains(.archive))
+
+        answer = Self.posture(
+            .author(.pieces([])), .piece("doc-new"), writesAsItsStarter: true)
+        var wrote = false
+        do {
+            _ = try await cache.perform(
+                .reject, forDocId: "doc-new", in: url,
+                onAnswer: { drawn = $0 }
+            ) {
+                wrote = true
+                throw WriteFailed()
+            }
+            XCTFail("the write threw")
+        } catch {
+            XCTAssertTrue(error is WriteFailed)
+        }
+        XCTAssertTrue(wrote, "the fresh answer offers Reject, so the write ran")
+        XCTAssertEqual(PhonePosture.openNoteVerbs(under: drawn), [.accept, .reject],
+                       "the verb the fresh answer refuses is no longer drawn")
+    }
+
+    /// **One warm-up in flight per project** (P3 plan 3 Task 7): two asks that
+    /// arrive together await the same preparation rather than each resolving
+    /// the register.
+    func test_twoConcurrentAsksPrepareOnce() async {
+        var prepares = 0
+        let cache = PhonePosture(
+            prepare: { _ in
+                prepares += 1
+                for _ in 0..<20 { await Task.yield() }
+            },
+            ask: { _, _, _ in Self.posture(.bookAuthor, nil) })
+        let url = URL(fileURLWithPath: "/tmp/book")
+        async let a = cache.askAgain(forDocId: "doc-a", in: url)
+        async let b = cache.askAgain(forDocId: "doc-b", in: url)
+        _ = await (a, b)
+        XCTAssertEqual(prepares, 1, "two concurrent asks, one preparation")
+
+        // Once it has landed, the next ask prepares again — the STORE decides
+        // whether that costs anything (`prepareTrust` compares the signature).
+        _ = await cache.askAgain(forDocId: "doc-a", in: url)
+        XCTAssertEqual(prepares, 2)
+    }
 }
 
 /// **The phone's posture off a real book, held against the Mac's** (spec §12's
@@ -460,8 +518,12 @@ final class PhonePostureRoundTripTests: XCTestCase {
                 return book.store(for: .forAuthor(who), "phone-\(who.fingerprint.prefix(8))")
             },
             prepare: { store in
-                counts.prepares += 1
+                // What the store actually RESOLVED, not how often it was asked:
+                // `prepareTrust` compares the registry signature itself, so an
+                // ask over an unchanged register resolves nothing.
+                let before = store.trustResolutionCount
                 await store.prepareTrust()
+                counts.prepares += store.trustResolutionCount - before
             })
     }
 

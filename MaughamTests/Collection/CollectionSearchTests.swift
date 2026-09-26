@@ -4,7 +4,7 @@ import XCTest
 @MainActor
 final class CollectionSearchTests: XCTestCase {
     func test_search_findsMatchesAcrossPieces() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("CS-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(

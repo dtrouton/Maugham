@@ -4,7 +4,7 @@ import XCTest
 @MainActor
 final class AddProjectReferenceTests: XCTestCase {
     private func makeCollectionAndTarget() async throws -> (collection: URL, target: URL, store: ProjectStore) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("APR-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let collection = try await ProjectFactory.createCollectionProject(
@@ -39,7 +39,7 @@ final class AddProjectReferenceTests: XCTestCase {
     }
 
     func test_addProjectReference_failsOnNonProjectFolder() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("APR-bad-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let collection = try await ProjectFactory.createCollectionProject(

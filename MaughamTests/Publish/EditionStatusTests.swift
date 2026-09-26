@@ -198,7 +198,7 @@ final class EditionStatusTests: XCTestCase {
     private func makeProject(
         pathlessThirdChapter: Bool = false
     ) async throws -> Fixture {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("EST-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

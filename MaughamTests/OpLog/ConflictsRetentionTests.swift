@@ -14,7 +14,7 @@ final class ConflictsRetentionTests: XCTestCase {
     /// A project root carrying a manifest so `resolveProjectURL` anchors every
     /// piece's backups under `<root>/.maugham/conflicts/`.
     private func makeProjectRoot() throws -> URL {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("CRT-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)

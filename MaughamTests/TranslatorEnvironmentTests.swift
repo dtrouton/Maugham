@@ -54,7 +54,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
     /// shape `TranslationStatusToolTests` uses, for its reason: a real
     /// `Document.load` is what mints the `¶id`s every id in this file names.
     private func makeHarness() async throws -> Harness {
-        let root = track(FileManager.default.temporaryDirectory
+        let root = track(TestTemp.root
             .appendingPathComponent("TranslatorEnv-\(UUID().uuidString)"))
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

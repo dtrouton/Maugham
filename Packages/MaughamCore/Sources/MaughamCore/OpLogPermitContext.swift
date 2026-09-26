@@ -395,13 +395,21 @@ extension OpLogStore {
     nonisolated public static func manifestStatements(
         in projectURL: URL
     ) -> [Statement] {
+        decodedManifest(in: projectURL)?.statements ?? []
+    }
+
+    /// **The one manifest read these doors make** — the file, decoded, or nil
+    /// where it is missing or will not read. Every read ticks
+    /// `manifestReadObserverForTesting` once, which is what lets a test count
+    /// the decodes an ask makes (P3 plan 3 Task 6).
+    nonisolated static func decodedManifest(in projectURL: URL) -> ProjectManifest? {
         manifestReadObserverForTesting?()
         let url = projectURL.appendingPathComponent(ProjectManifest.fileName)
         guard let data = try? Data(contentsOf: url)  // adr-0018-ok: project manifest JSON read, not manuscript
-        else { return [] }
+        else { return nil }
         do {
             return try ProjectManifest.makeDecoder()
-                .decode(ProjectManifest.self, from: data).statements
+                .decode(ProjectManifest.self, from: data)
         } catch {
             // **Reported, never thrown** (fix round 1, minor (a), and R2's
             // other half). A manifest this build cannot read WIDENS the permit
@@ -417,7 +425,7 @@ extension OpLogStore {
                 Every stream in this project is judged as a manuscript piece \
                 until it reads.
                 """)
-            return []
+            return nil
         }
     }
 
@@ -432,13 +440,7 @@ extension OpLogStore {
     nonisolated public static func startedBy(
         ofPiece docId: String, in projectURL: URL
     ) -> String? {
-        manifestReadObserverForTesting?()
-        let url = projectURL.appendingPathComponent(ProjectManifest.fileName)
-        guard let data = try? Data(contentsOf: url),  // adr-0018-ok: project manifest JSON read, not manuscript
-              let manifest = try? ProjectManifest.makeDecoder()
-                .decode(ProjectManifest.self, from: data)
-        else { return nil }
-        return manifest.startedBy(ofPiece: docId)
+        decodedManifest(in: projectURL)?.startedBy(ofPiece: docId)
     }
 
     /// Test-only counting seam: called once per manifest READ this path makes.
@@ -581,16 +583,21 @@ extension OpLogStore {
     ) -> PermitContext {
         // One memo each, so a document spread over four actor files resolves
         // its class once and answers §4.5 once (fix round 1, I1 / minor (d)).
+        //
+        // And ONE manifest read for both disk questions (P3 plan 3 Task 6):
+        // the class, where no statements were handed in, and the starter are
+        // two answers about one file, so `ManifestPlacement` decodes it once
+        // (and only if either is asked).
         let classMemo = PermitMemo<DocumentClass>()
         let unownedMemo = PermitMemo<PermitPartition.UnownedPiece>()
-        let starterMemo = PermitMemo<String?>()
+        let placement = ManifestPlacement(docId: docId, in: projectURL)
         return PermitContext(
             documentClass: {
                 classMemo {
                     if let statements {
                         return DocumentClass.resolve(docId: docId, statements: statements)
                     }
-                    return documentClass(forDocId: docId, in: projectURL)
+                    return placement.documentClass
                 }
             },
             unowned: {
@@ -598,14 +605,68 @@ extension OpLogStore {
                     guard let trust else { return .nobodyHasWrittenItsText }
                     return unownedPiece(
                         forDocId: docId, in: projectURL, trust: trust,
-                        startedBy: starterMemo {
-                            startedBy(ofPiece: docId, in: projectURL)
-                        })
+                        startedBy: placement.startedBy(ofPiece: docId))
                 }
             },
             amendments: amendments,
-            startedBy: {
-                starterMemo { startedBy(ofPiece: docId, in: projectURL) }
-            })
+            startedBy: { placement.startedBy(ofPiece: docId) })
+    }
+}
+
+/// **Where a document sits and who started its piece, from ONE manifest**
+/// (P3 plan 3 Task 6).
+///
+/// The write side asks two questions of the manifest in a narrowed book —
+/// the document's CLASS (`DocumentClass.resolve`) and the piece's recorded
+/// STARTER (`StructureItem.startedBy`, Option A) — and each used to decode
+/// the file on its own, so every ask read it twice. This answers both from
+/// one value, read at most once and only if either is asked: a book that has
+/// narrowed nobody, under a permit that never needs the class, reads nothing
+/// (`LocalWritePermit.answersWithoutTheClass`), exactly as before.
+///
+/// **One value, both answers, always** — never the class from one manifest
+/// and the starter from another. A caller that HOLDS a manifest (the Mac's
+/// door, from the window's live copy — ruling AD) passes it with
+/// `init(docId:manifest:)` and the disk is never read; one holding only a
+/// project URL uses `init(docId:in:)`, and the disk is read once, with
+/// `OpLogStore.manifestStatements`' own rules: a manifest that will not read
+/// is no statements and no starter, which WIDENS (every id a piece, today's
+/// rule for the opening) and is reported, never thrown.
+///
+/// `@unchecked Sendable` for `PermitMemo`'s reason: its answers are handed to
+/// `@Sendable` closures, and the one piece of state is behind its lock.
+public final class ManifestPlacement: @unchecked Sendable {
+
+    /// The document asked about.
+    public let docId: String
+
+    private let read: @Sendable () -> ProjectManifest?
+    private let memo = PermitMemo<ProjectManifest?>()
+
+    /// Read off the manifest on disk, once, when first asked.
+    public init(docId: String, in projectURL: URL) {
+        self.docId = docId
+        self.read = { OpLogStore.decodedManifest(in: projectURL) }
+    }
+
+    /// Answered from a manifest the caller already holds; the disk is never
+    /// read. Nil is a manifest nobody could read: no statements, no starter.
+    public init(docId: String, manifest: ProjectManifest?) {
+        self.docId = docId
+        self.read = { manifest }
+    }
+
+    private var manifest: ProjectManifest? { memo(read) }
+
+    /// Where `docId`'s stream sits — `OpLogStore.documentClass(forDocId:in:)`'s
+    /// answer, from this placement's one manifest.
+    public var documentClass: DocumentClass {
+        DocumentClass.resolve(docId: docId, statements: manifest?.statements ?? [])
+    }
+
+    /// Who started `piece`, from the same manifest — nil where it records
+    /// nobody, names no such item, or will not read.
+    public func startedBy(ofPiece piece: String) -> String? {
+        manifest?.startedBy(ofPiece: piece)
     }
 }

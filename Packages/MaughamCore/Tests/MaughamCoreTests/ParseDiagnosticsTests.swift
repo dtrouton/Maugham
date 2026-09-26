@@ -5,7 +5,7 @@ private struct Item: Codable, Equatable, Sendable { let id: String }
 
 final class ParseDiagnosticsTests: XCTestCase {
     private func tempFile(_ contents: String) throws -> URL {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("pd-\(UUID().uuidString).jsonl")
         try contents.write(to: url, atomically: true, encoding: .utf8)
         return url

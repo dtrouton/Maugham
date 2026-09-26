@@ -17,7 +17,7 @@ final class StatementDocIdTests: XCTestCase {
     private var tmp: URL!
 
     override func setUpWithError() throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("StatementDocId-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)
@@ -146,7 +146,7 @@ final class StatementDocIdTests: XCTestCase {
             "doc-\(StableHash.fnv1a64Hex("manuscript/stranger.md"))")
 
         // No manifest at all: hash of the basename.
-        let orphanRoot = FileManager.default.temporaryDirectory
+        let orphanRoot = TestTemp.root
             .appendingPathComponent("StatementDocIdOrphan-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: orphanRoot, withIntermediateDirectories: true)

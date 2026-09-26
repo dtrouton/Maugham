@@ -6,7 +6,7 @@ final class EPUBZipPackagerTests: XCTestCase {
     var workDir: URL!
 
     override func setUpWithError() throws {
-        workDir = FileManager.default.temporaryDirectory
+        workDir = TestTemp.root
             .appendingPathComponent("EPUBZipPackagerTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
     }

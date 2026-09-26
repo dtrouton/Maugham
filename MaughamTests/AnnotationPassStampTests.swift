@@ -42,7 +42,7 @@ final class AnnotationPassStampTests: XCTestCase {
         docId: String = "doc-pass-stamp",
         passes: [ReviewPass] = []
     ) async throws -> Fixture {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("APS-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)

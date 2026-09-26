@@ -93,6 +93,35 @@ public final class DocumentStore {
     /// archive). See `ManifestEcho` + findings 1.2 / O2.
     private var lastWrittenManifest: ManifestEcho?
 
+    /// **The closed documents' held lines** (signed op log P3 plan 3, carry
+    /// C4) — every stored property the sweep in
+    /// `DocumentStore+ClosedHeldLines.swift` needs, declared here because an
+    /// extension cannot. Read and written only there (and by the close moves
+    /// below, through `rememberClosedProvenance`).
+    @ObservationIgnored var closedProvenance: [String: OpLogProvenance] = [:]
+    /// Bumped whenever something other than a sweep writes a document's entry
+    /// (a close moving its live provenance in), so a sweep that read the same
+    /// document before that write does not overwrite the fresher answer.
+    @ObservationIgnored var closedProvenanceStamps: [String: Int] = [:]
+    /// Bumped by `invalidateTrust`: a pass that resolved its table under an
+    /// older epoch lands nothing, because that table has just been forgotten.
+    @ObservationIgnored var closedTrustEpoch = 0
+    /// The tail of the chained passes, for a test to await.
+    @ObservationIgnored var closedSweepTask: Task<Void, Never>?
+    /// A whole-book pass is queued and has not started yet — a second request
+    /// would read exactly what it will.
+    @ObservationIgnored var closedSweepQueued = false
+    /// Closed documents the presenter saw an op-log file land in, drained by
+    /// the presenter's existing debounce (`pendingAnnounceScheduler`).
+    @ObservationIgnored var closedReclassifyPending: Set<String> = []
+    /// Open documents the presenter saw an op-log file land in, announced by
+    /// the same debounce. A set rather than the scheduler's single payload, so
+    /// a closed document's callback arriving in the same burst cannot drop an
+    /// open one's announcement.
+    @ObservationIgnored var pendingAnnounceDocIds: Set<String> = []
+    /// How many closed-document passes have landed. Test only.
+    @ObservationIgnored var closedPassesLandedForTesting = 0
+
     /// A manifest from another device that arrived while a structural verb
     /// was running, held until `structuralVerbsSettled` decides who wrote last
     /// (F7 fix round, I1). Nil almost always.
@@ -327,6 +356,12 @@ public final class DocumentStore {
             documentStoreLog.error(
                 "open-time registry presence failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
+        // **The closed documents' held lines** (carry C4): after the silent
+        // admission, so the pass judges by what this open decided. Off the
+        // main actor and not awaited — the sheet may first describe itself
+        // from the open documents and the inbox and re-describe when this
+        // lands (ruling C4-1).
+        store.sweepClosedProvenance()
         // What the register looked like when this open finished writing to it:
         // the baseline a registry change arriving later is compared against,
         // so the callbacks for this open's OWN writes above settle nothing.
@@ -1138,6 +1173,7 @@ public final class DocumentStore {
             if let openDoc = openDocuments[path] {
                 await openDoc.close()
                 openDocuments.removeValue(forKey: path)
+                rememberClosedProvenance(of: openDoc)
             }
         }
         // Drain the research-note debounce so no pending save lands at the old
@@ -1263,6 +1299,10 @@ public final class DocumentStore {
         // Nothing is posted when nothing is held, which is every ordinary
         // project.
         announcePendingHistory(of: document)
+        // An open document answers for itself (the union's rule); its closed
+        // entry is dropped so the only one it can ever get back is the live
+        // provenance it carries when it closes.
+        forgetClosedProvenance(ofDocId: document.docId)
     }
 
     /// Device fingerprints this store has already announced as waiting.
@@ -1342,6 +1382,12 @@ public final class DocumentStore {
         await _letGoRefreshScheduler?.flush()
     }
 
+    /// Run a pending presenter announcement now rather than after the
+    /// debounce — for a test that has just delivered an op-log callback.
+    func flushPendingAnnounceForTesting() async {
+        await _pendingAnnounceScheduler?.flush()
+    }
+
     /// Run a pending registry settle now rather than after the debounce —
     /// for a test that has just delivered the callback.
     func flushRegistryChangeForTesting() async {
@@ -1399,9 +1445,17 @@ public final class DocumentStore {
     private var _pendingAnnounceScheduler: DebounceScheduler<String>?
     private var pendingAnnounceScheduler: DebounceScheduler<String> {
         if let existing = _pendingAnnounceScheduler { return existing }
-        let scheduler = DebounceScheduler<String>(delay: .seconds(1)) { [weak self] docId in
-            guard let self, let document = self.document(forDocId: docId) else { return }
-            self.announcePendingHistory(of: document)
+        let scheduler = DebounceScheduler<String>(delay: .seconds(1)) { [weak self] _ in
+            guard let self else { return }
+            // The closed documents the burst touched, re-classified off the
+            // main actor (carry C4), then every open one it touched announced.
+            self.reclassifyPendingClosedDocuments()
+            let open = self.pendingAnnounceDocIds
+            self.pendingAnnounceDocIds = []
+            for docId in open.sorted() {
+                guard let document = self.document(forDocId: docId) else { continue }
+                self.announcePendingHistory(of: document)
+            }
         }
         _pendingAnnounceScheduler = scheduler
         return scheduler
@@ -1503,7 +1557,9 @@ public final class DocumentStore {
     private var announcedPieceQuestions: Set<String> = []
 
     public func unregister(path: String) {
-        openDocuments.removeValue(forKey: path)
+        if let closing = openDocuments.removeValue(forKey: path) {
+            rememberClosedProvenance(of: closing)
+        }
     }
 
     public func document(for path: String) -> Document? {
@@ -1643,6 +1699,12 @@ public final class DocumentStore {
             store.derivedCache.invalidateAll()
             store.recountFromOpLogs(ProjectStore.collectDocuments(in: store.manifest.structure))
         }
+        // **And the closed pieces' held lines** (carry C4): the same log
+        // holds different lines under a changed table — a revocation refuses
+        // a span that was pending, an admission applies one — so the closed
+        // map is re-swept, off this call.
+        closedTrustEpoch += 1
+        sweepClosedProvenance()
         // Only when one already exists: this is also called from `open`, where
         // building an inbox store to tell it to forget nothing would be a
         // whole subsystem started by a no-op.
@@ -1686,6 +1748,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
                     // shape of a filename — so this stays silent on every one
                     // of our own appends. Debounced, because a device arrives
                     // as a burst of files rather than as one.
+                    self.pendingAnnounceDocIds.insert(docId)
                     self.pendingAnnounceScheduler.schedule(docId)
                 }
             } else {
@@ -1698,6 +1761,13 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
                 // log it has not opened.
                 MaughamEvent.postAnnotationsChanged(
                     docId: docId, projectURL: projectURL)
+                // **And its held lines are re-counted** (carry C4): a
+                // stranger's span syncing into a chapter nobody has open is
+                // exactly what the closed map exists to see. Coalesced by the
+                // same debounce as the open arm, so a device arriving as a
+                // burst of files is one pass.
+                closedReclassifyPending.insert(docId)
+                pendingAnnounceScheduler.schedule(docId)
             }
 
         case .checkpoints:
@@ -1815,6 +1885,9 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             return
         }
         lastWrittenManifest = diskEcho
+        // A piece the incoming manifest no longer lists stops counting now,
+        // rather than at the next sweep (carry C4). In memory, no disk.
+        pruneClosedProvenance(keepingDocIdsOf: incoming)
 
         // **Adopt it** (F7, 2026-09-23). The master spec: "Last-writer-wins;
         // the loser is `.maugham/conflicts/manifest-<ts>.json`." Until this fix
@@ -1844,7 +1917,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         }
         // A piece that moved or a statement that arrived is a document whose
         // CLASS may have changed, and whose writers may have (P3c Task 2).
-        postureManifestAdopted()
+        postureManifestAdopted(incoming)
 
         // **A manifest that arrived from somewhere else is the other half of
         // the gate's problem** (P3b fix round 1, ruling 2). This is the path an
@@ -1950,6 +2023,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             if let doc = openDocuments.removeValue(forKey: moved.oldPath) {
                 doc.stopRendering()
                 closing.append(doc)
+                rememberClosedProvenance(of: doc)
             }
         }
         var trashedOpen: [ManifestAdoption.Removed] = []

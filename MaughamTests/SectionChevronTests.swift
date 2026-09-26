@@ -120,35 +120,6 @@ final class SectionChevronTests: XCTestCase {
             + "over any shape at all and proves nothing about the fix")
     }
 
-    /// **Ours is on screen and clickable on a window that has never been
-    /// hovered.**
-    ///
-    /// The strong form of "always visible": this window receives no `mouseMoved`
-    /// and no `mouseEntered` in its whole life, and the very first event it ever
-    /// sees is a click on the chevron — which must land. A hover-revealed
-    /// affordance cannot pass this.
-    ///
-    /// The Research header is the one asserted on because it has no other button
-    /// in it, so "the header's one focus ring" is unambiguous there.
-    func test_theChevronTakesAColdClickWithNoHoverFirst() async throws {
-        let mount = try await mountTree()
-        let research = try headerGeometry(.research, in: mount.window)
-        XCTAssertTrue(mount.state.researchSectionExpanded, "premise: it opens open")
-
-        let landed = await click(at: CGPoint(x: research.chevron.midX,
-                                             y: research.chevron.midY),
-                                 in: mount.window)
-        XCTAssertTrue(landed, "the click reached no view at all")
-        await pumpUntil(deadline: 5) { !mount.state.researchSectionExpanded }
-
-        XCTAssertFalse(
-            mount.state.researchSectionExpanded,
-            "the first event this window ever saw was a click on the Research "
-            + "chevron, and the section did not close — either nothing is drawn "
-            + "there until the pointer arrives, or what is drawn is not wired to "
-            + "the flag")
-    }
-
     /// Both headers carry one, not just the one that was easiest to reach —
     /// **each clicked in a window of its own.**
     ///
@@ -166,8 +137,15 @@ final class SectionChevronTests: XCTestCase {
     /// `NSTableView`'s drag-disambiguation loop and eats the pair.
     ///
     /// A fresh mount per section is the fix, measured at 2/2. That is what this
-    /// suite's three other click cases have always had without saying so —
-    /// each is one click into a window that has seen none.
+    /// suite's other click cases have always had without saying so — each is
+    /// one click into a window that has seen none.
+    ///
+    /// **It is also the cold click** — the strong form of "always visible".
+    /// Each window receives no `mouseMoved` and no `mouseEntered` in its whole
+    /// life, and the very first event it sees is the click on the chevron,
+    /// which must land: a hover-revealed affordance cannot pass this. That had
+    /// a test of its own over Research alone until plan 3's C14 (tripwire 33,
+    /// one click representative per wiring).
     ///
     /// **Why a click survives here at all.** This is the one WIRING in the two
     /// section headers with no windowless pin available: the tree's chevron has

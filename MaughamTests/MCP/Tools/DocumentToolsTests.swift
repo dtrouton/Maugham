@@ -5,7 +5,7 @@ import MaughamCore
 @MainActor
 final class DocumentToolsTests: XCTestCase {
     private func makeProject() async throws -> (URL, ProjectStore, ProjectRegistry) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("DT-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -155,7 +155,7 @@ final class DocumentToolsTests: XCTestCase {
     /// doc was open live with unflushed edits, re-opening the ADR-0018
     /// read/comment id-disagreement the tripwire-20 era closed.
     func test_readDocument_openDoc_resolvesByDocIdDespitePathRename() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RDID-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -217,7 +217,7 @@ final class DocumentToolsTests: XCTestCase {
     /// The fallback must confirm identity and otherwise fall to the closed-doc
     /// (derived-from-op-log) branch.
     func test_readDocument_pathFallback_confirmsDocIdIdentity() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RDFB-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -297,7 +297,7 @@ extension DocumentToolsTests {
     /// JSON shape uniform across documents regardless of which optional
     /// fields are populated.
     func test_getOutline_documentNodes_alwaysIncludeOptionalKeys() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("GOK-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -348,7 +348,7 @@ extension DocumentToolsTests {
     /// chain search → read_document because read_document expects a
     /// StructureItem.id. Regression: document_id must be the real id.
     func test_searchText_returnsRealStructureItemId() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("STID-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -389,7 +389,7 @@ extension DocumentToolsTests {
     }
 
     func test_readDocument_returnsResearchNoteText() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RDR-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -464,7 +464,7 @@ extension DocumentToolsTests {
     }
 
     private func setupImageProject(pngData: Data) async throws -> (tmp: URL, reg: ProjectRegistry, id: String) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RDRI-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -593,7 +593,7 @@ extension DocumentToolsTests {
     /// MCP-shaped (top-level `content` array). Without this, image envelopes
     /// would be re-wrapped as a text block containing stringified JSON.
     func test_toolsCallHandler_passesThroughMCPContentEnvelope() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("TCP-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -641,7 +641,7 @@ extension DocumentToolsTests {
     /// Groups should expose a modified timestamp derived from the max of
     /// descendant document mtimes. Empty groups can stay nil.
     func test_getOutline_groupModified_isMaxOfDescendantDocs() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("GOM-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

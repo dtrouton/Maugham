@@ -5,7 +5,7 @@ import MaughamCore
 @MainActor
 final class PieceResearchTests: XCTestCase {
     private func makeCollectionWithPiece() async throws -> (URL, ProjectStore, StructureItem) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("PR-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(

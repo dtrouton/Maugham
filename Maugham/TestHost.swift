@@ -120,7 +120,17 @@ enum TestHost {
         let suffix = hostSocketSuffix
         DispatchQueue.global(qos: .utility).async {
             StaleFileSweep.sweep(in: temp, prefix: prefix, suffix: suffix)
+            sweepDeadWorkerLeaves()
         }
+    }
+
+    /// The per-worker leaves under Application Support whose process is gone:
+    /// `TestWorkspace`'s and the device directory's. Every worker of every gate
+    /// makes one of each and nothing removed them (943 `TestWorkspace` leaves on
+    /// 2026-09-26, plan 3's C17). One pid rule, `DeviceState`'s, for both.
+    static func sweepDeadWorkerLeaves() {
+        TestWorkspace.sweepDeadWorkerLeaves()
+        DeviceState.sweepDeadWorkerLeaves()
     }
 
     /// The hidden-window configuration every test-host window ends up with.

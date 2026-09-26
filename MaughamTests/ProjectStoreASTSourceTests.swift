@@ -8,7 +8,7 @@ final class ProjectStoreASTSourceTests: XCTestCase {
     var tmp: URL!
 
     override func setUp() async throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("PSASTSrcTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
     }

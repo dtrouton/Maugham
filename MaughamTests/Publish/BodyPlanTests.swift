@@ -54,7 +54,7 @@ final class BodyPlanTests: XCTestCase {
     }
 
     private func tempDir(_ label: String) throws -> URL {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("BodyPlan-\(label)-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url

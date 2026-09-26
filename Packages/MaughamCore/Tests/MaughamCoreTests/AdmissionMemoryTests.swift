@@ -25,7 +25,7 @@ final class AdmissionMemoryTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        fileURL = FileManager.default.temporaryDirectory
+        fileURL = TestTemp.root
             .appendingPathComponent("admission-memory-\(UUID().uuidString).json")
     }
 

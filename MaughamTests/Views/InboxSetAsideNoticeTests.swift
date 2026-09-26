@@ -59,7 +59,7 @@ final class InboxSetAsideNoticeTests: XCTestCase {
     /// copied — one record can hold a run of lines, and the writer's question is
     /// how many CHANGES, not how many records.
     func test_theCountIsLinesAcrossRecordsAndSkipsWholeFileRecords() throws {
-        let project = FileManager.default.temporaryDirectory
+        let project = TestTemp.root
             .appendingPathComponent("inbox-setaside-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: project.appendingPathComponent(".maugham/inbox"),

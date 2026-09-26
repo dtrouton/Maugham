@@ -12,7 +12,7 @@ final class CanvasModelTests: XCTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {
-        root = URL(fileURLWithPath: NSTemporaryDirectory())
+        root = TestTemp.root
             .appendingPathComponent("canvas-model-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }

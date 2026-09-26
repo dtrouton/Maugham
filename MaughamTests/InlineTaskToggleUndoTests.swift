@@ -20,7 +20,7 @@ final class InlineTaskToggleUndoTests: XCTestCase {
     // MARK: - Fixture (mirrors DocumentTasksTests)
 
     private func makeProject(initialMd: String) throws -> (URL, String) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("INLINE-TOGGLE-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)

@@ -10,7 +10,7 @@ final class InitializePublishTemplateToolTests: XCTestCase {
     var projectURL: URL!
 
     override func setUp() async throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("InitPublishToolTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         projectURL = try await ProjectFactory.createNovelProject(

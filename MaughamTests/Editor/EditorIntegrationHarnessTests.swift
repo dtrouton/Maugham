@@ -157,7 +157,7 @@ final class EditorIntegrationHarnessTests: XCTestCase {
         // Two documents in the same project; type in doc A, close it,
         // assert A's op log received the typing_burst op (i.e. close
         // flushed the pending buffer).
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("EIH-T9-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -215,7 +215,7 @@ final class EditorIntegrationHarnessTests: XCTestCase {
     func test_burst_appendOnceAtIdleThreshold() async throws {
         // Short thresholds via the internal Document.load overload so the
         // test doesn't have to wait 30 seconds.
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("EIH-T10-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

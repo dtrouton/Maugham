@@ -3,7 +3,7 @@ import XCTest
 
 final class SetupClaudeDesktopConfigTests: XCTestCase {
     private func tmp() -> URL {
-        FileManager.default.temporaryDirectory
+        TestTemp.root
             .appendingPathComponent("CDC-\(UUID())")
     }
 

@@ -20,7 +20,7 @@ final class StaleFileSweepTests: XCTestCase {
     private var dir: URL!
 
     override func setUpWithError() throws {
-        dir = FileManager.default.temporaryDirectory
+        dir = TestTemp.root
             .appendingPathComponent("stale-sweep-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
@@ -73,7 +73,14 @@ final class StaleFileSweepTests: XCTestCase {
         defer { close(fd) }
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
-        old.path.withCString { src in
+        // Bound by its NAME from inside `dir`: `sun_path` holds 104 bytes and a
+        // per-test temp root is longer than that on its own. The absolute
+        // spelling here used to be truncated into a directory that did not
+        // exist, so `bind` failed and this test skipped on every run.
+        let cwd = FileManager.default.currentDirectoryPath
+        FileManager.default.changeCurrentDirectoryPath(dir.path)
+        defer { FileManager.default.changeCurrentDirectoryPath(cwd) }
+        old.lastPathComponent.withCString { src in
             withUnsafeMutablePointer(to: &addr.sun_path) { dst in
                 _ = strlcpy(
                     UnsafeMutableRawPointer(dst).assumingMemoryBound(to: CChar.self),

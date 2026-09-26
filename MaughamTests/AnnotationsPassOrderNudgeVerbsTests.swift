@@ -46,7 +46,7 @@ final class AnnotationsPassOrderNudgeVerbsTests: XCTestCase {
     /// A real project on disk with one chapter open — presets' four passes,
     /// the piece being worked through Line while Structural is untouched.
     private func makeHarness() async throws -> Harness {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("PassOrderNudgeVerbs-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         roots.append(root)

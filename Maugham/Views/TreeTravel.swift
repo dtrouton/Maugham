@@ -272,16 +272,6 @@ final class TreeTravelClickWatcher {
         }
     }
 
-    /// Test-only, and it has exactly one caller:
-    /// `TreeTravelRowMountingTests.test_aStoppedWatcherTravelsNowhereButStillSelects`,
-    /// which is what keeps this from being unexercised code whose doc comment
-    /// asserts something nothing checks. Production never stops the watcher —
-    /// see `shared`.
-    func stop() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
-    }
-
     private func handle(_ event: NSEvent) {
         guard event.clickCount == 2,
               let window = event.window,

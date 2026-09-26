@@ -39,6 +39,10 @@ there is anything to wait for — it then says *Nothing from it has reached this
 Mac yet.* — and you can answer it then, rather than finding out later that a
 collaborator has been writing into a book that was holding every word.
 
+The count covers every chapter, including the ones you don't have open. Those
+are read in the background just after the project opens, so the panel's number
+can rise once, a few seconds in.
+
 **Only the Mac that holds the book asks** — the one that started it, or claimed
 it. A second Mac of yours, or a collaborator's Mac, is never shown the panel:
 admitting is the book's owner's act, and asking somebody who cannot answer
@@ -363,6 +367,17 @@ and that is what the rest of this section turns on.
 
 Pieces made before this version remember no starter, and behave as they always
 did.
+
+**A piece waiting for a Mac that is gone.** In a book where somebody may write
+less than the whole of it, only the Mac that started a piece can create its
+opening. If that Mac stops syncing (lost, wiped, given away) without being
+revoked, its pieces wait on every other Mac. On the Mac that let that Mac into
+the book, its row in People & Devices says so: *"N pieces are waiting for this
+Mac. If it is gone for good, revoke it and they will open."* Revoking it (on its
+person row) is the remedy. After a revocation, whoever may write a piece can
+open it. If the Mac is only offline, leave it: its pieces open as soon as its
+work syncs. The line appears only on the Mac that can revoke it, and only while
+some piece is actually waiting.
 
 ## Restoring your own note
 

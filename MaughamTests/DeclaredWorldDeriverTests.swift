@@ -66,7 +66,7 @@ final class DeclaredWorldDeriverTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        tempDir = FileManager.default.temporaryDirectory
+        tempDir = TestTemp.root
             .appendingPathComponent("DeclaredWorldDeriverTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tempDir, withIntermediateDirectories: true)

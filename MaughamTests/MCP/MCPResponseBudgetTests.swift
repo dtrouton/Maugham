@@ -43,7 +43,7 @@ final class MCPResponseBudgetTests: XCTestCase {
     /// the project. Returns the project id for the MCP request.
     private func makeOversizedManuscriptProject(bodyBytes: Int) async throws
         -> (url: URL, reg: ProjectRegistry, id: String) {
-        let tmp = track(FileManager.default.temporaryDirectory
+        let tmp = track(TestTemp.root
             .appendingPathComponent("MRB-\(UUID())"))
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -116,7 +116,7 @@ final class MCPResponseBudgetTests: XCTestCase {
     }
 
     func test_readDocument_normalManuscript_passesThrough() async throws {
-        let tmp = track(FileManager.default.temporaryDirectory
+        let tmp = track(TestTemp.root
             .appendingPathComponent("MRB-ok-\(UUID())"))
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -153,7 +153,7 @@ final class MCPResponseBudgetTests: XCTestCase {
     // MARK: - read_publish_file — the survey's next-most-at-risk text emitter
 
     func test_readPublishFile_oversized_throwsPayloadTooLarge() async throws {
-        let tmp = track(FileManager.default.temporaryDirectory
+        let tmp = track(TestTemp.root
             .appendingPathComponent("MRB-pub-\(UUID())"))
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent(".maugham/publish/build"),
@@ -182,7 +182,7 @@ final class MCPResponseBudgetTests: XCTestCase {
     }
 
     func test_readPublishFile_normal_passesThrough() async throws {
-        let tmp = track(FileManager.default.temporaryDirectory
+        let tmp = track(TestTemp.root
             .appendingPathComponent("MRB-pub-ok-\(UUID())"))
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent(".maugham/publish"),

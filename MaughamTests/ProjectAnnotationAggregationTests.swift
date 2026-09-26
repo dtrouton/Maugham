@@ -27,7 +27,7 @@ final class ProjectAnnotationAggregationTests: XCTestCase {
     }
 
     private func makeFixture(unreadableC3: Bool = false) async throws -> Fixture {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("PROJ-ANN-\(UUID().uuidString)")
         let fm = FileManager.default
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)

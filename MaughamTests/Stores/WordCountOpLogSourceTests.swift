@@ -9,7 +9,7 @@ import MaughamCore
 final class WordCountOpLogSourceTests: XCTestCase {
 
     func test_populateWordCountCache_readsOpLog_notStaleMd() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("WordCountOpLog-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

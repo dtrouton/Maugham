@@ -13,7 +13,7 @@ final class TasksPaneIntegrationTests: XCTestCase {
     // MARK: - Fixture
 
     private func makeProject(initialMd: String = "Hello.") throws -> (URL, String) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("TASKS-PANE-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)
@@ -451,7 +451,7 @@ final class TasksPaneIntegrationTests: XCTestCase {
     private func makePane(
         for doc: Document, registering: Document?
     ) async throws -> TasksPane {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("PANE-STUB-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: url, withIntermediateDirectories: true)

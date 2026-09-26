@@ -68,11 +68,16 @@ final class PhonePosture {
     /// paid a folder read and a P256 verify per record on every first ask,
     /// every re-ask before a write and every foreground return.
     private var stores: [URL: OpLogStore] = [:]
-    /// The registry signature (`TrustResolution.signature(of:)`) each
-    /// project's table was last prepared under. A re-ask prepares again only
-    /// when it has MOVED — a revocation or a permit change writes a record,
-    /// which moves it — or after `refresh()` forgot it.
-    private var preparedUnder: [URL: String] = [:]
+    /// **One warm-up in flight per project** (P3 plan 3 Task 7). Asks that
+    /// arrive while a project's table is being prepared await THAT
+    /// preparation rather than each starting one. Whether a preparation costs
+    /// anything is the store's to decide: `OpLogStore.prepareTrust` →
+    /// `trust()` compares the registry signature against the table in hand
+    /// and resolves only when it has MOVED (a revocation or a permit change
+    /// writes a record, which moves it) or after `refresh()` invalidated it —
+    /// so the phone keeps no signature of its own and scans nothing on the
+    /// main actor that the store would scan again.
+    private var warming: [URL: Task<OpLogStore, Never>] = [:]
     private let makeStore: MakeStore
     private let prepare: Prepare
     private let ask: Ask
@@ -120,17 +125,23 @@ final class PhonePosture {
         return answer
     }
 
-    /// **The perform door** (Ruling W): re-ask (`askAgain`), and run `write`
-    /// only where that settled answer offers `verb`. A refusal is returned as
+    /// **The perform door** (Ruling W): re-ask (`askAgain`), hand the settled
+    /// answer to `onAnswer` — before the write, so a write that throws still
+    /// leaves the view drawing it — and run `write` only where that answer
+    /// offers `verb`. A refusal is returned as
     /// its sentence (`refusal(_:under:)`) and nothing is written. The detail
     /// view's every write passes here, so what a press may write is decided
     /// off the same answer the verbs are drawn from — pinned on real disk
     /// without a window (tripwire 33).
     func perform(
         _ verb: Verb, forDocId docId: String, in projectURL: URL,
+        onAnswer: (Posture) -> Void = { _ in },
         write: () async throws -> Void
     ) async rethrows -> (posture: Posture, refusal: String?) {
         let now = await askAgain(forDocId: docId, in: projectURL)
+        // Handed over BEFORE the write (P3 plan 3 Task 7): a write that throws
+        // must not leave the view drawing the answer it had before the re-ask.
+        onAnswer(now)
         guard Self.offers(verb, under: now) else {
             return (now, Self.refusal(verb, under: now))
         }
@@ -144,13 +155,16 @@ final class PhonePosture {
     /// that left the signature where it was must still be seen on return.
     func refresh() {
         answers.removeAll()
-        preparedUnder.removeAll()
+        // An ask after the refresh must not piggyback on a warm-up that began
+        // before it.
+        warming.removeAll()
         for store in stores.values { store.invalidateTrust() }
     }
 
     /// The project's one store, its table prepared under the register as it
     /// stands now.
     private func warmStore(for projectURL: URL) async -> OpLogStore {
+        if let inFlight = warming[projectURL] { return await inFlight.value }
         let store: OpLogStore
         if let known = stores[projectURL] {
             store = known
@@ -158,12 +172,17 @@ final class PhonePosture {
             store = makeStore(projectURL)
             stores[projectURL] = store
         }
-        let signature = TrustResolution.signature(of: projectURL)
-        if preparedUnder[projectURL] != signature {
+        let prepare = self.prepare
+        let task = Task { @MainActor in
             await prepare(store)
-            preparedUnder[projectURL] = signature
+            return store
         }
-        return store
+        warming[projectURL] = task
+        let warmed = await task.value
+        // Forget it only if it is still ours: a `refresh()` in the meantime
+        // may have dropped it and a later ask started another.
+        if warming[projectURL] == task { warming[projectURL] = nil }
+        return warmed
     }
 
     /// The door's settled answer: the verified table resolved off the main

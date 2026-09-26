@@ -19,7 +19,7 @@ final class TranslatorsNoteTests: XCTestCase {
     /// environment: a real `Document.load` is what mints the ¶ids every test
     /// here names.
     private func makeHarness() async throws -> Harness {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("TranslatorsNote-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent("manuscript"), withIntermediateDirectories: true)

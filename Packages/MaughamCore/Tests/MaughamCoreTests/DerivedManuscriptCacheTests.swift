@@ -11,7 +11,7 @@ final class DerivedManuscriptCacheTests: XCTestCase {
     /// (mutating its size/mtime — the token's invalidation signal).
     @discardableResult
     private func seed(root: URL? = nil, docId: String, ops: [Op]) throws -> URL {
-        let root = root ?? FileManager.default.temporaryDirectory
+        let root = root ?? TestTemp.root
             .appendingPathComponent("dmc-\(UUID().uuidString)")
         let opsDir = root.appendingPathComponent(".maugham/ops")
         try FileManager.default.createDirectory(at: opsDir, withIntermediateDirectories: true)
@@ -117,7 +117,7 @@ final class DerivedManuscriptCacheTests: XCTestCase {
 
     /// No ops → empty derived state, still counted as a derive (and cached).
     func test_noOps_isEmpty_andCached() throws {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("dmc-empty-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let cache = DerivedManuscriptCache()

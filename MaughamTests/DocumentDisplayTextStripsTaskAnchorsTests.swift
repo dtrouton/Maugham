@@ -16,7 +16,7 @@ import XCTest
 final class DocumentDisplayTextStripsTaskAnchorsTests: XCTestCase {
 
     private func makeDoc(text: String) async throws -> Document {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("DDST-\(UUID().uuidString)")
         let manuscriptDir = tmp.appendingPathComponent("manuscript")
         try FileManager.default.createDirectory(

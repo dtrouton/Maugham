@@ -15,7 +15,7 @@ final class InboxPromoteTests: XCTestCase {
         // Manual temp dir (no auto-cleanup) — matching InboxStoreLastWinsTests.
         // A `TempDirectory` value would deinit when this helper returns and
         // delete the project (incl. seeded inbox assets) before the test runs.
-        let parent = FileManager.default.temporaryDirectory
+        let parent = TestTemp.root
             .appendingPathComponent("promote-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createNovelProject(named: "Promote", in: parent)
@@ -172,7 +172,7 @@ final class InboxPromoteTests: XCTestCase {
 
     private func openCollection() async throws
         -> (URL, ProjectStore, InboxStore, DocumentStore, StructureItem) {
-        let parent = FileManager.default.temporaryDirectory
+        let parent = TestTemp.root
             .appendingPathComponent("promote-coll-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(named: "PC", in: parent)

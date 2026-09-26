@@ -10,7 +10,7 @@ import MaughamCore
 final class TasksOpLogSourceTests: XCTestCase {
 
     func test_closedDocTasks_readOpLog_notStaleMd() async throws {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("TasksOpLog-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

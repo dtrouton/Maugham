@@ -31,7 +31,7 @@ final class SpotCheckTests: XCTestCase {
     /// whose `metadata.language` is the book's own — the author's language every
     /// briefing's role frame is written in.
     private func makeHarness() async throws -> Harness {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("SpotCheck-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

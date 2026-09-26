@@ -15,7 +15,7 @@ final class LetterKeepTests: XCTestCase {
     // MARK: - Fixtures (ResearchScopeTests' harness)
 
     private func makeNovel() async throws -> (URL, ProjectStore) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LetterKeep-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -38,7 +38,7 @@ final class LetterKeepTests: XCTestCase {
     }
 
     private func makeCollection() async throws -> (URL, ProjectStore, StructureItem) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LetterKeepColl-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(named: "T", in: tmp)

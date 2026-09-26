@@ -206,7 +206,7 @@ final class TranslationPreflightTests: XCTestCase {
     /// private here for the same reason its own copy is private there.
     @MainActor
     private func makeProject() async throws -> Fixture {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("TPF-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

@@ -28,7 +28,7 @@ final class ColdLaunchDownloaderTests: XCTestCase {
     /// `prefetch` only enumerates op logs via the injected closure and sizes them
     /// via the (faked) downloader — neither touches the real folder here.
     private func makeProject(folder: String, id: String) -> BrowsedProject {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent(folder, isDirectory: true)
         let manifest = ProjectManifest(
             id: id,
@@ -69,7 +69,7 @@ final class ColdLaunchDownloaderTests: XCTestCase {
     /// `d_<ULID>`), so cold-launch prefetched nothing — this is the regression net.
     func test_liveEnumerateOpLogs_recognizesRealDocIds_excludesProjectAndJunk() throws {
         let fm = FileManager.default
-        let projectURL = fm.temporaryDirectory
+        let projectURL = TestTemp.root
             .appendingPathComponent("cold-enum-\(UUID().uuidString)", isDirectory: true)
         let opsDir = projectURL
             .appendingPathComponent(".maugham/ops", isDirectory: true)
@@ -97,7 +97,7 @@ final class ColdLaunchDownloaderTests: XCTestCase {
 
     /// A project with no `.maugham/ops/` dir enumerates to empty, never throws.
     func test_liveEnumerateOpLogs_missingOpsDir_isEmpty() {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("cold-enum-missing-\(UUID().uuidString)", isDirectory: true)
         XCTAssertTrue(ColdLaunchDownloader.liveEnumerateOpLogs(url).isEmpty)
     }

@@ -5,7 +5,7 @@ final class DerivedManuscriptTests: XCTestCase {
 
     /// Write an op-log JSONL file for `docId` under a temp project; return the URL.
     private func makeProject(docId: String, ops: [Op]) throws -> URL {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("dm-\(UUID().uuidString)")
         let opsDir = root.appendingPathComponent(".maugham/ops")
         try FileManager.default.createDirectory(at: opsDir, withIntermediateDirectories: true)
@@ -90,7 +90,7 @@ final class DerivedManuscriptTests: XCTestCase {
 
     /// No ops → empty string (no crash, no .md read).
     func test_materialize_noOps_isEmpty() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("dm-empty-\(UUID())")
+        let root = TestTemp.root.appendingPathComponent("dm-empty-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         XCTAssertEqual(try DerivedManuscript.materialize(forDocId: "doc-x", in: root), "")
     }

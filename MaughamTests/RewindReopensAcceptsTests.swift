@@ -17,7 +17,7 @@ final class RewindReopensAcceptsTests: XCTestCase {
     /// Builds a wired Document over `initialMd` and returns it plus its single
     /// bootstrap paragraph id (4-char alphabet-restricted, tripwire 8).
     private func makeDocWithParagraph(_ initialMd: String) async throws -> (Document, String) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("RewindReopen-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("manuscript"),

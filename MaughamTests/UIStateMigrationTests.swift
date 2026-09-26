@@ -15,7 +15,7 @@ final class UIStateMigrationTests: XCTestCase {
           "scrollLine": 42
         }
         """
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent(UUID().uuidString + ".json")
         try v1JSON.data(using: .utf8)!.write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -32,7 +32,7 @@ final class UIStateMigrationTests: XCTestCase {
             selectedSubject: .item("doc-9"),
             isNoChromeOn: false,
             researchPreviewVisible: true)
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent(UUID().uuidString + ".json")
         try JSONEncoder().encode(original).write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -46,7 +46,7 @@ final class UIStateMigrationTests: XCTestCase {
         let v999JSON = """
         { "schemaVersion": 999, "selectedItemId": null, "isNoChromeOn": false }
         """
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent(UUID().uuidString + ".json")
         try v999JSON.data(using: .utf8)!.write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }

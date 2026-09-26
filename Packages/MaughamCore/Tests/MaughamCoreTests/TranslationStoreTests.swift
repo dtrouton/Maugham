@@ -13,7 +13,7 @@ final class TranslationStoreTests: XCTestCase {
     private var theirState: OpLogDeviceState!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("tr-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

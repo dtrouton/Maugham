@@ -5,7 +5,7 @@ import MaughamCore
 @MainActor
 final class RenameWithAssetsTests: XCTestCase {
     func test_renamingNote_alsoRenamesAssetsFolderAndUpdatesRefs() async throws {
-        let project = FileManager.default.temporaryDirectory
+        let project = TestTemp.root
             .appendingPathComponent("RenameAssets-\(UUID())")
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -67,7 +67,7 @@ final class RenameWithAssetsTests: XCTestCase {
     /// and rewrites refs to the *deduped* stem (the exact `newStem == dedupedSlug`
     /// wiring the happy-path test above doesn't exercise because it never dedups).
     func test_renamingNote_dedupsAgainstCollisionAndRewritesRefsToDedupedStem() async throws {
-        let project = FileManager.default.temporaryDirectory
+        let project = TestTemp.root
             .appendingPathComponent("RenameAssetsDedup-\(UUID())")
         let research = project.appendingPathComponent("research")
         try FileManager.default.createDirectory(at: research, withIntermediateDirectories: true)
@@ -123,7 +123,7 @@ final class RenameWithAssetsTests: XCTestCase {
     /// the note's move commit and then throw on the assets move, leaving the
     /// manifest pointing at the old path while the disk held the new one.
     func test_renamingNote_dedupsJointlyAgainstAnOrphanedAssetsFolder() async throws {
-        let project = FileManager.default.temporaryDirectory
+        let project = TestTemp.root
             .appendingPathComponent("RenameAssetsOrphan-\(UUID())")
         let research = project.appendingPathComponent("research")
         try FileManager.default.createDirectory(at: research, withIntermediateDirectories: true)

@@ -33,8 +33,9 @@ struct RewindWindow: View {
     /// several whole-log derives per body pass, stuttering the scrubber on
     /// novel-scale histories).
     @State private var impactPreview: RewindImpact.Preview = RewindImpact.preview(ops: [], cursorOpId: nil)
-    /// The open document's own amendment judgement, so the preview skips what
-    /// its deriver skips (ruling P). None for a closed piece.
+    /// The document's own amendment judgement, so the preview skips what its
+    /// deriver skips (ruling P) — the open document's, or for a closed piece
+    /// the table a load would build (`Document.closedPieceHistory`).
     @State private var amendments: AnnotationAmendments = .honourEverything
     @State private var nowState: Deriver.DerivedState = .init(paragraphs: [:], sequence: [])
     @State private var showingSnapshotPrompt: Bool = false
@@ -330,8 +331,12 @@ struct RewindWindow: View {
             ops = (try? await doc.opLog()) ?? []
             amendments = doc.annotationAmendments
         } else {
-            let opStore = OpLogStore(projectURL: projectURL)
-            ops = (try? await opStore.load(docId: activeDocId)) ?? []
+            // A closed piece is judged as a load would judge it (P3 plan 3
+            // Task 5), so the preview reads the statuses the piece shows open.
+            let history = await Document.closedPieceHistory(
+                docId: activeDocId, projectURL: projectURL)
+            ops = history.ops
+            amendments = history.amendments
         }
         // Use the fallback-aware deriver so legacy projects whose ops
         // predate the "always capture sequence on burst" fix still get a

@@ -27,7 +27,7 @@ final class TectonicProbeTests: XCTestCase {
 
     func test_aMissingBinaryIsNamedAsSuchRatherThanBlamedOnTheBundle() async {
         let answer = await TectonicProbe.runCanary(
-            binary: nil, cacheDirectory: FileManager.default.temporaryDirectory)
+            binary: nil, cacheDirectory: TestTemp.root)
         XCTAssertEqual(answer, .notBundled)
     }
 
@@ -36,7 +36,7 @@ final class TectonicProbeTests: XCTestCase {
         // probe exists for: thousands of characters of download chatter, then
         // the one line that says what actually went wrong, then a non-zero
         // exit. The head of that log is useless; the tail is the diagnosis.
-        let dir = FileManager.default.temporaryDirectory
+        let dir = TestTemp.root
             .appendingPathComponent("ProbeFake-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -64,7 +64,7 @@ final class TectonicProbeTests: XCTestCase {
     }
 
     func test_anExitZeroThatWroteNoPdfIsStillNotReady() async throws {
-        let dir = FileManager.default.temporaryDirectory
+        let dir = TestTemp.root
             .appendingPathComponent("ProbeFake-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }

@@ -185,7 +185,7 @@ final class PhoneStatementReadTests: XCTestCase {
     // MARK: - Round trip: a manifest the Mac wrote, read by the phone's own loader
 
     private func makeProjectFolder(_ name: String, json: Data) throws -> URL {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("PhoneStatementRead-\(UUID().uuidString)", isDirectory: true)
         let dir = root.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

@@ -8,7 +8,7 @@ import MaughamCore
 final class OpLogSegmentReadTests: XCTestCase {
 
     func test_loadSyncMerged_readsSealedSegmentPlusTail() throws {
-        let projectURL = FileManager.default.temporaryDirectory
+        let projectURL = TestTemp.root
             .appendingPathComponent("phone-seg-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: projectURL) }
         try FileManager.default.createDirectory(

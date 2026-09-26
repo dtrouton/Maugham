@@ -294,24 +294,6 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
                        + "centre column stays blank and there is nothing to scroll")
     }
 
-    /// And a click on a scene while a document is already the subject leaves it
-    /// alone: no churn on the editor's reload triggers.
-    func test_clickingASceneWithADocumentSubjectLeavesItAlone() async throws {
-        let (window, probe, navigations) = try await host(
-            script: Self.twoScenes, initial: .item("doc-1"))
-        let table = try XCTUnwrap(firstTableView(in: window))
-
-        // Row 3 — the second slugline. Mixed: the navigation below is positive and
-        // the subject assertion is "unchanged", but `sceneRow`'s Button writes the
-        // subject and calls `onSelect` in the same action, so the navigation
-        // arriving means the subject write has already had its chance.
-        await click(row: 3, in: table, window: window,
-                    until: { navigations.locations.count == 1 })
-
-        XCTAssertEqual(navigations.locations.count, 1)
-        XCTAssertEqual(probe.subject, .item("doc-1"))
-    }
-
     // MARK: - The empty script
 
     /// **Every new screenplay opens here** — `createScreenplayProject` writes an
@@ -385,46 +367,25 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
 
     // MARK: - The way back out (smoke, 2026-08-01)
 
-    /// **The trap.** On a screenplay with no sluglines the writer selects the
-    /// project row and cannot get back: the centre column blanks (the project is
-    /// not a document), and the escape the navigator's author built — a scene
-    /// click, through `subject(_:whenNavigatingTo:)` — does not exist, because
-    /// there are no scenes. ⌘⌥O is a technical way out that nobody finds.
+    /// **The way back out, smoke 2026-08-01.** On a screenplay the writer
+    /// selects the project row, the centre column blanks (the project is not a
+    /// document), and the escape the navigator's author built — a scene click,
+    /// through `subject(_:whenNavigatingTo:)` — does not exist when there are
+    /// no scenes. The row under the project is the way out: the script, which
+    /// IS a subject. On an empty screenplay that is
+    /// `test_theEmptyNavigatorHasTheProjectRowAndTheScriptRowAndNothingElse`;
+    /// this is the same question of a screenplay that HAS sluglines, so the
+    /// fix cannot be read as "the empty case only".
     ///
-    /// **The property, not the row.** This asks whether the navigator offers ANY
-    /// way from the project subject back onto a document, by trying every row it
-    /// has. It names no row and no label on purpose: it is the reachability
-    /// claim, and a future navigator that answers it differently should keep
-    /// passing. `ProjectSubjectReachabilityTests` asks the mirror question — can
-    /// the writer reach the project — and passed throughout the trap.
-    func test_fromTheProjectAnEmptyScreenplayCanReachADocumentAgain() async throws {
-        let (window, probe, _) = try await host(script: nil)
-        let table = try XCTUnwrap(firstTableView(in: window))
-
-        await select(row: 0, in: table, until: { probe.subject == .project })
-        XCTAssertEqual(probe.subject, .project, "precondition: in the trap")
-
-        let escape = await firstRowReachingADocument(
-            in: table, window: window, probe: probe)
-
-        XCTAssertEqual(
-            escape, .item("doc-1"),
-            "a screenplay with no sluglines must still offer a way from the "
-            + "project subject back to a document — none of the navigator's "
-            + "\(table.numberOfRows) row(s) produced one, so the project row is "
-            + "a one-way door and the writer cannot reach the script to type")
-    }
-
-    /// The same question of a screenplay that HAS sluglines, so the fix cannot be
-    /// read as "the empty case only": the way out must be there in both shapes.
-    ///
-    /// **This one has to distinguish the script row from the first slugline**, or
-    /// it is vacuous — before the fix, clicking row 1 already restored the
-    /// document, because row 1 WAS a scene and a scene click restores it. So the
-    /// discriminator is the scroll: a slugline click asks the editor to scroll,
-    /// and the script row must not, because it names no place in the file.
+    /// **It has to distinguish the script row from the first slugline**, or it
+    /// is vacuous. Selecting it does: a slugline is an untagged row, so
+    /// selecting one writes `nil` through the projection and the subject stays
+    /// on the project (`test_selectingASceneRowDoesNotClearTheSubject`); only
+    /// the script row's tag moves it onto the document. It also clicked row 2
+    /// until plan 3's C14 — that sluglines still navigate is
+    /// `test_clickingASceneNavigatesAndTakesTheSubjectOffTheProject`'s (tripwire 33).
     func test_theRowUnderTheProjectIsTheScriptAndNotTheFirstSlugline() async throws {
-        let (window, probe, navigations) = try await host(script: Self.twoScenes)
+        let (window, probe, _) = try await host(script: Self.twoScenes)
         let table = try XCTUnwrap(firstTableView(in: window))
 
         XCTAssertEqual(table.numberOfRows, 1 + 1 + 2 + emptySectionRows,
@@ -434,34 +395,20 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project, "precondition")
 
-        // Both drivers, because this test must not assume which kind of row it
-        // is — see `actuate`. Left FIXED: the two assertions below are settled by
-        // different deliveries — `select` writes the subject, and it is `click`
-        // that would navigate if row 1 were a slugline — so shortening on the
-        // subject would delete the window the empty-navigations assertion needs.
-        await actuate(row: 1, in: table, window: window)
+        await select(row: 1, in: table, until: { probe.subject == .item("doc-1") })
 
         XCTAssertEqual(
             probe.subject, .item("doc-1"),
             "the row directly under the project row must open the script — so "
             + "the navigator reads like every other binder: the project, then "
-            + "the project's documents")
-        XCTAssertEqual(
-            navigations.locations, [],
-            "…and it must not be a slugline in disguise: the script row names "
-            + "the whole file, so it asks for no scroll. A navigation here "
-            + "means row 1 is still the first scene and this test proves nothing")
-
-        await click(row: 2, in: table, window: window,
-                    until: { navigations.locations.count == 1 })
-        XCTAssertEqual(navigations.locations.count, 1,
-                       "the sluglines are still under it, and still navigate")
+            + "the project's documents. A subject still on the project means "
+            + "row 1 is an untagged slugline and the writer has no way out")
     }
 
-    /// The plant for the test above: the row present, the projection stale. If
-    /// this ever reaches a document, the reachability test is satisfied by
-    /// something other than the projection accepting the script row, and it is
-    /// not measuring what it claims.
+    /// The plant for the way out: the script row present, the projection
+    /// stale. If selecting it ever reaches a document, the reachability tests
+    /// are satisfied by something other than the projection accepting the
+    /// script row, and they are not measuring what they claim.
     func test_plantedOffender_aScriptRowWithTheOldProjectionIsStillATrap() async throws {
         let probe = BinderSubjectProbe()
         let window = try await mount(
@@ -471,16 +418,18 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project, "precondition: in the trap")
 
-        let escape = await firstRowReachingADocument(
-            in: table, window: window, probe: probe)
+        // Row 1 — the script row. fixed window: the assertion below is that the
+        // write was swallowed, and a plant that failed to fire looks exactly
+        // like one still in flight.
+        await select(row: 1, in: table)
 
-        XCTAssertNil(
-            escape,
+        XCTAssertEqual(
+            probe.subject, .project,
             "PLANT DID NOT FIRE: a projection that accepts only .project was "
             + "expected to swallow the script row's write and keep the writer "
             + "trapped. If it escapes anyway, something other than "
             + "subject(_:whenListWrites:documentID:) is moving the subject and "
-            + "the reachability test above is not measuring the fix — read the "
+            + "the reachability tests above are not measuring the fix — read the "
             + "finding, do not delete this test")
     }
 
@@ -511,43 +460,6 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
             + "not what carries a research click in this pane and the mounted "
             + "test in BinderTreeSectionsTests is vacuous — read the finding, "
             + "do not delete this test")
-    }
-
-    /// Actuates each row in turn, restoring the trap between attempts, and
-    /// returns the first subject that names a document. `nil` means the writer
-    /// has no way out.
-    private func firstRowReachingADocument(
-        in table: NSTableView, window: NSWindow,
-        probe: BinderSubjectProbe
-    ) async -> BinderSubject? {
-        for row in 0..<table.numberOfRows {
-            // `actuate` keeps its fixed windows: this loop's whole job is to give
-            // every row its full chance to produce an escape, and a row that never
-            // does is exactly the reading the planted offender needs.
-            await actuate(row: row, in: table, window: window)
-            if case .item = probe.subject { return probe.subject }
-            // Restoring the trap, though, is a positive: wait for it, not out.
-            await select(row: 0, in: table, until: { probe.subject == .project })
-        }
-        return nil
-    }
-
-    /// Does to a row what a mouse does, **without knowing what kind of row it
-    /// is** — which this pane needs, because it has two kinds and each answers
-    /// to a different driver.
-    ///
-    /// **Measured while fixing the trap, and it is why this helper exists.** A
-    /// synthesised `leftMouseDown`/`leftMouseUp` pair through the window drives
-    /// a SwiftUI `Button` (the scene rows) but does **not** move
-    /// `List(selection:)` — a click at the centre of the shipped project row,
-    /// which selects perfectly under a real mouse, left the subject `nil`. So
-    /// `click` alone silently skips every selectable row, and `select` alone
-    /// silently skips every Button. A reachability test asking "is there ANY way
-    /// out" has to try both on every row or it is measuring half the pane, and
-    /// the half it skips is whichever one the next change breaks.
-    private func actuate(row: Int, in table: NSTableView, window: NSWindow) async {
-        await select(row: row, in: table)
-        await click(row: row, in: table, window: window)
     }
 
     // MARK: - The rules, over their whole input

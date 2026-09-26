@@ -5,7 +5,7 @@ import MaughamCore
 @MainActor
 final class PieceResearchAssetsTests: XCTestCase {
     private func makeCollectionWithPiece() async throws -> (URL, ProjectStore, StructureItem) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("PRA-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(named: "T", in: tmp)
@@ -16,7 +16,7 @@ final class PieceResearchAssetsTests: XCTestCase {
 
     func test_addPieceResearchAsset_importsFileIntoPieceResearch() async throws {
         let (url, store, piece) = try await makeCollectionWithPiece()
-        let tmpSrc = FileManager.default.temporaryDirectory
+        let tmpSrc = TestTemp.root
             .appendingPathComponent("test-asset-\(UUID()).png")
         try Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]).write(to: tmpSrc)
         defer { try? FileManager.default.removeItem(at: tmpSrc) }
@@ -44,7 +44,7 @@ final class PieceResearchAssetsTests: XCTestCase {
 
     func test_importPieceResearchFiles_bulkImports() async throws {
         let (_, store, piece) = try await makeCollectionWithPiece()
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
         let a = tmp.appendingPathComponent("a-\(UUID()).txt")
         let b = tmp.appendingPathComponent("b-\(UUID()).txt")
         try "alpha".write(to: a, atomically: true, encoding: .utf8)

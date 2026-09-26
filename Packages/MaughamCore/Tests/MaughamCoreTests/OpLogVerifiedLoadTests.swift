@@ -24,7 +24,7 @@ final class OpLogVerifiedLoadTests: XCTestCase {
     private var brokenState: OpLogDeviceState!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("verified-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/ops"),

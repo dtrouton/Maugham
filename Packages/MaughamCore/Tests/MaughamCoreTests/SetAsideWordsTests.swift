@@ -20,7 +20,7 @@ final class SetAsideWordsTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("setaside-words-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(
             at: tmp.appendingPathComponent(".maugham/ops"),

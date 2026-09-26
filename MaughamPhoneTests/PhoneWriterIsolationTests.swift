@@ -38,7 +38,7 @@ final class PhoneWriterIsolationTests: XCTestCase {
 
     override func setUpWithError() throws {
         identity = .softwareForTesting()
-        root = FileManager.default.temporaryDirectory
+        root = TestTemp.root
             .appendingPathComponent("phone-isolation-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }

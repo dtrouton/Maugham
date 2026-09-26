@@ -36,7 +36,7 @@ final class CheckpointBreadcrumbSubjectTests: XCTestCase {
     private var opsDir: URL { tmp.appendingPathComponent(".maugham/ops") }
 
     override func setUp() async throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("CBST-\(UUID())")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)

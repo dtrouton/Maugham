@@ -5,7 +5,7 @@ import MaughamCore
 @MainActor
 final class TrashIntegrationTests: XCTestCase {
     private func makeProjectWithChapter() async throws -> (URL, ProjectStore, StructureItem) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("TrashIntegration-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

@@ -14,7 +14,7 @@ final class LanguageSuffixedFileTests: XCTestCase {
     private var tmp: URL!
 
     override func setUpWithError() throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("lsf-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)

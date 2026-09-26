@@ -632,57 +632,6 @@ final class ProjectAltitudeCentreTests: XCTestCase {
         XCTAssertEqual(mount.hostLife.appearances, 1)
     }
 
-    /// **Publish opens the chapter from the same card click Author does.** It
-    /// shows the same altitude (the test above), so it inherits the same way out
-    /// of it — and the thing on the other side of the click is the editor:
-    /// Publish's preview (stage 3b Task 5) is a layer that is not there while
-    /// nothing has been compiled, which is the state this fixture is in.
-    /// Asserted rather than assumed: a persona that took some other arm below
-    /// the click would leave the writer on a card that does nothing.
-    ///
-    /// **Review is deliberately not in this loop as of M3 P1 Task 6.** Its
-    /// corkboard is still mounted, and covered by the passes board — so the
-    /// cards are not reachable by a click there at all, and a test that clicked
-    /// one would be measuring a card no reviewer can hit. Review's own way out
-    /// of the board is the chip, and it is Task 8's.
-    func test_publishOpensTheChapterFromTheSameCardClick() async throws {
-        for persona in Self.manuscriptPersonas
-        where persona != .author && !persona.showsTheReviewBoard {
-            let store = try await novel()
-            let documents = Self.documents(in: store)
-            let wanted = try XCTUnwrap(documents.last)
-            let mount = try await host(store: store, persona: persona,
-                                       subject: .project, layout: .cards)
-
-            await pumpUntil(deadline: 5) { self.cards(in: mount.window).count == documents.count }
-            let deck = cards(in: mount.window)
-            try XCTSkipUnless(
-                deck.count == documents.count && deck.allSatisfy { $0.bounds.width > 1 },
-                "\(persona): this display mounted \(deck.count) cards")
-
-            await click(try XCTUnwrap(deck.last), in: mount.window) {
-                self.probeOpenedText(in: mount.window) != nil
-            }
-
-            XCTAssertEqual(mount.probe.subject, .item(wanted.id),
-                           "\(persona): the card writes the window's subject")
-            let opened = try XCTUnwrap(
-                probeOpenedText(in: mount.window),
-                "\(persona): the click landed on the subject but the centre "
-                + "column opened nothing. Views: \(viewNames(in: mount.window))")
-            XCTAssertTrue(opened.contains(wanted.title),
-                          "\(persona): the editor is showing \"\(opened)\"")
-            // Not redundant: the host is mounted UNDERNEATH the overlay, so it
-            // opens the document either way. Without this, a persona whose
-            // altitude never came down would pass — measured, by planting
-            // exactly that in `subjectShowsAltitude` and watching this test stay
-            // green while the two above went red.
-            XCTAssertTrue(cards(in: mount.window).isEmpty,
-                          "\(persona): the corkboard is still covering the "
-                          + "chapter it just opened")
-        }
-    }
-
     // MARK: - Mounted: opening altitude costs the writer nothing
 
     /// **Arriving at altitude must not clear the subject that summoned it** —

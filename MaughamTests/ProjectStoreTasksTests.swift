@@ -11,7 +11,7 @@ final class ProjectStoreTasksTests: XCTestCase {
     // MARK: - Fixture
 
     private func makeProject(initialMd: String = "Hello.") throws -> (URL, String) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("PROJ-TASKS-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)

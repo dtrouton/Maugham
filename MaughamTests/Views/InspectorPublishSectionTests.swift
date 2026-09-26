@@ -8,7 +8,7 @@ import XCTest
 final class InspectorPublishSectionTests: XCTestCase {
 
     private func makeProject() throws -> URL {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("PublishSectionTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)

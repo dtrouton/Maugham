@@ -1126,3 +1126,105 @@ starts at 9; the first narrowing raises an existing one). One tag by name each.
   - a one-way notice on the old build (*this book uses permissions this version
     cannot read*) that stops it writing and lets it read — which needs an old
     build to know, so it only helps builds after this one.
+
+  **RULED by Denver, 2026-09-26: leave it** (OB-1). The paired release is the
+  answer, and a mixed fleet is a transient. No code. I4 and the old build's
+  `startedBy` drop are ADR limits and release-note lines (plan 3's addendum
+  and `2026-09-26-p3-release-notes-draft.md`).
+
+# P3 plan 3 OUTCOME — the carries, the gate, and what ships (2026-09-26)
+
+Branch `claude/signed-op-log-p3-plan3-2026-09-26` (off main `1c0032c9`; plan
+`docs/superpowers/plans/2026-09-26-signed-op-log-p3-plan3-carries-smoke-release.md`).
+The ledger — every ruling with its cost — is
+`.superpowers/sdd/2026-09-26-signed-op-log-p3-plan3-carries-smoke-release/progress.md`,
+and the task reports sit beside it. ADR 0032's *P3 plan 3* addendum is the
+design record, and its *limits* are the honest list. UNMERGED and UNRELEASED
+at the time of writing: the whole-branch review, then the closing smoke and the
+paired release (Task 10) follow.
+
+## What shipped
+
+Every carry on the *Plan 3* list above is closed or dropped on merit.
+
+- **C10 + C17 — one temp root per test** (Task 1). `TestTemp` (three
+  byte-identical copies: MaughamTests, MaughamPhoneTests, MaughamCore's tests)
+  gives each test a root removed when it finishes, and a worker root for class
+  fixtures; a census bans every other spelling of the temp directory, and the
+  test host sweeps dead workers' `TestWorkspace` and `device` leaves. A gate now
+  leaves no new `$TMPDIR` entries. A one-off cleanup script for the backlog is in
+  the ledger's directory (`task-1-tmp-cleanup.sh`, dry run by default; not run).
+- **C14 — tripwire 33's click arm** (Task 2). Every synthesised mouse click in a
+  test is a named representative (`TripwireGrepTests.clickRepresentatives`),
+  helpers followed through the file that declares a test class's superclass;
+  the rest were cut or converted against named windowless pins, and `waitOut(`
+  joined the press arm's waits.
+- **C4 — the admission sheet counts closed documents' held lines** (Task 3), off
+  the main actor, through `OpLogStore.provenance(forDocId:in:trust:state:)`.
+- **C12 — the derived `.md` follows an applied re-read** and a diverged load
+  (Task 4); a document holding lines renders nothing on its own account.
+- **Ruling U — the yield lifts at the re-read** that brings a book author's text
+  (Task 4).
+- **Restore and reopen** (Task 5): the reopen's refusal noun, the skew sentence,
+  the `restoreStanding` memo, and the closed-piece rewind preview.
+- **The posture door** (Task 6): one manifest decode, an honest unknown-path
+  cache, a pruned asked set, a true `PostureDoor` header.
+- **The phone** (Task 7): the fresh posture before the write, one warm-up in
+  flight, the write-only census gap, the `PhoneDeviceRecord` warnings.
+- **People & Devices says what unblocks a stranded piece** (Task 8), beside a
+  live Revoke only.
+- **Docs** (Task 9): ADR 0032's plan-3 addendum (limits struck where closed), the
+  four AREA files, `docs/guide/people-and-devices.md`, the closing smoke
+  checklist (`2026-09-26-p3-closing-smoke.md`) and the release-notes draft
+  (`2026-09-26-p3-release-notes-draft.md`).
+
+## The rulings, with their costs
+
+- **OB-1 — an old build over an un-narrowed book: LEAVE IT** (Denver,
+  2026-09-26). *Cost:* I4 and the `startedBy` drop stand for a mixed fleet.
+- **C4-1** — the sheet does not wait for the sweep; a pass posts only when the
+  closed half's STRANGER holdings change (the D5 rule). *Cost:* a sheet already
+  up is not re-described for a permit-pending change it never asks about.
+- **C12-1, narrowed** — a document holding lines does not render on its own
+  account (it would have written an empty `.md` over a starter's words). *Cost:*
+  such a document keeps a stale `.md` after an unrelated admission until a
+  keystroke.
+- **Task 4's proposed ADR wording was corrected**: the narrowing adds no render
+  trigger, and `handleExternalDiskChange` still rewrites an OPEN document's
+  `.md` whenever the other Mac's differs, held lines or not, until F7 damping.
+  The words are safe in the op log.
+- **Task 5** — the skew condition re-asks the deriver (the literal one fired for
+  somebody else's note); Restore stays drawn in the skew case.
+- **Task 6** — the fabricated hash id is cached only while the manifest's `stat`
+  stamp holds; `__project__` survives the prune.
+- **Task 7** — the census bans a writer's store escaping its file (there was no
+  store property to ban).
+- **Task 8** — the line is drawn only beside a live Revoke; singular for one
+  piece; an absent row carries none.
+- **Task 2** — the click arm follows superclass-file helpers, so the canvas
+  family's real events count.
+
+## For the release notes (with P3a's, P3b's and plans 1–2's)
+
+The combined draft, Mac and phone, is
+`docs/superpowers/notes/2026-09-26-p3-release-notes-draft.md`. Plan 3 adds:
+
+- The `.md` beside each chapter now follows sync and permission changes.
+- The admission panel counts every chapter, not only the ones open.
+- People & Devices says what unblocks a stranded piece.
+- *A book made on this build starts at schema 9; the first narrowing raises an
+  existing one.*
+- **Update every Mac and iPhone on a shared book together** (OB-1): an older
+  Mac can still open a book nobody has narrowed yet; one that has the book open
+  when somebody is narrowed keeps writing until that session ends, and an older
+  Mac rewriting the book's structure forgets which Mac started each piece.
+
+## What is left
+
+- The whole-branch review (fable; all five P3 ledgers; the plan's seam list;
+  told to assume a Critical), and its fix wave.
+- Task 10: the closing smoke (`2026-09-26-p3-closing-smoke.md`), its fix wave
+  and re-smoke, then the paired release on schema 9.
+- The deferred minors in this plan's ledger (each with its cost) — do or drop
+  on merit in the review's fix wave; no defer bucket.
+

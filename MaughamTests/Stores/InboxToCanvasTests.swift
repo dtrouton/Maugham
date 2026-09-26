@@ -38,7 +38,7 @@ final class InboxToCanvasTests: XCTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory
+        root = TestTemp.root
             .appendingPathComponent("inbox-to-canvas-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }

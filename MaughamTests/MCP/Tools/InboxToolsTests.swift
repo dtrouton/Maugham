@@ -10,7 +10,7 @@ final class InboxToolsTests: XCTestCase {
 
     private func openNovelWithRegistry() async throws
         -> (URL, ProjectStore, DocumentStore, ProjectRegistry, String) {
-        let parent = FileManager.default.temporaryDirectory
+        let parent = TestTemp.root
             .appendingPathComponent("inboxtool-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createNovelProject(named: "IT", in: parent)

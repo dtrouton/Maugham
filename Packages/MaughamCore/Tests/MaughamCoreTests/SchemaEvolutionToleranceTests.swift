@@ -236,7 +236,7 @@ final class SchemaEvolutionToleranceTests: XCTestCase {
 
     @MainActor
     func testStampedInboxEntryPaletteFieldsRoundTripThroughJSONLAppendStore() async throws {
-        let root = FileManager.default.temporaryDirectory
+        let root = TestTemp.root
             .appendingPathComponent("inbox-palette-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let fileURL = root.appendingPathComponent("inbox.test.jsonl")

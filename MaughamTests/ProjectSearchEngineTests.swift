@@ -51,7 +51,7 @@ final class ProjectSearchEngineTests: XCTestCase {
     /// ADR 0018: each doc is bootstrapped via Document.load so the op log is
     /// seeded — the search engine reads from the op log, not the .md file.
     private func makeProject(manuscript: [(slug: String, content: String)]) async throws -> URL {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("SearchEngine-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -86,7 +86,7 @@ final class ProjectSearchEngineTests: XCTestCase {
         manuscript: [(String, String)],
         research: [(String, String)]
     ) async throws -> URL {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("SearchEngineFull-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

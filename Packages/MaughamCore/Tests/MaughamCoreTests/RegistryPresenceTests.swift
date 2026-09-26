@@ -22,7 +22,7 @@ final class RegistryPresenceTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("presence-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(
             at: projectURL, withIntermediateDirectories: true)
@@ -379,14 +379,14 @@ final class RegistryPresenceTests: XCTestCase {
     /// touches a device the folder already has a record for.
 
     private func rememberingMemory() -> AdmissionMemory {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("presence-memory-\(UUID().uuidString).json")
         memoryFiles.append(url)
         return AdmissionMemory(fileURL: url, identity: mine.author.fingerprint)
     }
 
     private func presenceCache() -> RegistryCache {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("presence-cache-\(UUID().uuidString).json")
         memoryFiles.append(url)
         return RegistryCache(fileURL: url, identity: mine.author.fingerprint)
@@ -626,7 +626,7 @@ final class RegistryPresenceTests: XCTestCase {
     /// Another Mac's cache, so the far side of a two-root folder can be
     /// resolved in the same test the near side is.
     private func cache(for identities: LocalIdentities) -> RegistryCache {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("presence-cache-\(UUID().uuidString).json")
         memoryFiles.append(url)
         return RegistryCache(fileURL: url, identity: identities.author.fingerprint)

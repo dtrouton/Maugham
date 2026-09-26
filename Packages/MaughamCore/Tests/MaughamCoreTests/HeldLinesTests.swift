@@ -16,7 +16,7 @@ final class HeldLinesTests: XCTestCase {
     private var projectURL: URL!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("held-lines-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL, withIntermediateDirectories: true)

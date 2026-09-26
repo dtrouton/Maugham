@@ -21,7 +21,7 @@ final class BackupCoordinatorTests: XCTestCase {
     }
 
     func test_resolveDestinations_roundTripsRealFolderBookmark() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("bm-\(UUID().uuidString)")
+        let dir = TestTemp.root.appendingPathComponent("bm-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let bookmark = try dir.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
@@ -40,7 +40,7 @@ final class BackupCoordinatorTests: XCTestCase {
     }
 
     private func tempProjectWithOps() throws -> URL {
-        let proj = FileManager.default.temporaryDirectory.appendingPathComponent("proj-\(UUID().uuidString)")
+        let proj = TestTemp.root.appendingPathComponent("proj-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: proj.appendingPathComponent(".maugham/ops"), withIntermediateDirectories: true)
         // a valid op line so the project is non-empty + integrity-clean
         let op = Op(opId: "01ABC", docId: "doc-0f0f0f0f", at: Date(timeIntervalSince1970: 0),
@@ -51,7 +51,7 @@ final class BackupCoordinatorTests: XCTestCase {
         return proj
     }
     private func destDir() -> URL {
-        let d = FileManager.default.temporaryDirectory.appendingPathComponent("dst-\(UUID().uuidString)")
+        let d = TestTemp.root.appendingPathComponent("dst-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
     }

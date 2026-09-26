@@ -133,15 +133,24 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   out. The two writers' `ChainPolicy` keeps the default single-signer trust
   because those stores only WRITE, and a write asks nothing but *is this key
   mine* (`PhoneChainPolicyTests`; `test_thePhonesChainedStoresOnlyWrite`).
+  Since P3 plan 3 Task 7 that census also closes the escape: neither writer
+  file may declare or return a `JSONLAppendStore` (each builds a function-local
+  `let store`), and no other phone file may reach a `.store` member (`.store(`,
+  the `OpLogStore` method, is left alone). Its control plants both.
   **What the detail OFFERS is the posture's (signed op log P3c plan 2, Task
   6).** `Annotations/PhonePosture.swift` is the phone's one door: a per-load
   cache over MaughamCore's `PostureDoor` (tripwires 19, 46, 51), the table
   warmed off the main actor (`OpLogStore.prepareTrust`) before the permit is
   asked. It keeps ONE `OpLogStore` per project for the load (built through an
-  injectable `makeStore`), and re-prepares that store's table only when the
-  registry's signature has moved since it was last prepared — so a re-ask over
-  an unchanged register verifies nothing, and a permit change or revocation
-  (which writes a record) is seen at the next ask, off the main actor.
+  injectable `makeStore`), and ONE warm-up in flight per project
+  (`warming: [URL: Task<OpLogStore, Never>]`, P3 plan 3 Task 7): a second ask
+  arriving while the first prepares awaits that task instead of preparing
+  again. The phone keeps no signature of its own — the store's `trust()`
+  already returns its resolved table while `TrustResolution.signature(of:)` is
+  unchanged — so a re-ask over an unchanged register verifies nothing, and a
+  permit change or revocation (which writes a record) is seen at the next ask,
+  off the main actor. `refresh()` drops the in-flight warm-ups too, so an ask
+  after a refresh never piggybacks on one that started before it.
   `AnnotationsStore.reload()` (pull-to-refresh) makes a new `PhonePosture`;
   returning to the front calls `refresh()` on the SAME instance, which forgets
   the answers and invalidates every store's trust, so a detail view already
@@ -151,7 +160,10 @@ xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
   controller Ruling A). A refused verb is HIDDEN, never disabled; until the
   door answers, `PhonePosture.unanswered` (the door's `settling`) offers no
   disposition. Every perform re-asks (`askAgain`) before it writes and SAYS a
-  refusal (`PhonePosture.refusal`). **Capture is on every rung** — an inbox row
+  refusal (`PhonePosture.refusal`), and hands the re-asked answer to the view
+  BEFORE the write (`perform(…onAnswer:write:)`, P3 plan 3 Task 7), so a write
+  that throws cannot leave drawn a verb the fresh answer refuses
+  (`test_aWriteThatThrowsStillHandsBackTheFreshAnswer`). **Capture is on every rung** — an inbox row
   is the reviewer row — so nothing under `Capture/` consults a posture
   (`TripwirePhoneGrepTest.test_captureNeverAsksAPosture`), and nothing but
   `PhonePosture.swift` names `PostureDoor.` or `Posture.settling`
@@ -226,7 +238,7 @@ The phone can now feed and read the Mac's sensory-palette wall (`docs/superpower
 
 `Storage/PhoneDeviceRecord.swift` and the **This Device** section of `Settings/SettingsView.swift` are the whole of the phone's half of admission. The phone decides nothing: it writes a record saying who it is, and it reads back what the Mac decided.
 
-- **The record is written by MaughamCore, never here** (tripwire 19). `PhoneDeviceRecord.ensure` calls `RegistryPresence.ensureDeviceRecord`, and both phone writers (`InboxCaptureWriter`, `AnnotationWriter`) reach it on every write. No path under `.maugham/`, no fingerprint, no signature is spelled in this target — `TripwirePhoneGrepTest.test_noTrustDecisionOrRegistryWriteOnThePhone` fails on any of them.
+- **The record is written by MaughamCore, never here** (tripwire 19). `PhoneDeviceRecord.ensure` calls `RegistryPresence.ensureDeviceRecord`, and both phone writers (`InboxCaptureWriter`, `AnnotationWriter`) reach it on every write. Its `name` parameter defaults to nil and the body reads `UIDevice.current.name` (P3 plan 3 Task 7): a default argument is evaluated in the caller's isolation, which is what made the two main-actor warnings at that line. No path under `.maugham/`, no fingerprint, no signature is spelled in this target — `TripwirePhoneGrepTest.test_noTrustDecisionOrRegistryWriteOnThePhone` fails on any of them.
 - **The phone never writes a root.** A root record is the Mac's; a phone that made itself one would be a second claimant on a book it can only see through the share (spec §3).
 - **The per-write memo** (P2b). `ensureDeviceRecord` is idempotent but not free: it READS and verifies the whole registry folder before deciding it has nothing to add, on every capture and every annotation. `PhoneDeviceRecord` memoizes the FACTS it declared per project — this phone's key, the actors it holds (`existingActors`, which enumerates and never mints), the name it goes by — and a second write into the same book touches the disk not at all. In-process and per-project, so a relaunch declares again; a declaration that THREW is not remembered, or a transient iCloud fault would leave the phone undeclared for the rest of the run. The seam is the `declare` closure, and `PhoneDeviceRecordTests` pins the second write reading nothing, a minted actor and a renamed phone each invalidating it, and the failed attempt being retried.
 - **Settings shows facts and offers no control** (spec §4.11). This phone's four-character **code** (`DeviceCode.short`) on its own line, because its whole job is to be compared with the code on the Mac's admission sheet; then one line per book this phone has been in — *Denver on Denver's MacBook's chain since 9 Sep*, or *Not yet admitted — the Mac will ask*. Admission is a Mac act in this milestone, so there is nothing here to press; a pull-to-refresh re-reads, since the state changes on the other machine.

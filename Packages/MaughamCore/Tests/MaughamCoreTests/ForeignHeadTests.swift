@@ -32,7 +32,7 @@ final class ForeignHeadTests: XCTestCase {
     private var cache: RegistryCache!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("foreign-head-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/ops"),
@@ -803,7 +803,7 @@ final class ForeignHeadTests: XCTestCase {
     /// project that is gone takes its memory with it, and a project on an
     /// unmounted volume keeps it (`rootIsGone`'s second clause).
     func test_pruneDropsAGoneProjectsForeignStreams() throws {
-        let parent = FileManager.default.temporaryDirectory
+        let parent = TestTemp.root
             .appendingPathComponent("foreign-prune-\(UUID().uuidString)")
         let gone = parent.appendingPathComponent("book")
         try FileManager.default.createDirectory(
@@ -1260,7 +1260,7 @@ final class ForeignHeadTests: XCTestCase {
 
     /// Pruned with its book, like the memory and the finding beside it.
     func test_pruneDropsAGoneProjectsAcknowledgements() throws {
-        let parent = FileManager.default.temporaryDirectory
+        let parent = TestTemp.root
             .appendingPathComponent("ack-prune-\(UUID().uuidString)")
         let gone = parent.appendingPathComponent("book")
         try FileManager.default.createDirectory(

@@ -31,7 +31,7 @@ final class PermitStreamLoadTests: XCTestCase {
     private var cache: RegistryCache!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("permit-stream-\(UUID().uuidString)")
         for sub in [".maugham/ops", ".maugham/translations", ".maugham/inbox"] {
             try FileManager.default.createDirectory(

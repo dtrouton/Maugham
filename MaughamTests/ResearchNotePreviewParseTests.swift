@@ -14,7 +14,7 @@ final class ResearchNotePreviewParseTests: XCTestCase {
     typealias Block = ResearchNotePreviewPane.Block
 
     private func makeProject() throws -> URL {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("ResearchPreview-\(UUID())")
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("research"), withIntermediateDirectories: true)

@@ -1163,7 +1163,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// its own, and a fact the manuscript still establishes comes back on the
     /// next run.
     func test_dismissingTakesTheFactOffThePane() throws {
-        let bible = BibleStore(projectRoot: FileManager.default.temporaryDirectory
+        let bible = BibleStore(projectRoot: TestTemp.root
             .appendingPathComponent(UUID().uuidString),
                                device: DeviceSlug.make(from: "test-mac"))
         bible.record([makeFact(id: "f1", subject: "Kelly", fact: "F", docId: "d")])

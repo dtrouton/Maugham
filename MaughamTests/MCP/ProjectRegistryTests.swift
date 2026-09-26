@@ -5,7 +5,7 @@ import MaughamCore
 @MainActor
 final class ProjectRegistryTests: XCTestCase {
     private func makeStore() async throws -> (URL, ProjectStore) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("Reg-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(

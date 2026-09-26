@@ -8,7 +8,7 @@ final class OpLogStoreSegmentTests: XCTestCase {
     private var projectURL: URL!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("seg-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent(".maugham/ops"),

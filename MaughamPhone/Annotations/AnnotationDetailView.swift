@@ -585,12 +585,15 @@ struct AnnotationDetailView: View {
         resolving = true
         defer { resolving = false }
         do {
+            // The fresh answer is drawn before the write runs, so a write
+            // that throws still leaves the verbs it refuses undrawn (P3 plan
+            // 3 Task 7).
             let outcome = try await postures.perform(
-                verb, forDocId: docId, in: projectURL
+                verb, forDocId: docId, in: projectURL,
+                onAnswer: { posture = $0 }
             ) {
                 try await body(makeWriter())
             }
-            posture = outcome.posture
             if let refusal = outcome.refusal {
                 errorMessage = refusal
                 return

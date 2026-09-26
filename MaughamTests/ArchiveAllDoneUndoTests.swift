@@ -41,7 +41,7 @@ final class ArchiveAllDoneUndoTests: XCTestCase {
     /// tripwire: 6-char alphabet-restricted task anchor) and whose second is
     /// plain prose, wired through a real DocumentStore.
     private func makeHarness() async throws -> Harness {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("ARCHIVE-ALL-UNDO-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("manuscript"),
@@ -80,7 +80,7 @@ final class ArchiveAllDoneUndoTests: XCTestCase {
     /// the view; `archiveAllDone` is `internal` exactly so tests can drive the
     /// REAL batch path.
     private func makePane(for doc: Document) async throws -> TasksPane {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemp.root
             .appendingPathComponent("PANE-UNDO-STUB-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: url, withIntermediateDirectories: true)

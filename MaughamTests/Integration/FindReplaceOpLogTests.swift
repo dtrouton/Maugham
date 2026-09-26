@@ -21,7 +21,7 @@ final class FindReplaceOpLogTests: XCTestCase {
     private func makeProject(
         body: String, slug: String = "c1"
     ) throws -> (project: URL, docPath: String) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("FindReplaceOpLog-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)
@@ -56,7 +56,7 @@ final class FindReplaceOpLogTests: XCTestCase {
     private func makeBootstrappedProject(
         paragraphs: [(id: String, text: String)], slug: String = "c1"
     ) async throws -> (project: URL, docPath: String) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("FindReplaceOpLog-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("manuscript"),

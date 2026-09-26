@@ -39,7 +39,29 @@ final class PostureBook {
     /// view-body call. Forgotten with the permits on every clearing bump (a
     /// trust change, a manifest adoption), so an adopted manifest that now
     /// names the path is read afresh.
-    @ObservationIgnored fileprivate var docIdOfUnknownPath: [String: String] = [:]
+    ///
+    /// **Honest** (P3 plan 3 Task 6): an id the manifest NAMED is kept for the
+    /// epoch; an id `resolveDocId` had to FABRICATE (the path is in no
+    /// manifest, so it hashed one) is kept only while the manifest file is the
+    /// one it was fabricated from (`manifestStamp`) — so a piece created after
+    /// the miss, by a write no adoption reported, resolves to its real id on
+    /// the next ask. The `?? path` fallback for a resolve that THREW is never
+    /// kept at all.
+    @ObservationIgnored fileprivate var docIdOfUnknownPath: [String: UnknownPathAnswer] = [:]
+
+    /// One cached answer for an unknown path: the id, whether the manifest
+    /// NAMED it (then the epoch alone governs it), and the manifest file it
+    /// was read from (nil: there was none), which a fabricated id must still
+    /// match to be answered.
+    fileprivate struct UnknownPathAnswer {
+        let docId: String
+        let named: Bool
+        let readFrom: ManifestFileStamp?
+
+        func stillAnswers(under stamp: ManifestFileStamp?) -> Bool {
+            named || readFrom == stamp
+        }
+    }
 
     /// The permit answered for each `(docId, actor)` in THIS epoch.
     @ObservationIgnored fileprivate var permits: [Key: LocalWritePermit] = [:]
@@ -52,6 +74,11 @@ final class PostureBook {
     /// a refresh warms ahead of its epoch bump (Task 10, ruling AD), so the
     /// redraw the bump causes is answered from the cache rather than by one
     /// builder call per row on the main actor.
+    ///
+    /// **Pruned at every manifest adoption** (P3 plan 3 Task 6): a key whose
+    /// document is neither in the adopted manifest nor open is dropped, so a
+    /// deleted piece stops costing every later refresh a builder call. A
+    /// dropped key that is asked again is simply asked again.
     @ObservationIgnored fileprivate var asked: Set<Key> = []
 
     /// docId → the writers this device, as the root, yields to on that piece.
@@ -339,10 +366,26 @@ extension DocumentStore {
     /// — like a trust change's — published only in the refresh's one turn, so
     /// a redraw meanwhile draws the last answer rather than a new class's
     /// answer over a Document still stamped with the old one.
-    func postureManifestAdopted() {
+    func postureManifestAdopted(_ adopted: ProjectManifest) {
+        prunePostureAsked(keepingDocIdsOf: adopted)
         postureBook.readySignature = nil
         bumpPostureEpoch()
         schedulePostureRefresh(force: true)
+    }
+
+    /// **Forget every asked key whose document has gone** (P3 plan 3 Task 6):
+    /// a key stays while its document is in `adopted` — any item of the
+    /// structure, or a statement — or is open in this window, or is the
+    /// project's own task stream (`__project__`, which no manifest lists and
+    /// every book has). Everything else is a piece deleted or moved out of
+    /// this book elsewhere, and warming it on every refresh would be a builder
+    /// call per refresh for a document nobody can show.
+    private func prunePostureAsked(keepingDocIdsOf adopted: ProjectManifest) {
+        var live = Set(TreeWalk.collect(in: adopted.structure) { _ in true }.map(\.id))
+        live.formUnion(adopted.statements.map(\.id))
+        live.formUnion(allOpenDocuments().map(\.docId))
+        live.insert(ProjectStore.projectTasksDocId)
+        postureBook.asked = postureBook.asked.filter { live.contains($0.docId) }
     }
 
     // MARK: - Internals
@@ -410,22 +453,21 @@ extension DocumentStore {
     private func permitFromTheBuilder(
         forDocId docId: String, as actor: DeviceActor
     ) -> LocalWritePermit {
-        let projectURL = self.projectURL
-        let manifest = projectStore?.manifest
         postureBook.builderCalls += 1
-        // The piece's starter (Option A) from the same live manifest, for
-        // ruling AD's reason; nil (a headless store) reads it off disk.
-        let startedBy = manifest.map { live in { live.startedBy(ofPiece: $0) } }
         return postureOpStore.localWritePermit(
-            as: actor,
-            documentClass: {
-                if let manifest {
-                    return DocumentClass.resolve(
-                        docId: docId, statements: manifest.statements)
-                }
-                return Document.documentClass(forDocId: docId, in: projectURL)
-            },
-            startedBy: startedBy)
+            as: actor, placement: postureManifestPlacement(forDocId: docId))
+    }
+
+    /// **The one manifest the builder reads, for BOTH its questions** (P3
+    /// plan 3 Task 6): the window's live copy where the store holds one, else
+    /// the file, decoded once. Never the class from one and the piece's
+    /// starter (Option A) from the other — `ManifestPlacement` answers both
+    /// from the single value it was given.
+    private func postureManifestPlacement(forDocId docId: String) -> ManifestPlacement {
+        if let live = projectStore?.manifest {
+            return ManifestPlacement(docId: docId, manifest: live)
+        }
+        return ManifestPlacement(docId: docId, in: projectURL)
     }
 
     /// **The drawn posture follows a Document's re-stamp** (P3c plan 2,
@@ -686,11 +728,21 @@ extension DocumentStore {
             }
         }
         let book = postureBook
-        if let known = book.docIdOfUnknownPath[path] { return known }
+        let stamp = ManifestFileStamp(of: projectURL)
+        if let known = book.docIdOfUnknownPath[path], known.stillAnswers(under: stamp) {
+            return known.docId
+        }
         book.unknownPathResolves += 1
-        let id = (try? resolveDocId(for: projectURL.appendingPathComponent(path))) ?? path
-        book.docIdOfUnknownPath[path] = id
-        return id
+        guard let resolved = try? resolveDocIdTellingIfNamed(
+            for: projectURL.appendingPathComponent(path))
+        else {
+            // A resolve that threw: answered with the path, and never kept.
+            book.docIdOfUnknownPath[path] = nil
+            return path
+        }
+        book.docIdOfUnknownPath[path] = PostureBook.UnknownPathAnswer(
+            docId: resolved.docId, named: resolved.named, readFrom: stamp)
+        return resolved.docId
     }
 
     // MARK: - Test seams
@@ -705,4 +757,39 @@ extension DocumentStore {
     /// How many times a path neither open nor in the live manifest was
     /// resolved from disk — a cached miss resolves nothing.
     var postureUnknownPathResolvesForTesting: Int { postureBook.unknownPathResolves }
+
+    /// The id the path door resolves `path` to — the cache's answer.
+    func postureDocIdForTesting(forPath path: String) -> String {
+        postureDocId(forPath: path)
+    }
+
+    /// The docIds of every key a refresh would warm.
+    var postureAskedDocIdsForTesting: Set<String> { Set(postureBook.asked.map(\.docId)) }
+
+    /// The placement the builder would read for `docId`.
+    func postureManifestPlacementForTesting(forDocId docId: String) -> ManifestPlacement {
+        postureManifestPlacement(forDocId: docId)
+    }
+}
+
+/// **Which manifest file an answer was read from** — its inode, size and
+/// modification time, by `stat`, uncached. An atomic write (every manifest
+/// save) replaces the inode, and any write moves the time, so two stamps
+/// that match are the same bytes for any purpose this cache has. Nil where
+/// there is no manifest file.
+struct ManifestFileStamp: Equatable {
+    let inode: UInt64
+    let size: Int64
+    let seconds: Int
+    let nanoseconds: Int
+
+    init?(of projectURL: URL) {
+        var info = stat()
+        let path = projectURL.appendingPathComponent(ProjectManifest.fileName).path
+        guard stat(path, &info) == 0 else { return nil }
+        inode = UInt64(info.st_ino)
+        size = Int64(info.st_size)
+        seconds = Int(info.st_mtimespec.tv_sec)
+        nanoseconds = Int(info.st_mtimespec.tv_nsec)
+    }
 }
