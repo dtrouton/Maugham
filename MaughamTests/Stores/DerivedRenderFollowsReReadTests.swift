@@ -248,15 +248,30 @@ final class DerivedRenderFollowsReReadTests: XCTestCase {
     /// own comment), so a Mac that may not write the piece's words still
     /// renders the words the book holds.
     func test_aReviewersMacReRendersAfterAnAdmissionWithoutAnOp() async throws {
-        try await reRendersAfterAnAdmissionElsewhere(as: .reviewer)
+        try await reRendersAfterAnAdmissionElsewhere(as: .reviewer, writesHere: false)
     }
 
     func test_aNarrowedAuthorsMacReRendersAfterAnAdmissionWithoutAnOp() async throws {
         try await reRendersAfterAnAdmissionElsewhere(
-            as: .author(.pieces([PostureFixture.docId])))
+            as: .author(.pieces([PostureFixture.docId])), writesHere: true)
     }
 
-    private func reRendersAfterAnAdmissionElsewhere(as permit: Permit) async throws {
+    /// **An author narrowed to OTHER pieces — who may not write this one's
+    /// words at all** (fix wave, Review Focus 3's other half). The load still
+    /// succeeds, because this piece has a log; after the admission re-read the
+    /// `.md` holds the admitted words and no stream gained a line. There is no
+    /// permit guard on `performAutosave` to disable today — the render is not a
+    /// text write — so this pins against one being ADDED: a guard that asked
+    /// `localWritePermit` there would leave this Mac's `.md` stale (or throw)
+    /// on exactly the piece it may not write.
+    func test_anAuthorNarrowedToOtherPiecesReRendersAfterAnAdmissionWithoutAnOp() async throws {
+        try await reRendersAfterAnAdmissionElsewhere(
+            as: .author(.pieces(["doc-elsewhere"])), writesHere: false)
+    }
+
+    private func reRendersAfterAnAdmissionElsewhere(
+        as permit: Permit, writesHere: Bool
+    ) async throws {
         let fixture = try PostureFixture()
         defer { fixture.tearDown() }
         fixture.beASigningMac()
@@ -272,6 +287,8 @@ final class DerivedRenderFollowsReReadTests: XCTestCase {
             burstIdle: .seconds(3600), burstMax: .seconds(3600))
         store.register(document: doc, for: PostureFixture.docPath)
         await store.postureSettled()
+        XCTAssertEqual(doc.mayWriteItsText, writesHere,
+                       "premise: whether \(permit) may write this piece's words")
 
         // A third Mac writes; the root has not admitted it yet.
         let kit = DeviceIdentity.softwareForTesting()
