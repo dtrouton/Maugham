@@ -11,9 +11,11 @@ import MaughamCore
 /// on its way and so has nothing to name (a lock the writer can see the reason
 /// for a frame late is fine; a reason that is not yet true is not).
 ///
-/// Keyed on `reason`, never on `isRestricted` (controller ruling E): an author
-/// of some pieces inside her own piece is restricted — she may not start a
-/// piece — and there is nothing to say about the words she is looking at.
+/// Keyed on `reason`, never on `isRestricted` (controller ruling E): a posture
+/// can be restricted (a pieces author may not dispose of notes in the piece she
+/// started, ruling F) with nothing to say about the words she is looking at,
+/// and it can offer every writing verb with something to say (Option A's
+/// `.waitingToBeClaimed`, P3c plan 2).
 ///
 /// The pure half (`line`, the sentences) is pinned in
 /// `PostureStandingLineTests`; the view below draws it and presses one verb,
@@ -29,8 +31,17 @@ enum PostureStandingLine {
             case notYourPiece(title: String)
             /// The root, yielding on somebody else's piece.
             case yielding(to: String)
+            /// **A book author, yielding to a piece's starter** (P3c plan 2
+            /// fix wave, Ruling U): somebody else started it and nobody has
+            /// said whose it is. Edit Anyway lifts it — and writing then makes
+            /// the text this Mac's, setting the starter's words aside.
+            case yieldingToItsStarter(name: String)
             /// A permit this build cannot read.
             case cannotJudge
+            /// **Her own words, in a piece she started that nobody has said
+            /// is hers yet** (P3c plan 2, Option A). Not a refusal — she
+            /// writes — and it names who would end the wait.
+            case waitingToBeClaimed
         }
 
         /// Why the words are not hers, or nil where they are and the line is
@@ -48,8 +59,10 @@ enum PostureStandingLine {
         /// Only the root's cooperative yield can be lifted from here; every
         /// other reason is a permit, and a permit is the root's to change.
         var offersEditAnyway: Bool {
-            if case .yielding? = kind { return true }
-            return false
+            switch kind {
+            case .yielding?, .yieldingToItsStarter?: return true
+            default: return false
+            }
         }
 
         /// The sentence. `root` is the label of the root this Mac is on, when
@@ -65,9 +78,13 @@ enum PostureStandingLine {
                 return "“\(title)” isn’t one of your pieces — you can leave notes."
             case .yielding(let name):
                 return "This is \(name)’s piece."
+            case .yieldingToItsStarter(let name):
+                return PostureStandingLine.startedByUnsettled(name)
             case .cannotJudge:
                 return "This Mac can’t read the permission it was given — "
                     + "update Maugham to write here."
+            case .waitingToBeClaimed:
+                return Document.waitingToBeToldItIsYours(root: root)
             }
         }
     }
@@ -86,11 +103,23 @@ enum PostureStandingLine {
         case .reviewer: kind = .reviewer
         case .notYourPiece: kind = .notYourPiece(title: title)
         case .yielding(let name): kind = .yielding(to: name)
+        case .yieldingToItsStarter(let name): kind = .yieldingToItsStarter(name: name)
         case .cannotJudge: kind = .cannotJudge
+        // P3c plan 2, Option A: not a refusal — her words are offered — and
+        // the line says who would end the wait. It goes the moment the root
+        // answers *Theirs*: the permit change re-stamps and bumps the epoch,
+        // and her posture then carries no reason at all.
+        case .waitingToBeClaimed: kind = .waitingToBeClaimed
         }
         let kept = ownLinesKeptInHistory > 0
         guard kind != nil || kept else { return nil }
         return Line(kind: kind, docId: docId, keptInHistory: kept)
+    }
+
+    /// **Ruling U's sentence**: whose piece this may become is still open,
+    /// and this Mac is standing back from it.
+    static func startedByUnsettled(_ name: String) -> String {
+        "\(name) started this piece — it isn’t settled whose it is yet."
     }
 
     /// The clause for `Line.keptInHistory`; the view pairs it with a History
@@ -104,20 +133,29 @@ enum PostureStandingLine {
         "This text isn’t yours to change, so a checkpoint here would mark nothing of yours."
 
     /// The label of the root this device is on — read OFF the main actor, the
-    /// one registry read the line makes, and only for the reviewer's sentence.
-    /// Nil where the registry does not read or names no root; the sentence
-    /// then says *the book's author*.
+    /// one registry read the line makes, and only for the two sentences that
+    /// name it (the reviewer's, and Option A's *waiting to be told it is
+    /// yours*). Nil where the registry does not read or names no root; the
+    /// sentence then says *the book's author*. The same read as the pane's
+    /// waiting sentence (`Document.rootLabel(in:identities:cache:)`), so the
+    /// line over her editor and the placeholder in front of an unopened piece
+    /// cannot name two different roots.
     @MainActor
     static func rootLabel(projectURL: URL) async -> String? {
         let identities = Document.loadIdentities
         let cache = Document.loadRegistryCache
         return await Task.detached(priority: .utility) { () -> String? in
-            guard let verified = try? TrustResolution.resolveVerified(
-                projectURL: projectURL, identities: identities, cache: cache),
-                  let root = verified.table.myRoot
-            else { return nil }
-            return verified.registry.person(root)?.label
+            Document.rootLabel(in: projectURL, identities: identities, cache: cache)
         }.value
+    }
+
+    /// Does this line's sentence name the root? The view reads the label only
+    /// where it does.
+    static func namesTheRoot(_ kind: Line.Kind?) -> Bool {
+        switch kind {
+        case .reviewer?, .waitingToBeClaimed?: return true
+        default: return false
+        }
     }
 }
 
@@ -164,7 +202,7 @@ struct PostureStandingLineView: View {
         .background(.thinMaterial)
         .accessibilityElement(children: .contain)
         .task(id: RootReadKey(kind: line.kind, epoch: documentStore.postureEpoch)) {
-            guard case .reviewer? = line.kind else { return }
+            guard PostureStandingLine.namesTheRoot(line.kind) else { return }
             rootLabel = await PostureStandingLine.rootLabel(
                 projectURL: documentStore.projectURL)
         }

@@ -680,6 +680,19 @@ final class DocumentStorePostureTests: XCTestCase {
         XCTAssertEqual(store.posture(forDocId: Self.docId), .author)
         XCTAssertEqual(store.posture(forDocId: "doc-not-open"), .author)
         XCTAssertEqual(counter.count, 0, "no registry was resolved, anywhere")
+
+        // **Always warm** (Task 9, m5): a trust change in a book with no
+        // register leaves nothing to warm, so even a document never asked is
+        // answered — `.author`, in the same turn, never a provisional
+        // `settling` while a refresh that has nothing to read runs. The door's
+        // own `hasAnythingToResolve` is what says so; the counter above can
+        // only see a registry memory being read or written, which a
+        // registerless open never does with or without that guard (the disable
+        // experiment showed it green with every guard removed).
+        store.invalidateTrust()
+        XCTAssertEqual(store.posture(forDocId: "doc-never-asked"), .author,
+                       "no register: warm the moment it is asked")
+        await store.postureSettled()
         await doc.close()
     }
 
@@ -702,6 +715,174 @@ final class DocumentStorePostureTests: XCTestCase {
                              "a class can change when a manifest arrives")
         await store.postureSettled()
         XCTAssertEqual(store.posture(forDocId: Self.docId), .author)
+    }
+
+    // MARK: - Plan 1's untested paths (P3c plan 2 Task 9, m7 and m4)
+
+    /// **The provisional arm** (m7): between a trust change and its refresh,
+    /// the drawing door answers from what it last said about a document —
+    /// else from that open document's own stamp — asks the builder nothing,
+    /// caches nothing, and gives way to the real answer once the refresh lands.
+    func test_betweenATrustChangeAndItsRefreshTheDoorDrawsProvisionallyAndCachesNothing() async throws {
+        beASigningMac()
+        let root = try makeForeignRoot()
+        let store = try await DocumentStore.open(url: projectURL)
+        let doc = try await openDocument(in: store)
+        await store.postureSettled()
+        XCTAssertTrue(store.posture(forDocId: Self.docId).allows(.writeText),
+                      "precondition: answered once, as an author of the whole book")
+
+        // A second window with the same document registered and NEVER asked
+        // about it: its provisional answer can only be the stamp.
+        let second = try await DocumentStore.open(url: projectURL)
+        second.register(document: doc, for: Self.docPath)
+
+        try rootWritesMyPermitWithoutTelling(to: .reviewer, root: root)
+        store.invalidateTrust()
+        second.invalidateTrust()
+        // No `await` from here until the settle: the refreshes cannot land.
+        let calls = store.postureBuilderCallsForTesting
+        let last = store.posture(forDocId: Self.docId)
+        XCTAssertTrue(last.allows(.writeText), "the last answer, drawn provisionally")
+        XCTAssertFalse(last.isSettling)
+        XCTAssertEqual(store.postureBuilderCallsForTesting, calls,
+                       "the provisional arm asks the builder nothing")
+        let stamped = second.posture(forDocId: Self.docId)
+        XCTAssertEqual(stamped, Posture(doc.localWritePermit),
+                       "never asked here: the open document's own stamp")
+        XCTAssertTrue(stamped.allows(.writeText))
+
+        await store.postureSettled()
+        await second.postureSettled()
+        XCTAssertEqual(store.posture(forDocId: Self.docId).reason, .reviewer,
+                       "the refresh replaced the provisional answer — none was cached")
+        XCTAssertEqual(second.posture(forDocId: Self.docId).reason, .reviewer)
+        XCTAssertEqual(store.posture(forDocId: Self.docId), freshPosture(Self.docId))
+        await doc.close()
+    }
+
+    /// **`posture(forPath:)` about a CLOSED document** (m7): through the
+    /// window's live manifest when it holds one, else through the disk — the
+    /// same answer as the id door's either way.
+    func test_thePathDoorAnswersAClosedDocumentThroughTheManifestOrTheDisk() async throws {
+        _ = try await beAReviewersMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        XCTAssertNil(store.document(for: Self.docPath), "precondition: closed")
+
+        // Headless: no live manifest, so the path is resolved from disk.
+        let resolves = store.postureUnknownPathResolvesForTesting
+        let fromDisk = store.posture(forPath: Self.docPath)
+        XCTAssertEqual(store.postureUnknownPathResolvesForTesting, resolves + 1,
+                       "premise: the disk arm answered")
+        XCTAssertEqual(fromDisk, store.posture(forDocId: Self.docId))
+        XCTAssertEqual(fromDisk.reason, .reviewer)
+        let settledFromDisk = await store.settledPosture(forPath: Self.docPath)
+        XCTAssertEqual(settledFromDisk.reason, .reviewer)
+
+        // With the window's live manifest: the manifest answers, and the disk
+        // is not read.
+        let windowed = try await DocumentStore.open(url: projectURL)
+        let projectStore = try await ProjectStore.load(from: projectURL)
+        projectStore.documentStore = windowed
+        windowed.projectStore = projectStore
+        let before = windowed.postureUnknownPathResolvesForTesting
+        let fromManifest = windowed.posture(forPath: Self.docPath)
+        XCTAssertEqual(windowed.postureUnknownPathResolvesForTesting, before,
+                       "the live manifest named the path; the disk was not read")
+        XCTAssertEqual(fromManifest, windowed.posture(forDocId: Self.docId))
+        XCTAssertEqual(fromManifest.reason, .reviewer)
+        XCTAssertFalse(fromManifest.allows(.writeText))
+    }
+
+    /// **An unknown path's miss is cached per epoch** (m4): a path neither open
+    /// nor in the live manifest is resolved from disk ONCE, however many times
+    /// a view body asks — and afresh after a clearing bump, so a manifest that
+    /// arrives naming it is read.
+    func test_anUnknownPathIsResolvedOncePerEpoch() async throws {
+        beASigningMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        await store.postureSettled()
+        let researchPath = "research/a-note.md"
+        let before = store.postureUnknownPathResolvesForTesting
+
+        for _ in 0..<5 { _ = store.posture(forPath: researchPath) }
+        XCTAssertEqual(store.postureUnknownPathResolvesForTesting, before + 1,
+                       "five asks, one disk read")
+
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        var manifest = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+        manifest.title = "Retitled elsewhere"
+        try ProjectManifest.makeEncoder().encode(manifest).write(to: manifestURL)
+        store.presenterDidChangeSubitem(at: manifestURL)
+        await store.postureSettled()
+
+        _ = store.posture(forPath: researchPath)
+        XCTAssertEqual(store.postureUnknownPathResolvesForTesting, before + 2,
+                       "an adopted manifest forgets the cached miss")
+    }
+
+    /// **A re-stamp after an adoption that CHANGES a document's class** (m7).
+    /// An author of one piece holds a statement open whose manifest places it
+    /// under somebody else's piece: refused. Another Mac's manifest arrives
+    /// placing it under hers: the open statement Document is re-stamped and
+    /// the surface unlocks — and moved back, both lock again. No reopen.
+    func test_anAdoptionThatChangesAStatementsClassRestampsItInBothDirections() async throws {
+        beASigningMac()
+        let root = try makeForeignRoot()
+        let statementId = "stmt-moving"
+        let statementPath = "intent/moving.md"
+        let manifestURL = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        func placeStatement(under piece: String) throws {
+            var manifest = try ProjectManifest.makeDecoder()
+                .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+            manifest.statements = [Statement(
+                id: statementId, kind: .intent, scope: .document(piece),
+                path: statementPath)]
+            try ProjectManifest.makeEncoder().encode(manifest).write(to: manifestURL)
+        }
+        try placeStatement(under: "doc-someone-elses")
+        try FileManager.default.createDirectory(
+            at: projectURL.appendingPathComponent("intent"), withIntermediateDirectories: true)
+        try "What it is for.\n".write(
+            to: projectURL.appendingPathComponent(statementPath),
+            atomically: true, encoding: .utf8)
+
+        let store = try await DocumentStore.open(url: projectURL)
+        let projectStore = try await ProjectStore.load(from: projectURL)
+        projectStore.documentStore = store
+        store.projectStore = projectStore
+        // Opened while she is still an author of the whole book, so the load
+        // mints its opening; then the root narrows her to her one piece.
+        let statement = try await Document.load(
+            url: projectURL.appendingPathComponent(statementPath),
+            actor: .author, session: "s", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        projectStore.noteStatementDocumentOpened(statement, id: statementId)
+        try await rootChangesMyPermit(
+            to: .author(.pieces([Self.docId])), root: root, store: store)
+        XCTAssertFalse(statement.mayWriteThePendingFile,
+                       "precondition: under somebody else's piece, refused")
+        XCTAssertFalse(store.posture(forDocId: statementId).allows(.editStatement))
+
+        // Another Mac moves it under HER piece.
+        try placeStatement(under: Self.docId)
+        store.presenterDidChangeSubitem(at: manifestURL)
+        await store.postureSettled()
+        XCTAssertEqual(DocumentClass.resolve(
+            docId: statementId, statements: projectStore.manifest.statements),
+            .pieceStatement(piece: Self.docId), "premise: the live manifest was adopted")
+        XCTAssertTrue(statement.mayWriteThePendingFile,
+                      "the open statement Document was re-stamped for its new class")
+        XCTAssertTrue(store.posture(forDocId: statementId).allows(.editStatement))
+
+        // And back.
+        try placeStatement(under: "doc-someone-elses")
+        store.presenterDidChangeSubitem(at: manifestURL)
+        await store.postureSettled()
+        XCTAssertFalse(statement.mayWriteThePendingFile, "moved away: refused again")
+        XCTAssertFalse(store.posture(forDocId: statementId).allows(.editStatement))
+        await statement.close()
     }
 
     // MARK: - Helpers
@@ -729,5 +910,178 @@ final class DocumentStorePostureTests: XCTestCase {
             asked += 1
             return "device-under-test"
         }
+    }
+}
+
+// MARK: - Plan 1's behaviour carries (P3c plan 2 Task 8)
+
+extension DocumentStorePostureTests {
+
+    /// Every writer-facing notice posted while the block runs, in order.
+    private func noticesPosted(during body: () throws -> Void) rethrows -> [String] {
+        var seen: [String] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let m = note.userInfo?[MaughamEvent.noticeMessageKey] as? String {
+                seen.append(m)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        try body()
+        return seen
+    }
+
+    /// **Ruling AJ: a yielded piece's queue section names whose it is and
+    /// lifts the yield.** The root yields on Sam's piece; the project-scope
+    /// queue's section for it says *Sam's piece* and offers Edit Anyway, which
+    /// is `overrideYield` — after it, the section says nothing. A piece nobody
+    /// yields on says nothing either.
+    func test_aYieldedPiecesQueueSectionNamesWhoseItIsAndOffersEditAnyway() async throws {
+        beASigningMac()
+        let store = try await DocumentStore.open(url: projectURL)  // this Mac roots the book
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(
+            device: sam.author.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: .author(.pieces([Self.docId])))
+        await store.postureSettled()
+
+        let notice = AnnotationScopePolicy.yieldNotice(
+            posture: store.posture(forDocId: Self.docId), docId: Self.docId)
+        XCTAssertEqual(notice, .init(reason: "Sam\u{2019}s piece", docId: Self.docId),
+                       "the rows' reason, and the document Edit Anyway lifts")
+        XCTAssertNil(AnnotationScopePolicy.yieldNotice(
+            posture: store.posture(forDocId: "doc-nobody-names"), docId: "doc-nobody-names"),
+            "a piece nobody yields on carries no notice")
+
+        store.overrideYield(docId: try XCTUnwrap(notice).docId)
+        XCTAssertNil(AnnotationScopePolicy.yieldNotice(
+            posture: store.posture(forDocId: Self.docId), docId: Self.docId),
+            "after Edit Anyway the verbs are back and nothing is said")
+    }
+
+    /// The pure half, both directions: only the YIELD is named and liftable —
+    /// a reviewer's or a pieces author's refusal is a permit, the root's to
+    /// change, never this window's.
+    func test_theYieldNoticeIsTheYieldsAlone() {
+        let reviewer = Posture(LocalWritePermit(
+            permit: .reviewer, actor: .author, documentClass: .piece("doc-a")))
+        let notMine = Posture(LocalWritePermit(
+            permit: .author(.pieces(["doc-a"])), actor: .author, documentClass: .piece("doc-b")))
+        XCTAssertNil(AnnotationScopePolicy.yieldNotice(posture: reviewer, docId: "doc-a"))
+        XCTAssertNil(AnnotationScopePolicy.yieldNotice(posture: notMine, docId: "doc-b"))
+        XCTAssertNil(AnnotationScopePolicy.yieldNotice(posture: .author, docId: "doc-a"))
+        XCTAssertEqual(
+            AnnotationScopePolicy.yieldNotice(
+                posture: Posture(.unrestricted, yieldingTo: "Kit"), docId: "doc-a"),
+            .init(reason: "Kit\u{2019}s piece", docId: "doc-a"))
+        // Ruling U (fix wave): the starter's yield says the standing line's
+        // own sentence, and offers the same Edit Anyway.
+        let unsettled = Posture(
+            LocalWritePermit(
+                permit: .bookAuthor, actor: .author, documentClass: .piece("doc-a"),
+                startedHere: false,
+                unsettledStarter: .init(deviceId: "author-kit", name: "Kit")),
+            yieldingTo: "Kit")
+        XCTAssertEqual(
+            AnnotationScopePolicy.yieldNotice(posture: unsettled, docId: "doc-a"),
+            .init(reason: "Kit started this piece \u{2014} it isn\u{2019}t settled "
+                  + "whose it is yet.", docId: "doc-a"))
+    }
+
+    /// **The door's `.translation` yield arm is deleted** (unreachable:
+    /// `DocumentClass.resolve` never answers `.translation`), and what the
+    /// translation surfaces DO ask resolves: the Translation pane and the desk
+    /// ask by the PIECE's own id, which resolves `.piece` and yields with it.
+    func test_theYieldLookupHasNoTranslationArmAndTranslationSurfacesAskThePiece() async throws {
+        XCTAssertNil(DocumentStore.yieldPiece(of: .translation(piece: Self.docId)),
+                     "no class-level translation yield: nothing resolves to it")
+        XCTAssertEqual(DocumentStore.yieldPiece(of: .piece(Self.docId)), Self.docId)
+        XCTAssertEqual(DocumentStore.yieldPiece(of: .pieceStatement(piece: Self.docId)), Self.docId)
+        for cls: DocumentClass in [.projectStatement, .projectStream, .inbox, .unplaceable("s")] {
+            XCTAssertNil(DocumentStore.yieldPiece(of: cls), "\(cls) is about no piece")
+        }
+
+        beASigningMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(
+            device: sam.author.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: .author(.pieces([Self.docId])))
+        await store.postureSettled()
+        // The Translation pane asks `posture(forDocId: document.docId)` — the
+        // piece's id — for `.translate`; the desk asks the same id as the
+        // translator (`DepartmentPaneHost.postureOfTheTranslator`).
+        XCTAssertEqual(DocumentClass.resolve(docId: Self.docId, statements: []), .piece(Self.docId))
+        XCTAssertFalse(store.posture(forDocId: Self.docId).allows(.translate),
+                       "the pane's question yields with the piece, by its own id")
+        XCTAssertTrue(DepartmentPaneHost.postureOfTheTranslator(
+            forPiece: Self.docId, in: store).allows(.translate),
+            "the desk's translator is never yielded")
+    }
+
+    /// **The project stream's task door** (plan 1's limit): the two sync verbs
+    /// ask the drawing posture of `__project__`. A reviewer's Mac files and
+    /// archives nothing there and says so; the root files as before.
+    func test_aProjectTaskIsRefusedAndSaidWhereThePostureRefusesIt() async throws {
+        _ = try await beAReviewersMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let project = try await ProjectStore.load(from: projectURL)
+        project.documentStore = store
+        XCTAssertFalse(store.posture(forDocId: ProjectStore.projectTasksDocId).allows(.task),
+                       "premise: a reviewer files no task op")
+
+        let before = project.projectTasksOpLog().count
+        let um = UndoManager()
+        let said = noticesPosted {
+            project.createProjectPaneTask(body: "a reviewer's task", undoManager: um)
+        }
+        XCTAssertEqual(said, [ProjectStore.projectTaskNotPermittedRefusal], "said, not swallowed")
+        XCTAssertEqual(project.projectTasksOpLog().count, before, "nothing appended")
+        XCTAssertFalse(um.canUndo, "no ⌘Z for an act that did not happen")
+
+        let archive = Op(
+            opId: ULID.generate(), docId: ProjectStore.projectTasksDocId, at: Date(),
+            device: "d", session: "s", kind: .taskArchive, changes: [], sequence: nil,
+            provenance: .init(sessionId: "s", taskId: "t", taskBody: "b",
+                              taskKind: TaskKind.paneCreated.rawValue))
+        var appended = true
+        let saidAgain = noticesPosted { appended = project.appendProjectTaskOp(archive) }
+        XCTAssertFalse(appended, "the pane's archive reaches the same door")
+        XCTAssertEqual(saidAgain, [ProjectStore.projectTaskNotPermittedRefusal])
+        XCTAssertEqual(project.projectTasksOpLog().count, before)
+    }
+
+    /// The other direction, and `.settling`: the root files a project task,
+    /// and the same root in the first moments after a trust change — the
+    /// drawing door still `settling` for `__project__` — is told to try again
+    /// rather than having its press signed and set aside.
+    func test_theRootFilesAProjectTaskAndASettlingDoorSaysTryAgain() async throws {
+        beASigningMac()
+        let store = try await DocumentStore.open(url: projectURL)  // this Mac roots the book
+        let project = try await ProjectStore.load(from: projectURL)
+        project.documentStore = store
+
+        // A trust change before __project__ was ever asked: the drawing door
+        // has no answer yet, and draws `settling`.
+        store.postureTrustChanged()
+        XCTAssertTrue(store.posture(forDocId: ProjectStore.projectTasksDocId).isSettling,
+                      "premise: the drawing door is still settling")
+        let before = project.projectTasksOpLog().count
+        let said = noticesPosted {
+            project.createProjectPaneTask(body: "too soon")
+        }
+        XCTAssertEqual(said, [ProjectStore.projectTaskSettlingRefusal])
+        XCTAssertTrue(ProjectStore.projectTaskSettlingRefusal.contains("try again in a moment"))
+        XCTAssertEqual(project.projectTasksOpLog().count, before, "nothing appended")
+
+        await store.postureSettled()
+        let um = UndoManager()
+        let quiet = noticesPosted {
+            project.createProjectPaneTask(body: "the root's task", undoManager: um)
+        }
+        XCTAssertEqual(quiet, [], "the root is refused nothing")
+        XCTAssertEqual(project.projectTasksOpLog().count, before + 1, "filed")
+        XCTAssertTrue(um.canUndo, "and undoable")
     }
 }

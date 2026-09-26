@@ -77,6 +77,31 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertFalse(notHers.ownNote, "…and only of her own")
     }
 
+    /// **A deleted note's Restore follows the door's own standing** (ruling
+    /// P, Ruling D; P3c plan 2 Task 8 moved the input from a display-name
+    /// `deletedByHer` to `Document.RestoreStanding`, the door's judgement by
+    /// key). Honoured only as the deleter is the reviewer row, drawn whatever
+    /// the posture; honoured on author rights follows the posture; refused is
+    /// never drawn.
+    func test_aDeletedNotesRestoreFollowsWhoDeletedIt() {
+        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: reviewer, standing: .asTheDeleter),
+                      "her own Delete")
+        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(posture: reviewer, standing: .refused),
+                       "somebody else's Delete")
+        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: bookAuthor, standing: .withAuthorRights),
+                      "the book author restores anybody's")
+        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(posture: bookAuthor, standing: .refused),
+                       "never over the door's refusal, whatever the posture")
+        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(posture: piecesAuthorInB, standing: .withAuthorRights),
+                       "a posture that may not settle notes hides the author-rights footing")
+        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: .settling, standing: .asTheDeleter))
+        let yielding = Posture(.unrestricted, yieldingTo: "Sam")
+        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(posture: yielding, standing: .withAuthorRights),
+                       "the root's cooperative yield hides a disposition's footing")
+        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(posture: yielding, standing: .asTheDeleter),
+                      "the deleter's footing is the reviewer row, which no yield touches")
+    }
+
     func test_aBookAuthorsRowOffersEveryVerb() {
         let verbs = AnnotationRowVerbs.decide(
             posture: bookAuthor, isOwn: false,
@@ -887,9 +912,9 @@ final class PostureSurfaceTests: XCTestCase {
                        Posture.settling]
         let offered = [bookAuthor, piecesAuthorOnHerPieceStatement]
         for (posture, expected) in refused.map({ ($0, false) }) + offered.map({ ($0, true) }) {
-            XCTAssertEqual(RulingsStratumView.offersVerbs(posture), expected, "\(posture)")
-            XCTAssertEqual(StatementProposalBanner.offersVerbs(posture), expected, "\(posture)")
-            XCTAssertEqual(BibleStratumView.offersGraduation(posture), expected, "\(posture)")
+            // One rule for the rulings stratum, the proposal banner and the
+            // bible stratum (Task 9 collapsed their three copies).
+            XCTAssertEqual(StatementSurfaceVerbs.offered(under: posture), expected, "\(posture)")
         }
     }
 
@@ -1305,23 +1330,33 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertTrue(TreeStructureVerbs.mayStartAPiece(book(DocumentClass.projectStreamDocId)))
 
         // An author of A: A's row, and a group holding only A — never B's,
-        // never a group holding B however deep, never an empty group, and
-        // never a new piece (ruling R3) — so no Duplicate either.
+        // never a group holding B however deep, never an empty group. Since
+        // P3c plan 2's Option A (controller ruling E) she may START a piece
+        // of her own, so New is offered on every row and Duplicate wherever
+        // she may restructure the row — and nothing else about B moves.
+        let newOnly = TreeStructureVerbs(
+            newInside: true, duplicate: false, rename: false, delete: false,
+            move: false, linkResearch: false, tidy: false)
         let pieces = postures(.author(.pieces(["doc-a"])))
         XCTAssertEqual(TreeStructureVerbs.decide(for: t.a, postureOf: pieces),
-                       TreeStructureVerbs(newInside: false, duplicate: false, rename: true,
+                       TreeStructureVerbs(newInside: true, duplicate: true, rename: true,
                                           delete: true, move: true, linkResearch: true,
                                           tidy: false))
-        XCTAssertEqual(TreeStructureVerbs.decide(for: t.b, postureOf: pieces), none)
+        XCTAssertEqual(TreeStructureVerbs.decide(for: t.b, postureOf: pieces), newOnly,
+                       "B is not hers: only a new piece of her own")
         XCTAssertEqual(TreeStructureVerbs.decide(for: t.groupA, postureOf: pieces),
-                       TreeStructureVerbs(newInside: false, duplicate: false, rename: true,
+                       TreeStructureVerbs(newInside: true, duplicate: true, rename: true,
                                           delete: true, move: true, linkResearch: false,
                                           tidy: true))
-        XCTAssertEqual(TreeStructureVerbs.decide(for: t.groupAB, postureOf: pieces), none,
+        XCTAssertEqual(TreeStructureVerbs.decide(for: t.groupAB, postureOf: pieces), newOnly,
                        "a pieces-author may not delete a group holding somebody else's chapter")
-        XCTAssertEqual(TreeStructureVerbs.decide(for: t.empty, postureOf: pieces), none)
+        XCTAssertEqual(TreeStructureVerbs.decide(for: t.empty, postureOf: pieces), newOnly)
+        XCTAssertTrue(TreeStructureVerbs.mayStartAPiece(
+            pieces(DocumentClass.projectStreamDocId)), "Option A widens ruling R3")
+        // …and the other direction: a reviewer (above) and a permit this
+        // build cannot read still start nothing.
         XCTAssertFalse(TreeStructureVerbs.mayStartAPiece(
-            pieces(DocumentClass.projectStreamDocId)), "ruling R3")
+            postures(.unjudgeable(raw: "editor"))(DocumentClass.projectStreamDocId)))
 
         // Settling offers the reviewer row alone — no structure.
         XCTAssertEqual(TreeStructureVerbs.decide(for: t.a, postureOf: { _ in .settling }), none)
@@ -1348,13 +1383,16 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertTrue(binder.structureVerbs(for: a).move)
         XCTAssertFalse(binder.structureVerbs(for: b).rename, "not hers: no verbs")
         XCTAssertFalse(binder.structureVerbs(for: b).move, "the drop refuses B")
-        XCTAssertFalse(binder.mayStartAPiece, "no New Document at the root (R3)")
+        XCTAssertTrue(binder.mayStartAPiece,
+                      "Option A: New Document at the root is hers too (ruling E)")
         XCTAssertFalse(pieces.structureVerbs(for: b).delete)
-        XCTAssertFalse(pieces.mayStartAPiece)
+        XCTAssertTrue(pieces.mayStartAPiece)
 
         try await become(.reviewer, h)
         XCTAssertFalse(binder.structureVerbs(for: a).offersAny, "a reviewer: nothing")
         XCTAssertFalse(pieces.structureVerbs(for: a).offersAny)
+        XCTAssertFalse(binder.mayStartAPiece, "a reviewer starts nothing")
+        XCTAssertFalse(pieces.mayStartAPiece)
 
         try await become(.bookAuthor, h)
         XCTAssertTrue(binder.structureVerbs(for: b).delete, "promotion: back, no reopen")
@@ -1648,7 +1686,11 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertFalse(pieces.answerAsRuling)
         XCTAssertFalse(pieces.rule)
         XCTAssertFalse(pieces.sideWithTheNote(hasQuery: true))
-        XCTAssertEqual(TranslationAuthorVerbs.decide(document: bookAuthor, editionBrief: bookAuthor),
+        // P3c plan 2 Task 8: Keep mine's homes are decided apart, so the
+        // book author's EVERY verb needs her piece-intent posture said too —
+        // a host that does not say it gets the narrower Keep mine.
+        XCTAssertEqual(TranslationAuthorVerbs.decide(
+            document: bookAuthor, editionBrief: bookAuthor, pieceIntent: bookAuthor),
                        .unrestricted)
         let ruleOnly = TranslationAuthorVerbs.decide(
             document: piecesAuthorInB, editionBrief: bookAuthor)
@@ -1710,14 +1752,19 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertTrue(admittedAsAuthor)
 
         try await become(.author(.pieces(["doc-a"])), h)
-        XCTAssertEqual(StartAPieceDoor.drawn(store: h.store), false, "R3: not hers to start")
-        var admitted = true
+        XCTAssertEqual(StartAPieceDoor.drawn(store: h.store), true,
+                       "Option A: a pieces author may start a piece (ruling E)")
+        var admitted = false
+        let saidToHer = await notices { admitted = await StartAPieceDoor.admits(store: h.store) }
+        XCTAssertTrue(admitted, "the receiver admits her")
+        XCTAssertEqual(saidToHer, [])
+
+        try await become(.reviewer, h)
+        XCTAssertEqual(StartAPieceDoor.drawn(store: h.store), false, "a reviewer may not")
+        admitted = true
         let said = await notices { admitted = await StartAPieceDoor.admits(store: h.store) }
         XCTAssertFalse(admitted, "the receiver refuses a post that arrives anyway")
         XCTAssertEqual(said, [StartAPieceDoor.refusal], "and says so")
-
-        try await become(.reviewer, h)
-        XCTAssertEqual(StartAPieceDoor.drawn(store: h.store), false)
 
         try await become(.bookAuthor, h)
         XCTAssertEqual(StartAPieceDoor.drawn(store: h.store), true, "promotion: enabled again")
@@ -1769,6 +1816,59 @@ final class PostureSurfaceTests: XCTestCase {
                        "a settled row offers neither again")
     }
 
+    /// **Keep mine's sheet offers only the homes that may be written** (P3c
+    /// plan 2 Task 8). It used to offer both whenever either could be, open on
+    /// the one that may, and let the door refuse the other in words. Every
+    /// combination, both directions — and the sheet's own picker list is the
+    /// same filter.
+    func test_keepMinesSheetOffersOnlyTheHomesThatMayBeWritten() {
+        let reviewerOnTheBrief = posture(.reviewer, in: .projectStatement)
+        let piecesAuthorInA = posture(.author(.pieces(["doc-a"])), in: .piece("doc-a"))
+        let piecesAuthorOnAsIntent = posture(
+            .author(.pieces(["doc-a"])), in: .pieceStatement(piece: "doc-a"))
+        let reviewerOnAsIntent = posture(.reviewer, in: .pieceStatement(piece: "doc-a"))
+
+        let intentOnly = TranslationAuthorVerbs.decide(
+            document: piecesAuthorInA, editionBrief: reviewerOnTheBrief,
+            pieceIntent: piecesAuthorOnAsIntent)
+        XCTAssertEqual(intentOnly.keepMineHomes(language: "es"), [.everyEdition],
+                       "the brief may not be written, so it is not offered")
+
+        let briefOnly = TranslationAuthorVerbs.decide(
+            document: bookAuthor, editionBrief: bookAuthor, pieceIntent: reviewerOnAsIntent)
+        XCTAssertEqual(briefOnly.keepMineHomes(language: "es"), [.edition("es")],
+                       "the intent may not be written, so Every edition is not offered")
+
+        let both = TranslationAuthorVerbs.decide(
+            document: bookAuthor, editionBrief: bookAuthor, pieceIntent: bookAuthor)
+        XCTAssertEqual(both.keepMineHomes(language: "es"), [.everyEdition, .edition("es")])
+
+        let neither = TranslationAuthorVerbs.decide(
+            document: posture(.reviewer, in: .piece("doc-a")),
+            editionBrief: reviewerOnTheBrief, pieceIntent: reviewerOnAsIntent)
+        XCTAssertEqual(neither.keepMineHomes(language: "es"), [])
+        XCTAssertFalse(neither.keepMine, "and Keep mine itself is not offered")
+        XCTAssertEqual(TranslationAuthorVerbs.unrestricted.keepMineHomes(language: "es"),
+                       [.everyEdition, .edition("es")])
+        XCTAssertEqual(TranslationAuthorVerbs.none.keepMineHomes(language: "es"), [])
+
+        // Every home the sheet opens on is one it offers.
+        for verbs in [intentOnly, briefOnly, both] {
+            XCTAssertTrue(verbs.keepMineHomes(language: "es")
+                .contains(verbs.keepMineHome(language: "es")))
+        }
+
+        // The sheet draws exactly the offered homes; ⌘⌥C's (no offering) all.
+        let target = TranslatorsNote.Target(
+            docId: "doc-a", paragraphId: "aaaa", excerpt: "x", editions: ["es"])
+        XCTAssertEqual(TranslatorsNote.homes(
+            for: target, offering: intentOnly.keepMineHomes(language: "es")), [.everyEdition])
+        XCTAssertEqual(TranslatorsNote.homes(
+            for: target, offering: briefOnly.keepMineHomes(language: "es")), [.edition("es")])
+        XCTAssertEqual(TranslatorsNote.homes(for: target, offering: nil),
+                       [.everyEdition, .edition("es")])
+    }
+
     /// **The Collection's empty state says what she can do** (ruling AF):
     /// the + only where it is drawn.
     func test_theCollectionsEmptyStateNamesTheButtonOnlyWhereItIsDrawn() {
@@ -1777,7 +1877,141 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertTrue(may.contains("+ button"))
         XCTAssertFalse(mayNot.contains("+"), "no pointing at a button that is not there")
         XCTAssertTrue(mayNot.contains("leave notes"), "and it says what she can do")
+        // P3c plan 2 Task 4, Option A: an author of SOME pieces may start one
+        // too, so neither the empty state nor the refusal says only the
+        // whole-book author can.
+        XCTAssertEqual(mayNot, "Pieces appear here when an author adds them. "
+                       + "You can read and leave notes on each one.")
+        XCTAssertEqual(StartAPieceDoor.refusal,
+                       "Your part in this book doesn\u{2019}t reach starting a piece "
+                       + "\u{2014} only an author can add one.")
         XCTAssertEqual(TreeStructureVerbs.mayStartAPiece(posture(.reviewer, in: .projectStream)),
                        false, "the pane's own answer for a reviewer is the one this reads")
+    }
+
+    // MARK: - Plan 1's hygiene (P3c plan 2 Task 9)
+
+    /// **The three statement surfaces ask ONE rule** — no second spelling of
+    /// it survives in any of them.
+    func test_theThreeStatementSurfacesAskTheOneRule() throws {
+        let views = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Maugham/Views")
+        for file in ["RulingsStratum.swift", "StatementProposalBanner.swift", "BibleStratum.swift"] {
+            let code = try String(contentsOf: views.appendingPathComponent(file), encoding: .utf8)
+                .split(separator: "\n")
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            XCTAssertTrue(code.contains { $0.contains("StatementSurfaceVerbs.offered(under:") },
+                          "\(file) asks the one rule")
+            let own = code.filter { $0.contains(".allows(.editStatement)") }
+            let allowed = file == "RulingsStratum.swift" ? 1 : 0  // the rule itself
+            XCTAssertEqual(own.count, allowed, "\(file) spells a rule of its own: \(own)")
+        }
+    }
+
+    /// **"Archive all done" asks the SCOPE's own stream** — project scope the
+    /// project stream, never whichever document the window shows.
+    func test_archiveAllDoneAsksTheScopesOwnStream() {
+        typealias Pane = TasksPane
+        XCTAssertTrue(Pane.offersArchiveAllDone(
+            in: .project, document: reviewer, project: bookAuthor),
+            "a reviewer's shown chapter does not hide the project's own archive")
+        XCTAssertFalse(Pane.offersArchiveAllDone(
+            in: .project, document: bookAuthor, project: reviewer),
+            "…nor does an allowed chapter lend the project stream its answer")
+        XCTAssertFalse(Pane.offersArchiveAllDone(
+            in: .project, document: nil, project: reviewer))
+        XCTAssertTrue(Pane.offersArchiveAllDone(
+            in: .document, document: piecesAuthorInA, project: reviewer))
+        XCTAssertFalse(Pane.offersArchiveAllDone(
+            in: .document, document: piecesAuthorInB, project: bookAuthor))
+        XCTAssertFalse(Pane.offersArchiveAllDone(
+            in: .document, document: nil, project: bookAuthor),
+            "no document shown: nothing in document scope")
+    }
+
+    /// **Only a collection's window says anything about starting a piece** —
+    /// a novel's publishes nil, so its File menu is as it always was, while a
+    /// collection's publishes the door's answer in both directions.
+    func test_onlyACollectionsWindowPublishesStartAPiece() async throws {
+        let h = try await makeStatementHarness()
+        try await become(.reviewer, h)
+        XCTAssertEqual(StartAPieceDoor.drawn(store: h.store), false,
+                       "premise: the door itself says no for a reviewer")
+        XCTAssertNil(StartAPieceDoor.published(store: h.store),
+                     "a novel's window publishes nothing")
+        XCTAssertTrue(StartAPieceDoor.menuIsEnabled(
+            mayStartAPiece: StartAPieceDoor.published(store: h.store)))
+
+        h.store.manifest.type = .screenplay
+        XCTAssertNil(StartAPieceDoor.published(store: h.store), "nor a screenplay's")
+
+        h.store.manifest.type = .collection
+        XCTAssertEqual(StartAPieceDoor.published(store: h.store), false,
+                       "a collection's window says no for a reviewer")
+        try await become(.bookAuthor, h)
+        XCTAssertEqual(StartAPieceDoor.published(store: h.store), true,
+                       "and yes for an author")
+        XCTAssertNil(StartAPieceDoor.published(store: nil))
+    }
+
+    /// **The pass-order nudge, end to end without a window** — from the
+    /// window's own posture door, through the decision the pane draws, to the
+    /// host's pass-state write and the nudge going away. The advice draws for
+    /// everybody; the verbs only where a pass may be ruled.
+    func test_thePassOrderNudgeFromThePostureDoorToTheWrite() async throws {
+        let h = try await makeStatementHarness()
+        h.documentStore.updateUIState {
+            $0.activePassMemory.record(piece: "doc-a", passId: "line")
+        }
+        var written: [(String, String, PassState?)] = []
+        func decide(_ docId: String, project: Bool = false) -> AnnotationsPane.PassOrderNudgeDecision? {
+            AnnotationsPane.passOrderNudgeDecision(
+                isProjectScope: project, docId: docId,
+                memory: h.documentStore.uiState.activePassMemory,
+                passes: h.store.manifest.effectiveReviewPasses,
+                passStates: TreeWalk.find(id: docId, in: h.store.manifest.structure)?.passStates,
+                posture: { h.documentStore.posture(forDocId: $0) },
+                onSetPassState: { written.append(($0, $1, $2)) })
+        }
+
+        let authors = try XCTUnwrap(decide("doc-a"), "Line before Structural: advised")
+        XCTAssertEqual(authors.pass.id, "structural")
+        XCTAssertNil(decide("doc-a", project: true), "document scope only")
+
+        try await become(.reviewer, h)
+        let reviewers = try XCTUnwrap(decide("doc-a"), "the advice draws for a reviewer")
+        XCTAssertNil(reviewers.onMarkDone, "…with no verb that rules the pass")
+        XCTAssertNil(reviewers.onSkip)
+
+        try await become(.author(.pieces(["doc-b"])), h)
+        XCTAssertNil(try XCTUnwrap(decide("doc-a")).onMarkDone,
+                     "somebody else's piece: no verb")
+
+        try await become(.author(.pieces(["doc-a"])), h)
+        let hers = try XCTUnwrap(decide("doc-a"))
+        let skip = try XCTUnwrap(hers.onSkip, "her own piece: the verbs")
+        skip()
+        let markDone = try XCTUnwrap(hers.onMarkDone)
+        markDone()
+        XCTAssertEqual(written.map(\.0), ["doc-a", "doc-a"])
+        XCTAssertEqual(written.map(\.1), ["structural", "structural"],
+                       "each verb names the EARLIER pass, not the one being worked")
+        XCTAssertEqual(written.map(\.2), [.skipped, .done])
+
+        // What the host does with it (`ProjectWindow`'s closure writes the
+        // store); once written, the next render advises nothing.
+        try await h.store.setPassState(id: "doc-a", passId: "structural", .done)
+        XCTAssertNil(decide("doc-a"), "the earlier pass is closed: the nudge goes")
+
+        // And the pane draws exactly this decision.
+        let pane = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Maugham/Views/AnnotationsPane.swift"),
+            encoding: .utf8)
+        let nudge = try XCTUnwrap(pane.range(of: "private var passOrderNudge: some View {"))
+        let body = String(pane[nudge.upperBound...].prefix(600))
+        XCTAssertTrue(body.contains("Self.passOrderNudgeDecision("))
+        XCTAssertTrue(body.contains("documentStore.posture(forDocId:"))
     }
 }

@@ -250,7 +250,7 @@ public enum Permit: Equatable, Hashable, Sendable {
 
     /// **May a piece nobody has written in yet become theirs?** (spec §4.5.)
     ///
-    /// The rung half of `PermitPartition.startsAPieceNobodyHasClaimed`, which
+    /// The rung half of `startsAPieceNobodyHasClaimed` (below), which
     /// is the rule that ENFORCES it and which adds the two facts a rung cannot
     /// carry: that the line is manuscript text signed by the person's own hand,
     /// and that nobody else has written the piece's text yet. It is here
@@ -266,6 +266,75 @@ public enum Permit: Equatable, Hashable, Sendable {
     public var mayStartAPieceOfTheirOwn: Bool {
         if case .author(.pieces) = self { return true }
         return false
+    }
+
+    /// **Does this permit NAME `piece` in a scoped list?** — true only for an
+    /// author of some pieces whose list holds it (P3c plan 2, Option A). A
+    /// whole-book permit authors every piece without naming any, so it is
+    /// false there: this is the question *was this piece ever hers BY NAME*,
+    /// which `PermitTimeline.wasTakenFromThem` asks.
+    public func namesPiece(_ piece: String) -> Bool {
+        if case .author(.pieces(let mine)) = self { return mine.contains(piece) }
+        return false
+    }
+
+    /// **May this key open a piece of its own?** — `mayStartAPieceOfTheirOwn`
+    /// with the actor row applied (P3c plan 2, Option A).
+    ///
+    /// Only the writer's own hand starts a piece: the assistant is the
+    /// reviewer row on every device and the translator and the rebalance write
+    /// one thing each, so none of them opens anything whatever the person's
+    /// rung. This is what the `.startAPiece` verb asks beside the table's own
+    /// answer, and what `startsAPieceNobodyHasClaimed` below is built on — one
+    /// spelling of *which key, on which rung, may start a piece*.
+    public func mayOpenAPieceOfTheirOwn(actor: DeviceActor?) -> Bool {
+        actor == .author && mayStartAPieceOfTheirOwn
+    }
+
+    /// **Spec §4.5's shape**: an author of some pieces, writing with her own
+    /// hand, putting manuscript text into a piece that is not in her scope.
+    ///
+    /// Moved here from `PermitPartition` (P3c plan 2, Option A) because it now
+    /// has TWO askers that must not disagree: the partition, which holds such
+    /// a line (or, on her own Mac, applies it), and `LocalWritePermit`, which
+    /// lets her write it in a piece she started. A second copy of the shape on
+    /// the write side would be a second opinion about which lines §4.5 covers,
+    /// and the two drifting is exactly a Mac that lets her type what its own
+    /// next read sets aside. (What keeps the two in step over TIME — lines
+    /// arriving that claim the piece — is the Mac's re-stamp on each external
+    /// re-read, ruling H; this function keeps them in step over the shape.)
+    ///
+    /// The actor must be `.author` (`mayOpenAPieceOfTheirOwn`): an
+    /// assistant-signed manuscript line is refused because the assistant never
+    /// changes the manuscript on any device, and that refusal has nothing to
+    /// do with whose piece it is. Manuscript TEXT only — a disposition, a
+    /// checkpoint, a task in such a piece is not §4.5's question.
+    public func startsAPieceNobodyHasClaimed(
+        _ what: Written, in documentClass: DocumentClass, actor: DeviceActor?
+    ) -> Bool {
+        guard mayOpenAPieceOfTheirOwn(actor: actor),
+              case let .author(scope) = self,
+              case let .pieces(mine) = scope,
+              case let .piece(id) = documentClass, !mine.contains(id),
+              Permit.group(of: what) == .manuscriptText
+        else { return false }
+        return true
+    }
+
+    /// **Does manuscript text written under this permit CLAIM an unclaimed
+    /// piece?** — §4.5's other half (P3c plan 2 fix wave, Ruling U).
+    ///
+    /// A piece somebody started and nobody has claimed becomes the claimant's
+    /// the moment a book author's own hand writes its text
+    /// (`PermitPartition.UnownedPiece.aBookAuthorHasWrittenItsText`), and the
+    /// starter's held words are then set aside on every Mac. Two askers must
+    /// agree on who that is: the partition, which decides the claim from the
+    /// lines, and `OpLogStore.localWritePermit`, which asks it IN ADVANCE so a
+    /// book author's editor over such a piece can yield to its starter rather
+    /// than let a stray keystroke make the claim. One spelling, here.
+    public func claimsAPieceByWritingItsText(actor: DeviceActor?) -> Bool {
+        guard actor == .author, case .author(.book) = self else { return false }
+        return true
     }
 
     /// **The permit a person RECORD says they hold** — the current-state
@@ -405,10 +474,12 @@ extension Permit {
         case manuscriptText
         /// Making a comment, a query, a suggestion or a craft note.
         case annotationCreation
-        /// Editing or withdrawing an annotation. *Whose* annotation is a
-        /// same-person rule and not a per-file one (spec §4.2): the table lets
-        /// these through on the reviewer row, and `AnnotationDeriver` is what
-        /// honours one only from the person who created the note.
+        /// Editing, withdrawing or reopening an annotation. *Whose* annotation
+        /// is a same-person rule and not a per-file one (spec §4.2): the table
+        /// lets these through on the reviewer row, and `AnnotationDeriver` is
+        /// what honours one only from the person who created the note — or,
+        /// for a reopen that undoes a disposition, only from author rights
+        /// (ruling P).
         case ownAnnotation
         /// Settling a note — the writer's act, never a reviewer's.
         case disposition
@@ -462,9 +533,17 @@ extension Permit {
             // mints exactly these four for every annotation anybody makes, from
             // the review toolbar, from MCP and from the phone alike.
             return .annotationCreation
-        case .annotationEdit, .annotationWithdraw:
+        case .annotationEdit, .annotationWithdraw, .annotationReopen:
+            // A reopen is here and not with the dispositions (ruling P): it
+            // undoes a withdrawal as well as an archive, a rejection or a
+            // stet, and this switch sees only the kind. So the table lets it
+            // through on the reviewer row and `AnnotationDeriver` judges it
+            // twice — by ownership where it undoes a withdrawal, by author
+            // rights (`AnnotationOwnership.mayDispose`) where it undoes a
+            // disposition. A reviewer's reopen of somebody else's archive is
+            // therefore not set aside here; it is simply not honoured.
             return .ownAnnotation
-        case .claudeArchive, .annotationReopen, .annotationStet, .annotationTriage:
+        case .claudeArchive, .annotationStet, .annotationTriage:
             return .disposition
         case .checkpoint:
             return .checkpoint

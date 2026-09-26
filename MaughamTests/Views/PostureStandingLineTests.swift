@@ -208,6 +208,21 @@ final class PostureStandingLineTests: XCTestCase {
         XCTAssertEqual(yielding?.offersEditAnyway, true, "the one reason she can lift")
         XCTAssertEqual(yielding?.docId, "d")
 
+        // Ruling U (fix wave): a book author yielding to a piece's STARTER.
+        let unsettled = PostureStandingLine.line(
+            for: Posture(
+                LocalWritePermit(
+                    permit: .bookAuthor, actor: .author, documentClass: .piece("d"),
+                    startedHere: false,
+                    unsettledStarter: .init(deviceId: "author-sam", name: "Sam")),
+                yieldingTo: "Sam"),
+            title: "Chapter 3", docId: "d")
+        XCTAssertEqual(unsettled?.kind, .yieldingToItsStarter(name: "Sam"))
+        XCTAssertEqual(unsettled?.sentence(root: nil),
+                       "Sam started this piece — it isn’t settled whose it is yet.")
+        XCTAssertEqual(unsettled?.offersEditAnyway, true,
+                       "Edit Anyway is how a book author who means it claims the piece")
+
         let unreadable = PostureStandingLine.line(
             for: Posture(permit(.unjudgeable(raw: "editor"), .piece("d"))),
             title: "Chapter 3", docId: "d")
@@ -223,12 +238,214 @@ final class PostureStandingLineTests: XCTestCase {
     func test_noReasonDrawsNoLine() {
         XCTAssertNil(PostureStandingLine.line(
             for: Posture(.unrestricted), title: "C", docId: "d"))
+        // P3c plan 2, Option A (controller ruling E): a pieces author may now
+        // start a piece, so her own piece restricts nothing — and a reviewer
+        // and an unreadable permit still may not start one.
         let ownPiece = Posture(permit(.author(.pieces(["d"])), .piece("d")))
-        XCTAssertTrue(ownPiece.isRestricted, "precondition: restricted")
+        XCTAssertTrue(ownPiece.allows(.startAPiece), "a pieces author may start a piece")
+        XCTAssertFalse(ownPiece.isRestricted, "so her own piece restricts nothing")
+        XCTAssertFalse(Posture(permit(.reviewer, .piece("d"))).allows(.startAPiece),
+                       "a reviewer still may not")
+        XCTAssertFalse(Posture(permit(.unjudgeable(raw: "editor"), .piece("d")))
+            .allows(.startAPiece), "nor may a permit this build cannot read")
         XCTAssertNil(PostureStandingLine.line(for: ownPiece, title: "C", docId: "d"),
-                     "restricted, but the words she is looking at are hers")
+                     "the words she is looking at are hers")
         XCTAssertNil(PostureStandingLine.line(for: .settling, title: "C", docId: "d"),
                      "nothing is decided yet, so nothing is named")
+    }
+
+    // MARK: - Option A: the stamp follows the lines (P3c plan 2, ruling H)
+
+    /// Her started piece, unclaimed, open in a window: the manifest records
+    /// this device as its starter, and she is narrowed FROM the whole book to
+    /// another piece (the fixture admits her as a book author) — so this also
+    /// pins that a piece she starts afterwards is not "taken from her"
+    /// (`wasTakenFromThem`, named pieces only).
+    private func herStartedPieceOpen() async throws -> (DocumentStore, Document) {
+        fixture.beASigningMac()
+        try fixture.makeForeignRoot()
+        let manifestURL = fixture.projectURL.appendingPathComponent(ProjectManifest.fileName)
+        var manifest = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(contentsOf: manifestURL))
+        manifest.structure[0].startedBy = fixture.identities.author.deviceId
+        try ProjectManifest.makeEncoder().encode(manifest).write(to: manifestURL)
+        try await fixture.changeMyPermit(to: .author(.pieces(["doc-other"])), store: nil)
+
+        let store = try await DocumentStore.open(url: fixture.projectURL)
+        let doc = try await Document.load(
+            url: fixture.docURL, actor: .author, session: "s", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+        store.register(document: doc, for: PostureFixture.docPath)
+        await store.postureSettled()
+        XCTAssertTrue(doc.mayWriteItsText, "precondition: her started piece, unclaimed")
+        XCTAssertEqual(store.posture(forDocId: PostureFixture.docId).reason,
+                       .waitingToBeClaimed)
+        return (store, doc)
+    }
+
+    /// The root's Mac writes the piece's text, as a file another Mac wrote.
+    private func theRootWritesTheText(after doc: Document) async throws {
+        let root = try XCTUnwrap(fixture.root)
+        let rootStore = OpLogStore(
+            projectURL: fixture.projectURL, identities: .forAuthor(root),
+            state: OpLogDeviceState(fileURL: fixture.projectURL
+                .appendingPathComponent("root-op-log-state.json")),
+            cache: RegistryCache(
+                fileURL: fixture.projectURL.appendingPathComponent("root-cache.json"),
+                identity: root.fingerprint))
+        let added = ParagraphID.mintUnique(excluding: Set(doc.sequence))
+        try await rootStore.append(Op(
+            opId: ULID.generate(), docId: PostureFixture.docId, at: Date(),
+            device: root.deviceId, session: "root", kind: .typingBurst,
+            changes: [.init(paragraphId: added, prior: nil, next: "The root's words.")],
+            sequence: doc.sequence + [added]))
+    }
+
+    /// **A book author's text syncing into her started piece locks her editor
+    /// at the next re-read** — the stamp, the door's drawn answer and the
+    /// reason all move in that one re-read, with no reopen and no trust
+    /// change. Real disk: the root's burst arrives as a file another Mac wrote.
+    func test_aBookAuthorsTextArrivingLocksHerStartedPieceAtTheNextReRead()
+        async throws
+    {
+        let (store, doc) = try await herStartedPieceOpen()
+        try await theRootWritesTheText(after: doc)
+
+        try await store.reReadAfterExternalChange(doc)
+
+        XCTAssertFalse(doc.localWritePermit.writesAsItsStarter)
+        XCTAssertFalse(doc.mayWriteItsText,
+                       "a burst typed after this is refused at the stamp")
+        let posture = store.posture(forDocId: PostureFixture.docId)
+        XCTAssertEqual(posture.reason, .notYourPiece)
+        XCTAssertFalse(posture.allows(.writeText), "her editor locks")
+        await doc.close()
+    }
+
+    /// **Her own typing never pays for the re-stamp** (fix round 2, N2): the
+    /// echo of her own burst reaches the same re-read and is stopped at the
+    /// echo guard, so the builder is not asked; a re-read that APPLIES the
+    /// root's text asks it once.
+    func test_anEchoOfHerOwnBurstDoesNotReStamp() async throws {
+        let (store, doc) = try await herStartedPieceOpen()
+        doc.setFullText(doc.displayText + "\n\nHer own sentence.")
+        try await doc.flushBurstNow()
+
+        try await store.reReadAfterExternalChange(doc)
+        XCTAssertEqual(doc.starterRestampsForTesting, 0, "an echo re-stamps nothing")
+        XCTAssertTrue(doc.mayWriteItsText)
+
+        try await theRootWritesTheText(after: doc)
+        try await store.reReadAfterExternalChange(doc)
+        XCTAssertEqual(doc.starterRestampsForTesting, 1, "an applied change re-stamps once")
+        XCTAssertFalse(doc.mayWriteItsText)
+        await doc.close()
+    }
+
+    /// **The re-stamp and the door's answer change in ONE turn** (fix round 2,
+    /// N3; plan 1's ruling AG). A sampler interleaved with the re-read never
+    /// sees the Document's stamp and the drawn answer disagree.
+    func test_theStarterReStampAndTheDrawnAnswerAreOneTurn() async throws {
+        let (store, doc) = try await herStartedPieceOpen()
+        try await theRootWritesTheText(after: doc)
+
+        final class Log { var running = true; var samples: [(Bool, Bool)] = [] }
+        let log = Log()
+        let sampler = Task { @MainActor in
+            while log.running {
+                log.samples.append((
+                    !doc.mayWriteItsText,
+                    !store.posture(forDocId: PostureFixture.docId).allows(.writeText)))
+                await Task.yield()
+            }
+        }
+        while log.samples.isEmpty { await Task.yield() }
+        let beforeTheReRead = log.samples.count
+        // **A turn inside the re-read, deterministically** (review NB3): the
+        // re-read's own seam waits until the sampler has sampled again, so the
+        // parallel suite's scheduling cannot leave the window unsampled.
+        doc.externalLogChangeWillBegin = {
+            doc.externalLogChangeWillBegin = nil
+            while log.samples.count == beforeTheReRead { await Task.yield() }
+        }
+        try await store.reReadAfterExternalChange(doc)
+        log.running = false
+        await sampler.value
+        // Taken WHILE the re-read ran (after it began, before the post-loop
+        // sample below) — so the no-split assertion is about turns inside the
+        // re-read's suspensions, not only the two ends (review NB3).
+        let during = Array(log.samples[beforeTheReRead...])
+        XCTAssertFalse(during.isEmpty, "the sampler took a turn inside the re-read")
+        log.samples.append((
+            !doc.mayWriteItsText,
+            !store.posture(forDocId: PostureFixture.docId).allows(.writeText)))
+
+        XCTAssertTrue(log.samples.contains { !$0.0 }, "the sampler saw it unlocked")
+        XCTAssertTrue(log.samples.last?.0 == true, "and the claim land")
+        let split = log.samples.filter { $0.0 != $0.1 }
+        XCTAssertTrue(split.isEmpty,
+            "a turn saw the Document's stamp and the drawn answer disagree: "
+            + "\(split.count) of \(log.samples.count) samples")
+        await doc.close()
+    }
+
+    // MARK: - Option A's standing line (P3c plan 2 Task 4)
+
+    /// **Her started piece carries a line naming who would end the wait, and
+    /// *Theirs* takes it away in the open window** — the epoch bumps, the
+    /// reason goes, and it is the same Document: no reopen.
+    func test_herStartedPiecesLineNamesTheRootAndTheirsTakesItAway() async throws {
+        let (store, doc) = try await herStartedPieceOpen()
+        let waiting = store.posture(forDocId: PostureFixture.docId)
+        XCTAssertTrue(waiting.allows(.writeText), "not a refusal: she writes")
+        let line = try XCTUnwrap(PostureStandingLine.line(
+            for: waiting, title: "C1", docId: PostureFixture.docId))
+        XCTAssertEqual(line.kind, .waitingToBeClaimed)
+        XCTAssertEqual(line.sentence(root: "Sam"),
+                       "Waiting for Sam to say this piece is yours.")
+        XCTAssertEqual(line.sentence(root: nil),
+                       "Waiting for the book\u{2019}s author to say this piece is yours.")
+        XCTAssertFalse(line.offersEditAnyway)
+        XCTAssertTrue(PostureStandingLine.namesTheRoot(line.kind), "the view reads the label")
+        let label = await PostureStandingLine.rootLabel(projectURL: fixture.projectURL)
+        XCTAssertEqual(label, "Sam", "the root she was admitted by")
+
+        let epoch = store.postureEpoch
+        try await fixture.changeMyPermit(
+            to: .author(.pieces(["doc-other", PostureFixture.docId])), store: store)
+
+        XCTAssertGreaterThan(store.postureEpoch, epoch, "the window was told")
+        let theirs = store.posture(forDocId: PostureFixture.docId)
+        XCTAssertNil(theirs.reason, "nothing is waiting")
+        XCTAssertNil(PostureStandingLine.line(
+            for: theirs, title: "C1", docId: PostureFixture.docId), "the line is gone")
+        XCTAssertTrue(doc.mayWriteItsText, "and the same open document still writes")
+        XCTAssertFalse(doc.localWritePermit.isWaitingToBeClaimed)
+        await doc.close()
+    }
+
+    /// **The root's own Mac names no root** — the waiting placeholder and the
+    /// standing line both read `Document.rootLabel`, which answers nil on a Mac
+    /// holding its own root record (OA-2 made the root wait too).
+    func test_theRootsOwnMacNamesNoRoot() async throws {
+        fixture.beASigningMac()
+        let me = fixture.identities.author
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: me.fingerprint, name: "This Mac", kind: .mac,
+                actors: [DeviceActor.author.rawValue: me.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 1_000)),
+            signedBy: me, in: fixture.projectURL)
+        try RegistryWriter.write(
+            PersonRecord(
+                person: me.fingerprint, label: "Denver", ownName: "This Mac",
+                role: Permit.authorRole,
+                admittedAt: Date(timeIntervalSince1970: 1_000),
+                admittedBy: me.fingerprint),
+            signedBy: me, in: fixture.projectURL)
+        XCTAssertNil(Document.rootLabelForWaiting(in: fixture.projectURL))
+        let label = await PostureStandingLine.rootLabel(projectURL: fixture.projectURL)
+        XCTAssertNil(label)
     }
 
     // MARK: - Both directions, through the door

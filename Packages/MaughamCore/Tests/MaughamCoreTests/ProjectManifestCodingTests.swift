@@ -91,4 +91,63 @@ final class ProjectManifestCodingTests: XCTestCase {
                 "makeEncoder() must sort keys: 'author' should appear before 'created'")
         }
     }
+
+    // MARK: - Option A: a piece records its starter (P3c plan 2, ruling OA-1)
+
+    private func manifest(structure: [StructureItem]) -> ProjectManifest {
+        ProjectManifest(
+            type: .collection, title: "Starters", author: "",
+            created: fixedDate, modified: fixedDate,
+            structure: structure, research: [])
+    }
+
+    /// `startedBy` survives the shared coder, wherever in the tree the item
+    /// sits, and the lookup finds it by the piece's id.
+    func test_aPiecesStarterRoundTrips() throws {
+        let original = manifest(structure: [
+            StructureItem(id: "grp", title: "Part", type: .group, children: [
+                StructureItem(id: "p1", title: "One", type: .document,
+                              path: "pieces/one.md", startedBy: "author-00112233aabbccdd"),
+            ]),
+            StructureItem(id: "p2", title: "Two", type: .document, path: "pieces/two.md"),
+        ])
+        let data = try ProjectManifest.makeEncoder().encode(original)
+        let decoded = try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data)
+        XCTAssertEqual(decoded, original)
+        XCTAssertEqual(decoded.startedBy(ofPiece: "p1"), "author-00112233aabbccdd")
+        XCTAssertNil(decoded.startedBy(ofPiece: "p2"), "a piece with no starter recorded")
+        XCTAssertNil(decoded.startedBy(ofPiece: "nope"), "an id that is no item")
+    }
+
+    /// **Both directions of ADR 0015's tolerance.** A manifest written before
+    /// this build — no `startedBy` key at all — decodes with nil; a nil starter
+    /// writes NO key, so such a manifest's bytes do not change; and an item
+    /// carrying a field this build has never heard of still decodes.
+    func test_anAbsentStarterDecodesAsNilAndWritesNoKey() throws {
+        let legacy = """
+        {"schemaVersion":\(ProjectManifest.currentSchemaVersion),"type":"collection",\
+        "title":"Old","author":"","created":"2023-11-14T22:13:20Z",\
+        "modified":"2023-11-14T22:13:20Z","research":[],"structure":[\
+        {"id":"p1","title":"One","type":"document","path":"pieces/one.md",\
+        "aFieldFromTomorrow":{"x":1}}]}
+        """
+        let decoded = try ProjectManifest.makeDecoder()
+            .decode(ProjectManifest.self, from: Data(legacy.utf8))
+        XCTAssertNil(decoded.structure.first?.startedBy)
+        XCTAssertNil(decoded.startedBy(ofPiece: "p1"))
+
+        let written = try ProjectManifest.makeEncoder().encode(decoded)
+        let text = try XCTUnwrap(String(data: written, encoding: .utf8))
+        XCTAssertFalse(text.contains("startedBy"),
+            "a piece nobody records a starter for writes exactly what it always did")
+
+        var started = decoded
+        started.structure[0].startedBy = "author-00112233aabbccdd"
+        let data2 = try ProjectManifest.makeEncoder().encode(started)
+        XCTAssertTrue(try XCTUnwrap(String(data: data2, encoding: .utf8)).contains("startedBy"))
+        XCTAssertEqual(
+            try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: data2)
+                .startedBy(ofPiece: "p1"),
+            "author-00112233aabbccdd")
+    }
 }

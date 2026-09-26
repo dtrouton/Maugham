@@ -452,15 +452,24 @@ extension Document {
             undoManager, actionName: "Withdraw Annotation", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
-                // Refused at the posture door (P3c Task 5): a reopen is a
-                // disposition in the table, so a reviewer's ⌘Z of her own
-                // Delete is refused — said, and nothing after it is tried.
+                // The reopen that undoes a withdrawal follows OWNERSHIP
+                // (ruling P, P3c plan 2): her own Delete is hers to undo
+                // whatever her rung. What can still refuse it is the ownership
+                // rule itself — a note that turned out not to be hers — and
+                // then the refusal is said and nothing after it is tried.
                 do {
                     try await doc.reopenAnnotation(id: id)
                 } catch is PostureRefusal {
                     doc.declineUndo(.notPermitted)
                     return
                 } catch {}
+                // Where the reopen left the prior resolution standing — a
+                // reviewer's reopen is not honoured against the root's archive
+                // (the lifecycle fold judges it as a disposition) — there is
+                // nothing to put back, and asking would be refused.
+                let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
+                    .first { $0.id == id }?.status
+                if live == priorStatus { return }
                 switch priorStatus {
                 case .archived, .rejected, .accepted, .stetted:
                     // The reopen may itself have declined (a peer already
@@ -1144,7 +1153,6 @@ extension Document {
         // reopen op-side while the paired text restore no-ops (isClosed-guarded).
         // Sibling of the `appendTaskOpInternal` guard.
         if rejectMutationIfNotWritable("reopenAnnotation") { return }
-        try requireDispositionPermitted(.annotationReopen)
         let current = annotations(filter: AnnotationFilter(statuses: nil))
             .first { $0.id == id }
         let undoneKind: OpKind
@@ -1153,14 +1161,13 @@ extension Document {
         case .archived: undoneKind = .claudeArchive
         case .stetted:  undoneKind = .annotationStet
         case nil:
-            // Absent from the projection — withdrawn iff the latest
-            // withdraw/reopen op for this id is a withdraw; otherwise the id is
-            // unknown (never existed, or already reopened by another device).
-            let latest = _opLogMirror
-                .filter { ($0.kind == .annotationWithdraw || $0.kind == .annotationReopen)
-                          && $0.provenance?.sourceAnnotationId == id }
-                .max { $0.opId < $1.opId }
-            guard latest?.kind == .annotationWithdraw else {
+            // Absent from the projection — withdrawn iff the deriver's own
+            // walk says so (`isWithdrawn`, judged by `annotationAmendments`);
+            // otherwise the id is unknown (never existed, or already reopened
+            // by another device). Never the raw latest op: since ruling P a
+            // reopen the deriver does not honour reaches the mirror, and read
+            // raw it would make her Restore a silent no-op.
+            guard isWithdrawn(annotationId: id) else {
                 documentLog.error("reopenAnnotation: \(id, privacy: .public) unknown or not withdrawn — ignoring")
                 return
             }
@@ -1169,11 +1176,30 @@ extension Document {
             documentLog.error("reopenAnnotation: \(id, privacy: .public) status drifted (\(String(describing: current?.status), privacy: .public)) — ignoring")
             return
         }
-        guard case .op(let op) = AnnotationInverse.reopenOp(
+        // **The door, by what this reopen undoes** (ruling P, P3c plan 2).
+        // Undoing a disposition — an archive, a rejection, a stet — settles
+        // the note again, which is the writer's act: the stamp is asked, as
+        // for every disposition. Undoing a withdrawal is the ownership rule's,
+        // asked below of the op itself once it exists.
+        if undoneKind != .annotationWithdraw {
+            try requireDispositionPermitted(.annotationReopen)
+        }
+        let built: Op?
+        if undoneKind == .annotationWithdraw {
+            built = restoreOp(annotationId: id)
+        } else if case .op(let op) = AnnotationInverse.reopenOp(
             undoing: undoneKind, annotationId: id, currentStatus: current?.status,
-            docId: docId, device: device, session: session) else {
+            docId: docId, device: device, session: session) {
+            built = op
+        } else {
+            built = nil
+        }
+        guard let op = built else {
             documentLog.error("reopenAnnotation: factory declined for \(id, privacy: .public) — ignoring")
             return
+        }
+        if undoneKind == .annotationWithdraw {
+            try requireRestoreHonoured(op)
         }
         try await appendAnnotationOpInternal(op)
     }
@@ -1364,9 +1390,84 @@ extension Document {
     /// change by the posture door (P3c Task 2), so a demotion arriving
     /// mid-session closes it at the next press and a promotion reopens it.
     internal func requireDispositionPermitted(_ kind: OpKind) throws {
-        guard localWritePermit.allows(.op(kind)) == .yes else {
+        guard localWritePermit.allows(.op(Self.dispositionProbe(kind))) == .yes else {
             throw PostureRefusal(kind: kind)
         }
+    }
+
+    /// **The line a disposition door asks the stamp about** — the kind
+    /// itself, except a reopen (ruling P, P3c plan 2). The table files
+    /// `annotationReopen` with edit and withdraw, because the partition cannot
+    /// see what a reopen undoes; asked about itself it would answer the
+    /// reviewer row, and a reviewer could reopen the root's archive through a
+    /// door that looked shut. Every caller of a DISPOSITION door with a reopen
+    /// is undoing a disposition (a withdrawal's undo asks
+    /// `requireAmendmentHonoured` instead), so it is asked as the stet it is
+    /// the sibling of — `Posture.dispose`'s own probe.
+    private static func dispositionProbe(_ kind: OpKind) -> OpKind {
+        kind == .annotationReopen ? .annotationStet : kind
+    }
+
+    /// **The restore door** (ruling P, controller Ruling D): throw
+    /// `PostureRefusal` unless the deriver, handed this reopen, would bring
+    /// the note back — asked of the deriver's own walk
+    /// (`AnnotationDeriver.isWithdrawn` over the mirror plus this op, judged by
+    /// `annotationAmendments`), never restated here. So her own Delete is hers
+    /// to undo whatever her rung, the root's Delete of her note is not, and a
+    /// note somebody else deleted is not hers to restore.
+    internal func requireRestoreHonoured(_ reopen: Op) throws {
+        guard let src = reopen.provenance?.sourceAnnotationId else { return }
+        guard !AnnotationDeriver.isWithdrawn(
+            annotationId: src, in: _opLogMirror + [reopen],
+            amendments: annotationAmendments)
+        else { throw PostureRefusal(kind: reopen.kind) }
+    }
+
+    /// **Whether Restore on a deleted note would be honoured, and on what
+    /// footing** (P3c plan 2 Task 8, carried from Task 2's re-review).
+    ///
+    /// Restore used to be DRAWN by display name (`AnnotationOwnership.isOwn`
+    /// over `WithdrawnAnnotation.withdrawnBy`) while the door above decides
+    /// by KEY — the deriver's own walk, whose same-person arm is the trust
+    /// table's `sameWriter`. Where the root and a reviewer share a display
+    /// name, the root's Delete of her note drew Restore and the door refused
+    /// it. This asks the DOOR's own question of the op the door would be
+    /// handed (`requireRestoreHonoured`, the reopen `AnnotationInverse` mints
+    /// for a withdrawal), so the drawing and the act cannot disagree; nothing
+    /// here restates the rule.
+    enum RestoreStanding: Equatable {
+        /// The door would refuse it: not withdrawn here, a husk, or a Delete
+        /// that is not hers to undo.
+        case refused
+        /// Honoured only because she is the same writer as the one who deleted
+        /// it — the ownership arm, which every rung holds (the reviewer row,
+        /// like Edit and Delete of her own note).
+        case asTheDeleter
+        /// Honoured on author rights over this document's notes — a
+        /// disposition's footing, which the window's posture may still hide
+        /// (the root's cooperative yield).
+        case withAuthorRights
+    }
+
+    func restoreStanding(annotationId id: String) -> RestoreStanding {
+        guard !isClosed, !isReadOnlyRecovery,
+              isWithdrawn(annotationId: id),
+              let reopen = restoreOp(annotationId: id)
+        else { return .refused }
+        do { try requireRestoreHonoured(reopen) } catch { return .refused }
+        return annotationAmendments.honoursAsDisposition(reopen)
+            ? .withAuthorRights : .asTheDeleter
+    }
+
+    /// The reopen a Restore appends — `AnnotationInverse`'s, for a withdrawal.
+    /// The one builder `reopenAnnotation`'s withdrawal arm and
+    /// `restoreStanding` share, so the op judged for the drawing is the op the
+    /// door is handed.
+    internal func restoreOp(annotationId id: String) -> Op? {
+        guard case .op(let op) = AnnotationInverse.reopenOp(
+            undoing: .annotationWithdraw, annotationId: id, currentStatus: nil,
+            docId: docId, device: device, session: session) else { return nil }
+        return op
     }
 
     /// **⌘Z and ⇧⌘Z's half of the door** (P3c Task 5). An undo registered
@@ -1426,7 +1527,7 @@ extension Document {
         // accept (reject, archive, stet, the restores ⌘Z puts back), so the
         // one question is asked here for all of them. The automations keep
         // their own error, which both of their callers catch by type.
-        if localWritePermit.allows(.op(kind)) != .yes {
+        if localWritePermit.allows(.op(Self.dispositionProbe(kind))) != .yes {
             if automation { throw AutomationNotPermitted(kind: kind) }
             throw PostureRefusal(kind: kind)
         }
@@ -1590,8 +1691,11 @@ extension Document {
                 $0.provenance?.sourceAnnotationId == id
             }
             // The status side: latest lifecycle op wins (AnnotationDeriver).
+            // Honoured ops only (ruling P): a reopen the deriver does not
+            // honour is not the status winner, so it must not hide one.
+            let amendments = annotationAmendments
             guard let latestLifecycle = forThis
-                    .filter({ Document.isLifecycleOpKind($0.kind) })
+                    .filter({ AnnotationDeriver.isHonouredLifecycleOp($0, amendments: amendments) })
                     .max(by: { $0.opId < $1.opId }),
                   latestLifecycle.kind == .claudeReject else { continue }
             // The text side: latest op carrying a payload for this annotation.
@@ -1676,9 +1780,12 @@ extension Document {
         }
     }
 
-    /// The same rule as a `Set`, for the two rewind sites that test membership
-    /// over an op stream rather than filtering with a predicate
-    /// (`RewindImpact.preview` and `restoreToOp`'s step-9 return journey).
+    /// The same rule as a `Set`. It served the two rewind sites that test
+    /// membership over an op stream (`RewindImpact.preview` and
+    /// `restoreToOp`'s step-9 return journey) until ruling P, when both moved
+    /// to `AnnotationDeriver.isHonouredLifecycleOp` — the same kinds, less a
+    /// reopen the deriver does not honour; `AnnotationStetTests`' census
+    /// still binds it.
     /// Each carried its own literal copy until M3 P2 — four spellings of one
     /// rule, none of them tested. Derived from the predicate so there is
     /// nothing left to keep in step.

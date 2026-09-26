@@ -1050,25 +1050,53 @@ struct AnnotationsPane: View {
     /// choosing a state in the ladder always was.
     @ViewBuilder
     private var passOrderNudge: some View {
-        if !scope.isProject,
-           let docId = document?.docId,
-           let earlier = PassOrderAdvice.advice(
-                forPiece: docId, memory: activePassMemory,
-                passes: reviewPasses, passStates: piecePassStates) {
-            // **The verbs follow the piece's posture; the advice does not**
-            // (P3c Task 6, plan ruling R3): a reviewer working a lane is still
-            // told the earlier pass is open — she simply is not offered the
-            // ruling that closes it.
-            let offersVerbs = PassLadder.offersRulings(
-                under: documentStore.posture(forDocId: docId))
+        if let nudge = Self.passOrderNudgeDecision(
+            isProjectScope: scope.isProject, docId: document?.docId,
+            memory: activePassMemory, passes: reviewPasses,
+            passStates: piecePassStates,
+            posture: { documentStore.posture(forDocId: $0) },
+            onSetPassState: onSetPassState) {
             PassOrderNudgeRow(
-                pass: earlier,
-                onMarkDone: offersVerbs
-                    ? { onSetPassState(docId, earlier.id, .done) } : nil,
-                onSkip: offersVerbs
-                    ? { onSetPassState(docId, earlier.id, .skipped) } : nil)
+                pass: nudge.pass, onMarkDone: nudge.onMarkDone, onSkip: nudge.onSkip)
             Divider()
         }
+    }
+
+    /// What the pass-order nudge draws: the earlier open pass, and the two
+    /// verbs that close it.
+    struct PassOrderNudgeDecision {
+        let pass: ReviewPass
+        let onMarkDone: (() -> Void)?
+        let onSkip: (() -> Void)?
+    }
+
+    /// **The nudge, decided without a window** (P3c plan 2 Task 9) — the whole
+    /// of `passOrderNudge`'s wiring, so a test can drive it from the window's
+    /// posture door to the host's pass-state write.
+    ///
+    /// Document scope only, and only where `PassOrderAdvice` names an earlier
+    /// open pass. **The verbs follow the piece's posture; the advice does not**
+    /// (P3c Task 6, plan ruling R3): a reviewer working a lane is still told
+    /// the earlier pass is open — she simply is not offered the ruling that
+    /// closes it. Each verb writes the NAMED earlier pass through the host's
+    /// `onSetPassState`, never the store directly.
+    static func passOrderNudgeDecision(
+        isProjectScope: Bool, docId: String?,
+        memory: ActivePassMemory, passes: [ReviewPass],
+        passStates: [String: PassState]?,
+        posture: (String) -> Posture,
+        onSetPassState: @escaping (String, String, PassState?) -> Void
+    ) -> PassOrderNudgeDecision? {
+        guard !isProjectScope, let docId,
+              let earlier = PassOrderAdvice.advice(
+                forPiece: docId, memory: memory,
+                passes: passes, passStates: passStates)
+        else { return nil }
+        let offersVerbs = PassLadder.offersRulings(under: posture(docId))
+        return PassOrderNudgeDecision(
+            pass: earlier,
+            onMarkDone: offersVerbs ? { onSetPassState(docId, earlier.id, .done) } : nil,
+            onSkip: offersVerbs ? { onSetPassState(docId, earlier.id, .skipped) } : nil)
     }
 
     // MARK: - Document scope
@@ -1154,8 +1182,7 @@ struct AnnotationsPane: View {
         } else {
             ScrollView {
                 let livePids = Set(document.sequence)
-                let mayDispose = documentStore.posture(forDocId: document.docId)
-                    .allows(.dispose)
+                let posture = documentStore.posture(forDocId: document.docId)
                 let selection = effectiveSelection(in: rows)
                 // One read for the whole pass, for `ledgerText`'s reason.
                 let ledger = ledgerText
@@ -1182,9 +1209,17 @@ struct AnnotationsPane: View {
                                     .font(.callout).foregroundStyle(.secondary)
                                     .lineLimit(2)
                                 Spacer()
-                                // A restore is a reopen — a disposition in the
-                                // table (P3c Task 5): hidden where refused.
-                                if mayDispose {
+                                // A restore undoes a WITHDRAWAL, so it follows
+                                // the deleter (ruling P, Ruling D): what SHE
+                                // deleted is hers to restore whatever her
+                                // rung. Asked of the door's own judgement, by
+                                // KEY (P3c plan 2 Task 8) — never by the
+                                // display name a withdraw op stamps — and
+                                // hidden where the door would refuse it.
+                                if AnnotationRowVerbs.restoresDeleted(
+                                    posture: posture,
+                                    standing: document.restoreStanding(
+                                        annotationId: note.id)) {
                                     Button("Restore") { reopen(document, id: note.id) }
                                         .buttonStyle(.bordered).controlSize(.small)
                                 }
@@ -1295,6 +1330,12 @@ struct AnnotationsPane: View {
         let rowDocument = documentStore.document(forDocId: section.item.id)
         let livePids = Set(rowDocument?.sequence
             ?? sequences[section.item.id] ?? [])
+        // Ruling AJ (P3c plan 2 Task 8): the root yielding on this piece hides
+        // its rows' verbs, so the header says whose piece it is and offers the
+        // same Edit Anyway the standing line over the editor offers.
+        let yield = AnnotationScopePolicy.yieldNotice(
+            posture: documentStore.posture(forDocId: section.item.id),
+            docId: section.item.id)
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 Text(section.item.title)
@@ -1304,6 +1345,16 @@ struct AnnotationsPane: View {
                     .font(.caption2).foregroundStyle(.secondary)
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                if let yield {
+                    Text(yield.reason)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Button(AnnotationScopePolicy.editAnywayTitle) {
+                        documentStore.overrideYield(docId: yield.docId)
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                }
                 Spacer(minLength: 4)
                 if rowDocument == nil {
                     Image(systemName: "lock")
@@ -1912,9 +1963,28 @@ struct AnnotationsPane: View {
     /// ever passes it.
     private func reopen(_ document: Document, id: String) {
         Task {
-            try? await document.reopenAnnotation(id: id, undoManager: undoManager)
+            do {
+                try await document.reopenAnnotation(id: id, undoManager: undoManager)
+            } catch {
+                Self.sayRefused(error, in: document)
+            }
             noteChanged()
         }
+    }
+
+    /// **A refused Reopen / Restore is SAID** (P3c plan 2 Task 8). The pane
+    /// used to hand `reopenAnnotation` a bare `try?`, so a Restore the door
+    /// refused — a Delete that is not hers to undo, drawn a frame before the
+    /// refusal was knowable — did nothing at all (RULING-22's shape). The
+    /// refusal's own sentence now goes to the window's notice channel
+    /// (`MaughamEvent.postNotice`, the house path;
+    /// `TranslationReviewPaneLogic.reply`'s shape) and comes back to the caller.
+    @MainActor
+    @discardableResult
+    static func sayRefused(_ error: Error, in document: Document) -> String {
+        let sentence = error.localizedDescription
+        MaughamEvent.postNotice(sentence, projectURL: document.opStore.projectURL)
+        return sentence
     }
 
     /// Revert an accepted suggestion from the pane (visible under the
@@ -2098,7 +2168,8 @@ struct AnnotationRowVerbs: Equatable {
     /// Accept, Got it, Reply…, Reject…, Revert — they move the words or settle
     /// the note with the writer's answer.
     let acceptOrReject: Bool
-    /// Stet, Archive, the triage menu, Reopen, and a deleted note's Restore.
+    /// Stet, Archive, the triage menu and Reopen. (A deleted note's Restore
+    /// is `restoresDeleted`: it undoes a withdrawal, not a disposition.)
     let dispose: Bool
     /// *Answer as ruling…* — a reply AND a dated ruling in the statement it
     /// files under, so both halves have to be this Mac's to write.
@@ -2131,6 +2202,32 @@ struct AnnotationRowVerbs: Equatable {
             makeChoice: dispose && ledger,
             keepAsLesson: ledger,
             ownNote: isOwn)
+    }
+
+    /// **Restore on a deleted note** (P3c plan 2, ruling P; controller
+    /// Ruling D). A restore is a reopen that undoes a WITHDRAWAL, and the
+    /// deriver honours it from the same writer as the one who DELETED the note
+    /// or from author rights (`AnnotationOwnership.mayAmend`, handed the
+    /// withdrawal): what she deleted herself is hers to restore whatever her
+    /// rung — so her own note, since a reviewer's Delete of anybody else's is
+    /// never honoured — and anybody's is a posture that may settle notes
+    /// here. The root's Delete of her note is the root's. Hidden otherwise.
+    ///
+    /// `standing` is the DOOR's answer (`Document.restoreStanding`, which asks
+    /// `requireRestoreHonoured` of the very op a press would append), so the
+    /// drawn Restore and the act agree by construction (P3c plan 2 Task 8):
+    /// it used to be decided by display name while the door decides by key.
+    /// A restore honoured only as the deleter is the reviewer row and is
+    /// always drawn; one honoured on author rights is a disposition's footing
+    /// and follows the posture, so the root's cooperative yield still hides it.
+    static func restoresDeleted(
+        posture: Posture, standing: Document.RestoreStanding
+    ) -> Bool {
+        switch standing {
+        case .refused: return false
+        case .asTheDeleter: return true
+        case .withAuthorRights: return posture.allows(.dispose)
+        }
     }
 
     /// **The P1 surface, by name** — every verb its kind has. For a row built

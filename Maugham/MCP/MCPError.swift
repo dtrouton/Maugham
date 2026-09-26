@@ -21,6 +21,11 @@ public enum MCPError: Error, Equatable {
     /// like projectNotOpen / mcpDisabled).
     case toolError(payload: ToolErrorPayload)
 
+    /// The JSON-RPC code a directly-dispatched method answers a
+    /// `DocumentLoadError.waitingForPiece` with (P3c plan 2 Task 4 fix round
+    /// 1, M4) — the typed `waiting_for_piece` payload is its message.
+    public static let waitingForPieceCode = -32004
+
     public var code: Int {
         switch self {
         case .maughamNotRunning: return -32001

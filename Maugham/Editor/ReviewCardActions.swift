@@ -80,12 +80,15 @@ enum ReviewCardAction: Equatable {
 /// out, not greyed, where it is refused. Edit and Delete of the local writer's
 /// OWN note are the reviewer row, which every rung holds, so they follow
 /// ownership alone. `posture` is the editor's document's, mirrored into
-/// `EditorControl.posture` from the window's drawing door; nil — no posture
-/// known, which is every surface that predates P3c — is the P1 card, every
-/// verb its kind has. The parameter is REQUIRED, nil included: a caller that
-/// forgot the posture would otherwise draw every verb, so each one says what it
-/// means. The Document refuses at its own door either way
-/// (`Document.requireDispositionPermitted`).
+/// `EditorControl.posture` from the window's drawing door. **Nil draws the
+/// FAIL-CLOSED card** (P3c plan 2 Task 8): no posture known — no manuscript
+/// document selected, a host that mirrors none — offers no disposition at
+/// all, only Edit and Delete of her own note (the reviewer row, which every
+/// rung holds; leaving a note is the composer's, not the card's). It used to
+/// draw every verb its kind has, which is the permissive answer in exactly the
+/// state where nothing is known. The parameter is REQUIRED, nil included, so
+/// each caller says what it means. The Document refuses at its own door either
+/// way (`Document.requireDispositionPermitted`).
 enum ReviewCardActions {
     static func actions(
         for kind: AnnotationKind, isOwn: Bool, posture: Posture?
@@ -101,6 +104,10 @@ enum ReviewCardActions {
         }
         if let posture {
             actions.removeAll { !offers($0, under: posture) }
+        } else {
+            // Nothing known: fail closed — every disposition is a verb the
+            // table may refuse, and the reviewer row is appended below.
+            actions.removeAll()
         }
         if isOwn {
             actions.append(.edit)

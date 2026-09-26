@@ -241,7 +241,7 @@ public final class MCPServer {
         }
     }
 
-    private static func dispatch(
+    static func dispatch(
         lineData: Data, router: MCPRouter, preferences: UserPreferences
     ) async -> Data {
         let req: MCPRequest
@@ -278,6 +278,21 @@ public final class MCPServer {
         } catch let e as MCPError {
             let resp = MCPResponse.failure(
                 id: req.id, code: e.code, message: e.message)
+            return (try? JSONEncoder().encode(resp)) ?? Data()
+        } catch let waiting as DocumentLoadError {
+            // **The waiting state is not an internal error on this path
+            // either** (P3c plan 2 Task 4 fix round 1, M4). `tools/call`
+            // already answers it as the typed `waiting_for_piece` payload
+            // (`MCPToolsCallHandler.toolErrorPayload`); a method dispatched
+            // directly used to fall through to -32603 "Internal error", which
+            // Option A made reachable for the root's and a book author's own
+            // calls. Same payload, as JSON-RPC: its own code, and the payload
+            // (error name, sentence, hint) as the message.
+            let payload = MCPToolsCallHandler.toolErrorPayload(for: waiting)
+            let resp = MCPResponse.failure(
+                id: req.id, code: MCPError.waitingForPieceCode,
+                message: String(data: payload.encodedJSON(), encoding: .utf8)
+                    ?? payload.message)
             return (try? JSONEncoder().encode(resp)) ?? Data()
         } catch {
             let resp = MCPResponse.failure(

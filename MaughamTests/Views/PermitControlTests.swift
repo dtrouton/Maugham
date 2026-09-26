@@ -125,7 +125,12 @@ final class PermitControlTests: XCTestCase {
 
         XCTAssertTrue(notice.contains("Older versions of Maugham"),
                       "both halves, not one: \(notice)")
-        XCTAssertTrue(notice.contains("signs nothing it writes"), notice)
+        // **Both cases, never one** (P3c Task 7, Ruling R): the stream may be
+        // a signing Mac whose first seal has not synced here yet.
+        XCTAssertTrue(notice.contains("nothing in this book signs for"), notice)
+        XCTAssertFalse(notice.contains("signs nothing it writes"), notice)
+        XCTAssertTrue(notice.contains("first signed change syncs"), notice)
+        XCTAssertTrue(notice.contains("if it signs nothing"), notice)
         XCTAssertTrue(notice.contains("Inbox"),
                       "and where its writing can be got back: \(notice)")
         XCTAssertTrue(notice.contains("Nothing it has already written changes"),

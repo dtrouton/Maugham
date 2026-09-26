@@ -387,4 +387,504 @@ final class DocumentAmendmentOwnershipTests: XCTestCase {
             "everybody is an author of the whole book until an event says otherwise")
         await doc.close()
     }
+
+    // MARK: - Ruling P: a reopen is judged per pass (P3c plan 2, Task 2)
+
+    private func reopen(
+        _ opId: String, of target: String, by identity: DeviceIdentity
+    ) -> Op {
+        Op(opId: opId, docId: Self.docId, at: Date(timeIntervalSince1970: 1_800),
+           device: identity.deviceId, session: "s", kind: .annotationReopen,
+           changes: [], provenance: .init(sourceAnnotationId: target))
+    }
+
+    private func archive(
+        _ opId: String, of target: String, by identity: DeviceIdentity
+    ) -> Op {
+        Op(opId: opId, docId: Self.docId, at: Date(timeIntervalSince1970: 1_700),
+           device: identity.deviceId, session: "s", kind: .claudeArchive,
+           changes: [], provenance: .init(sourceAnnotationId: target))
+    }
+
+    private func all(_ doc: Document) -> [Annotation] {
+        doc.annotations(filter: AnnotationFilter(statuses: nil))
+    }
+
+    /// **Her own delete, undone on her own Mac, comes back on every Mac.** The
+    /// partition lets her reopen through on the reviewer row and the withdraw
+    /// pass honours it by ownership.
+    func test_aReviewerRestoringHerOwnDeletedNoteIsHonouredOnLoad() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        let kim = try makeReviewer(label: "Kim", admittedBy: root)
+
+        try writeFile(by: kim, ops: [
+            note("01AAA", by: kim),
+            withdrawal("01BBB", of: "01AAA", by: kim),
+            reopen("01CCC", of: "01AAA", by: kim),
+        ])
+
+        let doc = try await openDoc(docURL)
+        XCTAssertEqual(all(doc).map(\.id), ["01AAA"], "her own note is hers to restore")
+        XCTAssertEqual(all(doc).first?.status, .open)
+        XCTAssertTrue(doc.withdrawnAnnotations().isEmpty)
+        await doc.close()
+    }
+
+    /// **Her own note the ROOT archived stays archived.** The same reopen, in
+    /// the lifecycle fold, is a disposition — and being the note's author is
+    /// not author rights.
+    func test_herReopenOfHerOwnNoteTheRootArchivedIsNotHonoured() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        let kim = try makeReviewer(label: "Kim", admittedBy: root)
+
+        try writeFile(by: kim, ops: [
+            note("01AAA", by: kim), reopen("01CCC", of: "01AAA", by: kim),
+        ])
+        try writeFile(by: root, ops: [archive("01BBB", of: "01AAA", by: root)])
+
+        let doc = try await openDoc(docURL)
+        XCTAssertEqual(all(doc).first?.status, .archived,
+                       "the root's disposition stays the root's")
+        await doc.close()
+    }
+
+    /// Somebody else's archive, and somebody else's delete: a reviewer's
+    /// reopen of either passes the partition and changes nothing (RP-1).
+    func test_aReviewersReopenOfSomebodyElsesNoteIsNotHonouredOnLoad() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        let kim = try makeReviewer(label: "Kim", admittedBy: root)
+        let sid = try makeReviewer(label: "Sid", admittedBy: root)
+
+        try writeFile(by: sid, ops: [
+            note("01AAA", by: sid),
+            note("01DDD", by: sid),
+            withdrawal("01EEE", of: "01DDD", by: sid),
+        ])
+        try writeFile(by: root, ops: [archive("01BBB", of: "01AAA", by: root)])
+        try writeFile(by: kim, ops: [
+            reopen("01CCC", of: "01AAA", by: kim),
+            reopen("01FFF", of: "01DDD", by: kim),
+        ])
+
+        let doc = try await openDoc(docURL)
+        XCTAssertEqual(all(doc).map(\.id), ["01AAA"], "Sid's deleted note stays deleted")
+        XCTAssertEqual(all(doc).first?.status, .archived, "the root's archive stands")
+        XCTAssertEqual(doc.withdrawnAnnotations().map(\.id), ["01DDD"])
+        await doc.close()
+    }
+
+    /// The other direction: the book author's reopen is honoured in both
+    /// passes — an archive undone, and a reviewer's delete undone.
+    func test_theBookAuthorsReopenIsHonouredOnLoad() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        let kim = try makeReviewer(label: "Kim", admittedBy: root)
+
+        try writeFile(by: kim, ops: [
+            note("01AAA", by: kim),
+            note("01DDD", by: kim),
+            withdrawal("01EEE", of: "01DDD", by: kim),
+        ])
+        try writeFile(by: root, ops: [
+            archive("01BBB", of: "01AAA", by: root),
+            reopen("01CCC", of: "01AAA", by: root),
+            reopen("01FFF", of: "01DDD", by: root),
+        ])
+
+        let doc = try await openDoc(docURL)
+        XCTAssertEqual(Set(all(doc).map(\.id)), ["01AAA", "01DDD"])
+        XCTAssertTrue(all(doc).allSatisfy { $0.status == .open })
+        await doc.close()
+    }
+
+    /// **Neutrality**: with no permit events, a reopen of anybody's archive
+    /// stands exactly as it did.
+    func test_aBookWithNoEventsHonoursAForeignReopenAsItAlwaysDid() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        let kim = DeviceIdentity.softwareForTesting()
+        try RegistryWriter.write(
+            DeviceRecord(
+                device: kim.fingerprint, name: "Kim", kind: .mac,
+                actors: [DeviceActor.author.rawValue: kim.fingerprint],
+                madeAt: Date(timeIntervalSince1970: 2_500)),
+            signedBy: kim, in: projectURL)
+        try RegistryWriter.write(
+            PersonRecord(
+                person: kim.fingerprint, label: "Kim", ownName: "Kim",
+                role: Permit.authorRole,
+                admittedAt: Date(timeIntervalSince1970: 2_500),
+                admittedBy: root.fingerprint),
+            signedBy: root, in: projectURL)
+
+        try writeFile(by: root, ops: [
+            note("01AAA", by: root), archive("01BBB", of: "01AAA", by: root),
+        ])
+        try writeFile(by: kim, ops: [reopen("01CCC", of: "01AAA", by: kim)])
+
+        let doc = try await openDoc(docURL)
+        XCTAssertEqual(all(doc).first?.status, .open)
+        await doc.close()
+    }
+
+    // MARK: - Ruling P at this Mac's own door
+
+    /// This Mac, a reviewer, with the piece's history already on disk.
+    private func beAReviewerHere(root: DeviceIdentity) throws {
+        try RegistryWriter.write(
+            PermitEvent(
+                event: PermitEvent.mintID(subject: identities.author.fingerprint),
+                kind: .admitted, subject: identities.author.fingerprint,
+                role: Permit.reviewerRole, scope: Permit.bookScope,
+                pieces: [], mark: [:],
+                at: Date(timeIntervalSince1970: 2_100), by: root.fingerprint),
+            signedBy: root, in: projectURL)
+    }
+
+    private func opening(by root: DeviceIdentity) -> Op {
+        Op(opId: "01AAA", docId: Self.docId,
+           at: Date(timeIntervalSince1970: 1_400),
+           device: root.deviceId, session: "s", kind: .typingBurst,
+           changes: [.init(paragraphId: "aaaa", prior: nil, next: "First paragraph.")],
+           sequence: ["aaaa"])
+    }
+
+    /// **⌘Z of her own Delete is hers** — no longer refused and said; the note
+    /// comes back, and stays back off disk.
+    func test_aReviewersUndoOfHerOwnDeleteRestoresTheNote() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        try beAReviewerHere(root: root)
+        try writeFile(by: root, ops: [opening(by: root)])
+
+        let doc = try await openDoc(docURL)
+        let id = try await doc.addReviewerAnnotation(
+            kind: .comment, paragraphId: "aaaa", span: nil,
+            body: "mine", authorName: "Denver")
+        let um = UndoManager()
+        try await doc.withdrawReviewerAnnotation(
+            id: id, authorName: "Denver", undoManager: um)
+        XCTAssertTrue(all(doc).isEmpty)
+
+        um.undo()
+        await doc.awaitPendingUndoWork()
+        XCTAssertEqual(all(doc).map(\.id), [id], "her own Delete, undone")
+        XCTAssertEqual(all(doc).first?.status, .open)
+        await doc.close()
+
+        let again = try await openDoc(docURL)
+        XCTAssertEqual(all(again).map(\.id), [id], "and off disk, through the partition")
+        XCTAssertTrue(again.withdrawnAnnotations().isEmpty)
+        await again.close()
+    }
+
+    /// **The door refuses what the deriver would not honour**: a reviewer's
+    /// Restore of a note somebody ELSE deleted, and her reopen of her own note
+    /// the root archived. Nothing is appended either time.
+    func test_theReopenDoorRefusesWhatTheDeriverWouldNotHonour() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        let kim = try makeReviewer(label: "Kim", admittedBy: root)
+        try beAReviewerHere(root: root)
+        try writeFile(by: root, ops: [opening(by: root)])
+        try writeFile(by: kim, ops: [
+            note("01KKK", by: kim), withdrawal("01KKL", of: "01KKK", by: kim),
+        ])
+
+        let doc = try await openDoc(docURL)
+        XCTAssertEqual(doc.withdrawnAnnotations().map(\.id), ["01KKK"])
+        let mine = try await doc.addReviewerAnnotation(
+            kind: .comment, paragraphId: "aaaa", span: nil,
+            body: "mine", authorName: "Denver")
+        let before = doc._opLogMirror.count
+        do {
+            try await doc.reopenAnnotation(id: "01KKK")
+            XCTFail("Kim's deleted note is not this reviewer's to restore")
+        } catch is Document.PostureRefusal {}
+        XCTAssertEqual(doc._opLogMirror.count, before, "the door appended nothing")
+        await doc.close()
+
+        // The root archives her note, on its own Mac. `writeFile` writes a
+        // device's WHOLE file, chained from genesis and sealed at its head, so
+        // "append the archive" is spelled as the root's file rewritten with
+        // its opening op followed by the archive — the same bytes the root's
+        // `OpLogStore.append` would have left, and a stream this Mac saw
+        // shorter, never a second history. The archive's id is minted NOW, so
+        // it sorts after her note and before the reopen she presses below —
+        // the order the two Macs' clocks would give it, and the order that
+        // makes the refusal the RULE's rather than the op ids'.
+        try writeFile(by: root, ops: [
+            opening(by: root), archive(ULID.generate(), of: mine, by: root),
+        ])
+        let again = try await openDoc(docURL)
+        XCTAssertEqual(all(again).first { $0.id == mine }?.status, .archived)
+        let count = again._opLogMirror.count
+        do {
+            try await again.reopenAnnotation(id: mine)
+            XCTFail("the root's archive of her note is not hers to undo")
+        } catch is Document.PostureRefusal {}
+        XCTAssertEqual(again._opLogMirror.count, count)
+        XCTAssertEqual(all(again).first { $0.id == mine }?.status, .archived)
+        await again.close()
+    }
+
+    // MARK: - Fix round 1: Ruling D, the raw-mirror readers, Ruling C
+
+    /// **Ruling D: the root's Delete of her note stays the root's.** Her
+    /// reopen is the note's creator but not its deleter.
+    func test_herReopenDoesNotUndoTheRootsDeleteOfHerNoteOnLoad() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        let kim = try makeReviewer(label: "Kim", admittedBy: root)
+
+        try writeFile(by: kim, ops: [
+            note("01AAA", by: kim), reopen("01CCC", of: "01AAA", by: kim),
+        ])
+        try writeFile(by: root, ops: [withdrawal("01BBB", of: "01AAA", by: root)])
+
+        let doc = try await openDoc(docURL)
+        XCTAssertTrue(all(doc).isEmpty, "the root deleted it; it stays deleted")
+        XCTAssertEqual(doc.withdrawnAnnotations().map(\.id), ["01AAA"])
+        await doc.close()
+    }
+
+    /// **I1(a): a stray reopen the deriver does not honour does not make her
+    /// Restore a silent no-op.** Sid's reopen of her deleted note lands in the
+    /// mirror later than her withdrawal; read raw it would say "not
+    /// withdrawn", and her `reopenAnnotation` would log and return.
+    func test_aStrayReopenDoesNotBlockHerOwnRestore() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        let sid = try makeReviewer(label: "Sid", admittedBy: root)
+        try beAReviewerHere(root: root)
+        try writeFile(by: root, ops: [opening(by: root)])
+
+        let doc = try await openDoc(docURL)
+        let id = try await doc.addReviewerAnnotation(
+            kind: .comment, paragraphId: "aaaa", span: nil,
+            body: "mine", authorName: "Denver")
+        try await doc.withdrawReviewerAnnotation(id: id, authorName: "Denver")
+        await doc.close()
+
+        // Sid's reopen of it, after her withdrawal (`09ZZZ` sorts after every
+        // ULID this run mints) — a line the partition passes and the deriver
+        // does not honour.
+        try writeFile(by: sid, ops: [reopen("09ZZZ", of: id, by: sid)])
+
+        let again = try await openDoc(docURL)
+        XCTAssertTrue(all(again).isEmpty, "Sid's reopen restores nothing")
+        XCTAssertEqual(again.withdrawnAnnotations().map(\.id), [id])
+        XCTAssertEqual(again.withdrawnAnnotations().first?.withdrawnBy?.displayName,
+                       "Denver", "she deleted it, so Restore is hers to press")
+
+        try await again.reopenAnnotation(id: id)
+        XCTAssertEqual(all(again).map(\.id), [id], "her Restore restores")
+        XCTAssertEqual(all(again).first?.status, .open)
+        await again.close()
+    }
+
+    /// **Ruling D at the door**: the root's Delete of her note is not hers to
+    /// undo, so the door refuses and appends nothing.
+    func test_theRestoreDoorRefusesTheRootsDeleteOfHerNote() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        try beAReviewerHere(root: root)
+        try writeFile(by: root, ops: [opening(by: root)])
+
+        let doc = try await openDoc(docURL)
+        let mine = try await doc.addReviewerAnnotation(
+            kind: .comment, paragraphId: "aaaa", span: nil,
+            body: "mine", authorName: "Denver")
+        await doc.close()
+        // The root deletes it, on its own Mac (the whole file, as above; the
+        // id minted now, so it sorts before the reopen she presses below).
+        try writeFile(by: root, ops: [
+            opening(by: root), withdrawal(ULID.generate(), of: mine, by: root),
+        ])
+
+        let again = try await openDoc(docURL)
+        XCTAssertEqual(again.withdrawnAnnotations().map(\.id), [mine])
+        // What the pane draws Restore from is the door's own standing (P3c
+        // plan 2 Task 8). This fixture's `withdrawal` stamps no author, so a
+        // nil `withdrawnBy` proves nothing about the drawing — the standing
+        // does, and the same-name case below proves it by key.
+        XCTAssertEqual(again.restoreStanding(annotationId: mine), .refused,
+                       "the door would refuse her Restore, so the pane draws none")
+        let count = again._opLogMirror.count
+        do {
+            try await again.reopenAnnotation(id: mine)
+            XCTFail("the root's Delete of her note is the root's")
+        } catch is Document.PostureRefusal {}
+        XCTAssertEqual(again._opLogMirror.count, count, "the door appended nothing")
+        await again.close()
+    }
+
+    /// **Restore is drawn by KEY, never by display name** (P3c plan 2 Task
+    /// 8, carried from Task 2's re-review). The root's Delete of her note,
+    /// stamped as production stamps it — with a display name that happens to
+    /// be HERS. Asked by name (`isOwn(author: withdrawnBy)`, the old drawing)
+    /// this reads as her own Delete and draws Restore; the door, which judges
+    /// by key, refuses it. The standing is the door's, so it refuses too, and
+    /// her own Delete in the same book stands `.asTheDeleter` — both
+    /// directions.
+    func test_restoreIsDrawnByKeyNotByTheDeletersDisplayName() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        try beAReviewerHere(root: root)
+        try writeFile(by: root, ops: [opening(by: root)])
+
+        let doc = try await openDoc(docURL)
+        let rootDeletes = try await doc.addReviewerAnnotation(
+            kind: .comment, paragraphId: "aaaa", span: nil,
+            body: "the root deletes this", authorName: "Denver")
+        let sheDeletes = try await doc.addReviewerAnnotation(
+            kind: .comment, paragraphId: "aaaa", span: nil,
+            body: "she deletes this", authorName: "Denver")
+        try await doc.withdrawReviewerAnnotation(id: sheDeletes, authorName: "Denver")
+        await doc.close()
+
+        var namedWithdraw = withdrawal(ULID.generate(), of: rootDeletes, by: root)
+        namedWithdraw = Op(
+            opId: namedWithdraw.opId, docId: namedWithdraw.docId, at: namedWithdraw.at,
+            device: namedWithdraw.device, session: namedWithdraw.session,
+            kind: .annotationWithdraw, changes: [],
+            provenance: .init(
+                sourceAnnotationId: rootDeletes,
+                authorSourceKind: AnnotationAuthor.SourceKind.human.rawValue,
+                authorDisplayName: "Denver"))
+        try writeFile(by: root, ops: [opening(by: root), namedWithdraw])
+
+        let again = try await openDoc(docURL)
+        let byId = Dictionary(uniqueKeysWithValues:
+            again.withdrawnAnnotations().map { ($0.id, $0) })
+        XCTAssertTrue(AnnotationOwnership.isOwn(
+            author: byId[rootDeletes]?.withdrawnBy, localName: "Denver"),
+            "premise: by NAME the root's Delete reads as hers")
+        XCTAssertEqual(again.restoreStanding(annotationId: rootDeletes), .refused,
+                       "by KEY it is the root's, and Restore is not drawn")
+        XCTAssertFalse(AnnotationRowVerbs.restoresDeleted(
+            posture: Posture(.unrestricted),
+            standing: again.restoreStanding(annotationId: rootDeletes)),
+            "hidden whatever the posture")
+        XCTAssertEqual(again.restoreStanding(annotationId: sheDeletes), .asTheDeleter,
+                       "her own Delete is hers to restore as a reviewer")
+        XCTAssertTrue(AnnotationRowVerbs.restoresDeleted(
+            posture: .settling,
+            standing: again.restoreStanding(annotationId: sheDeletes)),
+            "drawn even before the posture has settled — the reviewer row")
+
+        // The press agrees with the drawing, both ways — and a refusal is
+        // said through the house notice path.
+        var said: [String] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let m = note.userInfo?[MaughamEvent.noticeMessageKey] as? String { said.append(m) }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        do {
+            try await again.reopenAnnotation(id: rootDeletes, undoManager: nil)
+            XCTFail("the door refuses the root's Delete")
+        } catch {
+            let sentence = AnnotationsPane.sayRefused(error, in: again)
+            XCTAssertEqual(said, [sentence], "a refused Restore is SAID, not swallowed")
+        }
+        XCTAssertEqual(again.withdrawnAnnotations().map(\.id).sorted(),
+                       [rootDeletes, sheDeletes].sorted())
+        try await again.reopenAnnotation(id: sheDeletes, undoManager: nil)
+        XCTAssertEqual(again.withdrawnAnnotations().map(\.id), [rootDeletes],
+                       "her own Restore lands")
+
+        // The pane's Restore hands a refusal to `sayRefused`, never to `try?`.
+        let pane = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Views/AnnotationsPane.swift"), encoding: .utf8)
+        let start = try XCTUnwrap(pane.range(of: "private func reopen(_ document: Document"))
+        let body = pane[start.lowerBound...].prefix(400)
+        XCTAssertTrue(body.contains("Self.sayRefused(error, in: document)"),
+                      "the pane says the refusal")
+        XCTAssertFalse(body.contains("try? await document.reopenAnnotation"),
+                       "and swallows nothing")
+        await again.close()
+    }
+
+    /// **I1(c): the rewind's return journey reads honoured ops only.** An
+    /// accepted suggestion the rewind archived returns to ACCEPTED on a
+    /// forward travel past the accept (RULING-26) — and a reviewer's stray
+    /// reopen sitting between the accept and the rewind's archive must not be
+    /// read as the status before the archive. Read raw, it says "was open",
+    /// and the travel reopens a suggestion whose text it has just restored.
+    /// The preview (`RewindImpact`) is pinned to the same answer.
+    func test_aStrayReopenIsNotReadAsTheStatusBeforeARewindArchive() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        let kim = try makeReviewer(label: "Kim", admittedBy: root)
+        try writeFile(by: root, ops: [opening(by: root)])
+
+        // This Mac is an author of the whole book (makeRoot admits it so).
+        let doc = try await openDoc(docURL)
+        try await doc.flushBurstNow()
+        let early = try await doc.opLog().last!.opId
+        doc.setFullText("First paragraph.\n\nSecond.\n")
+        try await doc.flushBurstNow()
+        let log = try await doc.opLog()
+        let p2 = try XCTUnwrap(
+            log.last { $0.kind == .typingBurst }?
+                .changes.first { $0.next.contains("Second") }?.paragraphId)
+        let annId = try await doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: p2, body: "b",
+            suggestedText: "Second, improved.")
+        try await doc.acceptAnnotation(id: annId)
+        try await doc.flushBurstNow()
+        let later = try await doc.opLog().last!.opId
+        await doc.close()
+
+        // Kim's reopen of the accepted suggestion: after the accept, before
+        // anything the rewind below will mint.
+        try writeFile(by: kim, ops: [reopen(ULID.generate(), of: annId, by: kim)])
+
+        let again = try await openDoc(docURL)
+        XCTAssertEqual(all(again).first { $0.id == annId }?.status, .accepted,
+                       "Kim's reopen is not honoured — the suggestion stays accepted")
+        _ = try await again.restoreToOp(opId: early)
+        XCTAssertEqual(all(again).first { $0.id == annId }?.status, .archived)
+
+        let opsNow = try await again.opLog()
+        let preview = RewindImpact.preview(
+            ops: opsNow, cursorOpId: later,
+            amendments: again.annotationAmendments)
+        XCTAssertEqual(preview.acceptsToRestore, 1, "the preview promises a re-accept")
+        XCTAssertEqual(preview.annotationsToReopen, 0, "and no reopen")
+
+        let forward = try await again.restoreToOp(opId: later)
+        XCTAssertEqual(all(again).first { $0.id == annId }?.status, .accepted,
+                       "the status it had at the travelled-to moment (RULING-26)")
+        XCTAssertEqual(forward.travelReacceptedAnnotationIds, [annId])
+        XCTAssertTrue(forward.travelReopenedAnnotationIds.isEmpty)
+        await again.close()
+    }
+
+    /// **Ruling C**: an assistant-signed reopen in a rooted, UN-narrowed book
+    /// passes the partition — it is in the mirror, not set aside — and is not
+    /// honoured as a disposition.
+    func test_anAssistantReopenPassesThePartitionAndIsNotADisposition() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        try writeFile(by: root, ops: [
+            note("01AAA", by: root), archive("01BBB", of: "01AAA", by: root),
+        ])
+        try writeFile(by: identities.assistant, ops: [
+            reopen("01CCC", of: "01AAA", by: identities.assistant),
+        ])
+
+        let doc = try await openDoc(docURL)
+        XCTAssertTrue(doc._opLogMirror.contains { $0.opId == "01CCC" },
+                      "the reviewer row: the partition passes it")
+        XCTAssertEqual(all(doc).first?.status, .archived,
+                       "the assistant is never the author of a disposition")
+        await doc.close()
+    }
 }

@@ -4,6 +4,23 @@
 #   ./scripts/test.sh          # fast: core package + Mac scheme minus the two slow suites
 #   ./scripts/test.sh full     # core package + full Mac scheme (pre-merge/tag gate)
 #   ./scripts/test.sh phone    # the iOS simulator run (slow; CI runs it on every push)
+#   ./scripts/test.sh core     # MaughamCore's package tests alone, behind the same lock
+#
+# RUN CORE THROUGH `core`, NOT A BARE `swift test`, WHILE ANY OTHER GATE MAY
+# BE UP (2026-09-25, P3c plan 2 Task 9). Every `xcodebuild test` — Mac or
+# phone scheme, any session's — SIGKILLs every process on the machine NAMED
+# `xctest` as it starts testing, and `swift test --parallel` runs each Core
+# test in its own `xctest` process. The victim is whichever Core test happened
+# to be alive: the run exits 1, `Note: Some test targets reported failures`,
+# and the only output is that test's `Test Case '…' started.` with nothing
+# after it — no assertion, no crash report, a different test each time, green
+# alone and on a re-run. Measured with a decoy: a copy of /bin/sleep named
+# `xctest` was killed (status 137) ~2 s before an unrelated `xcodebuild test`
+# printed "Testing started", while the same binary under another name lived.
+# The `core` mode takes the gate lock, so it queues behind this script's gates
+# (and they behind it); a RAW `xcodebuild test` from another session bypasses
+# the lock and can still kill it — re-run before believing a red Core test
+# that matches that signature.
 #
 # fast skips exactly one thing, documented in CLAUDE.md's build-flow notes:
 #   - the CanvasViewMounting* family (Surface/Editing/Region — three subclasses
@@ -116,6 +133,9 @@ case "$MODE" in
       CODE_SIGNING_ALLOWED=NO $TIMEOUTS \
       -resultBundlePath "$BUNDLE"
     ;;
+  core)
+    run_core
+    ;;
   phone)
     echo "▸ Phone scheme (iOS Simulator)"
     xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
@@ -123,7 +143,7 @@ case "$MODE" in
       CODE_SIGNING_ALLOWED=NO
     ;;
   *)
-    echo "usage: $0 [fast|full|phone]" >&2
+    echo "usage: $0 [fast|full|phone|core]" >&2
     exit 64
     ;;
 esac

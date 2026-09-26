@@ -26,6 +26,7 @@ public enum ProjectFactory {
         if fm.fileExists(atPath: projectURL.path) {
             throw ProjectFactoryError.projectAlreadyExists(projectURL)
         }
+        let starter = await thisMacAsAStarter()
 
         do {
             try fm.createDirectory(at: projectURL, withIntermediateDirectories: true)
@@ -49,7 +50,10 @@ public enum ProjectFactory {
                         id: "manuscript",
                         title: name,
                         type: .document,
-                        path: "story.md"
+                        path: "story.md",
+                        // The book's first piece is started on this Mac like
+                        // any other (P3c plan 2, Option A).
+                        startedBy: starter
                     )
                 ],
                 research: []
@@ -80,7 +84,8 @@ public enum ProjectFactory {
             in: parent,
             type: .novel,
             initialDocumentTitle: "Chapter 1",
-            initialDocumentExtension: "md")
+            initialDocumentExtension: "md",
+            startedBy: await thisMacAsAStarter())
     }
 
     /// Creates a Screenplay project at `parent/<name>` with one Scene 1.fountain.
@@ -93,7 +98,8 @@ public enum ProjectFactory {
             in: parent,
             type: .screenplay,
             initialDocumentTitle: "Scene 1",
-            initialDocumentExtension: "fountain")
+            initialDocumentExtension: "fountain",
+            startedBy: await thisMacAsAStarter())
     }
 
     /// Creates a Collection project at `parent/<name>` with an empty manifest.
@@ -143,6 +149,14 @@ public enum ProjectFactory {
 
     // MARK: - Shared helpers
 
+    /// Who the new book's first piece records as its starter (P3c plan 2,
+    /// Option A): `ProjectStore.thisMacAsAStarter`, read once, BEFORE anything
+    /// is written — the factory is nonisolated and the identity seam is the
+    /// main actor's.
+    private static func thisMacAsAStarter() async -> String {
+        await MainActor.run { ProjectStore.thisMacAsAStarter }
+    }
+
     /// Shared logic for Novel + Screenplay (and any future "single-starter
     /// document" project type). Creates manuscript/, research/, notes/ and a
     /// single document with NN-slug naming under manuscript/.
@@ -151,7 +165,8 @@ public enum ProjectFactory {
         in parent: URL,
         type: ProjectType,
         initialDocumentTitle: String,
-        initialDocumentExtension: String
+        initialDocumentExtension: String,
+        startedBy starter: String
     ) async throws -> URL {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw ProjectFactoryError.invalidName }
@@ -189,11 +204,14 @@ public enum ProjectFactory {
             // a reader cannot derive: no passes and no string both read
             // `.draft`. A Collection's loose pieces have never carried a seed,
             // so this also ends a disagreement between the two creation paths.
+            // The book's first piece is started on this Mac like any other
+            // (P3c plan 2, Option A).
             let item = StructureItem(
                 id: ProjectStore.newId(prefix: "doc"),
                 title: initialDocumentTitle,
                 type: .document,
-                path: "manuscript/\(filename)")
+                path: "manuscript/\(filename)",
+                startedBy: starter)
             let manifest = ProjectManifest(
                 type: type,
                 title: name, author: "",

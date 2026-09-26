@@ -878,6 +878,40 @@ final class PeopleAndDevicesModelTests: XCTestCase {
                       "adopted is answered; it is not still asking: \(model.claimants)")
     }
 
+    /// **A person an ADOPTED root admitted is listed** (P3c Task 7, M4). Once
+    /// this Mac's root has claimed Amelia's chain the op log applies every line
+    /// Sam writes (`TrustTable.verdict` answers `.admitted`), so she is in this
+    /// book and the pane must say so — while a person under a root this Mac
+    /// never adopted, in the same folder, is still not a row.
+    func test_apersonAnAdoptedRootAdmittedIsListedAndAStrangersIsNot() throws {
+        let third = DeviceIdentity.softwareForTesting()
+        let claimed = Registry(
+            devices: [deviceRecord(mac, name: "Denver's MacBook", kind: .mac),
+                      deviceRecord(phone, name: "Sam's iPhone"),
+                      deviceRecord(stranger, name: "Jo's iPhone")],
+            people: [person(mac, label: "Denver", ownName: "Denver's MacBook",
+                            admittedBy: mac),
+                     person(otherRoot, label: "Amelia", ownName: "Amelia's MacBook",
+                            admittedBy: otherRoot),
+                     person(phone, label: "Sam", ownName: "Sam's iPhone",
+                            admittedBy: otherRoot),
+                     person(third, label: "Lee", ownName: "Lee's MacBook",
+                            admittedBy: third),
+                     person(stranger, label: "Jo", ownName: "Jo's iPhone",
+                            admittedBy: third)],
+            claims: [ClaimRecord(newRoot: mac.fingerprint,
+                                 adopted: [otherRoot.fingerprint],
+                                 claimedAt: admitted)])
+        let model = model(claimed)
+
+        let listed = Set(model.people.map(\.fingerprint))
+        XCTAssertTrue(listed.contains(phone.fingerprint),
+                      "Sam writes in this book, so she is listed: \(listed)")
+        XCTAssertFalse(listed.contains(stranger.fingerprint),
+                       "a root this Mac never adopted is not this book's row")
+        XCTAssertFalse(listed.contains(third.fingerprint))
+    }
+
     // MARK: - What this device remembers
 
     /// A device this Mac gave a label to, whose record is no longer in the

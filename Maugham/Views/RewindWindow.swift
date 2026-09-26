@@ -33,6 +33,9 @@ struct RewindWindow: View {
     /// several whole-log derives per body pass, stuttering the scrubber on
     /// novel-scale histories).
     @State private var impactPreview: RewindImpact.Preview = RewindImpact.preview(ops: [], cursorOpId: nil)
+    /// The open document's own amendment judgement, so the preview skips what
+    /// its deriver skips (ruling P). None for a closed piece.
+    @State private var amendments: AnnotationAmendments = .honourEverything
     @State private var nowState: Deriver.DerivedState = .init(paragraphs: [:], sequence: [])
     @State private var showingSnapshotPrompt: Bool = false
     @State private var showingRestoreConfirm: Bool = false
@@ -325,6 +328,7 @@ struct RewindWindow: View {
            let doc = ds.document(forDocId: activeDocId) {
             try? await doc.flushBurstNow()
             ops = (try? await doc.opLog()) ?? []
+            amendments = doc.annotationAmendments
         } else {
             let opStore = OpLogStore(projectURL: projectURL)
             ops = (try? await opStore.load(docId: activeDocId)) ?? []
@@ -348,9 +352,11 @@ struct RewindWindow: View {
         // RULING-28's full collateral preview, recomputed exactly when the
         // derived state is — once per cursor change.
         if case .atOp(let targetOpId, _) = cursor {
-            impactPreview = RewindImpact.preview(ops: ops, cursorOpId: targetOpId)
+            impactPreview = RewindImpact.preview(
+                ops: ops, cursorOpId: targetOpId, amendments: amendments)
         } else {
-            impactPreview = RewindImpact.preview(ops: ops, cursorOpId: nil)
+            impactPreview = RewindImpact.preview(
+                ops: ops, cursorOpId: nil, amendments: amendments)
         }
     }
 

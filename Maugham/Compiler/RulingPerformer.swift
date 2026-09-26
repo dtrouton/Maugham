@@ -353,22 +353,20 @@ enum RulingPerformer {
         if let documentStore = store.documentStore {
             posture = await documentStore.settledPosture(forDocId: docId)
         } else {
-            posture = windowlessPosture(forDocId: docId, projectURL: store.url)
+            posture = postureWithNoWindow(forDocId: docId, projectURL: store.url)
         }
         guard posture.allows(.editStatement) else {
             throw RulingRefusal.notYours(statement: kind)
         }
     }
 
-    /// The builder, asked directly, for a store no window holds. A registry
-    /// read on this actor — the price of a correct answer on a path no
+    /// Core's posture door, asked directly, for a store no window holds. A
+    /// registry read on this actor — the price of a correct answer on a path no
     /// production window takes.
-    private static func windowlessPosture(forDocId docId: String, projectURL: URL) -> Posture {
-        let permit = Document.makeLoadOpStore(projectURL: projectURL, presenter: nil)
-            .localWritePermit(as: .author) {
-                Document.documentClass(forDocId: docId, in: projectURL)
-            }
-        return Posture(permit)
+    private static func postureWithNoWindow(forDocId docId: String, projectURL: URL) -> Posture {
+        PostureDoor.posture(
+            forDocId: docId, in: projectURL, as: .author,
+            using: Document.makeLoadOpStore(projectURL: projectURL, presenter: nil))
     }
 
     // MARK: - The shared half of revoke and edit

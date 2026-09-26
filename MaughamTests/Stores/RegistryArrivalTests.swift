@@ -441,4 +441,113 @@ final class RegistryArrivalTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Plan 1's pre-check limits (P3c plan 2 Task 8)
+
+    /// **A corrupt person file no longer hides a record-only stranger.**
+    /// Matched by name alone, `people/<fp>.json` that will not read read as
+    /// *already let in*, and the verified read that would have refused it was
+    /// never paid for. Now a matched person file must parse, and one that does
+    /// not is a device worth a look — both directions.
+    func test_anUnreadablePersonFileCountsAsWorthALook() async throws {
+        let store = try await DocumentStore.open(url: projectURL)
+        _ = try await store.admit(
+            device: ren.author.fingerprint, label: "Ren", ownName: "Ren’s Mac")
+        try await rensRecordArrives(at: store)
+        let me = Document.loadIdentities.author.fingerprint
+        XCTAssertEqual(AdmissionDecision.devicesWithNoPersonRecord(
+            in: projectURL, excluding: me), [],
+            "premise: her person file reads, so she is not looked for")
+        _ = await refreshAfterTheSettle(store)
+        XCTAssertEqual(resolves, 0, "and nothing is resolved")
+
+        try Data("{ not json".utf8).write(to: RegistryWriter.url(
+            .people, fingerprint: ren.author.fingerprint, in: projectURL))
+
+        XCTAssertEqual(AdmissionDecision.devicesWithNoPersonRecord(
+            in: projectURL, excluding: me), [ren.author.fingerprint],
+            "an unreadable person file is no person record to the pre-check")
+        _ = await refreshAfterTheSettle(store)
+        XCTAssertEqual(resolves, 1, "so the verified read is paid for, and it decides")
+    }
+
+    /// **The non-root skip, by filename** — `mayHoldARootRecord`. A root's
+    /// record is filed under its own fingerprint and names itself as its
+    /// admitter; an admitted Mac's names somebody else; a Mac with no person
+    /// file has no root record. A file that will not read errs toward the look.
+    func test_mayHoldARootRecordReadsTheOneFileByName() async throws {
+        let store = try await DocumentStore.open(url: projectURL)  // this Mac roots the book
+        let me = Document.loadIdentities.author.fingerprint
+        XCTAssertTrue(AdmissionDecision.mayHoldARootRecord(me, in: projectURL),
+                      "the root's own self-admitted record")
+
+        XCTAssertFalse(AdmissionDecision.mayHoldARootRecord(
+            ren.author.fingerprint, in: projectURL), "no person file: no root record")
+
+        _ = try await store.admit(
+            device: ren.author.fingerprint, label: "Ren", ownName: "Ren’s Mac")
+        XCTAssertFalse(AdmissionDecision.mayHoldARootRecord(
+            ren.author.fingerprint, in: projectURL),
+            "an admitted Mac's record names its admitter, not itself")
+
+        try Data("{ not json".utf8).write(to: RegistryWriter.url(
+            .people, fingerprint: ren.author.fingerprint, in: projectURL))
+        XCTAssertTrue(AdmissionDecision.mayHoldARootRecord(
+            ren.author.fingerprint, in: projectURL),
+            "unreadable: look, and let the verified read decide")
+    }
+
+    /// **A non-root Mac skips the admission resolve entirely** — the
+    /// production closure, on disk. Ren's Mac, admitted here, sees a stranger's
+    /// device record arrive; it pays for no listing, no recount and no verified
+    /// read, and answers nobody. The root, in the same folder, still looks.
+    func test_aNonRootMacSkipsTheAdmissionResolve() async throws {
+        let store = try await DocumentStore.open(url: projectURL)  // this Mac roots it
+        _ = try await store.admit(
+            device: ren.author.fingerprint, label: "Ren", ownName: "Ren’s Mac")
+        try await rensRecordArrives(at: store)
+        let kit = LocalIdentities.softwareForTesting()
+        _ = try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: kit, name: "Kit’s Mac", kind: .mac)
+
+        func refresh(asDevice device: String)
+            async -> (answer: [AdmissionRequest]?, counted: Int, resolved: Int)
+        {
+            var counted = 0
+            var resolved = 0
+            let url = projectURL!
+            let identities = Document.loadIdentities
+            let cache = Document.loadRegistryCache
+            let answer = await AdmissionDecision.refreshedRequests(
+                cause: .settle,
+                holdsARootRecord: { AdmissionDecision.mayHoldARootRecord(device, in: url) },
+                heldLines: { counted += 1; return [:] },
+                arrivedDevices: {
+                    AdmissionDecision.devicesWithNoPersonRecord(in: url, excluding: device)
+                },
+                thisDevice: device,
+                memory: [:],
+                admitRemembered: {},
+                resolve: {
+                    resolved += 1
+                    guard let verified = try? TrustResolution.resolveVerified(
+                        projectURL: url, identities: identities, cache: cache)
+                    else { return nil }
+                    return (verified.registry, AdmissionDecision.askingRoot(
+                        in: verified.registry, thisDevice: device))
+                })
+            return (answer, counted, resolved)
+        }
+
+        let asRen = await refresh(asDevice: ren.author.fingerprint)
+        XCTAssertEqual(asRen.answer, [], "an admitted Mac is asked about nobody")
+        XCTAssertEqual(asRen.counted, 0, "counts nothing")
+        XCTAssertEqual(asRen.resolved, 0, "and resolves nothing to learn it")
+
+        let asRoot = await refresh(asDevice: Document.loadIdentities.author.fingerprint)
+        XCTAssertEqual(asRoot.answer?.map(\.fingerprint), [kit.author.fingerprint],
+                       "the root is asked about Kit")
+        XCTAssertGreaterThan(asRoot.counted, 0, "having counted")
+        XCTAssertEqual(asRoot.resolved, 1, "and resolved once")
+    }
 }

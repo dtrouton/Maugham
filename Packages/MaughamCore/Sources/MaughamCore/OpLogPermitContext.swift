@@ -71,14 +71,27 @@ public struct PermitContext: Sendable {
     /// reason the other two halves are here.
     public let amendments: AmendmentPermits?
 
+    /// **Who started this piece** — its manifest item's `startedBy` (P3c
+    /// plan 2, Option A), for the one arm that applies a writer's own §4.5
+    /// lines on her own Mac. Called at most once per file, and only where one
+    /// of THIS writer's own lines reached §4.5's hold, so no book that has
+    /// narrowed nobody — and no Mac but hers — ever reads it.
+    ///
+    /// Defaults to *no starter recorded*, which is today's rule: a reader that
+    /// builds a context for a stream that is not a piece (a translation, the
+    /// inbox) has nothing to answer, and §4.5 cannot reach such a stream.
+    public let startedBy: @Sendable () -> String?
+
     public init(
         documentClass: @escaping @Sendable () -> DocumentClass,
         unowned: @escaping @Sendable () -> PermitPartition.UnownedPiece,
-        amendments: AmendmentPermits? = nil
+        amendments: AmendmentPermits? = nil,
+        startedBy: @escaping @Sendable () -> String? = { nil }
     ) {
         self.documentClass = documentClass
         self.unowned = unowned
         self.amendments = amendments
+        self.startedBy = startedBy
     }
 }
 
@@ -328,7 +341,7 @@ public struct PermitJudge: Sendable {
     /// at all, on any book.
     ///
     /// `unowned` is never asked: §4.5 is about MANUSCRIPT text in a piece
-    /// nobody has claimed, and `PermitPartition.startsAPieceNobodyHasClaimed`
+    /// nobody has claimed, and `Permit.startsAPieceNobodyHasClaimed`
     /// requires both a `.piece` class and the manuscript-text group, so a
     /// translation line can never reach it.
     public static func translation(
@@ -408,6 +421,26 @@ extension OpLogStore {
         }
     }
 
+    /// **Who started a piece, from the manifest on disk** (P3c plan 2, Option
+    /// A) — `StructureItem.startedBy` for the item whose id is `docId`, the
+    /// one door a reader holding only a project URL reads it through.
+    ///
+    /// Nil where the manifest will not read, where no item has that id, and
+    /// where the item records no starter — all three are *today's rule*, which
+    /// is the direction that changes nothing: a line §4.5 holds stays held,
+    /// and a Mac that may write the piece's text still mints its opening.
+    nonisolated public static func startedBy(
+        ofPiece docId: String, in projectURL: URL
+    ) -> String? {
+        manifestReadObserverForTesting?()
+        let url = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        guard let data = try? Data(contentsOf: url),  // adr-0018-ok: project manifest JSON read, not manuscript
+              let manifest = try? ProjectManifest.makeDecoder()
+                .decode(ProjectManifest.self, from: data)
+        else { return nil }
+        return manifest.startedBy(ofPiece: docId)
+    }
+
     /// Test-only counting seam: called once per manifest READ this path makes.
     ///
     /// It exists to pin the cost claim rather than argue it: **a book with no
@@ -424,6 +457,15 @@ extension OpLogStore {
 
     /// **§4.5's pass 1, over every file of one document**: has any key holding
     /// an author-of-the-whole-book permit applied a manuscript-text line here?
+    /// A book author's opening of a piece somebody ELSE started is not one
+    /// (ruling G): the rule is `PermitPartition.bookAuthorWroteManuscriptText`'s,
+    /// asked per file. Since Option A the WRITE side asks this too
+    /// (`localWritePermit`, for an author of some pieces in a piece she
+    /// started). The answer is a fact about the document's LINES, so a stamp
+    /// taken from it goes stale when lines arrive: the Mac re-stamps a
+    /// Document carrying `writesAsItsStarter` on every external re-read
+    /// (ruling H, `Document.handleExternalLogChange`), which is when her read
+    /// sets her lines aside — so her editor locks at that same re-read.
     ///
     /// Classified with **no permit context of its own**, which is what stops
     /// this recursing, and with `state: nil`, so it adopts no head, remembers
@@ -439,6 +481,18 @@ extension OpLogStore {
         forDocId docId: String, in projectURL: URL, trust: TrustTable?
     ) -> PermitPartition.UnownedPiece {
         guard let trust else { return .nobodyHasWrittenItsText }
+        return unownedPiece(
+            forDocId: docId, in: projectURL, trust: trust,
+            startedBy: startedBy(ofPiece: docId, in: projectURL))
+    }
+
+    /// The same question, for a caller that already holds the piece's
+    /// recorded starter (ruling G: a book author's `bootstrap` claims the
+    /// piece unless somebody else started it).
+    nonisolated public static func unownedPiece(
+        forDocId docId: String, in projectURL: URL, trust: TrustTable,
+        startedBy: String?
+    ) -> PermitPartition.UnownedPiece {
         for url in opLogFileURLs(forDocId: docId, in: projectURL) {
             guard let bytes = (try? readCoordinated(url: url, presenter: nil)) ?? nil,
                   let stream = PermitMark.stream(of: url)
@@ -457,14 +511,15 @@ extension OpLogStore {
                     in: settled.verification, streamKey: stream.key,
                     deviceSlug: stream.deviceSlug,
                     fileSegmentDigest: settled.digest, trust: trust,
-                    settledByKey: settled.key) { return .aBookAuthorHasWrittenItsText }
+                    settledByKey: settled.key,
+                    startedBy: startedBy) { return .aBookAuthorHasWrittenItsText }
                 continue
             }
             if PermitPartition.bookAuthorWroteManuscriptText(
                 in: verification, streamKey: stream.key,
                 deviceSlug: stream.deviceSlug,
                 fileSegmentDigest: classified.verifiedSegmentDigest,
-                trust: trust) { return .aBookAuthorHasWrittenItsText }
+                trust: trust, startedBy: startedBy) { return .aBookAuthorHasWrittenItsText }
         }
         return .nobodyHasWrittenItsText
     }
@@ -528,6 +583,7 @@ extension OpLogStore {
         // its class once and answers §4.5 once (fix round 1, I1 / minor (d)).
         let classMemo = PermitMemo<DocumentClass>()
         let unownedMemo = PermitMemo<PermitPartition.UnownedPiece>()
+        let starterMemo = PermitMemo<String?>()
         return PermitContext(
             documentClass: {
                 classMemo {
@@ -539,9 +595,17 @@ extension OpLogStore {
             },
             unowned: {
                 unownedMemo {
-                    unownedPiece(forDocId: docId, in: projectURL, trust: trust)
+                    guard let trust else { return .nobodyHasWrittenItsText }
+                    return unownedPiece(
+                        forDocId: docId, in: projectURL, trust: trust,
+                        startedBy: starterMemo {
+                            startedBy(ofPiece: docId, in: projectURL)
+                        })
                 }
             },
-            amendments: amendments)
+            amendments: amendments,
+            startedBy: {
+                starterMemo { startedBy(ofPiece: docId, in: projectURL) }
+            })
     }
 }

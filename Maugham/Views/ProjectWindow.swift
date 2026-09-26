@@ -1239,8 +1239,9 @@ struct ProjectWindow: View {
         func body(content: Content) -> some View {
             content
                 // The File menu's enabled state (ruling X), published by the
-                // modifier that receives the three items.
-                .focusedSceneValue(\.mayStartAPiece, StartAPieceDoor.drawn(store: store))
+                // modifier that receives the three items — and only where the
+                // project shows the pieces pane (Task 9).
+                .focusedSceneValue(\.mayStartAPiece, StartAPieceDoor.published(store: store))
                 .onKeyWindowCommand(.maughamAddLoosePiece, window: window) { _ in
                     guard let store, store.manifest.type == .collection else { return }
                     Task {

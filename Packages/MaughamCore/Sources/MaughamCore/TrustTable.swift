@@ -180,8 +180,19 @@ public struct TrustTable: Equatable, Sendable {
     /// on the DEVICE, because retirement is a machine's own act and every actor
     /// key it holds retires with it.
     private let retiredAtByDevice: [String: Date]
-    /// Everyone under `myRoot`, transitively, the root included.
-    private let myChain: Set<String>
+    /// **Everyone this device judges as admitted**: everyone under `myRoot`,
+    /// transitively, the root included — AND everyone under every root in
+    /// `adoptedRoots`, each of those roots included (P3c Task 7, carry M4).
+    /// Empty where `myRoot` is nil.
+    ///
+    /// It is the exact set `verdict(forSealKey:)` answers `.admitted` (or
+    /// `.revoked`/`.retired`) over, so it is public and read-only for the
+    /// surfaces that LIST people — People & Devices, `PieceWriters` and so the
+    /// root's yields, `DeviceStanding`. A surface that listed
+    /// `Registry.chain(underRoot: myRoot)` alone would leave out a person an
+    /// adopted root admitted while the op log applies every line she writes:
+    /// the pane and the words disagreeing about who is in the book.
+    public let myChain: Set<String>
     /// Person fingerprint → the OTHER root whose chain holds them.
     private let otherRootByMember: [String: String]
 
@@ -800,9 +811,13 @@ public struct TrustTable: Equatable, Sendable {
     /// folding them together would make *unnamed* an identity.
     ///
     /// **Not a general-purpose answer.** It is asked by the ownership rule and
+    /// by Option A's *whose piece did she start* (`isThisWriters`,
+    /// `isAStarter`), and
     /// nothing else: a verdict, a permit and a mark are all about the machine,
     /// and widening any of those to a label would let a name decide what a
-    /// signature means.
+    /// signature means. Option A's use is the ownership rule's own shape — a
+    /// question about the WRITER — and it widens nothing but which of her own
+    /// Macs shows her own words while the root decides.
     nonisolated public func sameWriter(
         _ fingerprint: String, _ other: String
     ) -> Bool {
@@ -810,6 +825,147 @@ public struct TrustTable: Equatable, Sendable {
         if a == b { return true }
         return TrustTable.sharesLabel(
             personByFingerprint[a]?.label, personByFingerprint[b]?.label)
+    }
+
+    // MARK: - Who started a piece (P3c plan 2, Option A)
+
+    /// **Whose device a piece's recorded starter is, to this device** (ruling
+    /// OA-1). `StructureItem.startedBy` carries an AUTHOR device id; this is
+    /// the one place that id is turned into an answer.
+    public enum PieceStarter: Equatable, Sendable {
+        /// This very Mac started it — the one device that may mint its
+        /// opening (`LocalWritePermit.mayMintOpening`).
+        case thisDevice
+        /// Another of this writer's own devices started it: her other Mac.
+        /// Her words from there are hers here too; the opening is not this
+        /// Mac's to mint (Review Focus 1 — it waits for the ops).
+        case anotherOfThisWritersDevices
+        /// Somebody else, or a device this register cannot vouch for — a
+        /// contested key, a revoked or retired device, one nobody names.
+        case somebodyElse
+    }
+
+    /// **Is this seal key one of THIS writer's?** — ANY of this device's own
+    /// four keys (author, assistant, translator, maugham — not only the
+    /// writer's hand), or a key `sameWriter` joins to this device's own author
+    /// key (her other Mac, which the root labelled as hers). Every caller that
+    /// means *her hand* must also require the `.author` actor, as Option A's
+    /// arm does through `Permit.startsAPieceNobodyHasClaimed`.
+    ///
+    /// The second caller `sameWriter`'s note anticipates: Option A asks it
+    /// about the piece a writer STARTED, which is a question about the writer
+    /// and not the machine, exactly as *may she withdraw her own note* is.
+    /// False where this device has never written as its author: it then has
+    /// no person here to be the same as.
+    nonisolated public func isThisWriters(sealKey fingerprint: String) -> Bool {
+        if mine.contains(fingerprint) { return true }
+        guard let myPerson else { return false }
+        return sameWriter(fingerprint, myPerson)
+    }
+
+    /// **Whose device `deviceId` — a piece's recorded starter — is.**
+    ///
+    /// The id is a CLAIM written into an unsigned manifest, so it is matched
+    /// forwards against keys this register already vouches for
+    /// (`deviceKey(forDeviceId:)`) and never believed on its face:
+    ///
+    /// - it must name an AUTHOR key — a piece is started by a writer's own
+    ///   hand, never by the assistant or the pipeline;
+    /// - it must be owned — a contested key is nobody's (`DeviceKey.isOwned`);
+    /// - one of this device's own keys is `.thisDevice`, first-hand;
+    /// - otherwise it must be this writer's (`isThisWriters`) AND still
+    ///   standing here — `.admitted`, never `.revoked` or `.retired`: a device
+    ///   the root shut out, or that stopped, starts nothing of hers.
+    ///
+    /// Everything else is `.somebodyElse`, which is the waiting answer.
+    nonisolated public func starter(ofPieceStartedBy deviceId: String) -> PieceStarter {
+        guard let key = starterKey(deviceId) else { return .somebodyElse }
+        if mine.contains(key) { return .thisDevice }
+        guard isThisWriters(sealKey: key),
+              case .admitted = verdict(forSealKey: key)
+        else { return .somebodyElse }
+        return .anotherOfThisWritersDevices
+    }
+
+    /// **Where a piece's recorded starter stands in this register** (controller
+    /// Rulings L (b), M and N, P3c plan 2 Task 4).
+    public enum StarterStanding: Equatable, Sendable {
+        /// This device, or a device this register shows as admitted: the
+        /// starter rule binds, and only it mints the opening.
+        case standing
+        /// A device the register shows REVOKED or RETIRED — and nothing else
+        /// (Ruling N). It will never mint here, so the starter rule does not
+        /// bind: today's rule applies (whoever may write the piece's text
+        /// mints it), and the piece is not unopenable for good.
+        case gone
+        /// Everything else, and this Mac WAITS (Rulings M, N): a device id no
+        /// record here names (its record has not synced), a stranger whose
+        /// admission may not have synced (a non-root Mac cannot tell *never
+        /// admitted* from *not arrived yet*, and a never-admitted stranger's
+        /// piece is not another Mac's to open either way), another root's
+        /// member, a Mac on no chain, a contested key, and a key that is not a
+        /// writer's hand. The starter rule binds.
+        case unknown
+    }
+
+    /// **Where the starter `deviceId` stands** — the one answer the write-side
+    /// builder (`OpLogStore.localWritePermit`) asks before the starter rule
+    /// may bind. This device's own ids are always `.standing`
+    /// (`keyByDeviceId` holds them before any record of its own is written).
+    nonisolated public func starterStanding(_ deviceId: String) -> StarterStanding {
+        guard let key = starterKey(deviceId) else { return .unknown }
+        switch verdict(forSealKey: key) {
+        case .mine, .admitted: return .standing
+        case .revoked, .retired: return .gone
+        case .stranger, .otherRoot, .noChain: return .unknown
+        }
+    }
+
+    /// **Is `deviceId` — a piece's recorded starter — the same writer as the
+    /// key `fingerprint`?** (controller ruling G.) Asked of a book author's
+    /// `bootstrap` by §4.5's pass 1: her opening counts as writing the piece's
+    /// text unless the piece was started by somebody else. The same forwards
+    /// match `starter(ofPieceStartedBy:)` makes, then `sameWriter`; a starter
+    /// this register cannot resolve is nobody's, so the answer is false.
+    nonisolated public func isAStarter(
+        _ deviceId: String, ofTheSameWriterAs fingerprint: String
+    ) -> Bool {
+        guard let key = starterKey(deviceId) else { return false }
+        return sameWriter(key, fingerprint)
+    }
+
+    /// **Does the writer `deviceId` names already author `documentClass`?**
+    /// (P3c plan 2 fix wave, Ruling U.) The permit in force NOW, from the
+    /// timeline (tripwire 43) — so it is true once the root has answered
+    /// *Theirs* (the answer adds the piece to her scope) and for a starter who
+    /// may write the whole book, and false for an author of some pieces whose
+    /// scope does not name it: the §4.5 case, where her words are held and a
+    /// book author's text would set them aside. A starter this register cannot
+    /// name authors nothing it can vouch for, and neither does one it names but
+    /// has not admitted — a stranger, another root's member, a Mac on no chain.
+    /// Their timeline would answer the whole-book DEFAULT, which is a statement
+    /// about people with no events, not about a writer nobody has let in: their
+    /// held words are exactly what a book author's text would set aside once
+    /// they are admitted. So the answer is false there.
+    nonisolated public func starterAuthors(
+        _ deviceId: String, _ documentClass: DocumentClass
+    ) -> Bool {
+        guard let key = starterKey(deviceId) else { return false }
+        switch verdict(forSealKey: key) {
+        case .mine, .admitted:
+            return timeline(forSealKey: key).current.authors(documentClass)
+        case .stranger, .otherRoot, .noChain, .revoked, .retired:
+            return false
+        }
+    }
+
+    /// The owned AUTHOR key a recorded starter names, or nil — the one match
+    /// of a starter id against this register.
+    nonisolated private func starterKey(_ deviceId: String) -> String? {
+        guard let named = deviceKey(forDeviceId: deviceId), named.isOwned,
+              (named.actor ?? DeviceIdentity.claimedActor(ofDeviceId: deviceId)) == .author
+        else { return nil }
+        return named.key
     }
 
     /// **Do two person records name the same writer?** — the label rule above,

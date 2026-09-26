@@ -273,9 +273,21 @@ public final class OpLogStore {
     /// whole book answers `.yes` in the hardest class there is, so the closure
     /// is not called at all. `PermitPartition`'s `unowned` is the same shape
     /// for the same reason.
+    ///
+    /// **And who started the piece** (P3c plan 2, Option A). In a book in
+    /// which somebody is narrowed, a piece's recorded starter decides two
+    /// things: which Mac mints its opening (`LocalWritePermit.startedHere`,
+    /// OA-1/OA-2), and whether an author of some pieces may write it before
+    /// the root has said whose it is (`writesAsItsStarter`, OA-3). `startedBy`
+    /// answers the starter for a piece id; nil reads it off the manifest on
+    /// disk, and a caller holding a live manifest passes its own. It is asked
+    /// only in a narrowed book and only for a piece, so a book that has
+    /// narrowed nobody — every book on disk before P3 — pays for none of it
+    /// and answers exactly as before.
     public func localWritePermit(
         as actor: DeviceActor = .author,
-        documentClass: () -> DocumentClass
+        documentClass: () -> DocumentClass,
+        startedBy: ((String) -> String?)? = nil
     ) -> LocalWritePermit {
         // **A project that has never had a register pays nothing at all** — not
         // a folder read, not a verify, not a question. The test is
@@ -283,12 +295,71 @@ public final class OpLogStore {
         // the FOLDER or this device's MEMORY of one, because a register deleted
         // wholesale is restored from that memory and treating its absence as
         // *no register* would make deleting one an escape from a demotion.
-        let permit = registerTable().map(\.myTimeline.current) ?? .bookAuthor
-        if LocalWritePermit.answersWithoutTheClass(permit, as: actor) {
-            return LocalWritePermit(permit: permit, actor: actor, documentClass: nil)
+        let table = registerTable()
+        let permit = table.map(\.myTimeline.current) ?? .bookAuthor
+        guard let table, table.hasNarrowingPermits else {
+            if LocalWritePermit.answersWithoutTheClass(permit, as: actor) {
+                return LocalWritePermit(permit: permit, actor: actor, documentClass: nil)
+            }
+            return LocalWritePermit(
+                permit: permit, actor: actor, documentClass: documentClass())
+        }
+        // **A narrowed book: the starter rule binds** — the root's Mac too
+        // (OA-2), which is why the class is resolved here even under a permit
+        // that could otherwise skip it: the piece id is what the starter is
+        // recorded against.
+        let cls = documentClass()
+        guard let piece = cls.piece, case .piece = cls,
+              let starterId = (startedBy ?? { [projectURL] in
+                  OpLogStore.startedBy(ofPiece: $0, in: projectURL)
+              })(piece)
+        else {
+            return LocalWritePermit(permit: permit, actor: actor, documentClass: cls)
+        }
+        // **A starter that is GONE binds nothing** (Rulings L (b), M, N): a
+        // device the register shows revoked or retired will never mint this
+        // piece's opening, so today's rule applies and the piece is not left
+        // unopenable. Every other starter — unknown, a stranger, another
+        // root's member, a Mac on no chain — binds: this Mac waits.
+        guard table.starterStanding(starterId) != .gone else {
+            return LocalWritePermit(permit: permit, actor: actor, documentClass: cls)
+        }
+        let starter = table.starter(ofPieceStartedBy: starterId)
+        // **Option A's arm** — the same three facts the partition's own arm
+        // asks (`PermitPartition.appliesOnItsWritersOwnMac`), on the write
+        // side: her own device started it, it was not taken from her, and no
+        // book author has written a word of it. `unownedPiece` classifies the
+        // document's files, so it is asked last and only where the permit
+        // layer's §4.5 shape already holds for her words.
+        let mine = starter != .somebodyElse
+            && permit.startsAPieceNobodyHasClaimed(
+                .op(.typingBurst), in: cls, actor: actor)
+            && !table.myTimeline.wasTakenFromThem(piece: piece)
+            && OpLogStore.unownedPiece(
+                forDocId: piece, in: projectURL, trust: table, startedBy: starterId)
+                == .nobodyHasWrittenItsText
+        // **The same fact from the other side** (fix wave, Ruling U): a book
+        // author's hand in a piece somebody else started and nobody has
+        // claimed. Her arm and this one cannot both hold (hers needs a starter
+        // that is not somebody else), and the cheap questions come first:
+        // `unownedPiece` classifies the document's files and is asked last.
+        let unsettled: LocalWritePermit.UnsettledStarter?
+        if starter == .somebodyElse,
+           permit.claimsAPieceByWritingItsText(actor: actor),
+           !table.starterAuthors(starterId, cls),
+           OpLogStore.unownedPiece(
+               forDocId: piece, in: projectURL, trust: table, startedBy: starterId)
+               == .nobodyHasWrittenItsText {
+            unsettled = .init(
+                deviceId: starterId,
+                name: table.label(forDeviceSlug: DeviceSlug.make(from: starterId).raw))
+        } else {
+            unsettled = nil
         }
         return LocalWritePermit(
-            permit: permit, actor: actor, documentClass: documentClass())
+            permit: permit, actor: actor, documentClass: cls,
+            startedHere: starter == .thisDevice, writesAsItsStarter: mine,
+            unsettledStarter: unsettled)
     }
 
     /// **The verified table, or nil where this project has never had a

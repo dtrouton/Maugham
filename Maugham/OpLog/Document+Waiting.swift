@@ -24,9 +24,12 @@ import MaughamCore
 /// to show: the file on disk is a derived render of a history this device has
 /// not got.
 public enum DocumentLoadError: Error, Equatable {
-    /// This device may not write this piece, and the piece has no history here
-    /// yet. `root` is the label of the root that would add it, where the
-    /// registry names one.
+    /// This device may not mint this piece's opening, and the piece has no
+    /// history here yet. `from` names who the wait is for: the STARTER's label
+    /// where the piece records a starter and this Mac is not it (P3c plan 2,
+    /// Option A), else the root that would add it to this device's pieces —
+    /// or nobody, where the register cannot name one, where the starter is
+    /// this writer's own other device, and on the root's own Mac.
     case waitingForPiece(docId: String, from: String?)
 }
 
@@ -109,10 +112,56 @@ extension Document {
         guard permit.permit.mayStartAPieceOfTheirOwn else {
             return error.localizedDescription
         }
-        guard let root else {
-            return "Waiting for this piece to be added to yours."
+        // **A piece somebody STARTED is waiting for its ops, not for a person**
+        // (P3c plan 2, Option A; fix round 1, M2). Where the starter rule bound
+        // and this Mac did not start the piece (`startedHere == false`), the
+        // load has already named the starter (or nobody, for her own other
+        // Mac), and so has the error — the same sentence a reviewer reads. Her
+        // OWN piece by name is the same case: nobody is deciding anything
+        // about it. Only a piece outside her pieces that nobody is recorded as
+        // starting is waiting for the ROOT.
+        if permit.startedHere == false || permit.permit.namesPiece(docId)
+            || permit.writesAsItsStarter {
+            return error.localizedDescription
         }
-        return "Waiting for \(root) to add this piece to yours."
+        return Self.waitingToBeToldItIsYours(root: root)
+    }
+
+    /// **The label of the Mac that started `docId`, for the waiting sentence**
+    /// (fix round 1, M2) — or nil where the starter is this writer's own other
+    /// device (she is not waiting for anybody) or this register cannot name
+    /// it. Only ever called on the refusing path, where the starter rule bound
+    /// and this Mac did not start the piece.
+    internal static func starterLabelForWaiting(
+        docId: String, in projectURL: URL
+    ) -> String? {
+        starterLabel(
+            ofPiece: docId, in: projectURL,
+            identities: loadIdentities, cache: loadRegistryCache)
+    }
+
+    nonisolated static func starterLabel(
+        ofPiece docId: String, in projectURL: URL,
+        identities: LocalIdentities, cache: RegistryCache
+    ) -> String? {
+        guard let starter = OpLogStore.startedBy(ofPiece: docId, in: projectURL),
+              let registry = try? TrustResolution.verifiedRegistry(
+                projectURL: projectURL, cache: cache) else { return nil }
+        let table = TrustTable.resolve(
+            registry: registry, mine: identities,
+            joinedRoot: cache.joinedRoot(for: projectURL))
+        guard table.starter(ofPieceStartedBy: starter) == .somebodyElse else {
+            return nil
+        }
+        return table.label(forDeviceSlug: DeviceSlug.make(from: starter).raw)
+    }
+
+    /// **Denver's words for a piece that is not hers yet** (P3c plan 2,
+    /// Option A): the pane's waiting sentence and her standing line over a
+    /// piece she started and nobody has claimed say the same thing, so they
+    /// are spelled once. `root` nil names the root by what it is.
+    nonisolated static func waitingToBeToldItIsYours(root: String?) -> String {
+        "Waiting for \(root ?? "the book\u{2019}s author") to say this piece is yours."
     }
 
     /// The label of the root this device is on, for the waiting sentence — or
@@ -122,11 +171,29 @@ extension Document {
     /// read the registry a second time: the ordinary load has already gone past
     /// this point and paid nothing.
     internal static func rootLabelForWaiting(in projectURL: URL) -> String? {
+        rootLabel(in: projectURL, identities: loadIdentities, cache: loadRegistryCache)
+    }
+
+    /// `rootLabelForWaiting`'s body, callable OFF the main actor — the
+    /// standing line reads the same label from a detached task
+    /// (`PostureStandingLine.rootLabel`), so the two cannot name two roots.
+    ///
+    /// **Nil on a root's own Mac** (P3c plan 2, OA-2). The root waits too now,
+    /// for a piece somebody else started; *waiting for this piece to arrive
+    /// from Denver* on Denver's own Mac names the one person who is certainly
+    /// not what the wait is for. `Registry.holdsARootRecord` is the one test of
+    /// who is a root (Ruling AA).
+    nonisolated static func rootLabel(
+        in projectURL: URL, identities: LocalIdentities, cache: RegistryCache
+    ) -> String? {
         guard let registry = try? TrustResolution.verifiedRegistry(
-            projectURL: projectURL, cache: loadRegistryCache) else { return nil }
+            projectURL: projectURL, cache: cache) else { return nil }
+        guard !registry.holdsARootRecord(identities.author.fingerprint) else {
+            return nil
+        }
         let table = TrustTable.resolve(
-            registry: registry, mine: loadIdentities,
-            joinedRoot: loadRegistryCache.joinedRoot(for: projectURL))
+            registry: registry, mine: identities,
+            joinedRoot: cache.joinedRoot(for: projectURL))
         guard let root = table.myRoot else { return nil }
         return registry.roots.first { $0.person == root }?.label
     }

@@ -390,10 +390,28 @@ extension Document {
             // synced yet, and minting the opening op would put a line in the
             // book the next read sets aside. Refuse, mint nothing, and say what
             // is happening — never a word of the `.md` as truth (tripwire 20).
-            guard writePermit.allows(.op(.bootstrap)) == .yes else {
+            //
+            // **Option A (P3c plan 2, OA-1/OA-2): only the piece's STARTER
+            // mints.** In a book where somebody is narrowed, a piece whose
+            // manifest records who started it (`StructureItem.startedBy`) is
+            // minted by that Mac alone — the root's included, so the root
+            // waits for her new piece rather than putting a root-signed
+            // opening in front of the words she is typing. A piece with no
+            // recorded starter, and every un-narrowed book, keep today's rule:
+            // whoever may write its text mints it. The one predicate is
+            // Core's (`LocalWritePermit.mayMintOpening`).
+            guard writePermit.mayMintOpening else {
+                // WHO the wait is for (fix round 1, M2): where the starter
+                // rule bound and this Mac did not start the piece, it is
+                // waiting for the STARTER's ops — named by the starter's label,
+                // or nobody where the starter is this writer's own other Mac.
+                // Otherwise it is this device's permit that refuses, and the
+                // root (never itself) is who would change that.
                 throw DocumentLoadError.waitingForPiece(
                     docId: docId,
-                    from: Document.rootLabelForWaiting(in: projectURL))
+                    from: writePermit.startedHere == false
+                        ? Document.starterLabelForWaiting(docId: docId, in: projectURL)
+                        : Document.rootLabelForWaiting(in: projectURL))
             }
             _ = try await Bootstrap.run(
                 projectURL: projectURL, docId: docId,

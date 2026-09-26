@@ -344,6 +344,14 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// (show for screenplay projects). Set explicitly to false to hide.
     public var showElementGutter: Bool?
 
+    /// **The recorded starter of the piece `id`** (P3c plan 2, Option A;
+    /// ruling OA-1) — its `StructureItem.startedBy`, wherever in the tree the
+    /// item sits. Nil for an item with none (made before this build), and for
+    /// an id that is no item here.
+    public func startedBy(ofPiece id: String) -> String? {
+        TreeWalk.find(id: id, in: structure)?.startedBy
+    }
+
     // MARK: - The write rule: raise-only on `schemaVersion`
 
     /// Just the one field, decoded out of a manifest's bytes — nil if they are

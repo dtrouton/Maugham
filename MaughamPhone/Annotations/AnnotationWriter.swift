@@ -149,11 +149,21 @@ struct AnnotationWriter: Sendable {
     /// annotation accepted while materializing nothing (silent manuscript data
     /// loss), so we `assertionFailure` (Debug) then `throw .malformedSuggestion`
     /// rather than fabricate or drop the change.
+    ///
+    /// `loaded` is the merged ops WITH the ownership judgement they were read
+    /// under (`AnnotationLoading.loadJudged`, P3c plan 2 Task 5) — one value,
+    /// so the ops cannot reach this guard without their judgement. The guard
+    /// asks the same withdrawn-or-not walk the Mac's accept guard asks,
+    /// judged the same way, so a reviewer's Delete of somebody else's note —
+    /// which no Mac honours — does not refuse this accept, and her Delete of
+    /// her own does. A caller that genuinely wants the un-narrowed answer
+    /// says `.honourEverything` by name.
     func makeAccept(
         for annotation: Annotation, currentParagraph: String? = nil,
-        verifyingAgainst ops: [Op]? = nil
+        verifyingAgainst loaded: AnnotationLoading.JudgedOps? = nil
     ) throws -> Op {
-        if let ops, AnnotationDeriver.isWithdrawn(annotationId: annotation.id, in: ops) {
+        if let loaded, AnnotationDeriver.isWithdrawn(
+            annotationId: annotation.id, in: loaded.ops, amendments: loaded.amendments) {
             throw WriteError.annotationWithdrawn(annotationId: annotation.id)
         }
         let changes: [Op.ParagraphChange]
@@ -295,10 +305,11 @@ struct AnnotationWriter: Sendable {
     @discardableResult
     func accept(
         _ annotation: Annotation, currentParagraph: String? = nil,
-        verifyingAgainst ops: [Op]? = nil
+        verifyingAgainst loaded: AnnotationLoading.JudgedOps? = nil
     ) async throws -> Op {
         try await append(makeAccept(
-            for: annotation, currentParagraph: currentParagraph, verifyingAgainst: ops))
+            for: annotation, currentParagraph: currentParagraph,
+            verifyingAgainst: loaded))
     }
 
     @discardableResult
@@ -352,6 +363,15 @@ struct AnnotationWriter: Sendable {
         // write — and quiet, because a record that already says this touches
         // no file.
         PhoneDeviceRecord.ensure(in: projectRoot, identity: identity)
+        // **The default single-signer trust, on purpose** (P3c plan 2, C7).
+        // This store only ever APPENDS and SEALS — it never reads for the
+        // phone (the phone's reads go through `OpLogStore`, whose `trust()` is
+        // the verified table) — and the chained write asks one question of
+        // the closure, *is this key `.mine`*, because the truncating rewrite
+        // is licensed by this file having one writer. The phone holds one key,
+        // so the default answers that exactly as the table would
+        // (`PhoneChainPolicyTests`). A READ through this store would need the
+        // table; `TripwirePhoneGrepTest`'s write-only census keeps one out.
         let store = JSONLAppendStore<Op>(
             fileURL: url,
             chain: ChainPolicy(

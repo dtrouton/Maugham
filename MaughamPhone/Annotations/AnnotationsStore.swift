@@ -21,11 +21,25 @@ final class AnnotationsStore {
     private(set) var banner: AnnotationsBanner.Banner = .none
     private(set) var isLoading = false
     private(set) var didLoad = false
+    /// **This load's posture cache** (P3c plan 2, Task 6) — what each piece's
+    /// detail may offer. Replaced on every reload, so a permit changed on the
+    /// Mac shows on the next pull (the phone has no file presenter, iOS
+    /// tripwire 5).
+    private(set) var postures = PhonePosture.forANewLoad()
 
     init(projectsBrowser: ProjectsBrowser, downloads: DownloadCoordinator, recents: RecentsTracker) {
         self.projectsBrowser = projectsBrowser
         self.downloads = downloads
         self.recents = recents
+    }
+
+    /// Drop every posture this load asked, and every table behind them, so
+    /// the next ask resolves the register afresh — when the app returns to
+    /// the front (C5: the permit changes on the Mac, and the phone has no file
+    /// presenter). The SAME cache is refreshed rather than replaced, so a
+    /// detail view already holding it sees the refresh too.
+    func forgetPostures() {
+        postures.refresh()
     }
 
     func loadIfNeeded() async {
@@ -38,6 +52,8 @@ final class AnnotationsStore {
     func reload() async {
         isLoading = true
         defer { isLoading = false; didLoad = true }
+        // A reload is a new load: new stores, nothing remembered.
+        postures = PhonePosture.forANewLoad()
 
         var results: [ProjectAnnotations] = []
         for project in projectsBrowser.projects {
@@ -70,8 +86,12 @@ final class AnnotationsStore {
             for url in OpLogStore.opLogFileURLs(forDocId: docId, in: project.url) {
                 try? await downloads.ensureDownloaded(url)
             }
-            guard let ops = try? await store.load(docId: docId) else { continue }
-            all.append(contentsOf: AnnotationLoading.allAnnotations(ops: ops)
+            // Judged as the Mac judges it (P3c plan 2, Task 5): whose note an
+            // amendment is about is decided by the same Core rule, off the
+            // same load, so a note a Mac shows is the note this list shows.
+            guard let judged = try? await AnnotationLoading.loadJudged(
+                docId: docId, from: store) else { continue }
+            all.append(contentsOf: AnnotationLoading.allAnnotations(judged)
                 .map { LoadedAnnotation(annotation: $0, docId: docId) })
         }
         return all

@@ -181,6 +181,52 @@ final class DeviceStandingTests: XCTestCase {
                       "and still says where that was decided: \(standing.sentence)")
     }
 
+    /// **Admitted by a root this device's root ADOPTED** (P3c Task 7, M4).
+    ///
+    /// The phone joined Denver's MacBook (the memory's joined root outranks
+    /// the folder), and the MacBook has claimed Amelia's chain — so a phone
+    /// Amelia's Mac admitted is on the chain this device judges by, and every
+    /// line it writes is applied on every Mac on that root. It is in this
+    /// book, and must not read *not yet admitted*. The other direction is the
+    /// same folder without the claim: then Amelia's admission is another
+    /// root's business, and the phone is waiting.
+    func test_adeviceAnAdoptedRootAdmittedIsInTheBookAndWithoutTheClaimIsNot() {
+        let amelia = DeviceIdentity.softwareForTesting()
+        let memory = cache()
+        _ = memory.join(root: mac.fingerprint, for: projectURL,
+                        at: Date(timeIntervalSince1970: 1_757_376_000))
+        let base = registry(admittingPhoneAs: nil)
+        let people = base.people + [
+            PersonRecord(
+                person: amelia.fingerprint, label: "Amelia",
+                ownName: "Amelia's MacBook", role: "author",
+                admittedAt: Date(timeIntervalSince1970: 1_000_000),
+                admittedBy: amelia.fingerprint),
+            PersonRecord(
+                person: phone.fingerprint, label: "Denver",
+                ownName: "Denver's iPhone", role: "author",
+                admittedAt: Date(timeIntervalSince1970: 2_000_000),
+                admittedBy: amelia.fingerprint),
+        ]
+        let claim = ClaimRecord(
+            newRoot: mac.fingerprint, adopted: [amelia.fingerprint],
+            claimedAt: Date(timeIntervalSince1970: 1_600_000))
+
+        let adopted = DeviceStanding.resolve(
+            registry: Registry(devices: base.devices, people: people,
+                               claims: [claim]),
+            cache: memory, mine: mine, for: projectURL)
+        XCTAssertTrue(adopted.admitted,
+                      "an adopted root's member is in this book: \(adopted.sentence)")
+        XCTAssertEqual(adopted.label, "Denver")
+
+        let notAdopted = DeviceStanding.resolve(
+            registry: Registry(devices: base.devices, people: people),
+            cache: memory, mine: mine, for: projectURL)
+        XCTAssertFalse(notAdopted.admitted,
+                       "without the claim, another root's admission is not this book's")
+    }
+
     /// The Mac a book was started on was taken in by nobody — saying *X in
     /// this book as X* would read as an admission it never needed.
     func test_theStartingMacSaysSoRatherThanNamingAnAdmission() {
@@ -223,6 +269,68 @@ final class DeviceStandingTests: XCTestCase {
         XCTAssertTrue(standing.revoked)
         XCTAssertEqual(standing.sentence,
                        "No longer admitted — this book was started on Denver's MacBook")
+    }
+
+    // MARK: - What this device may write (P3c plan 2, Task 6)
+
+    /// **The permit is the timeline's, only where there is an admission.** A
+    /// device nobody admitted, a revoked one and a book with no register all
+    /// carry none, so Settings draws no role line for them.
+    func test_thePermitIsCarriedOnlyWhereThisDeviceIsAdmitted() {
+        let none = DeviceStanding.resolve(
+            registry: Registry(), cache: cache(), mine: mine, for: projectURL)
+        XCTAssertNil(none.permit, "no register")
+        XCTAssertNil(none.permitSentence(in: [], unknownPiece: "?"))
+
+        let waiting = DeviceStanding.resolve(
+            registry: registry(admittingPhoneAs: nil), cache: cache(),
+            mine: mine, for: projectURL)
+        XCTAssertNil(waiting.permit, "not yet admitted")
+
+        let admitted = DeviceStanding.resolve(
+            registry: registry(admittingPhoneAs: "Denver"), cache: cache(),
+            mine: mine, for: projectURL)
+        XCTAssertEqual(admitted.permit, .bookAuthor,
+                       "no event: the author-of-the-whole-book default")
+        XCTAssertEqual(admitted.permitSentence(in: [], unknownPiece: "?"),
+                       Permit.Rung.wholeBook.title)
+
+        let base = registry(admittingPhoneAs: "Denver")
+        let revokedRecord = PersonRecord(
+            person: phone.fingerprint, label: "Denver", ownName: "Denver's iPhone",
+            role: "author", admittedAt: Date(timeIntervalSince1970: 2_000_000),
+            admittedBy: mac.fingerprint,
+            revokedAt: Date(timeIntervalSince1970: 3_000_000),
+            revokedBy: mac.fingerprint, highestOpIdSeen: nil)
+        let revoked = DeviceStanding.resolve(
+            registry: Registry(
+                devices: base.devices,
+                people: base.people.filter { $0.person != phone.fingerprint }
+                    + [revokedRecord]),
+            cache: cache(), mine: mine, for: projectURL)
+        XCTAssertNil(revoked.permit, "revoked")
+    }
+
+    /// The sentence is `PermitWords`', with the book's own titles in binder
+    /// order and an id the manifest does not carry never shown raw.
+    func test_thePermitSentenceNamesPiecesByTitle() {
+        let structure = [
+            StructureItem(id: "doc-b", title: "Two", type: .document, path: "b.md"),
+            StructureItem(id: "grp", title: "Part", type: .group, children: [
+                StructureItem(id: "doc-a", title: "One", type: .document, path: "a.md"),
+            ]),
+        ]
+        let standing = DeviceStanding(
+            code: "ABCD", admitted: true,
+            permit: .author(.pieces(["doc-a", "doc-b", "doc-gone"])))
+        XCTAssertEqual(
+            standing.permitSentence(in: structure, unknownPiece: "a lost piece"),
+            "Author of some pieces: Two, One, a lost piece")
+        let unreadable = DeviceStanding(
+            code: "ABCD", admitted: true, permit: .unjudgeable(raw: "editor"))
+        XCTAssertEqual(
+            unreadable.permitSentence(in: structure, unknownPiece: "?"),
+            PermitWords.sentence(rung: nil, pieceTitles: []))
     }
 
     // MARK: - Retirement (fix round 1, Important 2)

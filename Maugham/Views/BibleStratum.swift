@@ -234,13 +234,10 @@ struct BibleStratumView: View {
     /// (P3c Task 7). Both graduate a reading into a RULING through
     /// `RulingPerformer.rule`, so both follow `.editStatement`; Dismiss takes
     /// a reading off this device's own pane and writes nothing of the
-    /// writer's, so it stays for everyone who can see the readings.
+    /// writer's, so it stays for everyone who can see the readings. Bless and
+    /// Correct are drawn where `StatementSurfaceVerbs` offers them — hidden,
+    /// never disabled.
     let posture: Posture
-
-    /// **Whether Bless and Correct are drawn** — hidden, never disabled.
-    static func offersGraduation(_ posture: Posture) -> Bool {
-        posture.allows(.editStatement)
-    }
 
     /// Which row's correction field is open, by fact id. A `BibleFact.id` is a
     /// ULID the store minted and does not move with its text, so it is a stable
@@ -266,7 +263,7 @@ struct BibleStratumView: View {
     @ViewBuilder
     private func row(_ fact: BibleFact) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            if correctingId == fact.id, Self.offersGraduation(posture) {
+            if correctingId == fact.id, StatementSurfaceVerbs.offered(under: posture) {
                 StratumEditField(
                     seed: fact.fact,
                     isOpen: Binding(get: { correctingId == fact.id },
@@ -287,7 +284,7 @@ struct BibleStratumView: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
             HStack(spacing: 12) {
-                if Self.offersGraduation(posture) {
+                if StatementSurfaceVerbs.offered(under: posture) {
                     Button("Bless") { bless(fact) }
                         .buttonStyle(.plain)
                     Button("Correct") { correctingId = fact.id }

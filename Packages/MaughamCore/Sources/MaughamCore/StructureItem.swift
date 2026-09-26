@@ -43,6 +43,22 @@ public struct StructureItem: Codable, Equatable, Identifiable, Sendable, TreeNod
     /// every existing project. An absent dictionary and an absent key both mean
     /// untouched, which is why `PassState` has no `notStarted` case.
     public var passStates: [String: PassState]?
+    /// **Who started this piece** — the AUTHOR device id (`author-<hex>`) of
+    /// the Mac that created it (signed op log P3c plan 2, Option A; ruling
+    /// OA-1). Written once, by a creation, and never rewritten by a rename or a
+    /// move.
+    ///
+    /// Optional for `passStates`' reason: absent decodes as nil, so every
+    /// manifest written before this build opens, and nil encodes as no key at
+    /// all, so a piece nobody records a starter for is byte-for-byte what it
+    /// always was. Nil means *today's rule* — whoever may write the piece's
+    /// text mints its opening (`LocalWritePermit.mayMintOpening`).
+    ///
+    /// **A courtesy about who mints, not enforcement.** The manifest is
+    /// unsigned and cooperative; a client that lied here could get its lines
+    /// applied on its own Mac and nowhere else, because the permit partition
+    /// still judges every line on every other Mac.
+    public var startedBy: String?
 
     public init(
         id: String,
@@ -60,7 +76,8 @@ public struct StructureItem: Codable, Equatable, Identifiable, Sendable, TreeNod
         links: [String]? = nil,
         children: [StructureItem]? = nil,
         linkedResearchIds: [String]? = nil,
-        passStates: [String: PassState]? = nil
+        passStates: [String: PassState]? = nil,
+        startedBy: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -78,5 +95,6 @@ public struct StructureItem: Codable, Equatable, Identifiable, Sendable, TreeNod
         self.children = children
         self.linkedResearchIds = linkedResearchIds
         self.passStates = passStates
+        self.startedBy = startedBy
     }
 }

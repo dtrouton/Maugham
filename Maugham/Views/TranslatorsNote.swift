@@ -76,6 +76,17 @@ enum TranslatorsNote {
         return EditionStatus.editionLanguages(files: files, queries: [], roles: roles + briefs)
     }
 
+    /// **The homes a sheet about `target` offers** — every edition, then each
+    /// of the target's editions, filtered to `offering` where the host says
+    /// which may be written (Keep mine, P3c plan 2 Task 8:
+    /// `TranslationAuthorVerbs.keepMineHomes`). Nil offers them all — ⌘⌥C's
+    /// sheet, whose own door refuses in words.
+    static func homes(for target: Target, offering: [Home]?) -> [Home] {
+        let all: [Home] = [.everyEdition] + target.editions.map { .edition($0) }
+        guard let offering else { return all }
+        return all.filter { offering.contains($0) }
+    }
+
     /// The target under the caret, or nil when the document has no paragraph
     /// there (an empty document).
     @MainActor
@@ -128,6 +139,8 @@ struct TranslatorsNoteSheet: View {
     let target: TranslatorsNote.Target
     let onCommit: (String, TranslatorsNote.Home) -> Void
     let onCancel: () -> Void
+    /// The homes the picker draws (`TranslatorsNote.homes(for:offering:)`).
+    private let homes: [TranslatorsNote.Home]
     @State private var instruction: String
     @State private var home: TranslatorsNote.Home
     @FocusState private var instructionFocused: Bool
@@ -143,12 +156,16 @@ struct TranslatorsNoteSheet: View {
          onCommit: @escaping (String, TranslatorsNote.Home) -> Void,
          onCancel: @escaping () -> Void,
          seed: String = "",
-         defaultHome: TranslatorsNote.Home = .everyEdition) {
+         defaultHome: TranslatorsNote.Home = .everyEdition,
+         offering: [TranslatorsNote.Home]? = nil) {
         self.target = target
         self.onCommit = onCommit
         self.onCancel = onCancel
+        let homes = TranslatorsNote.homes(for: target, offering: offering)
+        self.homes = homes
         _instruction = State(initialValue: seed)
-        _home = State(initialValue: defaultHome)
+        _home = State(initialValue: homes.contains(defaultHome)
+            ? defaultHome : (homes.first ?? defaultHome))
     }
 
     private var trimmed: String {
@@ -169,10 +186,8 @@ struct TranslatorsNoteSheet: View {
                 .focused($instructionFocused)
                 .onAppear { instructionFocused = true }
             Picker(TranslatorsNoteCopy.homeLabel, selection: $home) {
-                Text(TranslatorsNoteCopy.everyEdition).tag(TranslatorsNote.Home.everyEdition)
-                ForEach(target.editions, id: \.self) { language in
-                    Text(TranslatorsNoteCopy.thisEditionOnly(language))
-                        .tag(TranslatorsNote.Home.edition(language))
+                ForEach(homes, id: \.self) { home in
+                    Text(TranslatorsNoteCopy.title(of: home)).tag(home)
                 }
             }
             Text(TranslatorsNoteCopy.confirmation(home: home))
@@ -201,6 +216,14 @@ enum TranslatorsNoteCopy {
     static let everyEdition = "Every edition"
     static let confirmTitle = "Add Note"
     static let cancelTitle = "Cancel"
+
+    /// The picker's words for one home.
+    static func title(of home: TranslatorsNote.Home) -> String {
+        switch home {
+        case .everyEdition: return everyEdition
+        case .edition(let language): return thisEditionOnly(language)
+        }
+    }
 
     static func thisEditionOnly(_ language: String) -> String {
         "This edition only: "

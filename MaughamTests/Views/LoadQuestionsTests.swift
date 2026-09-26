@@ -70,6 +70,44 @@ final class LoadQuestionsTests: XCTestCase {
             counts: counts, streams: [:], startedAPiece: perPiece)
     }
 
+    // MARK: - Only a root is asked (P3c plan 2 Task 4, Ruling AA)
+
+    /// **The window asks *is it theirs?* on a Mac holding its own root record,
+    /// and nowhere else** — both directions. The window used to hand the model
+    /// `TrustTable.myRoot`, which on an ADMITTED Mac is the root it judges by,
+    /// so Sam's own Mac was asked about Sam, and about Ada, with a *Theirs*
+    /// that could only be refused.
+    func test_theQuestionIsARootsAndIsNeverPutToAnAdmittedMac() {
+        let ada = String(repeating: "b2", count: 32)
+        let book = registry(people: [
+            person(sam, label: "Sam", admittedBy: root),
+            person(ada, label: "Ada", admittedBy: root),
+        ])
+        let adasPiece = union(counts: [ada: 3], startedAPiece: [ada: ["ch-2"]])
+        let samsPiece = union(counts: [sam: 2], startedAPiece: [sam: ["ch-3"]])
+
+        let onTheRoot = NewPieceModifier.questions(
+            held: adasPiece, registry: book, titles: ["ch-2": "The Orchard"],
+            declined: [], thisDevice: root)
+        XCTAssertEqual(onTheRoot.map(\.person), [ada], "the root is asked")
+        XCTAssertEqual(
+            NewPieceModifier.questions(
+                held: samsPiece, registry: book, titles: [:], declined: [],
+                thisDevice: root).map(\.person),
+            [sam])
+
+        XCTAssertEqual(
+            NewPieceModifier.questions(
+                held: samsPiece, registry: book, titles: [:], declined: [],
+                thisDevice: sam),
+            [], "her own Mac is never asked about herself")
+        XCTAssertEqual(
+            NewPieceModifier.questions(
+                held: adasPiece, registry: book, titles: [:], declined: [],
+                thisDevice: sam),
+            [], "nor about anybody else: an admitted Mac holds no root record")
+    }
+
     // MARK: - The question appears
 
     func test_aPieceNobodyHasClaimedIsAQuestionNamingHerAndThePiece() {
@@ -125,6 +163,45 @@ final class LoadQuestionsTests: XCTestCase {
             registry: book, titles: ["ch-9": "Chapter 9"],
             declined: [], me: root).first)
         XCTAssertTrue(started.question.contains("started"))
+    }
+
+    /// **A writer narrowed from the WHOLE book who then starts a piece is
+    /// asked about as STARTING it** (P3c plan 2, ruling J). The whole book
+    /// authored every piece without naming one, so nothing was taken from her;
+    /// the broad reading said *"…after you took it from them"* about a piece
+    /// that did not exist when she was narrowed. A named piece she then loses
+    /// is still asked as giving it back.
+    func test_aWriterNarrowedFromTheWholeBookIsAskedAsStartingANewPiece() throws {
+        let narrowed = PermitEvent(
+            event: "\(sam).01", kind: .roleChanged, subject: sam,
+            role: Permit.authorRole, scope: Permit.piecesScope,
+            pieces: ["doc-hers"],
+            at: Date(timeIntervalSince1970: 20), by: root)
+        let book = Registry(
+            devices: [],
+            people: [person(root, label: "Denver", admittedBy: root),
+                     person(sam, label: "Sam", admittedBy: root)],
+            events: [narrowed])
+        let started = try XCTUnwrap(LoadQuestions.newPieces(
+            held: union(counts: [sam: 2], startedAPiece: [sam: ["ch-new"]]),
+            registry: book, titles: ["ch-new": "The Orchard"],
+            declined: [], me: root).first)
+        XCTAssertEqual(started.question,
+                       "Sam started \u{201C}The Orchard\u{201D} — is it theirs?")
+        XCTAssertFalse(started.takenFromThem)
+
+        let lost = PermitEvent(
+            event: "\(sam).02", kind: .scopeChanged, subject: sam,
+            role: Permit.authorRole, scope: Permit.piecesScope, pieces: [],
+            at: Date(timeIntervalSince1970: 30), by: root)
+        let later = Registry(
+            devices: [], people: book.people, events: [narrowed, lost])
+        let taken = try XCTUnwrap(LoadQuestions.newPieces(
+            held: union(counts: [sam: 2], startedAPiece: [sam: ["doc-hers"]]),
+            registry: later, titles: ["doc-hers": "Chapter 3"],
+            declined: [], me: root).first)
+        XCTAssertTrue(taken.takenFromThem, "the named piece she lost was taken")
+        XCTAssertTrue(taken.question.contains("took it from them"))
     }
 
     /// **Two buttons and no third**, and neither of them is *yours*. There is
@@ -319,6 +396,25 @@ final class LoadQuestionsTests: XCTestCase {
         XCTAssertTrue(question.consequence.contains("already written here"))
         XCTAssertTrue(question.consequence.contains("from now on"))
         XCTAssertTrue(question.consequence.contains("join the draft"))
+    }
+
+    /// ***Not now* tells the truth about what writing in the piece meanwhile
+    /// would do** (fix wave, Ruling U; the whole-branch review's C1). It used
+    /// to say only that nothing is set aside — and a book author typing in the
+    /// piece before answering sets every held word of hers aside on every Mac.
+    /// The Mac now yields to her, so the sentence names the lock, the one way
+    /// past it, and its cost.
+    func test_notNowSaysWhatWritingInThePieceMeanwhileWouldDo() {
+        let question = LoadQuestions.NewPiece(
+            person: sam, name: "Sam", docId: "ch-2", title: "The Orchard",
+            heldLines: 2)
+        XCTAssertEqual(
+            question.notNowConsequence,
+            "Nothing is written and nothing is set aside, and the piece stays "
+                + "locked here. The question waits in People & Devices until "
+                + "you answer it. If you write in the piece before then (Edit "
+                + "Anyway), its text becomes yours and Sam\u{2019}s words are "
+                + "set aside.")
     }
 
     /// A question the writer ANSWERED is never put again either — the closed

@@ -25,6 +25,10 @@ struct SettingsView: View {
     @Bindable var authGate: LaunchAuthGate
 
     @State private var showFolderPicker = false
+    /// C5 (P3c plan 2, Task 6): the standing is re-read when the app returns
+    /// to the front, since it changes on the Mac and the phone has no file
+    /// presenter (iOS tripwire 5).
+    @Environment(\.scenePhase) private var scenePhase
 
     /// This phone's standing in each recent book, by project id, and its own
     /// code. Resolved off the main actor in `.task`: a registry read is a
@@ -49,6 +53,10 @@ struct SettingsView: View {
             // making them relaunch; it is a refresh, not a control over
             // admission (§4.11).
             .refreshable { await resolveStandings() }
+            .onChange(of: scenePhase) { _, phase in
+                guard BookStandingRow.rereads(on: phase) else { return }
+                Task { await resolveStandings() }
+            }
         }
         .sheet(isPresented: $showFolderPicker) {
             DocumentPickerView { url in
@@ -78,12 +86,22 @@ struct SettingsView: View {
     private var thisDeviceSection: some View {
         Section {
             LabeledContent("Code", value: code.isEmpty ? "—" : code)
-            ForEach(standingRows, id: \.project.id) { row in
+            ForEach(standingRows, id: \.id) { entry in
+                let row = entry.row
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(row.project.manifest.title)
-                    Text(row.standing.sentence)
+                    Text(row.title)
+                    Text(row.sentence)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                    // **What this phone may write in this book** (P3c plan 2,
+                    // Task 6) — `PermitWords`' sentence, the same words People
+                    // & Devices draws on the Mac. Absent in a book with no
+                    // register.
+                    if let permitLine = row.permitLine {
+                        Text(permitLine)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                     // **What retirement means, on the machine that did it**
                     // (P2b Task 10, from Task 7's Important 2). A retired
                     // device goes on writing and applying its own lines while
@@ -92,7 +110,7 @@ struct SettingsView: View {
                     // `DeviceStanding`'s, with this phone's own noun, so the
                     // Mac's People & Devices row and this one cannot drift
                     // (tripwire 19).
-                    if let notice = row.standing.retirementNotice(device: "iPhone") {
+                    if let notice = row.retirementNotice {
                         Text(notice)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -107,15 +125,20 @@ struct SettingsView: View {
     }
 
     /// One row per book this phone has opened or captured into, by title.
-    private var standingRows: [(project: BrowsedProject, standing: DeviceStanding)] {
+    private var standingRows: [(id: ProjectId, row: BookStandingRow)] {
         let recent = recents.recents
         return projectsBrowser.projects
             .filter { recent.contains($0.id) }
             .compactMap { project in
-                standings[project.id].map { (project, $0) }
+                standings[project.id].map { standing in
+                    (project.id, BookStandingRow.make(
+                        title: project.manifest.title,
+                        structure: project.manifest.structure,
+                        standing: standing))
+                }
             }
-            .sorted { $0.project.manifest.title.localizedCaseInsensitiveCompare(
-                $1.project.manifest.title) == .orderedAscending }
+            .sorted { $0.row.title.localizedCaseInsensitiveCompare(
+                $1.row.title) == .orderedAscending }
     }
 
     private var standingFooter: String {
@@ -127,10 +150,11 @@ struct SettingsView: View {
         return "Open a book on this phone to see whether it is on that book\u{2019}s chain."
     }
 
-    /// Resolve this phone's standing in each recent book. A registry that will
-    /// not READ is never answered *not yet admitted* (RULING-54) — the standing
-    /// carries the read's own sentence instead, so a permissions error cannot
-    /// read as a Mac that has not got round to it.
+    /// Resolve this phone's standing in each recent book, through
+    /// `BookStandingRow.standing` (the reconciled register, P3c plan 2 Task 6).
+    /// A registry that will not READ is never answered *not yet admitted*
+    /// (RULING-54) — the standing carries the read's own sentence instead, so a
+    /// permissions error cannot read as a Mac that has not got round to it.
     private func resolveStandings() async {
         let recent = recents.recents
         let projects = projectsBrowser.projects
@@ -142,13 +166,8 @@ struct SettingsView: View {
             let mine = LocalIdentities.current
             var answers: [ProjectId: DeviceStanding] = [:]
             for project in projects {
-                do {
-                    let registry = try RegistryReader.load(projectURL: project.url)
-                    answers[project.id] = DeviceStanding.resolve(
-                        registry: registry, cache: .shared, mine: mine, for: project.url)
-                } catch {
-                    answers[project.id] = DeviceStanding.refused(mine: mine, error: error)
-                }
+                answers[project.id] = BookStandingRow.standing(
+                    in: project.url, mine: mine, cache: .shared)
             }
             return (DeviceCode.short(mine.author.fingerprint), answers)
         }.value

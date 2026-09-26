@@ -58,20 +58,87 @@ enum AnnotationLoading {
         OpLogStore.docIds(inOpsDirectoryFilenames: filenames)
     }
 
+    /// One document's merged op stream, and **whose annotation it is** in it
+    /// (signed op log P3c plan 2, Task 5) — the two things every phone derive
+    /// needs, carried together so a caller cannot hold the ops without the
+    /// judgement they are to be read under.
+    struct JudgedOps: Sendable {
+        let ops: [Op]
+        let amendments: AnnotationAmendments
+
+        /// What a view holds before its first read: no ops, so there is
+        /// nothing for a judgement to decide.
+        static let nothingLoaded = JudgedOps(ops: [], amendments: .honourEverything)
+    }
+
+    /// **The phone's one op-log read for annotations** — the Mac's own two
+    /// Core calls, in the Mac's own order (`Document+Load`'s load, then its
+    /// `annotationAmendments`), restating nothing (tripwire 19).
+    ///
+    /// The load collects the permit each amendment line was written under
+    /// (`AmendmentPermits`); `annotationAmendments` builds the ownership rule
+    /// from the table that load already warmed. Before this the phone derived
+    /// with `.honourEverything`, so in a narrowed book a reviewer's edit or
+    /// withdrawal of somebody else's note — refused on every Mac — was
+    /// honoured on the phone, and the phone's accept guard read a note as
+    /// deleted that no Mac had deleted. A book with no register answers
+    /// `.honourEverything` from inside `annotationAmendments`, so an
+    /// un-narrowed book reads exactly as it did.
+    ///
+    /// It constructs no trust table and names no actor: the store's own
+    /// `trust()` is the one the partition already ran on, and the phone's
+    /// store is built with its default identities, which mint nothing on a
+    /// read (`PhoneOneKeyTests`).
+    @MainActor
+    static func loadJudged(docId: String, from store: OpLogStore) async throws -> JudgedOps {
+        let permits = AmendmentPermits()
+        let loaded = try await store.loadDiagnosed(docId: docId, amendmentPermits: permits)
+        // Bound out here: the class closure is `@Sendable` and may not reach
+        // the main-actor store.
+        let projectURL = store.projectURL
+        let amendments = store.annotationAmendments(from: permits) {
+            OpLogStore.documentClass(forDocId: docId, in: projectURL)
+        }
+        return JudgedOps(ops: loaded.ops, amendments: amendments)
+    }
+
     /// Every derived annotation for one document's merged op stream (all
     /// statuses), in `AnnotationDeriver`'s newest-first order. The show-resolved
     /// (All) mode needs resolved annotations too, so we derive the full set once
     /// and let callers partition by `.status`.
-    static func allAnnotations(ops: [Op]) -> [Annotation] {
+    ///
+    /// `amendments` is REQUIRED (fix round 1): a caller holding bare ops says
+    /// which judgement it means — `.honourEverything` by name where the
+    /// un-narrowed answer is genuinely wanted. Every production read goes
+    /// through `loadJudged` and the `JudgedOps` overloads below.
+    static func allAnnotations(
+        ops: [Op], amendments: AnnotationAmendments
+    ) -> [Annotation] {
         // Single source of truth lives in MaughamCore (tripwire 19) — the Mac's
         // project-wide walk derives through the same pair. Do NOT reimplement.
-        AnnotationAggregation.allAnnotations(ops: ops)
+        AnnotationAggregation.allAnnotations(ops: ops, amendments: amendments)
+    }
+
+    /// Every annotation in a judged read — the production spelling.
+    static func allAnnotations(_ judged: JudgedOps) -> [Annotation] {
+        allAnnotations(ops: judged.ops, amendments: judged.amendments)
+    }
+
+    /// Every annotation in a judged read, anchored against a paragraph map the
+    /// caller already derived (the detail view's re-derive).
+    static func allAnnotations(
+        _ judged: JudgedOps, paragraphs: [String: String]
+    ) -> [Annotation] {
+        AnnotationAggregation.allAnnotations(
+            ops: judged.ops, paragraphs: paragraphs, amendments: judged.amendments)
     }
 
     /// Open annotations only — the triage subset. Kept as the thin filter over
     /// `allAnnotations` so the two never drift.
-    static func openAnnotations(ops: [Op]) -> [Annotation] {
-        AnnotationAggregation.openAnnotations(ops: ops)
+    static func openAnnotations(
+        ops: [Op], amendments: AnnotationAmendments
+    ) -> [Annotation] {
+        AnnotationAggregation.openAnnotations(ops: ops, amendments: amendments)
     }
 
     /// Group a project's annotations (ALL statuses) by document, in binder order,

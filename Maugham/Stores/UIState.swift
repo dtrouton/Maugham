@@ -134,8 +134,14 @@ public struct UIState: Codable, Equatable, Sendable {
     /// (`SetAsideDoor.captureId`, `<opId>#<paragraphId>`) already made from it.
     ///
     /// The key is the door's own subject: an archive filename for a set-aside
-    /// record, and `<docId>|<holder>` for a held span, which has no archive
-    /// because none was ever written for it.
+    /// record, and `<docId>|held` for a held span, which has no archive
+    /// because none was ever written for it — whose ids carry the document as
+    /// well, `<docId>|<opId>#<paragraphId>` (`SetAsideDoor.heldLineId`). **A
+    /// held span is remembered by its LINES, never by its holder** (P3c Task
+    /// 7, M2): the holder is the walk's opinion of whose the lines are, and it
+    /// changes the day a signing Mac's first seal syncs. Keys in the older
+    /// `<docId>|<holder>` shape are left where they are and read by nothing
+    /// (tripwire 11); a paragraph sent under one is offered once more.
     ///
     /// **Ids rather than a once-flag**, which is the whole of C1. A held span
     /// is LIVE — the stream it names goes on being written to — so a flag left

@@ -114,6 +114,11 @@ struct TranslationAuthorVerbs: Equatable {
     /// Where Keep mine's sheet opens: the edition's brief where a ruling may be
     /// filed there, else the piece's intent.
     let keepMineOpensOnTheEdition: Bool
+    /// Whether Keep mine's OTHER home — the piece's own intent, *Every
+    /// edition* — may be written (P3c plan 2 Task 8). Held apart from
+    /// `keepMine` so the sheet offers only the homes that may be written
+    /// (`keepMineHomes`), rather than both with a door refusing one in words.
+    let keepMineOnEveryEdition: Bool
     /// Reader's (or Collator's) right: a ruling, and — where the note minted a
     /// query — the reply that settles it. Decided per row by `sideWithTheNote`.
     private let replies: Bool
@@ -122,13 +127,13 @@ struct TranslationAuthorVerbs: Equatable {
     /// window's door behind it.
     static let unrestricted = TranslationAuthorVerbs(
         answer: true, answerAsRuling: true, rule: true, keepMine: true,
-        keepMineOpensOnTheEdition: true, replies: true)
+        keepMineOpensOnTheEdition: true, keepMineOnEveryEdition: true, replies: true)
 
     /// No verb — a host with no window's door behind it (fails closed;
     /// whole-branch fix wave, Minor 2).
     static let none = TranslationAuthorVerbs(
         answer: false, answerAsRuling: false, rule: false, keepMine: false,
-        keepMineOpensOnTheEdition: false, replies: false)
+        keepMineOpensOnTheEdition: false, keepMineOnEveryEdition: false, replies: false)
 
     /// `pieceIntent` is the posture of the round's piece's own intent
     /// statement — Keep mine's other home. Nil (a host that did not say)
@@ -142,12 +147,24 @@ struct TranslationAuthorVerbs: Equatable {
         let intent = pieceIntent?.allows(.editStatement) ?? false
         return TranslationAuthorVerbs(
             answer: answer, answerAsRuling: answer && rule, rule: rule,
-            keepMine: rule || intent, keepMineOpensOnTheEdition: rule, replies: answer)
+            keepMine: rule || intent, keepMineOpensOnTheEdition: rule,
+            keepMineOnEveryEdition: intent, replies: answer)
     }
 
     /// Keep mine's opening home for `language` (see `keepMineOpensOnTheEdition`).
     func keepMineHome(language: String) -> TranslatorsNote.Home {
         keepMineOpensOnTheEdition ? .edition(language) : .everyEdition
+    }
+
+    /// **The homes Keep mine's sheet offers for `language`** — only the ones
+    /// that may be written (P3c plan 2 Task 8). It used to offer both whenever
+    /// either could be, opening on the one that may and letting the door refuse
+    /// the other in words; a home the writer may not file in is now simply not
+    /// in the picker. *Every edition* first, as the sheet has always ordered
+    /// them. Empty exactly where `keepMine` is false.
+    func keepMineHomes(language: String) -> [TranslatorsNote.Home] {
+        (keepMineOnEveryEdition ? [.everyEdition] : [])
+            + (keepMineOpensOnTheEdition ? [.edition(language)] : [])
     }
 
     /// Reader's/Collator's right on a row: the ruling always, the reply only

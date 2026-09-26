@@ -962,8 +962,9 @@ holds the fingerprint.
 
 P2 answered *is this key somebody this book admits?* P3a answers **admitted to
 write WHAT**, and answers it where lines are read. **No surface** in P3a —
-P3b gave the permit its controls and P3c plan 1 the Mac's posture (below); the
-phone's is P3c plan 2's. It is **behaviour-neutral for every existing book**: no permit events ⇒
+P3b gave the permit its controls and P3c plan 1 the Mac's posture (below); P3c
+plan 2 moved the posture's construction into MaughamCore (`PostureDoor`) and
+gave the phone its own judgement and posture through it. It is **behaviour-neutral for every existing book**: no permit events ⇒
 every admitted person is an author of the whole book from the start ⇒ the P2
 suite passes untouched.
 
@@ -1237,12 +1238,15 @@ What the refusal does, in each of its three places:
 
 | | |
 |---|---|
-| **bootstrap** | `DocumentLoadError.waitingForPiece(docId:from:)` — mint nothing, read not a word of the `.md` as truth (tripwire 20). `EditorHost` draws it as its own calm state rather than an error (no notice, no recovery ladder) on the ONE widened load-outcome `@State` (tripwire 6), and re-attempts when the piece's ops change — the presenter already routes a closed document's op-log change through `MaughamSidecarPath`. |
+| **bootstrap** | Asked of `LocalWritePermit.mayMintOpening` (P3c plan 2, Option A): in a book where somebody is narrowed, a piece whose manifest records a starter (`StructureItem.startedBy`, written by every creation site through `ProjectStore.thisMacAsAStarter` and by nothing else) is minted on THAT Mac alone — the root's included (OA-2), so the root waits for a piece a collaborator started rather than putting a root-signed opening in front of her words; a piece with no recorded starter, a starter the register shows is GONE (revoked or retired, and nothing else — `TrustTable.starterStanding` answers `.gone`, Rulings L (b)/M/N; a starter it has never heard of, a stranger, another root's member or a Mac on no chain is `.unknown` and this Mac WAITS, because a non-root Mac cannot tell *never admitted* from *not synced yet*), and every un-narrowed book, keep today's rule. A creation that yields a piece WITH content (Duplicate, a duplicated group's children) mints its opening at creation on the starter's Mac through this same load (`ProjectStore.mintOpenings`, Ruling L (a)); an empty new piece needs none. The error names the STARTER where this Mac did not start the piece (`Document.starterLabelForWaiting`), the root otherwise, and never this Mac's own root label. `DocumentLoadError.waitingForPiece(docId:from:)` — mint nothing, read not a word of the `.md` as truth (tripwire 20). `EditorHost` draws it as its own calm state rather than an error (no notice, no recovery ladder) on the ONE widened load-outcome `@State` (tripwire 6), and re-attempts when the piece's ops change — the presenter already routes a closed document's op-log change through `MaughamSidecarPath`. |
 | **the pending file** | Not folded, and **not read**: a buffer with something in it is one the next `close()` turns into a `typingBurst`, so reading it and merely declining to append would move the loss one hop. `PendingBuffer.fileNameIfOnDisk` names it without opening it. **`Document.mayWriteThePendingFile` is ONE expression at FOUR sites** — `performAutosave`'s mirror, `flushBurstNow`'s clear, `close()`'s failed-flush re-persist and `close()`'s clean clear — because the file has exactly one writer's worth of rules and four copies of them would drift. The burst's clear is the sharp one (fix round 1's C1): a burst's EMISSION is deliberately not permit-guarded, but its `clear()` UNLINKS the file, so one keystroke would have undone the promise the load had just made in a notice; `PendingBuffer.clearInMemoryOnly` is the same reset minus the unlink, and the writer's new words go where they always go, into the op log. `close()`'s failed-flush arm is the one place the rule costs something — this Document's un-bursted keystrokes stay in memory — and that is the right way round: they are words this device may not write at all, and the file holds words a load under a wider permit CAN fold. The writer is told through `PendingRecoveryFailure`, whose `cause` distinguishes RULING-54's *we could not read it* from *we touched nothing*. |
 | **task anchors** | No mint and no `taskCreate` — a READ must not write where this device may not write — and the rebalance is guarded on its own key's row (`.maugham` signs `taskPriorityChange` only where the person may sign a task there at all). Tasks still derive and still show; the anchors are re-minted by whichever read happens after the permit widens. |
 
 A keyless book, a P2-era book, the root and a book author reach `.unrestricted`
-and behave exactly as they did. `DocumentWaitingTests` holds both halves;
+and behave exactly as they did — except, since Option A, that in a NARROWED
+book they too wait for a piece whose recorded starter is another Mac (the
+pane then names no root on the root's own Mac: `Document.rootLabel` answers
+nil where this Mac holds its own root record). `DocumentWaitingTests` holds both halves;
 `BootstrapWiringTests`' four tests are untouched.
 
 **Two automations of that same hand were missed and are now in the rule**
@@ -1269,12 +1273,36 @@ door is what stops a stale row, a margin card drawn before a demotion, or a ⌘Z
 registered while this Mac could still write. An undo or redo refused this way
 says so (`refusingLoudly` → `UndoDecline.notPermitted`) rather than falling
 silent. Annotation creation and the writer's own note's edit and withdraw are
-not doors here: they are the reviewer row. **Known edge**: the table files
-`annotationReopen` under dispositions whatever it undoes, so a reviewer's ⌘Z of
-her OWN Delete (a reopen) is refused and said — a table question, not this
-door's. Controller ruling P moves own-note reopen onto the ownership path, in
-`Permit.swift` and `AnnotationOwnership` on both surfaces together (tripwire
-19), in P3c plan 2.
+not doors here: they are the reviewer row. **A reopen is judged by what it
+undoes** (ruling P, P3c plan 2). The table files `annotationReopen` with edit
+and withdraw (`.ownAnnotation`), because the partition sees only the kind, and
+`AnnotationDeriver` judges it twice through ONE Core policy
+(`AnnotationAmendments`): in the withdraw pass by ownership against the
+WITHDRAWAL it undoes (`AnnotationOwnership.mayAmend` handed the withdraw op —
+controller Ruling D: author rights, or the same writer as the one who deleted
+it, so she undoes her own Delete and the root's Delete of her note stays the
+root's; `withdrawalStates` is the one walk behind `derive`, `deriveWithdrawn`
+and `isWithdrawn`), in the lifecycle fold as a disposition
+(`AnnotationOwnership.mayDispose` — author rights alone, never the same-person
+arm, so her own note the root archived stays archived). The Mac's door branches
+the same way: `reopenAnnotation` asks `requireRestoreHonoured` (the deriver's
+own walk over the mirror plus the reopen) where it undoes a withdrawal and
+`requireDispositionPermitted` otherwise, which probes a reopen as a stet
+(`dispositionProbe`) — asked about itself, a reopen would answer the reviewer
+row. The Deleted view's Restore follows who DELETED the note, asked of the
+door's own judgement BY KEY (`Document.restoreStanding` — `requireRestoreHonoured`
+over the very reopen a press would append; P3c plan 2 Task 8), never of the
+display name a withdraw op stamps (`WithdrawnAnnotation.withdrawnBy` is for
+reading, not deciding); `AnnotationRowVerbs.restoresDeleted` draws it, and the
+pane says a refused press through the notice channel instead of `try?`.
+**Every reader of the raw mirror asks the same judgement**: a reopen the
+deriver does not honour now reaches `_opLogMirror`, so the withdrawn check in
+`reopenAnnotation` is the judged `isWithdrawn`, and the reject/splice repair,
+the rewind's return journey and `RewindImpact.preview` walk
+`AnnotationDeriver.isHonouredLifecycleOp` rather than the bare lifecycle kinds.
+The stated cost (RP-1): a reviewer's reopen of somebody else's archive is no
+longer set aside as a `.lines` record; it passes the partition and is simply
+not honoured, so History records nothing.
 
 **The stamp is LIVE, not a load-time snapshot** (P3c plan 1, Task 2).
 `Document.localWritePermit` is `internal private(set)`, and its one setter is
@@ -1303,8 +1331,11 @@ its text splice is refused, so an op is never refused while its splice lands.
 Both decline an undo out loud (`UndoDecline.taskNotPermitted`). The load's own
 anchors and the rebalance were already gated on the same question. The
 PROJECT stream's task verbs (`ProjectStore.createProjectPaneTask`/
-`archiveProjectTask`) have no door — surface-only, a stated limit in ADR 0032's
-P3c addendum.
+`TasksPane.archiveProjectTask`) have one since P3c plan 2 Task 8:
+`ProjectStore.appendProjectTaskOp` asks the drawing posture of `__project__`
+(`projectTaskRefusal`) before it appends, says a refusal through the notice
+channel (`.settling` says *try again in a moment*), and answers whether it
+appended so no ⌘Z is registered for a refused act.
 
 **Every manuscript writer outside the editor has a door** (P3c whole-branch fix
 wave, C1). A burst's EMISSION is deliberately not permit-guarded — the
@@ -1626,6 +1657,142 @@ sheet, People & Devices' waiting row, History's banner and History's entry for
 the answer all say she kept writing in it after it was taken. The positional machinery that preceded this
 (`markLine`, the settling cut, `settlingOrder`) is gone.
 
+**A later narrowing carries the governing photograph forward** (P3c plan 2,
+controller Ruling Q). Once the resolved table has a governing
+`UnsignedSnapshot`, a narrowing verb sweeps nothing:
+`DocumentStore.sweptUnsignedSnapshot` returns the governor's OWN mark, and the
+new event carries it. So the photograph is byte-identical whichever event
+governs, and neither a skewed clock on a later root nor the order two event
+files happen to sync in can move the cliff. An empty map was the rejected
+alternative: a later `{}` whose `at` read earlier would govern and hold every
+unsigned line ever written, including P1-era text already applied. Only the
+first narrowing sweeps, so only the first can refuse over an unreadable folder
+or a missing stream. `DocumentStore.unsignedSweepsForTesting` counts sweeps per
+project folder.
+
+**The unsigned words cover a Mac whose first seal has not synced** (P3c plan 2,
+carry M2). A stream nothing in this book can name a key for is either a Mac
+that signs nothing or a signing Mac whose first seal has not reached this Mac
+yet. `HeldLines.unsignedWriter` (*a Mac nothing in this book signs for yet*),
+`HeldLines.sentence(.unsigned)`, `TrustEventSentence`'s `.unsigned` entry and
+the first-narrowing notice say both cases, and none says *there is no device
+to admit*.
+
+## Option A — a piece of her own (P3c plan 2, [ADR 0032](../../docs/adr/0032-the-signed-op-log.md)'s P3c plan-2 addendum)
+
+Denver's I3 ruling (2026-09-23): an author of some pieces may START a piece
+and write in it while the root decides whose it is. Everything below is inert
+in a book that narrows nobody.
+
+**The fact is on the piece.** `StructureItem.startedBy` is the author device id
+of the Mac that created it (optional; absent decodes nil and writes no key).
+`ProjectManifest.startedBy(ofPiece:)` walks the tree, and
+`OpLogStore.startedBy(ofPiece:in:)` is the disk read. The Mac's posture door
+passes its LIVE manifest's starter instead, so a posture miss decodes nothing.
+Creation sites write it through `ProjectStore.thisMacAsAStarter`
+(`Document.loadIdentities.author.deviceId`, the identity the load asks), and
+nothing rewrites it. The census is
+`TripwireGrepTests.test_everyStructureItemAProductionFileConstructsRecordsItsStarter`
+(a derived population, with a planted offender). A copy assigned from a source
+constructs nothing, so the census cannot see it; Duplicate's re-stamp is
+pinned by its own test.
+
+**Who the starter is — two table questions, each spelled once.**
+- `TrustTable.starter(ofPieceStartedBy:)` answers `.thisDevice`,
+  `.anotherOfThisWritersDevices` or `.somebodyElse`. A starter must name an
+  owned AUTHOR key; her other Mac is `isThisWriters` (built on `sameWriter`)
+  AND still `.admitted`, so a revoked or retired Mac of hers is somebody else.
+  `starterKey` is the one place an id is matched against the register.
+- `TrustTable.starterStanding(_:)` answers `.standing`, `.gone` or `.unknown`.
+  Only a REVOKED or RETIRED starter is `.gone` (controller Rulings L (b), M,
+  N). A stranger, another root's member, no chain, a contested or non-author
+  key, and an id no record names are all `.unknown`: this Mac WAITS, because it
+  cannot tell *never admitted* from *not synced yet*.
+
+**The write side — one builder, three answers.** In a book where somebody is
+narrowed, `OpLogStore.localWritePermit` resolves the class and, for a `.piece`
+only, reads the starter. It then sets three things:
+- `startedHere` (nil where the rule does not bind: no starter, a gone starter,
+  or not a piece).
+- `writesAsItsStarter`: her own device started it, it has §4.5's shape, it was
+  not taken from her by name, and `unownedPiece == .nobodyHasWrittenItsText`.
+- The predicates over those fields. `LocalWritePermit.mayMintOpening` is the
+  ONE *may this Mac mint the opening* (the load's bootstrap guard, above).
+  `allows` widens a `.no` to `.yes` for manuscript text by the author's hand
+  in her unclaimed piece, and for nothing else (controller Ruling F).
+  `allowsStartingAPiece()` backs `Posture`'s `.startAPiece` (the book author
+  and an author of some pieces). `isWaitingToBeClaimed` backs
+  `Posture.Reason.waitingToBeClaimed`, which is not a refusal.
+
+`Permit.startsAPieceNobodyHasClaimed` moved into the permit layer (public),
+beside `mayOpenAPieceOfTheirOwn`, so the partition and the builder ask one
+function (tripwires 44/47).
+
+**The read side — her own Mac applies her own lines.** In the partition's
+§4.5 *nobody has written its text* arm, `PermitPartition.appliesOnItsWritersOwnMac`
+applies a line only when three guards hold: the line's key is this writer's
+own, the piece's starter is hers (this Mac or her other Mac), and the piece was
+not taken from her. Every other Mac holds the line and records
+`recordStartedAPiece`, exactly as before. `PermitContext.startedBy` is a
+memoised closure filled from disk by `permitContext(forDocId:)`, so every
+reader reaches it through the one context builder.
+
+**What claims the piece** (controller Ruling G). A book author's writing of the
+piece's text claims it, and so does a book author's `bootstrap` — UNLESS the
+piece's `startedBy` names somebody other than that book author
+(`TrustTable.isAStarter(_:ofTheSameWriterAs:)`). A starter this Mac cannot
+resolve counts as somebody else, which is the safe side: her lines are held,
+never set aside. The consequence is that the root's opening in HER started
+piece claims nothing, while an import, a seed or a legacy bootstrapped piece
+keeps §4.5's answer.
+
+**What "taken from her" means** (controller Rulings I and J).
+`PermitTimeline.wasTakenFromThem(piece:)` and its `before:` form are true only
+where an earlier permit's piece LIST named the piece. The same family answers
+the arm on both sides, History's held and *Theirs* rows, and the root's load
+question. A whole-book narrowing takes nothing by name. Anything she wrote as a
+book author already claims its own piece, so a whole-book author narrowed to
+some pieces may still start a new one. `authored(piece:before:)` has no
+production caller, and no sentence may be built from it.
+
+**Her open window follows the lines** (controller Ruling H). After an external
+re-read that APPLIED another hand's change, `DocumentStore.withPostureFollowingReStamp`
+calls `Document.restampWhereItsStarterArmMayHaveClosed()`. That re-asks the one
+builder only for a stamp with `writesAsItsStarter`, and publishes the answer
+to the drawing door in the same turn (plan 1's ruling AG). An echo of her own
+burst re-asks nothing (`Document.starterRestampsForTesting`).
+
+**Creation mints where it must** (controller Ruling L (a)). A creation that
+yields a piece WITH content — Duplicate, a duplicated group's children — loads
+each copy once through `Document.load` on the starter's Mac, then writes the
+clean render (`ProjectStore.mintOpenings`). It does this in every book, and it
+is byte-neutral: `ProjectStoreDuplicateTests.test_aCopysBytesAreWhatItsFirstOpenWouldHaveWritten`.
+It costs about 15 ms a document on the main actor with enclave signing, which
+is a stated limit.
+
+**The other side: a book author's hand yields to the starter** (Ruling U, the
+whole-branch fix wave). The same builder sets a fourth answer,
+`LocalWritePermit.unsettledStarter` (the starter's device id and name), where
+four things hold. The writer's own hand is a book author's
+(`Permit.claimsAPieceByWritingItsText`, which is also what the partition's
+*a book author has written its text* now asks). The starter is somebody else
+and not gone. The starter's own permit does not author the piece
+(`TrustTable.starterAuthors`, false for a starter not admitted here). And
+`unownedPiece == .nobodyHasWrittenItsText`. It is decided from `startedBy`, so
+it holds with or without any of the piece's ops on this Mac (the
+manifest-before-`.md` entry). It changes no table answer. The Mac's posture
+door turns it into a cooperative yield with *Edit Anyway*
+(`Posture.Reason.yieldingToItsStarter`). Ruling H's re-stamp does NOT re-ask
+it, so another book author's text arriving lifts it at the door's next rebuilt
+answer rather than at the re-read. That is a stated limit, and the safe
+direction. The phone asks the same fact through Core's
+`PostureDoor.postureYieldingToItsStarter` and, having no *Edit Anyway*, locks:
+Accept, Reject and Reopen & Revert are manuscript-text lines, so they are
+hidden and refused at the re-ask (Ruling W). **A piece's statement carries no
+such fact, deliberately**: the builder sets it only for the `.piece` class,
+because a statement is not the piece's text and claims nothing (§4.5). Editing
+the statement of an unclaimed piece is not a lock to add.
+
 ## Sealed segments (ADR 0016, M2)
 
 When a device's own live tail `<docId>.<slug>.jsonl` exceeds
@@ -1861,7 +2028,7 @@ Failure modes:
 
 21. **The unsigned door's decisions each have ONE home** (P3b). The narrowing predicate (`PermitTimeline.narrows`) and `UnsignedSnapshot` are spelled in the permit layer only; whether a file is unattributable AT ALL is decided in `OpLogChain` (the `unattributable:` label); the three `HeldLines.Holder` arms are BUILT in `HeldLines`; `AdmissionDecision.HeldKeyStanding` is the one *why is this held key not offered*; `Permit.permit(offering:)` is walked through by `PermitControl` alone; and `RegistryPresence` names no rung, because the admission that shows no sheet may only install the whole book. Every one fails silently and in the direction that moves words — a second answer to *is this book narrowed* holds a line here and applies it there, and a second opinion about *unattributable* keeps a file out of the photograph altogether. Censuses: `TripwireGrepTests.test_theNarrowingPredicateAndTheSnapshotAreInThePermitLayerOnly`, `test_whetherAFileIsUnattributableIsDecidedInOpLogChainOnly`, `test_theThreeHoldersAreBuiltInHeldLinesOnly`, `test_theHolderStandingClassifierIsOneFile`, `test_aSurfaceBuildsAPermitInOnePlace`, `test_theSilentAdmissionNarrowsNobody`, sharing `test_theP3bCensusesFireOnPlantedOffenders`. CLAUDE.md tripwire 49.
 
-22. **Six P3b call-site lists are ARRAYS, not numbers in prose** (P3b). `expectedStreams`, `acknowledgedLosses`, `absentStreams`, `gateOldBuildsOut`, the `currentSchemaVersion` assignments and the held-line door's one caller live in `TripwireGrepTests.countedLists` with a count per file. A builder of `expecting:` somewhere else is a sweep that does not take the acknowledgement, so a loss the writer has already put down refuses a marking verb for ever; a narrowing verb that stopped calling the gate lets a v0.40 Mac into a narrowed book. Census: `test_theP3bCountedListsAreExactlyTheNamedArrays`. CLAUDE.md tripwire 50.
+22. **The P3b call-site lists are ARRAYS, not numbers in prose** (P3b; count `TripwireGrepTests.countedLists`' members, never this entry). `expectedStreams`, `acknowledgedLosses`, `absentStreams`, `gateOldBuildsOut`, the `currentSchemaVersion` assignments and the held-line door's one caller live in `TripwireGrepTests.countedLists` with a count per file. A builder of `expecting:` somewhere else is a sweep that does not take the acknowledgement, so a loss the writer has already put down refuses a marking verb for ever; a narrowing verb that stopped calling the gate lets a v0.40 Mac into a narrowed book. Census: `test_theP3bCountedListsAreExactlyTheNamedArrays`. CLAUDE.md tripwire 50.
 
 23. **`author_collaborator_id` is decoded and never written** (P3c Task 4). Only `Op.swift` names the `authorCollaboratorId:` label — the field, its init parameter and its decode; a read carries no colon. A second writer is a second attribution beside the signature, one nothing verifies. `TripwireGrepTests.test_theCollaboratorIdIsDecodedAndNeverWritten` + `test_theCollaboratorIdCensusFiresOnAPlantedOffender`, over `Maugham/`, `MaughamPhone/` and Core sources.
 

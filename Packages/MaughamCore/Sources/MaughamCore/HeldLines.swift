@@ -23,9 +23,15 @@ import Foundation
 ///   that decided it says so: `AmendmentPermits.recordStartedAPiece`, carried
 ///   into `holder(of:registry:startedAPiece:)` as an INPUT.
 /// - **unsigned** — a line written after the first narrowing by a file this
-///   register can name no key for (`UnsignedSnapshot`). There is no device to
-///   admit, because there is no key: nothing on that Mac signs what it writes.
-///   Its one way back in is the Inbox.
+///   register can name no key for (`UnsignedSnapshot`). That is two cases this
+///   Mac cannot tell apart and must not claim to (P3c Task 7, carry M2): a Mac
+///   that signs nothing it will ever write — a VM, a machine with no Secure
+///   Enclave — and a Mac that signs perfectly well whose FIRST seal has not
+///   synced into this folder yet. The second stops being unsigned the moment
+///   its seal arrives and is judged like any other device from then on; the
+///   first's one way back in is the Inbox. So nothing here says *there is no
+///   device to admit*: what is true in both is that nothing this book holds
+///   says who signs for the stream (People & Devices' own wording).
 ///
 /// **The unsigned holder is a string no fingerprint can be**, and that is what
 /// makes the classification total rather than a guess. A seal key is 64 hex
@@ -172,8 +178,14 @@ public enum HeldLines {
     /// answers to *whose words are these*, and the wrong one is easy to reach
     /// for: a Mac with no enclave has no key, but telling a writer their other
     /// machine *has no key* describes a missing part rather than what is
-    /// actually true of it, which is that nothing it writes is signed.
-    public static let unsignedWriter = "a Mac that signs nothing it writes"
+    /// actually true of it.
+    ///
+    /// **And it must be true in BOTH cases the holder covers** (P3c Task 7,
+    /// carry M2). It used to say *a Mac that signs nothing it writes*, which is
+    /// false about a signing Mac whose first seal has not reached this folder
+    /// yet — the case that arrives on every new collaborator's first day. What
+    /// this Mac knows in both is that nothing in the book signs for it.
+    public static let unsignedWriter = "a Mac nothing in this book signs for yet"
 
     /// **Where an unsigned stream's words come back**, said in the one place
     /// that knows whether the reader is standing in it (P3b Task 10).
@@ -257,12 +269,61 @@ public enum HeldLines {
                 + "of Maugham can’t tell what they are allowed to write here; "
                 + "a newer one will."
         case .unsigned:
-            let where_ = wayBackIn == .theInboxDoor
-                ? "can be brought back through the Inbox."
-                : "is brought back from History."
+            // **Both cases, never one** (P3c Task 7, carry M2): a signing Mac
+            // whose first seal has not synced is judged the moment it does,
+            // and only a Mac that signs nothing needs the way back in.
             return "\(noun) \(verb) waiting from \(unsignedWriter). "
-                + "There is no device to admit — what it wrote \(where_)"
+                + "If that Mac’s first signed change just hasn’t synced here, "
+                + "this changes when it does; if it signs nothing, "
+                + unsignedWayBack(what, wayBackIn: wayBackIn)
         }
+    }
+
+    /// **What comes back from a Mac that signs nothing — PARAGRAPHS only**
+    /// (Denver's I2 ruling, 2026-09-23; delivered in P3c plan 2's fix wave).
+    ///
+    /// §7.4's door (`DocumentStore.sendHeldWordsToInbox`) captures a held
+    /// span's paragraphs as Inbox rows and nothing else. A held note, a
+    /// disposition of one, a checkpoint or a task from such a Mac has no door
+    /// and no admission to pardon it, so the sentence counts the paragraphs as
+    /// coming back and says the rest stays held with no way back — never the
+    /// old promise over a noun that could read *2 paragraphs and 1 note*.
+    /// Where the caller has only a count (the capture stream, which holds no
+    /// ops), the kinds are unknown and the sentence says both halves.
+    private static func unsignedWayBack(_ what: Waiting?, wayBackIn: WayBackIn) -> String {
+        func door(plural: Bool) -> String {
+            wayBackIn == .theInboxDoor
+                ? "can be brought back through the Inbox"
+                : "\(plural ? "are" : "is") brought back from History"
+        }
+        let onlyParagraphs = wayBackIn == .theInboxDoor
+            ? "only paragraphs come back, through the Inbox"
+            : "only paragraphs come back, from History"
+        guard let what else {
+            return "any paragraphs it wrote \(door(plural: true)); its notes "
+                + "stay held, with no way back."
+        }
+        let changes = what.other + (what.paragraphs == 0 ? what.prose : what.anonymousProse)
+        // *Other* only beside something it is other than — a paragraph or a
+        // note already said (whole-branch re-review N4: changes alone read
+        // *its other changes* with nothing before them).
+        let other = what.paragraphs > 0 ? "other " : ""
+        let rest: String?
+        switch (what.notes > 0, changes > 0) {
+        case (true, true): rest = "its notes and other changes stay"
+        case (true, false): rest = what.notes == 1 ? "its note stays" : "its notes stay"
+        case (false, true):
+            rest = changes == 1 ? "its \(other)change stays" : "its \(other)changes stay"
+        case (false, false): rest = nil
+        }
+        guard what.paragraphs > 0 else {
+            return "\(rest ?? "what it wrote stays") held, with no way back — "
+                + "\(onlyParagraphs)."
+        }
+        let plural = what.paragraphs != 1
+        let paragraphs = "its \(plural ? "paragraphs" : "paragraph") \(door(plural: plural))"
+        guard let rest else { return "\(paragraphs)." }
+        return "\(paragraphs); \(rest) held, with no way back."
     }
 
     // MARK: - What is waiting (P3b smoke find F2)

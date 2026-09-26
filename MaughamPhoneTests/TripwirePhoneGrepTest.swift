@@ -692,9 +692,15 @@ final class TripwirePhoneGrepTest: XCTestCase {
     /// allow-list for both is EMPTY: no phone source may build a trust closure
     /// or spell a registry path at all.
     ///
-    /// The phone judges nobody of its own accord — `ChainPolicy`'s default
-    /// single-signer closure lives in MaughamCore and the phone's two writers
-    /// take it — and it declares itself through `PhoneDeviceRecord`, which
+    /// The phone judges nobody of its own accord. Its two writers take
+    /// `ChainPolicy`'s default single-signer closure (MaughamCore), which a
+    /// write-only store asks nothing but *is this key mine* — pinned equal to
+    /// the table's answer by `PhoneChainPolicyTests`, and kept write-only by
+    /// `test_thePhonesChainedStoresOnlyWrite`. Where the phone READS, it asks
+    /// MaughamCore's own table through `OpLogStore` — the partition, and since
+    /// P3c plan 2 Task 5 the annotation-ownership rule
+    /// (`AnnotationLoading.loadJudged` → `annotationAmendments`) — and builds
+    /// none of its own. It declares itself through `PhoneDeviceRecord`, which
     /// calls `RegistryPresence` in MaughamCore and never names a record, a
     /// path or a fingerprint. Both halves are tripwire 19 (the phone must not
     /// reimplement what the Mac implements) arriving as a silent one: a phone
@@ -855,4 +861,306 @@ final class TripwirePhoneGrepTest: XCTestCase {
         XCTAssertFalse(offenders.contains(where: { $0.contains("let read") }),
             "reading where a record lives is not writing one")
     }
+
+    // MARK: - The phone reads annotations judged, and its chained stores only
+    //         write (P3c plan 2, Task 5)
+
+    /// Every line under `dir` matching one of `patterns`, in a file whose
+    /// name is not `allowedIn` and (when `onlyFilesContaining` is given) whose
+    /// text contains that marker. Comment lines are let through.
+    private func censusOffenders(
+        in dir: URL, patterns: [String], allowedIn: Set<String> = [],
+        onlyFilesContaining marker: String? = nil
+    ) throws -> [String] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            XCTFail("could not enumerate \(dir.path)")
+            return []
+        }
+        var offenders: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            guard !allowedIn.contains(url.lastPathComponent) else { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            if let marker, !text.contains(marker) { continue }
+            for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                let lineStr = String(line)
+                if admissionExcludeLine(lineStr) { continue }
+                if patterns.contains(where: { lineStr.contains($0) }) {
+                    offenders.append("\(url.lastPathComponent):\(i + 1): "
+                        + lineStr.trimmingCharacters(in: .whitespaces))
+                }
+            }
+        }
+        return offenders
+    }
+
+    private var phoneSourceDir: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MaughamPhone", isDirectory: true)
+    }
+
+    /// The op-log reads and annotation derives a phone source could make
+    /// WITHOUT the ownership judgement. `AnnotationLoading.swift` is the one
+    /// file allowed to spell them, because `loadJudged` is where the load and
+    /// its judgement are put together and its derive overloads take the pair.
+    ///
+    /// Every `OpLogStore` read that hands back ops is named (fix round 1's M1
+    /// added the partial and single-file reads), and so is the permissive
+    /// judgement itself: `.honourEverything` spelled in production anywhere
+    /// but here is a derive that has chosen not to be judged.
+    private let unjudgedAnnotationReads = [
+        ".load(docId:", "loadDiagnosed(", "loadDiagnosedPartial(",
+        "loadFileDiagnosed(", "loadSyncMerged(",
+        "AnnotationDeriver.derive(", "AnnotationDeriver.deriveWithdrawn(",
+        "AnnotationAggregation.", ".honourEverything",
+    ]
+
+    /// **Every annotation read on the phone is judged** — through
+    /// `AnnotationLoading.loadJudged`, the Mac's own two Core calls. A second
+    /// read beside it would be a derive under `.honourEverything` again: in a
+    /// narrowed book, a reviewer's edit of somebody else's note that every Mac
+    /// refuses, shown on the phone as if it stood.
+    func test_everyAnnotationReadOnThePhoneIsJudged() throws {
+        let offenders = try censusOffenders(
+            in: phoneSourceDir, patterns: unjudgedAnnotationReads,
+            allowedIn: ["AnnotationLoading.swift"])
+        XCTAssertTrue(offenders.isEmpty,
+            "A phone source reads the op log or derives annotations outside "
+            + "`AnnotationLoading`. Read through `AnnotationLoading.loadJudged` "
+            + "and derive from the `JudgedOps` it returns, so the phone applies "
+            + "the Mac's ownership rule (tripwire 19). Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL: the census catches each spelling in a planted file, and lets
+    /// the judged spelling and a comment through.
+    func test_theJudgedReadCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-judged-read-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may name store.load(docId: and AnnotationDeriver.derive(.
+        let a = try await store.load(docId: docId)
+        let b = try await store.loadDiagnosed(docId: docId)
+        let c = AnnotationDeriver.derive(ops: ops, paragraphs: p)
+        let d = AnnotationAggregation.openAnnotations(ops: ops)
+        let e = await store.loadDiagnosedPartial(docId: docId)
+        let f = try OpLogStore.loadFileDiagnosed(url, trust: t)
+        let g = AnnotationLoading.allAnnotations(ops: ops, amendments: .honourEverything)
+        let good = try await AnnotationLoading.loadJudged(docId: docId, from: store)
+        let fine = AnnotationLoading.allAnnotations(good)
+        """.write(to: tmp.appendingPathComponent("UnjudgedRead.swift"),
+                  atomically: true, encoding: .utf8)
+        try "let x = try await store.load(docId: docId)\n"
+            .write(to: tmp.appendingPathComponent("AnnotationLoading.swift"),
+                   atomically: true, encoding: .utf8)
+
+        let offenders = try censusOffenders(
+            in: tmp, patterns: unjudgedAnnotationReads,
+            allowedIn: ["AnnotationLoading.swift"])
+        XCTAssertEqual(offenders.count, 7,
+            "Self-check: the seven unjudged reads should be caught, and neither "
+            + "the comment, the judged spelling, nor the allow-listed file. "
+            + "Caught:\n" + offenders.joined(separator: "\n"))
+        XCTAssertFalse(offenders.contains(where: { $0.contains("let good") }))
+        XCTAssertFalse(offenders.contains(where: { $0.contains("let fine") }))
+    }
+
+    /// **C7: the phone's chained stores only write.** `AnnotationWriter` and
+    /// `InboxCaptureWriter` build `ChainPolicy` with its default single-signer
+    /// trust, which is the table's answer ONLY for a store that writes: the
+    /// chained write asks nothing but *is this key mine*, while the chained
+    /// read takes the full verdict and would need the table.
+    ///
+    /// Three halves, so the census does not hang on one spelling in one file
+    /// (fix round 1's M1): every `ChainPolicy(` on the phone is in a NAMED
+    /// file; those files read through no store; and the reads only a
+    /// `JSONLAppendStore` offers appear in no phone source at all, so a store
+    /// built in one file cannot be read in another.
+    private let chainPolicyFiles: Set<String> = [
+        "AnnotationWriter.swift", "InboxCaptureWriter.swift",
+    ]
+    private let storeReads = [
+        ".load(", ".loadDiagnosed(", ".loadStrict(",
+        ".loadDiagnosedStrict(", ".loadVerifiedStrict(",
+    ]
+    private let appendStoreOnlyReads = [
+        ".loadStrict(", ".loadDiagnosedStrict(", ".loadVerifiedStrict(",
+    ]
+
+    private func writeOnlyOffenders(in dir: URL) throws -> [String] {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            XCTFail("could not enumerate \(dir.path)")
+            return []
+        }
+        var offenders: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let name = url.lastPathComponent
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                let lineStr = String(line)
+                if admissionExcludeLine(lineStr) { continue }
+                let where_ = "\(name):\(i + 1): " + lineStr.trimmingCharacters(in: .whitespaces)
+                if lineStr.contains("ChainPolicy("), !chainPolicyFiles.contains(name) {
+                    offenders.append("unnamed ChainPolicy — " + where_)
+                }
+                if chainPolicyFiles.contains(name),
+                   storeReads.contains(where: { lineStr.contains($0) }) {
+                    offenders.append("read in a chained writer — " + where_)
+                }
+                if appendStoreOnlyReads.contains(where: { lineStr.contains($0) }) {
+                    offenders.append("store read — " + where_)
+                }
+            }
+        }
+        return offenders
+    }
+
+    func test_thePhonesChainedStoresOnlyWrite() throws {
+        let offenders = try writeOnlyOffenders(in: phoneSourceDir)
+        XCTAssertTrue(offenders.isEmpty,
+            "A phone source builds a `ChainPolicy` outside the two named "
+            + "writers, or reads through a chained store. The default "
+            + "single-signer trust is the table's answer for a write and not "
+            + "for a read: a store that reads takes the verified table "
+            + "(`TrustTable.verdict(forSealKey:)`, from MaughamCore). "
+            + "Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL: one planted offender per half, each caught; the sanctioned
+    /// shape and a comment are not.
+    func test_theWriteOnlyStoreCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-write-only-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may say ChainPolicy( and store.load( here.
+        let store = JSONLAppendStore<Op>(fileURL: url, chain: ChainPolicy(
+            identity: identity, state: .shared, docId: docId, projectURL: root))
+        try await store.append(op)
+        let read = try await store.load()
+        """.write(to: tmp.appendingPathComponent("AnnotationWriter.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        let policy = ChainPolicy(identity: i, state: .shared, docId: d, projectURL: r)
+        let identity = try DeviceIdentity.load(from: dir, actor: .author)
+        """.write(to: tmp.appendingPathComponent("ThirdWriter.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        let elsewhere = try await sharedStore.loadVerifiedStrict()
+        """.write(to: tmp.appendingPathComponent("SomeReader.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let offenders = try writeOnlyOffenders(in: tmp)
+        XCTAssertEqual(offenders.count, 3,
+            "Self-check: one offender per half. Caught:\n"
+            + offenders.joined(separator: "\n"))
+        XCTAssertTrue(offenders.contains { $0.contains("let read") },
+                      "a read in a named chained writer")
+        XCTAssertTrue(offenders.contains { $0.contains("let policy") },
+                      "a ChainPolicy in a file nobody named")
+        XCTAssertTrue(offenders.contains { $0.contains("let elsewhere") },
+                      "a store read anywhere else on the phone")
+        XCTAssertFalse(offenders.contains { $0.contains("let identity") },
+                       "`DeviceIdentity.load` in an unnamed file is not a store read")
+    }
+
+    // MARK: - The phone asks its posture in one place, and capture never asks
+    //         (P3c plan 2, Task 6)
+
+    /// The spellings of reaching the posture door or its not-yet answer.
+    /// `PhonePosture.swift` is the phone's one door: it asks MaughamCore's
+    /// `PostureDoor` and holds `Posture.settling` as its unanswered state, and
+    /// every view asks `PhonePosture` rather than either. (The Mac's census,
+    /// `TripwireGrepTests.test_postureIsAskedOfThePermitInOnePlace`, already
+    /// scans this target for the permit's own ask spellings.)
+    private let phonePostureDoorSpellings = ["PostureDoor.", "Posture.settling"]
+
+    /// Anything a capture could ask a posture through. Capture is on every
+    /// rung — an inbox row is the reviewer row — so nothing under `Capture/`
+    /// may consult one: a capture hidden behind a posture is a reviewer who
+    /// can no longer send the writer anything.
+    private let captureAsksAPosture = ["Posture", "posture", ".allows("]
+
+    private var phoneCaptureDir: URL {
+        phoneSourceDir.appendingPathComponent("Capture", isDirectory: true)
+    }
+
+    func test_thePhoneAsksItsPostureInOnePlace() throws {
+        let offenders = try censusOffenders(
+            in: phoneSourceDir, patterns: phonePostureDoorSpellings,
+            allowedIn: ["PhonePosture.swift"])
+        XCTAssertTrue(offenders.isEmpty,
+            "A phone source reaches the posture door, or spells its not-yet "
+            + "answer, outside `PhonePosture`. Ask "
+            + "`PhonePosture.posture(forDocId:in:)` and decide a verb with "
+            + "`PhonePosture.offers` (tripwires 19, 51). Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    func test_captureNeverAsksAPosture() throws {
+        let offenders = try censusOffenders(
+            in: phoneCaptureDir, patterns: captureAsksAPosture)
+        XCTAssertTrue(offenders.isEmpty,
+            "A capture source consults a posture. Capture is offered on every "
+            + "rung: an inbox row is the reviewer row. Offenders:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL: both censuses fire on planted offenders, let a comment
+    /// through, and the door's own file is admitted its spellings.
+    func test_thePhonePostureCensusesFireOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("phone-posture-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let planted = """
+        // A comment may say PostureDoor. and Posture.settling and posture.
+        let asked = PostureDoor.posture(forDocId: d, in: u, using: s)
+        let undecided = Posture.settling
+        let fine = PhonePosture.offers(.accept, under: posture)
+        """
+        try planted.write(to: tmp.appendingPathComponent("SomeView.swift"),
+                          atomically: true, encoding: .utf8)
+        try planted.write(to: tmp.appendingPathComponent("PhonePosture.swift"),
+                          atomically: true, encoding: .utf8)
+        let door = try censusOffenders(
+            in: tmp, patterns: phonePostureDoorSpellings,
+            allowedIn: ["PhonePosture.swift"])
+        XCTAssertEqual(door.count, 2,
+            "Self-check: both door spellings caught in a view, none in the "
+            + "door's own file, the comment let through. Caught:\n"
+            + door.joined(separator: "\n"))
+        XCTAssertFalse(door.contains { $0.contains("let fine") })
+        XCTAssertFalse(door.contains { $0.hasPrefix("PhonePosture.swift") })
+
+        try """
+        // A capture is on every rung; no posture is asked.
+        guard posture.allows(.annotate) else { return }
+        let hidden = PhonePosture.offersCapture(under: p)
+        let written = try await writer.writeText(text, to: project)
+        """.write(to: tmp.appendingPathComponent("CaptureView.swift"),
+                  atomically: true, encoding: .utf8)
+        try fm.removeItem(at: tmp.appendingPathComponent("SomeView.swift"))
+        try fm.removeItem(at: tmp.appendingPathComponent("PhonePosture.swift"))
+        let capture = try censusOffenders(in: tmp, patterns: captureAsksAPosture)
+        XCTAssertEqual(capture.count, 2,
+            "Self-check: a capture asking a posture is caught, twice. Caught:\n"
+            + capture.joined(separator: "\n"))
+        XCTAssertFalse(capture.contains { $0.contains("let written") })
+    }
 }
+

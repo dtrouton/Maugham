@@ -25,7 +25,14 @@ final class PostureTests: XCTestCase {
     }
 
     private static let everything = Set(V.allCases)
-    private static let everythingButStarting = everything.subtracting([.startAPiece])
+    /// Option A (P3c plan 2): what an author of some pieces is offered in a
+    /// piece she started that nobody has claimed — her words, and what is
+    /// probed as her words; never a disposition, a checkpoint, a task or a
+    /// translation, which the read side would set aside.
+    private static let writingHerStartedPiece: Set<V> = [
+        .writeText, .acceptOrReject, .setPassState, .restructure, .runRound,
+        .editStatement, .startAPiece, .annotate,
+    ]
 
     private static let rows: [Row] = [
         Row(name: "unrestricted",
@@ -39,22 +46,51 @@ final class PostureTests: XCTestCase {
             offers: [.annotate], reason: .reviewer),
         Row(name: "pieces author inside her piece",
             posture: Posture(permit(.author(.pieces(["a"])), .piece("a"))),
-            offers: everythingButStarting, reason: nil),
+            offers: everything, reason: nil),
         Row(name: "pieces author inside her piece's statement",
             posture: Posture(permit(.author(.pieces(["a"])), .pieceStatement(piece: "a"))),
-            offers: everythingButStarting, reason: nil),
+            offers: everything, reason: nil),
         Row(name: "pieces author outside her pieces",
             posture: Posture(permit(.author(.pieces(["a"])), .piece("b"))),
-            offers: [.annotate], reason: .notYourPiece),
+            offers: [.annotate, .startAPiece], reason: .notYourPiece),
+        // Option A: the same piece, one of her own devices started it and no
+        // book author has written a word of it.
+        Row(name: "pieces author in a piece she started, unclaimed",
+            posture: Posture(LocalWritePermit(
+                permit: .author(.pieces(["a"])), actor: .author,
+                documentClass: .piece("b"), startedHere: true,
+                writesAsItsStarter: true)),
+            offers: writingHerStartedPiece, reason: .waitingToBeClaimed),
+        // …on her OTHER Mac: it may not mint the opening, and writes the same.
+        Row(name: "pieces author in a piece her other Mac started, unclaimed",
+            posture: Posture(LocalWritePermit(
+                permit: .author(.pieces(["a"])), actor: .author,
+                documentClass: .piece("b"), startedHere: false,
+                writesAsItsStarter: true)),
+            offers: writingHerStartedPiece, reason: .waitingToBeClaimed),
+        // …and once a book author has written its text, it is theirs.
+        Row(name: "pieces author in a piece she started, now claimed",
+            posture: Posture(LocalWritePermit(
+                permit: .author(.pieces(["a"])), actor: .author,
+                documentClass: .piece("b"), startedHere: true,
+                writesAsItsStarter: false)),
+            offers: [.annotate, .startAPiece], reason: .notYourPiece),
+        // The actor narrows Option A exactly as it narrows her scope.
+        Row(name: "the assistant under a pieces author, in a piece she started",
+            posture: Posture(LocalWritePermit(
+                permit: .author(.pieces(["a"])), actor: .assistant,
+                documentClass: .piece("b"), startedHere: true,
+                writesAsItsStarter: true)),
+            offers: [.annotate], reason: .reviewer),
         Row(name: "pieces author on the project stream",
             posture: Posture(permit(.author(.pieces(["a"])), .projectStream)),
-            offers: [.task, .annotate], reason: .notYourPiece),
+            offers: [.task, .annotate, .startAPiece], reason: .notYourPiece),
         Row(name: "pieces author on a project statement",
             posture: Posture(permit(.author(.pieces(["a"])), .projectStatement)),
-            offers: [.annotate], reason: .notYourPiece),
+            offers: [.annotate, .startAPiece], reason: .notYourPiece),
         Row(name: "pieces author on a statement this build cannot place",
             posture: Posture(permit(.author(.pieces(["a"])), .unplaceable("s"))),
-            offers: [.annotate], reason: .cannotJudge),
+            offers: [.annotate, .startAPiece], reason: .cannotJudge),
         Row(name: "unjudgeable permit",
             posture: Posture(permit(.unjudgeable(raw: "editor"), .piece("x"))),
             offers: [.annotate], reason: .cannotJudge),
@@ -110,18 +146,27 @@ final class PostureTests: XCTestCase {
         }
     }
 
-    /// Starting a piece is the book author's alone until plan 2 (ruling R3) —
-    /// whatever class the posture was built for.
-    func test_startingAPieceIsTheBookAuthorsAlone() {
+    /// **Starting a piece is the book author's AND an author of some pieces'**
+    /// (P3c plan 2, Option A widens ruling R3) — whatever class the posture
+    /// was built for. A reviewer, a permit this build cannot read, and every
+    /// narrowed key start nothing.
+    func test_startingAPieceIsTheBookAuthorsAndAnAuthorOfSomePiecesToo() {
         let classes: [DocumentClass] = [
             .piece("a"), .pieceStatement(piece: "a"), .projectStatement,
             .projectStream, .translation(piece: "a"),
         ]
         for cls in classes {
             XCTAssertTrue(Posture(Self.permit(.bookAuthor, cls)).allows(.startAPiece), "\(cls)")
-            XCTAssertFalse(Posture(Self.permit(.author(.pieces(["a"])), cls)).allows(.startAPiece), "\(cls)")
-            XCTAssertFalse(Posture(Self.permit(.author(.pieces([])), cls)).allows(.startAPiece), "\(cls)")
+            XCTAssertTrue(Posture(Self.permit(.author(.pieces(["a"])), cls)).allows(.startAPiece), "\(cls)")
+            XCTAssertTrue(Posture(Self.permit(.author(.pieces([])), cls)).allows(.startAPiece), "\(cls)")
             XCTAssertFalse(Posture(Self.permit(.reviewer, cls)).allows(.startAPiece), "\(cls)")
+            XCTAssertFalse(Posture(Self.permit(.unjudgeable(raw: "editor"), cls))
+                .allows(.startAPiece), "\(cls)")
+            for actor in [DeviceActor.assistant, .translator, .maugham] {
+                XCTAssertFalse(
+                    Posture(Self.permit(.author(.pieces(["a"])), cls, actor: actor))
+                        .allows(.startAPiece), "\(cls)/\(actor)")
+            }
         }
     }
 
@@ -154,6 +199,6 @@ final class PostureTests: XCTestCase {
         let promoted = Posture(Self.permit(.author(.pieces(["a"])), .piece("a")))
         let demoted = Posture(Self.permit(.reviewer, .piece("a")))
         let unlocked = Set(V.allCases.filter { promoted.allows($0) && !demoted.allows($0) })
-        XCTAssertEqual(unlocked, Self.everythingButStarting.subtracting([.annotate]))
+        XCTAssertEqual(unlocked, Self.everything.subtracting([.annotate]))
     }
 }

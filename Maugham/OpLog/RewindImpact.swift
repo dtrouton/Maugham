@@ -38,7 +38,15 @@ enum RewindImpact {
         .taskParentChange, .taskBodyEdit, .taskArchive
     ]
 
-    static func preview(ops: [Op], cursorOpId: String?) -> Preview {
+    /// `amendments` is the document's own judgement (`Document
+    /// .annotationAmendments`), so the preview reads the statuses the pane
+    /// shows and skips a reopen the deriver does not honour (ruling P). A
+    /// caller with no document — a closed piece read off disk — has no table
+    /// and keeps the pre-P3a answer.
+    static func preview(
+        ops: [Op], cursorOpId: String?,
+        amendments: AnnotationAmendments = .honourEverything
+    ) -> Preview {
         var p = Preview(wordsUndone: 0, paragraphsRemoved: 0,
                         annotationsToArchive: 0, annotationsToReopen: 0,
                         acceptsToReopen: 0, acceptsToRestore: 0,
@@ -55,13 +63,15 @@ enum RewindImpact {
             .map { $0.split { $0.isWhitespace || $0.isNewline }.count }
             .reduce(0, +)
 
-        let annotations = AnnotationDeriver.derive(ops: ops, paragraphs: now.paragraphs)
+        let annotations = AnnotationDeriver.derive(
+            ops: ops, paragraphs: now.paragraphs, amendments: amendments)
         var lifecycleBySource: [String: [Op]] = [:]
         // The deriver's own lifecycle rule, asked for rather than restated —
         // this set and `restoreToOp`'s each carried a literal copy until M3 P2,
         // and a stet missing from one of them reads a settled note's history as
         // if the settlement had never happened.
-        for op in ops where Document.lifecycleOpKinds.contains(op.kind) {
+        // Honoured ops only (ruling P) — `restoreToOp`'s own filter.
+        for op in ops where AnnotationDeriver.isHonouredLifecycleOp(op, amendments: amendments) {
             if let src = op.provenance?.sourceAnnotationId {
                 lifecycleBySource[src, default: []].append(op)
             }

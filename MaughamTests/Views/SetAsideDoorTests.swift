@@ -386,7 +386,7 @@ final class SetAsideDoorTests: XCTestCase {
         let rows = HistoryPane.heldLineRows(
             provenance: heldProvenance([unsignedHolder: 2]),
             startedAPiece: [], names: [:],
-            words: [unsignedHolder: 3], sent: [:], docId: "doc-1")
+            words: [unsignedHolder: 3], sent: [:])
 
         XCTAssertEqual(rows.count, 1)
         XCTAssertTrue(rows[0].offersTheDoor)
@@ -405,7 +405,7 @@ final class SetAsideDoorTests: XCTestCase {
         let rows = HistoryPane.heldLineRows(
             provenance: heldProvenance([personHolder: 2]),
             startedAPiece: [], names: [personHolder: "Sam"],
-            words: [personHolder: 4], sent: [:], docId: "doc-1")
+            words: [personHolder: 4], sent: [:])
 
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows[0].unsent, 0)
@@ -418,7 +418,7 @@ final class SetAsideDoorTests: XCTestCase {
     func test_aReReadThatFoundNothingOffersNoDoor() throws {
         let rows = HistoryPane.heldLineRows(
             provenance: heldProvenance([unsignedHolder: 2]),
-            startedAPiece: [], names: [:], words: [:], sent: [:], docId: "doc-1")
+            startedAPiece: [], names: [:], words: [:], sent: [:])
 
         XCTAssertEqual(rows.count, 1, "the sentence is still said")
         XCTAssertEqual(rows[0].unsent, 0)
@@ -431,25 +431,23 @@ final class SetAsideDoorTests: XCTestCase {
     /// Five paragraphs are sent; four more arrive. A door that closed after
     /// one press would leave those four with no way in at all — the state this
     /// door exists to remove — and a note that counted what is WAITING would
-    /// tell the writer nine were sent when five were.
+    /// tell the writer nine were sent when five were. (P3c Task 7: both counts
+    /// are the store's, read off the lines — `unsignedHeldWordCounts`.)
     func test_aHeldSpanGoesOnOfferingWhatArrivesAfterThePress() throws {
-        let key = SetAsideDoor.heldKey(docId: "doc-1", holder: unsignedHolder)
-        let firstFive = Set((1...5).map { "op-\($0)#p" })
-
         // Before: five waiting, nothing sent.
         let before = HistoryPane.heldLineRows(
             provenance: heldProvenance([unsignedHolder: 5]),
             startedAPiece: [], names: [:],
-            words: [unsignedHolder: 5], sent: [:], docId: "doc-1")
+            words: [unsignedHolder: 5], sent: [:])
         XCTAssertEqual(before[0].unsent, 5)
         XCTAssertNil(before[0].sentNote)
 
         // The press sent those five; four more have since arrived, so the
-        // store's re-read reports FOUR unsent.
+        // store's re-read reports FOUR unsent and FIVE sent.
         let after = HistoryPane.heldLineRows(
             provenance: heldProvenance([unsignedHolder: 9]),
             startedAPiece: [], names: [:],
-            words: [unsignedHolder: 4], sent: [key: firstFive], docId: "doc-1")
+            words: [unsignedHolder: 4], sent: [unsignedHolder: 5])
 
         XCTAssertTrue(after[0].offersTheDoor,
                       "the four that arrived after the press have a way in")
@@ -459,23 +457,115 @@ final class SetAsideDoorTests: XCTestCase {
                        "the note counts what was SENT, never what is waiting")
     }
 
-    /// The memory is per DOCUMENT as well as per holder — a holder is a whole
-    /// stream, and a stream runs through every chapter it wrote in.
+    /// The memory is per DOCUMENT — a holder is a whole stream, and a stream
+    /// runs through every chapter it wrote in. (P3c Task 7: the door key is
+    /// the chapter's, and the ids carry it too.)
     func test_oneChaptersSentSpanIsNotAnothers() throws {
-        let sent = [
-            SetAsideDoor.heldKey(docId: "doc-1", holder: unsignedHolder):
-                Set(["op-1#p"])
-        ]
-        func rows(_ docId: String) -> [SetAsideDoor.HeldRow] {
-            HistoryPane.heldLineRows(
-                provenance: heldProvenance([unsignedHolder: 2]),
-                startedAPiece: [], names: [:],
-                words: [unsignedHolder: 3], sent: sent, docId: docId)
-        }
+        XCTAssertNotEqual(SetAsideDoor.heldDoorKey(docId: "doc-1"),
+                          SetAsideDoor.heldDoorKey(docId: "doc-2"))
+        let words = OpLogQuarantine.SetAsideWords(
+            opId: "op-1", paragraphId: "p1ab", text: "x", device: "author-x",
+            at: Date(timeIntervalSince1970: 0))
+        XCTAssertNotEqual(SetAsideDoor.heldLineId(docId: "doc-1", words),
+                          SetAsideDoor.heldLineId(docId: "doc-2", words))
 
-        XCTAssertEqual(rows("doc-1")[0].sentCount, 1)
-        XCTAssertEqual(rows("doc-2")[0].sentCount, 0,
-                       "another chapter's waiting words are another door")
+        // The behaviour, not only the strings (P3c plan 2 Task 9, restoring
+        // the pin Task 7's rekey dropped): the same stream's line, sent from
+        // doc-1's row, is neither counted as sent nor withheld on doc-2's.
+        let doc1Sent = SetAsideDoor.heldCaptures(docId: "doc-1", words: [words], sent: [:])
+        let memory = [SetAsideDoor.heldDoorKey(docId: "doc-1"): Set(doc1Sent.map(\.id))]
+        XCTAssertEqual(
+            SetAsideDoor.heldWordCounts(
+                docId: "doc-1", wordsByHolder: [unsignedHolder: [words]], sent: memory),
+            .init(unsent: [:], sent: [unsignedHolder: 1]),
+            "control: doc-1's own row counts its send")
+        let doc2 = SetAsideDoor.heldWordCounts(
+            docId: "doc-2", wordsByHolder: [unsignedHolder: [words]], sent: memory)
+        XCTAssertEqual(doc2, .init(unsent: [unsignedHolder: 1], sent: [:]),
+                       "doc-2's row does not count doc-1's send")
+        XCTAssertEqual(
+            SetAsideDoor.heldCaptures(docId: "doc-2", words: [words], sent: memory).count, 1,
+            "and doc-2's press still files its own paragraph")
+    }
+
+    // MARK: - Remembered by the lines, not by the holder (P3c Task 7, M2)
+
+    private func heldWords(_ ids: [String]) -> [OpLogQuarantine.SetAsideWords] {
+        ids.map {
+            OpLogQuarantine.SetAsideWords(
+                opId: $0, paragraphId: "p1ab", text: "words of \($0)",
+                device: "author-ghost", at: Date(timeIntervalSince1970: 0))
+        }
+    }
+
+    /// **The memory is the LINES', whichever holder they are held under** —
+    /// pinned on the pure functions, because no production row exercises it
+    /// today. A signing Mac whose first seal has not reached this folder is
+    /// held as an unsigned stream, and the writer can send its paragraphs to
+    /// the Inbox from that row. When the seal syncs, the same lines are held
+    /// under a stranger or a permit-pending holder instead — and the held
+    /// door counts and offers UNSIGNED holders alone
+    /// (`DocumentStore.unsignedHeldWordCounts`), so today no row draws a door
+    /// over them at all and nothing could re-offer them.
+    ///
+    /// What this pins is the rule that would hold if one ever did: a memory
+    /// made under the first holder still says the sent lines were sent when
+    /// they are counted under another holder's key, and does not say a line
+    /// written since was. That keeps the Task 7 re-key (by line, not by holder)
+    /// honest against a future change of holder or of an unsigned holder's
+    /// stream key.
+    func test_wordsSentUnderOneHolderAreStillSentUnderAnother() throws {
+        let fingerprintHolder = String(repeating: "c3", count: 32)
+        let before = heldWords(["op-1", "op-2", "op-3"])
+
+        // The press, under the unsigned holder: what it files, recorded as it
+        // lands (the store's `recordRecoveredCapturesSent`, by its door key).
+        let filed = SetAsideDoor.heldCaptures(
+            docId: "doc-1", words: before, sent: [:])
+        XCTAssertEqual(filed.count, 3)
+        let memory = [SetAsideDoor.heldDoorKey(docId: "doc-1"): Set(filed.map(\.id))]
+
+        // The seal synced: the same three, plus one written since, held under
+        // the key.
+        let after = before + heldWords(["op-4"])
+        let counts = SetAsideDoor.heldWordCounts(
+            docId: "doc-1", wordsByHolder: [fingerprintHolder: after],
+            sent: memory)
+        XCTAssertEqual(counts.sent[fingerprintHolder], 3,
+                       "the three already in the Inbox are still sent")
+        XCTAssertEqual(counts.unsent[fingerprintHolder], 1,
+                       "…and only the one never sent is offered")
+
+        let again = SetAsideDoor.heldCaptures(
+            docId: "doc-1", words: after, sent: memory)
+        XCTAssertEqual(again.map(\.text), ["words of op-4"],
+                       "a press now files the new paragraph and nothing else")
+
+        // The other direction: a memory with nothing in it offers everything,
+        // under either holder.
+        let fresh = SetAsideDoor.heldWordCounts(
+            docId: "doc-1",
+            wordsByHolder: [unsignedHolder: before, fingerprintHolder: after],
+            sent: [:])
+        XCTAssertEqual(fresh.unsent[unsignedHolder], 3)
+        XCTAssertEqual(fresh.unsent[fingerprintHolder], 4)
+        XCTAssertTrue(fresh.sent.isEmpty)
+    }
+
+    /// **An older `<docId>|<holder>` key is read by nothing** (tripwire 11: no
+    /// migration). The dev Macs that ran P3b hold keys in that shape; what they
+    /// remember is offered once more, the safe direction — and the new door
+    /// key cannot collide with one, because it has no colon.
+    func test_anOlderHolderKeyedMemoryIsNotReadAndCannotCollide() throws {
+        let words = heldWords(["op-1"])
+        let legacy = ["doc-1|\(unsignedHolder)": Set(["op-1#p1ab"])]
+
+        XCTAssertEqual(
+            SetAsideDoor.heldCaptures(docId: "doc-1", words: words, sent: legacy)
+                .count, 1)
+        XCTAssertNotEqual(SetAsideDoor.heldDoorKey(docId: "doc-1"),
+                          "doc-1|\(unsignedHolder)")
+        XCTAssertFalse(SetAsideDoor.heldDoorKey(docId: "doc-1").contains(":"))
     }
 
     // MARK: - The rows follow their inputs (fix round 2, I1)
@@ -548,7 +638,7 @@ final class SetAsideDoorTests: XCTestCase {
         XCTAssertTrue(HistoryPane.heldLineRows(
             provenance: heldProvenance([stranger: 3], strangers: [stranger]),
             startedAPiece: [], names: [:], words: [stranger: 9],
-            sent: [:], docId: "doc-1").isEmpty)
+            sent: [:]).isEmpty)
     }
 
     /// The sentences are unchanged: `heldLineNotices` is these rows' own.

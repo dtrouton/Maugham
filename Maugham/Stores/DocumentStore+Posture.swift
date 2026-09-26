@@ -28,9 +28,18 @@ final class PostureBook {
         let actor: DeviceActor
     }
 
-    /// docId → the piece it is ABOUT (a piece, its statement, its
-    /// translation), in THIS epoch — asked only while somebody is yielded to.
+    /// docId → the piece it is ABOUT (a piece, or its statement), in THIS
+    /// epoch — asked only while somebody is yielded to.
     @ObservationIgnored fileprivate var pieceOf: [String: String?] = [:]
+
+    /// path → the id `resolveDocId` answered for a path that is neither open
+    /// nor in the live manifest, in THIS epoch (m4) — a research note, a
+    /// headless store's every path, a file the manifest does not hold yet.
+    /// Without it each such question decoded the manifest from disk, once per
+    /// view-body call. Forgotten with the permits on every clearing bump (a
+    /// trust change, a manifest adoption), so an adopted manifest that now
+    /// names the path is read afresh.
+    @ObservationIgnored fileprivate var docIdOfUnknownPath: [String: String] = [:]
 
     /// The permit answered for each `(docId, actor)` in THIS epoch.
     @ObservationIgnored fileprivate var permits: [Key: LocalWritePermit] = [:]
@@ -71,6 +80,9 @@ final class PostureBook {
 
     /// Test-observable: how many times the door has asked the builder.
     @ObservationIgnored fileprivate(set) var builderCalls = 0
+
+    /// Test-observable: how many times a path was resolved from disk.
+    @ObservationIgnored fileprivate(set) var unknownPathResolves = 0
 
     init() {}
 }
@@ -124,10 +136,28 @@ final class PostureBook {
 /// permit whose scope NAMES pieces; a co-writing whole-book author names none
 /// and is never yielded to — the writer's-hand posture on that piece carries
 /// `yieldingTo`, until `overrideYield(docId:)` in this window. The piece's
-/// statement and its translation yield with it (controller ruling H): the
-/// yield keys on the piece a document's CLASS is about. Never to this
+/// statement yields with it (controller ruling H): the yield keys on the piece
+/// a document's CLASS is about (`yieldPiece(of:)`). Its translation yields with
+/// it by construction rather than by class — every translation surface asks
+/// this door by the PIECE's own id (the Translation pane its document's, the
+/// desk the piece's as the translator), because no document id resolves to
+/// `DocumentClass.translation` (P3c plan 2 Task 8 deleted that arm). Never to this
 /// device's own person — the root's own second Mac admitted under the
 /// writer's label is the writer.
+///
+/// **And any book author's yield to a piece's STARTER** (P3c plan 2 fix wave,
+/// Ruling U). Where somebody else started a piece and nobody has claimed it,
+/// a keystroke of this Mac's would make the text a book author's and set her
+/// held words aside on every Mac (§4.5). The permit says so
+/// (`LocalWritePermit.unsettledStarter`, decided by the one builder), and
+/// `assemble` yields on it with the same *Edit Anyway* — per window, per
+/// session — whether or not this Mac holds any of the piece's ops. It is not
+/// the root's alone: every book author's typing claims the piece. It lifts
+/// when the piece is claimed (*Theirs*, or a book author's text), at the next
+/// answer the door rebuilds — a trust change, a manifest adoption, a reopen;
+/// Ruling H's re-stamp on an external re-read is the starter's arm only, so
+/// another book author's text arriving leaves this yield standing until then
+/// (a lock, with Edit Anyway beside it — the safe direction).
 extension DocumentStore {
 
     // MARK: - Asking
@@ -148,22 +178,41 @@ extension DocumentStore {
         return assemble(permit, forDocId: docId, as: actor)
     }
 
-    /// The permit plus the yield — the one place a `Posture` is put together.
+    /// The permit plus the yield. The yield is decided here (it reads the
+    /// window's `PieceWriters` answer and its *Edit Anyway* set); the `Posture`
+    /// itself is put together by Core's `PostureDoor.posture(permit:)`, the one
+    /// place a permit becomes a posture on either surface (P3c plan 2, Task 1).
+    ///
+    /// **Two yields, one mechanism** (fix wave, Ruling U). Beside the root's
+    /// yield to a piece's OWNER there is any book author's yield to a piece's
+    /// STARTER: somebody else started it, nobody has claimed it, and one
+    /// keystroke here would set her words aside on every Mac. That fact is the
+    /// permit's (`LocalWritePermit.unsettledStarter`, decided once by the one
+    /// builder — never restated here); this function only names the starter
+    /// and honours *Edit Anyway* for it exactly as for the owner's yield. It
+    /// takes precedence, because it is the one whose keystroke costs somebody
+    /// else's words. It does not wait for the `PieceWriters` read: the permit
+    /// already holds the name.
     private func assemble(
         _ permit: LocalWritePermit, forDocId docId: String, as actor: DeviceActor
     ) -> Posture {
         let book = postureBook
+        if actor == .author, let starter = permit.unsettledStarter,
+           !book.overridden.contains(postureYieldPiece(forDocId: docId) ?? docId) {
+            return PostureDoor.posture(
+                permit: permit, yieldingTo: starter.yieldName)
+        }
         guard actor == .author, !book.yields.isEmpty,
               let piece = postureYieldPiece(forDocId: docId),
               !book.overridden.contains(piece),
               let yielding = book.yields[piece]
-        else { return Posture(permit) }
-        return Posture(permit, yieldingTo: yielding)
+        else { return PostureDoor.posture(permit: permit) }
+        return PostureDoor.posture(permit: permit, yieldingTo: yielding)
     }
 
-    /// The piece a document is about, by its CLASS — the piece itself, its
-    /// statement, its translation — cached per epoch. From the live manifest
-    /// where the window holds one (pure), else the file.
+    /// The piece a document is about, by its CLASS — the piece itself, or its
+    /// statement — cached per epoch. From the live manifest where the window
+    /// holds one (pure), else the file.
     private func postureYieldPiece(forDocId docId: String) -> String? {
         let book = postureBook
         if let known = book.pieceOf[docId] { return known }
@@ -173,8 +222,27 @@ extension DocumentStore {
         } else {
             cls = Document.documentClass(forDocId: docId, in: projectURL)
         }
-        book.pieceOf[docId] = .some(cls.piece)
-        return cls.piece
+        let piece = Self.yieldPiece(of: cls)
+        book.pieceOf[docId] = .some(piece)
+        return piece
+    }
+
+    /// **Which piece a class yields with** — the yield lookup's one switch,
+    /// spelled here rather than read off `DocumentClass.piece`, whose
+    /// `.translation` arm is the PERMIT's (a translation stream is judged as its
+    /// piece's) and was unreachable from this door: `DocumentClass.resolve`,
+    /// the only way a document id becomes a class, never answers
+    /// `.translation`. That arm is deleted here (P3c plan 2 Task 8) rather than
+    /// kept as a promise nothing keeps; a translation yields because its
+    /// surfaces ask by the piece's own id, which resolves `.piece`. No
+    /// `default:`, so a class a later build adds has to say whether it yields.
+    static func yieldPiece(of cls: DocumentClass) -> String? {
+        switch cls {
+        case .piece(let id): return id
+        case .pieceStatement(let piece): return piece
+        case .translation, .projectStatement, .projectStream, .inbox, .unplaceable:
+            return nil
+        }
     }
 
     /// The same door, for the document the window shows by PATH. Resolves the
@@ -343,14 +411,59 @@ extension DocumentStore {
         forDocId docId: String, as actor: DeviceActor
     ) -> LocalWritePermit {
         let projectURL = self.projectURL
-        let statements = projectStore?.manifest.statements
+        let manifest = projectStore?.manifest
         postureBook.builderCalls += 1
-        return postureOpStore.localWritePermit(as: actor) {
-            if let statements {
-                return DocumentClass.resolve(docId: docId, statements: statements)
-            }
-            return Document.documentClass(forDocId: docId, in: projectURL)
-        }
+        // The piece's starter (Option A) from the same live manifest, for
+        // ruling AD's reason; nil (a headless store) reads it off disk.
+        let startedBy = manifest.map { live in { live.startedBy(ofPiece: $0) } }
+        return postureOpStore.localWritePermit(
+            as: actor,
+            documentClass: {
+                if let manifest {
+                    return DocumentClass.resolve(
+                        docId: docId, statements: manifest.statements)
+                }
+                return Document.documentClass(forDocId: docId, in: projectURL)
+            },
+            startedBy: startedBy)
+    }
+
+    /// **The drawn posture follows a Document's re-stamp** (P3c plan 2,
+    /// controller ruling H; fix round 2). THIS door re-stamps a Document whose
+    /// permit carries Option A's arm (`Document
+    /// .restampWhereItsStarterArmMayHaveClosed`), after a re-read that APPLIED
+    /// another hand's change (`Document.externalChangesApplied` moved), because
+    /// a book author's text arriving closes the arm — and does it in the same
+    /// turn as the bump below. The door caches per epoch and prefers that
+    /// cache, so a changed stamp forgets this document's cached answer (the
+    /// next draw rebuilds it off the warm table and the live manifest), leaves
+    /// the new stamp as the provisional answer, and bumps the epoch so every
+    /// surface that asked redraws. An unchanged stamp — every re-read of every
+    /// document outside Option A — touches nothing.
+    func withPostureFollowingReStamp(
+        of document: Document, _ reRead: () async throws -> Void
+    ) async throws {
+        let appliedBefore = document.externalChangesApplied
+        try await reRead()
+        // **One turn, from here to the bump** (fix round 2, N3): no `await`
+        // between the re-stamp and `postureFollowsReStamp`, so no turn sees
+        // the Document's stamp and the drawn answer disagree (ruling AG). And
+        // only after a re-read that applied somebody else's change (N2): an
+        // echo of her own burst cannot have claimed her piece, so her typing
+        // never pays for the builder.
+        guard document.externalChangesApplied != appliedBefore else { return }
+        let before = document.localWritePermit
+        document.restampWhereItsStarterArmMayHaveClosed()
+        postureFollowsReStamp(of: document, from: before)
+    }
+
+    private func postureFollowsReStamp(of document: Document, from before: LocalWritePermit) {
+        let after = document.localWritePermit
+        guard after != before else { return }
+        let key = PostureBook.Key(docId: document.docId, actor: after.actor)
+        postureBook.permits[key] = nil
+        postureBook.lastKnown[key] = after
+        postureBook.epoch += 1
     }
 
     /// A new epoch: every view that asked re-renders. `clearing` forgets the
@@ -363,6 +476,7 @@ extension DocumentStore {
         guard clearing else { return }
         postureBook.permits.removeAll()
         postureBook.pieceOf.removeAll()
+        postureBook.docIdOfUnknownPath.removeAll()
     }
 
     /// How many keys a refresh warms between yields of the main actor. The
@@ -557,7 +671,10 @@ extension DocumentStore {
 
     /// The id a path names: the open document's, else the manifest's (a
     /// manuscript item first, then a statement — `resolveDocId`'s own order),
-    /// else what `resolveDocId` answers from disk.
+    /// else what `resolveDocId` answers from disk — ONCE per path per epoch
+    /// (m4): that answer is cached until the next clearing bump. The open
+    /// document and the live manifest are still asked first every time, so a
+    /// path that opens or joins the manifest is never answered from the cache.
     private func postureDocId(forPath path: String) -> String {
         if let open = document(for: path) { return open.docId }
         if let manifest = projectStore?.manifest {
@@ -568,7 +685,12 @@ extension DocumentStore {
                 return statement.id
             }
         }
-        return (try? resolveDocId(for: projectURL.appendingPathComponent(path))) ?? path
+        let book = postureBook
+        if let known = book.docIdOfUnknownPath[path] { return known }
+        book.unknownPathResolves += 1
+        let id = (try? resolveDocId(for: projectURL.appendingPathComponent(path))) ?? path
+        book.docIdOfUnknownPath[path] = id
+        return id
     }
 
     // MARK: - Test seams
@@ -579,4 +701,8 @@ extension DocumentStore {
     /// How many times the door has asked the one builder — a cache hit asks it
     /// nothing, so a redraw that moves this is a redraw of misses.
     var postureBuilderCallsForTesting: Int { postureBook.builderCalls }
+
+    /// How many times a path neither open nor in the live manifest was
+    /// resolved from disk — a cached miss resolves nothing.
+    var postureUnknownPathResolvesForTesting: Int { postureBook.unknownPathResolves }
 }

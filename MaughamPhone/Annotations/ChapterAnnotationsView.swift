@@ -63,6 +63,7 @@ struct ChapterAnnotationsView: View {
                 projectURL: projectURL,
                 docId: loaded.docId,
                 recents: recents,
+                postures: store.postures,
                 onResolved: onResolved)
         } label: {
             NoteRow(annotation: loaded.annotation, dimmed: resolved)

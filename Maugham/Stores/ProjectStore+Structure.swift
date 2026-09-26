@@ -58,13 +58,16 @@ extension ProjectStore {
             throw ProjectStoreError.fileSystemError(error.localizedDescription)
         }
 
-        // 5. Build the new StructureItem
+        // 5. Build the new StructureItem. A document records THIS Mac as its
+        // starter (P3c plan 2, Option A — `StructureItem.startedBy`); a group
+        // holds no text of its own, so nothing asks who started it.
         let item = StructureItem(
             id: Self.newId(prefix: kind.idPrefix),
             title: title,
             type: kind.itemType,
             path: relativePath,
-            children: kind.itemType == .group ? [] : nil)
+            children: kind.itemType == .group ? [] : nil,
+            startedBy: kind.itemType == .document ? Self.thisMacAsAStarter : nil)
 
         // 6. Mutate manifest: append to parent's children or to root structure
         if let parentId {
@@ -439,8 +442,14 @@ extension ProjectStore {
     /// this store answers yes here; the loaded Document's own stamp is then
     /// the door (`Document.mayWriteItsText`).
     private func sweepMayWrite(docId: String, verb: Posture.Verb) async -> Bool {
-        guard let documentStore else { return true }
-        return await documentStore.settledPosture(forDocId: docId).allows(verb)
+        await sweepDoorAnswer(docId: docId)?.allows(verb) ?? true
+    }
+
+    /// The same acting answer, whole — nil where no `DocumentStore` stands
+    /// behind this store (the loaded Document's stamp is then the door).
+    private func sweepDoorAnswer(docId: String) async -> Posture? {
+        guard let documentStore else { return nil }
+        return await documentStore.settledPosture(forDocId: docId)
     }
 
     /// Thrown inside the statement dance when the loaded statement's stamp
@@ -516,7 +525,23 @@ extension ProjectStore {
             // one — the open text, or a non-empty derived body with a match.
             // An empty derived body proves nothing either way; on a Mac that
             // may not write the piece the load would refuse anyway.
-            if !(await sweepMayWrite(docId: doc.id, verb: .writeText)) {
+            //
+            // **One refusal still loads: the yield to a piece's STARTER** (fix
+            // wave, Ruling U). Such a piece's text on this Mac is her held
+            // words, or words that have not arrived — an empty derived body
+            // there proves nothing, and the load is what says *waiting* (M4).
+            // Loading it cannot mint (this Mac did not start it, so
+            // `LocalWritePermit.mayMintOpening` is false), and the write below
+            // asks the door's answer again, so nothing is rewritten.
+            let door = await sweepDoorAnswer(docId: doc.id)
+            let mayWrite = door?.allows(.writeText) ?? true
+            let yieldsToItsStarter: Bool
+            if case .yieldingToItsStarter? = door?.reason {
+                yieldsToItsStarter = true
+            } else {
+                yieldsToItsStarter = false
+            }
+            if !mayWrite, !yieldsToItsStarter {
                 let known: String? = openDoc?.displayText
                     ?? (try? derivedCache.materialize(forDocId: doc.id, in: url))
                 if let known, !known.isEmpty,
@@ -556,6 +581,14 @@ extension ProjectStore {
                         actor: .author,
                         session: "wiki-rename-\(UUID().uuidString.prefix(8))",
                         presenter: documentStore?.presenter)
+                } catch DocumentLoadError.waitingForPiece {
+                    // A piece this Mac may not open yet (its ops have not
+                    // arrived — since Option A, the root's own Mac waits for a
+                    // piece a collaborator started): its links cannot be
+                    // rewritten here, so the rename SAYS so rather than leaving
+                    // an old link silently (fix round 1, M4).
+                    linksLeftIn.append(doc.title)
+                    continue
                 } catch {
                     projectStoreLog.error(
                         "Wiki-rename: failed to load \(path, privacy: .public) for propagation: \(error.localizedDescription, privacy: .public)")
@@ -572,8 +605,9 @@ extension ProjectStore {
             }
 
             // The Document's own stamp — the door where no `DocumentStore`
-            // stands behind this store, and the answer the load just made.
-            guard resolved.mayWriteItsText else {
+            // stands behind this store, and the answer the load just made —
+            // and the door's own answer, for the one refusal that loaded.
+            guard mayWrite, resolved.mayWriteItsText else {
                 linksLeftIn.append(doc.title)
                 if isTransient { await resolved.close() }
                 continue
@@ -819,7 +853,8 @@ extension ProjectStore {
             from: source,
             newTitle: newTitle,
             newPath: newPath,
-            newPrefixForChildren: newPath)
+            newPrefixForChildren: newPath,
+            startedBy: Self.thisMacAsAStarter)
 
         let sourceIndex = currentIndex(of: id, parentId: parentId)
         var siblings = childrenOf(parentId: parentId)
@@ -828,22 +863,77 @@ extension ProjectStore {
 
         manifest.modified = Date()
         try await saveManifest()
+        await mintOpenings(of: copy)
         return copy
+    }
+
+    /// **A creation that yields a piece WITH content mints its opening here,
+    /// on the starter's Mac** (controller Ruling L (a), P3c plan 2 Task 4 fix
+    /// round 1).
+    ///
+    /// The starter rule lets only the Mac that started a piece mint its
+    /// opening. A copy is started here and arrives with its source's words in
+    /// its `.md` — and a copy nobody on this Mac opens (a group's children,
+    /// a duplicate made from Plan, a Mac that quits first) would otherwise
+    /// wait on every other Mac for an opening that is never coming. So each
+    /// document in the copy is loaded once, through the ONE minting door
+    /// (`Document.load`, which runs `Bootstrap` and nothing else does), and
+    /// closed. The manifest recording this Mac as starter is already on disk,
+    /// so the load mints as that starter. An EMPTY piece mints nothing — the
+    /// load's `needsBootstrap` is false — and loads on every Mac as before.
+    ///
+    /// Best-effort, in the direction that keeps the copy: the manifest and the
+    /// copied `.md` are already written, so a load that refuses is logged and
+    /// the copy stays, openable exactly as it was before this rule.
+    func mintOpenings(of item: StructureItem) async {
+        let documents = TreeWalk.collect(in: [item]) {
+            $0.type == .document && $0.pieceKind != .reference
+        }
+        for document in documents {
+            guard let path = document.path else { continue }
+            do {
+                let loaded = try await Document.load(
+                    url: url.appendingPathComponent(path),
+                    actor: .author,
+                    session: "created-\(UUID().uuidString.prefix(8))",
+                    presenter: documentStore?.presenter)
+                // The bootstrap writes an anchored `.md` for the op log to
+                // join on; the render the book keeps on disk is the clean one
+                // (ADR 0019), written here exactly as a restore writes its
+                // first render (`renderRestoredPiece`).
+                do { try await loaded.performAutosave() } catch {
+                    projectStoreLog.error(
+                        "Creation: the render of \(path, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+                }
+                await loaded.close()
+            } catch {
+                projectStoreLog.error(
+                    "Creation: the opening of \(path, privacy: .public) was not minted: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     /// Recursively rebuild a StructureItem tree with fresh ids and rewritten
     /// paths. The top-level copy gets `newTitle` and `newPath`; descendants
     /// keep their titles and have their paths rewritten via `newPrefixForChildren`.
+    ///
+    /// **A copy is a new piece, started on this Mac** (P3c plan 2, Option A):
+    /// every document in it records `startedBy` — never the source's, which
+    /// names whoever started the ORIGINAL and would have that Mac mint an
+    /// opening it has never seen. A group records none, as in
+    /// `addStructureItem`.
     func duplicatedItemTree(
         from source: StructureItem,
         newTitle: String,
         newPath: String,
-        newPrefixForChildren: String
+        newPrefixForChildren: String,
+        startedBy: String
     ) -> StructureItem {
         var copy = source
         copy.id = Self.newDuplicateId(prefix: source.type == .group ? "grp" : "doc")
         copy.title = newTitle
         copy.path = newPath
+        copy.startedBy = source.type == .document ? startedBy : nil
         if let children = source.children {
             var copiedChildren: [StructureItem] = []
             for child in children {
@@ -855,11 +945,22 @@ extension ProjectStore {
                     from: child,
                     newTitle: child.title,
                     newPath: childNewPath,
-                    newPrefixForChildren: childNewPath))
+                    newPrefixForChildren: childNewPath,
+                    startedBy: startedBy))
             }
             copy.children = copiedChildren
         }
         return copy
+    }
+
+    /// **Who a piece made on this Mac records as its starter** (P3c plan 2,
+    /// Option A, ruling OA-1): this Mac's AUTHOR device id, through the same
+    /// identity seam the load asks (`Document.loadIdentities`), so the piece a
+    /// creation records and the Mac the load recognises as its starter are
+    /// one answer. Asked by every creation site and by nothing else — a
+    /// rename, a move, a tidy and a trash restore carry the field as it is.
+    static var thisMacAsAStarter: String {
+        Document.loadIdentities.author.deviceId
     }
 
     static func newDuplicateId(prefix: String) -> String {

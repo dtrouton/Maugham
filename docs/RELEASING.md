@@ -19,8 +19,10 @@ Stable releases are tag-triggered via GitHub Actions. The recipe:
    "Install Update…"; clicking reveals the `.dmg` in Finder.
 
 **One-off, before the signed-op-log P3 release only.** Run
-`scripts/census-load-bursts.sh <project folder>…` on **every Mac that has opened
-a book**, and report hits to Denver (handoff ruling 3,
+`scripts/census-load-bursts.sh <project folder>…` **from this Mac** (the one
+with the checkout and the toolchain) **against each Mac's folders** — every
+Mac that has opened a book, its folders reached from here over a file-sharing
+mount or as a copy; the other Macs need no checkout — and report hits to Denver (handoff ruling 3,
 `docs/superpowers/notes/2026-09-17-signed-op-log-p3-handoff.md`). It is
 read-only: it decodes tails and `.mzseg` segments and prints every load-emitted
 `typingBurst` that a released build v0.37–v0.40 may have signed under a

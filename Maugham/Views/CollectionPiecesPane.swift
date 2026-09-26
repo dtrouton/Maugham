@@ -282,7 +282,7 @@ struct CollectionPiecesPane: View {
     nonisolated static func emptyDescription(mayStartAPiece: Bool) -> String {
         mayStartAPiece
             ? "Add your first piece. Use the + button."
-            : "Pieces appear here when the book\u{2019}s author adds them. "
+            : "Pieces appear here when an author adds them. "
                 + "You can read and leave notes on each one."
     }
 
@@ -378,8 +378,9 @@ enum StartAPieceDoor {
         mayStartAPiece != false
     }
 
-    /// What the window publishes for the menu — the drawing door's answer.
-    /// No project store: nil (no window says anything). A store with no door
+    /// The drawing door's answer for the menu, which a collection's window
+    /// publishes (`published(store:)`). No project store: nil (no window says
+    /// anything). A store with no door
     /// behind it — the frame between the window dropping its `DocumentStore`
     /// and its `ProjectStore` — says FALSE (fails closed; whole-branch fix
     /// wave, Minor 2).
@@ -391,9 +392,26 @@ enum StartAPieceDoor {
             documentStore.posture(forDocId: DocumentClass.projectStreamDocId))
     }
 
-    /// The sentence a refused post is told in.
+    /// **What the window publishes, and only where the project shows the
+    /// pieces pane** (P3c plan 2 Task 9). The three items it enables start a
+    /// piece of a COLLECTION — their receivers refuse every other project type
+    /// before any door is asked — so a novel's or a screenplay's window says
+    /// nothing (nil, the menu as it always was) rather than computing a
+    /// start-a-piece answer about a verb it does not have and greying the
+    /// items for a reviewer there.
+    @MainActor
+    static func published(store: ProjectStore?) -> Bool? {
+        guard let store, TreePane(for: store.manifest.type) == .collectionPieces else {
+            return nil
+        }
+        return drawn(store: store)
+    }
+
+    /// The sentence a refused post is told in. Since Option A (P3c plan 2) an
+    /// author of SOME pieces may start one too, so the refusal is a
+    /// reviewer's (or a permit this build cannot read) and names who can.
     static let refusal = "Your part in this book doesn\u{2019}t reach starting a piece "
-        + "\u{2014} only an author of the whole book can add one."
+        + "\u{2014} only an author can add one."
 
     /// **The receiver's door** (ruling I — the SETTLED answer): true where the
     /// piece may be started; otherwise the refusal is posted to the window's

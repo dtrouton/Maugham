@@ -9073,7 +9073,8 @@ final class TripwireGrepTests: XCTestCase {
 
     /// The spellings of asking the permit table a question directly. A surface
     /// asks `posture.allows(.someVerb)` instead; `Posture(` is construction,
-    /// which is the Mac's one door's (`DocumentStore+Posture.swift`) alone.
+    /// which is MaughamCore's `PostureDoor` alone (P3c plan 2 Task 1 — Core is
+    /// not scanned), reached on the Mac through `DocumentStore+Posture.swift`.
     ///
     /// Task 2 tightened it by three: the table asked by its qualified name
     /// (`Permit.allows(`), the inbox row asked of a permit (`.allows(.inboxRow`),
@@ -9104,16 +9105,16 @@ final class TripwireGrepTests: XCTestCase {
         // P3c whole-branch fix wave (C1): the restore door,
         // `requireRestorePermitted`, asks the stamp like its siblings.
         "Document+Rewind.swift": ["localWritePermit"],
-        // P3c Task 7 (controller ruling A): the ruling door's fallback for a
-        // `ProjectStore` no window holds — the one builder, wrapped right there.
-        "RulingPerformer.swift": ["localWritePermit", "Posture("],
-        // P3c Task 8 (ruling A): the translation pipeline is reached from MCP
-        // and the translator's ingest with no window — it asks the one builder
-        // as the TRANSLATOR actor, over the identities it signs with. Its one
-        // `Posture(` wraps that builder on the SAME line, so `localWritePermit`
-        // admits it; the file is admitted nothing more (Task 10's census check —
-        // a second `Posture(` there, built from anything else, is caught).
-        "TranslationWritePipeline.swift": ["localWritePermit"],
+        // P3c plan 2 Task 1: `RulingPerformer.swift` (the ruling door's
+        // windowless fallback) and `TranslationWritePipeline.swift` (the
+        // translator's refusal) were admitted builders here; both now ask
+        // MaughamCore's `PostureDoor`, which this census does not scan, so
+        // neither is admitted any spelling. A `Posture(` built in either again
+        // is caught.
+        // P3c plan 2 Task 6: the phone's one door. It asks Core's
+        // `PostureDoor` (unscanned) and holds the door's not-yet answer as its
+        // unanswered state — that spelling and nothing else.
+        "PhonePosture.swift": ["Posture.settling"],
     ]
 
     /// **The door's own acting accessor is an ASK, not a second table** (P3c
@@ -9233,20 +9234,44 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertFalse(asASite.ask.contains(where: { $0.contains("let asked") }))
         XCTAssertEqual(asASite.componentA.count, 4)
 
-        // The translation pipeline is a P3a site's equal (Task 10's census
-        // check): its wrapping `Posture(` rides on the `localWritePermit` line,
-        // so it is admitted that spelling alone.
+        // The translation pipeline asks Core's `PostureDoor` since P3c plan 2
+        // Task 1, so it is admitted NOTHING: every spelling there is caught.
         try fm.moveItem(at: tmp.appendingPathComponent("Document+Waiting.swift"),
                         to: tmp.appendingPathComponent("TranslationWritePipeline.swift"))
         let asThePipeline = try hits()
-        XCTAssertEqual(asThePipeline.ask.count, 9,
-            "Self-check: TranslationWritePipeline.swift is admitted "
-            + "`localWritePermit` alone. Caught:\n" + asThePipeline.ask.joined(separator: "\n"))
+        XCTAssertEqual(asThePipeline.ask.count, 10,
+            "Self-check: TranslationWritePipeline.swift is admitted no spelling. "
+            + "Caught:\n" + asThePipeline.ask.joined(separator: "\n"))
         XCTAssertTrue(asThePipeline.ask.contains(where: { $0.contains("let mine") }),
             "a bare Posture( in the pipeline is caught")
+        XCTAssertTrue(asThePipeline.ask.contains(where: { $0.contains("let asked") }),
+            "and so is the builder asked there directly")
+
+        // The ruling performer likewise.
+        try fm.moveItem(at: tmp.appendingPathComponent("TranslationWritePipeline.swift"),
+                        to: tmp.appendingPathComponent("RulingPerformer.swift"))
+        let asThePerformer = try hits()
+        XCTAssertEqual(asThePerformer.ask.count, 10,
+            "Self-check: RulingPerformer.swift is admitted no spelling. Caught:\n"
+            + asThePerformer.ask.joined(separator: "\n"))
+
+        // The phone's door is admitted its not-yet answer and nothing else
+        // (P3c plan 2 Task 6): a builder, a `Posture(` or a fallback there is
+        // still caught.
+        try fm.moveItem(at: tmp.appendingPathComponent("RulingPerformer.swift"),
+                        to: tmp.appendingPathComponent("PhonePosture.swift"))
+        let asThePhone = try hits()
+        XCTAssertEqual(asThePhone.ask.count, 9,
+            "Self-check: PhonePosture.swift is admitted `Posture.settling` "
+            + "alone. Caught:\n" + asThePhone.ask.joined(separator: "\n"))
+        XCTAssertFalse(asThePhone.ask.contains(where: { $0.contains("let undecided") }))
+        XCTAssertTrue(asThePhone.ask.contains(where: { $0.contains("let mine") }),
+            "a Posture( built in the phone's door is caught")
+        try fm.moveItem(at: tmp.appendingPathComponent("PhonePosture.swift"),
+                        to: tmp.appendingPathComponent("RulingPerformer.swift"))
 
         // The door may ask every spelling, and is still caught naming Component A.
-        try fm.moveItem(at: tmp.appendingPathComponent("TranslationWritePipeline.swift"),
+        try fm.moveItem(at: tmp.appendingPathComponent("RulingPerformer.swift"),
                         to: tmp.appendingPathComponent("DocumentStore+Posture.swift"))
         let asTheDoor = try hits()
         XCTAssertTrue(asTheDoor.ask.isEmpty,
@@ -9344,21 +9369,27 @@ final class TripwireGrepTests: XCTestCase {
     ///   dev build (`MAUGHAM_DEV_BUILD`): the smoke rig's typing surrogate,
     ///   deliberately NOT gated, because it stands in for a keystroke and is
     ///   how a rig drives a burst the read side must then set aside.
-    static let manuscriptWriterCallSites: [String: Int] = [
-        "EditorHost.swift": 1,
-        "StatementEditorHost.swift": 2,
-        "ProjectStore+Statements.swift": 1,
-        "ProjectStore+Structure.swift": 2,
-        "ProjectStore+Search.swift": 3,
-        "ProjectSearchView.swift": 2,
-        "Document+Rewind.swift": 2,
-        "Document+RewindUndo.swift": 4,
-        "Document+Tasks.swift": 3,
-        "OpUndoRegistrar.swift": 2,
-        "RecoveredHistorySheet.swift": 1,
-        "ProjectWindow.swift": 1,
-        "PartialRestorePicker.swift": 1,
-        "TestEditTool.swift": 1,
+    ///
+    /// **Counted per SPELLING per file** (P3c plan 2 Task 9), not per file: a
+    /// file that swapped one writer for another — a Replace that began
+    /// reaching `setFullText(` directly instead of `replaceInManuscript(` —
+    /// kept a per-file count and passed, though the door it stood behind had
+    /// moved.
+    static let manuscriptWriterCallSites: [String: [String: Int]] = [
+        "EditorHost.swift": ["setFullText(": 1],
+        "StatementEditorHost.swift": ["setFullText(": 2],
+        "ProjectStore+Statements.swift": ["setFullText(": 1],
+        "ProjectStore+Structure.swift": ["setFullText(": 2],
+        "ProjectStore+Search.swift": ["replaceInManuscript(": 2, "setFullText(": 1],
+        "ProjectSearchView.swift": ["replaceMatch(": 1, "replaceAll(": 1],
+        "Document+Rewind.swift": ["applyRestore(": 1, "buildRestoreOp(": 1],
+        "Document+RewindUndo.swift": ["restoreToOp(": 3, "restoreToOpUndoable(": 1],
+        "Document+Tasks.swift": ["applyRestore(": 1, "deleteParagraph(": 1, "setParagraph(": 1],
+        "OpUndoRegistrar.swift": ["setParagraph(": 2],
+        "RecoveredHistorySheet.swift": ["insertParagraph(": 1],
+        "ProjectWindow.swift": ["restoreToOpUndoable(": 1],
+        "PartialRestorePicker.swift": ["buildRestoreOp(": 1],
+        "TestEditTool.swift": ["setFullText(": 1],
     ]
 
     /// A comment, or a declaration of one of the verbs, is not a call site.
@@ -9366,9 +9397,10 @@ final class TripwireGrepTests: XCTestCase {
         admissionExcludeLine(line) || line.contains("func ")
     }
 
-    /// Call sites per file under `roots`, every pattern pooled.
-    private func manuscriptWriterCallCounts(in roots: [URL]) throws -> [String: Int] {
-        var counts: [String: Int] = [:]
+    /// Call sites under `roots`, per file and per SPELLING — every spelling a
+    /// line carries is counted (no production line carries two today).
+    private func manuscriptWriterCallCounts(in roots: [URL]) throws -> [String: [String: Int]] {
+        var counts: [String: [String: Int]] = [:]
         for root in roots {
             let hits = try grepSwift(
                 in: root,
@@ -9376,7 +9408,10 @@ final class TripwireGrepTests: XCTestCase {
                 allowed: [],
                 excludeLine: Self.manuscriptWriterExcludeLine)
             for hit in hits {
-                counts[String(hit.prefix(while: { $0 != ":" })), default: 0] += 1
+                let file = String(hit.prefix(while: { $0 != ":" }))
+                for spelling in Self.manuscriptWriterPatterns where hit.contains(spelling) {
+                    counts[file, default: [:]][spelling, default: 0] += 1
+                }
             }
         }
         return counts
@@ -9412,16 +9447,19 @@ final class TripwireGrepTests: XCTestCase {
         "handleExternalLogChange": "a read — another device's lines, judged by the partition",
         "acceptAnnotation": "a disposition — requireDispositionPermitted",
         "revertAcceptedAnnotation": "a disposition — requireDispositionPermitted",
-        "reopenAnnotation": "a disposition — requireDispositionPermitted",
+        "reopenAnnotation": "undoing an archive, rejection or stet is a disposition — requireDispositionPermitted; undoing a withdrawal is the ownership rule's — requireRestoreHonoured (ruling P)",
         "reopenAcceptedTextlessAnnotation": "a disposition — requireDispositionPermitted",
         "appendTaskOpInternal": "a task op — the task door",
         "appendTaskRewindCloser": "reached only after the doored restoreToOp",
         "applyMintedAnchors": "the load's own emission, the author's (tripwire 38), gated on mayAnchor",
     ]
 
-    func test_everyGuardedDocumentMutatorIsClassified() throws {
+    /// The names `root` guards with `rejectMutationIfNotWritable("…")` or
+    /// `requireWritable("…")`, a comment excluded — SHARED by the census and
+    /// its planted-offender control.
+    private func guardedDocumentMutatorNames(in root: URL) throws -> Set<String> {
         let hits = try grepSwift(
-            in: sourceDir,
+            in: root,
             patterns: ["rejectMutationIfNotWritable(\"", "requireWritable(\""],
             allowed: [],
             excludeLine: Self.admissionExcludeLine)
@@ -9434,6 +9472,11 @@ final class TripwireGrepTests: XCTestCase {
                 if let m, let r = Range(m.range(at: 1), in: hit) { names.insert(String(hit[r])) }
             }
         }
+        return names
+    }
+
+    func test_everyGuardedDocumentMutatorIsClassified() throws {
+        let names = try guardedDocumentMutatorNames(in: sourceDir)
         XCTAssertFalse(names.isEmpty, "precondition: the guarded mutators were found")
         XCTAssertEqual(names, Set(Self.guardedDocumentMutators.keys),
             "A guarded Document mutator appeared or disappeared. Classify it in "
@@ -9445,6 +9488,37 @@ final class TripwireGrepTests: XCTestCase {
                 Self.manuscriptWriterPatterns.contains { $0.hasPrefix(name + "(") },
                 "\(name) writes text and is not in manuscriptWriterPatterns")
         }
+    }
+
+    /// **The classification census's control** (P3c plan 2 Task 9): a planted
+    /// guard under a name nobody classified is found — both spellings of the
+    /// guard, and not the comment that names one — and the set it produces
+    /// fails the census it feeds.
+    func test_theGuardedMutatorCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-guarded-selfcheck-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may name rejectMutationIfNotWritable("commentedAway") without being one.
+        func rewriteEverything() {
+            if rejectMutationIfNotWritable("rewriteEverything") { return }
+        }
+        func appendSomewhereNew() throws {
+            try requireWritable("appendSomewhereNew")
+        }
+        """.write(to: tmp.appendingPathComponent("AFifthDocumentMutator.swift"),
+                  atomically: true, encoding: .utf8)
+
+        let planted = try guardedDocumentMutatorNames(in: tmp)
+        XCTAssertEqual(planted, ["rewriteEverything", "appendSomewhereNew"],
+            "Self-check: both guard spellings are read, the comment is not")
+        let production = try guardedDocumentMutatorNames(in: sourceDir)
+        XCTAssertNotEqual(production.union(planted), Set(Self.guardedDocumentMutators.keys),
+            "and a guarded mutator nobody classified fails the census")
     }
 
     /// The census's control: it counts a planted call of each spelling, not the
@@ -9476,11 +9550,123 @@ final class TripwireGrepTests: XCTestCase {
                   atomically: true, encoding: .utf8)
 
         let planted = try manuscriptWriterCallCounts(in: [tmp])
-        XCTAssertEqual(planted, ["ASixthWayToWriteText.swift": Self.manuscriptWriterPatterns.count],
-            "Self-check: each spelling is counted once, the comment and the "
-            + "declaration are not. Counted: \(planted)")
+        XCTAssertEqual(planted, ["ASixthWayToWriteText.swift": Dictionary(
+                uniqueKeysWithValues: Self.manuscriptWriterPatterns.map { ($0, 1) })],
+            "Self-check: each spelling is counted once, under its own name, the "
+            + "comment and the declaration are not. Counted: \(planted)")
         XCTAssertNotEqual(planted, Self.manuscriptWriterCallSites,
             "and a file that is not on the list fails the census it feeds")
+    }
+
+    /// **A swap inside a listed file fails the census** (Task 9): the same
+    /// number of calls, one spelling traded for another, is a door that moved.
+    func test_theManuscriptWriterCensusCountsEachSpellingNotEachFile() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-writers-swap-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        // `ProjectSearchView.swift`'s two presses, as listed…
+        try """
+        try await store.replaceMatch(match, with: replacement)
+        let outcome = try await store.replaceAll(in: r, with: replacement)
+        """.write(to: tmp.appendingPathComponent("ProjectSearchView.swift"),
+                  atomically: true, encoding: .utf8)
+        let listed = try manuscriptWriterCallCounts(in: [tmp])
+        XCTAssertEqual(listed["ProjectSearchView.swift"],
+                       Self.manuscriptWriterCallSites["ProjectSearchView.swift"],
+                       "precondition: the listed shape reads as listed")
+
+        // …and the same file with one press reaching the text directly: two
+        // calls still, so a per-file count would pass it.
+        try """
+        try await store.replaceMatch(match, with: replacement)
+        doc.setFullText(rewritten)
+        """.write(to: tmp.appendingPathComponent("ProjectSearchView.swift"),
+                  atomically: true, encoding: .utf8)
+        let swapped = try manuscriptWriterCallCounts(in: [tmp])
+        XCTAssertEqual(swapped["ProjectSearchView.swift"]?.values.reduce(0, +), 2,
+                       "precondition: the same number of calls")
+        XCTAssertNotEqual(swapped["ProjectSearchView.swift"],
+                          Self.manuscriptWriterCallSites["ProjectSearchView.swift"],
+                          "a spelling traded for another inside a listed file fails")
+    }
+
+    // MARK: - The project stream's task door (P3c plan 2 Task 8)
+
+    /// **Every project-stream task op passes one door, and its callers are a
+    /// counted list.** `ProjectStore.appendProjectTaskOp` asks
+    /// `projectTaskRefusal()` (the drawing posture of `__project__`) before it
+    /// appends; every production call of it — the create, its ⌘Z inverse, the
+    /// pane's archive and its inverse — is named here with a count per file.
+    /// A NEW caller is a new way to write a project task and must be decided
+    /// here; a caller that vanished is a verb that moved. Count the array,
+    /// never a prose number.
+    static let projectTaskOpAppendSites: [String: Int] = [
+        // `createProjectPaneTask`'s append, and its ⌘Z inverse's.
+        "ProjectStore+Tasks.swift": 2,
+        // `archiveProjectTask`'s append (whose ⌘Z is registered only when it
+        // landed), and its inverse's.
+        "TasksPane.swift": 2,
+    ]
+
+    static func projectTaskOpAppendExcludeLine(_ line: String) -> Bool {
+        admissionExcludeLine(line) || line.contains("func appendProjectTaskOp(")
+    }
+
+    private func projectTaskOpAppendCounts(in roots: [URL]) throws -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for root in roots {
+            for hit in try grepSwift(
+                in: root, patterns: ["appendProjectTaskOp("],
+                excludeLine: Self.projectTaskOpAppendExcludeLine) {
+                counts[String(hit.prefix(while: { $0 != ":" })), default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    func test_everyProjectTaskOpPassesTheProjectStreamsDoor() throws {
+        XCTAssertEqual(try projectTaskOpAppendCounts(in: admissionRoots),
+                       Self.projectTaskOpAppendSites,
+            "A project-stream task op is appended from a site this census does "
+            + "not name, or a named site moved. Add it to "
+            + "`projectTaskOpAppendSites` with its reason in the same commit.")
+
+        // The door is INSIDE the one append, before anything is written.
+        let file = sourceDir.appendingPathComponent("Stores/ProjectStore+Tasks.swift")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        let body = try XCTUnwrap(
+            text.components(separatedBy: "func appendProjectTaskOp(").dropFirst().first)
+        let door = try XCTUnwrap(body.range(of: "projectTaskRefusal()"),
+            "appendProjectTaskOp must ask the project stream's door")
+        let write = try XCTUnwrap(body.range(of: "_projectOpLogMirror.append("))
+        XCTAssertLessThan(door.lowerBound, write.lowerBound,
+            "the door is asked before the mirror is written")
+    }
+
+    /// The census's control: a planted caller is counted, the declaration and
+    /// a comment are not, and a file off the list fails the census.
+    func test_theProjectTaskOpAppendCensusFiresOnAPlantedOffender() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("tripwire-projecttask-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try """
+        // A comment may say appendProjectTaskOp( freely.
+        public func appendProjectTaskOp(_ op: Op) -> Bool { true }
+        store.appendProjectTaskOp(op)
+        """.write(to: tmp.appendingPathComponent("ASecondProjectTaskWriter.swift"),
+                  atomically: true, encoding: .utf8)
+        let planted = try projectTaskOpAppendCounts(in: [tmp])
+        XCTAssertEqual(planted, ["ASecondProjectTaskWriter.swift": 1],
+            "Self-check: the call is counted, the declaration and the comment "
+            + "are not. Counted: \(planted)")
+        XCTAssertNotEqual(planted, Self.projectTaskOpAppendSites)
     }
 
     // MARK: - author_collaborator_id is decoded and never written (P3c Task 4)
@@ -9541,5 +9727,142 @@ final class TripwireGrepTests: XCTestCase {
         try fm.moveItem(at: tmp.appendingPathComponent("SecondAttribution.swift"),
                         to: tmp.appendingPathComponent("Op.swift"))
         XCTAssertTrue(try hits().isEmpty, "Self-check: Op.swift is admitted")
+    }
+}
+
+// MARK: - Option A: every piece a creation makes records its starter
+
+/// **Every production `StructureItem(` construction records `startedBy:`, or
+/// says why not** (P3c plan 2 Task 4 fix round 1, M3; Ruling OA-1).
+///
+/// A construction that forgets the field does not fail: its piece silently
+/// falls back to today's rule, so the Mac that made it no longer mints its
+/// opening first and a collaborator's words can land behind somebody else's.
+/// The population is DERIVED — every `StructureItem(` in `Maugham/`,
+/// `MaughamPhone/` and MaughamCore's sources — and each file's count is a
+/// named entry, so a new construction anywhere is judged here.
+///
+/// **Its known limit**: a structure item made by COPYING another (`var copy =
+/// source`, `duplicatedItemTree`) constructs nothing and is not seen; the
+/// duplicate re-stamps `copy.startedBy` itself and is pinned by
+/// `AdmissionPermitTests.test_everyCreationRecordsThisMacAndARenameOrMoveNeverRewritesIt`.
+extension TripwireGrepTests {
+
+    /// File → how many `StructureItem(` constructions it holds, and what each
+    /// records. Count the array, never a prose number.
+    static let structureItemConstructions: [String: (count: Int, records: String)] = [
+        "ProjectStore+Structure.swift":
+            (1, "addStructureItem — this Mac, on a document; nil on a group"),
+        "ProjectStore+CollectionPieces.swift":
+            (3, "addLoosePiece, addProjectReference — this Mac; "
+                + "writePromotedManifest — carries the piece's own (a move)"),
+        "ProjectFactory.swift":
+            (2, "a new book's first piece — this Mac"),
+    ]
+
+    /// Constructions allowed to leave `startedBy:` out, by `"<file>#<n>"`
+    /// (the n-th construction in that file, from 1), each with its reason.
+    /// Empty today: every construction records a starter.
+    static let structureItemConstructionsWithoutAStarter: [String: String] = [:]
+
+    /// Every `StructureItem(` construction in `text`: its argument list, found
+    /// by balancing parentheses. A name that merely ENDS in `StructureItem(`
+    /// (`restoreStructureItem(`) is not one, and neither is a comment line.
+    static func structureItemConstructions(in text: String) -> [String] {
+        let chars = Array(text)
+        let needle = Array("StructureItem(")
+        var found: [String] = []
+        var i = 0
+        while i + needle.count <= chars.count {
+            guard Array(chars[i..<(i + needle.count)]) == needle else { i += 1; continue }
+            let before: Character? = i > 0 ? chars[i - 1] : nil
+            if let before, before.isLetter || before.isNumber || before == "_" {
+                i += needle.count; continue
+            }
+            // The line this sits on, to skip a comment.
+            var lineStart = i
+            while lineStart > 0, chars[lineStart - 1] != "\n" { lineStart -= 1 }
+            let linePrefix = String(chars[lineStart..<i])
+                .trimmingCharacters(in: .whitespaces)
+            if linePrefix.hasPrefix("//") || linePrefix.hasPrefix("*") {
+                i += needle.count; continue
+            }
+            var depth = 1
+            var j = i + needle.count
+            while j < chars.count, depth > 0 {
+                if chars[j] == "(" { depth += 1 }
+                if chars[j] == ")" { depth -= 1 }
+                j += 1
+            }
+            found.append(String(chars[(i + needle.count)..<max(i + needle.count, j - 1)]))
+            i = j
+        }
+        return found
+    }
+
+    /// The census over a set of `(file name, source)` pairs: the per-file
+    /// counts, and every construction missing `startedBy:` that is not allowed.
+    static func structureItemCensus(
+        _ files: [(name: String, text: String)]
+    ) -> (counts: [String: Int], missing: [String]) {
+        var counts: [String: Int] = [:]
+        var missing: [String] = []
+        for file in files {
+            let calls = structureItemConstructions(in: file.text)
+            guard !calls.isEmpty else { continue }
+            counts[file.name, default: 0] += calls.count
+            for (index, args) in calls.enumerated()
+            where !args.contains("startedBy:")
+                && structureItemConstructionsWithoutAStarter["\(file.name)#\(index + 1)"] == nil {
+                missing.append("\(file.name)#\(index + 1)")
+            }
+        }
+        return (counts, missing)
+    }
+
+    private func productionSources(under roots: [String]) -> [(name: String, text: String)] {
+        let here = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+        var files: [(name: String, text: String)] = []
+        for root in roots {
+            let dir = here.appendingPathComponent(root, isDirectory: true)
+            guard let walker = FileManager.default.enumerator(
+                at: dir, includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                files.append((url.lastPathComponent, text))
+            }
+        }
+        return files
+    }
+
+    func test_everyStructureItemAProductionFileConstructsRecordsItsStarter() {
+        let census = Self.structureItemCensus(productionSources(
+            under: ["Maugham", "MaughamPhone", "Packages/MaughamCore/Sources"]))
+        XCTAssertEqual(
+            census.counts, Self.structureItemConstructions.mapValues(\.count),
+            "a StructureItem construction appeared or went: name it in "
+            + "structureItemConstructions with what it records as its starter")
+        XCTAssertEqual(census.missing, [],
+                       "these constructions record no startedBy and give no reason")
+        XCTAssertFalse(census.counts.isEmpty,
+                       "the control: no construction found means the scan reads nothing")
+    }
+
+    /// The planted offender: a construction without `startedBy:` is caught, a
+    /// name ending in `StructureItem(` and a comment are not, and a nested
+    /// call inside the argument list does not end it early.
+    func test_theStarterCensusFiresOnAPlantedOffender() {
+        let planted = """
+        // StructureItem(id: "in a comment", title: "t", type: .document)
+        let a = restoreStructureItem(item)
+        let b = StructureItem(id: newId(prefix: "doc"), title: t, type: .document)
+        let c = StructureItem(
+            id: newId(prefix: "doc"), title: t, type: .document,
+            startedBy: Self.thisMacAsAStarter)
+        """
+        let census = Self.structureItemCensus([("Planted.swift", planted)])
+        XCTAssertEqual(census.counts, ["Planted.swift": 2])
+        XCTAssertEqual(census.missing, ["Planted.swift#1"], "the offender is named")
     }
 }

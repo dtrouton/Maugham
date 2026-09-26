@@ -239,12 +239,17 @@ under which arrangement.
 from a laptop and a phone, one change covers both.
 
 **One thing to know before the first time.** The day you give anybody less than
-the whole book, Maugham starts judging what it reads — and a machine that
-signs nothing it writes (an old Intel Mac, a virtual machine) has nothing to
-judge by. What such a machine has ALREADY written stays in your draft, exactly
-as it is. What it writes from then on waits, and comes back through the Inbox
-rather than arriving on its own. The panel says so before you press anything,
-and People & Devices lists any such machine the book is holding.
+the whole book, Maugham starts judging what it reads — and a machine nothing in
+the book signs for yet has nothing to judge by. Usually that is a machine that
+signs nothing it writes (an old Intel Mac, a virtual machine); sometimes it is
+a new Mac whose first signed change simply hasn't synced yet. What such a
+machine has ALREADY written stays in your draft, exactly as it is. What it
+writes from then on waits: a Mac whose first signed change arrives is judged
+the moment it does, and a Mac that signs nothing has its paragraphs brought
+back through the Inbox rather than arriving on their own. Only its paragraphs:
+a note it leaves, or a note it settles, stays held with no way back. The panel says so
+before you press anything, and People & Devices lists any such machine the
+book is holding.
 
 ## What their Mac shows them
 
@@ -267,13 +272,15 @@ Find in Project's **Replace** and **Replace All** for chapters that aren't
 yours (a research note's matches still replace). **⌘S** still flashes,
 because your fingers expect it, but writes nothing — a checkpoint of text you
 can't change would mark nothing of yours — and **⇧⌘S** says so instead of
-asking for a label. The File menu's **New Prose Story**, **New Screenplay**
-and **Link Existing Project…** are greyed.
+asking for a label. In a collection, the File menu's **New Prose Story**,
+**New Screenplay** and **Link Existing Project…** are greyed (they add a
+collection's pieces, so no other kind of book greys them).
 
 An **author of some pieces** has all of that in their own chapters. Everywhere
 else they are a reviewer, and the line says *"Chapter 3" isn't one of your
-pieces — you can leave notes.* Adding a new piece to the book is still the
-whole-book author's. **Replace All** replaces in their chapters and tells them
+pieces — you can leave notes.* They can also start a new piece of their own
+and write in it straight away — see *Starting a piece of your own* below.
+**Replace All** replaces in their chapters and tells them
 which chapters it left as they were. **Renaming** one of their own chapters
 renames it, but links to it inside chapters that aren't theirs keep the old
 title — Maugham says which, and those links point nowhere until someone who
@@ -309,6 +316,71 @@ What this is not:
   locks nothing by itself — what somebody may write is the permission you gave
   them here.
 
+## Starting a piece of your own
+
+An **author of some pieces** can add a piece to the book — **New Document**,
+**Duplicate**, or, in a collection, the File menu's piece items — and start
+writing in it straight away. The book remembers which Mac started each piece,
+and that is what the rest of this section turns on.
+
+- **On their Mac**, the piece is theirs to write while the book's author
+  decides. The line over it reads *Waiting for Denver to say this piece is
+  yours.* They can type, leave notes, accept or reject a suggestion, set its
+  review pass, rename or move it, and run a round on it. Stet, archive and
+  reopen, ⌘S's checkpoint, tasks and translating wait until Denver has
+  answered. So does the piece's own intent, which is Denver's to write until
+  then. Anything they accept or reject there counts as their words: it shows
+  on their Mac and waits on Denver's, like their typing.
+- **On their other Macs**, the piece waits for the first Mac's words to arrive
+  (*Waiting for this piece to arrive.*), then shows them as theirs.
+- **On the book author's Mac**, the piece waits for their words to arrive —
+  *Waiting for this piece to arrive from Sam.* — rather than starting a copy of
+  its own in front of them. Then Maugham asks: *Sam started “The Orchard” — is
+  it theirs?* **Theirs** adds the piece to what Sam may write, their words come
+  in on every Mac, and the waiting line on Sam's Mac goes, with no reopening.
+  **Not now** writes nothing and sets nothing aside, and you can answer later
+  from People & Devices.
+- **Until you answer, your Mac keeps out of the piece.** Opening it shows *Sam
+  started this piece — it isn't settled whose it is yet.*, and the editor
+  doesn't take typing. That holds even when the piece arrived before any of
+  Sam's words did. **Edit Anyway** lets you write in it (in that window, until
+  you close it), but read the next point first.
+- Only the Mac that holds the book asks. Nobody else is ever shown the
+  question.
+- **If the book's author writes in the piece before answering** — after
+  pressing Edit Anyway — the piece is the author's. Sam's words there are set
+  aside on every Mac, theirs included, and kept in History, not lost. Sam's
+  Mac stops taking typing in it, and the question goes, because nothing of
+  Sam's is waiting any more. The same is true of anybody who may write the
+  whole book, so their Macs keep out of the piece too.
+- **A copy is a new piece**, started by the Mac that made it. A piece started
+  by a machine nobody has admitted waits on every Mac until that machine is
+  admitted, or the piece is deleted. So does a piece whose starting Mac is gone
+  without being retired — restored from a backup as a new machine, say, or
+  lost — until you revoke that Mac in People & Devices. It also covers a book
+  whose first chapter was made on one Mac and whose book author is another: that
+  chapter waits until the first Mac is admitted.
+
+Pieces made before this version remember no starter, and behave as they always
+did.
+
+## Restoring your own note
+
+Deleting a note you wrote can be undone. **⌘Z** straight after brings it back,
+and so does **Restore** in the annotations queue's **Deleted** section (show
+resolved notes with the tray button in the queue's toolbar to see it).
+
+A **reviewer** can restore a note of their own that they deleted themselves,
+and it comes back on every Mac and on the iPhone. These stay the book author's:
+
+- A note of theirs that the book's author deleted, archived, rejected or
+  stetted. The reviewer is not offered Restore or Reopen for it.
+- Anybody else's note.
+
+A restore of a note that isn't the reviewer's to restore is simply not
+honoured anywhere. Their Mac doesn't offer it, and if an old window tries, it
+says so and writes nothing.
+
 ## What this book is missing
 
 History also shows what it can't find: a machine's history that has got shorter
@@ -339,11 +411,15 @@ deliberate.
 Two of those are worth a word. An entry that says somebody was **admitted
 without asking** is the silent admission above: a machine you had already named
 elsewhere, let in with no panel. And where a machine's history is waiting, the
-row says so and — for a machine that signs nothing, which can never be admitted
-because there is no key to admit — carries a **Send to Inbox** button, which
-copies the waiting paragraphs into your Inbox as captures. Nothing is applied to
-your draft; you put them where they belong yourself, and the button goes on
-offering whatever has arrived since.
+row says so and — for a machine nothing in this book signs for yet — carries a
+**Send to Inbox** button, which copies the waiting paragraphs into your Inbox
+as captures. Nothing is applied to your draft; you put them where they belong
+yourself, and the button goes on offering whatever has arrived since. It
+carries paragraphs only, and the row says so: that machine's notes stay held,
+with no way back.
+Paragraphs you have already sent are never offered again, even once that
+Mac's first signed change arrives and its history is held under its own name
+instead.
 
 See [Getting Started](getting-started.md#who-wrote-your-history) for the rest of
 what History says about the history's signatures.
@@ -355,10 +431,36 @@ one line for each book it has been in — *In this book as Denver since 9 Sep.
 Started on Denver's MacBook.*, or *Not yet admitted — the Mac will ask*, or,
 where the book holds a damaged file about this phone, *This book's file about
 this device doesn't check out, so nothing here confirms it* (see *Records that
-don't verify* above — the Mac is where that one is put right). Pull down to
-refresh; it
-changes when you act on the Mac. There is nothing to press here. Admitting is
-something you do from a Mac.
+don't verify* above — the Mac is where that one is put right).
+
+Under each book it has been admitted to, a second line says what this phone
+may write there, in the words People & Devices uses: *Reviewer*, *Author of
+some pieces: Chapter 1, Chapter 4*, or *Author of the whole book*. A book with
+nobody listed in it says nothing about roles.
+
+Settings reads again when you come back to the app, and when you pull down.
+There is nothing to press here. Admitting somebody, and changing what they may
+write, is something you do from a Mac.
+
+**The phone follows the same rules as the Mac.** Its Annotations tab judges
+notes as a Mac does, so an edit, a Delete or a Restore that the book won't take
+is not shown as if it had happened. It also offers only what the book will
+take:
+
+- On a **reviewer's** phone, a note has no Accept, Reject, Archive or Reopen.
+  Capturing into the Inbox still works.
+- An **author of some pieces** has every verb on notes in their own pieces, and
+  a reviewer's in the rest.
+- In a piece **somebody else started that nobody has settled yet**, a whole-book
+  author's phone has no Accept, Reject, Archive or Reopen. Pressing one there
+  would make the piece yours and set their words aside, and the phone has no
+  Edit Anyway, so it says *Sam started this piece and it isn't settled whose it
+  is yet, so nothing was written — settle it from your Mac.*
+- Capture works for everybody.
+
+If something changes on a Mac while a note is open, the phone checks again
+before it writes. If the book won't take what you pressed, it says so, and
+nothing is written.
 
 ## Things worth knowing
 

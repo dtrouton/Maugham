@@ -86,6 +86,15 @@ public struct DeviceStanding: Equatable, Sendable {
     /// The registry read's own sentence, when the read refused. Nil otherwise.
     public let refusal: String?
 
+    /// **What this device may write in this book** (P3c plan 2, Task 6) —
+    /// `table.myTimeline.current`, the permit in force now, off the same table
+    /// the standing was resolved from. Nil wherever there is no admission to
+    /// speak of: a book with no register (the phone behaves exactly as before
+    /// and shows no role line), a device nobody has admitted, a revoked one,
+    /// a refused read. Surfaces say it through `permitSentence`, never by
+    /// comparing it to a rung (tripwire 47).
+    public let permit: Permit?
+
     public init(
         code: String,
         label: String? = nil,
@@ -96,7 +105,8 @@ public struct DeviceStanding: Equatable, Sendable {
         revoked: Bool = false,
         retiredAt: Date? = nil,
         ownRecordUnverified: Bool = false,
-        refusal: String? = nil
+        refusal: String? = nil,
+        permit: Permit? = nil
     ) {
         self.code = code
         self.label = label
@@ -108,6 +118,7 @@ public struct DeviceStanding: Equatable, Sendable {
         self.retiredAt = retiredAt
         self.ownRecordUnverified = ownRecordUnverified
         self.refusal = refusal
+        self.permit = permit
     }
 
     // MARK: - Resolving
@@ -155,8 +166,11 @@ public struct DeviceStanding: Equatable, Sendable {
                 && (ref.directory == .people || ref.directory == .devices)
         }
 
+        // **The table's chain** (P3c Task 7, M4): my root's and every root it
+        // adopted, which is the set the op log admits this device's lines
+        // under. A Mac an adopted root let in IS in this book.
         guard let root = table.myRoot,
-              registry.chain(underRoot: root).contains(author.fingerprint)
+              table.myChain.contains(author.fingerprint)
         else {
             return DeviceStanding(
                 code: code, retiredAt: retiredAt,
@@ -179,7 +193,10 @@ public struct DeviceStanding: Equatable, Sendable {
             isRoot: isRoot,
             revoked: revoked,
             retiredAt: retiredAt,
-            ownRecordUnverified: ownRecordUnverified)
+            ownRecordUnverified: ownRecordUnverified,
+            // The timeline, never the record's fields (tripwire 43): what this
+            // device may write TODAY is the permit its history has in force.
+            permit: revoked ? nil : table.myTimeline.current)
     }
 
     /// The standing of a device whose registry could not be read: its own code,
@@ -238,6 +255,18 @@ public struct DeviceStanding: Equatable, Sendable {
         guard let joinedAt else { return "In this book as \(me). \(startedOn)" }
         return "In this book as \(me) since "
             + "\(Self.dayFormatter.string(from: joinedAt)). \(startedOn)"
+    }
+
+    /// **What this device may write here, in `PermitWords`' own sentence** —
+    /// the same words People & Devices draws for a person (P3c plan 2, Task
+    /// 6), with the pieces named by this book's titles. Nil where `permit` is,
+    /// so a book with no register draws no role line.
+    public func permitSentence(
+        in structure: [StructureItem], unknownPiece: String
+    ) -> String? {
+        guard let permit else { return nil }
+        return PermitWords.sentence(
+            for: permit, in: structure, unknownPiece: unknownPiece)
     }
 
     // MARK: - What retirement means, on the machine that did it

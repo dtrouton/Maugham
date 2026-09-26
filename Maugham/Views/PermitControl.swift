@@ -89,11 +89,14 @@ enum PermitControl {
     ///    book has set aside and re-assert it under its own key. The manifest's
     ///    schema gate is what prevents that, and raising it is what shuts the
     ///    older build out (`DocumentStore.gateOldBuildsOut`).
-    /// 2. **A Mac in this book that signs nothing it writes starts waiting.**
-    ///    Where the book holds an unsigned stream, everything that Mac writes
-    ///    after this moment is held on every other machine until it is sent to
-    ///    the Inbox — and nothing it has already written moves, which is the
-    ///    half a writer will not assume and must be told.
+    /// 2. **A Mac nothing in this book signs for yet starts waiting.** Where
+    ///    the book holds an unsigned stream, everything it writes after this
+    ///    moment is held on every other machine — until that Mac's first signed
+    ///    change syncs here, or, if it signs nothing, until it is sent to the
+    ///    Inbox — and nothing it has already written moves, which is the half a
+    ///    writer will not assume and must be told. **Both cases, never one**
+    ///    (P3c Task 7, Ruling R): it may be a signing Mac whose first seal has
+    ///    not synced, so this says what `HeldLines` says about it.
     ///
     /// Pure, with both inputs given rather than looked up, so the same sentence
     /// is decidable with no window and no folder — and so the two callers
@@ -110,9 +113,12 @@ enum PermitControl {
             + "less than an author of the whole of it. Older versions of "
             + "Maugham will no longer open this book."
         if holdsAnUnsignedStream {
-            sentence += " And a Mac here signs nothing it writes: from now on "
-                + "its writing waits on the other Macs until it is sent to the "
-                + "Inbox. Nothing it has already written changes."
+            sentence += " And nothing in this book signs for one of the Macs "
+                + "writing in it yet: from now on its writing waits on the "
+                + "other Macs \u{2014} until "
+                + "that Mac\u{2019}s first signed change syncs here, or, if it "
+                + "signs nothing, until it is sent to the Inbox. Nothing it has "
+                + "already written changes."
         }
         return sentence
     }
@@ -169,39 +175,9 @@ enum PermitControl {
     }
 }
 
-/// **The words the writer reads for each rung** — here rather than in Core,
-/// because a rung is a storage fact and these are this app's sentences about
-/// it. The rung itself is `Permit.Rung` (tripwire 47: nothing in a view decides
-/// what a rung MEANS).
-extension Permit.Rung {
-    /// What the control calls it.
-    var title: String {
-        switch self {
-        case .reviewer: return "Reviewer"
-        case .somePieces: return "Author of some pieces"
-        case .wholeBook: return "Author of the whole book"
-        }
-    }
-
-    /// One line under the control saying what the choice means in the
-    /// manuscript, because *reviewer* is a word with a dozen meanings in this
-    /// app and exactly one here.
-    var explanation: String {
-        switch self {
-        case .reviewer:
-            return "Can leave notes and send captures. Anything they write "
-                + "in the manuscript itself is set aside."
-        case .somePieces:
-            return "Can write anything in the pieces you choose, and leaves "
-                + "notes everywhere else."
-        case .wholeBook:
-            return "Can write anywhere in the book, as you can."
-        }
-    }
-
-    /// Does this choice need the piece picker?
-    var picksPieces: Bool { self == .somePieces }
-}
+// The words the writer reads for each rung — `Permit.Rung.title`,
+// `.explanation` and `.picksPieces` — live in MaughamCore's `PermitWords.swift`
+// (P3c plan 2, Task 1) so the phone says the same words (tripwire 19).
 
 /// **The control itself** — a rung, and the pieces where the rung needs them.
 ///

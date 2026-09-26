@@ -115,6 +115,28 @@ struct AdmissionQueue: Equatable {
         presentHeadIfIdle()
     }
 
+    /// **The same requests, described again** (P3c plan 2 Task 8, F10's late
+    /// capture). A capture that syncs in while a sheet is up moves what the
+    /// sheet should say (*1 capture in the Inbox*) without moving WHO is
+    /// waiting, so nothing but each request's description changes here: not
+    /// the order, not a dismissal, not `awaitingSettlement`, not whether a
+    /// sheet is up — none of which a description may decide. The sheet up
+    /// keeps its identity and shows the newer words, as `rederived`'s same-
+    /// stranger arm does.
+    mutating func redescribed(_ describe: (AdmissionRequest) -> AdmissionWaiting?) {
+        queue = queue.map { request in
+            var request = request
+            request.described = describe(request)
+            return request
+        }
+        if let up = presented,
+           let fresh = queue.first(where: { $0.fingerprint == up.fingerprint }),
+           fresh != up {
+            presented = fresh
+            shown = fresh
+        }
+    }
+
     /// **This request was admitted.** Off the queue, and its sheet down — ITS
     /// sheet, and only if it is still the one up (F4).
     ///

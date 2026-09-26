@@ -308,6 +308,48 @@ final class PieceWritersTests: XCTestCase {
         XCTAssertTrue(writers(foreign).isEmpty)
     }
 
+    /// **A person an ADOPTED root admitted is named here** (P3c Task 7, M4) —
+    /// the other direction of the test above. Once this Mac's root has claimed
+    /// Kim's chain, every line Sam writes is applied here (`TrustTable
+    /// .verdict` answers `.admitted`), so she is in this book and her piece
+    /// carries her name — and the root's yields, which read this answer, yield
+    /// to her. A person under a root this Mac did NOT adopt stays nobody's
+    /// here, in the same folder.
+    func test_apersonAnAdoptedRootAdmittedIsNamedOnHerPiece() {
+        let third = DeviceIdentity.softwareForTesting()
+        let stranger = DeviceIdentity.softwareForTesting()
+        let adopted = Registry(
+            devices: [
+                device(mac, name: "Denver\u{2019}s MacBook", kind: .mac),
+                device(otherRoot, name: "Another Mac", kind: .mac),
+                device(third, name: "A third Mac", kind: .mac),
+            ],
+            people: [
+                person(mac, label: "Denver", admittedBy: mac),
+                person(otherRoot, label: "Kim", admittedBy: otherRoot),
+                person(phone, label: "Sam", admittedBy: otherRoot,
+                       permit: .author(.pieces(["ch2"]))),
+                person(third, label: "Lee", admittedBy: third),
+                person(stranger, label: "Jo", admittedBy: third,
+                       permit: .author(.pieces(["ch3"]))),
+            ],
+            claims: [ClaimRecord(newRoot: mac.fingerprint,
+                                 adopted: [otherRoot.fingerprint],
+                                 claimedAt: admitted)],
+            events: [
+                event(.admitted, about: phone.fingerprint,
+                      permit: .author(.pieces(["ch2"])), id: "e-1"),
+                event(.admitted, about: stranger.fingerprint,
+                      permit: .author(.pieces(["ch3"])), id: "e-2"),
+            ])
+
+        let named = writers(adopted)
+        XCTAssertEqual(named.sentence(for: "ch2"), "Sam",
+                       "an adopted root's member writes in this book")
+        XCTAssertNil(named.sentence(for: "ch3"),
+                     "a root this Mac never adopted is still nobody's here")
+    }
+
     /// A keyless Mac — one that has never signed anything here — resolves to a
     /// table with no root of its own. It draws nothing rather than guessing.
     func test_amacThatJudgesByNoRootNamesNobody() {

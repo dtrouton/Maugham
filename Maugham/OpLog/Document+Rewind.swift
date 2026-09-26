@@ -274,13 +274,18 @@ extension Document {
         var travelReopenedIds: [String] = []
         var travelReacceptedIds: [String] = []
         if synthesisSource == .rewind {
-            // The deriver's own lifecycle rule (`Document.lifecycleOpKinds`),
+            // The deriver's own lifecycle rule (`AnnotationDeriver
+            // .isHonouredLifecycleOp`),
             // asked for rather than restated: this set and `RewindImpact`'s
             // each held a literal copy of it until M3 P2, and the two have to
             // agree — the preview promises what this loop then does.
+            // Honoured ops only (ruling P): a reopen the deriver does not
+            // honour never happened as far as the status goes, so it must not
+            // be read as the `beforeArchive` the return journey turns on.
             var lifecycleBySource: [String: [Op]] = [:]
+            let amendments = annotationAmendments
             for op in _opLogMirror
-            where Document.lifecycleOpKinds.contains(op.kind) {
+            where AnnotationDeriver.isHonouredLifecycleOp(op, amendments: amendments) {
                 if let src = op.provenance?.sourceAnnotationId {
                     lifecycleBySource[src, default: []].append(op)
                 }

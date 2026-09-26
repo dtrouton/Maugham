@@ -617,8 +617,9 @@ on ⌘⇧R the dedupe is the whole of it.
   `RulingRefusal.notYours(statement:)` before any mint or op unless this
   device may `.editStatement` the statement — asked of
   `DocumentStore.settledPosture` at `StatementEditorHost.postureDocId`, or,
-  for a `ProjectStore` no window holds, of the one builder wrapped right there
-  (the posture census's `RulingPerformer.swift` entry). A project statement is
+  for a `ProjectStore` no window holds, of MaughamCore's `PostureDoor` over the
+  one builder (P3c plan 2 Task 1; the file is admitted no posture-census
+  spelling). A project statement is
   the book author's alone; a piece statement follows its piece. The door is in
   the verbs so the number of callers stops mattering
   (`RulingPerformerTests.test_everyVerbAsksTheDoorBeforeItWrites`), and

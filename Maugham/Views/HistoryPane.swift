@@ -164,6 +164,10 @@ struct HistoryPane: View {
     /// pass had a provenance at all — so Task 7's held sentences were
     /// intermittently not drawn, and a renamed person's was a reload behind.
     @State private var heldWordCounts: [String: Int] = [:]
+    /// Holder → how many of the paragraphs held under it NOW this Mac has
+    /// already sent (P3c Task 7, M2) — the same read as the counts above,
+    /// counted off the lines rather than off a memory keyed by the holder.
+    @State private var heldSentCounts: [String: Int] = [:]
     /// Device fingerprint → the name that device's registry record gives it,
     /// for the pending sentence (signed op log P2a). Empty when this project
     /// has no registry, and empty when one could not be read: a name is
@@ -600,7 +604,7 @@ struct HistoryPane: View {
         provenance: OpLogProvenance?, startedAPiece: Set<String>,
         takenFrom: Set<String> = [],
         names: [String: String], words: [String: Int] = [:],
-        sent: [String: Set<String>] = [:], docId: String = ""
+        sent: [String: Int] = [:]
     ) -> [SetAsideDoor.HeldRow] {
         guard let provenance else { return [] }
         let strangers = Set(provenance.pendingStrangersByDevice.keys)
@@ -629,10 +633,11 @@ struct HistoryPane: View {
                     holder: holder,
                     sentence: sentence,
                     unsent: unsigned ? (words[holder] ?? 0) : 0,
-                    sentCount: unsigned
-                        ? (sent[SetAsideDoor.heldKey(
-                            docId: docId, holder: holder)]?.count ?? 0)
-                        : 0)
+                    // Counted off the LINES by the store (P3c Task 7, M2),
+                    // never off a memory keyed by this holder: the same
+                    // paragraphs are held under a different holder the day a
+                    // signing Mac's first seal syncs.
+                    sentCount: unsigned ? (sent[holder] ?? 0) : 0)
             }
             return nil
         }
@@ -1047,7 +1052,8 @@ struct HistoryPane: View {
                     let offersRewind = Self.offersRewind(
                         documentStore?.posture(forDocId: activeDocId))
                     let offersRevert = Self.offersRevert(
-                        allDocIds.map { documentStore?.posture(forDocId: $0) })
+                        for: entries, docIds: allDocIds,
+                        mayWrite: PartialRestorePicker.mayWrite(through: documentStore))
                     // The book's own entries lead the document's (ruling C).
                     // They are FEW — an admission, a revocation, a claim — and
                     // they are the context every entry below them is written
@@ -1307,8 +1313,10 @@ struct HistoryPane: View {
     /// asks nothing and costs nothing.
     private func reloadHeldWordCounts() async {
         let holders = Array(documentProvenance?.pendingByDevice.keys ?? [:].keys)
-        heldWordCounts = await documentStore?.unsignedHeldWordCounts(
-            forDocId: activeDocId, holders: holders) ?? [:]
+        let counts = await documentStore?.unsignedHeldWordCounts(
+            forDocId: activeDocId, holders: holders) ?? .none
+        heldWordCounts = counts.unsent
+        heldSentCounts = counts.sent
     }
 
     /// The holders this document is currently holding lines under, as one
@@ -1329,8 +1337,7 @@ struct HistoryPane: View {
             takenFrom: documentStore?
                 .document(forDocId: activeDocId)?.keptWritingInATakenPiece ?? [],
             names: chainDeviceNames, words: heldWordCounts,
-            sent: documentStore?.uiState.sentRecoveredOpIds ?? [:],
-            docId: activeDocId)
+            sent: heldSentCounts)
     }
 
     /// The names the two chain sentences are told in, resolved off the main
@@ -2240,8 +2247,21 @@ extension HistoryPane {
 
     /// **Whether a checkpoint row offers *Revert here…*** — only where the
     /// picker it opens would list at least one document this Mac may write
-    /// (`PartialRestorePicker.offeredDocIds`). Every `nil` fails closed.
-    static func offersRevert(_ postures: [Posture?]) -> Bool {
-        postures.contains { $0?.allows(.writeText) ?? false }
+    /// (`PartialRestorePicker.offeredDocIds`), asked through the picker's own
+    /// `mayWrite` over the picker's own list. No `DocumentStore` behind the
+    /// pane fails closed (`mayWrite(through: nil)` answers false).
+    ///
+    /// **Asks as little as it can** (P3c plan 2 Task 9): nothing at all when
+    /// no row is a checkpoint — there is no Revert to draw — and otherwise
+    /// only until the first document the picker would list, rather than
+    /// putting every document of the book into the drawing door's asked set
+    /// on every body pass.
+    static func offersRevert(
+        for entries: [HistoryEntry], docIds: [String], mayWrite: (String) -> Bool
+    ) -> Bool {
+        guard entries.contains(where: {
+            if case .checkpoint = $0 { return true } else { return false }
+        }) else { return false }
+        return docIds.contains(where: mayWrite)
     }
 }

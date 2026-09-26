@@ -23,10 +23,13 @@ struct ProjectSearchView: View {
     @FocusState private var queryFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
+        // What this Mac may replace, asked ONCE per document per body pass
+        // (Task 9) and handed to every consumer below — never per match row.
+        let gate = replaceGate
+        return VStack(spacing: 0) {
+            header(gate)
             Divider()
-            content
+            content(gate)
         }
         .onAppear {
             DispatchQueue.main.async { queryFocused = true }
@@ -59,7 +62,7 @@ struct ProjectSearchView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(Self.replaceAllMessage(
-                store.currentSearch.map { Self.replaceability($0, mayReplace: mayReplace) }))
+                store.currentSearch.map { Self.replaceability($0, mayReplace: gate.mayReplace) }))
         }
         .alert("Search error",
                isPresented: Binding(
@@ -79,7 +82,7 @@ struct ProjectSearchView: View {
         }
     }
 
-    private var header: some View {
+    private func header(_ gate: ReplaceGate) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Find in Project")
@@ -111,7 +114,7 @@ struct ProjectSearchView: View {
                     // replace (C1, ruling AI): a reviewer whose results are all
                     // manuscript sees none; research notes keep their verbs.
                     if Self.offersReplaceAll(
-                        store.currentSearch.map { Self.replaceability($0, mayReplace: mayReplace) }) {
+                        store.currentSearch.map { Self.replaceability($0, mayReplace: gate.mayReplace) }) {
                         Button("Replace All") {
                             showingReplaceAllConfirm = true
                         }
@@ -141,12 +144,12 @@ struct ProjectSearchView: View {
     }
 
     @ViewBuilder
-    private var content: some View {
+    private func content(_ gate: ReplaceGate) -> some View {
         if store.searchInProgress {
             VStack { ProgressView().padding() }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let r = store.currentSearch, !r.matches.isEmpty {
-            resultsList(r)
+            resultsList(r, gate: gate)
         } else if !query.isEmpty {
             VStack {
                 Text("No matches")
@@ -164,7 +167,7 @@ struct ProjectSearchView: View {
         }
     }
 
-    private func resultsList(_ results: SearchResults) -> some View {
+    private func resultsList(_ results: SearchResults, gate: ReplaceGate) -> some View {
         let grouped = Dictionary(grouping: results.matches, by: \.documentPath)
         let sortedKeys = grouped.keys.sorted { (a, b) in
             let aIsManuscript = a.hasPrefix("manuscript/")
@@ -179,7 +182,7 @@ struct ProjectSearchView: View {
                         "\(matches[0].documentTitle) \u{2014} \(matches.count) match\(matches.count == 1 ? "" : "es")"
                     )) {
                         ForEach(matches) { match in
-                            matchRow(for: match)
+                            matchRow(for: match, gate: gate)
                         }
                     }
                 }
@@ -188,7 +191,7 @@ struct ProjectSearchView: View {
         .listStyle(.sidebar)
     }
 
-    private func matchRow(for match: SearchMatch) -> some View {
+    private func matchRow(for match: SearchMatch, gate: ReplaceGate) -> some View {
         Button {
             MaughamEvent.post(
                 .maughamFindMatchSelected, to: .keyWindow,
@@ -204,7 +207,7 @@ struct ProjectSearchView: View {
                     .font(.callout)
                     .lineLimit(2)
                 Spacer(minLength: 4)
-                if showReplace, mayReplace(match) {
+                if showReplace, gate.mayReplace(match) {
                     Button {
                         Task { await runReplaceMatch(match) }
                     } label: {
@@ -276,12 +279,39 @@ struct ProjectSearchView: View {
 
     // MARK: - What this Mac may replace (P3c whole-branch fix wave, C1)
 
-    /// The drawing answer for one match: a research note is outside the
-    /// permit (roles guard the words, not the binder); a manuscript match is
-    /// its OWN document's posture — the queue's per-row shape, so an author of
-    /// some pieces replaces in hers. No door behind the host fails CLOSED.
-    private func mayReplace(_ match: SearchMatch) -> Bool {
-        Self.mayReplace(match, posture: store.documentStore?.posture(forPath: match.documentPath))
+    /// The gate over the current results, asked of the window's drawing door.
+    private var replaceGate: ReplaceGate {
+        let documentStore = store.documentStore
+        return ReplaceGate(
+            store.currentSearch,
+            posture: { documentStore?.posture(forPath: $0) })
+    }
+
+    /// **What this Mac may replace, one posture question per DOCUMENT** (P3c
+    /// plan 2 Task 9) — built once per body pass over a result set, so a
+    /// chapter with a hundred matches asks its posture once rather than once
+    /// per row per pass. A research match asks nothing (roles guard the words,
+    /// not the binder); a manuscript match answers its OWN document's posture
+    /// — the queue's per-row shape, so an author of some pieces replaces in
+    /// hers. No door behind the host (`posture` answering nil) fails CLOSED.
+    struct ReplaceGate {
+        private let manuscriptPaths: [String: Bool]
+
+        init(_ results: SearchResults?, posture: (String) -> Posture?) {
+            var answers: [String: Bool] = [:]
+            for match in results?.matches ?? []
+            where match.documentSource == .manuscript && answers[match.documentPath] == nil {
+                answers[match.documentPath] = ProjectSearchView.mayReplace(
+                    match, posture: posture(match.documentPath))
+            }
+            manuscriptPaths = answers
+        }
+
+        /// Only manuscript paths are ever answered, so a research match falls
+        /// to its own rule and anything else unanswered fails CLOSED.
+        func mayReplace(_ match: SearchMatch) -> Bool {
+            manuscriptPaths[match.documentPath] ?? (match.documentSource == .research)
+        }
     }
 
     static func mayReplace(_ match: SearchMatch, posture: Posture?) -> Bool {

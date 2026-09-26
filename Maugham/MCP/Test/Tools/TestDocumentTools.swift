@@ -62,6 +62,10 @@ public enum TestOpenDocumentTool: MCPTool {
                 actor: .author,
                 session: sessionId,
                 presenter: ds.presenter)
+        } catch let waiting as DocumentLoadError {
+            // Typed, so `tools/call` answers `waiting_for_piece` rather than an
+            // invalid argument (fix round 1, M4).
+            throw waiting
         } catch {
             throw MCPError.invalidArgument("load refused: \(error)")
         }

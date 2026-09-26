@@ -132,10 +132,111 @@ final class HeldLinesTests: XCTestCase {
         let sentence = try XCTUnwrap(HeldLines.sentence(
             .unsigned(stream: "author-beef"), notes: 4))
         XCTAssertTrue(sentence.localizedCaseInsensitiveContains("Inbox"))
-        // It DOES say the word *admit*, and only to rule it out — *there is no
-        // device to admit*. What it must never be is the admission SENTENCE.
+        // What it must never be is the admission SENTENCE.
         XCTAssertFalse(
             sentence.localizedCaseInsensitiveContains("waiting for admission"))
+    }
+
+    /// **The pre-first-seal stranger** (P3c Task 7, carry M2). An unsigned
+    /// stream is two cases this Mac cannot tell apart — a Mac that signs
+    /// nothing it will ever write, and a signing Mac whose first seal has not
+    /// synced here yet — so neither the held sentence nor History's dated
+    /// entry may say *there is no device to admit* or *signs nothing it
+    /// writes* as a fact. Both say what the two cases share and what each is
+    /// waiting for, as People & Devices' unsigned row already does.
+    func test_theUnsignedWordsAreTrueOfAMacWhoseFirstSealHasNotSynced() throws {
+        let entry = TrustEventSentence.sentence(
+            for: TrustEvent(
+                date: Date(timeIntervalSince1970: 0), kind: .unsigned,
+                subject: HeldLines.unsignedHolder(
+                    forStreamKey: "d.ghost", deviceSlug: "ghost")),
+            labels: [:])
+        let held = [
+            HeldLines.sentence(.unsigned(stream: "ghost"), notes: 2),
+            HeldLines.sentence(.unsigned(stream: "ghost"), notes: 1,
+                               wayBackIn: .historysHeldRows),
+        ].compactMap { $0 }
+        XCTAssertEqual(held.count, 2)
+        for sentence in held + [entry, HeldLines.unsignedWriter] {
+            XCTAssertFalse(
+                sentence.localizedCaseInsensitiveContains("no device to admit"),
+                sentence)
+            XCTAssertFalse(
+                sentence.localizedCaseInsensitiveContains("signs nothing it writes"),
+                sentence)
+        }
+        for sentence in held + [entry] {
+            XCTAssertTrue(sentence.contains("sync"),
+                          "the signing Mac's case is named: \(sentence)")
+            XCTAssertTrue(sentence.contains("if it signs nothing"),
+                          "…and so is the other one: \(sentence)")
+        }
+    }
+
+    /// **Only paragraphs come back from a Mac that signs nothing** (Denver's
+    /// I2 ruling, 2026-09-23; delivered in P3c plan 2's fix wave). §7.4's
+    /// door captures a held span's paragraphs and nothing else, so a note
+    /// from such a Mac is said to stay held with no way back — never counted
+    /// into the Inbox's promise. Every shape, both surfaces.
+    func test_theUnsignedSentencePromisesTheInboxForParagraphsOnly() {
+        let prefix = "is waiting from \(HeldLines.unsignedWriter). If that Mac’s "
+            + "first signed change just hasn’t synced here, this changes when it "
+            + "does; if it signs nothing, "
+        func say(
+            _ what: HeldLines.Waiting?, notes: Int = 1,
+            _ way: HeldLines.WayBackIn = .theInboxDoor
+        ) -> String? {
+            HeldLines.sentence(.unsigned(stream: "s"), notes: notes, what: what,
+                               wayBackIn: way)
+        }
+        let oneParagraph = HeldLines.Waiting(paragraphIds: ["aaaa"], prose: 1)
+        XCTAssertEqual(
+            say(oneParagraph),
+            "1 paragraph " + prefix + "its paragraph can be brought back through the Inbox.")
+        let mixed = HeldLines.Waiting(paragraphIds: ["aaaa", "bbbb"], prose: 2, notes: 1)
+        XCTAssertEqual(
+            say(mixed, notes: 3),
+            "2 paragraphs and 1 note are waiting from \(HeldLines.unsignedWriter). "
+                + "If that Mac’s first signed change just hasn’t synced here, this "
+                + "changes when it does; if it signs nothing, its paragraphs can be "
+                + "brought back through the Inbox; its note stays held, with no way back.")
+        XCTAssertEqual(
+            say(HeldLines.Waiting(notes: 2), notes: 2),
+            "2 notes are waiting from \(HeldLines.unsignedWriter). If that Mac’s "
+                + "first signed change just hasn’t synced here, this changes when it "
+                + "does; if it signs nothing, its notes stay held, with no way back "
+                + "— only paragraphs come back, through the Inbox.")
+        XCTAssertEqual(
+            say(HeldLines.Waiting(paragraphIds: ["aaaa"], prose: 1, notes: 1, other: 1),
+                notes: 3, .historysHeldRows),
+            "1 paragraph, 1 note and 1 change are waiting from "
+                + "\(HeldLines.unsignedWriter). If that Mac’s first signed change "
+                + "just hasn’t synced here, this changes when it does; if it signs "
+                + "nothing, its paragraph is brought back from History; its notes "
+                + "and other changes stay held, with no way back.")
+        // Changes alone — a task, or prose naming no paragraph — say no
+        // *other* (N4), and a paragraph beside them does.
+        XCTAssertEqual(
+            say(HeldLines.Waiting(prose: 1, anonymousProse: 1, other: 1), notes: 2),
+            "2 changes are waiting from \(HeldLines.unsignedWriter). If that Mac’s "
+                + "first signed change just hasn’t synced here, this changes when it "
+                + "does; if it signs nothing, its changes stay held, with no way back "
+                + "— only paragraphs come back, through the Inbox.")
+        XCTAssertEqual(
+            say(HeldLines.Waiting(paragraphIds: ["aaaa"], prose: 1, other: 1), notes: 2),
+            "1 paragraph and 1 change are waiting from \(HeldLines.unsignedWriter). "
+                + "If that Mac’s first signed change just hasn’t synced here, this "
+                + "changes when it does; if it signs nothing, its paragraph can be "
+                + "brought back through the Inbox; its other change stays held, "
+                + "with no way back.")
+        // The capture stream holds no ops: the kinds are unknown, so both
+        // halves are said.
+        XCTAssertEqual(
+            say(nil, notes: 2, .historysHeldRows),
+            "2 notes are waiting from \(HeldLines.unsignedWriter). If that Mac’s "
+                + "first signed change just hasn’t synced here, this changes when it "
+                + "does; if it signs nothing, any paragraphs it wrote are brought "
+                + "back from History; its notes stay held, with no way back.")
     }
 
     /// Nothing waiting is no sentence at all, in every arm — so no surface has

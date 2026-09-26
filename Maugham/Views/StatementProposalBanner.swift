@@ -46,14 +46,11 @@ struct StatementProposalBanner: View {
     let onAdopt: () -> Void
     let onDiscard: () -> Void
 
-    /// **Whether Adopt and Discard are drawn** — the one rule, asked of the
-    /// posture of the statement the proposal would change. Hidden, not
-    /// disabled: a greyed Adopt reads as broken. Discard follows Adopt,
-    /// because what becomes of a proposal to a statement is that statement's
-    /// writer's decision (`StatementProposalGate.discard`'s own note).
-    static func offersVerbs(_ posture: Posture) -> Bool {
-        posture.allows(.editStatement)
-    }
+    // Adopt and Discard are drawn where `StatementSurfaceVerbs` offers them,
+    // asked of the posture of the statement the proposal would change. Hidden,
+    // not disabled: a greyed Adopt reads as broken. Discard follows Adopt,
+    // because what becomes of a proposal to a statement is that statement's
+    // writer's decision (`StatementProposalGate.discard`'s own note).
 
     private var model: Model {
         Self.model(proposal: proposal, current: current, statementExists: statementExists, now: now)
@@ -66,7 +63,7 @@ struct StatementProposalBanner: View {
                 Text(model.title).font(.callout.weight(.medium))
                 Text(model.when).font(.caption).foregroundStyle(.secondary)
                 Spacer(minLength: 6)
-                if Self.offersVerbs(posture) { verbs }
+                if StatementSurfaceVerbs.offered(under: posture) { verbs }
             }
             if let rationale = model.rationale {
                 Text(StatementProposalCopy.rationaleHeading).font(.caption).foregroundStyle(.secondary)
@@ -104,7 +101,7 @@ struct StatementProposalBanner: View {
         .accessibilityLabel(model.title)
     }
 
-    /// Discard and Adopt, drawn only where `offersVerbs` says so.
+    /// Discard and Adopt, drawn only where `StatementSurfaceVerbs` says so.
     @ViewBuilder
     private var verbs: some View {
         Button(StatementProposalCopy.discardTitle, action: onDiscard)

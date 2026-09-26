@@ -379,16 +379,11 @@ struct PeopleAndDevicesModel: Equatable {
         /// A rung this build cannot draw says so rather than guessing: the
         /// record carries a word a later Maugham wrote, and naming it *author*
         /// would be this Mac deciding something it does not know.
+        ///
+        /// The sentence is `PermitWords.sentence`, in Core, so the phone reads
+        /// the same words (P3c plan 2, Task 1).
         var permitSentence: String {
-            guard let rung else {
-                return "This book says something about what they may write that "
-                    + "this version of Maugham doesn\u{2019}t recognise."
-            }
-            guard rung.picksPieces else { return rung.title }
-            guard !pieceTitles.isEmpty else {
-                return "\(rung.title) \u{2014} none chosen yet"
-            }
-            return "\(rung.title): \(pieceTitles.joined(separator: ", "))"
+            PermitWords.sentence(rung: rung, pieceTitles: pieceTitles)
         }
 
         /// **The record and the history disagree**, in one sentence naming both
@@ -780,8 +775,12 @@ struct PeopleAndDevicesModel: Equatable {
 
         // Everyone on the chain this device judges by, and nobody else: a
         // person under another root is that root's business, and is listed —
-        // if it concerns this device at all — as a claimant below.
-        let members: Set<String> = table.myRoot.map { registry.chain(underRoot: $0) } ?? []
+        // if it concerns this device at all — as a claimant below. **The
+        // TABLE's chain** (P3c Task 7, M4): my root's AND every root it
+        // adopted, because that is the set the op log applies lines from — a
+        // person an adopted root admitted writes into this book, so she is in
+        // it. Empty where this Mac judges by no root.
+        let members: Set<String> = table.myChain
         var memberRecords: [PersonRecord] = registry.people.filter {
             members.contains($0.person)
         }
@@ -1234,15 +1233,15 @@ struct PeopleAndDevicesModel: Equatable {
     }
 
     /// The titles of the pieces a permit names, in the binder's own order, with
-    /// an id this manifest does not carry drawn as what it is. A document id is
-    /// not a thing a writer has ever seen, so it is never shown raw.
+    /// an id this manifest does not carry drawn as what it is. The rule is
+    /// Core's `PermitWords.pieceTitles`, so the phone's Settings names the same
+    /// pieces the same way (P3c plan 2, Task 6; tripwire 19).
     private static func titles(
         of chosen: Set<String>, among pieces: [PermitControl.Piece]
     ) -> [String] {
-        guard !chosen.isEmpty else { return [] }
-        let known = Set(pieces.map(\.id))
-        return pieces.filter { chosen.contains($0.id) }.map(\.title)
-            + chosen.subtracting(known).sorted().map { _ in unknownPiece }
+        PermitWords.pieceTitles(
+            of: chosen, among: pieces.map { (id: $0.id, title: $0.title) },
+            unknownPiece: unknownPiece)
     }
 
     /// What a piece id this Mac cannot find is called on a row.

@@ -202,7 +202,7 @@ final class AnnotationWriterTests: XCTestCase {
         let writer = makeWriter()
         XCTAssertThrowsError(try writer.makeAccept(
             for: ann, currentParagraph: para,
-            verifyingAgainst: [creation, withdraw])) { error in
+            verifyingAgainst: .init(ops: [creation, withdraw], amendments: .honourEverything))) { error in
             guard case AnnotationWriter.WriteError
                 .annotationWithdrawn(annotationId: ann.id) = error else {
                 return XCTFail("expected annotationWithdrawn, got \(error)")
@@ -210,7 +210,7 @@ final class AnnotationWriterTests: XCTestCase {
         }
         // Without the withdraw in the verification set, the accept builds.
         XCTAssertNoThrow(try writer.makeAccept(
-            for: ann, currentParagraph: para, verifyingAgainst: [creation]))
+            for: ann, currentParagraph: para, verifyingAgainst: .init(ops: [creation], amendments: .honourEverything)))
     }
 
     /// A span whose quoted phrase is no longer in the current paragraph is

@@ -208,4 +208,65 @@ final class AdmissionQueueTests: XCTestCase {
 
         XCTAssertEqual(queue.presented, ren)
     }
+
+    // MARK: - F10's late capture (P3c plan 2 Task 8)
+
+    /// **A capture arriving while a sheet is up re-describes it** — the sheet
+    /// up keeps its identity and says the newer words; the order is unchanged.
+    func test_aLateCaptureRedescribesTheSheetThatIsUp() throws {
+        var queue = twoWaiting()
+        XCTAssertNil(queue.presented?.described, "premise: nothing described yet")
+        let described = try XCTUnwrap(AdmissionWaiting.describe(
+            holder: sam.fingerprint, waiting: [:],
+            captures: [sam.fingerprint: 1], order: []))
+
+        queue.redescribed { $0.fingerprint == sam.fingerprint ? described : nil }
+
+        XCTAssertEqual(queue.presented?.fingerprint, sam.fingerprint, "the same sheet")
+        XCTAssertEqual(queue.presented?.described, described, "saying the newer words")
+        XCTAssertEqual(AdmissionSheet.waitingLine(for: try XCTUnwrap(queue.presented)),
+                       described.line)
+        XCTAssertEqual(queue.queue.map(\.fingerprint), [sam.fingerprint, ren.fingerprint],
+                       "who is waiting, and in what order, is not a description's to move")
+    }
+
+    /// The other direction: a re-description decides nothing a derivation
+    /// decides — a queue an admission has overtaken puts nothing up, and a
+    /// dismissal stays a dismissal.
+    func test_aRedescriptionPutsNothingUpAndForgetsNoDismissal() {
+        var queue = twoWaiting()
+        queue.admitted(sam.fingerprint)
+        _ = queue.sheetClosed()
+        XCTAssertNil(queue.presented, "premise: waiting for the settlement")
+
+        queue.redescribed { _ in nil }
+        XCTAssertNil(queue.presented, "a description is not a settlement")
+        XCTAssertTrue(queue.awaitingSettlement)
+
+        var dismissed = twoWaiting()
+        dismissed.notNow(sam.fingerprint)
+        dismissed.redescribed { _ in nil }
+        XCTAssertTrue(dismissed.dismissed.contains(sam.fingerprint))
+        XCTAssertFalse(dismissed.queue.contains { $0.fingerprint == sam.fingerprint })
+    }
+
+    /// **The wiring**: the modifier re-describes on the inbox's own refresh
+    /// counter (`InboxPane`'s `.task(id: store.refreshes)` precedent) — no new
+    /// event. A source read, because the trigger is a view modifier and
+    /// tripwire 33 forbids mounting it to wait on its effect.
+    func test_theSheetRedescribesOnTheInboxsOwnRefreshCounter() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Views/AdmissionModifier.swift")
+        // Code lines only: a commented-out modifier is not a trigger.
+        let code = try String(contentsOf: source, encoding: .utf8)
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.hasPrefix("//") }
+        XCTAssertTrue(code.contains(
+            ".task(id: documentStore?.inboxStore.refreshes) { redescribe() }"),
+            "the sheet re-describes when the inbox refreshes")
+        XCTAssertTrue(code.contains { $0.hasPrefix("admissions.redescribed") },
+                      "through the queue's own re-description")
+    }
 }

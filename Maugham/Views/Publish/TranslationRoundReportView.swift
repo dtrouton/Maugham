@@ -551,7 +551,8 @@ struct TranslationRoundReportView: View {
                 },
                 onCancel: { self.sheet = nil },
                 seed: seed,
-                defaultHome: verbs.keepMineHome(language: round.language))
+                defaultHome: verbs.keepMineHome(language: round.language),
+                offering: verbs.keepMineHomes(language: round.language))
         case .makeRule(let id, let seed):
             RoundRuleSheet(
                 seed: seed, language: round.language,

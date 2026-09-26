@@ -387,9 +387,19 @@ enum AdmissionDecision {
     /// one event whose un-awaited inbox refresh is the race. An open or a
     /// load's announcement has counts already in hand, and a stranger who
     /// waits for days must not cost an inbox read on every chapter opened.
+    ///
+    /// **`holdsARootRecord` is asked FIRST** (P3c plan 2 Task 8, plan 1's
+    /// limit): every production caller passes the cheap filename check
+    /// (`mayHoldARootRecord(_:in:)`), and a Mac that holds no root record here
+    /// answers `[]` before it counts, recounts, admits or resolves anything —
+    /// the question is the root's (Ruling AA), `requests` answers `[]` for any
+    /// other Mac, and `RegistryPresence.admitRemembered` refuses one. It used
+    /// to pay one verified resolve per settle to learn that. Defaulted to
+    /// *look*, the side that errs toward the verified read.
     @MainActor
     static func refreshedRequests(
         cause: RefreshCause = .announcement,
+        holdsARootRecord: @MainActor () async -> Bool = { true },
         heldLines: @MainActor () -> [String: Int],
         heldStreams: @MainActor () -> [String: Set<String>] = { [:] },
         arrivedDevices: @MainActor () async -> Set<String> = { [] },
@@ -399,6 +409,7 @@ enum AdmissionDecision {
         admitRemembered: @MainActor () async -> Void,
         resolve: @MainActor () async -> (registry: Registry, myRoot: String?)?
     ) async -> [AdmissionRequest]? {
+        guard await holdsARootRecord() else { return [] }
         var pending = heldLines()
         var arrived = await arrivedDevices()
         guard !pending.isEmpty || !arrived.isEmpty else { return [] }
@@ -500,14 +511,78 @@ enum AdmissionDecision {
     ///
     /// Asks `RegistryWriter.directoryURL` for both paths (tripwire 40) and
     /// skips by NAME only (`DotfileScan`), the reader's own rule.
+    ///
+    /// **A person file that will not read is no person record** (P3c plan 2
+    /// Task 8, plan 1's limit). Matching by NAME alone, a corrupt
+    /// `people/<fp>.json` hid a record-only stranger from the question: the
+    /// name matched, so the device read as already let in, and the verified
+    /// read that would have refused the file was never paid for. A matched
+    /// person file is now opened and must parse as a JSON object; one that does
+    /// not answers *look*. Still UNVERIFIED — only whether to look is decided.
     nonisolated static func devicesWithNoPersonRecord(
         in projectURL: URL, excluding thisDevice: String?
     ) -> Set<String> {
         let devices = recordNames(in: .devices, projectURL: projectURL)
         guard !devices.isEmpty else { return [] }
-        var arrived = devices.subtracting(recordNames(in: .people, projectURL: projectURL))
+        let people = recordNames(in: .people, projectURL: projectURL)
+            .intersection(devices)
+            .filter { readsAsARecord($0, in: .people, projectURL: projectURL) }
+        var arrived = devices.subtracting(people)
         if let thisDevice { arrived.remove(thisDevice) }
         return arrived.filter { !saysItRetired($0, projectURL: projectURL) }
+    }
+
+    /// **Might this Mac hold its own ROOT record here?** — by filename first
+    /// (P3c plan 2 Task 8): a root's record is filed under its own
+    /// fingerprint (`RegistryWriter.url`) and names itself as its admitter
+    /// (`PersonRecord.isRoot`), so no `people/<thisDevice>.json` at all is a
+    /// Mac with no root record, and one that reads and names somebody else
+    /// as its admitter is an admitted Mac, not a root. Either answers false
+    /// and the admission question is skipped outright. UNVERIFIED like the
+    /// listing beside it: a file that will not read or parse answers *look*
+    /// (true), and so does a self-admitted one — the verified read
+    /// (`askingRoot`, `Registry.holdsARootRecord`) is what decides.
+    ///
+    /// **A root whose own record was DELETED reads here as a Mac with none**
+    /// (whole-branch review, Minor 1). The verified resolve that would put it
+    /// back from this Mac's memory (`TrustResolution.resolveVerified` through
+    /// `RegistryCache`) is never reached on this path, so that root asks no
+    /// admission question until some other resolve restores the record — the
+    /// next `Document.load`'s `localWritePermit`, or any posture refresh —
+    /// and the question is then put at the next announcement. One
+    /// announcement late, and self-healing; nothing is admitted or refused
+    /// meanwhile.
+    nonisolated static func mayHoldARootRecord(
+        _ thisDevice: String, in projectURL: URL
+    ) -> Bool {
+        let url = recordURL(thisDevice, in: .people, projectURL: projectURL)
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        guard let object = jsonObject(at: url),
+              let admittedBy = object["admittedBy"] as? String
+        else { return true }
+        return admittedBy == thisDevice
+    }
+
+    /// Whether a registry file parses as a JSON object at all.
+    nonisolated private static func readsAsARecord(
+        _ fingerprint: String, in directory: RegistryDirectory, projectURL: URL
+    ) -> Bool {
+        jsonObject(at: recordURL(fingerprint, in: directory, projectURL: projectURL)) != nil
+    }
+
+    /// `<directory>/<fingerprint>.json` — asked of `RegistryWriter.directoryURL`
+    /// (a read; tripwire 40), `saysItRetired`'s own spelling.
+    nonisolated private static func recordURL(
+        _ fingerprint: String, in directory: RegistryDirectory, projectURL: URL
+    ) -> URL {
+        RegistryWriter.directoryURL(directory, in: projectURL)
+            .appendingPathComponent("\(fingerprint).json")
+    }
+
+    nonisolated private static func jsonObject(at url: URL) -> [String: Any]? {
+        guard let bytes = try? Data(contentsOf: url)  // adr-0018-ok: a registry record's shape, never manuscript text
+        else { return nil }
+        return (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any]
     }
 
     /// Whether an unmatched device file says it retired — a key's presence,

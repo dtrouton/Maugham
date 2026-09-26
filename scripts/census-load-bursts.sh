@@ -12,8 +12,13 @@
 #   They are set aside and recoverable, never lost — but somebody has to know
 #   they are there. A hit is a per-line manual recovery, never a rule change.
 #
-#   Run this on every Mac that has opened a Maugham book before the P3 release
-#   (P3c release checklist) and give Denver the output.
+#   Before the P3 release (P3c release checklist), run it FROM THIS MAC — the
+#   one with the checkout and a Swift toolchain — AGAINST EACH MAC'S FOLDERS:
+#   every folder of every Mac that has opened a Maugham book, reached from here
+#   (a file-sharing mount of the other Mac's folder, or a copy of it made
+#   here). The other Macs need no checkout, no toolchain and nothing
+#   installed; the census runs `swift test` against this repository. Give
+#   Denver the output.
 #
 # WHAT IT IS NOT
 #
@@ -25,9 +30,10 @@
 # USAGE
 #
 #   scripts/census-load-bursts.sh ~/Documents [more dirs...]
+#   scripts/census-load-bursts.sh "/Volumes/Other Mac/Documents"   # another Mac's
 #
-#   With no arguments it scans ~/Documents. Each argument is a directory to walk
-#   for project folders (a folder holding a .maugham/ops).
+#   With no arguments it scans THIS Mac's ~/Documents. Each argument is a
+#   directory to walk for project folders (a folder holding a .maugham/ops).
 #
 # HOW IT RUNS
 #

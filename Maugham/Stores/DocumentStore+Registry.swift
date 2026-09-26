@@ -251,6 +251,11 @@ extension DocumentStore {
     /// `TrustTable.unsignedSnapshot` and `RegistryAdmission`'s door already
     /// agree on (tripwire 47).
     ///
+    /// **Taken ONCE per book** (P3c Task 7, Ruling Q): where the book is
+    /// already narrowed, the governing snapshot's own mark is returned and
+    /// nothing is walked, so every later narrowing event carries the same
+    /// photograph and no event's date can move the cliff.
+    ///
     /// **And nothing pays for it that does not need it.** The sweep is a walk
     /// of every op-log file, every translation sidecar and every inbox
     /// manifest in the project; an ordinary admission narrows nobody, so it
@@ -263,6 +268,19 @@ extension DocumentStore {
     /// rather than narrow the book over a reading it knows is short.
     /// Internal rather than private, for `seenMarkOrRefuse`'s reason: the
     /// admission door lives one file over and must ask the same question.
+    /// Bumped once per sweep actually performed — never where a governing
+    /// photograph was carried forward instead (P3c Task 7, Ruling Q). The
+    /// counter a test pins *no sweep ran* by.
+    ///
+    /// **Keyed by the project folder and behind a lock** (P3c plan 2 Task 9).
+    /// Task 7's hook was a `nonisolated(unsafe)` closure one test set and
+    /// cleared: a second test setting it in the same process — or a sweep
+    /// still in flight from an earlier one — would have raced it or counted
+    /// into the wrong answer. A test reads the count for its OWN folder, so
+    /// nothing is set and nothing needs clearing. It counts in production
+    /// too: one locked increment beside a sweep that walks the whole folder.
+    static let unsignedSweepsForTesting = UnsignedSweepCounter()
+
     func sweptUnsignedSnapshot(
         for permit: Permit, act: RegistryAdmissionError.Act = .permitChange
     ) async throws -> PermitMark? {
@@ -277,6 +295,22 @@ extension DocumentStore {
             do {
                 let resolved = try TrustResolution.resolveVerified(
                     projectURL: projectURL, identities: identities, cache: cache)
+                // **A book already narrowed carries its governing photograph
+                // FORWARD** (P3c Task 7, Ruling Q). The earliest narrowing
+                // governs by `(at, event)`, and `at` is the narrowing root's
+                // own clock: a later event whose clock reads earlier — two
+                // adopted roots a few minutes apart, or a clock that stepped
+                // back — governs instead. Were its photograph empty (`{}`), or
+                // taken now, the cliff would move; were it empty, every
+                // unsigned line ever written, P1-era text included, would be
+                // held on every Mac. The same happens with no skew at all on
+                // a fresh Mac whose sync delivers the later event first. The
+                // governor's own mark written forward makes the photograph
+                // identical whichever event governs — and costs no sweep.
+                if let governing = resolved.table.unsignedSnapshot {
+                    return .success(governing.mark)
+                }
+                DocumentStore.unsignedSweepsForTesting.bump(projectURL)
                 return .success(try OpLogStore.unattributablePositions(
                     in: projectURL, trust: resolved.table,
                     // What this Mac remembers having applied from ANY other
@@ -1424,28 +1458,27 @@ extension DocumentStore {
     /// count: no door is better than a door that promises half a span.
     func unsignedHeldWordCounts(
         forDocId docId: String, holders: [String]
-    ) async -> [String: Int] {
+    ) async -> SetAsideDoor.HeldWordCounts {
         let unsigned = holders.filter { HeldLines.isUnsignedHolder($0) }
-        guard !unsigned.isEmpty else { return [:] }
-        var counts: [String: Int] = [:]
+        guard !unsigned.isEmpty else { return .none }
+        // **Remembered by the LINES, not by the holder** (P3c Task 7, M2). A
+        // signing Mac whose first seal has not synced is held as an unsigned
+        // stream today and under its key tomorrow; the paragraphs are the same
+        // paragraphs, and a memory keyed by the holder offered them again.
+        // **What is left, not what is there** (fix round 2, C1): a held span
+        // is live, so the door offers the paragraphs this Mac has not already
+        // made a capture of — never all of them again, and never none of them
+        // because one press happened once. Both are `SetAsideDoor`'s rule.
+        var wordsByHolder: [String: [OpLogQuarantine.SetAsideWords]] = [:]
         for holder in unsigned {
             guard let words = try? await unsignedHeldWords(
                 forDocId: docId, heldBy: holder), !words.isEmpty
             else { continue }
-            // **What is left, not what is there** (fix round 2, C1). A held
-            // span is live: the stream goes on writing, and the door must
-            // offer the paragraphs this Mac has not already made a capture of
-            // — never all of them again, and never none of them because one
-            // press happened once.
-            let already = uiState.sentRecoveredOpIds[
-                SetAsideDoor.heldKey(docId: docId, holder: holder)] ?? []
-            let unsent = words.filter {
-                !already.contains(SetAsideDoor.captureId($0))
-            }
-            guard !unsent.isEmpty else { continue }
-            counts[holder] = unsent.count
+            wordsByHolder[holder] = words
         }
-        return counts
+        return SetAsideDoor.heldWordCounts(
+            docId: docId, wordsByHolder: wordsByHolder,
+            sent: uiState.sentRecoveredOpIds)
     }
 
     /// The words themselves — the walk's held lines for this holder, decoded
@@ -1469,8 +1502,9 @@ extension DocumentStore {
     /// The same act the record door performs, over a different source: nothing
     /// is applied, nothing on disk moves, the lines stay held exactly as they
     /// were, and the words arrive as ordinary captures signed by this Mac's own
-    /// author actor. The press is remembered per (holder, document) so the door
-    /// is not offered twice over the same span.
+    /// author actor. The press is remembered per paragraph, by the lines
+    /// themselves (`SetAsideDoor.heldLineId`), so the door never offers the
+    /// same paragraph twice — whatever holder it is held under by then.
     ///
     /// Answers how many captures landed. Zero — a re-read that found nothing —
     /// writes no memory either, because there is nothing to have sent and the
@@ -1479,17 +1513,13 @@ extension DocumentStore {
     func sendHeldWordsToInbox(
         forDocId docId: String, heldBy holder: String
     ) async throws -> Int {
-        let key = SetAsideDoor.heldKey(docId: docId, holder: holder)
-        let already = uiState.sentRecoveredOpIds[key] ?? []
+        // One memory per DOCUMENT, of the lines themselves (P3c Task 7, M2):
+        // `holder` chooses which lines to read, and never how they are
+        // remembered — see `SetAsideDoor.heldDoorKey`.
+        let key = SetAsideDoor.heldDoorKey(docId: docId)
         let words = try await unsignedHeldWords(forDocId: docId, heldBy: holder)
-        let attribution = SetAsideDoor.unsignedAttribution
-        let captures = words
-            .filter { !already.contains(SetAsideDoor.captureId($0)) }
-            .map {
-                SetAsideDoor.Capture(
-                    id: SetAsideDoor.captureId($0), text: $0.text,
-                    attribution: attribution)
-            }
+        let captures = SetAsideDoor.heldCaptures(
+            docId: docId, words: words, sent: uiState.sentRecoveredOpIds)
         guard !captures.isEmpty else { return 0 }
         // Recorded as each one LANDS (fix round 2, M2): a manifest that stops
         // being writable halfway leaves a re-press with only the rest to do,
@@ -1610,5 +1640,26 @@ public struct PieceIsTheirsRefused: Error, LocalizedError {
             + "question was asked, so saying the piece is theirs would give "
             + "them access you haven’t chosen. Set what they may write in "
             + "People & Devices instead."
+    }
+}
+
+/// **Unsigned-snapshot sweeps performed, per project folder** — see
+/// `DocumentStore.unsignedSweepsForTesting`. Sendable by its lock, so the
+/// detached sweep and a test on the main actor can both reach it.
+final class UnsignedSweepCounter: Sendable {
+    private let counts = OSAllocatedUnfairLock(initialState: [String: Int]())
+
+    func bump(_ projectURL: URL) {
+        let key = Self.key(projectURL)
+        counts.withLock { $0[key, default: 0] += 1 }
+    }
+
+    func count(in projectURL: URL) -> Int {
+        let key = Self.key(projectURL)
+        return counts.withLock { $0[key] ?? 0 }
+    }
+
+    private static func key(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
     }
 }
