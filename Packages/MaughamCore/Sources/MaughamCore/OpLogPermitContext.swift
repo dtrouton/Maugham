@@ -72,10 +72,12 @@ public struct PermitContext: Sendable {
     public let amendments: AmendmentPermits?
 
     /// **Who started this piece** — its manifest item's `startedBy` (P3c
-    /// plan 2, Option A), for the one arm that applies a writer's own §4.5
-    /// lines on her own Mac. Called at most once per file, and only where one
-    /// of THIS writer's own lines reached §4.5's hold, so no book that has
-    /// narrowed nobody — and no Mac but hers — ever reads it.
+    /// plan 2, Option A), for §4.5's arm: a starter the register knows is
+    /// somebody other than the line's writer refuses her line outright (P3
+    /// closing smoke F1), and her own starter applies it on her own Mac.
+    /// Called at most once per file, and only where a scoped author's own
+    /// manuscript line reached §4.5's shape, so no book that has narrowed
+    /// nobody ever reads it.
     ///
     /// Defaults to *no starter recorded*, which is today's rule: a reader that
     /// builds a context for a stream that is not a piece (a translation, the

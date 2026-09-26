@@ -934,6 +934,31 @@ public struct TrustTable: Equatable, Sendable {
         return sameWriter(key, fingerprint)
     }
 
+    /// **Is `deviceId` — a piece's recorded starter — somebody OTHER than the
+    /// writer of the key `fingerprint`?** (P3 closing smoke, F1; Denver's
+    /// ruling of 2026-09-26: *refuse, don't ask*.)
+    ///
+    /// Asked by the partition of a scoped author's own manuscript line in a
+    /// piece outside her scope. §4.5's question — *is this piece hers?* — is
+    /// only true to ask where she could have started the piece: where its
+    /// recorded starter is one of HER devices, or where none is recorded (a
+    /// piece made before starters were). A piece whose manifest names a
+    /// starter the register KNOWS is another writer — the root, or anybody
+    /// else — is outside her scope like any other piece, and her line in it is
+    /// refused rather than held.
+    ///
+    /// The same forwards match as `isAStarter`, and the other half of it: a
+    /// starter this register cannot name (its record has not synced, a
+    /// contested key, an id that is not a writer's hand) answers FALSE — it
+    /// may yet be her own other Mac, and a refusal made on a guess would set
+    /// her words aside, so such a line keeps waiting.
+    nonisolated public func startedBySomebodyElse(
+        _ deviceId: String, thanTheWriterOf fingerprint: String
+    ) -> Bool {
+        guard let key = starterKey(deviceId) else { return false }
+        return !sameWriter(key, fingerprint)
+    }
+
     /// **Does the writer `deviceId` names already author `documentClass`?**
     /// (P3c plan 2 fix wave, Ruling U.) The permit in force NOW, from the
     /// timeline (tripwire 43) — so it is true once the root has answered

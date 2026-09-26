@@ -593,29 +593,139 @@ final class PermitPartitionTests: XCTestCase {
     }
 
     /// **Guard 1 alone — the LINE must be this writer's.** On the root's Mac,
-    /// with a (modified) manifest naming the ROOT's own device as the starter,
-    /// the starter guard passes; her line is still held (review M2's case).
+    /// with the manifest naming HER device as the starter, the starter is hers
+    /// but this Mac is not: her line is held and the root is asked. (Review
+    /// M2's case — a manifest naming the root's own device — is now F1's, and
+    /// is refused below.)
     func test_guardOneTheLineMustBeThisWritersOwn() throws {
         let trust = table(events: [samAuthorOf(["doc-hers"])])
         let result = partition(
             walk(try herOpeningFile(), trust: trust), class: .piece(docId),
             trust: trust, unowned: .nobodyHasWrittenItsText,
-            startedBy: mine.author.deviceId)
+            startedBy: sam.author.deviceId)
         XCTAssertEqual(held(result), ["herOpening"])
         XCTAssertTrue(applied(result).isEmpty)
     }
 
     /// **Guard 2 alone — the PIECE must be one her devices started.** Her own
-    /// Mac, her own line: a piece the root started, and a piece with no
-    /// starter recorded, both keep today's rule.
+    /// Mac, her own line, a piece with no starter recorded (made before this
+    /// build): §4.5's question, exactly as before. (A piece the root started
+    /// is no longer a question at all — F1, below.)
     func test_guardTwoThePieceMustBeOneSheStarted() throws {
         let trust = tableOnSamsMac(events: [samAuthorOf(["doc-hers"])])
-        for starter in [mine.author.deviceId, nil] as [String?] {
-            let result = partition(
-                walk(try herOpeningFile(), trust: trust), class: .piece(docId),
-                trust: trust, unowned: .nobodyHasWrittenItsText, startedBy: starter)
-            XCTAssertEqual(held(result), ["herOpening"], "starter \(starter ?? "nil")")
-        }
+        let result = partition(
+            walk(try herOpeningFile(), trust: trust), class: .piece(docId),
+            trust: trust, unowned: .nobodyHasWrittenItsText, startedBy: nil)
+        XCTAssertEqual(held(result), ["herOpening"])
+        XCTAssertTrue(result.quarantined.isEmpty)
+    }
+
+    // MARK: - F1 (P3 closing smoke): a piece somebody ELSE started is outside her scope
+
+    /// The partition with the §4.5 carrier attached, so a test can see
+    /// whether the line was filed as *she started a piece* — the fact the
+    /// load question is raised from.
+    private func partitionRecording(
+        _ verification: OpLogChain.Verification, trust: TrustTable,
+        startedBy: String?
+    ) -> (OpLogChain.Verification, AmendmentPermits) {
+        let amendments = AmendmentPermits()
+        let result = PermitPartition.partition(
+            of: verification, class: { .piece(self.docId) },
+            streamKey: streamKey, deviceSlug: nil,
+            fileSegmentDigest: nil, trust: trust,
+            recordingAmendmentsInto: amendments,
+            unowned: { .nobodyHasWrittenItsText }, startedBy: { startedBy })
+        return (result, amendments)
+    }
+
+    /// **F1, as the smoke found it.** The root's Mac; a piece the manifest
+    /// records the ROOT's own device as starting, no op log of its own yet;
+    /// Sam — an author of other pieces — writes in it. Denver's ruling
+    /// (2026-09-26): refuse, don't ask. Her line is set aside like any
+    /// out-of-scope line, and nothing records it as *she started a piece*,
+    /// so no load question can be raised about it.
+    func test_F1_herLineInAPieceTheRootStartedIsRefusedOnTheRootsMacAndNotAsked() throws {
+        let trust = table(events: [samAuthorOf(["doc-hers"])])
+        let (result, amendments) = partitionRecording(
+            walk(try herOpeningFile(), trust: trust), trust: trust,
+            startedBy: mine.author.deviceId)
+        XCTAssertEqual(refused(result), ["herOpening"])
+        XCTAssertTrue(held(result).isEmpty, "a refusal, not a question")
+        XCTAssertTrue(amendments.whoStartedAPiece.isEmpty,
+                      "the load question is raised from this, and must not be")
+    }
+
+    /// **The same line on HER own Mac is refused too.** Option A's own-Mac arm
+    /// is for a piece she started; a piece the root started is not hers here
+    /// either, so her Mac does not show her words the book will set aside.
+    func test_F1_herLineInAPieceTheRootStartedIsRefusedOnHerOwnMac() throws {
+        let trust = tableOnSamsMac(events: [samAuthorOf(["doc-hers"])])
+        let (result, amendments) = partitionRecording(
+            walk(try herOpeningFile(), trust: trust), trust: trust,
+            startedBy: mine.author.deviceId)
+        XCTAssertEqual(refused(result), ["herOpening"])
+        XCTAssertTrue(held(result).isEmpty)
+        XCTAssertTrue(applied(result).isEmpty)
+        XCTAssertTrue(amendments.whoStartedAPiece.isEmpty)
+    }
+
+    /// **The other direction — a piece SHE started keeps Option A on both
+    /// Macs.** Her own Mac applies; the root's holds, and records it as
+    /// *she started a piece*, so the root is asked.
+    func test_F1_aPieceSheStartedIsStillAQuestionOnTheRootsMac() throws {
+        let trust = table(events: [samAuthorOf(["doc-hers"])])
+        let (result, amendments) = partitionRecording(
+            walk(try herOpeningFile(), trust: trust), trust: trust,
+            startedBy: sam.author.deviceId)
+        XCTAssertEqual(held(result), ["herOpening"])
+        XCTAssertTrue(result.quarantined.isEmpty)
+        XCTAssertEqual(amendments.whoStartedAPiece, [samPerson])
+    }
+
+    /// **And a legacy piece — no starter recorded — keeps §4.5's question**
+    /// on the root's Mac.
+    func test_F1_aPieceWithNoRecordedStarterIsStillAQuestion() throws {
+        let trust = table(events: [samAuthorOf(["doc-hers"])])
+        let (result, amendments) = partitionRecording(
+            walk(try herOpeningFile(), trust: trust), trust: trust,
+            startedBy: nil)
+        XCTAssertEqual(held(result), ["herOpening"])
+        XCTAssertTrue(result.quarantined.isEmpty)
+        XCTAssertEqual(amendments.whoStartedAPiece, [samPerson])
+    }
+
+    /// **A starter this register cannot name yet waits** — it may be her own
+    /// other Mac whose record has not synced, and a refusal made on a guess
+    /// would set her words aside. Held, as before the ruling; the ruling is
+    /// about a starter the register KNOWS is somebody else.
+    func test_F1_aStarterThisRegisterCannotNameStillWaits() throws {
+        let trust = table(events: [samAuthorOf(["doc-hers"])])
+        let stranger = LocalIdentities.softwareForTesting()
+        let (result, _) = partitionRecording(
+            walk(try herOpeningFile(), trust: trust), trust: trust,
+            startedBy: stranger.author.deviceId)
+        XCTAssertEqual(held(result), ["herOpening"])
+        XCTAssertTrue(result.quarantined.isEmpty)
+    }
+
+    /// **A *Theirs* the root already gave stands.** *Theirs* is a signed
+    /// permit event that settles the piece into her scope, so the table
+    /// answers `.yes` before the starter is ever read: her line applies, no
+    /// refusal contradicts the answer, and no question comes back.
+    func test_F1_aTheirsAlreadyGivenForARootStartedPieceStillApplies() throws {
+        let theirs = PermitEvent(
+            event: "\(samPerson).b", kind: .scopeChanged, subject: samPerson,
+            role: Permit.authorRole, scope: Permit.piecesScope,
+            pieces: ["doc-hers", docId], settled: [docId],
+            at: Date(timeIntervalSince1970: 41), by: root)
+        let trust = table(events: [samAuthorOf(["doc-hers"]), theirs])
+        let (result, amendments) = partitionRecording(
+            walk(try herOpeningFile(), trust: trust), trust: trust,
+            startedBy: mine.author.deviceId)
+        XCTAssertEqual(applied(result), ["herOpening"])
+        XCTAssertTrue(result.quarantined.isEmpty)
+        XCTAssertTrue(amendments.whoStartedAPiece.isEmpty)
     }
 
     /// **Guard 3 alone — not TAKEN from her named pieces.** Her Mac, her line,
