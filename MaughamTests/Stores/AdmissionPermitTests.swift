@@ -931,6 +931,7 @@ final class AdmissionPermitTests: XCTestCase {
         let (rootStore, doc, docId, kit, kitState) = try await theRootYieldsToHerWithKitAdmitted()
         let epoch = rootStore.postureEpoch
         let applied = doc.externalChangesApplied
+        let restamps = doc.starterRestampsForTesting
 
         let kitStore = OpLogStore(projectURL: projectURL, identity: kit, state: kitState)
         try await kitStore.append(Op(
@@ -940,6 +941,8 @@ final class AdmissionPermitTests: XCTestCase {
         try await rootStore.reReadAfterExternalChange(doc)
 
         XCTAssertGreaterThan(doc.externalChangesApplied, applied, "premise: applied")
+        XCTAssertGreaterThan(doc.starterRestampsForTesting, restamps,
+                             "the re-stamp was ASKED — so what follows is its answer, not a skip")
         XCTAssertNotNil(doc.localWritePermit.unsettledStarter, "still nobody's")
         XCTAssertEqual(rootStore.postureEpoch, epoch, "nothing redraws")
         XCTAssertEqual(rootStore.posture(forDocId: docId).reason,
