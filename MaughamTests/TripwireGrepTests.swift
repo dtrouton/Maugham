@@ -2136,6 +2136,21 @@ final class TripwireGrepTests: XCTestCase {
         // responder, and every other canvas test clicks through the seam that
         // does not. Synchronous — the override is called directly, nothing waits.
         "CanvasEventViewTests.swift test_aClickTakesFirstResponderSoTheKeyboardReachesTheCanvas",
+        // The real delivery path, reached through the superclass file's
+        // `sendRealDrag`: ⇧ is read off the event inside `mouseDown(with:)`, and
+        // the seam every other canvas test drives takes the flag by hand — the
+        // 1C-a shape. Sent synchronously, pumped once; nothing polls.
+        "CanvasViewMountingRegionTests.swift test_aShiftDragBetweenTwoCardsReachesTheSceneThroughTheRealEventPath",
+        // Swept in the next commit (plan 3, C14 — the superclass-file ruling).
+        "CanvasViewMountingRegionTests.swift test_aDoubleClickOnALineDoesNotMintAScrapUnderIt",
+        "CanvasViewMountingRegionTests.swift test_aDragFromTheSelectedCardsConnectHandleReachesTheSceneTheSameWay",
+        "CanvasViewMountingRegionTests.swift test_aShiftPressThatDriftedAndMadeNoLineIsNotAStructuralChange",
+        "CanvasViewMountingRegionTests.swift test_backspaceDeletesTheSelectedLineThroughTheRealResponderChain",
+        "CanvasViewMountingRegionTests.swift test_deleteRemovesTheSelectedLineAndLeavesBothCards",
+        "CanvasViewMountingRegionTests.swift test_deleteWithALineSelectedMidGestureIsRefused",
+        "CanvasViewMountingRegionTests.swift test_deletingACardTakesItsLinesAndOneUndoBringsBothBack",
+        "CanvasViewMountingRegionTests.swift test_drawingALineIsOneUndoStepCalledDrawLine",
+        "CanvasViewMountingRegionTests.swift test_theFirstPressOnAnUnselectedCardsMarkPositionMovesItRatherThanDrawingALine",
         // A hit area: the door's live band swept down (and across) the icon.
         // SwiftUI hit-tests inside one hosting view, so no `hitTest` can see it.
         "PaletteWallDoorHitAreaTests.swift test_theWholeOpenWallIconOpensTheWall",
@@ -2180,12 +2195,24 @@ final class TripwireGrepTests: XCTestCase {
     ///
     /// A test function is a CLICK test when its body builds or sends a
     /// `.leftMouseDown`/`.leftMouseUp` event or calls `mouseDown(with:)`
-    /// itself, or calls a function defined IN THE SAME FILE that does — the
-    /// helpers are derived per file, transitively (a helper that reaches the
-    /// event through another in-file helper counts), and never listed. A helper
-    /// of the same name in another file is NOT followed: the arm reads a call
-    /// by its spelling, and following spellings across files would count every
-    /// `click(` in the tree as the one that happens to build an event.
+    /// itself, or calls a helper that does. The helpers are derived, transitively
+    /// (a helper that reaches the event through another helper counts), and
+    /// never listed, from two places only:
+    ///
+    /// - functions defined IN THE SAME FILE as the test; and
+    /// - functions defined in the file that declares a SUPERCLASS of a class in
+    ///   the test's file (`class X: Base` here → the file declaring
+    ///   `class Base`), up the chain — which is how the canvas-mounting family
+    ///   reaches `CanvasViewMountingCase`'s `sendRealDrag`/`sendRealClick`.
+    ///
+    /// A helper of the same name in an UNRELATED file is not followed: the arm
+    /// reads a call by its spelling, and following spellings across the tree
+    /// would count every `click(` as the one that happens to build an event.
+    ///
+    /// **Out of scope: the canvas's `applyMouseDown`/`applyMouseUp` seam.** It
+    /// is a direct synchronous call into `CanvasEventNSView`, not an `NSEvent`
+    /// through a window, so there is no delivery for a wait to hide behind —
+    /// the seam exists precisely because synthesised events were unreliable.
     ///
     /// Comment lines and the bodies of multi-line string literals are not code
     /// and are skipped (the self-checks' planted files live in literals).
@@ -2194,33 +2221,95 @@ final class TripwireGrepTests: XCTestCase {
         guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
             return []
         }
-        var hits: [String] = []
+        struct Scanned {
+            let name: String
+            let functions: [(name: String, body: [String])]
+            let classes: [(name: String, superclass: String?)]
+        }
+        var files: [Scanned] = []
         for case let url as URL in walker
         where url.pathExtension == "swift" && !url.path.contains("/TestSupport/") {
             let text = try String(contentsOf: url, encoding: .utf8)
-            let functions = Self.functionBodies(in: text)
-            // The in-file helpers, closed under in-file calls.
-            var helpers = Set(functions
+            files.append(Scanned(name: url.lastPathComponent,
+                                 functions: Self.functionBodies(in: text),
+                                 classes: Self.declaredClasses(in: text)))
+        }
+        var fileDeclaring: [String: Int] = [:]
+        for (index, file) in files.enumerated() {
+            for declared in file.classes { fileDeclaring[declared.name] = index }
+        }
+
+        // A file's helpers: seeded by its own event-builders plus whatever its
+        // superclasses' files export, then closed under its own functions.
+        var memo: [Int: Set<String>] = [:]
+        func helpers(of index: Int, visiting: Set<Int>) -> Set<String> {
+            if let known = memo[index] { return known }
+            var found = Set(files[index].functions
                 .filter { !$0.name.hasPrefix("test_") && Self.buildsAMouseClick($0.body) }
                 .map(\.name))
+            for declared in files[index].classes {
+                guard let base = declared.superclass, let baseFile = fileDeclaring[base],
+                      baseFile != index, !visiting.contains(baseFile) else { continue }
+                found.formUnion(helpers(of: baseFile, visiting: visiting.union([index])))
+            }
             var grew = true
             while grew {
                 grew = false
-                for function in functions
-                where !function.name.hasPrefix("test_") && !helpers.contains(function.name)
-                    && helpers.contains(where: { Self.calls($0, in: function.body) }) {
-                    helpers.insert(function.name)
+                for function in files[index].functions
+                where !function.name.hasPrefix("test_") && !found.contains(function.name)
+                    && found.contains(where: { Self.calls($0, in: function.body) }) {
+                    found.insert(function.name)
                     grew = true
                 }
             }
-            for function in functions where function.name.hasPrefix("test_") {
+            memo[index] = found
+            return found
+        }
+
+        var hits: [String] = []
+        for index in files.indices {
+            let reachable = helpers(of: index, visiting: [])
+            for function in files[index].functions where function.name.hasPrefix("test_") {
                 if Self.buildsAMouseClick(function.body)
-                    || helpers.contains(where: { Self.calls($0, in: function.body) }) {
-                    hits.append("\(url.lastPathComponent) \(function.name)")
+                    || reachable.contains(where: { Self.calls($0, in: function.body) }) {
+                    hits.append("\(files[index].name) \(function.name)")
                 }
             }
         }
         return hits.sorted()
+    }
+
+    /// Every `class Name: Super` a file declares (`class func`/`class var`
+    /// are members, not declarations), with its first inherited type.
+    private static func declaredClasses(in text: String) -> [(name: String, superclass: String?)] {
+        var result: [(name: String, superclass: String?)] = []
+        var inString = false
+        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            let delimiters = Self.stringDelimiterCount(in: trimmed)
+            if inString || delimiters % 2 == 1 {
+                if delimiters % 2 == 1 { inString.toggle() }
+                continue
+            }
+            if trimmed.hasPrefix("//") { continue }
+            let words = trimmed.split(separator: " ")
+            guard let at = words.firstIndex(of: "class"), at + 1 < words.count else { continue }
+            let modifiers: Set<Substring> = ["final", "private", "fileprivate", "internal",
+                                             "public", "open"]
+            guard words[..<at].allSatisfy({ modifiers.contains($0) || $0.hasPrefix("@") })
+            else { continue }
+            let rest = words[(at + 1)...].joined(separator: " ")
+            let name = rest.prefix { $0 == "_" || $0.isLetter || $0.isNumber }
+            guard !name.isEmpty, name != "func", name != "var", name != "let" else { continue }
+            var superclass: String?
+            if let colon = rest.firstIndex(of: ":") {
+                let after = rest[rest.index(after: colon)...].drop { $0 == " " }
+                let first = after.prefix { $0 == "_" || $0.isLetter || $0.isNumber }
+                if !first.isEmpty { superclass = String(first) }
+            }
+            result.append((String(name), superclass))
+        }
+        return result
     }
 
     private static let mouseClickTokens = [".leftMouseDown", ".leftMouseUp", "mouseDown(with:"]
@@ -2337,11 +2426,13 @@ final class TripwireGrepTests: XCTestCase {
 
     /// Self-check for the click arm. Fires on a click through an in-file helper
     /// (and through a helper that only reaches the event by calling another
-    /// in-file helper), on a direct `mouseDown(with:)`, and on a test that builds
-    /// the event itself. **Stays quiet on a test calling a helper of the same
-    /// name defined in ANOTHER file** — the arm needs the helper in the test's
-    /// own file, so `OtherSuite.swift`'s `click(` must not be counted, and it
-    /// is planted here to prove it is not. Also quiet on prose naming the
+    /// in-file helper), on a direct `mouseDown(with:)`, on a test that builds
+    /// the event itself, and on a test whose class inherits a harness whose
+    /// FILE defines the clicking helper. **Stays quiet on a test calling a
+    /// helper of the same name defined in an UNRELATED file** — the arm follows
+    /// the test's own file and its superclasses' files only, so
+    /// `OtherSuite.swift`'s `click(` and `sendRealClick(` must not be counted,
+    /// and they are planted here to prove it. Also quiet on prose naming the
     /// event, on a helper that is never called, and on a planted offender
     /// inside a string literal.
     func test_theClickArmFiresOnPlantedOffenders() throws {
@@ -2394,11 +2485,36 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: tmp.appendingPathComponent("ClickSuite.swift"),
                   atomically: true, encoding: .utf8)
         try """
+        class ClickHarness: XCTestCase {
+            func sendRealClick(in window: NSWindow, at point: CGPoint) {
+                window.sendEvent(mouseEvent(.leftMouseDown, at: point)!)
+            }
+            func mouseEvent(_ type: NSEvent.EventType, at point: CGPoint) -> NSEvent? { nil }
+        }
+        """.write(to: tmp.appendingPathComponent("ClickHarness.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
+        @MainActor
+        final class HarnessSuite: ClickHarness {
+            func test_clicksThroughTheSuperclassFilesHelper() throws {
+                sendRealClick(in: window, at: .zero)
+            }
+            func test_neverReachesTheHarnessesClick() throws {
+                XCTAssertNotNil(window)
+            }
+        }
+        """.write(to: tmp.appendingPathComponent("HarnessSuite.swift"),
+                  atomically: true, encoding: .utf8)
+        try """
         final class OtherSuite: XCTestCase {
             func test_callsAClickDefinedInAnotherFile() async throws {
                 await click(at: .zero, in: window)
                 XCTAssertTrue(done)
             }
+            func test_callsTheHarnessesSpellingWithoutInheritingIt() throws {
+                sendRealClick(in: window, at: .zero)
+            }
+            private func sendRealClick(in window: NSWindow, at point: CGPoint) {}
             private func click(at point: CGPoint, in window: NSWindow) async {
                 window.performClose(nil)
             }
@@ -2412,10 +2528,12 @@ final class TripwireGrepTests: XCTestCase {
             "ClickSuite.swift test_callsTheOverrideDirectly",
             "ClickSuite.swift test_clicksThroughAHelperOfAHelper",
             "ClickSuite.swift test_clicksThroughAnInFileHelper",
+            "HarnessSuite.swift test_clicksThroughTheSuperclassFilesHelper",
         ], "the click arm must fire on every planted click and on nothing else "
-            + "— `OtherSuite.swift`'s `click(` is a helper of the same NAME in "
-            + "another file and builds no event, so counting it would be the "
-            + "arm guessing by spelling")
+            + "— `HarnessSuite` inherits `ClickHarness`, so the superclass FILE's "
+            + "`sendRealClick` counts; `OtherSuite.swift`'s `click(` and "
+            + "`sendRealClick(` share only a SPELLING with helpers in files it "
+            + "does not inherit from, so counting them would be the arm guessing")
     }
 
     /// Recurrence-tripper: `TestMCPToolCatalog` is a dev-only tool catalog for
