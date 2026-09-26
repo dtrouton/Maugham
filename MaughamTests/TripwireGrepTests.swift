@@ -2175,7 +2175,6 @@ final class TripwireGrepTests: XCTestCase {
         "TreeTravelTests.swift test_aDoubleClickOnTheRowsNameTravelsToAuthor",
 
         // Swept in the commits that follow (plan 3, C14).
-        "SectionChevronTests.swift test_theChevronTakesAColdClickWithNoHoverFirst",
         "TreeTravelTests.swift test_aDoubleClickPastTheNameDoesNotTravel",
         "TreeTravelTests.swift test_aSingleClickOnTheChapterRowOnlySelects",
         "TreeTravelTests.swift test_aStoppedWatcherTravelsNowhereButStillSelects",
