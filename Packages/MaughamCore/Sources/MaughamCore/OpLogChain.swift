@@ -836,9 +836,10 @@ public enum OpLogChain {
             if cause == nil { cause = .chainBroke(reason) }
         }
 
-        let lineData = bytes.split(separator: 0x0A, omittingEmptySubsequences: false)
-            .filter { !$0.isEmpty }
-            .map { Data($0) }
+        let slices: [Data] = bytes.split(omittingEmptySubsequences: false, whereSeparator: { (byte: UInt8) in byte == 0x0A })
+        let lineData: [Data] = slices
+            .filter { (slice: Data) in !slice.isEmpty }
+            .map { (slice: Data) -> Data in Data(slice) }
 
         for (index, line) in lineData.enumerated() {
             let kind: Line.Kind = isSealLine(line) ? .seal : .op

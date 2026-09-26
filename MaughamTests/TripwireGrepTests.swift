@@ -2165,10 +2165,6 @@ final class TripwireGrepTests: XCTestCase {
         // The real delivery path: a scene row's `Button` still takes the click
         // inside a `List(selection:)` — `selectRowIndexes` never reaches a Button.
         "SceneNavigatorProjectRowTests.swift test_clickingASceneNavigatesAndTakesTheSubjectOffTheProject",
-        // A cold click, per section: each section's chevron is the first event
-        // its fresh window sees, and THIS triangle writes THAT flag — the
-        // chevron has no accessibility hook to press.
-        "SectionChevronTests.swift test_bothSectionsCarryAChevronThatTogglesTheirOwnFlag",
         // A hit area: the chevron's four edges, a fresh window per sample.
         "SectionChevronTests.swift test_theWholeChevronIsClickableTopToBottom",
         // A hit area: a click on the row's NAME selects (stage 3b's regression,

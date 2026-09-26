@@ -204,7 +204,8 @@ public enum LoadBurstCensus {
     ) -> [Hit] {
         let decoder = JSONDecoder()
         var hits: [Hit] = []
-        for lineBytes in jsonl.split(separator: 0x0A, omittingEmptySubsequences: true) {
+        let jsonlLines: [Data] = jsonl.split(omittingEmptySubsequences: true, whereSeparator: { (byte: UInt8) in byte == 0x0A })
+        for lineBytes in jsonlLines {
             let line = Data(lineBytes)
             // A seal is the chain's business and `OpLogChain` is the one thing
             // that recognises one (tripwire 37).

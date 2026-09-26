@@ -139,7 +139,7 @@ struct BinderTreeSections: View {
                 }
             }
         } header: {
-            sectionHeader("Research", isExpanded: $state.researchSectionExpanded) {
+            sectionHeader("Research", section: .research) {
                 Button("New Note") { actions.newNote(nil) }
                 Button("New Group") { actions.newGroup(nil) }
                 Button("Add File…") { actions.addFile(nil) }
@@ -308,8 +308,7 @@ struct BinderTreeSections: View {
         HStack {
             // Its twin in `sectionHeader` carries why the chevron leads (D1).
             HStack(spacing: 2) {
-                sectionChevron(store.paletteGroupDisplayTitle,
-                               isExpanded: $state.paletteSectionExpanded)
+                sectionChevron(store.paletteGroupDisplayTitle, section: .palette)
                 Text(store.paletteGroupDisplayTitle)
             }
             Spacer()
@@ -399,7 +398,7 @@ struct BinderTreeSections: View {
     /// the binder's root menu and offers *New Document* under a heading that
     /// says Research.
     private func sectionHeader<Menu: View>(
-        _ title: String, isExpanded: Binding<Bool>,
+        _ title: String, section: BinderTreeSection,
         @ViewBuilder menu: @escaping () -> Menu
     ) -> some View {
         HStack {
@@ -409,7 +408,7 @@ struct BinderTreeSections: View {
             // the default would push the title a third of the way across a
             // 320pt column.
             HStack(spacing: 2) {
-                sectionChevron(title, isExpanded: isExpanded)
+                sectionChevron(title, section: section)
                 Text(title)
             }
             Spacer()
@@ -466,22 +465,30 @@ struct BinderTreeSections: View {
     /// The frame and content shape are the door's own lesson one control over —
     /// a bare `Image` in a `Button(.plain)` hit-tests the box it draws in and
     /// nothing more. See `openWallButton`.
+    ///
+    /// **The button's action is `BinderTreeSectionsState.toggleExpansion(of:)`
+    /// and nothing else** (v0.41 release fix): which flag a header's triangle
+    /// writes is decided by that method over a `BinderTreeSection`, pinned
+    /// windowlessly in `SectionChevronTests`, because the mounted click that
+    /// used to be the only witness was tripwire 33's click-then-wait shape and
+    /// went red on the release runner.
     private func sectionChevron(_ title: String,
-                                isExpanded: Binding<Bool>) -> some View {
-        Button {
-            isExpanded.wrappedValue.toggle()
+                                section: BinderTreeSection) -> some View {
+        let isExpanded = state.isExpanded(section)
+        return Button {
+            state.toggleExpansion(of: section)
         } label: {
             Image(systemName: "chevron.right")
-                .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
+                .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 .frame(width: 21, height: 15)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(isExpanded.wrappedValue ? "Collapse \(title)" : "Expand \(title)")
+        .help(isExpanded ? "Collapse \(title)" : "Expand \(title)")
         // Never "Open Wall": `PaletteWallDoorTests` finds the door in the
         // accessibility tree by that exact label, and this button shares its
         // header.
-        .accessibilityLabel(isExpanded.wrappedValue
+        .accessibilityLabel(isExpanded
                             ? "Collapse \(title)" : "Expand \(title)")
     }
 
@@ -857,6 +864,11 @@ struct BinderTreeVerbs {
 /// A reference type rather than a pile of `@Binding`s so that adding a piece of
 /// state does not re-thread three call sites — and so the pairing a host has to
 /// get right is one value in two places rather than five.
+/// The tree's two collapsible sections — which header a chevron belongs to.
+enum BinderTreeSection: CaseIterable {
+    case research, palette
+}
+
 @MainActor
 @Observable
 final class BinderTreeSectionsState {
@@ -915,6 +927,25 @@ final class BinderTreeSectionsState {
     /// this existed, so a fresh window looks the same as it always did.
     var researchSectionExpanded: Bool = true
     var paletteSectionExpanded: Bool = true
+
+    /// Whether `section` is open — the flag its header's chevron reads.
+    func isExpanded(_ section: BinderTreeSection) -> Bool {
+        switch section {
+        case .research: return researchSectionExpanded
+        case .palette: return paletteSectionExpanded
+        }
+    }
+
+    /// **What a section header's chevron does when pressed**: flips THAT
+    /// section's flag and no other. The chevron's `Button` action is this call
+    /// alone, so this is where the header→flag wiring is decided and pinned
+    /// (`SectionChevronTests`, windowless).
+    func toggleExpansion(of section: BinderTreeSection) {
+        switch section {
+        case .research: researchSectionExpanded.toggle()
+        case .palette: paletteSectionExpanded.toggle()
+        }
+    }
     /// **The research groups that are OPEN**, by id — never the closed ones.
     ///
     /// A set of open ids makes the empty set mean "everything closed", which is

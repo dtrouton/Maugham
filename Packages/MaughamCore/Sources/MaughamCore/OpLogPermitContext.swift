@@ -556,9 +556,9 @@ extension OpLogStore {
               let signature = SegmentSignature.read(at: segmentSignatureURL(for: url)),
               signature.digest == digest, signature.verifies()
         else { return nil }
-        let lines = jsonl
-            .split(separator: 0x0A, omittingEmptySubsequences: true)
-            .map { raw -> OpLogChain.Line in
+        let slices: [Data] = jsonl.split(omittingEmptySubsequences: true, whereSeparator: { (byte: UInt8) in byte == 0x0A })
+        let lines: [OpLogChain.Line] = slices
+            .map { (raw: Data) -> OpLogChain.Line in
                 let data = Data(raw)
                 return OpLogChain.Line(
                     bytes: data,

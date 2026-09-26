@@ -120,59 +120,45 @@ final class SectionChevronTests: XCTestCase {
             + "over any shape at all and proves nothing about the fix")
     }
 
-    /// Both headers carry one, not just the one that was easiest to reach —
-    /// **each clicked in a window of its own.**
+    /// **Each section's chevron toggles ITS OWN flag, and only its own** —
+    /// pinned windowlessly (v0.41 release fix).
     ///
-    /// It used to click both in one window, and on macOS 27 that made it the
-    /// suite's only red: the first click after ANOTHER click's relayout is
-    /// swallowed. Measured 2026-09-19 (the spike note's *The accessibility tree
-    /// on 27*, §4): Palette's chevron fires 5/5 as the first thing a window is
-    /// asked to do and 10/10 after any other click, and misses exactly once —
-    /// the click straight after collapsing Research moved the Palette header
-    /// from y=183 to y=119. A sweep down that same column immediately
-    /// afterwards fired on all thirty of its samples, the failing point
-    /// included, so nothing about the control had changed. It is tripwire 33's
-    /// shape with a mouse instead of a press, and CLAUDE.md already records the
-    /// mechanism one layer down: stale `appKitDefined` traffic feeds
-    /// `NSTableView`'s drag-disambiguation loop and eats the pair.
-    ///
-    /// A fresh mount per section is the fix, measured at 2/2. That is what this
-    /// suite's other click cases have always had without saying so — each is
-    /// one click into a window that has seen none.
-    ///
-    /// **It is also the cold click** — the strong form of "always visible".
-    /// Each window receives no `mouseMoved` and no `mouseEntered` in its whole
-    /// life, and the very first event it sees is the click on the chevron,
-    /// which must land: a hover-revealed affordance cannot pass this. That had
-    /// a test of its own over Research alone until plan 3's C14 (tripwire 33,
-    /// one click representative per wiring).
-    ///
-    /// **Why a click survives here at all.** This is the one WIRING in the two
-    /// section headers with no windowless pin available: the tree's chevron has
-    /// no accessibility hook of any kind to press, because a
-    /// `List(.sidebar)`'s `NSOutlineRow` answers `[]` to the KVC walk (measured
-    /// the same day) — so `axMenuControl` and every identifier reach nothing
-    /// here, and the `_FocusRingView` census can say the chevron is DRAWN but
-    /// not that it is connected to this section's own flag. The flag itself is
-    /// `BinderTreeSectionsState`'s and is pinned windowlessly all over
-    /// `BinderTreeSectionsTests`, `AltitudeKeyspaceTests` and
-    /// `ResearchSubjectRevealTests`; what only a click can say is that THIS
-    /// header's triangle writes THAT section's flag.
-    func test_bothSectionsCarryAChevronThatTogglesTheirOwnFlag() async throws {
-        for section in [Section.research, .palette] {
-            let mount = try await mountTree()
-            let geometry = try headerGeometry(section, in: mount.window)
-            let before = mount.state.isExpanded(section)
-            _ = await click(at: CGPoint(x: geometry.chevron.midX,
-                                        y: geometry.chevron.midY),
-                            in: mount.window)
-            await pumpUntil(deadline: 5) { mount.state.isExpanded(section) != before }
-            XCTAssertEqual(mount.state.isExpanded(section), !before,
-                           "\(section)'s chevron did not toggle its own flag")
-            // …and only its own.
-            let other: Section = section == .research ? .palette : .research
-            XCTAssertTrue(mount.state.isExpanded(other),
-                          "\(section)'s chevron closed \(other) as well")
+    /// This used to be a mounted click per section followed by a
+    /// `pumpUntil(deadline: 5)` on the flag — tripwire 33's click-then-wait
+    /// shape — and it went red on the v0.41.0 release runner (8.7 s, the toggle
+    /// never observed) while the same suite passed on the main run. The
+    /// decision it guarded is not a window's: the chevron's `Button` action is
+    /// `BinderTreeSectionsState.toggleExpansion(of:)` and nothing else
+    /// (`sectionChevron`), and each header passes its own `BinderTreeSection`.
+    /// So the pin is on that method: from every starting combination of the two
+    /// flags, toggling one section flips it and leaves the other exactly where
+    /// it was — and `isExpanded(_:)`, which draws the triangle's rotation,
+    /// reads the same flag the toggle wrote. That the chevron is DRAWN and
+    /// hit-testable is still the mounted suite's (`test_theWholeChevronIsClickableTopToBottom`,
+    /// the census's one click representative for this header).
+    func test_eachSectionsChevronTogglesItsOwnFlagAndOnlyItsOwn() {
+        for section in BinderTreeSection.allCases {
+            for (research, palette) in [(true, true), (true, false),
+                                        (false, true), (false, false)] {
+                let state = BinderTreeSectionsState()
+                state.researchSectionExpanded = research
+                state.paletteSectionExpanded = palette
+
+                state.toggleExpansion(of: section)
+
+                let expectResearch = section == .research ? !research : research
+                let expectPalette = section == .palette ? !palette : palette
+                XCTAssertEqual(state.researchSectionExpanded, expectResearch,
+                               "toggling \(section) from (research: \(research), "
+                               + "palette: \(palette)) left Research wrong")
+                XCTAssertEqual(state.paletteSectionExpanded, expectPalette,
+                               "toggling \(section) from (research: \(research), "
+                               + "palette: \(palette)) left Palette wrong")
+                XCTAssertEqual(state.isExpanded(.research), expectResearch,
+                               "Research's chevron reads a different flag from the one it writes")
+                XCTAssertEqual(state.isExpanded(.palette), expectPalette,
+                               "Palette's chevron reads a different flag from the one it writes")
+            }
         }
     }
 
@@ -533,15 +519,6 @@ final class SectionChevronTests: XCTestCase {
         _ = try await store.addPaletteCard(title: "A place", kind: .location)
         await store.wordCountPopulationTask?.value
         return store
-    }
-}
-
-private extension BinderTreeSectionsState {
-    func isExpanded(_ section: SectionChevronTests.Section) -> Bool {
-        switch section {
-        case .research: return researchSectionExpanded
-        case .palette: return paletteSectionExpanded
-        }
     }
 }
 

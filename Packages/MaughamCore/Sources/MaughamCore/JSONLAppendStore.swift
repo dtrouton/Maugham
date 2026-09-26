@@ -646,7 +646,8 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         var seen = Set<String>()
         var skipped: [ParseDiagnostics.SkippedLine] = []
         var offset = 0
-        for lineBytes in bytes.split(separator: 0x0A, omittingEmptySubsequences: false) {
+        let slices: [Data] = bytes.split(omittingEmptySubsequences: false, whereSeparator: { (byte: UInt8) in byte == 0x0A })
+        for lineBytes in slices {
             let lineLen = lineBytes.count
             defer { offset += lineLen + 1 }  // +1 for the consumed newline
             if lineBytes.isEmpty { continue }  // blank line: not corruption
