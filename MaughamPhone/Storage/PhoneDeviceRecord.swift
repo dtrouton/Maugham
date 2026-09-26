@@ -71,9 +71,12 @@ enum PhoneDeviceRecord {
         // The phone's own name, as a display string — what People & Devices
         // shows beside the label the writer chooses. Never an identity: this
         // device IS its key's fingerprint (tripwire 35). Nil is this device's
-        // own name, read in the body: a default argument is evaluated in the
-        // CALLER's isolation, and both writers call from off the main actor,
-        // where `UIDevice.current` may not be read.
+        // own name, read in the body. Both callers are `@MainActor` (the two
+        // writers' `appendChained` hops), so reading it is safe either way;
+        // the warning came from Swift evaluating a DEFAULT-ARGUMENT expression
+        // isolation-blind, which flags the main-actor-isolated
+        // `UIDevice.current` there. In the body it is checked against this
+        // `@MainActor` enum's own isolation.
         name: String? = nil,
         declare: (URL, LocalIdentities, String) throws -> URL? = {
             try RegistryPresence.ensureDeviceRecord(
