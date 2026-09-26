@@ -26,7 +26,7 @@ final class AnchoredFileEmptyLogBootstrapTests: XCTestCase {
     /// matching manifest so `Document.load` resolves the manifest doc-id (not the
     /// hash fallback). Mirrors `LoadFromOpLogNotMdTests.makeProject`.
     private func makeProject(docId: String, body: String) throws -> Fixture {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("AFEL-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("manuscript"),

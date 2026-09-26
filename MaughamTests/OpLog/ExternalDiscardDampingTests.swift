@@ -27,7 +27,7 @@ final class ExternalDiscardDampingTests: XCTestCase {
     private func makeLoadedDoc(
         paragraphs: [String: String], sequence: [String]
     ) async throws -> (Document, Fixture) {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("EDD-\(UUID().uuidString)")
         let docPath = "manuscript/c1.md"
         let docURL = tmp.appendingPathComponent(docPath)

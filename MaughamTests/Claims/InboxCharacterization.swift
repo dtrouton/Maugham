@@ -23,7 +23,7 @@ final class InboxCharacterization: XCTestCase {
     }
 
     private func openProject() async throws -> (URL, ProjectStore, InboxStore) {
-        let parent = FileManager.default.temporaryDirectory
+        let parent = TestTemp.root
             .appendingPathComponent("inbox-char-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createNovelProject(named: "InboxChar", in: parent)

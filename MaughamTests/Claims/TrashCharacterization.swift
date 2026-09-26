@@ -1268,7 +1268,7 @@ final class TrashCharacterization: XCTestCase {
     /// restore it, and re-ingest it (RULING-14). One of the three
     /// `FileManager.removeItem` calls RULING-15 named as immediate defects.
     func test_promotingACaptureSendsTheInboxOriginalToTheTrash_notOffTheDisk() async throws {
-        let parent = FileManager.default.temporaryDirectory
+        let parent = TestTemp.root
             .appendingPathComponent("claims-promote-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: parent) }

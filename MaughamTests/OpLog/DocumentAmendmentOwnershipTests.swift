@@ -18,12 +18,12 @@ final class DocumentAmendmentOwnershipTests: XCTestCase {
     private var cacheURL: URL!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("docamend-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent("manuscript"),
             withIntermediateDirectories: true)
-        cacheURL = FileManager.default.temporaryDirectory
+        cacheURL = TestTemp.root
             .appendingPathComponent("docamend-cache-\(UUID().uuidString).json")
         identities = LocalIdentities.softwareForTesting()
         Document.localIdentitiesForTesting = identities

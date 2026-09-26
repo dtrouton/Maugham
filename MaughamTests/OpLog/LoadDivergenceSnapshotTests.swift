@@ -39,7 +39,7 @@ final class LoadDivergenceSnapshotTests: XCTestCase {
         docPath: String,
         body: String
     ) throws -> Fixture {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LDS-\(UUID().uuidString)")
         let fileURL = tmp.appendingPathComponent(docPath)
         try FileManager.default.createDirectory(

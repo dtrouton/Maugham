@@ -9,7 +9,7 @@ final class CrashRecoveryTests: XCTestCase {
     private let device = "m"
 
     override func setUp() async throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("CR-\(UUID())")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let manifest = ProjectManifest(

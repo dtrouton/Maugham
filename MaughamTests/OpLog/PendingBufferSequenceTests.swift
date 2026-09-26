@@ -6,7 +6,7 @@ import MaughamCore
 @MainActor
 final class PendingBufferSequenceTests: XCTestCase {
     private func tmpProject() -> URL {
-        let u = FileManager.default.temporaryDirectory.appendingPathComponent("pb-\(UUID())")
+        let u = TestTemp.root.appendingPathComponent("pb-\(UUID())")
         try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
         return u
     }

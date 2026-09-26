@@ -12,7 +12,7 @@ import MaughamCore
 
 @discardableResult
 func makeTestProject(prefix: String, initialMd: String) throws -> (dir: URL, docURL: URL) {
-    let tmp = FileManager.default.temporaryDirectory
+    let tmp = TestTemp.root
         .appendingPathComponent("\(prefix)-\(UUID().uuidString)")
     try FileManager.default.createDirectory(
         at: tmp, withIntermediateDirectories: true)

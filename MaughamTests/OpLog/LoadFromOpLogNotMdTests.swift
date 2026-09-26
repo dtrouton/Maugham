@@ -28,7 +28,7 @@ final class LoadFromOpLogNotMdTests: XCTestCase {
         docId: String = "doc-load-from-oplog",
         body: String = "First paragraph.\n\nSecond paragraph.\n"
     ) throws -> Fixture {
-        let tmp = FileManager.default.temporaryDirectory
+        let tmp = TestTemp.root
             .appendingPathComponent("LFO-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent("manuscript"),

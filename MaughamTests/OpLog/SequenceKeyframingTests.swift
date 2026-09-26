@@ -11,7 +11,7 @@ final class SequenceKeyframingTests: XCTestCase {
     private var projectURL: URL!
 
     override func setUp() async throws {
-        projectURL = FileManager.default.temporaryDirectory
+        projectURL = TestTemp.root
             .appendingPathComponent("keyframing-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: projectURL.appendingPathComponent("manuscript"),

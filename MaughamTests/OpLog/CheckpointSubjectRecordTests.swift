@@ -25,7 +25,7 @@ final class CheckpointSubjectRecordTests: XCTestCase {
     private var tmp: URL!
 
     override func setUp() async throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("CSRT-\(UUID())")
         try FileManager.default.createDirectory(
             at: tmp, withIntermediateDirectories: true)

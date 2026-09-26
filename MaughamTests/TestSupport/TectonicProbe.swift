@@ -120,7 +120,7 @@ enum TectonicProbe {
         guard let cacheDirectory else {
             return .bundleUnavailable("no caches directory on this machine")
         }
-        let dir = FileManager.default.temporaryDirectory
+        let dir = TestTemp.workerRoot
             .appendingPathComponent("TectonicCanary-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         do {

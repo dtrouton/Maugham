@@ -27,7 +27,7 @@ final class CrossDeviceIntegrationTests: XCTestCase {
     private var tmp: URL!
 
     override func setUp() async throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = TestTemp.root
             .appendingPathComponent("XDEV-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: tmp.appendingPathComponent(".maugham/ops"),
