@@ -893,12 +893,53 @@ final class DocumentAmendmentOwnershipTests: XCTestCase {
     private static let skewSentence =
         "Another device deleted this note after you restored it. Restore it again to keep it."
 
-    /// **Her Restore, beaten by a clock-ahead Delete, is told so.** She
-    /// deleted her own note; the root, whose clock runs ahead, deleted it too
-    /// — a withdrawal that sorts after any reopen this run mints. Her Restore
-    /// is hers to make, and only the order stands in the way, so the door says
-    /// another device deleted it, not that this Mac may not. Nothing appended.
+    /// **Her Restore, beaten by a clock-ahead Delete she could undo, is told
+    /// so.** She deleted her own note; the root, whose clock runs ahead,
+    /// deleted it too — a withdrawal that sorts after any reopen this run
+    /// mints. This Mac is an author of the whole book, so the root's Delete is
+    /// hers to undo too: only the ORDER stands in the way, and the door says
+    /// another device deleted it, not that this Mac may not. Restore stays
+    /// drawn, because the sentence asks her to press it. Nothing appended.
     func test_herRestoreBeatenByAClockAheadDeleteSaysAnotherDeviceDeletedIt() async throws {
+        let docURL = try makeProject()
+        let root = try makeRoot()
+        try writeFile(by: root, ops: [opening(by: root)])
+
+        let doc = try await openDoc(docURL)
+        let mine = try await doc.addReviewerAnnotation(
+            kind: .comment, paragraphId: "aaaa", span: nil,
+            body: "mine", authorName: "Denver")
+        try await doc.withdrawReviewerAnnotation(id: mine, authorName: "Denver")
+        await doc.close()
+        try writeFile(by: root, ops: [
+            opening(by: root), withdrawal("09ZZZ", of: mine, by: root),
+        ])
+
+        let again = try await openDoc(docURL)
+        XCTAssertEqual(again.withdrawnAnnotations().map(\.id), [mine])
+        XCTAssertEqual(again.restoreStanding(annotationId: mine), .withAuthorRights,
+                       "hers to restore, so Restore is drawn — the sentence asks her to press it")
+        let count = again._opLogMirror.count
+        do {
+            try await again.reopenAnnotation(id: mine)
+            XCTFail("a Delete sorting after her reopen keeps the note deleted")
+        } catch let refusal as Document.PostureRefusal {
+            XCTAssertEqual(refusal.cause, .deletedAgainElsewhere)
+            XCTAssertEqual(refusal.localizedDescription, Self.skewSentence)
+        }
+        XCTAssertEqual(again._opLogMirror.count, count, "the door appended nothing")
+        await again.close()
+    }
+
+    /// **The ROOT's clock-ahead Delete of her note is not an order problem**
+    /// (whole-branch review, RP-1 / Ruling D). She is a reviewer; she deleted
+    /// her own note, and the root, whose clock runs ahead, deleted it too.
+    /// Her own Delete is hers to undo, the root's is not — so even placed
+    /// after every op on the note her Restore would not bring it back. The
+    /// ordinary sentence stands, and Restore is hidden. (The skew probe used to
+    /// DROP the later-sorting Delete and ask again, which dropped the root's
+    /// too: it said *restore it again* and drew a Restore the door refused.)
+    func test_theRootsClockAheadDeleteOfHerNoteGetsTheOrdinarySentenceAndNoRestore() async throws {
         let docURL = try makeProject()
         let root = try makeRoot()
         try beAReviewerHere(root: root)
@@ -916,15 +957,16 @@ final class DocumentAmendmentOwnershipTests: XCTestCase {
 
         let again = try await openDoc(docURL)
         XCTAssertEqual(again.withdrawnAnnotations().map(\.id), [mine])
-        XCTAssertEqual(again.restoreStanding(annotationId: mine), .asTheDeleter,
-                       "hers to restore, so Restore is drawn — the sentence asks her to press it")
+        XCTAssertEqual(again.restoreStanding(annotationId: mine), .refused,
+                       "the root's Delete is the root's — Restore is not drawn")
+        let ordinary = Document.PostureRefusal(kind: .annotationReopen).localizedDescription
         let count = again._opLogMirror.count
         do {
             try await again.reopenAnnotation(id: mine)
-            XCTFail("a Delete sorting after her reopen keeps the note deleted")
+            XCTFail("the root's Delete of her note is the root's")
         } catch let refusal as Document.PostureRefusal {
-            XCTAssertEqual(refusal.cause, .deletedAgainElsewhere)
-            XCTAssertEqual(refusal.localizedDescription, Self.skewSentence)
+            XCTAssertEqual(refusal.cause, .notPermitted)
+            XCTAssertEqual(refusal.localizedDescription, ordinary)
         }
         XCTAssertEqual(again._opLogMirror.count, count, "the door appended nothing")
         await again.close()

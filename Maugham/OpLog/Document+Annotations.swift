@@ -1447,30 +1447,41 @@ extension Document {
     /// Delete in the mirror that sorts after the reopen minted here now. Her
     /// Restore is then refused for order, not for permission, and telling her
     /// *this Mac may not* would be the wrong sentence. So the refusal asks the
-    /// deriver once more, over the mirror WITHOUT this note's withdrawals and
-    /// reopens that sort after hers: if there the note was withdrawn and her
-    /// reopen brings it back, the only thing standing in her way is a Delete
-    /// that sorts later, and the cause says so. Never for somebody else's
-    /// note — there her reopen is not honoured even before the later ops, so
-    /// the ordinary sentence stands. The reopen's opId is NOT re-minted to sort
-    /// later: that would be a second opinion about order, in the writer's name.
+    /// deriver once more, over the WHOLE mirror plus a PROBE copy of her
+    /// reopen whose opId sorts after every op on this note: if that probe
+    /// brings the note back, the only thing standing in her way is order, and
+    /// the cause says so. Never where the latest Delete is not hers to undo —
+    /// somebody else's note, or the root's Delete of hers sorting last under a
+    /// fast clock (fix wave, RP-1): the probe is refused there too, so the
+    /// ordinary sentence stands and Restore is hidden. The reopen's opId is
+    /// NOT re-minted to sort later: that would be a second opinion about
+    /// order, in the writer's name; the probe is asked and never appended.
     internal func requireRestoreHonoured(_ reopen: Op) throws {
         guard let src = reopen.provenance?.sourceAnnotationId else { return }
         guard AnnotationDeriver.isWithdrawn(
             annotationId: src, in: _opLogMirror + [reopen],
             amendments: annotationAmendments)
         else { return }
-        let before = _opLogMirror.filter {
-            !($0.opId > reopen.opId
-              && ($0.kind == .annotationWithdraw || $0.kind == .annotationReopen)
-              && $0.provenance?.sourceAnnotationId == src)
-        }
-        let honouredInItsPlace =
-            AnnotationDeriver.isWithdrawn(
-                annotationId: src, in: before, amendments: annotationAmendments)
-            && !AnnotationDeriver.isWithdrawn(
-                annotationId: src, in: before + [reopen],
-                amendments: annotationAmendments)
+        // Judged by ORDER, never by deletion (whole-branch review, RP-1): a
+        // PROBE copy of this reopen, identical but for an opId that sorts
+        // after every op on this note, asked of the FULL mirror. Dropping the
+        // later-sorting withdrawals instead also dropped a later Delete that
+        // is not hers to undo (the root's, under a fast clock), and drew
+        // Restore over a press the door then refused. The minted reopen is
+        // untouched — no second opinion about order is written anywhere.
+        let latestOnThisNote = _opLogMirror
+            .filter { $0.provenance?.sourceAnnotationId == src }
+            .map(\.opId)
+            .max() ?? reopen.opId
+        let probe = Op(
+            opId: max(latestOnThisNote, reopen.opId) + "~",
+            docId: reopen.docId, at: reopen.at, device: reopen.device,
+            session: reopen.session, kind: reopen.kind,
+            changes: reopen.changes, sequence: reopen.sequence,
+            provenance: reopen.provenance)
+        let honouredInItsPlace = !AnnotationDeriver.isWithdrawn(
+            annotationId: src, in: _opLogMirror + [probe],
+            amendments: annotationAmendments)
         throw PostureRefusal(
             kind: reopen.kind,
             cause: honouredInItsPlace ? .deletedAgainElsewhere : .notPermitted)

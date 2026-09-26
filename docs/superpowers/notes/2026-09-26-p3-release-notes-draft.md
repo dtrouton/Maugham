@@ -89,7 +89,9 @@ MaughamPhone 0.Y.Z. **Update every Mac and iPhone on a shared book together.**)
   device applies all of it on the next read.
 - A Restore beaten by another Mac's clock now says *Another device deleted
   this note after you restored it. Restore it again to keep it.* rather than
-  *not permitted*.
+  *not permitted* — where restoring it again would work. Where the later
+  Delete is one you may not undo, the ordinary sentence stands and Restore is
+  not offered.
 - Rewind's preview of a closed chapter now matches what opening it would show.
 
 ## Known issues

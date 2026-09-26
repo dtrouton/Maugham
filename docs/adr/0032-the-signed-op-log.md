@@ -2493,9 +2493,15 @@ from the flips each task named.
     and maugham actors (it used to say *other*).
   - A Restore beaten only by clock skew says *Another device deleted this note
     after you restored it. Restore it again to keep it.*
-    (`PostureRefusal.Cause.deletedAgainElsewhere`). It is decided by asking the
-    deriver again without the note's later-sorting withdrawals and reopens, so
-    it is never said about a note that was not hers to restore.
+    (`PostureRefusal.Cause.deletedAgainElsewhere`). It is decided by ORDER:
+    the deriver is asked again over the whole mirror plus a PROBE copy of her
+    reopen whose opId sorts after every op on the note, and the sentence is
+    said only where that probe brings the note back. So it is never said about
+    a note that was not hers to restore, nor where the Delete sorting last is
+    one she may not undo — the root's Delete of her note under a fast clock
+    gets the ordinary sentence and no Restore (fix wave, RP-1: the first cut
+    DROPPED the later-sorting withdrawals, which dropped the root's too). The
+    probe is asked and never appended; the minted reopen keeps its opId.
   - `restoreStanding` is memoised per derive. Every write to the mirror or the
     amendment table clears the memo, and a census derives those sites.
   - The rewind window judges a CLOSED piece as a load would

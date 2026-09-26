@@ -1299,10 +1299,15 @@ pane says a refused press through the notice channel instead of `try?`.
 another Mac's Delete whose opId sorts after the reopen minted now, i.e. clock
 skew — refuses with `PostureRefusal.Cause.deletedAgainElsewhere` and its own
 sentence (*Another device deleted this note after you restored it. Restore it
-again to keep it.*), decided by asking the deriver again without this note's
-later-sorting withdrawals and reopens: only where the note was withdrawn there
-AND her reopen brings it back, so it is never said about a note that was not
-hers to restore; the reopen's opId is never re-minted. `restoreStanding` is
+again to keep it.*), decided by ORDER: the deriver is asked again over the
+WHOLE mirror plus a probe copy of her reopen whose opId sorts after every op on
+the note, and the cause is the skew one only where that probe brings the note
+back. So it is never said about a note that was not hers to restore, nor where
+the Delete sorting last is one she may not undo (the root's Delete of her note
+under a fast clock — the fix wave's RP-1; do NOT go back to dropping the
+later-sorting withdrawals, which dropped the root's too and drew a Restore the
+door refused). The probe is never appended; the reopen's opId is never
+re-minted. `restoreStanding` is
 memoised per derive (`restoreStandingMemo`), cleared by
 `invalidateRestoreStandingMemo()` at every site that assigns or appends to
 `_opLogMirror` or assigns `annotationAmendments` — a census in
