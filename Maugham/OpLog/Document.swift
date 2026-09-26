@@ -200,8 +200,18 @@ public final class Document {
     /// started setting aside. Asked only of a stamp that carries the arm, so
     /// every other Document pays nothing. The builder is the one builder
     /// (tripwire 46), asked exactly as the load asks it.
+    ///
+    /// **And the yield's arm too** (Ruling U, carried in P3 plan 3): a book
+    /// author's hand over a piece somebody else started carries
+    /// `unsettledStarter` only while nobody has written its text
+    /// (`unownedPiece` → `.nobodyHasWrittenItsText`) — the same fact about
+    /// its lines, so another book author's text arriving lifts the root's
+    /// yield at this re-read rather than at the next trust change. The cost
+    /// is one `unownedPiece` walk per applied re-read, on stamped documents
+    /// only.
     internal func restampWhereItsStarterArmMayHaveClosed() {
-        guard localWritePermit.writesAsItsStarter else { return }
+        guard localWritePermit.writesAsItsStarter
+            || localWritePermit.unsettledStarter != nil else { return }
         starterRestampsForTesting += 1
         let projectURL = opStore.projectURL
         let docId = self.docId

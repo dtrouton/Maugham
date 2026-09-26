@@ -869,6 +869,84 @@ final class AdmissionPermitTests: XCTestCase {
         await onHers.close()
     }
 
+    /// The root, holding her lines over *The Orchard*, puts the question off —
+    /// and admits a colleague ("Kit") as an author of the whole book, whose
+    /// Mac can then write into the piece.
+    private func theRootYieldsToHerWithKitAdmitted() async throws -> (
+        rootStore: DocumentStore, doc: Document, docId: String,
+        kit: DeviceIdentity, kitState: OpLogDeviceState
+    ) {
+        let (root, her, rootStore) = try await aRootAndHer()
+        let (x, xURL) = try await sheStartsTheOrchard(her, words: "Her week in the orchard.")
+        be(root)
+        let held = try await load(xURL, session: "root")
+        rootStore.register(document: held, for: try XCTUnwrap(x.path))
+        rootStore.notNowAboutPiece(person: stranger.fingerprint, docId: x.id)
+        let kit = DeviceIdentity.softwareForTesting()
+        _ = try await rootStore.admit(
+            device: kit.fingerprint, label: "Kit", ownName: "Kit’s Mac")
+        await rootStore.postureSettled()
+        XCTAssertNotNil(held.localWritePermit.unsettledStarter, "premise: unsettled")
+        XCTAssertEqual(rootStore.posture(forDocId: x.id).reason,
+                       .yieldingToItsStarter("Sam"), "premise: the root yields")
+        let kitState = OpLogDeviceState(
+            fileURL: projectURL.appendingPathComponent("kit-state.json"))
+        return (rootStore, held, x.id, kit, kitState)
+    }
+
+    /// **Another book author's text arriving lifts the yield at that
+    /// re-read** (Ruling U; Review Focus 4). The root pressed *Not now*; Kit's
+    /// words for the piece arrive as a file Kit's Mac wrote, and
+    /// `reReadAfterExternalChange` runs — no reopen, no trust change. A book
+    /// author has now written the piece's text, so it is no longer a piece
+    /// nobody has claimed: the stamp's `unsettledStarter` goes, the drawn
+    /// posture stops yielding, and the epoch moves so every surface redraws.
+    func test_anotherBookAuthorsTextArrivingLiftsTheYieldAtTheReRead() async throws {
+        let (rootStore, doc, docId, kit, kitState) = try await theRootYieldsToHerWithKitAdmitted()
+        let epoch = rootStore.postureEpoch
+
+        let kitStore = OpLogStore(projectURL: projectURL, identity: kit, state: kitState)
+        let added = ParagraphID.mintUnique(excluding: Set(doc.sequence))
+        try await kitStore.append(Op(
+            opId: ULID.generate(), docId: docId, at: Date(),
+            device: kit.deviceId, session: "kit", kind: .typingBurst,
+            changes: [.init(paragraphId: added, prior: nil, next: "Kit’s line.")],
+            sequence: doc.sequence + [added]))
+        _ = try await kitStore.sealChain(docId: docId)
+        try await rootStore.reReadAfterExternalChange(doc)
+
+        XCTAssertTrue(doc.displayText.contains("Kit’s line."), "premise: applied")
+        XCTAssertNil(doc.localWritePermit.unsettledStarter, "the stamp followed the lines")
+        XCTAssertGreaterThan(rootStore.postureEpoch, epoch, "and every surface redraws")
+        XCTAssertNotEqual(rootStore.posture(forDocId: docId).reason,
+                          .yieldingToItsStarter("Sam"), "the yield is lifted")
+        await doc.close()
+    }
+
+    /// **The converse: an unrelated re-read keeps the yield.** Kit's Mac
+    /// takes a checkpoint of the piece — applied, past the echo guard, but no
+    /// book author has written its TEXT, so it is still nobody's: the
+    /// re-stamp is asked and answers as before, and nothing redraws.
+    func test_anUnrelatedReReadOnAYieldingPieceKeepsTheYield() async throws {
+        let (rootStore, doc, docId, kit, kitState) = try await theRootYieldsToHerWithKitAdmitted()
+        let epoch = rootStore.postureEpoch
+        let applied = doc.externalChangesApplied
+
+        let kitStore = OpLogStore(projectURL: projectURL, identity: kit, state: kitState)
+        try await kitStore.append(Op(
+            opId: ULID.generate(), docId: docId, at: Date(),
+            device: kit.deviceId, session: "kit", kind: .checkpoint, changes: []))
+        _ = try await kitStore.sealChain(docId: docId)
+        try await rootStore.reReadAfterExternalChange(doc)
+
+        XCTAssertGreaterThan(doc.externalChangesApplied, applied, "premise: applied")
+        XCTAssertNotNil(doc.localWritePermit.unsettledStarter, "still nobody's")
+        XCTAssertEqual(rootStore.postureEpoch, epoch, "nothing redraws")
+        XCTAssertEqual(rootStore.posture(forDocId: docId).reason,
+                       .yieldingToItsStarter("Sam"), "the yield stands")
+        await doc.close()
+    }
+
     /// ***Theirs* ends the unsettled yield** (Ruling U, the other direction):
     /// the piece joins her scope, so it is hers — the root's posture then
     /// yields to its OWNER, plan 1's ordinary cooperative yield (*This is
