@@ -1997,10 +1997,12 @@ off the main actor, so it stays per miss; see the limits.
   and every refresh re-warms all of it. It is bounded by the documents this
   window has shown, and a refresh's warm yields the main actor every chunk
   (about 3 ms of work each), so a long session on a large book pays a longer
-  warm spread across turns, never a longer stall. Pruning keys whose document
+  warm spread across turns, never a longer stall. ~~Pruning keys whose document
   no longer resolves was not built: whether an id still names something is a
   class question with statement, translation and project-stream arms, and a
-  wrong prune only costs a miss.
+  wrong prune only costs a miss.~~ **Pruned since P3 plan 3 Task 6**, at every
+  manifest adoption: a key stays while its document is in the adopted manifest,
+  open in the window, or is `__project__`.
 - **The lock trails a trust change** — see *Fresh on every trust change* above.
   The pre-warm widens that trailing window by its own duration (about 0.36 ms
   per asked key, spread across turns); what it no longer does is publish an
@@ -2355,8 +2357,11 @@ one `AnnotationAmendments` policy.
   - **A starter that is an ADMITTED device whose Mac is gone without retiring**
     — a machine restored from a backup gets a new enclave key, or a Mac is
     simply lost. Its pieces with no ops yet wait until the root REVOKES the old
-    device (`starterStanding` → `.gone`, and today's rule applies). Nothing yet
-    tells the root that revoking is what unblocks them.
+    device (`starterStanding` → `.gone`, and today's rule applies).
+    ~~Nothing yet tells the root that revoking is what unblocks them.~~
+    **Closed in P3 plan 3 Task 8:** beside a live Revoke, the starter's row in
+    People & Devices says how many pieces wait for it, and that revoking opens
+    them.
   - **A project created on Mac A and first rooted on Mac B.**
     `ProjectFactory`'s seeded first piece records A as its starter. Under B's
     narrowing it waits until A is admitted (or revoked).
@@ -2370,12 +2375,16 @@ one `AnnotationAmendments` policy.
   checkpoint, file tasks or translate there until *Theirs*. Editing the piece's
   statement is refused by the statement's own posture, whatever the piece's
   posture answers.
-- **A book author's yield to a piece's starter lifts at the next rebuilt answer,
+- ~~**A book author's yield to a piece's starter lifts at the next rebuilt answer,
   not at the re-read** (Ruling U's cost). *Theirs* is a trust change and lifts
   it at once. Another book author's text arriving in the piece claims it, but
   the root's open window keeps yielding until the next trust change, manifest
   adoption or reopen. Ruling H's re-stamp re-asks only the starter's own arm.
-  That is a lock with Edit Anyway beside it, so it errs the safe way. A starter
+  That is a lock with Edit Anyway beside it, so it errs the safe way.~~
+  **Closed in P3 plan 3 Task 4:** Ruling H's re-stamp now re-asks an
+  `unsettledStarter` stamp too, so the yield lifts at the re-read that brings a
+  book author's text (its cost, one `unownedPiece` walk per such re-read, is in
+  plan 3's limits). What stands of this bullet: a starter
   whose device record has not synced is named *Somebody else*, and a starter
   this register names but has not admitted (a stranger, another root's member,
   a Mac on no chain) yields too: nothing yet says the piece is theirs. On the
@@ -2406,11 +2415,234 @@ one `AnnotationAmendments` policy.
 - **A yielded root restoring her own Delete in a collaborator's piece presses
   Edit Anyway first** (Ruling S). Her restore is a disposition by author
   rights, which the cooperative yield hides.
-- **Small mis-statements, carried to plan 3.** A refused reopen is named *other* by
+- ~~**Small mis-statements, carried to plan 3.** A refused reopen is named *other* by
   `Permit.refused` for the translator and maugham actors. The restore door says
   *not permitted* when another Mac's withdraw sorts after her reopen by clock
   skew. The rewind window's CLOSED-piece path keeps the old preview answer,
-  because a closed piece has no judgement table.
+  because a closed piece has no judgement table.~~ **Closed in P3 plan 3
+  Task 5** (see plan 3's addendum).
+
+## Addendum — the carries, and what P3 ships with, 2026-09-26 (P3 plan 3)
+
+Plans 1 and 2 left a list of carries stated as limits. Plan 3 closes them and
+builds no new mechanism: each task corrects one seam. The admission sheet now
+learns about held lines in closed documents. The derived `.md` follows a
+re-read. The starter yield is re-asked at the re-read that brings text in.
+Restore, the posture door and the phone get their deferred corrections. People
+& Devices says what unblocks a stranded piece. The test suites get one temp
+root per test and a census, and tripwire 33 gets a click arm. The plan is
+`docs/superpowers/plans/2026-09-26-signed-op-log-p3-plan3-carries-smoke-release.md`.
+Every controller ruling, with what it costs if wrong, is in its ledger
+(`.superpowers/sdd/2026-09-26-signed-op-log-p3-plan3-carries-smoke-release/progress.md`),
+and the task reports sit beside it.
+
+Nothing here changes what a line MEANS in any book. In a book that narrows
+nobody the plan is behaviour-neutral, with one stated exception: the derived
+`.md` re-render (C12) applies to every book. The pre-plan suites passed apart
+from the flips each task named.
+
+### What changed
+
+- **The admission sheet counts closed documents' held lines (C4, Task 3).**
+  - `OpLogStore.provenance(forDocId:in:trust:state:)` (MaughamCore) is what a
+    load WOULD report about a document, without loading it. It uses the same
+    listing, the same `permitContext` and the same `classify`, summed the way
+    `loadDiagnosed` sums them. It is read-only and nonisolated, and it throws on
+    an unreadable file (RULING-54). It is not a second classifier:
+    `ClosedProvenanceTests` pins it file by file against `loadDiagnosed`.
+  - The Mac keeps `closedProvenance` (`DocumentStore+ClosedHeldLines.swift`).
+    It is swept off the main actor at project open, after every
+    `invalidateTrust`, and per document when the presenter sees an op-log file
+    land in a closed one (the existing one-second announcement debounce; no new
+    timer). One trust table is resolved per pass, and one closed document is
+    read at a time. A pass whose table `invalidateTrust` has since forgotten
+    lands nothing (`closedTrustEpoch`).
+  - `heldLines()` unions, per docId, the open document's provenance if it is
+    open, or else the closed map's (never both), plus the inbox. It still reads
+    no disk. A close MOVES the live provenance into the map, and an open DROPS
+    the entry. Only documents the LIVE manifest still lists are counted
+    (`countedClosedProvenance(excludingOpen:)`), so a piece this Mac trashes
+    stops counting at once, with no pass in between.
+  - People & Devices reads the same union, so a stranger who wrote only in
+    closed chapters is a pending row there too.
+- **The derived `.md` follows an applied re-read (C12, Task 4).**
+  `handleExternalLogChange` now schedules the ordinary autosave once it is past
+  its echo guard. The load schedules one when the `.md` on disk diverged from
+  the render, and the "diverged" conflict backup is still taken as evidence.
+  Neither calls `performAutosave` directly, and nothing is a second writer:
+  whatever `performAutosave`'s guards refuse (a closed or husked document, a
+  moved or trashed one, a load that refused with `waitingForPiece`) stays
+  refused. The re-render's own `.md` write comes back through the presenter as
+  an echo and writes nothing (`test_theReRendersOwnWriteDoesNotComeBackAsAnotherWrite`).
+- **A document HOLDING lines does not render on its own account** (controller
+  ruling, Task 4). A document whose provenance holds pending lines of any kind
+  (a stranger, permit-pending, an unclaimed starter, unsigned-after-snapshot)
+  schedules nothing at load or at a re-read (`Document.rendersOnItsOwnAccount`).
+  Without this rule the root merely OPENING a starter's piece would have written
+  an empty `.md` over the only human-readable copy of her words. A keystroke
+  there still writes, exactly as before. The admission or *Theirs* that lets
+  the lines in re-reads the document, and that re-read renders.
+- **Ruling U's yield lifts at the re-read (Task 4).** Ruling H's re-stamp
+  (`restampWhereItsStarterArmMayHaveClosed`) now re-asks a stamp carrying
+  `unsettledStarter` as well as one carrying `writesAsItsStarter`. So another
+  book author's text arriving in the piece lifts the root's yield at the
+  re-read that brings it, with no reopen and no trust change. An echo of this
+  Mac's own append still re-asks nothing.
+- **Restore and reopen (Task 5).**
+  - `Permit.refused` names a refused reopen a *disposition* for the translator
+    and maugham actors (it used to say *other*).
+  - A Restore beaten only by clock skew says *Another device deleted this note
+    after you restored it. Restore it again to keep it.*
+    (`PostureRefusal.Cause.deletedAgainElsewhere`). It is decided by asking the
+    deriver again without the note's later-sorting withdrawals and reopens, so
+    it is never said about a note that was not hers to restore.
+  - `restoreStanding` is memoised per derive. Every write to the mirror or the
+    amendment table clears the memo, and a census derives those sites.
+  - The rewind window judges a CLOSED piece as a load would
+    (`Document.closedPieceHistory`).
+- **The posture door (Task 6).**
+  - A write-permit ask that needs both the class and the starter decodes the
+    manifest once, through `ManifestPlacement`
+    (`OpLogStore.localWritePermit(as:placement:)`, a thin overload over the one
+    builder, so tripwire 46 is unchanged). The Mac hands the placement its LIVE
+    manifest, so the class and the starter can never come from two manifests.
+  - The unknown-path cache keeps an id a manifest NAMED for the epoch. It keeps
+    a FABRICATED id (a hash) only while the manifest file's `stat` stamp is
+    unchanged, and it never keeps the fallback.
+  - `PostureBook.asked` is pruned at every manifest adoption. `__project__` is
+    kept.
+  - `PostureDoor`'s header now names its entries and says the starter yield is
+    decided there.
+- **The phone (Task 7).**
+  - `PhonePosture.perform` hands back the re-asked answer BEFORE the write
+    (`onAnswer`), so a write that throws cannot leave a verb drawn that the
+    fresh answer refuses.
+  - One warm-up is in flight per project. The phone's own signature scan is
+    gone, because the store's `trust()` already short-circuits on an unchanged
+    signature.
+  - The write-only census bans a writer's chained store escaping its file, and
+    bans `.store` member access from any other phone file.
+  - The main-actor warnings at `PhoneDeviceRecord.ensure` are gone: the device
+    name is read in the body, not in a default argument.
+- **People & Devices says what unblocks a stranded piece (Task 8).** Beside a
+  starter's LIVE Revoke, the row says *N pieces are waiting for this Mac. If it
+  is gone for good, revoke it and they will open.* (singular for one piece).
+  `PeopleAndDevicesModel.waitingForStarters` counts a piece only when ALL of
+  these hold:
+  - this Mac may revoke its starter (`revocable`, the predicate that makes that
+    row's Revoke live);
+  - the book is narrowed;
+  - the starter is not this Mac;
+  - the starter still binds (`starterStanding` is not `.gone`);
+  - no op-log file for the piece is on disk. That is the same presence test the
+    load asks before `waitingForPiece`, taken once per pane load, off the main
+    actor.
+
+  An absent row has no person record, so nothing on it can be revoked, and it
+  carries no line.
+- **The test suites (Tasks 1 and 2).**
+  - Every test builds under `TestTemp`, and a census keeps it so. The test host
+    sweeps dead workers' `TestWorkspace` and `device` leaves.
+  - Tripwire 33 gains a click arm: every synthesised mouse click in a test is a
+    named representative (`TripwireGrepTests.clickRepresentatives`).
+  - See CLAUDE.md's build-flow section and tripwire 33.
+
+### The rulings, with their costs
+
+- **OB-1 — an old build over an un-narrowed book: LEAVE IT** (Denver,
+  2026-09-26). The paired release is the answer, and a mixed fleet is a
+  transient. No code. See the limits.
+- **C4-1, as built.** The sheet does not wait for the sweep: at open it
+  describes itself from open documents plus the inbox, and it re-describes when
+  the closed half lands. A pass posts `postAdmissionRequested` only when what
+  the closed half holds for a STRANGER changed. That is the D5 rule: the sheet
+  asks about strangers only, and the piece question belongs to the open
+  documents. *Cost if wrong:* a sheet already up about a stranger is not
+  re-described when only an admitted person's permit-pending count moves, and
+  no sheet asks about that.
+- **C12-1, narrowed** (Task 4): a document holding lines does not render on its
+  own account (above). *Cost if wrong:* a document that holds some lines keeps
+  a stale `.md` after an unrelated admission until a keystroke.
+- **The skew sentence's condition** (Task 5): the plan's literal condition (*a
+  later withdraw exists*) fired for somebody else's note. The built condition
+  re-asks the deriver. In the skew case Restore stays drawn, because the
+  sentence tells her to press it again. *Cost if wrong:* a genuine skew case
+  with an interleaved third party gets the generic sentence, and a second press
+  can be refused again.
+- **The unknown-path cache** (Task 6): the plan assumed a `?? path` fallback
+  that `resolveDocId` never reaches (it fabricates a hash instead). The hash is
+  cached only while the manifest's `stat` stamp is unchanged. *Cost if wrong:*
+  a manifest edit within one stat granularity keeps a stale hash id until the
+  next ask after the stamp moves.
+- **The phone census** (Task 7): neither writer has a store property to ban.
+  The census bans the store escaping its function instead. *Cost if wrong:* a
+  false positive on an unrelated `.store` member in a future phone file.
+- **The stranded line is drawn beside a live Revoke only** (Task 8). *Cost if
+  wrong:* a second root that did not admit the starter sees no hint.
+- **The click arm follows superclass helpers** (Task 2): helpers defined in the
+  file that declares a test class's superclass count, so the canvas-mounting
+  family's real events are counted. *Cost if wrong:* more representatives
+  listed in the canvas family.
+
+### What P3 plan 3 does NOT do — the limits, stated
+
+- **OB-1 — an old build over a book that is not narrowed** (Denver's ruling,
+  2026-09-26: leave it). The schema gate keeps a v0.40 Mac out of a NARROWED
+  book. It does not keep one out of a book with no narrowing yet, including a
+  book that already has admissions. Two exposures follow, and both are a
+  transient of a mixed fleet, answered by the paired release:
+  - **I4:** an old Mac that already has the book open when it is narrowed
+    keeps writing until its session ends. It writes schema 8 back (a P3 build
+    heals it at its next open), and it re-asserts a reviewer's refused text
+    under a book-author key.
+  - **An older build rewriting the manifest drops `startedBy`.** In a book that
+    is not narrowed yet, the piece becomes a legacy piece: whoever may write its
+    text mints its opening.
+- **Dropped on merit (M-DROP):**
+  - **Creation still mints on the main actor** (`ProjectStore.mintOpenings`).
+    It bites only when duplicating a group of about 65 pieces or more, and
+    `Document.load` is main-actor bound.
+  - **The headless project-stream door reads the registry on the main actor**
+    (`ProjectStore+Tasks.swift`). Only tests and headless stores reach it.
+  - **Plan 1's per-row posture cost stands**: a never-asked document costs
+    about 0.36 ms a row.
+- **Ruling U's re-stamp costs one walk per re-read.** A document whose stamp
+  carries `unsettledStarter` is re-stamped after every external re-read that
+  applied another hand's change. Each re-stamp is one `unownedPiece` walk: a
+  coordinated read and classification of every op-log file of that piece.
+  Documents whose stamp carries neither Option A arm pay nothing, and neither
+  does an echo of this Mac's own append.
+- **C12-1 writes the derived `.md` more often.** Every Mac writes the `.md`
+  after an applied external re-read of an open document, and at the open of a
+  closed one whose `.md` diverged. So iCloud sees more `.md` writes, which are
+  identical where the Macs judge the same lines alike.
+  - **Where two Macs judge lines differently** (one holds what the other
+    applies), their renders differ. The held-lines narrowing adds no render
+    trigger of its own. But `handleExternalDiskChange` still rewrites an OPEN
+    document's `.md` whenever the other Mac's `.md` arrives with different
+    bytes, held lines or not, until F7's ping-pong damping stops it. So on an
+    unclaimed piece open on both Macs, the root's Mac and the starter's can
+    still trade `.md` writes until damping. The words are safe in the op log;
+    the `.md` is a derived render.
+  - A keystroke on a Mac holding lines still writes its own render, as before.
+- **Closed documents' held lines, and what they still do not say.**
+  - The sheet's count can rise once, seconds after open, when the closed half
+    lands (C4-1's stated cost).
+  - A chapter restored from Trash re-counts its stale pre-trash entry until
+    the next pass lands.
+  - `startedAPiece` is still recorded only by a load, so §4.5's piece question
+    for a CLOSED piece is put when it opens. Its held count is included.
+  - Stranger lines that move between two closed documents, with the total
+    unchanged, leave the sheet's *where* stale until something else posts.
+  - Every open and every `invalidateTrust` re-reads every closed chapter of a
+    book with a register, one at a time, off the main actor.
+- **A ⌘Z of her own Delete beaten by clock skew** still gives the generic
+  undo-refused sentence. Only the Restore button says the skew sentence.
+- **The stranded line refreshes when the pane reloads**, not live when an
+  opening syncs in, like the rest of People & Devices.
+- **The load's partition still decodes the manifest separately** from the
+  load's own placement. The load is now one decode for its permit and
+  amendment table, and a second inside `loadDiagnosed`.
 
 ## Consequences
 
