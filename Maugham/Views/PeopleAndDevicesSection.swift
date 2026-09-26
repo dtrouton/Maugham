@@ -395,8 +395,27 @@ struct PeopleAndDevicesSection: View {
             ForEach(person.devices) { device in
                 deviceRow(device)
             }
+            // Under labels-only a person IS a device's author key, so where no
+            // device record of theirs has reached this book the person row is
+            // the only row the waiting line can go on (Task 8).
+            if person.devices.isEmpty {
+                waitingLine(for: person.fingerprint)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// **What unblocks a stranded piece** (P3 plan 3 Task 8) — the model's
+    /// line for the Mac a piece is waiting on, or nothing. Orange like the
+    /// retirement notice: a standing fact the writer cannot see from anywhere
+    /// else, with the remedy (Revoke, on the person row above) in its words.
+    @ViewBuilder
+    private func waitingLine(for fingerprint: String) -> some View {
+        if let line = model.waitingLine(forDevice: fingerprint) {
+            Text(line)
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
     }
 
     private func deviceRow(_ device: PeopleAndDevicesModel.Device) -> some View {
@@ -423,6 +442,7 @@ struct PeopleAndDevicesSection: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
+                waitingLine(for: device.fingerprint)
             }
             Spacer(minLength: 8)
             Button("Retire") { retire(device.fingerprint) }
@@ -554,6 +574,7 @@ struct PeopleAndDevicesSection: View {
                 Text("This Mac remembers naming it, but nothing in this book describes it now.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                waitingLine(for: device.fingerprint)
             }
             Spacer(minLength: 8)
             Button("Forget this device") { forget(device.fingerprint) }

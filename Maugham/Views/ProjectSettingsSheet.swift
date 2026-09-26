@@ -549,6 +549,13 @@ struct ProjectSettingsSheet: View {
             let mine = LocalIdentities.current
             let remembered = AdmissionMemory.shared.remembered
             let claimants = RegistryCache.shared.claimants(for: url)
+            // **Which pieces no opening has reached** (Task 8): op-log file
+            // PRESENCE, the load's own `needsBootstrap` test — a piece with no
+            // file is exactly one this Mac's load would refuse as waiting. One
+            // listing of the ops folder, off the main actor, and only for the
+            // pieces that record a starter. A folder that will not list says
+            // nothing is waiting rather than that everything is.
+            let unopened = StrandedPieces.unopened(pieces, in: url)
             do {
                 let resolved = try TrustResolution.resolveVerified(
                     projectURL: url, identities: mine)
@@ -590,6 +597,7 @@ struct ProjectSettingsSheet: View {
                     heldStreams: heldStreams,
                     unsignedStreams: unsignedStreams,
                     pieces: pieces,
+                    unopenedPieces: unopened,
                     heldPieceStarts: heldPieceStarts,
                     heldWaiting: heldWaiting,
                     heldCaptures: heldCaptures,
@@ -1101,5 +1109,43 @@ struct ProjectSettingsSheet: View {
     private func saveReviewPasses() {
         let passes = reviewPasses
         Task { try? await store.setReviewPasses(passes) }
+    }
+}
+
+/// **Which of a book's pieces no opening has reached** (P3 plan 3 Task 8) —
+/// the one folder read behind People & Devices' waiting line, kept out of
+/// `PeopleAndDevicesModel`, which reads no folder.
+///
+/// **Op-log file presence, not `OpLogStore.unownedPiece`.** The question is
+/// whether ANY opening is on disk, and presence is exactly the test the load
+/// asks before it refuses (`Document.load`'s `needsBootstrap`: no file for the
+/// doc id). `unownedPiece` answers a different question — *has a book author
+/// written this piece's text* — which is `.nobodyHasWrittenItsText` for a
+/// piece whose starter's opening HAS arrived as well as for one with no file
+/// at all, and it classifies every file it finds to say so.
+enum StrandedPieces {
+    /// The ids, among the pieces that record a starter, with no op-log file
+    /// in `.maugham/ops/`. One listing, matched through
+    /// `OpLogStore.docIds(inOpsDirectoryFilenames:)` (the single source of
+    /// truth for filename → doc id). A folder that will not list answers
+    /// EMPTY — nothing waiting — because telling the writer to revoke a Mac
+    /// over a read that failed would be a trust suggestion nobody earned.
+    nonisolated static func unopened(
+        _ pieces: [PermitControl.Piece], in projectURL: URL
+    ) -> Set<String> {
+        let started = pieces.filter { $0.startedBy != nil }
+        guard !started.isEmpty else { return [] }
+        let ops = projectURL.appendingPathComponent(".maugham/ops", isDirectory: true)
+        let names: [String]
+        do {
+            names = try FileManager.default.contentsOfDirectory(atPath: ops.path)
+        } catch {
+            // No ops folder at all is a book nothing has been written in:
+            // every started piece is unopened. Any other failure says nothing.
+            guard !FileManager.default.fileExists(atPath: ops.path) else { return [] }
+            names = []
+        }
+        let opened = OpLogStore.docIds(inOpsDirectoryFilenames: names)
+        return Set(started.map(\.id).filter { !opened.contains($0) })
     }
 }

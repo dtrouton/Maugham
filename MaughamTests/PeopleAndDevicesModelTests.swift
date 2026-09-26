@@ -1557,3 +1557,212 @@ final class PeopleAndDevicesPermitRowTests: XCTestCase {
         XCTAssertTrue(row.canWriteAgain)
     }
 }
+
+/// **What unblocks a stranded piece** (signed op log P3 plan 3, Task 8).
+///
+/// Under Option A only the Mac that started a piece mints its opening in a
+/// narrowed book. A Mac that vanished without being revoked leaves its pieces
+/// waiting on every other Mac for ever, and the one remedy — revoking it — was
+/// on no screen. The root's row for that Mac now says so. Every direction of
+/// the rule is pinned here as a value, with nothing mounted.
+@MainActor
+final class PeopleAndDevicesStrandedPieceTests: XCTestCase {
+
+    private var mac: DeviceIdentity!
+    private var sam: DeviceIdentity!
+    private var reviewer: DeviceIdentity!
+
+    override func setUp() async throws {
+        mac = .softwareForTesting()
+        sam = .softwareForTesting()
+        reviewer = .softwareForTesting()
+    }
+
+    private let admitted = Date(timeIntervalSince1970: 1_757_000_000)
+
+    private func starterId(_ identity: DeviceIdentity) -> String {
+        DeviceIdentity.deviceId(
+            actor: DeviceActor.author.rawValue, fingerprint: identity.fingerprint)
+    }
+
+    private func device(_ identity: DeviceIdentity, name: String) -> DeviceRecord {
+        DeviceRecord(
+            device: identity.fingerprint, name: name, kind: .mac,
+            actors: [DeviceActor.author.rawValue: identity.fingerprint],
+            madeAt: admitted)
+    }
+
+    private func person(
+        _ identity: DeviceIdentity, label: String, permit: Permit = .author(.book),
+        revoked: Bool = false
+    ) -> PersonRecord {
+        PersonRecord(
+            person: identity.fingerprint, label: label, ownName: label,
+            role: permit.wireRole,
+            scope: permit == .author(.book) ? nil : permit.wireScope,
+            pieces: permit == .author(.book) ? nil : permit.wirePieces,
+            admittedAt: admitted, admittedBy: mac.fingerprint,
+            revokedAt: revoked ? admitted.addingTimeInterval(86_400) : nil,
+            revokedBy: revoked ? mac.fingerprint : nil)
+    }
+
+    /// This Mac is the root and Sam an author of the whole book; a third
+    /// person, a reviewer, is what narrows the book — unless `narrowed` is
+    /// false. Sam's records can be left out, for the absent row.
+    private func registry(
+        narrowed: Bool = true, samRevoked: Bool = false, samRecords: Bool = true
+    ) -> Registry {
+        let events: [PermitEvent] = narrowed ? [PermitEvent(
+            event: "e-0001", kind: .roleChanged, subject: reviewer.fingerprint,
+            role: Permit.reviewer.wireRole, scope: Permit.reviewer.wireScope,
+            pieces: Permit.reviewer.wirePieces, mark: [:], at: admitted,
+            by: mac.fingerprint)] : []
+        return Registry(
+            devices: [device(mac, name: "Denver's MacBook"),
+                      device(reviewer, name: "Ed's Mac")]
+                + (samRecords ? [device(sam, name: "Sam's Mac")] : []),
+            people: [person(mac, label: "Denver"),
+                     person(reviewer, label: "Ed",
+                            permit: narrowed ? .reviewer : .author(.book))]
+                + (samRecords ? [person(sam, label: "Sam", revoked: samRevoked)] : []),
+            events: events)
+    }
+
+    private func pieces(startedBy starter: DeviceIdentity) -> [PermitControl.Piece] {
+        [
+            PermitControl.Piece(id: "ch1", title: "Chapter 1", startedBy: starterId(starter)),
+            PermitControl.Piece(id: "ch2", title: "Chapter 2", startedBy: starterId(starter)),
+            PermitControl.Piece(id: "ch3", title: "Chapter 3", startedBy: nil),
+        ]
+    }
+
+    private func model(
+        _ registry: Registry,
+        pieces: [PermitControl.Piece],
+        unopened: Set<String>,
+        me: DeviceIdentity? = nil,
+        remembered: [String: AdmissionMemory.Label] = [:]
+    ) -> PeopleAndDevicesModel {
+        let identity = me ?? mac!
+        let table = TrustTable.resolve(
+            registry: registry, mine: .forAuthor(identity), joinedRoot: nil)
+        return PeopleAndDevicesModel.make(
+            registry: registry, table: table, remembered: remembered,
+            requests: [], claimants: [],
+            standing: DeviceStanding(
+                code: DeviceCode.short(identity.fingerprint), label: "Denver",
+                rootLabel: "Denver", admitted: true,
+                isRoot: table.myRoot == identity.fingerprint),
+            me: identity.fingerprint,
+            pieces: pieces, unopenedPieces: unopened)
+    }
+
+    /// **The line**: two pieces Sam started have no opening on disk, Sam's Mac
+    /// still stands, and this is the root's Mac. The sentence is the brief's,
+    /// verbatim.
+    func test_theRootsRowForAStandingStarterSaysHowManyPiecesWaitAndWhatOpensThem() {
+        let model = model(registry(), pieces: pieces(startedBy: sam),
+                          unopened: ["ch1", "ch2", "ch3"])
+
+        XCTAssertEqual(
+            model.waitingLine(forDevice: sam.fingerprint),
+            "2 pieces are waiting for this Mac. If it is gone for good, "
+            + "revoke it and they will open.")
+        XCTAssertNil(model.waitingLine(forDevice: mac.fingerprint),
+                     "a piece with no recorded starter waits for nobody")
+    }
+
+    /// One piece reads as one piece.
+    func test_onePieceIsSaidInTheSingular() {
+        let model = model(registry(), pieces: pieces(startedBy: sam),
+                          unopened: ["ch2"])
+
+        XCTAssertEqual(
+            model.waitingLine(forDevice: sam.fingerprint),
+            "1 piece is waiting for this Mac. If it is gone for good, "
+            + "revoke it and they will open.")
+    }
+
+    /// **A piece whose opening IS on disk is not waiting** — N counts only
+    /// pieces with no op-log file at all, and N = 0 draws nothing.
+    func test_aPieceWhoseOpeningHasArrivedIsNotCounted() {
+        let model = model(registry(), pieces: pieces(startedBy: sam), unopened: [])
+
+        XCTAssertNil(model.waitingLine(forDevice: sam.fingerprint))
+    }
+
+    /// **A GONE starter draws nothing** — revoked (or retired) pieces already
+    /// open by today's rule, so telling the writer to revoke would be a lie.
+    func test_aRevokedStartersPiecesAlreadyOpenSoTheRowSaysNothing() {
+        let model = model(registry(samRevoked: true), pieces: pieces(startedBy: sam),
+                          unopened: ["ch1", "ch2"])
+
+        XCTAssertNil(model.waitingLine(forDevice: sam.fingerprint))
+    }
+
+    /// **An un-narrowed book draws nothing** — every Mac mints any opening
+    /// there, so nothing is stranded.
+    func test_anUnnarrowedBookDrawsNothing() {
+        let model = model(registry(narrowed: false), pieces: pieces(startedBy: sam),
+                          unopened: ["ch1", "ch2"])
+
+        XCTAssertNil(model.waitingLine(forDevice: sam.fingerprint))
+    }
+
+    /// **Only on the root's Mac** — the Mac that can revoke. Sam's own Mac,
+    /// looking at the same book, is never told to revoke itself.
+    func test_aMacThatHoldsNoRootRecordDrawsNothing() {
+        let model = model(registry(), pieces: pieces(startedBy: mac),
+                          unopened: ["ch1", "ch2"], me: sam)
+
+        XCTAssertNil(model.waitingLine(forDevice: mac.fingerprint))
+    }
+
+    /// **A piece this Mac started is not waiting for anybody** — this Mac mints
+    /// its opening at the next load.
+    func test_aPieceThisMacStartedIsNotWaiting() {
+        let model = model(registry(), pieces: pieces(startedBy: mac),
+                          unopened: ["ch1", "ch2"])
+
+        XCTAssertNil(model.waitingLine(forDevice: mac.fingerprint))
+    }
+
+    /// **The absent row too** — a Mac this one remembers naming whose records
+    /// are gone from the folder. Its standing is `.unknown`, which waits.
+    func test_anAbsentRowForTheStarterCarriesTheLine() throws {
+        let model = model(
+            registry(samRecords: false), pieces: pieces(startedBy: sam),
+            unopened: ["ch1", "ch2"],
+            remembered: [sam.fingerprint: AdmissionMemory.Label(
+                label: "Sam", ownName: "Sam's Mac", labelledAt: admitted)])
+
+        XCTAssertTrue(model.absent.contains { $0.fingerprint == sam.fingerprint })
+        XCTAssertEqual(
+            model.waitingLine(forDevice: sam.fingerprint),
+            "2 pieces are waiting for this Mac. If it is gone for good, "
+            + "revoke it and they will open.")
+    }
+
+    // MARK: - The host's read: op-log file presence
+
+    /// **Presence is decided by the op-log FILES** — a piece with any file for
+    /// its id (a live tail or a sealed segment, anybody's) has an opening on
+    /// disk; one with none is unopened; a piece recording no starter is never
+    /// asked about at all.
+    func test_unopenedIsThePiecesWithAStarterAndNoOpLogFile() throws {
+        let book = TestTemp.root.appendingPathComponent("Book")
+        let ops = book.appendingPathComponent(".maugham/ops", isDirectory: true)
+        try FileManager.default.createDirectory(at: ops, withIntermediateDirectories: true)
+        try Data().write(to: ops.appendingPathComponent("ch1.somemac.jsonl"))
+        try Data().write(to: ops.appendingPathComponent("ch4.othermac.seg0001.mzseg"))
+
+        let pieces = [
+            PermitControl.Piece(id: "ch1", title: "1", startedBy: starterId(sam)),
+            PermitControl.Piece(id: "ch2", title: "2", startedBy: starterId(sam)),
+            PermitControl.Piece(id: "ch3", title: "3", startedBy: nil),
+            PermitControl.Piece(id: "ch4", title: "4", startedBy: starterId(sam)),
+        ]
+
+        XCTAssertEqual(StrandedPieces.unopened(pieces, in: book), ["ch2"])
+    }
+}

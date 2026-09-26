@@ -32,6 +32,19 @@ enum PermitControl {
     struct Piece: Identifiable, Equatable, Hashable, Sendable {
         let id: String
         let title: String
+        /// **Who the manifest says started it** (`StructureItem.startedBy`,
+        /// P3 plan 3 Task 8) — a device id, a CLAIM in an unsigned manifest,
+        /// so it is only ever handed to the trust table to be matched
+        /// forwards and never believed on its face. Nil for a piece no
+        /// creation site recorded. People & Devices reads it to say what a
+        /// stranded piece is waiting for; the picker never draws it.
+        let startedBy: String?
+
+        init(id: String, title: String, startedBy: String? = nil) {
+            self.id = id
+            self.title = title
+            self.startedBy = startedBy
+        }
     }
 
     /// Every manuscript document in the book, in the binder's own order.
@@ -41,7 +54,7 @@ enum PermitControl {
     /// the binder draws it.
     static func pieces(in structure: [StructureItem]) -> [Piece] {
         TreeWalk.collect(in: structure) { $0.type == .document }
-            .map { Piece(id: $0.id, title: $0.title) }
+            .map { Piece(id: $0.id, title: $0.title, startedBy: $0.startedBy) }
     }
 
     // MARK: - The choice
