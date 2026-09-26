@@ -638,54 +638,35 @@ public final class Document {
 
     /// F7 ping-pong damping. The discard handler auto-rewrites the `.md` with
     /// op-log truth on every while-open external edit. If op-log sync lags the
-    /// `.md` (iCloud's normal failure mode) or a version-skewed peer keeps
-    /// writing anchored files, two devices bounce rewrites indefinitely. After
-    /// `discardDampThreshold` discards with DISTINCT bytes in a session we stop
-    /// auto-rewriting (still snapshot, op log still authoritative in memory) and
-    /// log ONCE. Any local edit re-arms rewriting (via `noteLocalEdit`).
-    /// `_discardedByteHashes` dedups byte-identical repeat deliveries so a
-    /// re-fired presenter callback for the same bytes doesn't advance the count.
-    /// It stores stable 64-bit hashes (`StableHash.fnv1a64Hex`, NOT the
-    /// process-seed-randomised `String.hashValue` — tripwire) rather than full
-    /// manuscript strings, and is capped at `discardSnapshotCap`, evicting oldest
-    /// — damping only needs distinctness, so a hash collision (merely
-    /// under-counts, safely) and a bounded window are both tolerable, and a
-    /// runaway ping-pong loop can't grow it unbounded (Minor 5). Plain
-    /// per-instance state (not observable) — same lifecycle as `_orderingDirty`;
-    /// reset on `noteLocalEdit`, never persisted.
+    /// `.md` (iCloud's normal failure mode), a version-skewed peer keeps
+    /// writing anchored files, or two Macs judge a piece's lines differently
+    /// (one holds what the other applies), two devices bounce rewrites
+    /// indefinitely. After `discardDampThreshold` discards in a session we
+    /// stop auto-rewriting (still snapshot, op log still authoritative in
+    /// memory) and log ONCE. Any local edit re-arms rewriting (via
+    /// `noteLocalEdit`).
+    ///
+    /// EVERY discard counts, a byte-identical re-delivery included (P3 plan
+    /// 3's whole-branch Critical). Two Macs whose renders differ alternate
+    /// between two byte-strings, so after the first round every delivery is a
+    /// repeat; the old distinct-bytes count stayed at 1 and the pair traded
+    /// rewrites without bound. The cost is that a presenter re-firing for the
+    /// same bytes spends one of the threshold's discards — damping then
+    /// engages early, which only stops a rewrite of a derived render.
+    /// Plain per-instance state (not observable) — same lifecycle as
+    /// `_orderingDirty`; reset on `noteLocalEdit`, never persisted.
     internal static let discardDampThreshold = 3
-    internal static let discardSnapshotCap = 8
-    internal var _distinctDiscardCount = 0
-    internal var _discardedByteHashes: [String] = []
+    internal var _discardCount = 0
     internal var _discardDampLogged = false
-
-    /// Records a discard's bytes by stable hash and reports whether they are
-    /// distinct from the recently-seen set (a byte-identical re-delivery returns
-    /// false and must not advance the damping count). Insertion-ordered + capped
-    /// at `discardSnapshotCap`, evicting oldest, so the window is bounded
-    /// (Minor 5). Uses `StableHash.fnv1a64Hex` for determinism; the hash is never
-    /// persisted, but the codebase forbids `String.hashValue` for id-shaped work.
-    func noteDiscardDistinct(_ bytes: String) -> Bool {
-        let h = StableHash.fnv1a64Hex(bytes)
-        if _discardedByteHashes.contains(h) { return false }
-        _discardedByteHashes.append(h)
-        if _discardedByteHashes.count > Self.discardSnapshotCap {
-            _discardedByteHashes.removeFirst(
-                _discardedByteHashes.count - Self.discardSnapshotCap)
-        }
-        return true
-    }
 
     /// Re-arm discard rewriting after a local edit — the writer is clearly the
     /// live source again, so a subsequent external divergence is a fresh event,
     /// not part of a bounce. Called from every local-edit path
     /// (`setFullText`/`setParagraph`) when a real change occurs. Cheap: an Int
-    /// reset plus (usually-empty) array clear on the typing hot path.
+    /// reset on the typing hot path.
     func noteLocalEdit() {
-        guard _distinctDiscardCount != 0 || !_discardedByteHashes.isEmpty
-            || _discardDampLogged else { return }
-        _distinctDiscardCount = 0
-        _discardedByteHashes.removeAll()
+        guard _discardCount != 0 || _discardDampLogged else { return }
+        _discardCount = 0
         _discardDampLogged = false
     }
 
@@ -1800,7 +1781,6 @@ public final class Document {
         _annotationsCacheValid = false
         _tasksCache = []
         _tasksCacheValid = false
-        _discardedByteHashes = []
         // Drop the last-written-bytes snapshot (a full manuscript copy) while
         // honouring EchoState's two-call-site construction contract.
         lastDiskEcho = .afterWrite(bytes: "")

@@ -26,20 +26,26 @@ extension Document {
         try Document.writeConflictBackup(
             forFileAt: url, docId: docId, text: diskMd, kind: "discarded")
 
-        // F7 ping-pong damping. Count discards with DISTINCT bytes; a byte-
-        // identical re-delivery of a snapshot we've already seen doesn't advance
-        // the counter (`insert` reports it was already present). Once the count
-        // reaches `discardDampThreshold`, stop auto-rewriting: the op log stays
-        // authoritative in memory and we keep snapshotting, but we no longer
-        // bounce the `.md` back at a peer that keeps re-writing it. Log once.
-        // A local edit clears the counter (`noteLocalEdit`), re-arming rewriting.
-        let isDistinct = noteDiscardDistinct(diskMd)
-        if isDistinct { _distinctDiscardCount += 1 }
-        if _distinctDiscardCount >= Document.discardDampThreshold {
+        // F7 ping-pong damping. Count EVERY discard, a byte-identical
+        // re-delivery included. Two Macs that judge a piece differently (one
+        // holds lines the other applies; or a load on a Mac that renders
+        // differently) each discard the other's `.md` and rewrite their own,
+        // so after the first round every delivery is a REPEAT of bytes this
+        // document has already seen — counting only distinct bytes never
+        // reached the threshold and the pair traded rewrites without bound (P3
+        // plan 3's whole-branch Critical). Skipping the rewrite for a repeat
+        // instead is NOT the fix: the same outside edit, re-applied, would
+        // then survive on disk, and outside `.md` edits are never honoured.
+        // Once the count reaches `discardDampThreshold`, stop auto-rewriting:
+        // the op log stays authoritative in memory and we keep snapshotting,
+        // but we no longer bounce the `.md` back. Log once. A local edit
+        // clears the counter (`noteLocalEdit`), re-arming rewriting.
+        _discardCount += 1
+        if _discardCount >= Document.discardDampThreshold {
             if !_discardDampLogged {
                 _discardDampLogged = true
                 documentLog.error(
-                    "external-discard ping-pong damped for \(self.docId, privacy: .public) after \(self._distinctDiscardCount, privacy: .public) distinct discards — snapshotting only, no longer rewriting the .md until a local edit")
+                    "external-discard ping-pong damped for \(self.docId, privacy: .public) after \(self._discardCount, privacy: .public) discards — snapshotting only, no longer rewriting the .md until a local edit")
             }
             return
         }

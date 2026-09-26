@@ -2617,13 +2617,39 @@ from the flips each task named.
   closed one whose `.md` diverged. So iCloud sees more `.md` writes, which are
   identical where the Macs judge the same lines alike.
   - **Where two Macs judge lines differently** (one holds what the other
-    applies), their renders differ. The held-lines narrowing adds no render
-    trigger of its own. But `handleExternalDiskChange` still rewrites an OPEN
-    document's `.md` whenever the other Mac's `.md` arrives with different
-    bytes, held lines or not, until F7's ping-pong damping stops it. So on an
-    unclaimed piece open on both Macs, the root's Mac and the starter's can
-    still trade `.md` writes until damping. The words are safe in the op log;
-    the `.md` is a derived render.
+    applies), their renders differ, and the two Macs trade `.md` rewrites
+    until F7's damping stops it. `handleExternalDiskChange` discards an OPEN
+    document's `.md` whenever the other Mac's arrives with different bytes and
+    rewrites its own render. Two triggers start the trading:
+    - A keystroke on the Mac that applies the lines (the starter's, on an
+      unclaimed piece the root's Mac holds after *Not now*).
+    - A DIVERGED LOAD on a Mac that does not hold them, which schedules its
+      render (`Document+Load.swift`, C12-1's closed half) — for example the
+      root's next open of a piece after revoking its starter when nothing of
+      hers was applied, while another Mac has the piece open.
+  - **The bound (fix wave, whole-branch Critical).** Every discard counts
+    toward `Document.discardDampThreshold` (3), a byte-identical re-delivery
+    included. The two renders alternate, so after the first round every
+    delivery is a repeat; the old distinct-bytes count stayed at 1 and the
+    trading ran without bound, a "discarded" backup per cycle on both Macs.
+    Now each Mac rewrites at most twice per arming, and on the third discard
+    it only snapshots. With nobody typing, the trading stops after at most
+    two rewrites a side, and the shared `.md` is left holding the render of
+    the Mac that wrote first (the first RECEIVER damps first). A local edit re-arms only the Mac it was made on (`noteLocalEdit`).
+    So while the starter types, her Mac re-arms on every keystroke. The root's
+    Mac, which is not typing, stays damped for the rest of that document's
+    session (until it types or reopens the piece): it writes nothing back and
+    snapshots each arrival (newest 20 kept per document). Her renders then
+    stand on disk unanswered. If both Macs type, each local edit buys its own
+    Mac up to two more rewrites. Damping stops only the rewrite a discard
+    triggers; a Mac's own render (a keystroke, an open, an applied re-read)
+    still writes once each.
+  - Repeats are counted, not skipped. Skipping the rewrite for a
+    byte-identical repeat would also have stopped the loop, but the same
+    outside edit re-applied would then survive on disk, and outside `.md`
+    edits are never honoured. The words are safe in the op log throughout;
+    what the bound limits is how long the app keeps writing a render the
+    other Mac disagrees with into the shared folder.
   - A keystroke on a Mac holding lines still writes its own render, as before.
 - **Closed documents' held lines, and what they still do not say.**
   - The sheet's count can rise once, seconds after open, when the closed half

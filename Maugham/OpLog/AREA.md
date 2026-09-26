@@ -1995,10 +1995,17 @@ Snapshot mechanics (`Document+ExternalChange.swift`):
 - **Retention: newest 20 per docId**, pruned on every write (F7 — the dir was
   previously uncapped and grew a backup on every ping-pong bounce).
 - **Ping-pong damping (F7).** When op-log sync lags the `.md`, the discard handler
-  could bounce rewrites indefinitely. It now counts **distinct-byte** discards per
-  session; after `Document.discardDampThreshold` (3) it stops auto-rewriting
-  (still snapshots, op log stays authoritative in memory) and logs once. A local
-  edit resets the counter, re-arming rewriting.
+  could bounce rewrites indefinitely. It counts **every** discard per session,
+  a byte-identical re-delivery included; after `Document.discardDampThreshold`
+  (3) it stops auto-rewriting (still snapshots, op log stays authoritative in
+  memory) and logs once. A local edit resets the counter, re-arming rewriting.
+  **Do not go back to counting distinct bytes** (P3 plan 3's whole-branch
+  Critical): two Macs whose renders differ alternate between two byte-strings,
+  so every delivery after the first round is a repeat and a distinct count never
+  reaches the threshold. **And do not skip the rewrite for a repeat instead**:
+  the same outside edit re-applied would then survive on disk. Both pinned in
+  `ExternalDiscardDampingTests`; the bound is stated in ADR 0032's P3 plan-3
+  limits.
 
 ## RenderFilter's three matching tiers (subtle)
 

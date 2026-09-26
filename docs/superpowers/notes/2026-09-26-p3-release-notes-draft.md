@@ -74,8 +74,15 @@ MaughamPhone 0.Y.Z. **Update every Mac and iPhone on a shared book together.**)
   It used to lag until you next typed in that chapter. After another Mac's
   changes arrive, or after an admission, a revocation or a change of
   permission, the `.md` on disk is rewritten to match the draft. A chapter that
-  is holding lines back waits until they are let in, or until you type, so its
-  `.md` is never rewritten without words another Mac can see.
+  is holding lines back does not rewrite its `.md` on its own account; it waits
+  until they are let in, or until you type.
+- **Two Macs that see a chapter differently no longer trade its `.md` without
+  end.** When one Mac holds lines another has let in, each renders the `.md`
+  differently. With the chapter open on both, they used to overwrite each
+  other's `.md` for as long as it stayed open, saving a backup each time. Now
+  each Mac gives up after a couple of rewrites and leaves the other's `.md` in
+  place until you type there again. Your words are never at risk either way:
+  the draft lives in the history, and the `.md` is only a copy of it.
 - **Unsealed writing from a device this book doesn't know now waits for
   admission** like the rest of its history. Before, everything such a device
   had written since its last seal was applied. Nothing is lost: admitting the
