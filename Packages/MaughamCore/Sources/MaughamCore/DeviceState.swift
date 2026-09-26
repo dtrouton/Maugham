@@ -64,11 +64,16 @@ public enum DeviceState {
     /// process. Production asks the kernel: `kill(pid, 0)` fails with `ESRCH`
     /// exactly when no such process exists (`EPERM` means it exists and is
     /// somebody else's, which is still alive).
+    ///
+    /// `prefix` is the one thing the three per-process trees differ in: this
+    /// directory's and `TestWorkspace`'s leaves are `xctest-worker-<pid>`, and
+    /// the test bundles' `TestTemp` folders under `$TMPDIR` are
+    /// `MaughamTests-worker-<pid>`. One pid rule, whichever tree it sweeps.
     static func sweepDeadWorkerLeaves(
         in base: URL,
+        prefix: String = "xctest-worker-",
         isAlive: (Int32) -> Bool = { pid in kill(pid, 0) == 0 || errno != ESRCH }
     ) {
-        let prefix = "xctest-worker-"
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: base.path) else { return }
         for name in names {
