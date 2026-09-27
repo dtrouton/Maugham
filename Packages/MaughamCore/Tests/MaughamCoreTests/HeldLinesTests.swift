@@ -72,7 +72,10 @@ final class HeldLinesTests: XCTestCase {
     func test_everyPreSigningSpellingIsOlderHistory() {
         let cases: [(String, String)] = [
             (DeviceSlug.make(from: "Denvers-MacBook-Air.local").raw,
-             "a Mac, under the name it had then (\u{201C}denvers-macbook-air-loca\u{2026}\u{201D})"),
+             "a Mac, under the name it had then (\u{201C}denvers-macbook-air-loca\u{201D})"),
+            // An UNCUT name of exactly the cap: no cut mark (review Minor 4).
+            (DeviceSlug.make(from: "abcdefghijklmnopqrstuvwx").raw,
+             "a Mac, under the name it had then (\u{201C}abcdefghijklmnopqrstuvwx\u{201D})"),
             (DeviceSlug.make(from: "mcp").raw, "edits made through MCP"),
             (DeviceSlug.make(from: "rebalance").raw, "the task rebalance"),
             (DeviceSlug.make(from: "wiki-rename").raw, "wiki-link renames"),

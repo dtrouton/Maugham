@@ -207,6 +207,11 @@ final class PeopleAndDevicesOneWriterTests: XCTestCase {
             XCTAssertFalse(sentence.contains("iPhone"), sentence)
             XCTAssertFalse(sentence.contains("Mac "), sentence)
         }
+        XCTAssertTrue(PeopleAndDevicesModel.UnseenDevice.sentence
+            .contains("by the next time the device writes"),
+            "true of a Mac (writes it at open) and a phone (at a write)")
+        XCTAssertFalse(PeopleAndDevicesModel.UnseenDevice.sentence
+            .contains("when it opens"), "false of the phone")
         XCTAssertNil(denver.records[0].unseenDevice,
                      "the Mac has a device record, and draws it")
         XCTAssertEqual(denver.records[1].title, "Denver Trouton",
@@ -268,7 +273,9 @@ final class PeopleAndDevicesOneWriterTests: XCTestCase {
     func test_theOlderHistorySentenceFollowsTheBooksNarrowing() {
         let before = PeopleAndDevicesModel.OlderHistory.beforeNarrowing
         let after = PeopleAndDevicesModel.OlderHistory.afterNarrowing
-        XCTAssertTrue(before.hasPrefix("Nothing about it will change."), before)
+        XCTAssertTrue(before.hasPrefix("Nothing already in it will change."), before)
+        XCTAssertTrue(before.contains("anything an older version"),
+                      "a later line from an older build is not promised: \(before)")
         XCTAssertTrue(before.contains("stays applied"), before)
         XCTAssertTrue(after.contains("stays applied"), after)
         XCTAssertTrue(after.contains("anything an older version"), after)

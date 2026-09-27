@@ -84,22 +84,23 @@ ONE machine, so inside such a group they sit on that machine's row — and Renam
 there moves that one machine out from under the name, which the button's help
 says. If the machines under one name don't all hold the same permission (a book
 set up before permissions were changed name-wide can have this), the person row
-says so and each machine's row says its own. Where your own Mac is one of them,
-there is no Change… at all: the Mac a book was started on writes the whole of
-it.
+says so and each machine's row says its own. Where the Mac the book was started
+on is one of them, there is no Change… at all: that Mac writes the whole of the
+book.
 
 **A machine the book has no description of** still gets its row. A phone
 admitted by an older build, for instance, never wrote the small record that
 says what kind of device it is and what it's called, so its row shows the name
 it was admitted under (often just its four-character code) and says that no
 description of it has reached the book yet — and that a current Maugham adds one
-the next time it opens the book. It doesn't guess whether it is a Mac or an
+by the next time that device writes in the book. It doesn't guess whether it is a Mac or an
 iPhone.
 
 A person with a single machine is drawn exactly as before: every verb on the
 person row.
 
-Every person's row carries **Rename…**, and so does your own. The name in this
+Every person carries **Rename…**, and so do you — on the person row for a
+person with one machine, and on each machine's row inside a group. The name in this
 book is your word for whoever is at that keyboard, and until now you could only
 choose it once — at the panel, or, for the Mac that started the book, by
 whatever that machine happened to be called. Renaming changes the name and
@@ -115,8 +116,8 @@ Beneath the people you may also see:
   it had then, edits made through MCP, the task rebalance, what a phone wrote
   before it signed its lines, and the book's oldest history from before each
   device kept its own. This is almost always your own earlier work. In a book
-  where everybody writes the whole of it, the row says nothing about it will
-  change; once anybody has been given less, it says that what it held then stays
+  where everybody writes the whole of it, the row says nothing already in it
+  will change; once anybody has been given less, it says that what it held then stays
   applied and only something an older version of Maugham writes there afterwards
   waits. It never names a document as though a document signed something.
 - **A machine nothing in this book signs for yet** — a stream written the way a

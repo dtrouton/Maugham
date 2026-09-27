@@ -442,13 +442,16 @@ struct PeopleAndDevicesModel: Equatable {
         /// one thing the writer can check this row against.
         var title: String { name == code ? code : "\(name) (\(code))" }
 
-        /// What is true, and what ends it. A current Maugham writes its own
-        /// device record whenever it opens a book (`RegistryPresence`, and
-        /// the phone since 0.14), so the row resolves itself; an older build
-        /// never does, which is why this says what happens rather than when.
+        /// What is true, and what ends it — on BOTH surfaces (review Minor
+        /// 2): the Mac writes its device record when it opens a book
+        /// (`DocumentStore.open` → `RegistryPresence.ensureDeviceRecord`),
+        /// the phone only when it writes one (`PhoneDeviceRecord.ensure`, from
+        /// its capture and annotation writers). *By the next time it writes*
+        /// is true of both; an older build never writes one at all.
         static let sentence =
             "No description of this device has reached this book yet. A "
-            + "current version of Maugham adds one when it opens the book."
+            + "current version of Maugham adds one by the next time the "
+            + "device writes in this book."
     }
 
     /// **One writer: every person record that shares a label** (v0.41.1).
@@ -577,12 +580,16 @@ struct PeopleAndDevicesModel: Equatable {
         /// **Before any narrowing.** True, not reassuring: an un-narrowed book
         /// applies every unsigned line (P1), and the first narrowing's
         /// photograph (`UnsignedSnapshot`) names every stream no key can name,
-        /// so everything already in these stays applied through it.
+        /// so everything ALREADY in these stays applied through it. Not
+        /// "nothing will change": an older Maugham still writing there after
+        /// the photograph has its later lines held (review Minor 1).
         static let beforeNarrowing =
-            "Nothing about it will change. Everything in it is applied, as it "
-            + "always has been, and stays applied when anybody here is first "
-            + "given less than the whole book. This version of Maugham "
-            + "doesn\u{2019}t write there any more."
+            "Nothing already in it will change. Everything in it is applied, "
+            + "as it always has been, and stays applied when anybody here is "
+            + "first given less than the whole book. This version of Maugham "
+            + "doesn\u{2019}t write there any more; anything an older version "
+            + "writes there after that waits on the other Macs until it is "
+            + "sent to the Inbox."
 
         /// **After it.** The photograph kept what was there; a line an OLDER
         /// build appends afterwards is on the new side of it and waits, as

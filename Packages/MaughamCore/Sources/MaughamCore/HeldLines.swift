@@ -171,11 +171,13 @@ public enum HeldLines {
             if head.hasPrefix("phone-") {
                 return .beforeSigning("what a phone wrote before it signed its lines")
             }
-            // A pre-P1 hostname, sanitized and cut at 24 characters. It is the
-            // only honest name there is — shown as it is, with the cut marked.
-            let shown = head.count >= 24 ? head + "\u{2026}" : head
+            // A pre-P1 hostname, sanitized and capped at 24 characters. It is
+            // the only honest name there is, shown as the file spells it and
+            // with no cut mark: a readable part is AT MOST 24 characters, and
+            // one of exactly 24 may be a whole name — the file cannot say
+            // which, so a mark would be a guess (review Minor 4).
             return .beforeSigning(
-                "a Mac, under the name it had then (\u{201C}\(shown)\u{201D})")
+                "a Mac, under the name it had then (\u{201C}\(head)\u{201D})")
         }
     }
 
