@@ -20,10 +20,22 @@ import XCTest
 /// second spelling of the door inside the very file that owns the first moves
 /// its count. Count the arrays, never a number written in prose.
 ///
-/// **The roots are the Mac and MaughamCore** (ruling, plan 1 ledger): plan 1
-/// has no phone construction point. The phone's store-injection file is plan
-/// 2's, and plan 2 adds `MaughamPhone/` to `roots` together with its entry in
-/// `storeConstruction` — until then the phone reaches none of these doors.
+/// **The roots are the Mac, MaughamCore AND the phone, and the phone's
+/// allow-list is EMPTY** (controller ruling, plan 1 Task 8 fix round). Plan 1
+/// has no phone construction point; plan 2's phone store-injection file and
+/// any phone signing site must be registered here DELIBERATELY, as a
+/// `MaughamPhone/<file>` key. A phone file is keyed by that prefix, so a phone
+/// file that happens to share an allow-listed Mac file's NAME is never absorbed
+/// into the Mac's allowance.
+///
+/// **Stated limits:**
+/// - A call reflowed across two lines (`PersonKey` then `.findOrCreate(` on
+///   the next) is invisible to a per-line regex. An EXISTING site reflowed
+///   fails as vanished; a NEW site written reflowed escapes.
+///   `TripwireGrepTests` shares the limit.
+/// - `\.sign\(` is deliberately broad — every `.sign(` in all three trees.
+///   Today it is exactly the claim writer's; an unrelated future `.sign(`
+///   needs an entry with its reason, which is the point.
 final class PersonKeyCensusTests: XCTestCase {
 
     /// One counted spelling. `pattern` is a regular expression matched against
@@ -64,10 +76,12 @@ final class PersonKeyCensusTests: XCTestCase {
     /// which is the whole of why a claim copied into a stranger's record fails
     /// there. A second verifier is the place that binding gets forgotten.
     ///
-    /// (The brief named `RegistryPersonClaim.swift` as the verifier's home; the
-    /// built code puts the SHAPE there and the check in `RegistryReader`, beside
-    /// the record verifier — tripwire 42's census lets exactly the writer and
-    /// the reader ask for a digest. This census pins what was built.)
+    /// **This census pins what was BUILT, not what the plan said** (accepted by
+    /// the controller): the plan named `RegistryPersonClaim.swift` as the
+    /// verifier's home, but that file holds only the claim's SHAPE and what is
+    /// signed; the check lives in `RegistryReader`, beside the record verifier —
+    /// tripwire 42's census lets exactly the writer and the reader ask for a
+    /// digest.
     static let claimVerification: [Site] = [
         // The verifier: two statics (of a record; of a claim not yet in one)
         // and the registry's lookup of the verified map.
@@ -250,18 +264,59 @@ final class PersonKeyCensusTests: XCTestCase {
         XCTAssertEqual(found[#"signedContent\(forDevice:"#], ["PeopleAndDevicesModel.swift": 1])
     }
 
+    /// **The phone's allow-list is empty.** For every site in every census, a
+    /// sample planted under a `MaughamPhone/` root is counted under its
+    /// phone-qualified key and fails the census — including one wearing the
+    /// NAME of a file the Mac is allowed (`PersonKeyAccess.swift` et al.),
+    /// which must not be absorbed into the Mac's count.
+    func test_everyCensusFiresOnAnOffenderPlantedUnderThePhone() throws {
+        let all = Self.storeConstruction + Self.claimVerification + Self.recognition
+            + Self.linkAndForget + Self.personKeySigning
+        for site in all {
+            let dir = try plantedDirectory()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let mac = dir.appendingPathComponent("Maugham", isDirectory: true)
+            let phone = dir.appendingPathComponent(Self.phoneRootName, isDirectory: true)
+            try FileManager.default.createDirectory(at: mac, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: phone, withIntermediateDirectories: true)
+            // The Mac side exactly as expected…
+            for (name, count) in site.expected {
+                try Array(repeating: site.sample, count: count).joined(separator: "\n")
+                    .write(to: mac.appendingPathComponent(name), atomically: true, encoding: .utf8)
+            }
+            XCTAssertEqual(try Self.counts(of: [site], in: [mac, phone])[site.pattern],
+                           site.expected)
+            // …then one phone offender under an allow-listed Mac file's name.
+            let borrowed = try XCTUnwrap(site.expected.keys.sorted().first)
+            try site.sample.write(to: phone.appendingPathComponent(borrowed),
+                                  atomically: true, encoding: .utf8)
+            let found = try Self.counts(of: [site], in: [mac, phone])[site.pattern]
+            XCTAssertEqual(found?[Self.phoneRootName + "/" + borrowed], 1,
+                "a phone `\(site.pattern)` is keyed under MaughamPhone/")
+            XCTAssertEqual(found?[borrowed], site.expected[borrowed],
+                "the phone file is not absorbed into the Mac's allowance")
+            XCTAssertNotEqual(found, site.expected,
+                "a phone `\(site.pattern)` must fail the census — its allow-list is empty")
+        }
+    }
+
     // MARK: - Machinery
 
     private static var repoRoot: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     }
 
-    /// The Mac and the shared substrate. The phone joins in plan 2 (see the
-    /// type's doc comment).
+    /// The Mac, the shared substrate, and the phone (whose allow-list is empty
+    /// — see the type's doc comment).
     private static var roots: [URL] {
         [repoRoot.appendingPathComponent("Maugham", isDirectory: true),
-         repoRoot.appendingPathComponent("Packages/MaughamCore/Sources", isDirectory: true)]
+         repoRoot.appendingPathComponent("Packages/MaughamCore/Sources", isDirectory: true),
+         repoRoot.appendingPathComponent(phoneRootName, isDirectory: true)]
     }
+
+    /// A root with this last component is the phone's: its files are keyed
+    /// `MaughamPhone/<file>`, never by the bare name a Mac entry uses.
+    static let phoneRootName = "MaughamPhone"
 
     /// Occurrences of each site's pattern per file under `roots`, counted over
     /// comment-stripped code lines. Keyed by pattern; a pattern found nowhere
@@ -273,7 +328,9 @@ final class PersonKeyCensusTests: XCTestCase {
         for root in roots {
             guard let walker = FileManager.default.enumerator(
                 at: root, includingPropertiesForKeys: nil) else { continue }
+            let prefix = root.lastPathComponent == phoneRootName ? phoneRootName + "/" : ""
             for case let url as URL in walker where url.pathExtension == "swift" {
+                let key = prefix + url.lastPathComponent
                 let text = try String(contentsOf: url, encoding: .utf8)
                 let lines = SourceScan.codeLines(of: text)
                 for (pattern, regex) in regexes {
@@ -282,7 +339,7 @@ final class PersonKeyCensusTests: XCTestCase {
                         n += regex.numberOfMatches(
                             in: line, range: NSRange(line.startIndex..., in: line))
                     }
-                    if n > 0 { result[pattern]![url.lastPathComponent, default: 0] += n }
+                    if n > 0 { result[pattern]![key, default: 0] += n }
                 }
             }
         }
