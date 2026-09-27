@@ -67,10 +67,11 @@ final class TrustRecognitionTests: XCTestCase {
     private func decide(
         _ device: DeviceRecord, people: [PersonRecord],
         otherDevices: [DeviceRecord] = [], malformed: [MalformedRecord] = [],
-        thisRoot: String? = nil
+        claims: [ClaimRecord] = [], thisRoot: String? = nil
     ) -> Recognition {
         let registry = Registry(
-            devices: [device] + otherDevices, people: people, malformed: malformed)
+            devices: [device] + otherDevices, people: people, claims: claims,
+            malformed: malformed)
         return Recognition.recognise(
             device: device, verifiedClaim: registry.verifiedPersonClaims[device.device],
             registry: registry, thisRoot: thisRoot ?? rootFP)
@@ -224,18 +225,64 @@ final class TrustRecognitionTests: XCTestCase {
                        hint("Sam", elsewhere: true))
     }
 
-    /// Stricter than "every record revoked": a key the root linked to a device
-    /// it then revoked may have left with that device.
-    func test_aKeyWithAnyRevokedHolderAsksEvenIfTheLabelStands() throws {
+    /// Revoking a device says the DEVICE is gone, not that the key is
+    /// compromised: Denver's lost phone (same label, holds his key) revoked,
+    /// and his new device is still his own.
+    func test_aRevokedRecordUnderTheRootsLabelDoesNotBlockOwnDevice() throws {
+        let lostPhone = person("denver-phone", label: "Denver", by: rootFP, key: denverKey,
+                               revoked: true)
+        XCTAssertEqual(decide(try device(claimBy: denverKey), people: [root, lostPhone, sam]),
+                       .ownDevice(root: root))
+    }
+
+    /// A revoked record of Sam's label neither helps nor blocks: one standing
+    /// holder is Sam, and the representative is never the revoked record.
+    func test_aRevokedHolderBesideAStandingOneIsStillThatPerson() throws {
         let lost = person("sam-a", label: "Sam", by: rootFP, key: samKey, revoked: true)
         let standing = person("sam-b", label: "Sam", by: rootFP, key: samKey)
         XCTAssertEqual(decide(try device(claimBy: samKey), people: [root, lost, standing]),
+                       .knownPerson(standing))
+    }
+
+    /// The only holder revoked, but Sam's label still stands on an unlinked
+    /// record: Sam, represented by the STANDING record.
+    func test_aRevokedHolderWithAStandingUnlinkedRecordOfTheLabelIsThatPerson() throws {
+        let lost = person("sam-a", label: "Sam", by: rootFP, key: samKey, revoked: true)
+        let phone = person("sam-b", label: "Sam", by: rootFP, key: nil)
+        XCTAssertEqual(decide(try device(claimBy: samKey), people: [root, lost, phone]),
+                       .knownPerson(phone))
+    }
+
+    func test_everyRecordOfTheLabelRevokedAsks() throws {
+        let mac = person("sam-a", label: "Sam", by: rootFP, key: samKey, revoked: true)
+        let phone = person("sam-b", label: "Sam", by: rootFP, key: nil, revoked: true)
+        XCTAssertEqual(decide(try device(claimBy: samKey), people: [root, mac, phone]),
                        hint("Sam", elsewhere: true))
-        let lostDenver = person("denver-phone", label: "Denver", by: rootFP, key: denverKey,
-                                revoked: true)
-        XCTAssertEqual(decide(try device(claimBy: denverKey),
-                              people: [linked(root, denverKey), lostDenver]),
-                       hint("Denver Trouton", elsewhere: true))
+    }
+
+    // MARK: - Adopted roots are this book's chain
+
+    /// A record signed by a root THIS root adopted is in `TrustTable.myChain`,
+    /// so it is evidence; the same record under a root nobody adopted is not.
+    func test_aRecordUnderAnAdoptedRootCountsAndUnderAnUnadoptedOneDoesNot() throws {
+        let other = person("other-root", label: "Denver", by: "other-root", key: nil)
+        let samUnderOther = person(samFP, label: "Sam", by: "other-root", key: samKey)
+        let adoption = ClaimRecord(
+            newRoot: rootFP, adopted: ["other-root"], claimedAt: Date(timeIntervalSince1970: 5))
+        XCTAssertEqual(
+            decide(try device(claimBy: samKey), people: [root, other, samUnderOther],
+                   claims: [adoption]),
+            .knownPerson(samUnderOther))
+        XCTAssertEqual(
+            decide(try device(claimBy: samKey), people: [root, other, samUnderOther]),
+            hint("Sam", elsewhere: true))
+        // A claim the OTHER root wrote adopting this one widens nothing here.
+        let reverse = ClaimRecord(
+            newRoot: "other-root", adopted: [rootFP], claimedAt: Date(timeIntervalSince1970: 5))
+        XCTAssertEqual(
+            decide(try device(claimBy: samKey), people: [root, other, samUnderOther],
+                   claims: [reverse]),
+            hint("Sam", elsewhere: true))
     }
 
     func test_anUnnamedHolderIsNobodyToBeRecognisedAs() throws {

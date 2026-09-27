@@ -56,31 +56,37 @@ public enum Recognition: Equatable, Sendable {
     /// | the device is retired | `.ask(hint)` |
     /// | any person record is present but unreadable (RULING-54) | `.ask(hint)` |
     /// | nobody holds the key | `.ask(hint)` |
-    /// | a holder was admitted by another root | `.ask(hint, linkedElsewhere)` |
+    /// | a holder is outside this book's chain (`TrustTable.chain(ofRoot:)`) | `.ask(hint, linkedElsewhere)` |
     /// | the holders span more than one label (an empty label is its own) | `.ask(hint, linkedElsewhere)` |
-    /// | any holder is revoked | `.ask(hint, linkedElsewhere)` |
-    /// | the holders share the root's label, or include the root record | `.ownDevice(root)` |
-    /// | ...and the claim's name names another person (Review Focus 3) | `.ask(hint, linkedElsewhere)` |
+    /// | the holders include the root record or share the root's label, and the claim names another person (Review Focus 3) | `.ask(hint, linkedElsewhere)` |
+    /// | the holders include the root record or share the root's label | `.ownDevice(root)` |
     /// | the holders' one label has no name | `.ask(hint)` |
+    /// | every record of that label in the chain is revoked | `.ask(hint, linkedElsewhere)` |
     /// | the claim's name names another person (Review Focus 3) | `.ask(hint, linkedElsewhere)` |
-    /// | otherwise | `.knownPerson(lowest-fingerprint holder)` |
+    /// | otherwise | `.knownPerson(representative)` |
     ///
-    /// **Only this root's own records count as holders.** A record another
-    /// root signed is that root's say-so, and a foreign root can self-sign a
-    /// record under ANY label with ANY key — including this root's label with
-    /// a key it generated — so a key found on one is linked elsewhere, never
-    /// evidence.
+    /// **Only records this book's chain vouches for count as holders** — this
+    /// root's and every root it adopted, `TrustTable.myChain`'s rule, asked of
+    /// `TrustTable.chain(ofRoot:in:)` so the two cannot differ. An adopted root
+    /// is this root's own act (a claim it signed), and the table already
+    /// applies every line such a record's devices write. A record a
+    /// NON-adopted root signed is that root's say-so: a foreign root can
+    /// self-sign a record under ANY label with ANY key — including this root's
+    /// label with a key it generated — so a key found on one is linked
+    /// elsewhere, never evidence.
     ///
-    /// **A revoked holder poisons the key**, whether or not the label keeps
-    /// another standing record: a key the root linked to a device it then
-    /// revoked may have left with that device, and must not bring new devices
-    /// in silently. (Stricter than "every record of the label revoked", which
-    /// it subsumes: a standing holder is a standing record of the label.)
+    /// **Revoked records neither help nor block** (controller ruling, fix
+    /// round 1). Revoking a device says that device is gone, not that the key
+    /// is compromised — Forget is the verb for that. So a person stands while
+    /// any record of their label in the chain stands; the root always stands,
+    /// so a revoked record under the root's label never blocks `.ownDevice`;
+    /// every record of another label revoked is `.ask`.
     ///
-    /// **The representative** is the unrevoked holder with the lowest person
-    /// fingerprint — `otherPersonHolding`'s convention, so two runs name the
-    /// same record. A HOLDER rather than any record of the label, because the
-    /// holder is the record the root actually linked this key to.
+    /// **The representative** is the lowest-fingerprint STANDING holder (the
+    /// record the root actually linked), else the lowest-fingerprint standing
+    /// record of the label — `otherPersonHolding`'s convention, so two runs
+    /// name the same record, and never a revoked one, whose timeline would be
+    /// the wrong permit.
     ///
     /// The claim is taken from the caller only as the registry's own verified
     /// answer: a claim that is not `registry.verifiedPersonClaims[device]` is
@@ -92,10 +98,13 @@ public enum Recognition: Equatable, Sendable {
         registry: Registry,
         thisRoot: String
     ) -> Recognition {
-        guard let claim = verifiedClaim,
-              registry.verifiedPersonClaims[device.device] == claim,
-              registry.devices.first(where: { $0.device == device.device }) == device
-        else { return .ask(hint: nil) }
+        // Named sub-expressions: the type-checker flagged the combined guard.
+        guard let claim = verifiedClaim else { return .ask(hint: nil) }
+        let registrysClaim: PersonClaim? = registry.verifiedPersonClaims[device.device]
+        let registrysRecord: DeviceRecord? = registry.devices.first { $0.device == device.device }
+        let claimIsVerified: Bool = registrysClaim == claim
+        let recordIsVerified: Bool = registrysRecord == device
+        guard claimIsVerified, recordIsVerified else { return .ask(hint: nil) }
 
         let hint = ClaimHint(
             personName: claim.name, deviceName: device.name, linkedElsewhere: false)
@@ -109,34 +118,37 @@ public enum Recognition: Equatable, Sendable {
         // Already somebody here (admitted, revoked or itself a root): not a
         // question for silent admission — a revoked device must never come
         // back in on a claim.
-        guard registry.person(device.device) == nil,
-              !RegistryAdmission.unreadablePeople(in: registry).contains(device.device)
+        let unreadable = RegistryAdmission.unreadablePeople(in: registry)
+        guard registry.person(device.device) == nil, !unreadable.contains(device.device)
         else { return .ask(hint: hint) }
 
         guard device.retiredAt == nil else { return .ask(hint: hint) }
 
         // Present-but-unreadable is not absent (RULING-54): an unreadable person
         // record might be the key's holder, so nobody can be sure it is not.
-        guard RegistryAdmission.unreadablePeople(in: registry).isEmpty
-        else { return .ask(hint: hint) }
+        guard unreadable.isEmpty else { return .ask(hint: hint) }
 
         let holders = registry.people.filter { $0.personKey == claim.personKey }
         guard let first = holders.first else { return .ask(hint: hint) }
 
-        guard holders.allSatisfy({ $0.admittedBy == thisRoot }) else {
+        // Only records this book's chain vouches for are evidence — this root's
+        // and every root it adopted, `TrustTable.myChain`'s rule exactly.
+        let chain = TrustTable.chain(ofRoot: thisRoot, in: registry)
+        guard holders.allSatisfy({ chain.contains($0.person) }) else {
             return .ask(hint: elsewhere)
         }
-        let oneRecord = holders.count == 1
-        guard oneRecord || holders.allSatisfy({ TrustTable.sharesLabel($0.label, first.label) })
-        else { return .ask(hint: elsewhere) }
-        guard holders.allSatisfy({ !$0.isRevoked }) else { return .ask(hint: elsewhere) }
+        let oneLabel = holders.count == 1
+            || holders.allSatisfy { TrustTable.sharesLabel($0.label, first.label) }
+        guard oneLabel else { return .ask(hint: elsewhere) }
 
-        if holders.contains(where: { $0.person == root.person })
-            || TrustTable.sharesLabel(first.label, root.label) {
+        let holdersIncludeRoot = holders.contains { $0.person == root.person }
+        if holdersIncludeRoot || TrustTable.sharesLabel(first.label, root.label) {
+            // The root's own record never is revoked, so a revoked record
+            // under the root's label (a lost phone) neither helps nor blocks.
             let excluded = Set(holders.map(\.person)).union([root.person])
-            guard !claimNamesAnotherPerson(
+            let contradicted = claimNamesAnotherPerson(
                 claim, label: root.label, excluding: excluded, in: registry)
-            else { return .ask(hint: elsewhere) }
+            guard !contradicted else { return .ask(hint: elsewhere) }
             return .ownDevice(root: root)
         }
 
@@ -145,11 +157,25 @@ public enum Recognition: Equatable, Sendable {
         guard TrustTable.sharesLabel(first.label, first.label)
         else { return .ask(hint: hint) }
 
-        guard !claimNamesAnotherPerson(
-            claim, label: first.label, excluding: Set(holders.map(\.person)), in: registry)
-        else { return .ask(hint: elsewhere) }
+        // Revoking a device says that device is gone, not that the key is
+        // compromised (Forget is that verb): the person stands while ANY record
+        // of their label in the chain stands. Every one revoked → ask.
+        let standing = registry.people.filter {
+            chain.contains($0.person) && !$0.isRevoked
+                && TrustTable.sharesLabel($0.label, first.label)
+        }
+        guard !standing.isEmpty else { return .ask(hint: elsewhere) }
 
-        guard let representative = holders.min(by: { $0.person < $1.person })
+        let contradicted = claimNamesAnotherPerson(
+            claim, label: first.label, excluding: Set(holders.map(\.person)), in: registry)
+        guard !contradicted else { return .ask(hint: elsewhere) }
+
+        // The representative: a standing HOLDER if any (the record the root
+        // actually linked), else a standing record of the label; lowest
+        // fingerprint either way.
+        let standingHolders = standing.filter { $0.personKey == claim.personKey }
+        let pool = standingHolders.isEmpty ? standing : standingHolders
+        guard let representative = pool.min(by: { $0.person < $1.person })
         else { return .ask(hint: hint) }
         return .knownPerson(representative)
     }
