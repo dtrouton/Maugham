@@ -9,14 +9,15 @@ import XCTest
 /// The risk is linking a key to the wrong person, or to two people, so the
 /// rule is pinned in both directions:
 ///
-/// - **A key linked to one verified person record is linked, full stop** — to
-///   anybody else the link is refused, and that holds while the holder is
-///   REVOKED too: a key once linked to a revoked person must not quietly move
-///   to somebody else, which is exactly the compromised-Apple-ID case.
-/// - **Only the root's Forget releases it.** Once the holder's record no
-///   longer carries it, the key is linkable again.
-/// - **Only VERIFIED records count.** A file that does not verify says nothing
-///   about anybody, so it neither holds a key nor blocks one.
+/// - **A person is a LABEL, not a record** (`TrustTable.sharesLabel`): the
+///   same key may sit on every record sharing a label (Denver's Mac and his
+///   phone), and is refused for any record of another label — while that
+///   holder is REVOKED too, so a key once linked to a revoked person never
+///   moves quietly to somebody else.
+/// - **Only the root's Forget releases it**, and Forget is label-wide.
+/// - **Present-but-unreadable is not absent** (RULING-54): a person record
+///   that does not verify might be the holder, so it refuses the link.
+/// - A key not in a fingerprint's shape is refused.
 ///
 /// Root-only by `RegistryAdmission.renameOutcome`'s rule — the one definition
 /// of *who may re-sign this person record* — and the re-sign is the FILE's
@@ -276,25 +277,146 @@ final class PersonKeyLinkTests: XCTestCase {
         XCTAssertNil(try registry().person(sam.author.fingerprint)?.personKey)
     }
 
-    /// Only VERIFIED records count: a person file that does not verify (here,
-    /// signed by a device that is no root) holds no key and blocks nobody.
-    func test_aRecordThatDoesNotVerifyHoldsNoKey() throws {
-        try becomeRoot(mine, name: "Denver's MacBook")
-        try admit(phone, label: "Denver", ownName: "Denver's iPhone")
+    /// A present record that did not verify. `person` is admitted "by" a
+    /// device that is no root, so every reader lists the file malformed.
+    private func plantUnreadablePersonRecord(holding key: PersonKey) throws {
         try declare(sam, name: "Sam's Mac")
         try RegistryWriter.write(
             PersonRecord(
                 person: otherRoot.author.fingerprint, label: "Mallory", ownName: "?",
                 admittedAt: Date(timeIntervalSince1970: 5),
                 admittedBy: sam.author.fingerprint,
-                personKey: denversKey.fingerprint),
+                personKey: key.fingerprint),
             signedBy: sam.author, in: projectURL)
         XCTAssertFalse(try registry().malformed.isEmpty, "premise: it does not verify")
         XCTAssertNil(try registry().person(otherRoot.author.fingerprint))
+    }
+
+    /// **Present-but-unreadable is not absent** (RULING-54): a person record
+    /// on disk that does not verify might be the key's holder, so the link is
+    /// refused until it is restored — whatever key that file claims.
+    func test_aPersonRecordThatDoesNotVerifyRefusesTheLink() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try admit(phone, label: "Denver", ownName: "Denver's iPhone")
+        try plantUnreadablePersonRecord(holding: samsKey)
+        let before = try bytes(of: phone)
+
+        XCTAssertThrowsError(try link(phone, to: denversKey)) { error in
+            XCTAssertEqual(error as? RegistryAdmissionError,
+                           .personRecordUnreadable(fingerprint: otherRoot.author.fingerprint))
+        }
+        XCTAssertEqual(try bytes(of: phone), before)
+    }
+
+    /// The converse: a link ALREADY made is a no-op that asks nothing, so a
+    /// caller re-linking at every open is not refused by a damaged record
+    /// somewhere else in the book.
+    func test_aLinkAlreadyMadeIsANoOpEvenBesideAnUnreadableRecord() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try admit(phone, label: "Denver", ownName: "Denver's iPhone")
+        try link(phone, to: denversKey)
+        try plantUnreadablePersonRecord(holding: samsKey)
+
+        XCTAssertEqual(try link(phone, to: denversKey).personKey, denversKey.fingerprint)
+    }
+
+    // MARK: - A person is a label, not a record
+
+    /// Direction 2 of the label rule: Denver's Mac (the root) and his phone
+    /// are two records under one label, and the same key sits on both.
+    func test_theSameKeyMaySitOnEveryRecordSharingALabel() throws {
+        try becomeRoot(mine, name: "Denver")
+        try admit(phone, label: "Denver", ownName: "Denver's iPhone")
+        try link(mine, to: denversKey)
 
         let linked = try link(phone, to: denversKey)
 
         XCTAssertEqual(linked.personKey, denversKey.fingerprint)
+        XCTAssertEqual(try registry().person(mine.author.fingerprint)?.personKey,
+                       denversKey.fingerprint)
+    }
+
+    /// Direction 1 of the label rule: that key is refused for Sam, whose label
+    /// is his own.
+    func test_aKeyOnOnePersonsRecordsIsRefusedForAnotherLabel() throws {
+        try becomeRoot(mine, name: "Denver")
+        try admit(phone, label: "Denver", ownName: "Denver's iPhone")
+        try admit(sam, label: "Sam", ownName: "Sam's Mac")
+        try link(mine, to: denversKey)
+        try link(phone, to: denversKey)
+
+        // Two holders; the lowest fingerprint is named, so two runs agree.
+        let named = min(mine.author.fingerprint, phone.author.fingerprint)
+        XCTAssertThrowsError(try link(sam, to: denversKey)) { error in
+            XCTAssertEqual(error as? RegistryAdmissionError,
+                           .personKeyLinkedElsewhere(person: named))
+        }
+        XCTAssertNil(try registry().person(sam.author.fingerprint)?.personKey)
+    }
+
+    /// **Forget is label-wide**: the person is one row in People & Devices,
+    /// so forgetting from any of their records clears the key from all.
+    func test_forgetClearsTheKeyFromEveryRecordOfTheLabel() throws {
+        try becomeRoot(mine, name: "Denver")
+        try admit(phone, label: "Denver", ownName: "Denver's iPhone")
+        try admit(sam, label: "Sam", ownName: "Sam's Mac")
+        try link(mine, to: denversKey)
+        try link(phone, to: denversKey)
+        try link(sam, to: samsKey)
+
+        try forget(phone)
+
+        XCTAssertNil(try registry().person(phone.author.fingerprint)?.personKey)
+        XCTAssertNil(try registry().person(mine.author.fingerprint)?.personKey,
+                     "the root's record, same label, is cleared too")
+        XCTAssertEqual(try registry().person(sam.author.fingerprint)?.personKey,
+                       samsKey.fingerprint, "another label is untouched")
+        XCTAssertTrue(try registry().malformed.isEmpty)
+    }
+
+    /// Whole or nothing: a record of the label this Mac may not re-sign
+    /// (another root's, sharing the label) refuses the Forget before any
+    /// record is cleared.
+    func test_aForgetThatCannotReachEveryRecordOfTheLabelClearsNone() throws {
+        try becomeRoot(mine, name: "Denver")
+        try admit(phone, label: "Denver", ownName: "Denver's iPhone")
+        try becomeRootBeside(otherRoot, name: "Denver")
+        try link(phone, to: denversKey)
+        try RegistryAdmission.linkPersonKey(
+            person: otherRoot.author.fingerprint, to: denversKey.fingerprint,
+            in: projectURL, by: otherRoot.author,
+            cache: RegistryCache(
+                fileURL: cacheURL.appendingPathExtension("other"),
+                identity: otherRoot.author.fingerprint))
+
+        XCTAssertThrowsError(try forget(phone)) { error in
+            XCTAssertEqual(error as? RegistryAdmissionError,
+                           .alreadyAdmittedElsewhere(root: otherRoot.author.fingerprint))
+        }
+        XCTAssertEqual(try registry().person(phone.author.fingerprint)?.personKey,
+                       denversKey.fingerprint, "nothing was cleared")
+    }
+
+    // MARK: - The key's shape
+
+    func test_aKeyNotInAFingerprintsShapeIsRefused() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try admit(phone, label: "Denver", ownName: "Denver's iPhone")
+        let before = try bytes(of: phone)
+        let good = denversKey.fingerprint
+        XCTAssertTrue(DeviceIdentity.isFingerprint(good), "premise: a real one passes")
+
+        for bad in ["", good.uppercased(), String(good.dropLast()), good + "0",
+                    String(good.dropLast()) + "g", " " + String(good.dropFirst())] {
+            XCTAssertFalse(DeviceIdentity.isFingerprint(bad), bad)
+            XCTAssertThrowsError(try RegistryAdmission.linkPersonKey(
+                person: phone.author.fingerprint, to: bad, in: projectURL,
+                by: mine.author, cache: makeCache())
+            ) { error in
+                XCTAssertEqual(error as? RegistryAdmissionError, .malformedPersonKey, bad)
+            }
+        }
+        XCTAssertEqual(try bytes(of: phone), before)
     }
 
     /// A record holds ONE key. A second, different key is refused rather than

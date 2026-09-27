@@ -182,8 +182,9 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// **That person key is already linked to somebody else** (your devices
     /// are you, Task 4; the spec's *if P is already linked elsewhere*).
     ///
-    /// `person` is the verified record that holds it. It holds it whether or
-    /// not that person is REVOKED: revocation is a state of a member rather
+    /// `person` is a verified record that holds it under a DIFFERENT label (a
+    /// person is a label; records sharing one may all hold the key). It holds
+    /// it whether or not that person is REVOKED: revocation is a state of a member rather
     /// than an absence, and a key once linked to a revoked person moving
     /// quietly to somebody else is the compromised-Apple-ID case arriving
     /// through the door meant to answer it. The key is released by the root's
@@ -197,6 +198,17 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// first; two Apple IDs of one person are two person records, which the
     /// admission sheet already handles.
     case personLinkedToAnotherKey(person: String)
+
+    /// **A person record in this book is present and does not verify**, so a
+    /// link cannot be decided (Task 4, RULING-54): that record might be the
+    /// one holding the key, and linking over it would put one key on two
+    /// people the moment it is restored. Restore it in People & Devices first.
+    case personRecordUnreadable(fingerprint: String)
+
+    /// **The key is not a person key's fingerprint** — not the lowercase
+    /// SHA-256 hex `DeviceIdentity.fingerprint(of:)` produces. Nothing that
+    /// shape could ever match a claim, so writing it links nobody forever.
+    case malformedPersonKey
 
     /// **Which act a refusal is about** (fix round 2, minor C).
     ///
@@ -1335,17 +1347,28 @@ public enum RegistryAdmission {
     /// this book, and the root that admitted them (so a root links its own
     /// record, and never another root's).
     ///
-    /// **Nobody is linked twice**, decided over the VERIFIED registry (a file
-    /// that does not verify says nothing about anybody, so it neither holds a
-    /// key nor blocks one):
-    /// - a key some OTHER verified record holds is refused
-    ///   (`personKeyLinkedElsewhere`), and a REVOKED holder still holds it;
-    /// - a key no verified record holds — never linked, or released by
-    ///   `forgetPersonKey` — may be linked;
+    /// **A person is a LABEL, not a record** (v0.41.1 groups records by
+    /// `TrustTable.sharesLabel`; the group is `records(sharingLabelWith:in:)`).
+    /// A writer whose Mac and phone were both admitted is two records under
+    /// one label, and the same key may sit on every one of them. So, over the
+    /// VERIFIED registry:
+    /// - a key held by a record whose label does NOT share this record's label
+    ///   is refused (`personKeyLinkedElsewhere`) — and a REVOKED holder still
+    ///   holds it: a key once linked to a revoked person must not move quietly
+    ///   to somebody else;
+    /// - a key held by nobody, or only by records sharing this label, may be
+    ///   linked here;
     /// - this record already holding a DIFFERENT key is refused
     ///   (`personLinkedToAnotherKey`); Forget first.
     ///
-    /// Idempotent: this record already holding `key` writes nothing.
+    /// **Present-but-unreadable is not absent** (RULING-54): a person record
+    /// that is on disk and does not verify might be the key's holder, so any
+    /// such record refuses the link (`personRecordUnreadable`) until it is
+    /// restored. A key not in `DeviceIdentity.isFingerprint`'s shape is refused
+    /// (`malformedPersonKey`) before anything is read.
+    ///
+    /// Idempotent: this record already holding `key` writes nothing, and asks
+    /// nothing else.
     ///
     /// **What it does not decide** is whether `key` is really this person's.
     /// The CALLER guarantees that (PK-3): it links only a key from a claim
@@ -1363,6 +1386,9 @@ public enum RegistryAdmission {
         cache: RegistryCache,
         presenter: NSFilePresenter? = nil
     ) throws -> PersonRecord {
+        guard DeviceIdentity.isFingerprint(key) else {
+            throw RegistryAdmissionError.malformedPersonKey
+        }
         let registry = try TrustResolution.verifiedRegistry(
             projectURL: projectURL, presenter: presenter, cache: cache)
         let existing = try renameOutcome(
@@ -1372,8 +1398,10 @@ public enum RegistryAdmission {
         if existing.personKey != nil {
             throw RegistryAdmissionError.personLinkedToAnotherKey(person: fingerprint)
         }
-        if let holder = personHolding(personKey: key, in: registry),
-           holder.person != fingerprint {
+        if let unreadable = unreadablePeople(in: registry).sorted().first {
+            throw RegistryAdmissionError.personRecordUnreadable(fingerprint: unreadable)
+        }
+        if let holder = otherPersonHolding(personKey: key, besides: existing, in: registry) {
             throw RegistryAdmissionError.personKeyLinkedElsewhere(person: holder.person)
         }
 
@@ -1385,14 +1413,22 @@ public enum RegistryAdmission {
         return try readBack(fingerprint, in: projectURL, cache: cache, presenter: presenter)
     }
 
-    /// **Forget the person key linked to a person record** — the inverse of
+    /// **Forget this person's linked key — LABEL-WIDE** — the inverse of
     /// `linkPersonKey`, and the answer to a compromised Apple ID: new devices
-    /// carrying that key are asked about again. Already-admitted devices stay;
+    /// carrying the key are asked about again. Already-admitted devices stay;
     /// the writer revokes them one by one if they must go.
     ///
-    /// Root only, by the same `renameOutcome` rule, and allowed over a REVOKED
-    /// record — it is the one way to release a key a revoked person holds.
-    /// Idempotent: a record with no linked key writes nothing.
+    /// **Every record sharing this record's label is cleared**, revoked ones
+    /// included, for the reason the link is label-wide: People & Devices draws
+    /// the person as one row, and a Forget that left the phone's record
+    /// holding the key would leave the person recognised by it with the
+    /// writer believing it gone. `changePermit(everyRecordOf:)`'s shape: every
+    /// record that holds a key is checked against `renameOutcome` up front, so
+    /// the act is whole or nothing.
+    ///
+    /// Allowed over a REVOKED record — it is the one way to release a key a
+    /// revoked person holds. Idempotent: a label with no linked key writes
+    /// nothing. Answers the SUBJECT's verified record.
     @discardableResult
     nonisolated public static func forgetPersonKey(
         person fingerprint: String,
@@ -1403,31 +1439,39 @@ public enum RegistryAdmission {
     ) throws -> PersonRecord {
         let registry = try TrustResolution.verifiedRegistry(
             projectURL: projectURL, presenter: presenter, cache: cache)
-        let existing = try renameOutcome(
+        let subject = try renameOutcome(
             person: fingerprint, by: root.fingerprint, in: registry).get()
-        guard existing.personKey != nil else { return existing }
-
-        try RegistryWriter.resign(
-            existing, signedBy: root, in: projectURL, presenter: presenter
-        ) { object in
-            object.removeValue(forKey: "personKey")
+        let holders = records(sharingLabelWith: fingerprint, in: registry)
+            .filter { $0.personKey != nil }
+        guard !holders.isEmpty else { return subject }
+        // Up front, before anything is written: the whole act or none of it.
+        for holder in holders {
+            _ = try renameOutcome(
+                person: holder.person, by: root.fingerprint, in: registry).get()
+        }
+        for holder in holders {
+            try RegistryWriter.resign(
+                holder, signedBy: root, in: projectURL, presenter: presenter
+            ) { object in
+                object.removeValue(forKey: "personKey")
+            }
         }
         return try readBack(fingerprint, in: projectURL, cache: cache, presenter: presenter)
     }
 
-    /// **The verified person record a person key is linked to, if any** —
-    /// revoked or not, because a revoked holder still holds it. The one
-    /// answer to *is this key linked elsewhere*.
-    ///
-    /// A registry holding the key on MORE than one record (two roots each
-    /// linking it before either synced) answers the first by fingerprint;
-    /// `linkPersonKey` refuses over any holder that is not the subject, so
-    /// the order changes nothing it decides.
-    nonisolated public static func personHolding(
-        personKey key: String, in registry: Registry
+    /// **A verified record holding this key that is NOT the same person as
+    /// `subject`** — the one answer to *is this key linked elsewhere*. Same
+    /// person means the label rule (`TrustTable.sharesLabel`), and a revoked
+    /// holder still holds it. The lowest fingerprint answers where several do,
+    /// so two runs name the same holder.
+    nonisolated public static func otherPersonHolding(
+        personKey key: String, besides subject: PersonRecord, in registry: Registry
     ) -> PersonRecord? {
         registry.people
-            .filter { $0.personKey == key }
+            .filter {
+                $0.personKey == key && $0.person != subject.person
+                    && !TrustTable.sharesLabel($0.label, subject.label)
+            }
             .min { $0.person < $1.person }
     }
 

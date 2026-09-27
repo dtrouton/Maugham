@@ -182,6 +182,15 @@ public struct DeviceIdentity: Sendable {
         hex(SHA256.hash(data: publicKey.x963Representation))
     }
 
+    /// **Is this string in the shape `fingerprint(of:)` produces?** — 64
+    /// lowercase hex digits, a SHA-256 digest. Spelled beside the derivation
+    /// so the two cannot drift; asked where a fingerprint arrives as a plain
+    /// string that is about to be WRITTEN (a linked person key, Task 4).
+    public static func isFingerprint(_ candidate: String) -> Bool {
+        candidate.utf8.count == 64
+            && candidate.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+    }
+
     /// The unsigned twin of the above: SHA-256 hex over the persisted token.
     /// Lives here so both derivations are in one file and can never drift.
     static func fingerprint(ofToken token: Data) -> String {

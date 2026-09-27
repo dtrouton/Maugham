@@ -831,13 +831,23 @@ enum AdmissionDecision {
         case .personKeyLinkedElsewhere(let person):
             // A key once linked stays with that person — revoked or not —
             // until the writer forgets it there (your devices are you, Task 4).
-            return "Nothing was changed. That Apple ID is already linked to the "
-                + "person with code \(DeviceCode.short(person)). Forget it there "
-                + "first if it now belongs to somebody else."
+            return "Nothing was changed. That Apple ID is already linked to "
+                + "somebody else — the person with code \(DeviceCode.short(person)). "
+                + "Forget it there first if it now belongs to someone new."
         case .personLinkedToAnotherKey(let person):
             return "Nothing was changed. The person with code "
                 + "\(DeviceCode.short(person)) is already linked to a different "
                 + "Apple ID. Forget that one first."
+        case .personRecordUnreadable(let fingerprint):
+            // RULING-54: present and unreadable is not absent — that record
+            // might be the one this Apple ID is already linked to.
+            return "Nothing was changed. The record of the person with code "
+                + "\(DeviceCode.short(fingerprint)) doesn’t verify, and it might "
+                + "already be linked to this Apple ID. Restore it in People & "
+                + "Devices first."
+        case .malformedPersonKey:
+            return "Nothing was changed. That isn’t an Apple ID key Maugham can "
+                + "link — it may have come from a damaged record."
         }
     }
 }
