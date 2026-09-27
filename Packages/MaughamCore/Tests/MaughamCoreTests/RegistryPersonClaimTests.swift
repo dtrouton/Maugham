@@ -238,6 +238,55 @@ final class RegistryPersonClaimTests: XCTestCase {
         XCTAssertNil(try registry().devices.first { $0.device == device }?.personClaim)
     }
 
+    // MARK: - The signature's domain
+
+    /// The canonical form carries the constant domain, frozen with the format.
+    func test_theSignedContentCarriesTheClaimDomain() throws {
+        let made = try claim(for: mine, by: denver)
+        let bytes = try RegistryCanonical.canonicalBytes(ofJSON: try RegistryCanonical.bytes(
+            of: made.signedContent(forDevice: mine.author.fingerprint)))
+        XCTAssertEqual(PersonClaim.signedKind, "maugham.personClaim.v1")
+        XCTAssertTrue(String(decoding: bytes, as: UTF8.self)
+            .contains(#""kind":"maugham.personClaim.v1""#))
+    }
+
+    /// Denver's own key, genuinely signing the right device, key, pub and name
+    /// — under another domain. Not a claim.
+    func test_aSignatureUnderAnotherDomainDoesNotVerify() throws {
+        var content = PersonClaim.SignedContent(
+            device: mine.author.fingerprint, personKey: denver.fingerprint,
+            personPub: denver.publicKey.x963Representation.base64EncodedString(),
+            name: denver.name)
+        content.kind = "maugham.somethingElse.v1"
+        try writeRecord(for: mine, name: "Mac", claim: try signed(content, by: denver))
+
+        try assertValidButUnverified(mine)
+    }
+
+    /// The same four facts signed with no domain at all. Not a claim.
+    func test_aSignatureWithNoDomainDoesNotVerify() throws {
+        struct Undomained: Encodable {
+            let device, personKey, personPub, name: String
+        }
+        let pub = denver.publicKey.x963Representation.base64EncodedString()
+        let content = Undomained(device: mine.author.fingerprint, personKey: denver.fingerprint,
+                                 personPub: pub, name: denver.name)
+        let digest = try RegistryCanonical.digestHex(
+            ofJSON: try RegistryCanonical.bytes(of: content))
+        let claim = PersonClaim(personKey: denver.fingerprint, personPub: pub,
+                                name: denver.name, sig: try denver.sign(digest))
+        try writeRecord(for: mine, name: "Mac", claim: claim)
+
+        try assertValidButUnverified(mine)
+    }
+
+    private func signed(_ content: PersonClaim.SignedContent, by key: PersonKey) throws -> PersonClaim {
+        let digest = try RegistryCanonical.digestHex(
+            ofJSON: try RegistryCanonical.bytes(of: content))
+        return PersonClaim(personKey: content.personKey, personPub: content.personPub,
+                           name: content.name, sig: try key.sign(digest))
+    }
+
     // MARK: - Old records keep their bytes
 
     /// A P2-era device record — the exact shape a v0.41 build writes, laid down
@@ -276,7 +325,7 @@ final class RegistryPersonClaimTests: XCTestCase {
     func test_ensureDeviceRecordWritesTheClaim() throws {
         let made = try claim(for: mine, by: denver)
         try RegistryPresence.ensureDeviceRecord(
-            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: made)
+            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: .set(made))
 
         XCTAssertEqual(try registry().verifiedPersonClaim(forDevice: mine.author.fingerprint), made)
     }
@@ -288,7 +337,7 @@ final class RegistryPersonClaimTests: XCTestCase {
 
         let made = try claim(for: mine, by: denver)
         let rewrote = try RegistryPresence.ensureDeviceRecord(
-            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: made)
+            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: .set(made))
 
         XCTAssertEqual(rewrote, url, "a record missing its claim is rewritten")
         XCTAssertEqual(try registry().verifiedPersonClaim(forDevice: mine.author.fingerprint), made)
@@ -300,14 +349,14 @@ final class RegistryPersonClaimTests: XCTestCase {
     func test_ensureDeviceRecordLeavesTheSameClaimAloneEvenFreshlySigned() throws {
         let first = try claim(for: mine, by: denver)
         try RegistryPresence.ensureDeviceRecord(
-            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: first)
+            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: .set(first))
         let url = RegistryWriter.url(.devices, fingerprint: mine.author.fingerprint, in: projectURL)
         let before = try Data(contentsOf: url)
 
         let again = try claim(for: mine, by: denver)
         XCTAssertNotEqual(again.sig, first.sig, "precondition: the signatures differ")
         let wrote = try RegistryPresence.ensureDeviceRecord(
-            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: again)
+            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: .set(again))
 
         XCTAssertNil(wrote, "the same claim is not a reason to write")
         XCTAssertEqual(try Data(contentsOf: url), before)
@@ -316,11 +365,11 @@ final class RegistryPersonClaimTests: XCTestCase {
     func test_ensureDeviceRecordRewritesAChangedClaim() throws {
         try RegistryPresence.ensureDeviceRecord(
             in: projectURL, identities: mine, name: "Mac", kind: .mac,
-            personClaim: try claim(for: mine, by: denver))
+            personClaim: .set(try claim(for: mine, by: denver)))
 
         let other = try claim(for: mine, by: sam)
         let wrote = try RegistryPresence.ensureDeviceRecord(
-            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: other)
+            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: .set(other))
 
         XCTAssertNotNil(wrote, "a different person key is a different claim")
         XCTAssertEqual(try registry().verifiedPersonClaim(forDevice: mine.author.fingerprint), other)
@@ -347,7 +396,7 @@ final class RegistryPersonClaimTests: XCTestCase {
         XCTAssertNil(try registry().verifiedPersonClaim(forDevice: mine.author.fingerprint))
 
         let wrote = try RegistryPresence.ensureDeviceRecord(
-            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: honest)
+            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: .set(honest))
 
         XCTAssertNotNil(wrote)
         XCTAssertEqual(try registry().verifiedPersonClaim(forDevice: mine.author.fingerprint), honest)
@@ -360,7 +409,7 @@ final class RegistryPersonClaimTests: XCTestCase {
     func test_noClaimNowNeitherStripsNorForcesAWrite() throws {
         let made = try claim(for: mine, by: denver)
         try RegistryPresence.ensureDeviceRecord(
-            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: made)
+            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: .set(made))
 
         let unchanged = try RegistryPresence.ensureDeviceRecord(
             in: projectURL, identities: mine, name: "Mac", kind: .mac)
@@ -374,5 +423,65 @@ final class RegistryPersonClaimTests: XCTestCase {
                        "Renamed Mac")
         XCTAssertEqual(registry.verifiedPersonClaim(forDevice: mine.author.fingerprint), made,
                        "the rename carried the verified claim forward")
+    }
+
+    // MARK: - The three intents
+
+    /// A claim built for ANOTHER device (a caller's mix-up) is refused loudly:
+    /// it neither replaces the verified claim already there nor is written
+    /// where there was none.
+    func test_aClaimForAnotherDeviceIsRefusedAndNeverWritten() throws {
+        let mineClaim = try claim(for: mine, by: denver)
+        try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: .set(mineClaim))
+        let url = RegistryWriter.url(.devices, fingerprint: mine.author.fingerprint, in: projectURL)
+        let before = try Data(contentsOf: url)
+
+        let wrongDevice = try claim(for: stranger, by: denver)
+        XCTAssertThrowsError(try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: mine, name: "Renamed", kind: .mac,
+            personClaim: .set(wrongDevice))) { error in
+            XCTAssertEqual(error as? PersonClaimError,
+                           .doesNotVerifyForThisDevice(device: self.mine.author.fingerprint))
+        }
+        XCTAssertEqual(try Data(contentsOf: url), before, "nothing was written — not even the rename")
+        XCTAssertEqual(try registry().verifiedPersonClaim(forDevice: mine.author.fingerprint), mineClaim)
+
+        // And on a book with no record of this device yet, no record appears.
+        let fresh = TestTemp.root.appendingPathComponent("claim-fresh-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: fresh, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fresh) }
+        XCTAssertThrowsError(try RegistryPresence.ensureDeviceRecord(
+            in: fresh, identities: mine, name: "Mac", kind: .mac, personClaim: .set(wrongDevice)))
+        XCTAssertTrue(try RegistryReader.load(projectURL: fresh).devices.isEmpty)
+    }
+
+    func test_removeStripsTheClaim() throws {
+        try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: mine, name: "Mac", kind: .mac,
+            personClaim: .set(try claim(for: mine, by: denver)))
+
+        let wrote = try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: .remove)
+
+        XCTAssertNotNil(wrote, "removing a claim is a change")
+        let registry = try registry()
+        XCTAssertNil(registry.devices.first { $0.device == mine.author.fingerprint }?.personClaim)
+        XCTAssertTrue(registry.malformed.isEmpty)
+        XCTAssertNil(try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: .remove),
+            "and removing nothing writes nothing")
+    }
+
+    func test_keepIsTheDefaultAndKeepsTheStandingClaim() throws {
+        let made = try claim(for: mine, by: denver)
+        try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: .set(made))
+
+        XCTAssertNil(try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: mine, name: "Mac", kind: .mac, personClaim: .keep))
+        XCTAssertNotNil(try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: mine, name: "Renamed", kind: .mac, personClaim: .keep))
+        XCTAssertEqual(try registry().verifiedPersonClaim(forDevice: mine.author.fingerprint), made)
     }
 }

@@ -46,9 +46,19 @@ public struct PersonClaim: Codable, Equatable, Hashable, Sendable {
         self.sig = sig
     }
 
-    /// What P signs: the claim's three facts plus the device they are about.
-    /// Encodable only — it is never read back, only canonicalized.
+    /// The domain of a claim's signature, signed as `SignedContent.kind` and
+    /// required by the verifier. It is not stored on the claim — it is a
+    /// constant of the format — but it IS in what P signs, so a person key's
+    /// signature over some other object that happens to share these fields can
+    /// never be read as a claim, and a later version of the claim is a new
+    /// value here rather than a reinterpretation of this one. Frozen the
+    /// moment a build that writes claims ships (tripwire 42).
+    static let signedKind = "maugham.personClaim.v1"
+
+    /// What P signs: the claim's domain, its three facts, and the device they
+    /// are about. Encodable only — it is never read back, only canonicalized.
     struct SignedContent: Encodable, Equatable {
+        var kind: String = PersonClaim.signedKind
         let device: String
         let personKey: String
         let personPub: String
@@ -77,4 +87,29 @@ public struct PersonClaim: Codable, Equatable, Hashable, Sendable {
     }
 
     var facts: Facts { Facts(personKey: personKey, personPub: personPub, name: name) }
+}
+
+/// **What `RegistryPresence.ensureDeviceRecord` should do about this device's
+/// claim** — three intents, so *remove* is never folded into *nothing to say*.
+///
+/// - `keep`: no claim to make now (no keychain this launch). The verified
+///   claim already on the record stands, and is carried through a rewrite
+///   made for another reason. The default, and every pre-claim caller's.
+/// - `set`: this claim, verified for THIS device first; a claim that does
+///   not verify for it is refused loudly (`PersonClaimError`), never written.
+/// - `remove`: the record is written without a claim. Deciding WHEN (a Mac
+///   definitively signed out of iCloud) is the caller's; this is only the verb.
+public enum PersonClaimIntent: Equatable, Sendable {
+    case keep
+    case set(PersonClaim)
+    case remove
+}
+
+/// A claim offered for this device's own record that does not verify for it —
+/// made for another device, or with another key than the one it names. A
+/// programming error, and loud: writing it would replace a claim that holds
+/// with one that never can, and send this device back to the admission sheet
+/// on every Mac without a word.
+public enum PersonClaimError: Error, Equatable {
+    case doesNotVerifyForThisDevice(device: String)
 }

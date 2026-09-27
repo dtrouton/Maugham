@@ -67,7 +67,7 @@ public enum RegistryPresence {
         kind: DeviceKind,
         now: () -> Date = { Date() },
         presenter: NSFilePresenter? = nil,
-        personClaim: PersonClaim? = nil
+        personClaim intent: PersonClaimIntent = .keep
     ) throws -> URL? {
         // MINTS, and should: this is a write path, and naming an actor is the
         // writer's act (`LocalIdentities`' lazy rule). Everything after this
@@ -94,10 +94,25 @@ public enum RegistryPresence {
         // tampered or copied claim is not one this device can carry forward,
         // and not one a new claim can be "the same as".
         let standingClaim = existing.flatMap(RegistryReader.verifiedPersonClaim(of:))
-        // `nil` is *no claim to make now* (no keychain, not signed in) — not
-        // *remove the claim*. Losing the keychain for a launch must not strip
-        // a true claim from the book, so the standing one is kept.
-        let claim = personClaim ?? standingClaim
+        // `keep` is *no claim to make now* (no keychain this launch): losing the
+        // keychain for a launch must not strip a true claim from the book.
+        // `set` is verified for THIS device through the one verifier before it
+        // can replace anything — a claim built for another device would never
+        // verify here, and would silently un-recognise this device everywhere.
+        let claim: PersonClaim?
+        switch intent {
+        case .keep:
+            claim = standingClaim
+        case .remove:
+            claim = nil
+        case .set(let offered):
+            guard let verified = RegistryReader.verifiedPersonClaim(
+                offered, forDevice: author.fingerprint)
+            else {
+                throw PersonClaimError.doesNotVerifyForThisDevice(device: author.fingerprint)
+            }
+            claim = verified
+        }
         if let existing {
             guard existing.retiredAt == nil else { return nil }
             // The claim is compared by its FACTS, never its signature: ECDSA

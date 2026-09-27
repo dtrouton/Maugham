@@ -749,6 +749,15 @@ public enum RegistryReader {
         of record: DeviceRecord
     ) -> PersonClaim? {
         guard let claim = record.personClaim else { return nil }
+        return verifiedPersonClaim(claim, forDevice: record.device)
+    }
+
+    /// The same verification of a claim not yet inside a record — the one a
+    /// device is about to write into its own (`RegistryPresence`). One
+    /// verifier: `verifiedPersonClaim(of:)` is this, handed the record's device.
+    nonisolated public static func verifiedPersonClaim(
+        _ claim: PersonClaim, forDevice device: String
+    ) -> PersonClaim? {
         // The credentials the claim SAYS signed it. The stored `sig` must be
         // exactly these (guard A), and the signature must hold under the
         // claim's own `personPub` — whose fingerprint `credentialsVerify`
@@ -760,7 +769,7 @@ public enum RegistryReader {
             key: claim.personKey, pub: claim.personPub, sig: claim.sig.sig)
         guard claim.sig == asClaimed else { return nil }
         guard let digest = try? RegistryCanonical.digestHex(
-                ofJSON: RegistryCanonical.bytes(of: claim.signedContent(forDevice: record.device))),
+                ofJSON: RegistryCanonical.bytes(of: claim.signedContent(forDevice: device))),
               OpLogChain.credentialsVerify(asClaimed, over: digest)
         else { return nil }
         return claim

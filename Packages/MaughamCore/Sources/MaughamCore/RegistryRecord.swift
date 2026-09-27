@@ -98,6 +98,10 @@ public enum DeviceKind: Codable, Equatable, Hashable, Sendable {
 /// *that Mac's assistant* rather than as a stranger — the actor keys are listed
 /// here, under a fingerprint the author's signature vouches for, so admitting a
 /// device admits every actor it lists (spec §4.4).
+///
+/// Its decoding is hand-written (a misshapen `personClaim` must not fail the
+/// record), so a new field must be added both to `CodingKeys` — which the
+/// synthesized encoding follows — and to `init(from:)`.
 public struct DeviceRecord: RegistryRecordProtocol {
     /// The device's author-key fingerprint. Also its filename.
     public let device: String
@@ -137,6 +141,11 @@ public struct DeviceRecord: RegistryRecordProtocol {
         self.sig = sig
     }
 
+    /// **A new field goes in THREE places**: a property, a case here, and the
+    /// hand-written `init(from:)` below. The compiler catches a property the
+    /// decoder forgets to assign; it does NOT catch a missing case here — the
+    /// synthesized `encode(to:)` follows these keys, so the field would
+    /// silently never be written.
     private enum CodingKeys: String, CodingKey {
         case device, name, kind, actors, madeAt, retiredAt, personClaim, sig
     }
