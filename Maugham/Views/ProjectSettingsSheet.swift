@@ -652,6 +652,7 @@ struct ProjectSettingsSheet: View {
             writeAgain: confirmWriteAgain,
             claim: claimOffer,
             claimBook: askToClaim,
+            forgetPersonKey: confirmForgetPersonKey,
             notice: peopleNotice)
     }
 
@@ -698,7 +699,38 @@ struct ProjectSettingsSheet: View {
             // A revocation marks THIS person's streams
             // (`expectedStreams(ofDeviceIds:)`), so it is decided without what
             // was put down about them and about nobody else (fix round 1).
-            lostHistory: acknowledgedLostHistory.count(ofPerson: fingerprint))
+            lostHistory: acknowledgedLostHistory.count(ofPerson: fingerprint),
+            // What it leaves of their Apple ID key — the GROUP's answer, since
+            // a key is linked label-wide (your devices are you, Task 5's carry).
+            personKey: peopleAndDevices?.groups
+                .first { $0.records.contains { $0.fingerprint == fingerprint } }?
+                .personKeyAfterRevoking(fingerprint) ?? .noKey)
+    }
+
+    /// **Forget this person key** — ask first; it cannot be taken back in this
+    /// book (your devices are you, Task 7).
+    private func confirmForgetPersonKey(_ group: PeopleAndDevicesModel.PersonGroup) {
+        peopleNotice = nil
+        guard let subject = group.forgetSubject else { return }
+        confirming = .forgetPersonKey(person: subject.fingerprint, label: group.label)
+    }
+
+    /// The writer confirmed Forget. A Forget that stopped part way is said in
+    /// words — which devices still carry the link — never swallowed, and never
+    /// the bare error (RULING-7).
+    private func forgetPersonKey(_ fingerprint: String) {
+        Task { @MainActor in
+            guard let store = store.documentStore else { return }
+            do {
+                try await store.forgetPersonKey(person: fingerprint)
+            } catch let incomplete as PersonKeyForgetIncomplete {
+                peopleNotice = peopleAndDevices?.forgetIncompleteSentence(incomplete)
+                    ?? incomplete.localizedDescription
+            } catch {
+                peopleNotice = AdmissionDecision.refusal(error)
+            }
+            await loadPeopleAndDevices()
+        }
     }
 
     private func confirmRetire(_ fingerprint: String) {
@@ -809,6 +841,7 @@ struct ProjectSettingsSheet: View {
         case .resign: resignRecord(confirmation.fingerprint)
         case .writeOwnRecord:
             if let record = confirmation.record { writeOwnRecordAgain(record) }
+        case .forgetPersonKey: forgetPersonKey(confirmation.fingerprint)
         }
     }
 

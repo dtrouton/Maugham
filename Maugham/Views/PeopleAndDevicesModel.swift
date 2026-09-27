@@ -373,6 +373,17 @@ struct PeopleAndDevicesModel: Equatable {
         /// this) drew as a person with nothing under it, which read as a
         /// second writer rather than as the writer's other machine.
         var unseenDevice: UnseenDevice? = nil
+        /// **The person key this record carries** (your devices are you, Task
+        /// 7) — the fingerprint `RegistryAdmission.linkPersonKey` wrote, or nil.
+        /// A display fact: whether a new device is RECOGNISED by it is
+        /// `Recognition.recognise`'s, and this pane only says it is linked.
+        var personKey: String? = nil
+        /// **Whether this Mac may Forget the key** — label-wide, so only where
+        /// `RegistryAdmission.renameOutcome` (the verb's own up-front check)
+        /// lets this Mac re-sign EVERY record holding a key under this label.
+        /// False on a Mac that is not the root that admitted them all, which is
+        /// where the control is hidden.
+        var mayForgetPersonKey: Bool = false
 
         var id: String { fingerprint }
 
@@ -535,12 +546,122 @@ struct PeopleAndDevicesModel: Equatable {
 
         var canChangePermit: Bool { whyNotChangeable == nil }
 
+        // MARK: The person key (your devices are you, Task 7)
+
+        /// *Recognised on every device signed into this person's Apple ID.* —
+        /// the spec's sentence, drawn where a record of theirs carries a
+        /// linked key and one of their records stands.
+        static let recognisedSentence =
+            "Recognised on every device signed into this person\u{2019}s Apple ID."
+
+        /// Linked, but every record of theirs revoked: recognition then ASKS
+        /// (Task 5's ruling — revoked records neither help nor block, and a
+        /// person with none standing is nobody to be recognised as), so the
+        /// line must not say they are recognised.
+        static let linkedButRevokedSentence =
+            "Their Apple ID is still linked here, but every device of theirs is "
+            + "revoked, so a new one is asked about."
+
+        /// Some record of theirs carries a linked key.
+        var linksAPersonKey: Bool { records.contains { $0.personKey != nil } }
+
+        /// The line under the person, or nil where no key is linked.
+        var personKeyLine: String? {
+            guard linksAPersonKey else { return nil }
+            return records.contains { $0.revokedAt == nil }
+                ? Self.recognisedSentence : Self.linkedButRevokedSentence
+        }
+
+        /// **Forget this person key** — root only, and HIDDEN elsewhere rather
+        /// than disabled: on a Mac that is not the root that admitted them the
+        /// verb cannot become live on any day, which is Revoke-on-a-root's
+        /// exception for its reason. Label-wide, so every record agrees.
+        var offersForgetPersonKey: Bool { forgetSubject != nil }
+
+        /// The record Forget is pressed about — one holding the key. The verb
+        /// clears every record of the label from any one of them.
+        var forgetSubject: Person? {
+            records.first { $0.personKey != nil && $0.mayForgetPersonKey }
+        }
+
+        /// **What revoking one of their records leaves of the key** (Task 5's
+        /// carry): revoking a device never forgets the Apple ID, so the Revoke
+        /// confirmation says Forget is the verb for a key that may be
+        /// compromised.
+        func personKeyAfterRevoking(_ fingerprint: String) -> PersonKeyAfterRevoke {
+            guard linksAPersonKey else { return .noKey }
+            let othersStand = records.contains {
+                $0.fingerprint != fingerprint && $0.revokedAt == nil
+            }
+            return othersStand ? .staysRecognised : .staysLinked
+        }
+
         /// Rename's help on a record row inside a group: it is ONE record's
         /// word, so a rename moves that device out from under this name.
         static func renameOneRecordHelp(label: String) -> String {
             "Change the name this book calls this device\u{2019}s writer. Only "
                 + "this device\u{2019}s record changes; the others stay under "
                 + "\u{201C}\(label)\u{201D}."
+        }
+    }
+
+    /// What a revocation leaves of a person's linked key.
+    enum PersonKeyAfterRevoke: Equatable {
+        /// No key is linked: the confirmation says nothing about one.
+        case noKey
+        /// Another record of theirs stands, so a new device carrying the key
+        /// is still let in without asking.
+        case staysRecognised
+        /// Nothing of theirs stands after this, so a new device is asked
+        /// about — but the key stays linked to them until it is forgotten.
+        case staysLinked
+    }
+
+    /// **A Forget that did not finish, in words** (Task 7) — which devices the
+    /// folder says no longer carry the link and which still do, named as this
+    /// pane names them. `PersonKeyForgetIncomplete`'s lists are what the
+    /// folder read back AFTER the act, so this is the honest account.
+    func forgetIncompleteSentence(_ error: PersonKeyForgetIncomplete) -> String {
+        let cleared = error.cleared.map(deviceName(ofRecord:))
+        let still = error.notCleared.map(deviceName(ofRecord:))
+        var parts: [String] = []
+        if cleared.isEmpty {
+            parts.append("Nothing was forgotten.")
+            if !still.isEmpty {
+                parts.append("Their Apple ID is still linked on "
+                    + Self.list(still) + ".")
+            }
+        } else {
+            parts.append("Forget didn\u{2019}t finish. Their Apple ID is no longer "
+                + "linked on \(Self.list(cleared)), but is still linked on "
+                + "\(Self.list(still)), so a new device of theirs is still "
+                + "recognised.")
+        }
+        if let underlying = error.underlying {
+            parts.append(underlying.localizedDescription)
+        }
+        parts.append("Press Forget again to finish the rest.")
+        return parts.joined(separator: " ")
+    }
+
+    /// *Denver’s iPhone (4F2K)* — a record's machine as its row names it, with
+    /// the code, which is what the writer can check against a screen.
+    func deviceName(ofRecord fingerprint: String) -> String {
+        let code = DeviceCode.short(fingerprint)
+        guard let person = people.first(where: { $0.fingerprint == fingerprint }) else {
+            return code
+        }
+        let name = person.devices.first?.name
+            ?? person.unseenDevice?.name
+            ?? person.recordedOwnName
+        return name.isEmpty || name == code ? code : "\(name) (\(code))"
+    }
+
+    private static func list(_ names: [String]) -> String {
+        switch names.count {
+        case 0: return "none of them"
+        case 1: return names[0]
+        default: return names.dropLast().joined(separator: ", ") + " and " + names.last!
         }
     }
 
@@ -1318,7 +1439,28 @@ struct PeopleAndDevicesModel: Equatable {
                 directory: .people, fingerprint: record.person)],
             devices: devices,
             unseenDevice: devices.isEmpty
-                ? unseenDevice(of: record, me: me) : nil)
+                ? unseenDevice(of: record, me: me) : nil,
+            personKey: record.personKey,
+            mayForgetPersonKey: mayForgetPersonKey(of: record, in: registry, me: me))
+    }
+
+    /// **The verb's own up-front rule, asked of the verb**: Forget re-signs
+    /// every record sharing the label that holds a key, and refuses the whole
+    /// act unless `RegistryAdmission.renameOutcome` lets this Mac re-sign each
+    /// one. `records(sharingLabelWith:)` is the verb's own group — every root's
+    /// records, not only this chain's — so the pane never offers an act the
+    /// verb would refuse.
+    private static func mayForgetPersonKey(
+        of record: PersonRecord, in registry: Registry, me: String
+    ) -> Bool {
+        let holders = RegistryAdmission.records(sharingLabelWith: record.person, in: registry)
+            .filter { $0.personKey != nil }
+        guard !holders.isEmpty else { return false }
+        return holders.allSatisfy {
+            if case .success = RegistryAdmission.renameOutcome(
+                person: $0.person, by: me, in: registry) { return true }
+            return false
+        }
     }
 
     /// The device row a record with no device record still gets (v0.41.1).

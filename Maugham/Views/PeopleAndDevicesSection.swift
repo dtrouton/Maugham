@@ -85,8 +85,18 @@ struct PeopleAndDevicesSection: View {
     var claim: ClaimOffer?
     /// Open the claim's confirmation. The sheet belongs to the host.
     var claimBook: () -> Void = {}
+    /// **Forget this person key** (your devices are you, Task 7). The whole
+    /// group, because the verb is label-wide and the confirmation names the
+    /// person. Drawn only where the model offers it — root only, hidden
+    /// elsewhere.
+    var forgetPersonKey: (PeopleAndDevicesModel.PersonGroup) -> Void = { _ in }
     /// What the last verb said when it refused, or nil.
     var notice: String?
+
+    /// Forget's tooltip.
+    static let forgetPersonKeyTitle = "Forget This Person Key"
+    static let forgetPersonKeyHelp =
+        "Stop recognising this person\u{2019}s Apple ID here, so each new device of theirs is asked about"
 
     /// What Write It Again says, and what it is not — Restore puts a file
     /// back; this makes a new one.
@@ -125,10 +135,13 @@ struct PeopleAndDevicesSection: View {
                 // sharing a label are one person with every device beneath.
                 // A lone record draws exactly as a person row always did.
                 ForEach(model.groups) { group in
-                    if group.isOneRecord {
-                        personRow(group.records[0])
-                    } else {
-                        groupRow(group)
+                    VStack(alignment: .leading, spacing: 4) {
+                        if group.isOneRecord {
+                            personRow(group.records[0])
+                        } else {
+                            groupRow(group)
+                        }
+                        personKeyRow(group)
                     }
                 }
                 // **§7.2: pieces somebody started that nobody has claimed**
@@ -332,6 +345,28 @@ struct PeopleAndDevicesSection: View {
             .font(.caption)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// **The person's Apple ID key** (your devices are you, Task 7): the
+    /// model's line, and Forget where the model offers it. Nothing at all for
+    /// a person with no linked key.
+    @ViewBuilder
+    private func personKeyRow(_ group: PeopleAndDevicesModel.PersonGroup) -> some View {
+        if let line = group.personKeyLine {
+            HStack(alignment: .firstTextBaseline) {
+                Label(line, systemImage: "person.badge.key")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                if group.offersForgetPersonKey {
+                    Button(Self.forgetPersonKeyTitle) { forgetPersonKey(group) }
+                        .controlSize(.small)
+                        .help(Self.forgetPersonKeyHelp)
+                        .accessibilityHint(Text(Self.forgetPersonKeyHelp))
+                }
+            }
+        }
     }
 
     /// **One writer with several records** (v0.41.1). The header carries what

@@ -549,6 +549,36 @@ extension DocumentStore {
         return record
     }
 
+    /// **Forget a person's Apple ID key — label-wide** (your devices are you,
+    /// Task 7): People & Devices' *Forget This Person Key*. The write is
+    /// `RegistryAdmission.forgetPersonKey` off the main actor (the root's
+    /// verb, which re-signs every record of the label and remembers the key
+    /// forgotten), then trust is invalidated and every open document re-read —
+    /// `admit`'s own acts, in its order.
+    ///
+    /// **A Forget that stopped part way still settles, then throws** its
+    /// `PersonKeyForgetIncomplete`: whatever it DID write must reach every
+    /// reader, and the writer is handed the folder's own account of which
+    /// records were and were not cleared (the pane puts it in words).
+    @discardableResult
+    public func forgetPersonKey(person fingerprint: String) async throws -> PersonRecord {
+        let projectURL = self.projectURL
+        let author = Document.loadIdentities.author
+        let cache = Document.loadRegistryCache
+        let record: PersonRecord
+        do {
+            record = try await Task.detached(priority: .userInitiated) {
+                try RegistryAdmission.forgetPersonKey(
+                    person: fingerprint, in: projectURL, by: author, cache: cache)
+            }.value
+        } catch let incomplete as PersonKeyForgetIncomplete {
+            await settle(after: "forgetting the person key of", DeviceCode.short(fingerprint))
+            throw incomplete
+        }
+        await settle(after: "forgetting the person key of", DeviceCode.short(fingerprint))
+        return record
+    }
+
     /// **Put a registry record back** (P2 smoke find 1). Answers the file it
     /// wrote.
     ///

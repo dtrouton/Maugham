@@ -28,6 +28,11 @@ struct AdmissionRequest: Identifiable, Equatable {
     /// the device has no record here, which leaves Admit refused until the
     /// writer types something (`outcome` answers `.notNow` for empty).
     ///
+    /// **Or the name its own person claim carries** (your devices are you,
+    /// Task 7) — `AdmissionDecision.claimedLabel`'s rule: the claim's name
+    /// where it is no label here, or where the label it matches holds this
+    /// claim's very key; otherwise the device-name proposal below stands.
+    ///
     /// **And empty when its own name is a label this book already has** (P3b
     /// smoke find F1). Two Macs sharing a name is the ORDINARY case — the
     /// shipped default, a machine restored from another's backup (tripwire
@@ -45,8 +50,15 @@ struct AdmissionRequest: Identifiable, Equatable {
     let knownLabels: [String]
     /// The label this book already has that the device's OWN name matches,
     /// in that label's spelling — nil when there is none (F1). Set exactly
-    /// when the device's name was withheld from `proposedLabel`.
+    /// when the device's name was withheld from the device-name proposal; the
+    /// sheet says why only while the field is empty.
     let sharesItsNameWith: String?
+    /// **What the device's own verified claim says about it** (your devices
+    /// are you, Task 7) — `Recognition.recognise`'s hint for a device it
+    /// would not let in silently. Nil where the device carries no claim that
+    /// verifies, which is every device before this milestone. A HINT, never
+    /// identity: anybody can name a key anything.
+    let hint: ClaimHint?
     /// **What is waiting, and where, in the writer's terms** (P3b smoke find
     /// F2) — *1 paragraph in “Chapter 3”* and the first words of it. Filled in
     /// by the window from the loads' own descriptions (`AdmissionWaiting
@@ -57,7 +69,8 @@ struct AdmissionRequest: Identifiable, Equatable {
     init(
         fingerprint: String, ownName: String?, code: String,
         waitingCount: Int, proposedLabel: String, knownLabels: [String],
-        sharesItsNameWith: String? = nil
+        sharesItsNameWith: String? = nil,
+        hint: ClaimHint? = nil
     ) {
         self.fingerprint = fingerprint
         self.ownName = ownName
@@ -66,6 +79,7 @@ struct AdmissionRequest: Identifiable, Equatable {
         self.proposedLabel = proposedLabel
         self.knownLabels = knownLabels
         self.sharesItsNameWith = sharesItsNameWith
+        self.hint = hint
     }
 
     var id: String { fingerprint }
@@ -204,15 +218,83 @@ enum AdmissionDecision {
             let record = registry.devices.first { $0.device == fingerprint }
             let ownName = record?.name
             let start = Self.proposal(ownName: ownName, knownLabels: labels)
+            // `myRoot` is non-nil past the guard above, and it is the asking
+            // root (`askingRoot`) — the one recognition decides for.
+            let hint = record.flatMap {
+                Self.claimHint(for: $0, registry: registry, thisRoot: myRoot ?? "")
+            }
+            let claimed = Self.claimedLabel(
+                claim: registry.verifiedPersonClaims[fingerprint],
+                knownLabels: labels, registry: registry, thisRoot: myRoot ?? "")
             return AdmissionRequest(
                 fingerprint: fingerprint,
                 ownName: ownName,
                 code: DeviceCode.short(fingerprint),
                 waitingCount: pending[fingerprint] ?? 0,
-                proposedLabel: start.label,
+                proposedLabel: claimed ?? start.label,
                 knownLabels: labels,
-                sharesItsNameWith: start.collidesWith)
+                sharesItsNameWith: start.collidesWith,
+                hint: hint)
         }
+    }
+
+    // MARK: - What the device's own claim says (your devices are you, Task 7)
+
+    /// **The hint the sheet draws**, asked of `Recognition.recognise` — the
+    /// one decision, never a second opinion — for the device record the
+    /// registry verified. Its `.ask` carries the hint (including whether the
+    /// key is linked elsewhere). A device recognition WOULD let in that still
+    /// reached the sheet — the silent admission declined it (a permit this
+    /// build cannot judge, a narrowed book with no photograph) — is described
+    /// plainly from its own claim: nothing about it is somebody else's.
+    ///
+    /// Nil where the device carries no claim that verifies.
+    static func claimHint(
+        for record: DeviceRecord, registry: Registry, thisRoot: String
+    ) -> ClaimHint? {
+        guard let claim = registry.verifiedPersonClaims[record.device] else { return nil }
+        switch Recognition.recognise(
+            device: record, verifiedClaim: claim, registry: registry, thisRoot: thisRoot) {
+        case .ask(let hint):
+            return hint ?? ClaimHint(
+                personName: claim.name, deviceName: record.name, linkedElsewhere: false)
+        case .ownDevice, .knownPerson:
+            return ClaimHint(
+                personName: claim.name, deviceName: record.name, linkedElsewhere: false)
+        }
+    }
+
+    /// **The label a claim proposes, or nil for today's proposal** (Task 7).
+    ///
+    /// Both directions:
+    /// - the claim's name (trimmed, non-empty) that matches NO label here —
+    ///   `matches`, the rule `outcome` merges by — is proposed as it is: Admit
+    ///   then makes a new person, never a merge;
+    /// - a name that matches a label is proposed, in that label's spelling,
+    ///   only where the STANDING records of this root's chain under that label
+    ///   hold exactly this claim's key and no other — the key is the evidence
+    ///   that makes the merge the right starting value. A label under a
+    ///   different key, under no key at all (absence is not a match, P3b's F1:
+    ///   a pre-filled known label is one press away from merging a stranger
+    ///   into that person), only under revoked records, only under another
+    ///   root's records, or only in this Mac's memory, is not proposed.
+    static func claimedLabel(
+        claim: PersonClaim?, knownLabels: [String], registry: Registry, thisRoot: String
+    ) -> String? {
+        guard let claim else { return nil }
+        let name = claim.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        guard let existing = knownLabels.first(where: { matches($0, name) }) else {
+            return name
+        }
+        let chain = TrustTable.chain(ofRoot: thisRoot, in: registry)
+        let keys = Set(registry.people
+            .filter {
+                chain.contains($0.person) && $0.revokedAt == nil
+                    && matches($0.label, existing)
+            }
+            .map(\.personKey))
+        return keys == [claim.personKey] ? existing : nil
     }
 
     /// **What the label field starts with — never a merge** (P3b smoke F1).
