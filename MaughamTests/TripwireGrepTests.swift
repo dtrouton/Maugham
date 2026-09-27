@@ -7337,6 +7337,24 @@ final class TripwireGrepTests: XCTestCase {
             && !line.contains("SecureEnclave.P256.Signing.PrivateKey(")
     }
 
+    /// The census's allow-list, BY FILE NAME — two entries, each for a reason:
+    ///
+    /// - `DeviceIdentity+Testing.swift` — the test-only software signers,
+    ///   `internal` and reachable only through `@testable import`.
+    /// - `PersonKey.swift` (your devices are you, plan 1 Task 2) — the person
+    ///   key, the ONE production software key. A device key is the enclave's
+    ///   because it proves which MACHINE wrote a line; the person key proves the
+    ///   opposite — that several machines are one person — so it has to leave
+    ///   the machine through iCloud Keychain, and a key that leaves the machine
+    ///   is a software key. It never signs manuscript lines, only a claim that a
+    ///   device belongs to a person. Allowed by NAME, so a software key in any
+    ///   other file (a `PersonClaim.swift`, a second keychain helper) still fires
+    ///   — `test_theSoftwarePrivateKeyCensusFiresOnPlantedOffenders` proves it.
+    static let softwarePrivateKeyAllowed: Set<String> = [
+        "DeviceIdentity+Testing.swift",
+        "PersonKey.swift",
+    ]
+
     /// Prose may name a software key; code may not construct one.
     static func softwarePrivateKeyExcludeLine(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -7354,7 +7372,7 @@ final class TripwireGrepTests: XCTestCase {
             offenders += try grepSwift(
                 in: root,
                 patterns: [],
-                allowed: ["DeviceIdentity+Testing.swift"],
+                allowed: Self.softwarePrivateKeyAllowed,
                 excludeLine: Self.softwarePrivateKeyExcludeLine,
                 extraOffender: Self.isSoftwarePrivateKeyLine)
         }
@@ -7388,9 +7406,12 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: tmp.appendingPathComponent("BadDeviceKey.swift"),
                   atomically: true, encoding: .utf8)
 
+        // Under the PRODUCTION allow-list: a file not named in it is caught
+        // whatever else the list admits.
         let offenders = try grepSwift(
             in: tmp,
             patterns: [],
+            allowed: Self.softwarePrivateKeyAllowed,
             excludeLine: Self.softwarePrivateKeyExcludeLine,
             extraOffender: Self.isSoftwarePrivateKeyLine)
 
@@ -7413,6 +7434,32 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(allowed.isEmpty,
             "Self-check: the allow-listed file must be skipped whole. Caught:\n"
             + allowed.joined(separator: "\n"))
+
+        // The person key's entry is honoured by name too — and only by name:
+        // the same planted keys in a file whose name merely CONTAINS it fire.
+        try fm.moveItem(at: tmp.appendingPathComponent("DeviceIdentity+Testing.swift"),
+                        to: tmp.appendingPathComponent("PersonKey.swift"))
+        let personKey = try grepSwift(
+            in: tmp,
+            patterns: [],
+            allowed: Self.softwarePrivateKeyAllowed,
+            excludeLine: Self.softwarePrivateKeyExcludeLine,
+            extraOffender: Self.isSoftwarePrivateKeyLine)
+        XCTAssertTrue(personKey.isEmpty,
+            "Self-check: PersonKey.swift is allow-listed by name. Caught:\n"
+            + personKey.joined(separator: "\n"))
+
+        try fm.moveItem(at: tmp.appendingPathComponent("PersonKey.swift"),
+                        to: tmp.appendingPathComponent("PersonKeyHelpers.swift"))
+        let lookalike = try grepSwift(
+            in: tmp,
+            patterns: [],
+            allowed: Self.softwarePrivateKeyAllowed,
+            excludeLine: Self.softwarePrivateKeyExcludeLine,
+            extraOffender: Self.isSoftwarePrivateKeyLine)
+        XCTAssertEqual(lookalike.count, 2,
+            "Self-check: a file whose name only resembles PersonKey.swift must "
+            + "still be caught. Caught:\n" + lookalike.joined(separator: "\n"))
     }
 
     // MARK: - The device string is the key (signed op log, spec §4.8)
