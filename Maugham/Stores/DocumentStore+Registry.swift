@@ -1034,14 +1034,25 @@ extension DocumentStore {
         /// unsigned entries with (P3b Task 10). Nil exactly when
         /// `alreadyNarrowed` is false, and nil on a refusal.
         var narrowedAt: Date?
-        /// The streams no key names, by device slug (or stream key where a file
-        /// carries no slug), sorted.
+        /// The streams no key names, as `HeldLines.unsignedStreamName` names
+        /// them — a device slug, or `HeldLines.oldestHistoryStream` for every
+        /// file that carries none — sorted.
         var streams: [String] = []
         /// The read's own sentence, where it refused. Everything else is then
         /// its default, deliberately — a guess is worse than nothing here.
         var refusal: String?
 
-        var holdsAnUnsignedStream: Bool { !streams.isEmpty }
+        /// **Is a MAC writing here that nothing signs for?** — a signing-era
+        /// stream (`HeldLines.origin`), never merely any unsigned stream
+        /// (v0.41.1). The first-narrowing notice this feeds says *nothing in
+        /// this book signs for one of the Macs writing in it*, and history
+        /// from before the signatures — a hostname-era file, a P1 role
+        /// sentinel, the unsuffixed file — is no Mac writing in it: every real
+        /// book older than P1 holds some, so the sentence was false in all of
+        /// them.
+        var holdsAnUnsignedStream: Bool {
+            streams.contains { HeldLines.origin(ofUnsignedStream: $0) == .signingEra }
+        }
     }
 
     /// The reading, off the main actor. `nil` refusal is a reading that stands.
@@ -1077,22 +1088,23 @@ extension DocumentStore {
             }
             let unsigned = try OpLogStore.unattributablePositions(
                 in: projectURL, trust: resolved.table)
-            // **Named the way the DOOR names them** — by device slug, falling
-            // back to the stream key where a file carries none. One Mac is one
-            // row whatever it wrote in, because a stream outlives its
-            // filenames and two rows for one machine would ask the writer
-            // about it twice. The spelling is `HeldLines`', so an unsigned row
-            // here and a held-line holder in History are the same word.
+            // **Named by device slug** — one Mac is one row whatever it wrote
+            // in, because a stream outlives its filenames and two rows for one
+            // machine would ask the writer about it twice. **A file with no
+            // slug is named `HeldLines.oldestHistoryStream`, never by its key**
+            // (v0.41.1): that key is a DOCUMENT id, and People & Devices listed
+            // it as though a document signed something. The spelling is
+            // `HeldLines`', so People & Devices and History name one stream
+            // one way.
             let named = unsigned.streams.keys.map { key in
-                HeldLines.unsignedHolder(
+                HeldLines.unsignedStreamName(
                     forStreamKey: key,
                     deviceSlug: PermitMark.deviceSlug(ofStreamKey: key))
             }
             return UnsignedReading(
                 alreadyNarrowed: resolved.table.hasNarrowingPermits,
                 narrowedAt: resolved.table.unsignedSnapshot?.at,
-                streams: Set(named.compactMap(HeldLines.streamOfUnsignedHolder))
-                    .sorted())
+                streams: Set(named).sorted())
         } catch {
             return UnsignedReading(refusal: error.localizedDescription)
         }

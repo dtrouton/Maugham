@@ -352,11 +352,12 @@ final class PeopleAndDevicesModelTests: XCTestCase {
         XCTAssertEqual(phoneRow.title, "Denver")
     }
 
-    /// **And kept where nothing beneath can say it.** A person the book holds
-    /// no device record for draws no nested row, so the label would stand alone
-    /// and a writer who called two machines "Denver" could not tell which one
-    /// they were about to revoke — which is what the brackets were for.
-    func test_thebracketedNameIsKeptWhenNoDeviceRowShowsIt() throws {
+    /// **And said by the device row a record with no device record now gets**
+    /// (v0.41.1). The brackets were there so a writer who called two machines
+    /// "Denver" could tell which one they were about to revoke; the
+    /// `UnseenDevice` row beneath now carries that name, so the brackets would
+    /// be the same words twice — the re-smoke's reason, one row over.
+    func test_aRecordWithNoDeviceRecordNamesItsMachineOnARowBeneath() throws {
         let noDeviceRecord = Registry(
             devices: [deviceRecord(mac, name: "Denver's MacBook", kind: .mac)],
             people: [
@@ -369,9 +370,13 @@ final class PeopleAndDevicesModelTests: XCTestCase {
 
         let phoneRow = try XCTUnwrap(
             model.people.first { $0.fingerprint == phone.fingerprint })
-        XCTAssertTrue(phoneRow.devices.isEmpty, "premise: nothing beneath names it")
-        XCTAssertEqual(phoneRow.ownName, "Denver's iPhone")
-        XCTAssertEqual(phoneRow.title, "Denver (Denver's iPhone)")
+        XCTAssertTrue(phoneRow.devices.isEmpty, "premise: no device record")
+        let unseen = try XCTUnwrap(phoneRow.unseenDevice)
+        XCTAssertEqual(unseen.name, "Denver's iPhone")
+        XCTAssertEqual(
+            unseen.title, "Denver's iPhone (\(DeviceCode.short(phone.fingerprint)))")
+        XCTAssertNil(phoneRow.ownName, "the row beneath says it")
+        XCTAssertEqual(phoneRow.title, "Denver")
     }
 
     func test_alabelThatAlreadyIsTheDevicesOwnNameIsNotRepeated() throws {
@@ -1017,6 +1022,14 @@ final class PeopleAndDevicesModelTests: XCTestCase {
 @MainActor
 final class PeopleAndDevicesPermitRowTests: XCTestCase {
 
+    /// A stream named the way THIS build names a writer — a signing-era slug
+    /// no record here names (v0.41.1: a name no current build writes is older
+    /// history and is drawn as such, so the unsigned-row pins need a real one).
+    static let ghostSlug = DeviceSlug.make(
+        from: DeviceIdentity.deviceId(
+            actor: DeviceActor.author.rawValue,
+            fingerprint: String(repeating: "5a", count: 32))).raw
+
     private var mac: DeviceIdentity!
     private var phone: DeviceIdentity!
     private var otherRoot: DeviceIdentity!
@@ -1405,11 +1418,11 @@ final class PeopleAndDevicesPermitRowTests: XCTestCase {
     /// narrowing WILL do — which is the half the writer must read before they
     /// make the first reviewer, because that day is a cliff and not a slope.
     func test_anunsignedStreamSaysWhatNarrowingWillDoBeforeThereIsAReviewer() throws {
-        let model = model(registry(), unsignedStreams: ["ghostmac"])
+        let model = model(registry(), unsignedStreams: [Self.ghostSlug])
 
         XCTAssertFalse(model.alreadyNarrowed)
         let row = try XCTUnwrap(model.unsigned.first)
-        XCTAssertEqual(row.stream, "ghostmac")
+        XCTAssertEqual(row.stream, Self.ghostSlug)
         XCTAssertTrue(row.sentence.contains("Nothing this book holds says who signs"),
                       row.sentence)
         XCTAssertTrue(
@@ -1426,7 +1439,7 @@ final class PeopleAndDevicesPermitRowTests: XCTestCase {
     /// first seal has not synced yet. This Mac cannot tell them apart and never
     /// claims to.
     func test_theunsignedSentenceNeverClaimsAnythingAboutThatMacsHardware() {
-        let row = PeopleAndDevicesModel.UnsignedStream(stream: "ghostmac")
+        let row = PeopleAndDevicesModel.UnsignedStream(stream: Self.ghostSlug)
 
         for sentence in [row.sentence,
                          PeopleAndDevicesModel.UnsignedStream.beforeNarrowing,
@@ -1443,7 +1456,7 @@ final class PeopleAndDevicesPermitRowTests: XCTestCase {
         let narrowed = registry(
             phonePermit: .reviewer,
             events: [event(.roleChanged, about: phone.fingerprint, permit: .reviewer)])
-        let model = model(narrowed, unsignedStreams: ["ghostmac"])
+        let model = model(narrowed, unsignedStreams: [Self.ghostSlug])
 
         XCTAssertTrue(model.alreadyNarrowed)
         XCTAssertTrue(

@@ -241,10 +241,9 @@ struct PeopleAndDevicesModel: Equatable {
         /// device, so that machine's row sits directly beneath carrying the same
         /// name — and the row then read *Denver Trouton (Denver's MacBook Air) ·
         /// you* above *Denver's MacBook Air · this Mac*, which is the same words
-        /// twice in two lines. Nil where the nested rows say it; kept where they
-        /// cannot, which is a person with no device record here at all, and the
-        /// shape this milestone leaves room for: a person key with several
-        /// machines, where the label alone would not say which one was admitted.
+        /// twice in two lines. Nil where the nested rows say it — and, since
+        /// v0.41.1, where there is no device record at all, because that record
+        /// then draws an `UnseenDevice` row carrying the same name.
         let ownName: String?
         let role: String
         /// **What this record says they may write** (P3b Task 5, spec §7.2) —
@@ -364,6 +363,16 @@ struct PeopleAndDevicesModel: Equatable {
         /// `Device.restoredAt`: the same fact, one directory over.
         let restoredAt: Date?
         let devices: [Device]
+        /// **This record's machine, where the book holds no description of
+        /// it** (v0.41.1) — non-nil exactly when `devices` is empty.
+        ///
+        /// A person record is one device's author key, so a record with no
+        /// device record still HAS a device; it is only that nothing here
+        /// says what kind or what it is called. A phone admitted by a build
+        /// that wrote no device record (the shape of the report that earned
+        /// this) drew as a person with nothing under it, which read as a
+        /// second writer rather than as the writer's other machine.
+        var unseenDevice: UnseenDevice? = nil
 
         var id: String { fingerprint }
 
@@ -409,6 +418,181 @@ struct PeopleAndDevicesModel: Equatable {
             }
             return parts.joined(separator: " · ")
         }
+    }
+
+    /// **A device row for a person record the book holds no device record
+    /// for** (v0.41.1). It is named by what the RECORD says the machine called
+    /// itself when it was admitted — its code where it proposed no name — and
+    /// it claims nothing about the kind of machine: without a device record
+    /// this Mac does not know whether it is a Mac or an iPhone, and must not
+    /// say.
+    struct UnseenDevice: Equatable, Identifiable {
+        let fingerprint: String
+        /// The record's `ownName`, or the code where the admission had no name
+        /// to propose (the sheet writes the code in its place).
+        let name: String
+        let code: String
+        /// This record is this Mac's own.
+        let isThisMac: Bool
+
+        var id: String { fingerprint }
+
+        /// *0ECB*, or *Kit's iPad (4FD2)* — the code is always said, because
+        /// it is what the device shows on its own Settings screen and so the
+        /// one thing the writer can check this row against.
+        var title: String { name == code ? code : "\(name) (\(code))" }
+
+        /// What is true, and what ends it. A current Maugham writes its own
+        /// device record whenever it opens a book (`RegistryPresence`, and
+        /// the phone since 0.14), so the row resolves itself; an older build
+        /// never does, which is why this says what happens rather than when.
+        static let sentence =
+            "No description of this device has reached this book yet. A "
+            + "current version of Maugham adds one when it opens the book."
+    }
+
+    /// **One writer: every person record that shares a label** (v0.41.1).
+    ///
+    /// A person record is one device's author key, and P2b's admission MERGES
+    /// a typed label matching a known one under that label's own spelling — so
+    /// a writer with a Mac and a phone is two records the root has said are
+    /// one person. Drawn one row per record, the pane listed *Denver Trouton*
+    /// twice. The rule for *these records are one writer* is
+    /// `TrustTable.sharesLabel` (exact strings, an empty label shares with
+    /// nobody), the same one `RegistryAdmission.records(sharingLabelWith:in:)`
+    /// uses to decide what a permit change reaches — this pane does not have a
+    /// normaliser of its own.
+    ///
+    /// **Which verbs are the person's and which are a record's** is the
+    /// verbs' own answer, never this type's: Change… is label-wide
+    /// (`DocumentStore.changePermit(everyRecordOf:to:)`), so it sits here;
+    /// Rename, Revoke, Re-admit, Re-sign and Retire each act on ONE record
+    /// (`RegistryAdmission.rename` re-signs one file), so they sit on that
+    /// record's device row.
+    struct PersonGroup: Equatable, Identifiable {
+        /// Never empty. In `people`' own order, so the root — admitted first —
+        /// leads.
+        let records: [Person]
+
+        var id: String { records[0].fingerprint }
+        var label: String { records[0].label }
+        /// One record: the row is drawn exactly as a person row always was.
+        var isOneRecord: Bool { records.count == 1 }
+        /// *you*, or *<label>'s Mac*: a root record's mark, wherever in the
+        /// group the root is.
+        var mark: String? { records.lazy.compactMap(\.mark).first }
+
+        /// The records the header speaks for: every one not revoked, or all of
+        /// them where every one is. A revoked machine's permit is moot — its
+        /// lines are refused by the verdict — and saying the writer's devices
+        /// disagree because a revoked one still carries an old permit would be
+        /// a warning about nothing.
+        private var speaking: [Person] {
+            let live = records.filter { $0.revokedAt == nil }
+            return live.isEmpty ? records : live
+        }
+
+        /// **Their devices do not all hold one permit** — a legacy state
+        /// (records admitted separately, before a label-wide change existed).
+        /// Asked of the DISPLAY value (`permitSentence`, `PermitWords`' words),
+        /// never by comparing rungs (tripwire 47).
+        var permitsDiffer: Bool {
+            Set(speaking.map(\.permitSentence)).count > 1
+        }
+
+        /// What they may write, when every device agrees; otherwise the
+        /// sentence saying they do not, with each device row then saying its
+        /// own.
+        var permitSentence: String {
+            permitsDiffer ? PersonGroup.permitsDifferSentence : speaking[0].permitSentence
+        }
+
+        static let permitsDifferSentence =
+            "Their devices don\u{2019}t all have the same permission here "
+            + "\u{2014} each one says what it may write below."
+
+        /// The record Change… is pressed about. The verb reaches every record
+        /// under the label from any one of them, and refuses a revoked subject,
+        /// so it is asked about a live one.
+        var changeSubject: Person { speaking[0] }
+
+        /// **No change control where a root is among them.** The label-wide
+        /// verb asks `changePermitOutcome` of EVERY record before it moves
+        /// any, and a root's answer is always *a root writes the whole book* —
+        /// so a writer whose own root record shares a label with their phone
+        /// could never change it, on any folder, on any day. That is Revoke's
+        /// exception for its reason: no button, rather than a dead one.
+        var offersPermitChange: Bool { records.allSatisfy(\.offersPermitChange) }
+
+        /// Why Change… is refused, when it is: the first refusal among the
+        /// records it would reach.
+        var whyNotChangeable: String? {
+            speaking.lazy.compactMap(\.whyNotChangeable).first
+        }
+
+        var canChangePermit: Bool { whyNotChangeable == nil }
+
+        /// Rename's help on a record row inside a group: it is ONE record's
+        /// word, so a rename moves that device out from under this name.
+        static func renameOneRecordHelp(label: String) -> String {
+            "Change the name this book calls this device\u{2019}s writer. Only "
+                + "this device\u{2019}s record changes; the others stay under "
+                + "\u{201C}\(label)\u{201D}."
+        }
+    }
+
+    /// **Every person, as the writer thinks of them** — `people` grouped by
+    /// label. `people` stays one value per RECORD, because every verb and
+    /// every refusal is decided about a record; this is what is DRAWN.
+    var groups: [PersonGroup] {
+        var grouped: [[Person]] = []
+        for person in people {
+            if let index = grouped.firstIndex(where: {
+                TrustTable.sharesLabel($0[0].label, person.label)
+            }) {
+                grouped[index].append(person)
+            } else {
+                grouped.append([person])
+            }
+        }
+        return grouped.map(PersonGroup.init(records:))
+    }
+
+    /// **History from before this book signed its lines** (v0.41.1): every
+    /// unsigned stream whose NAME no current build writes
+    /// (`HeldLines.origin` answering `.beforeSigning`), as ONE row.
+    ///
+    /// A book older than P1 holds these by the handful — a Mac under its
+    /// hostname, the MCP and task-rebalance sentinels, a phone's
+    /// `phone:<uuid>`, the unsuffixed files — and each had its own row saying
+    /// *Nothing this book holds says who signs for …*, a warning per stream
+    /// about the writer's own old work. None of them is a Mac writing in the
+    /// book now, and nothing this build writes goes there again.
+    struct OlderHistory: Equatable {
+        /// What each stream was, in `HeldLines.origin`'s words, once each.
+        let sources: [String]
+
+        static let title = "Older history from before this book signed its lines"
+
+        /// **Before any narrowing.** True, not reassuring: an un-narrowed book
+        /// applies every unsigned line (P1), and the first narrowing's
+        /// photograph (`UnsignedSnapshot`) names every stream no key can name,
+        /// so everything already in these stays applied through it.
+        static let beforeNarrowing =
+            "Nothing about it will change. Everything in it is applied, as it "
+            + "always has been, and stays applied when anybody here is first "
+            + "given less than the whole book. This version of Maugham "
+            + "doesn\u{2019}t write there any more."
+
+        /// **After it.** The photograph kept what was there; a line an OLDER
+        /// build appends afterwards is on the new side of it and waits, as
+        /// `UnsignedStream.afterNarrowing` says of any unsigned stream.
+        static let afterNarrowing =
+            "Everything it held when this book first limited what somebody may "
+            + "write stays applied, as it always was. This version of Maugham "
+            + "doesn\u{2019}t write there any more; anything an older version "
+            + "writes there since waits on the other Macs until it is sent to "
+            + "the Inbox."
     }
 
     /// A root this device has something to say about but nothing to nest under
@@ -626,6 +810,9 @@ struct PeopleAndDevicesModel: Equatable {
     /// Streams in this book that answer to no key (#8). Drawn whether or not
     /// the book has been narrowed, with a different sentence for each.
     let unsigned: [UnsignedStream]
+    /// Streams from before this book signed its lines, as one row (v0.41.1);
+    /// nil when there are none. `unsigned` above is only the signing-era ones.
+    var olderHistory: OlderHistory? = nil
     /// Has anybody in this book already been given less than the whole of it?
     /// It decides which of `UnsignedStream`'s two sentences a row carries, and
     /// it is the FOLDER's answer (`TrustTable.hasNarrowingPermits`) rather than
@@ -933,8 +1120,20 @@ struct PeopleAndDevicesModel: Equatable {
                 heldLines: count, sentence: sentence)
         }
 
-        let unsigned: [UnsignedStream] = unsignedStreams.sorted()
-            .map(UnsignedStream.init(stream:))
+        // **Signing-era streams keep their rows; older ones are one row**
+        // (v0.41.1). `HeldLines.origin` is the one classification, so History's
+        // dated entry describes each stream the way this pane does.
+        var unsigned: [UnsignedStream] = []
+        var older: [String] = []
+        for stream in unsignedStreams.sorted() {
+            switch HeldLines.origin(ofUnsignedStream: stream) {
+            case .signingEra:
+                unsigned.append(UnsignedStream(stream: stream))
+            case .beforeSigning(let what):
+                if !older.contains(what) { older.append(what) }
+            }
+        }
+        let olderHistory = older.isEmpty ? nil : OlderHistory(sources: older)
 
         let adopted = Set(table.adoptedRoots)
         let merged: [Named] = table.adoptedRoots.map(named)
@@ -1011,6 +1210,7 @@ struct PeopleAndDevicesModel: Equatable {
             people: people,
             pendingPieces: pendingPieces,
             unsigned: unsigned,
+            olderHistory: olderHistory,
             alreadyNarrowed: table.hasNarrowingPermits,
             merged: merged,
             claimants: stillClaiming,
@@ -1109,7 +1309,20 @@ struct PeopleAndDevicesModel: Equatable {
             mark: mark(for: record, myRoot: myRoot, me: me),
             restoredAt: restoredAt[RecordRef(
                 directory: .people, fingerprint: record.person)],
-            devices: devices)
+            devices: devices,
+            unseenDevice: devices.isEmpty
+                ? unseenDevice(of: record, me: me) : nil)
+    }
+
+    /// The device row a record with no device record still gets (v0.41.1).
+    private static func unseenDevice(
+        of record: PersonRecord, me: String
+    ) -> UnseenDevice {
+        let code = DeviceCode.short(record.person)
+        let own = record.ownName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return UnseenDevice(
+            fingerprint: record.person, name: own.isEmpty ? code : own,
+            code: code, isThisMac: record.person == me)
     }
 
     /// **The bracketed name, and when it says anything** (Denver's re-smoke,
@@ -1128,6 +1341,10 @@ struct PeopleAndDevicesModel: Equatable {
         of record: PersonRecord, beside devices: [Device]
     ) -> String? {
         guard record.ownName != record.label,
+              // **A record with no device record draws an `UnseenDevice` row
+              // carrying this very name** (v0.41.1), so the brackets would be
+              // the same words twice — the re-smoke's reason, one row over.
+              !devices.isEmpty,
               !devices.contains(where: { $0.name == record.ownName }),
               // **C2: a nameless device never shows its code as its own name**
               // (P3b Task 5, spec §7.2). A device that reached the admission

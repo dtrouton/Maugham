@@ -121,8 +121,15 @@ struct PeopleAndDevicesSection: View {
                 ForEach(model.waiting) { key in
                     waitingRow(key)
                 }
-                ForEach(model.people) { person in
-                    personRow(person)
+                // **One row per WRITER, not per record** (v0.41.1): records
+                // sharing a label are one person with every device beneath.
+                // A lone record draws exactly as a person row always did.
+                ForEach(model.groups) { group in
+                    if group.isOneRecord {
+                        personRow(group.records[0])
+                    } else {
+                        groupRow(group)
+                    }
                 }
                 // **§7.2: pieces somebody started that nobody has claimed**
                 // (fix round 1, I3). This is where the sheet's *Not now* says
@@ -138,6 +145,12 @@ struct PeopleAndDevicesSection: View {
                 // who can be let in or shut out.
                 ForEach(model.unsigned) { stream in
                     unsignedRow(stream)
+                }
+                // **History from before the signatures, as one quiet row**
+                // (v0.41.1) — never a warning per stream about the writer's
+                // own old work.
+                if let older = model.olderHistory {
+                    olderHistoryRow(older)
                 }
                 ForEach(model.merged) { root in
                     plainRow(root, note: "merged",
@@ -291,6 +304,199 @@ struct PeopleAndDevicesSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The older-history row: a title, what narrowing does or did to it, and
+    /// a disclosure naming each source in the writer's words.
+    private func olderHistoryRow(
+        _ older: PeopleAndDevicesModel.OlderHistory
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(PeopleAndDevicesModel.OlderHistory.title)
+            Text(model.alreadyNarrowed
+                 ? PeopleAndDevicesModel.OlderHistory.afterNarrowing
+                 : PeopleAndDevicesModel.OlderHistory.beforeNarrowing)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            DisclosureGroup("What it holds") {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(older.sources, id: \.self) { source in
+                        Text(source)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .font(.caption)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// **One writer with several records** (v0.41.1). The header carries what
+    /// is the PERSON's — the label, *you*, what they may write, and the
+    /// label-wide Change… — and each record's machine carries what acts on
+    /// that record alone.
+    private func groupRow(_ group: PeopleAndDevicesModel.PersonGroup) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(group.label)
+                        if let mark = group.mark {
+                            Text(mark)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Text(group.permitSentence)
+                        .font(.caption)
+                        .foregroundStyle(group.permitsDiffer ? .orange : .secondary)
+                }
+                Spacer(minLength: 8)
+                if group.offersPermitChange {
+                    Button("Change\u{2026}") { changePermit(group.changeSubject) }
+                        .controlSize(.small)
+                        .disabled(!group.canChangePermit)
+                        .help(group.whyNotChangeable
+                              ?? PeopleAndDevicesModel.changeHelp)
+                        .accessibilityHint(Text(
+                            group.whyNotChangeable
+                            ?? PeopleAndDevicesModel.changeHelp))
+                }
+            }
+            ForEach(group.records) { record in
+                recordRows(record, in: group)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// One record inside a group: its machine (or the row saying the book has
+    /// no description of it), then what is true of the RECORD and the verbs
+    /// that act on it alone.
+    private func recordRows(
+        _ person: PeopleAndDevicesModel.Person,
+        in group: PeopleAndDevicesModel.PersonGroup
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(person.devices) { device in
+                deviceRow(device)
+            }
+            if let unseen = person.unseenDevice {
+                unseenDeviceRow(unseen)
+            }
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(person.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if group.permitsDiffer {
+                        Text(person.permitSentence)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    behindHistory(person)
+                }
+                Spacer(minLength: 8)
+                recordVerbs(
+                    person,
+                    renameHelp: PeopleAndDevicesModel.PersonGroup
+                        .renameOneRecordHelp(label: group.label))
+            }
+            .padding(.leading, 16)
+        }
+    }
+
+    /// A record's machine the book holds no description of. It claims no kind:
+    /// without a device record this Mac cannot know one.
+    private func unseenDeviceRow(
+        _ device: PeopleAndDevicesModel.UnseenDevice
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(device.title)
+                    .font(.callout)
+                if device.isThisMac {
+                    Text("this Mac")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text(PeopleAndDevicesModel.UnseenDevice.sentence)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            waitingLine(for: device.fingerprint)
+        }
+        .padding(.leading, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Spec §3.2's crash window, on the record it is about.
+    @ViewBuilder
+    private func behindHistory(_ person: PeopleAndDevicesModel.Person) -> some View {
+        if let behind = person.behindHistorySentence {
+            // Orange because the screen and the enforcement disagree and only
+            // this row can say so — nothing refuses, and no load blocks.
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(behind)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                if person.canResign {
+                    Button("Re-sign") { resign(person) }
+                        .controlSize(.small)
+                        .help(PeopleAndDevicesModel.resignHelp)
+                        .accessibilityHint(
+                            Text(PeopleAndDevicesModel.resignHelp))
+                }
+            }
+        }
+    }
+
+    /// Rename, and Revoke or Re-admit — the verbs that act on one RECORD.
+    @ViewBuilder
+    private func recordVerbs(
+        _ person: PeopleAndDevicesModel.Person, renameHelp: String
+    ) -> some View {
+        // A label was chosen once and could never be corrected (smoke find
+        // 3). Live where this Mac is the root that admitted them — including
+        // its own, which is the row the smoke was actually about.
+        Button("Rename\u{2026}") { rename(person) }
+            .controlSize(.small)
+            .disabled(!person.canRename)
+            .help(person.whyNotRenamable ?? renameHelp)
+            .accessibilityHint(Text(person.whyNotRenamable ?? renameHelp))
+        if person.canReadmit {
+            // **The inverse, where the act was** (fix round 1, Important
+            // 3b): a revoked row used to carry a dead Revoke saying "Already
+            // revoked", which is a fact the row already states and a control
+            // that could never act. Disabled, with the reason, where the
+            // permit it would put back is one this build cannot draw (P3b
+            // Task 6).
+            Button("Re-admit") { readmit(person) }
+                .controlSize(.small)
+                .disabled(person.whyNotReadmittable != nil)
+                .help(person.whyNotReadmittable
+                      ?? PeopleAndDevicesModel.readmitHelp)
+                .accessibilityHint(Text(
+                    person.whyNotReadmittable
+                    ?? PeopleAndDevicesModel.readmitHelp))
+        } else if person.offersRevoke {
+            // A root draws no Revoke at all (smoke find 2): a root is claimed
+            // over rather than revoked on every folder, on every day. The
+            // decision is the model's; this only draws it.
+            Button("Revoke") { revoke(person.fingerprint) }
+                .controlSize(.small)
+                .disabled(!person.canRevoke)
+                .help(person.whyNotRevocable ?? PeopleAndDevicesModel.revokeHelp)
+                // .help is hover-only; the WHY must reach VoiceOver too.
+                .accessibilityHint(Text(
+                    person.whyNotRevocable ?? PeopleAndDevicesModel.revokeHelp))
+        }
+    }
+
     private func personRow(_ person: PeopleAndDevicesModel.Person) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
@@ -312,23 +518,7 @@ struct PeopleAndDevicesSection: View {
                     Text(person.permitSentence)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    if let behind = person.behindHistorySentence {
-                        // Spec §3.2's crash window. Orange because the screen
-                        // and the enforcement disagree and only this row can
-                        // say so — nothing refuses, and no load blocks.
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(behind)
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                            if person.canResign {
-                                Button("Re-sign") { resign(person) }
-                                    .controlSize(.small)
-                                    .help(PeopleAndDevicesModel.resignHelp)
-                                    .accessibilityHint(
-                                        Text(PeopleAndDevicesModel.resignHelp))
-                            }
-                        }
-                    }
+                    behindHistory(person)
                 }
                 Spacer(minLength: 8)
                 if person.offersPermitChange {
@@ -347,59 +537,16 @@ struct PeopleAndDevicesSection: View {
                             person.whyNotChangeable
                             ?? PeopleAndDevicesModel.changeHelp))
                 }
-                // A label was chosen once and could never be corrected (smoke
-                // find 3). Drawn on every person row, live where this Mac is
-                // the root that admitted them — including its own, which is the
-                // row the smoke was actually about.
-                Button("Rename\u{2026}") { rename(person) }
-                    .controlSize(.small)
-                    .disabled(!person.canRename)
-                    .help(person.whyNotRenamable ?? PeopleAndDevicesModel.renameHelp)
-                    .accessibilityHint(Text(
-                        person.whyNotRenamable ?? PeopleAndDevicesModel.renameHelp))
-                if person.canReadmit {
-                    // **The inverse, where the act was** (fix round 1,
-                    // Important 3b): a revoked row used to carry a dead Revoke
-                    // saying "Already revoked", which is a fact the row above
-                    // already states and a control that could never act. The
-                    // way back belongs in that space.
-                    // Disabled, with the reason, where the permit it would
-                    // put back is one this build cannot draw (P3b Task 6): an
-                    // older Maugham must not re-install a rung it was never
-                    // shown, and the whole-book fallback it used instead was a
-                    // widening chosen by the build that understands least.
-                    Button("Re-admit") { readmit(person) }
-                        .controlSize(.small)
-                        .disabled(person.whyNotReadmittable != nil)
-                        .help(person.whyNotReadmittable
-                              ?? PeopleAndDevicesModel.readmitHelp)
-                        .accessibilityHint(Text(
-                            person.whyNotReadmittable
-                            ?? PeopleAndDevicesModel.readmitHelp))
-                } else if person.offersRevoke {
-                    // A root draws no Revoke at all (smoke find 2). Every other
-                    // refused verb here keeps its button, disabled, with the
-                    // reason in the tooltip — but a disabled control is an offer
-                    // with a condition on it, and a root is claimed over rather
-                    // than revoked on every folder, on every day. The decision
-                    // is the model's; this only draws it.
-                    Button("Revoke") { revoke(person.fingerprint) }
-                        .controlSize(.small)
-                        .disabled(!person.canRevoke)
-                        .help(person.whyNotRevocable ?? PeopleAndDevicesModel.revokeHelp)
-                        // .help is hover-only; the WHY must reach VoiceOver too.
-                        .accessibilityHint(Text(
-                            person.whyNotRevocable ?? PeopleAndDevicesModel.revokeHelp))
-                }
+                recordVerbs(person, renameHelp: PeopleAndDevicesModel.renameHelp)
             }
             ForEach(person.devices) { device in
                 deviceRow(device)
             }
-            // Under labels-only a person IS a device's author key, so where no
-            // device record of theirs has reached this book the person row is
-            // the only row the waiting line can go on (Task 8).
-            if person.devices.isEmpty {
-                waitingLine(for: person.fingerprint)
+            // A record with no device record still has a machine (v0.41.1):
+            // the row says so, and carries the waiting line (Task 8) that used
+            // to have nowhere to go but the person row.
+            if let unseen = person.unseenDevice {
+                unseenDeviceRow(unseen)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
