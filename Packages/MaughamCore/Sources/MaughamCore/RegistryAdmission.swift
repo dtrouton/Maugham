@@ -589,6 +589,11 @@ public enum RegistryAdmission {
     ///   which writes it as the event's `unsigned` because the event narrows.
     ///   A narrowing permit exists in the timeline only after a narrowing verb
     ///   ran gate → event, so the book is already gated against older builds.
+    ///   At open this runs BEFORE `healTheSchemaGateIfNarrowed` (unawaited,
+    ///   later in the open), and that order is safe: the book was narrowed
+    ///   before this admission, so a manifest an older build stamped lower is
+    ///   already exposed and the heal closes it, while this admission narrows
+    ///   nothing that was not narrowed already.
     ///   A narrowed book with NO photograph (a P3a-era event) is declined: the
     ///   sheet's Admit takes one.
     ///
@@ -1516,15 +1521,24 @@ public enum RegistryAdmission {
         if let unreadable = unreadablePeople(in: registry).sorted().first {
             throw RegistryAdmissionError.personRecordUnreadable(fingerprint: unreadable)
         }
+        // **Every person-key fact is read from THIS root's chain only**
+        // (Task 6 fix round, controller ruling): this root and every root it
+        // adopted, `TrustTable.chain(ofRoot:in:)` — the rule recognition uses.
+        // Anybody on a read-write share can self-sign a root record and write
+        // any key's fingerprint on it (they are public in device records), so a
+        // foreign record may never block, force or change a link.
+        let chain = TrustTable.chain(ofRoot: root.fingerprint, in: registry)
         // **A forgotten key is never linked again** (C2): Forget is the answer
-        // to a compromised Apple ID, and a record anywhere in this folder that
-        // forgot the key is enough to refuse it — this only ever turns a link
-        // into none.
+        // to a compromised Apple ID, and a record of this chain that forgot the
+        // key is enough to refuse it.
         if let forgetter = registry.people
-            .filter({ $0.hasForgotten(key) }).min(by: { $0.person < $1.person }) {
+            .filter({ chain.contains($0.person) && $0.hasForgotten(key) })
+            .min(by: { $0.person < $1.person }) {
             throw RegistryAdmissionError.personKeyForgotten(person: forgetter.person)
         }
-        if let holder = otherPersonHolding(personKey: key, besides: existing, in: registry) {
+        if let holder = otherPersonHolding(
+            personKey: key, besides: existing, in: registry,
+            withinChainOf: root.fingerprint) {
             throw RegistryAdmissionError.personKeyLinkedElsewhere(person: holder.person)
         }
 
@@ -1647,12 +1661,19 @@ public enum RegistryAdmission {
     /// person means the label rule (`TrustTable.sharesLabel`), and a revoked
     /// holder still holds it. The lowest fingerprint answers where several do,
     /// so two runs name the same holder.
+    ///
+    /// **Only records of `root`'s chain count** (Task 6 fix round): a foreign
+    /// self-signed root record holding the key is a claim nobody here made,
+    /// and must not block this root's link.
     nonisolated public static func otherPersonHolding(
-        personKey key: String, besides subject: PersonRecord, in registry: Registry
+        personKey key: String, besides subject: PersonRecord, in registry: Registry,
+        withinChainOf root: String
     ) -> PersonRecord? {
-        registry.people
+        let chain = TrustTable.chain(ofRoot: root, in: registry)
+        return registry.people
             .filter {
-                $0.personKey == key && $0.person != subject.person
+                chain.contains($0.person)
+                    && $0.personKey == key && $0.person != subject.person
                     && !TrustTable.sharesLabel($0.label, subject.label)
             }
             .min { $0.person < $1.person }

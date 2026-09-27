@@ -670,6 +670,11 @@ extension DocumentStore {
     /// from it back round for a second helping.
     @discardableResult
     public func admitRemembered() async -> [PersonRecord] {
+        await serialisingSilentAdmission { [self] in await admitRememberedNow() }
+    }
+
+    /// `admitRemembered`'s body, run only inside the serialiser.
+    private func admitRememberedNow() async -> [PersonRecord] {
         let projectURL = self.projectURL
         let identities = Document.loadIdentities
         let cache = Document.loadRegistryCache
@@ -719,6 +724,11 @@ extension DocumentStore {
     /// the register.
     @discardableResult
     public func admitRecognised() async -> RegistryPresence.RecognitionPass {
+        await serialisingSilentAdmission { [self] in await admitRecognisedNow() }
+    }
+
+    /// `admitRecognised`'s body, run only inside the serialiser.
+    private func admitRecognisedNow() async -> RegistryPresence.RecognitionPass {
         let projectURL = self.projectURL
         let identities = Document.loadIdentities
         let cache = Document.loadRegistryCache

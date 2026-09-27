@@ -252,6 +252,27 @@ public final class DocumentStore {
     /// draws it.
     internal var personClaimProblem: String?
 
+    /// **The silent admissions run one at a time** (Task 6 fix round). Each
+    /// pass reads the registry, decides, and writes; two overlapping refreshes
+    /// would both read *nobody here yet* and both admit — two arrival events
+    /// for one device. So `admitRecognised` and `admitRemembered` queue
+    /// behind whichever pass is running (`serialisingSilentAdmission`), and a
+    /// second request finds the first one's records already on disk.
+    private var silentAdmissionTail: Task<Void, Never>?
+
+    /// Run `body` after every silent admission already queued has finished.
+    func serialisingSilentAdmission<T: Sendable>(
+        _ body: @escaping @MainActor () async -> T
+    ) async -> T {
+        let previous = silentAdmissionTail
+        let pass = Task { @MainActor () -> T in
+            await previous?.value
+            return await body()
+        }
+        silentAdmissionTail = Task { _ = await pass.value }
+        return await pass.value
+    }
+
     /// What this Mac asks its record to say about whose it is.
     ///
     /// - A person key → `.set`, a claim signed for THIS Mac's author key.

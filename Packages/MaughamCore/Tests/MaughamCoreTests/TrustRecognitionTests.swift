@@ -200,13 +200,22 @@ final class TrustRecognitionTests: XCTestCase {
 
     /// Review Focus 2's sharper form: a collaborator on a read-write share
     /// SELF-SIGNS a root record under the root's label and links her own key
-    /// to it. Records another root signed are never evidence.
-    func test_aForeignRootsRecordUnderTheRootsLabelIsLinkedElsewhere() throws {
+    /// to it. Records another root signed are never evidence — and, since
+    /// Task 6's fix round (controller ruling), never an obstacle either: the
+    /// record is IGNORED, so her key is simply unknown here (a plain ask),
+    /// and a foreign record holding the ROOT's key changes nothing.
+    func test_aForeignRootsRecordUnderTheRootsLabelIsIgnored() throws {
         let eveKey = try XCTUnwrap(PersonKey.findOrCreate(
             in: InMemoryPersonKeyStore(), seedName: "Denver"))
         let eve = person("eve-root", label: "Denver", by: "eve-root", key: eveKey)
         XCTAssertEqual(decide(try device(claimBy: eveKey), people: [root, eve, sam]),
-                       hint("Denver", elsewhere: true))
+                       hint("Denver"))
+        let eveHoldingDenvers = person("eve-root", label: "Denver", by: "eve-root", key: denverKey)
+        XCTAssertEqual(
+            decide(try device(claimBy: denverKey),
+                   people: [linked(root, denverKey), eveHoldingDenvers, sam]),
+            .ownDevice(root: linked(root, denverKey)),
+            "a foreign holder of the root's key neither helps nor blocks")
     }
 
     // MARK: - Known person
@@ -295,14 +304,14 @@ final class TrustRecognitionTests: XCTestCase {
             .knownPerson(samUnderOther))
         XCTAssertEqual(
             decide(try device(claimBy: samKey), people: [root, other, samUnderOther]),
-            hint("Sam", elsewhere: true))
+            hint("Sam"), "outside the chain: ignored, so the key is unknown")
         // A claim the OTHER root wrote adopting this one widens nothing here.
         let reverse = ClaimRecord(
             newRoot: "other-root", adopted: [rootFP], claimedAt: Date(timeIntervalSince1970: 5))
         XCTAssertEqual(
             decide(try device(claimBy: samKey), people: [root, other, samUnderOther],
                    claims: [reverse]),
-            hint("Sam", elsewhere: true))
+            hint("Sam"))
     }
 
     func test_anUnnamedHolderIsNobodyToBeRecognisedAs() throws {

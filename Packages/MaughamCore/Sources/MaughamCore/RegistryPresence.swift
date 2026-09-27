@@ -669,6 +669,19 @@ public enum RegistryPresence {
             narrowingTable = table
             guard !RegistryAdmission.labelNamesANarrowedPerson(
                 remembered.label, in: registry, table: table) else { continue }
+            // **A device recognition RECOGNISES is recognition's business**
+            // (Task 6 fix round). `admitRecognised` runs first, so a recognised
+            // device still waiting here is one it DECLINED — a permit it could
+            // not install silently — and the memory path must not let it in
+            // with the whole book instead. The sheet decides.
+            if let claim = registry.verifiedPersonClaim(forDevice: device.device) {
+                switch Recognition.recognise(
+                    device: device, verifiedClaim: claim, registry: registry,
+                    thisRoot: author.fingerprint) {
+                case .ownDevice, .knownPerson: continue
+                case .ask: break
+                }
+            }
             admitted.append(try RegistryAdmission.admit(
                 device: device.device, label: remembered.label, ownName: device.name,
                 mark: mark, silently: true,

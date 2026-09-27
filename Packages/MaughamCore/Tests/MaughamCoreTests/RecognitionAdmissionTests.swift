@@ -466,6 +466,141 @@ final class RecognitionAdmissionTests: XCTestCase {
         XCTAssertFalse(try String(contentsOf: url, encoding: .utf8).contains("forgottenPersonKeys"))
     }
 
+    // MARK: - Fix round: only THIS root's chain says anything about a key
+
+    /// A share participant's self-signed root record, labelled as the root's
+    /// person, carrying whatever key facts it likes.
+    private func plantForeignRoot(
+        label: String = "Denver", personKey: String? = nil, forgotten: [String]? = nil
+    ) throws {
+        let foreign = LocalIdentities.softwareForTesting()
+        try RegistryWriter.write(
+            PersonRecord(
+                person: foreign.author.fingerprint, label: label, ownName: "Mallory's Mac",
+                admittedAt: Date(timeIntervalSince1970: 1),
+                admittedBy: foreign.author.fingerprint,
+                personKey: personKey, forgottenPersonKeys: forgotten),
+            signedBy: foreign.author, in: projectURL)
+        XCTAssertNotNil(try registry().person(foreign.author.fingerprint),
+                        "precondition: the planted root verifies")
+    }
+
+    func test_aForeignRootForgettingTheRootsKeyChangesNothing() throws {
+        try rootHere()
+        try plantForeignRoot(forgotten: [denverKey.fingerprint])
+
+        _ = try recognise()
+        XCTAssertEqual(try registry().person(mine.author.fingerprint)?.personKey,
+                       denverKey.fingerprint, "the root still links its own key")
+        let phone = try declare("Denver's iPhone", claimBy: denverKey)
+        let pass = try recognise()
+        XCTAssertEqual(pass.admitted.map(\.person), [phone.author.fingerprint],
+                       "and its next device is its own")
+    }
+
+    func test_aForeignRootHoldingTheRootsKeyChangesNothing() throws {
+        try rootHere()
+        // Under ANOTHER label, so the label rule cannot excuse it: only the
+        // chain rule can.
+        try plantForeignRoot(label: "Mallory", personKey: denverKey.fingerprint)
+
+        _ = try recognise()
+        XCTAssertEqual(try registry().person(mine.author.fingerprint)?.personKey,
+                       denverKey.fingerprint, "the link is not refused as held elsewhere")
+        let phone = try declare("Denver's iPhone", claimBy: denverKey)
+        let pass = try recognise()
+        XCTAssertEqual(pass.admitted.map(\.person), [phone.author.fingerprint])
+        XCTAssertEqual(try registry().person(phone.author.fingerprint)?.label, "Denver")
+    }
+
+    func test_aForeignRootNamedAfterTheClaimChangesNothing() throws {
+        try rootHere()
+        _ = try recognise()
+        // The claim's own name ("Denver Trouton") as a foreign root's label:
+        // under a folder-wide name check this made the root's own device ask.
+        try plantForeignRoot(label: "Denver Trouton")
+        let phone = try declare("Denver's iPhone", claimBy: denverKey)
+
+        let pass = try recognise()
+
+        XCTAssertEqual(pass.admitted.map(\.person), [phone.author.fingerprint])
+    }
+
+    // MARK: - Fix round: a declined recognition never falls through
+
+    /// Sam demoted by an event with NO photograph — the shape a narrowing
+    /// written before P3b's snapshot takes — or, with `role`, to a word this
+    /// build cannot read.
+    private func samNarrowedWithNoPhotograph(role: String = Permit.reviewerRole) throws -> LocalIdentities {
+        let samsMac = try declare("Sam's Mac", kind: .mac, claimBy: samKey)
+        try RegistryAdmission.admit(
+            device: samsMac.author.fingerprint, label: "Sam", ownName: "Sam's Mac",
+            in: projectURL, by: mine.author, cache: cache, memory: memory)
+        try RegistryWriter.write(
+            PermitEvent(
+                event: PermitEvent.mintID(subject: samsMac.author.fingerprint),
+                kind: .roleChanged, subject: samsMac.author.fingerprint,
+                role: role, at: Date(), by: mine.author.fingerprint),
+            signedBy: mine.author, in: projectURL)
+        XCTAssertNotEqual(try currentPermit(of: samsMac.author.fingerprint), .bookAuthor)
+        return samsMac
+    }
+
+    /// **The review's "no photograph" case is not a decline, and that is the
+    /// sheet's answer too.** A narrowed book whose governing event carries no
+    /// `unsigned` reads as an EMPTY photograph (`PermitEvent.unsigned`'s doc,
+    /// `UnsignedSnapshot.governing`), so `table.unsignedSnapshot` is non-nil
+    /// and the recognised admission carries that governing mark forward —
+    /// exactly what `DocumentStore.sweptUnsignedSnapshot` hands the sheet's
+    /// Admit for the same book (Ruling Q). The nil-photograph decline is a
+    /// defensive arm no narrowed book reaches.
+    func test_aNarrowedBookWithNoPhotographCarriesTheGoverningEmptyOneForward() throws {
+        try rootHere()
+        _ = try samNarrowedWithNoPhotograph()
+        _ = try recognise()   // links Sam's key onto Sam's record
+        let samsPhone = try declare("Sam's iPhone", claimBy: samKey)
+
+        let pass = try recognise()
+
+        XCTAssertEqual(pass.admitted.map(\.person), [samsPhone.author.fingerprint])
+        let arrival = try XCTUnwrap(try events(about: samsPhone.author.fingerprint).first)
+        XCTAssertEqual(arrival.unsigned, [:], "the governing photograph, empty, carried forward")
+        XCTAssertEqual(try currentPermit(of: samsPhone.author.fingerprint),
+                       try currentPermit(of: try XCTUnwrap(try registry().people
+                           .first { $0.label == "Sam" && $0.ownName == "Sam's Mac" }).person))
+    }
+
+    /// A permit this build cannot read is DECLINED: no record, and the sheet.
+    func test_aPermitThisBuildCannotReadIsDeclined() throws {
+        try rootHere()
+        _ = try samNarrowedWithNoPhotograph(role: "editor-from-the-future")
+        _ = try recognise()
+        let samsPhone = try declare("Sam's iPhone", claimBy: samKey)
+
+        let pass = try recognise()
+
+        XCTAssertTrue(pass.admitted.isEmpty)
+        XCTAssertEqual(pass.declined.count, 1)
+        XCTAssertNil(try registry().person(samsPhone.author.fingerprint))
+    }
+
+    func test_aDeclinedRecognitionIsNotLetInByTheMemoryPath() throws {
+        try rootHere()
+        _ = try samNarrowedWithNoPhotograph(role: "editor-from-the-future")
+        _ = try recognise()
+        let samsPhone = try declare("Sam's iPhone", claimBy: samKey)
+        // Remembered under a label nobody here holds, so C1b's label rule
+        // does not catch it: only the recognition rule can.
+        memory.remember(samsPhone.author.fingerprint, label: "Sam P", ownName: "Sam's iPhone")
+
+        XCTAssertEqual(try recognise().declined.count, 1, "precondition: declined")
+        let remembered = try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: cache, memory: memory)
+
+        XCTAssertTrue(remembered.isEmpty, "never the whole book for a declined device")
+        XCTAssertNil(try registry().person(samsPhone.author.fingerprint))
+    }
+
     // MARK: - History (PK-4)
 
     func test_historyDrawsARecognitionInTheWritersWords() throws {

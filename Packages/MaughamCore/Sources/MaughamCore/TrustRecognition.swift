@@ -56,7 +56,8 @@ public enum Recognition: Equatable, Sendable {
     /// | the device is retired | `.ask(hint)` |
     /// | any person record is present but unreadable (RULING-54) | `.ask(hint)` |
     /// | nobody holds the key | `.ask(hint)` |
-    /// | a holder is outside this book's chain (`TrustTable.chain(ofRoot:)`) | `.ask(hint, linkedElsewhere)` |
+    /// | a record of this chain has FORGOTTEN the key (C2) | `.ask(hint)` |
+    /// | (a holder outside this book's chain is IGNORED — it neither helps nor blocks) | — |
     /// | the holders span more than one label (an empty label is its own) | `.ask(hint, linkedElsewhere)` |
     /// | the holders include the root record or share the root's label, and the claim names another person (Review Focus 3) | `.ask(hint, linkedElsewhere)` |
     /// | the holders include the root record or share the root's label | `.ownDevice(root)` |
@@ -72,8 +73,9 @@ public enum Recognition: Equatable, Sendable {
     /// applies every line such a record's devices write. A record a
     /// NON-adopted root signed is that root's say-so: a foreign root can
     /// self-sign a record under ANY label with ANY key — including this root's
-    /// label with a key it generated — so a key found on one is linked
-    /// elsewhere, never evidence.
+    /// label with a key it generated — so a key found on one is never
+    /// evidence, and (Task 6 fix round, controller ruling) never an obstacle
+    /// either: it is ignored, exactly as if the record were not there.
     ///
     /// **Revoked records neither help nor block** (controller ruling, fix
     /// round 1). Revoking a device says that device is gone, not that the key
@@ -138,14 +140,16 @@ public enum Recognition: Equatable, Sendable {
         }
         guard !forgotten else { return .ask(hint: hint) }
 
-        let holders = registry.people.filter { $0.personKey == claim.personKey }
-        guard let first = holders.first else { return .ask(hint: hint) }
-
         // Only records this book's chain vouches for are evidence — this root's
-        // and every root it adopted, `TrustTable.myChain`'s rule exactly.
-        guard holders.allSatisfy({ chain.contains($0.person) }) else {
-            return .ask(hint: elsewhere)
+        // and every root it adopted, `TrustTable.myChain`'s rule exactly. A
+        // holder OUTSIDE the chain is IGNORED (Task 6 fix round, controller
+        // ruling), never a reason to ask: a foreign self-signed root can write
+        // any key's fingerprint on a record, and letting that turn an answer
+        // into a question is the same denial the forgotten-key rule would be.
+        let holders = registry.people.filter {
+            chain.contains($0.person) && $0.personKey == claim.personKey
         }
+        guard let first = holders.first else { return .ask(hint: hint) }
         let oneLabel = holders.count == 1
             || holders.allSatisfy { TrustTable.sharesLabel($0.label, first.label) }
         guard oneLabel else { return .ask(hint: elsewhere) }
@@ -156,7 +160,8 @@ public enum Recognition: Equatable, Sendable {
             // under the root's label (a lost phone) neither helps nor blocks.
             let excluded = Set(holders.map(\.person)).union([root.person])
             let contradicted = claimNamesAnotherPerson(
-                claim, label: root.label, excluding: excluded, in: registry)
+                claim, label: root.label, excluding: excluded, chain: chain,
+                in: registry)
             guard !contradicted else { return .ask(hint: elsewhere) }
             return .ownDevice(root: root)
         }
@@ -176,7 +181,8 @@ public enum Recognition: Equatable, Sendable {
         guard !standing.isEmpty else { return .ask(hint: elsewhere) }
 
         let contradicted = claimNamesAnotherPerson(
-            claim, label: first.label, excluding: Set(holders.map(\.person)), in: registry)
+            claim, label: first.label, excluding: Set(holders.map(\.person)),
+            chain: chain, in: registry)
         guard !contradicted else { return .ask(hint: elsewhere) }
 
         // The representative: a standing HOLDER if any (the record the root
@@ -199,16 +205,18 @@ public enum Recognition: Equatable, Sendable {
     /// "Names somebody else" is exact, `sharesLabel`'s rule: the claim's name
     /// equals the label of a verified record outside the key's person (and
     /// outside `excluding`), or the name on that record's device's own
-    /// verified claim. Any root's records count — this only ever turns a
-    /// silent answer into a question.
+    /// verified claim. Only records of this chain count (Task 6 fix round):
+    /// a foreign root could otherwise name itself after the claim and turn
+    /// every one of this writer's devices into a question.
     nonisolated private static func claimNamesAnotherPerson(
         _ claim: PersonClaim, label: String,
-        excluding: Set<String>, in registry: Registry
+        excluding: Set<String>, chain: Set<String>, in registry: Registry
     ) -> Bool {
         let claimed = claim.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !claimed.isEmpty else { return false }
         return registry.people.contains { other in
-            guard !excluding.contains(other.person),
+            guard chain.contains(other.person),
+                  !excluding.contains(other.person),
                   !TrustTable.sharesLabel(other.label, label)
             else { return false }
             return TrustTable.sharesLabel(other.label, claimed)
