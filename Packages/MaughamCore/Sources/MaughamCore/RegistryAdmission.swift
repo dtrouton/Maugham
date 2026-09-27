@@ -179,6 +179,25 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// not be written* tells the writer nothing they can act on.
     case manifestNotGated(reason: String, act: Act)
 
+    /// **That person key is already linked to somebody else** (your devices
+    /// are you, Task 4; the spec's *if P is already linked elsewhere*).
+    ///
+    /// `person` is the verified record that holds it. It holds it whether or
+    /// not that person is REVOKED: revocation is a state of a member rather
+    /// than an absence, and a key once linked to a revoked person moving
+    /// quietly to somebody else is the compromised-Apple-ID case arriving
+    /// through the door meant to answer it. The key is released by the root's
+    /// Forget on the holder's record, explicitly, and by nothing else.
+    case personKeyLinkedElsewhere(person: String)
+
+    /// **This person already has a DIFFERENT person key linked** (Task 4).
+    ///
+    /// A record holds one key, and replacing it would change who is
+    /// recognised as this person with nothing saying so. Forget the old key
+    /// first; two Apple IDs of one person are two person records, which the
+    /// admission sheet already handles.
+    case personLinkedToAnotherKey(person: String)
+
     /// **Which act a refusal is about** (fix round 2, minor C).
     ///
     /// The four verbs that compute a mark all refuse over a short reading, and
@@ -498,7 +517,12 @@ public enum RegistryAdmission {
             admittedAt: existing?.admittedAt ?? now(),
             admittedBy: root.fingerprint,
             revokedAt: nil, revokedBy: nil,
-            highestOpIdSeen: nil)
+            highestOpIdSeen: nil,
+            // **The linked person key is carried, never dropped** (your
+            // devices are you, Task 4). It is the root's decision about this
+            // PERSON, which neither a machine renaming itself nor a
+            // re-admission revisits; only `forgetPersonKey` releases it.
+            personKey: existing?.personKey)
         try RegistryWriter.write(
             record, signedBy: root, in: projectURL, presenter: presenter)
         memory.remember(fingerprint, label: label, ownName: ownName, at: now())
@@ -1296,6 +1320,129 @@ public enum RegistryAdmission {
         }
         memory.remember(
             fingerprint, label: record.label, ownName: record.ownName, at: now())
+        return record
+    }
+
+    // MARK: - The linked person key (your devices are you, Task 4)
+
+    /// **Link a person key to a person record** — the root's statement that
+    /// this person owns person key `key`, so a later device carrying a claim
+    /// that verifies with it can be recognised as theirs (spec: *Linking a
+    /// person key to an existing person*).
+    ///
+    /// **Who may.** Exactly who may rename: `renameOutcome`, the one
+    /// definition of *who may re-sign this person record* — a verified root of
+    /// this book, and the root that admitted them (so a root links its own
+    /// record, and never another root's).
+    ///
+    /// **Nobody is linked twice**, decided over the VERIFIED registry (a file
+    /// that does not verify says nothing about anybody, so it neither holds a
+    /// key nor blocks one):
+    /// - a key some OTHER verified record holds is refused
+    ///   (`personKeyLinkedElsewhere`), and a REVOKED holder still holds it;
+    /// - a key no verified record holds — never linked, or released by
+    ///   `forgetPersonKey` — may be linked;
+    /// - this record already holding a DIFFERENT key is refused
+    ///   (`personLinkedToAnotherKey`); Forget first.
+    ///
+    /// Idempotent: this record already holding `key` writes nothing.
+    ///
+    /// **What it does not decide** is whether `key` is really this person's.
+    /// The CALLER guarantees that (PK-3): it links only a key from a claim
+    /// that verified on a device already admitted under this very record, or
+    /// the root Mac's own key to the root's own record.
+    ///
+    /// The re-sign is over the FILE's object (`RegistryWriter.resign`), so a
+    /// later build's fields survive. **The caller invalidates trust.**
+    @discardableResult
+    nonisolated public static func linkPersonKey(
+        person fingerprint: String,
+        to key: String,
+        in projectURL: URL,
+        by root: DeviceIdentity,
+        cache: RegistryCache,
+        presenter: NSFilePresenter? = nil
+    ) throws -> PersonRecord {
+        let registry = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        let existing = try renameOutcome(
+            person: fingerprint, by: root.fingerprint, in: registry).get()
+
+        if existing.personKey == key { return existing }
+        if existing.personKey != nil {
+            throw RegistryAdmissionError.personLinkedToAnotherKey(person: fingerprint)
+        }
+        if let holder = personHolding(personKey: key, in: registry),
+           holder.person != fingerprint {
+            throw RegistryAdmissionError.personKeyLinkedElsewhere(person: holder.person)
+        }
+
+        try RegistryWriter.resign(
+            existing, signedBy: root, in: projectURL, presenter: presenter
+        ) { object in
+            object["personKey"] = key
+        }
+        return try readBack(fingerprint, in: projectURL, cache: cache, presenter: presenter)
+    }
+
+    /// **Forget the person key linked to a person record** — the inverse of
+    /// `linkPersonKey`, and the answer to a compromised Apple ID: new devices
+    /// carrying that key are asked about again. Already-admitted devices stay;
+    /// the writer revokes them one by one if they must go.
+    ///
+    /// Root only, by the same `renameOutcome` rule, and allowed over a REVOKED
+    /// record — it is the one way to release a key a revoked person holds.
+    /// Idempotent: a record with no linked key writes nothing.
+    @discardableResult
+    nonisolated public static func forgetPersonKey(
+        person fingerprint: String,
+        in projectURL: URL,
+        by root: DeviceIdentity,
+        cache: RegistryCache,
+        presenter: NSFilePresenter? = nil
+    ) throws -> PersonRecord {
+        let registry = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        let existing = try renameOutcome(
+            person: fingerprint, by: root.fingerprint, in: registry).get()
+        guard existing.personKey != nil else { return existing }
+
+        try RegistryWriter.resign(
+            existing, signedBy: root, in: projectURL, presenter: presenter
+        ) { object in
+            object.removeValue(forKey: "personKey")
+        }
+        return try readBack(fingerprint, in: projectURL, cache: cache, presenter: presenter)
+    }
+
+    /// **The verified person record a person key is linked to, if any** —
+    /// revoked or not, because a revoked holder still holds it. The one
+    /// answer to *is this key linked elsewhere*.
+    ///
+    /// A registry holding the key on MORE than one record (two roots each
+    /// linking it before either synced) answers the first by fingerprint;
+    /// `linkPersonKey` refuses over any holder that is not the subject, so
+    /// the order changes nothing it decides.
+    nonisolated public static func personHolding(
+        personKey key: String, in registry: Registry
+    ) -> PersonRecord? {
+        registry.people
+            .filter { $0.personKey == key }
+            .min { $0.person < $1.person }
+    }
+
+    /// The record as a reader VERIFIES it after a re-sign — the re-read also
+    /// refreshes this device's memory of the folder. Written and did not read
+    /// back is the one shape that must not be reported as success.
+    nonisolated private static func readBack(
+        _ fingerprint: String, in projectURL: URL, cache: RegistryCache,
+        presenter: NSFilePresenter?
+    ) throws -> PersonRecord {
+        let verified = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        guard let record = verified.person(fingerprint) else {
+            throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
+        }
         return record
     }
 

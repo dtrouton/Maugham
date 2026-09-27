@@ -828,6 +828,16 @@ enum AdmissionDecision {
                 + "Maugham — otherwise an older copy would go on applying writing "
                 + "this book has set aside. Saving that mark failed, so "
                 + "\(act.phrase) did not happen: \(reason)"
+        case .personKeyLinkedElsewhere(let person):
+            // A key once linked stays with that person — revoked or not —
+            // until the writer forgets it there (your devices are you, Task 4).
+            return "Nothing was changed. That Apple ID is already linked to the "
+                + "person with code \(DeviceCode.short(person)). Forget it there "
+                + "first if it now belongs to somebody else."
+        case .personLinkedToAnotherKey(let person):
+            return "Nothing was changed. The person with code "
+                + "\(DeviceCode.short(person)) is already linked to a different "
+                + "Apple ID. Forget that one first."
         }
     }
 }

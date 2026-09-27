@@ -218,6 +218,18 @@ public struct PersonRecord: RegistryRecordProtocol {
     /// The highest opId this root had applied from that device when it revoked
     /// them — the line between "before revocation" and "after" (spec §5).
     public let highestOpIdSeen: String?
+    /// **The person key this person owns** — its fingerprint
+    /// (`PersonKey.fingerprint`), linked by the root so a later device whose
+    /// record carries a verifying claim with this key can be recognised as
+    /// theirs (your devices are you, Task 4).
+    ///
+    /// Absent on every record written before it, and absent means *no key is
+    /// linked*: optional and omitted when nil, `scope`'s pattern, so no
+    /// existing record's bytes move and a v0.41 build reads a linked record
+    /// as it reads any other. Written and removed ONLY by
+    /// `RegistryAdmission.linkPersonKey`/`forgetPersonKey`, which re-sign the
+    /// file's object; `admit` carries it across the records it rewrites.
+    public let personKey: String?
     public var sig: OpLogChain.Credentials?
 
     public init(
@@ -225,7 +237,8 @@ public struct PersonRecord: RegistryRecordProtocol {
         scope: String? = nil, pieces: [String]? = nil,
         admittedAt: Date, admittedBy: String,
         revokedAt: Date? = nil, revokedBy: String? = nil,
-        highestOpIdSeen: String? = nil, sig: OpLogChain.Credentials? = nil
+        highestOpIdSeen: String? = nil, personKey: String? = nil,
+        sig: OpLogChain.Credentials? = nil
     ) {
         self.person = person
         self.label = label
@@ -238,6 +251,7 @@ public struct PersonRecord: RegistryRecordProtocol {
         self.revokedAt = revokedAt
         self.revokedBy = revokedBy
         self.highestOpIdSeen = highestOpIdSeen
+        self.personKey = personKey
         self.sig = sig
     }
 
