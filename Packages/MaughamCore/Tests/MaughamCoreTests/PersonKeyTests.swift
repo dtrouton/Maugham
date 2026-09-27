@@ -141,6 +141,17 @@ final class PersonKeyTests: XCTestCase {
         XCTAssertNil(PersonKey.findOrCreate(in: store, seedName: "Denver"))
     }
 
+    /// The most dangerous failure: a TRANSIENT read failure must never be
+    /// read as "no key yet". Creating there would mint a second key that
+    /// replaces the person's key across every device on the Apple ID.
+    func test_anUnavailableFindNeverCreatesEvenWhenCreateWouldSucceed() {
+        let store = UnreadableButWritableStore()
+
+        XCTAssertNil(PersonKey.findOrCreate(in: store, seedName: "Denver"))
+        XCTAssertEqual(store.createCount, 0,
+            "find() said .unavailable — nothing may be created behind it.")
+    }
+
     func test_aStoreThatCannotCreateYieldsNoKey() {
         let store = InMemoryPersonKeyStore()
         store.refusesCreate = true
@@ -237,6 +248,20 @@ final class PersonKeyTests: XCTestCase {
 private struct UnavailableStore: PersonKeyStore {
     func find() -> PersonKeyLookup { .unavailable }
     func createIfAbsent(_ item: PersonKeyItem) -> PersonKeyCreation { .unavailable }
+    func setName(_ name: String) -> Bool { false }
+}
+
+/// Cannot read, but WOULD write: the shape of a transient keychain hiccup on
+/// the read path. Counts every create it is asked for.
+private final class UnreadableButWritableStore: PersonKeyStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _createCount = 0
+    var createCount: Int { lock.withLock { _createCount } }
+    func find() -> PersonKeyLookup { .unavailable }
+    func createIfAbsent(_ item: PersonKeyItem) -> PersonKeyCreation {
+        lock.withLock { _createCount += 1 }
+        return .created
+    }
     func setName(_ name: String) -> Bool { false }
 }
 
