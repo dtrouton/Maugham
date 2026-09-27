@@ -1560,9 +1560,11 @@ final class AdmissionPermitTests: XCTestCase {
         let store = try await DocumentStore.open(url: projectURL)
         let piece = try await docId()
         // A file with a slug no device record names — the unsigned door's own
-        // subject, and the one this Mac cannot attribute.
+        // subject, and the one this Mac cannot attribute. Named the way THIS
+        // build names a writer (v0.41.1: any other spelling is older history).
+        let slug = Self.signingEraGhost
         let ghost = projectURL.appendingPathComponent(
-            ".maugham/ops/\(piece).ghostmac-0badf00d.jsonl")
+            ".maugham/ops/\(piece).\(slug).jsonl")
         try Data("{\"opId\":\"01\"}\n".utf8).write(to: ghost)
 
         let reading = await store.unsignedReading()
@@ -1570,12 +1572,53 @@ final class AdmissionPermitTests: XCTestCase {
         XCTAssertNil(reading.refusal)
         XCTAssertFalse(reading.alreadyNarrowed)
         XCTAssertTrue(reading.holdsAnUnsignedStream)
-        XCTAssertTrue(reading.streams.contains("ghostmac-0badf00d"),
+        XCTAssertTrue(reading.streams.contains(slug),
                       "named by the SLUG, as the held-line door names it: "
                       + "\(reading.streams)")
         XCTAssertNil(reading.narrowedAt,
                      "nobody has been narrowed, so there is no day to date "
                      + "History's unsigned entry with")
+    }
+
+    static let signingEraGhost = DeviceSlug.make(
+        from: DeviceIdentity.deviceId(
+            actor: DeviceActor.author.rawValue,
+            fingerprint: String(repeating: "5a", count: 32))).raw
+
+    /// **The released book's pre-signing history** (v0.41.1). A legacy
+    /// unsuffixed `<docId>.jsonl` and a hostname-era file are unsigned
+    /// streams, and the reading names them — but never by the document id,
+    /// which People & Devices printed as though a document signed something;
+    /// and they are no Mac writing in the book, so the first-narrowing notice
+    /// must not say one is. The converse: a signing-era stream beside them
+    /// still makes the notice say so.
+    func test_theReadingNamesNoDocumentAndCountsNoOldHistoryAsAMac() async throws {
+        beThisMac()
+        let store = try await DocumentStore.open(url: projectURL)
+        let piece = try await docId()
+        let ops = projectURL.appendingPathComponent(".maugham/ops")
+        try Data("{\"opId\":\"01\"}\n".utf8).write(
+            to: ops.appendingPathComponent("\(piece).jsonl"))
+        let hostname = DeviceSlug.make(from: "Denvers-MacBook-Air.local").raw
+        try Data("{\"opId\":\"02\"}\n".utf8).write(
+            to: ops.appendingPathComponent("\(piece).\(hostname).jsonl"))
+
+        let legacyOnly = await store.unsignedReading()
+
+        XCTAssertNil(legacyOnly.refusal)
+        XCTAssertEqual(Set(legacyOnly.streams),
+                       [HeldLines.oldestHistoryStream, hostname],
+                       "\(legacyOnly.streams)")
+        XCTAssertFalse(legacyOnly.streams.contains { $0.contains(piece) },
+                       "no document id is a stream name: \(legacyOnly.streams)")
+        XCTAssertFalse(legacyOnly.holdsAnUnsignedStream,
+                       "older history is no Mac writing in this book")
+
+        try Data("{\"opId\":\"03\"}\n".utf8).write(
+            to: ops.appendingPathComponent("\(piece).\(Self.signingEraGhost).jsonl"))
+        let withAMac = await store.unsignedReading()
+        XCTAssertTrue(withAMac.holdsAnUnsignedStream)
+        XCTAssertTrue(withAMac.streams.contains(Self.signingEraGhost))
     }
 
     /// **The cost rule, in both directions** (P3b Task 10). History draws an
@@ -1589,7 +1632,7 @@ final class AdmissionPermitTests: XCTestCase {
         let store = try await DocumentStore.open(url: projectURL)
         let piece = try await docId()
         let ghost = projectURL.appendingPathComponent(
-            ".maugham/ops/\(piece).ghostmac-0badf00d.jsonl")
+            ".maugham/ops/\(piece).\(Self.signingEraGhost).jsonl")
         try Data("{\"opId\":\"01\"}\n".utf8).write(to: ghost)
 
         let forHistory = await store.unsignedReading(onlyIfNarrowed: true)
@@ -1601,7 +1644,7 @@ final class AdmissionPermitTests: XCTestCase {
         XCTAssertNil(forHistory.narrowedAt)
 
         let forTheSheet = await store.unsignedReading()
-        XCTAssertTrue(forTheSheet.streams.contains("ghostmac-0badf00d"),
+        XCTAssertTrue(forTheSheet.streams.contains(Self.signingEraGhost),
                       "premise: the same folder, read the other way, sees it")
     }
 }

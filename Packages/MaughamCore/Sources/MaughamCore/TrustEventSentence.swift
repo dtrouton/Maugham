@@ -102,6 +102,22 @@ public enum TrustEventSentence {
             // quotes.
             let stream = HeldLines.streamOfUnsignedHolder(event.subject)
                 ?? event.subject
+            // **History from before the signatures is not a Mac** (v0.41.1).
+            // A hostname-era slug, a P1 role sentinel or the unsuffixed file
+            // names nobody who is writing in this book now, so the entry says
+            // what it was — `HeldLines.origin`'s words, which People &
+            // Devices' older-history row lists too — and what the photograph
+            // did: everything already in it stays applied. Only something an
+            // older Maugham writes there afterwards waits, and for that the
+            // paragraphs-only rule below holds unchanged.
+            if case .beforeSigning(let what) = HeldLines.origin(ofUnsignedStream: stream) {
+                return "This book was narrowed while it still held history from "
+                    + "before it signed its lines \u{2014} \(what). Everything "
+                    + "already in it stays applied. Anything an older version "
+                    + "of Maugham writes there since is waiting for its "
+                    + "paragraphs to be sent to the Inbox; everything else "
+                    + "stays held, with no way back."
+            }
             // **True in both cases** (P3c Task 7, carry M2): the stream may
             // be a signing Mac whose first seal has not synced here yet, so
             // the sentence never says *there is no device to admit* — it says

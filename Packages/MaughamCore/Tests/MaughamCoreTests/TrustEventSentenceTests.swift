@@ -235,15 +235,22 @@ final class TrustEventSentenceTests: XCTestCase {
     /// **Named by its stream, never by a code.** There is no key here — that is
     /// the whole fact — so four characters of a filename prefix would be a
     /// name two unsigned streams share.
+    /// A stream named the way this build names a writer (v0.41.1: any other
+    /// spelling is history from before the signatures, and says so).
+    private static let signingEra = DeviceSlug.make(
+        from: DeviceIdentity.deviceId(
+            actor: "author", fingerprint: String(repeating: "9f3c", count: 16))).raw
+
     func test_anUnsignedEntryNamesTheStreamAndNotACode() {
+        let stream = Self.signingEra
         let holder = HeldLines.unsignedHolder(
-            forStreamKey: "author-9f3c", deviceSlug: nil)
+            forStreamKey: stream, deviceSlug: nil)
         XCTAssertEqual(
             TrustEventSentence.sentence(
-                for: event(.unsigned, subject: holder, label: "author-9f3c"),
+                for: event(.unsigned, subject: holder, label: stream),
                 labels: [:]),
             "This book was narrowed while nothing in it said who signs for "
-            + "\u{201C}author-9f3c\u{201D}. Anything that stream has written "
+            + "\u{201C}\(stream)\u{201D}. Anything that stream has written "
             + "since is waiting \u{2014} for its Mac\u{2019}s first signed "
             + "change to sync here, or, if it signs nothing, for its paragraphs "
             + "to be sent to the Inbox; everything else it wrote stays held, "
@@ -256,9 +263,32 @@ final class TrustEventSentenceTests: XCTestCase {
     /// this row exists to say is not there.
     func test_anUnsignedEntryIsNeverToldToWaitForARecord() {
         let holder = HeldLines.unsignedHolder(
-            forStreamKey: "author-9f3c", deviceSlug: nil)
+            forStreamKey: Self.signingEra, deviceSlug: nil)
         XCTAssertNil(TrustEventSentence.unknownSubject(
             for: event(.unsigned, subject: holder), labels: [:]))
+    }
+
+    /// **History from before the signatures is described, never quoted**
+    /// (v0.41.1). A hostname-era slug, a P1 role sentinel and the unsuffixed
+    /// file's name are not signers, and the entry says what each was and that
+    /// what it held stays applied — while a signing-era stream keeps the
+    /// sentence above, word for word.
+    func test_anOlderHistoryEntrySaysWhatItWasAndThatItStaysApplied() {
+        for (stream, what) in [
+            (DeviceSlug.make(from: "mcp").raw, "edits made through MCP"),
+            (HeldLines.oldestHistoryStream, "oldest history"),
+            (DeviceSlug.make(from: "Denvers-MacBook-Air.local").raw,
+             "denvers-macbook-air-loca"),
+        ] {
+            let sentence = TrustEventSentence.sentence(
+                for: event(.unsigned, subject: HeldLines.unsignedHolder(
+                    forStreamKey: stream, deviceSlug: nil)),
+                labels: [:])
+            XCTAssertTrue(sentence.contains(what), sentence)
+            XCTAssertTrue(sentence.contains("stays applied"), sentence)
+            XCTAssertFalse(sentence.contains("who signs for"), sentence)
+            XCTAssertFalse(sentence.contains(HeldLines.oldestHistoryStream), sentence)
+        }
     }
 
     // MARK: - Vocabulary

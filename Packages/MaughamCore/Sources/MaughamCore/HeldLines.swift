@@ -91,6 +91,96 @@ public enum HeldLines {
         return named.isEmpty ? nil : String(named)
     }
 
+    // MARK: - What a SURFACE calls an unsigned stream (v0.41.1)
+
+    /// **The one name every legacy unsuffixed `<docId>.jsonl` is listed under
+    /// on a surface.**
+    ///
+    /// The held-line holder above falls back to the stream KEY where a file
+    /// carries no slug, and for the legacy unsuffixed file that key is a
+    /// DOCUMENT id — so People & Devices listed *Nothing this book holds says
+    /// who signs for “doc-0e8b0a00”*, a document presented as a signer (the
+    /// v0.41.0 report on a real book). That file belongs to no device at all;
+    /// every one of them is the same fact, the book's history from before
+    /// ADR 0012 partitioned it, so a surface names them all by this.
+    ///
+    /// The holder the partition holds lines under is left as it is: what is
+    /// held, and under which string, is not a display question. No surface
+    /// prints that holder's payload — the held-line sentences name no stream
+    /// (`sentence(_:notes:…)`), and the two that do name one (People &
+    /// Devices, History's dated entry) read `unsignedStreamName`.
+    ///
+    /// Spelled with parentheses, which neither a `DeviceSlug` (`[a-z0-9-]`)
+    /// nor a stream key can carry, so it cannot be mistaken for either.
+    public static let oldestHistoryStream = "(unsuffixed)"
+
+    /// **What a surface lists an unsigned stream as** — its device slug, or
+    /// `oldestHistoryStream` for a file that carries none. `DocumentStore
+    /// .readUnsigned` asks this, and it is the reading both People & Devices
+    /// and History draw from.
+    public static func unsignedStreamName(
+        forStreamKey key: String, deviceSlug: String?
+    ) -> String {
+        deviceSlug ?? oldestHistoryStream
+    }
+
+    /// **Where an unsigned stream came from** — the one classification of a
+    /// stream NAME (`unsignedStreamName`'s answer), so People & Devices and
+    /// History's entry cannot describe one stream two ways.
+    public enum UnsignedOrigin: Equatable, Hashable, Sendable {
+        /// Named the way this build names a writer — `DeviceSlug.make` over a
+        /// `DeviceIdentity.deviceId`, `<actor>-<hex>-<8 hex>`. A Mac that
+        /// signs nothing, or a signing Mac whose first seal has not synced
+        /// here: the case every existing unsigned sentence was written for.
+        case signingEra
+        /// Named the way NOTHING this build writes is named: history from
+        /// before this book signed its lines — a hostname, a P1-era role
+        /// sentinel, a phone's `phone:<uuid>`, or the unsuffixed file. The
+        /// payload is what it was, in the writer's words.
+        case beforeSigning(String)
+    }
+
+    /// **The rule.** A stream is signing-era exactly when its name is SHAPED
+    /// like an id this build's writers produce — `DeviceIdentity
+    /// .looksLikeADeviceId`, the one place that shape is taken apart
+    /// (tripwire 35), which takes a slug as readily as an id. Everything else
+    /// is a spelling no current build writes, and so is older than the
+    /// signatures.
+    public static func origin(ofUnsignedStream name: String) -> UnsignedOrigin {
+        if name == oldestHistoryStream {
+            return .beforeSigning("the book\u{2019}s oldest history, from before "
+                + "each device kept its own")
+        }
+        if DeviceIdentity.looksLikeADeviceId(name) { return .signingEra }
+        // `DeviceSlug.make` appends `-<8 hex>` of the whole device string;
+        // what is before it is the readable part, capped at 24 characters.
+        let head: String
+        if let dash = name.lastIndex(of: "-"),
+           name[name.index(after: dash)...].count == 8,
+           name[name.index(after: dash)...].allSatisfy(\.isHexDigit) {
+            head = String(name[..<dash])
+        } else {
+            head = name
+        }
+        switch head {
+        case "mcp": return .beforeSigning("edits made through MCP")
+        case "rebalance": return .beforeSigning("the task rebalance")
+        case "wiki-rename": return .beforeSigning("wiki-link renames")
+        case "find-replace": return .beforeSigning("find and replace")
+        default:
+            if head.hasPrefix("phone-") {
+                return .beforeSigning("what a phone wrote before it signed its lines")
+            }
+            // A pre-P1 hostname, sanitized and capped at 24 characters. It is
+            // the only honest name there is, shown as the file spells it and
+            // with no cut mark: a readable part is AT MOST 24 characters, and
+            // one of exactly 24 may be a whole name — the file cannot say
+            // which, so a mark would be a guess (review Minor 4).
+            return .beforeSigning(
+                "a Mac, under the name it had then (\u{201C}\(head)\u{201D})")
+        }
+    }
+
     // MARK: - Whose it is
 
     /// The three reasons a line is held, and nothing else is one.

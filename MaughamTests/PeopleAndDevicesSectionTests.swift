@@ -663,13 +663,57 @@ final class PeopleAndDevicesPermitSectionTests: XCTestCase {
     // MARK: - The rows that had no voice
 
     func test_astreamNothingSignsIsDrawnWithWhatNarrowingWillDo() throws {
-        let window = mount(model(unsignedStreams: ["ghostmac"]))
+        let window = mount(model(unsignedStreams: [DeviceSlug.make(
+            from: DeviceIdentity.deviceId(
+                actor: "author", fingerprint: String(repeating: "5a", count: 32))).raw]))
         let texts = try axTexts(in: window)
 
         XCTAssertTrue(texts.contains { $0.contains("says who signs for") },
                       "what is true now: \(texts)")
         XCTAssertTrue(texts.contains { $0.contains("waits on the other Macs") },
                       "and what narrowing will do, before there is a reviewer: \(texts)")
+    }
+
+    /// **The released book's pane, drawn** (v0.41.1): one writer whose second
+    /// record has no device record, beside pre-signing history. The label is
+    /// on screen ONCE, the phone is a device row saying the book has no
+    /// description of it, and the old streams are one row — no *who signs
+    /// for* line at all.
+    func test_oneWriterWithAnUnseenDeviceAndOlderHistoryIsDrawnAsOnePerson() throws {
+        let phoneKey = "0ecb0ecb0ecb0ecb"
+        let registry = Registry(
+            devices: [DeviceRecord(device: root, name: "Denver's MacBook Air",
+                                   kind: .mac, actors: ["author": root], madeAt: made)],
+            people: [
+                PersonRecord(person: root, label: "Denver Trouton",
+                             ownName: "Denver's MacBook Air",
+                             admittedAt: made, admittedBy: root),
+                PersonRecord(person: phoneKey, label: "Denver Trouton",
+                             ownName: DeviceCode.short(phoneKey),
+                             admittedAt: admitted, admittedBy: root),
+            ])
+        let table = TrustTable.resolve(
+            registry: registry, mine: .forAuthor(rootIdentity), joinedRoot: nil)
+        let model = PeopleAndDevicesModel.make(
+            registry: registry, table: table, remembered: [:], requests: [],
+            claimants: [],
+            standing: DeviceStanding(
+                code: DeviceCode.short(root), label: "Denver Trouton",
+                rootLabel: "Denver Trouton", admitted: true, isRoot: true),
+            me: root,
+            unsignedStreams: [DeviceSlug.make(from: "mcp").raw,
+                              HeldLines.oldestHistoryStream])
+        let window = mount(model)
+        let texts = try axTexts(in: window)
+
+        XCTAssertEqual(texts.filter { $0 == "Denver Trouton" }.count, 1,
+                       "one person: \(texts)")
+        XCTAssertTrue(texts.contains(PeopleAndDevicesModel.UnseenDevice.sentence),
+                      "the phone is a device row: \(texts)")
+        XCTAssertTrue(texts.contains(PeopleAndDevicesModel.OlderHistory.title),
+                      "older history is one row: \(texts)")
+        XCTAssertFalse(texts.contains { $0.contains("who signs for") },
+                       "and no warning per old stream: \(texts)")
     }
 
     func test_acontestedKeyIsDrawnWithNoControlToPress() throws {

@@ -46,6 +46,65 @@ final class HeldLinesTests: XCTestCase {
         return try RegistryReader.load(projectURL: projectURL)
     }
 
+    // MARK: - Where an unsigned stream came from (v0.41.1)
+
+    /// A slug named the way this build names a writer.
+    static let signingEra = DeviceSlug.make(
+        from: DeviceIdentity.deviceId(
+            actor: DeviceActor.author.rawValue,
+            fingerprint: String(repeating: "c0de", count: 16))).raw
+
+    /// **Every slug a current build writes is signing-era — all four actors,
+    /// including the two `DeviceSlug.make` truncates.** `assistant-` and
+    /// `translator-` keep only 14 and 13 hex characters of the key before the
+    /// hash, and a rule that wanted sixteen would call a live assistant stream
+    /// older history.
+    func test_everyActorsSlugIsSigningEra() throws {
+        let identity = LocalIdentities.softwareForTesting()
+        for actor in DeviceActor.allCases {
+            let slug = DeviceSlug.make(from: identity[actor].deviceId).raw
+            XCTAssertEqual(HeldLines.origin(ofUnsignedStream: slug), .signingEra, slug)
+        }
+    }
+
+    /// **And nothing else is** — the five spellings a pre-P1 book holds, each
+    /// described in the writer's words and none quoting a document id.
+    func test_everyPreSigningSpellingIsOlderHistory() {
+        let cases: [(String, String)] = [
+            (DeviceSlug.make(from: "Denvers-MacBook-Air.local").raw,
+             "a Mac, under the name it had then (\u{201C}denvers-macbook-air-loca\u{201D})"),
+            // An UNCUT name of exactly the cap: no cut mark (review Minor 4).
+            (DeviceSlug.make(from: "abcdefghijklmnopqrstuvwx").raw,
+             "a Mac, under the name it had then (\u{201C}abcdefghijklmnopqrstuvwx\u{201D})"),
+            (DeviceSlug.make(from: "mcp").raw, "edits made through MCP"),
+            (DeviceSlug.make(from: "rebalance").raw, "the task rebalance"),
+            (DeviceSlug.make(from: "wiki-rename").raw, "wiki-link renames"),
+            (DeviceSlug.make(from: "find-replace").raw, "find and replace"),
+            (DeviceSlug.make(from: "phone:18B59020-1A2B-4C3D-8E9F-0123456789AB").raw,
+             "what a phone wrote before it signed its lines"),
+            (HeldLines.oldestHistoryStream,
+             "the book\u{2019}s oldest history, from before each device kept its own"),
+        ]
+        for (stream, words) in cases {
+            XCTAssertEqual(HeldLines.origin(ofUnsignedStream: stream),
+                           .beforeSigning(words), stream)
+        }
+    }
+
+    /// **A slugless file is named by no document** — the fix at the naming
+    /// function every surface reads, in both directions: a stream WITH a slug
+    /// keeps it.
+    func test_aFileWithNoSlugIsNamedByNoDocument() {
+        XCTAssertEqual(
+            HeldLines.unsignedStreamName(forStreamKey: "doc-0e8b0a00", deviceSlug: nil),
+            HeldLines.oldestHistoryStream)
+        XCTAssertEqual(
+            HeldLines.unsignedStreamName(
+                forStreamKey: "doc-0e8b0a00.\(Self.signingEra)",
+                deviceSlug: Self.signingEra),
+            Self.signingEra)
+    }
+
     // MARK: - The classifier
 
     /// The flag never turns one holder into another. It is carried BESIDE the
@@ -149,7 +208,8 @@ final class HeldLinesTests: XCTestCase {
             for: TrustEvent(
                 date: Date(timeIntervalSince1970: 0), kind: .unsigned,
                 subject: HeldLines.unsignedHolder(
-                    forStreamKey: "d.ghost", deviceSlug: "ghost")),
+                    forStreamKey: "d.\(Self.signingEra)",
+                    deviceSlug: Self.signingEra)),
             labels: [:])
         let held = [
             HeldLines.sentence(.unsigned(stream: "ghost"), notes: 2),
