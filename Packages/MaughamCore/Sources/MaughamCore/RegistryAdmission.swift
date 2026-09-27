@@ -530,11 +530,15 @@ public enum RegistryAdmission {
             admittedBy: root.fingerprint,
             revokedAt: nil, revokedBy: nil,
             highestOpIdSeen: nil,
-            // **The linked person key is carried, never dropped** (your
-            // devices are you, Task 4). It is the root's decision about this
-            // PERSON, which neither a machine renaming itself nor a
-            // re-admission revisits; only `forgetPersonKey` releases it.
-            personKey: existing?.personKey)
+            // **The linked person key is carried while the PERSON is the same
+            // one** (your devices are you, Task 4) — a machine renaming itself
+            // or a re-admission under the same label does not revisit it. A
+            // LABEL change drops it (fix round 2): the key was linked to the
+            // person that label names, and carrying it onto another label
+            // would make a device claiming Sam's key be recognised as Denver.
+            // `linkPersonKey` re-links from a verified claim, under the rules.
+            personKey: TrustTable.sharesLabel(existing?.label, label)
+                ? existing?.personKey : nil)
         try RegistryWriter.write(
             record, signedBy: root, in: projectURL, presenter: presenter)
         memory.remember(fingerprint, label: label, ownName: ownName, at: now())
@@ -1320,6 +1324,11 @@ public enum RegistryAdmission {
             existing, signedBy: root, in: projectURL, presenter: presenter
         ) { object in
             object["label"] = trimmed
+            // A label change drops the linked person key, for `admit`'s
+            // reason: the key belongs to the person the OLD label names.
+            if !TrustTable.sharesLabel(existing.label, trimmed) {
+                object.removeValue(forKey: "personKey")
+            }
         }
 
         let verified = try TrustResolution.verifiedRegistry(
@@ -1422,9 +1431,16 @@ public enum RegistryAdmission {
     /// included, for the reason the link is label-wide: People & Devices draws
     /// the person as one row, and a Forget that left the phone's record
     /// holding the key would leave the person recognised by it with the
-    /// writer believing it gone. `changePermit(everyRecordOf:)`'s shape: every
-    /// record that holds a key is checked against `renameOutcome` up front, so
-    /// the act is whole or nothing.
+    /// writer believing it gone. Every holder is checked against
+    /// `renameOutcome` up front, so an act this Mac may not complete writes
+    /// nothing.
+    ///
+    /// **A write that fails part way is not atomic, and says so** —
+    /// `changePermit(everyRecordOf:)`'s shape: the loop stops, EVERY holder is
+    /// read back, and `PersonKeyForgetIncomplete` names which are cleared and
+    /// which still hold a key. The same error is thrown when every write
+    /// "succeeded" and a read-back still finds a key, or no record. Pressing
+    /// again finishes the rest and clears nothing twice.
     ///
     /// Allowed over a REVOKED record — it is the one way to release a key a
     /// revoked person holds. Idempotent: a label with no linked key writes
@@ -1437,6 +1453,28 @@ public enum RegistryAdmission {
         cache: RegistryCache,
         presenter: NSFilePresenter? = nil
     ) throws -> PersonRecord {
+        try forgetPersonKey(
+            person: fingerprint, in: projectURL, by: root, cache: cache,
+            presenter: presenter
+        ) { holder in
+            try RegistryWriter.resign(
+                holder, signedBy: root, in: projectURL, presenter: presenter
+            ) { object in
+                object.removeValue(forKey: "personKey")
+            }
+        }
+    }
+
+    /// The same verb with its per-record write handed in — the seam a test
+    /// uses to fail the loop part way. Production passes the resign above.
+    nonisolated static func forgetPersonKey(
+        person fingerprint: String,
+        in projectURL: URL,
+        by root: DeviceIdentity,
+        cache: RegistryCache,
+        presenter: NSFilePresenter?,
+        clearing clear: (PersonRecord) throws -> Void
+    ) throws -> PersonRecord {
         let registry = try TrustResolution.verifiedRegistry(
             projectURL: projectURL, presenter: presenter, cache: cache)
         let subject = try renameOutcome(
@@ -1444,19 +1482,44 @@ public enum RegistryAdmission {
         let holders = records(sharingLabelWith: fingerprint, in: registry)
             .filter { $0.personKey != nil }
         guard !holders.isEmpty else { return subject }
-        // Up front, before anything is written: the whole act or none of it.
+        // Up front, before anything is written: an act this Mac may not
+        // complete writes nothing.
         for holder in holders {
             _ = try renameOutcome(
                 person: holder.person, by: root.fingerprint, in: registry).get()
         }
+        var failure: (person: String, error: Error)?
         for holder in holders {
-            try RegistryWriter.resign(
-                holder, signedBy: root, in: projectURL, presenter: presenter
-            ) { object in
-                object.removeValue(forKey: "personKey")
+            do {
+                try clear(holder)
+            } catch {
+                failure = (holder.person, error)
+                break
             }
         }
-        return try readBack(fingerprint, in: projectURL, cache: cache, presenter: presenter)
+
+        // Read back EVERY holder, not only the subject: what is on disk is the
+        // only honest account of what this act did.
+        let verified: Registry
+        do {
+            verified = try TrustResolution.verifiedRegistry(
+                projectURL: projectURL, presenter: presenter, cache: cache)
+        } catch {
+            throw PersonKeyForgetIncomplete(
+                cleared: [], notCleared: holders.map(\.person),
+                underlying: failure?.error ?? error)
+        }
+        let isClear: (String) -> Bool = { verified.person($0).map { $0.personKey == nil } ?? false }
+        let cleared = holders.map(\.person).filter(isClear)
+        let notCleared = holders.map(\.person).filter { !isClear($0) }
+        if failure != nil || !notCleared.isEmpty {
+            throw PersonKeyForgetIncomplete(
+                cleared: cleared, notCleared: notCleared, underlying: failure?.error)
+        }
+        guard let record = verified.person(fingerprint) else {
+            throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
+        }
+        return record
     }
 
     /// **A verified record holding this key that is NOT the same person as
@@ -1778,5 +1841,36 @@ public enum RegistryAdmission {
             guard let ref = fault.ref, ref.directory == directory else { return nil }
             return ref.fingerprint
         })
+    }
+}
+
+/// **A label-wide Forget that did not clear every record** (your devices are
+/// you, Task 4, fix round 2) — `PermitChangePartlyApplied`'s shape: a write
+/// failed part way, or a record read back still holding a key. Both lists are
+/// what the folder says AFTER the act, not what the loop attempted.
+///
+/// `LocalizedError`, so a surface's fallback reads a sentence.
+public struct PersonKeyForgetIncomplete: Error, LocalizedError {
+    /// Holders read back with no linked key.
+    public let cleared: [String]
+    /// Holders still holding a key, or that did not read back at all.
+    public let notCleared: [String]
+    /// The write that failed, where one did.
+    public let underlying: Error?
+
+    public init(cleared: [String], notCleared: [String], underlying: Error?) {
+        self.cleared = cleared
+        self.notCleared = notCleared
+        self.underlying = underlying
+    }
+
+    public var errorDescription: String? {
+        let still = notCleared.map { DeviceCode.short($0) }.joined(separator: ", ")
+        let what = cleared.isEmpty
+            ? "Nothing was forgotten."
+            : "The Apple ID was forgotten on some of this person's devices, "
+                + "but \(still) still recognise it."
+        let why = underlying.map { " \($0.localizedDescription)" } ?? ""
+        return "\(what)\(why) Pressing again finishes the rest."
     }
 }

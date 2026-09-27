@@ -30,6 +30,8 @@ final class PersonKeyLinkTests: XCTestCase {
     private var mine: LocalIdentities!
     private var phone: LocalIdentities!
     private var sam: LocalIdentities!
+    /// Sam's second device, admitted under his label.
+    private var samsPhone: LocalIdentities!
     private var otherRoot: LocalIdentities!
     private var denversKey: PersonKey!
     private var samsKey: PersonKey!
@@ -47,6 +49,7 @@ final class PersonKeyLinkTests: XCTestCase {
         mine = .softwareForTesting()
         phone = .softwareForTesting()
         sam = .softwareForTesting()
+        samsPhone = .softwareForTesting()
         otherRoot = .softwareForTesting()
         denversKey = PersonKey.findOrCreate(
             in: InMemoryPersonKeyStore(), seedName: "Denver Trouton")
@@ -564,5 +567,159 @@ final class PersonKeyLinkTests: XCTestCase {
 
         XCTAssertFalse(back.isRevoked, "premise: re-admitted")
         XCTAssertEqual(back.personKey, samsKey.fingerprint)
+    }
+
+    // MARK: - A label change drops the key (fix round 2)
+
+    func test_anAdmissionUnderADifferentLabelDropsTheLink() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try admit(phone, label: "Denver", ownName: "Denver's iPhone")
+        try link(phone, to: denversKey)
+
+        let relabelled = try RegistryAdmission.admit(
+            device: phone.author.fingerprint, label: "Amelia", ownName: "Denver's iPhone",
+            in: projectURL, by: mine.author, cache: makeCache(), memory: makeMemory(),
+            now: { Date(timeIntervalSince1970: 20) })
+
+        XCTAssertEqual(relabelled.label, "Amelia", "premise: the label changed")
+        XCTAssertNil(relabelled.personKey)
+        XCTAssertNil(try object(of: phone)["personKey"])
+    }
+
+    func test_aRenameToADifferentLabelDropsTheLink() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try admit(phone, label: "Denver", ownName: "Denver's iPhone")
+        try link(phone, to: denversKey)
+
+        let renamed = try RegistryAdmission.rename(
+            person: phone.author.fingerprint, to: "Amelia", in: projectURL,
+            by: mine.author, cache: makeCache(), memory: makeMemory())
+
+        XCTAssertEqual(renamed.label, "Amelia")
+        XCTAssertNil(renamed.personKey)
+        XCTAssertTrue(try registry().malformed.isEmpty)
+    }
+
+    /// The converse for rename: the same label (a stray space) is no change
+    /// and keeps the key. (`admit`'s same-label converse is
+    /// `test_anAdmissionOverALinkedRecordKeepsTheLink` and
+    /// `test_aReadmissionKeepsTheLink`.)
+    func test_aRenameToTheSameLabelKeepsTheLink() throws {
+        try becomeRoot(mine, name: "Denver's MacBook")
+        try admit(phone, label: "Denver", ownName: "Denver's iPhone")
+        try link(phone, to: denversKey)
+
+        let same = try RegistryAdmission.rename(
+            person: phone.author.fingerprint, to: " Denver ", in: projectURL,
+            by: mine.author, cache: makeCache(), memory: makeMemory())
+
+        XCTAssertEqual(same.personKey, denversKey.fingerprint)
+    }
+
+    /// **The scenario the review found**: Sam's phone re-labelled "Denver"
+    /// must not carry Sam's key into Denver's label — through either verb.
+    /// Sam's other record keeps it, the relabelled one holds none, and a
+    /// re-link of Sam's key there is refused because Sam still holds it.
+    func test_samsDeviceRelabelledDenverTakesNoKeyAcrossByRename() throws {
+        try relabelSamsPhoneAsDenver { [self] in
+            try RegistryAdmission.rename(
+                person: samsPhone.author.fingerprint, to: "Denver", in: projectURL,
+                by: mine.author, cache: makeCache(), memory: makeMemory())
+        }
+    }
+
+    func test_samsDeviceRelabelledDenverTakesNoKeyAcrossByAdmission() throws {
+        try relabelSamsPhoneAsDenver { [self] in
+            try RegistryAdmission.admit(
+                device: samsPhone.author.fingerprint, label: "Denver",
+                ownName: "Sam's iPhone", in: projectURL, by: mine.author,
+                cache: makeCache(), memory: makeMemory(),
+                now: { Date(timeIntervalSince1970: 30) })
+        }
+    }
+
+    private func relabelSamsPhoneAsDenver(
+        _ relabel: () throws -> PersonRecord
+    ) throws {
+        try becomeRoot(mine, name: "Denver")
+        try admit(sam, label: "Sam", ownName: "Sam's Mac")
+        try admit(samsPhone, label: "Sam", ownName: "Sam's iPhone")
+        try link(mine, to: denversKey)
+        try link(sam, to: samsKey)
+        try link(samsPhone, to: samsKey)
+
+        let relabelled = try relabel()
+
+        XCTAssertEqual(relabelled.label, "Denver", "premise")
+        XCTAssertNil(try registry().person(samsPhone.author.fingerprint)?.personKey)
+        XCTAssertEqual(try registry().person(sam.author.fingerprint)?.personKey,
+                       samsKey.fingerprint, "Sam's other record keeps his key")
+        XCTAssertEqual(try registry().person(mine.author.fingerprint)?.personKey,
+                       denversKey.fingerprint)
+        XCTAssertThrowsError(try link(samsPhone, to: samsKey)) { error in
+            XCTAssertEqual(error as? RegistryAdmissionError,
+                           .personKeyLinkedElsewhere(person: sam.author.fingerprint))
+        }
+    }
+
+    // MARK: - Forget part way (fix round 2)
+
+    private struct Planted: Error {}
+
+    /// A write that fails part way stops the loop, and the error names what
+    /// the folder says: the first holder cleared, the second still holding.
+    func test_aForgetThatFailsPartWayNamesWhatWasAndWasNotCleared() throws {
+        try becomeRoot(mine, name: "Denver")
+        try admit(phone, label: "Denver", ownName: "Denver's iPhone")
+        try link(mine, to: denversKey)
+        try link(phone, to: denversKey)
+        var calls = 0
+
+        XCTAssertThrowsError(try RegistryAdmission.forgetPersonKey(
+            person: mine.author.fingerprint, in: projectURL, by: mine.author,
+            cache: makeCache(), presenter: nil
+        ) { [self] holder in
+            calls += 1
+            if calls == 2 { throw Planted() }
+            try RegistryWriter.resign(
+                holder, signedBy: mine.author, in: projectURL
+            ) { $0.removeValue(forKey: "personKey") }
+        }) { error in
+            let incomplete = error as? PersonKeyForgetIncomplete
+            XCTAssertEqual(incomplete?.cleared, [mine.author.fingerprint])
+            XCTAssertEqual(incomplete?.notCleared, [phone.author.fingerprint])
+            XCTAssertTrue(incomplete?.underlying is Planted)
+        }
+        XCTAssertEqual(try registry().person(phone.author.fingerprint)?.personKey,
+                       denversKey.fingerprint, "premise: the second really was not cleared")
+
+        // Pressing again finishes the rest.
+        try forget(mine)
+        XCTAssertNil(try registry().person(phone.author.fingerprint)?.personKey)
+    }
+
+    /// Every write "succeeded" and the folder still holds the key: the
+    /// read-back of EVERY holder is what catches it.
+    func test_aForgetWhoseReadBackStillFindsAKeyFailsLoudly() throws {
+        try becomeRoot(mine, name: "Denver")
+        try admit(phone, label: "Denver", ownName: "Denver's iPhone")
+        try link(mine, to: denversKey)
+        try link(phone, to: denversKey)
+
+        XCTAssertThrowsError(try RegistryAdmission.forgetPersonKey(
+            person: mine.author.fingerprint, in: projectURL, by: mine.author,
+            cache: makeCache(), presenter: nil
+        ) { [self] holder in
+            // Clears the subject only, and reports success for the phone.
+            guard holder.person == mine.author.fingerprint else { return }
+            try RegistryWriter.resign(
+                holder, signedBy: mine.author, in: projectURL
+            ) { $0.removeValue(forKey: "personKey") }
+        }) { error in
+            let incomplete = error as? PersonKeyForgetIncomplete
+            XCTAssertEqual(incomplete?.cleared, [mine.author.fingerprint])
+            XCTAssertEqual(incomplete?.notCleared, [phone.author.fingerprint])
+            XCTAssertNil(incomplete?.underlying)
+        }
     }
 }
