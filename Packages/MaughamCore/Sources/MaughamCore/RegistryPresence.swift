@@ -66,7 +66,8 @@ public enum RegistryPresence {
         name: String,
         kind: DeviceKind,
         now: () -> Date = { Date() },
-        presenter: NSFilePresenter? = nil
+        presenter: NSFilePresenter? = nil,
+        personClaim: PersonClaim? = nil
     ) throws -> URL? {
         // MINTS, and should: this is a write path, and naming an actor is the
         // writer's act (`LocalIdentities`' lazy rule). Everything after this
@@ -89,16 +90,28 @@ public enum RegistryPresence {
 
         let registry = try RegistryReader.load(projectURL: projectURL, presenter: presenter)
         let existing = registry.devices.first { $0.device == author.fingerprint }
+        // The claim already on disk, only if it HOLDS for this device: a
+        // tampered or copied claim is not one this device can carry forward,
+        // and not one a new claim can be "the same as".
+        let standingClaim = existing.flatMap(RegistryReader.verifiedPersonClaim(of:))
+        // `nil` is *no claim to make now* (no keychain, not signed in) — not
+        // *remove the claim*. Losing the keychain for a launch must not strip
+        // a true claim from the book, so the standing one is kept.
+        let claim = personClaim ?? standingClaim
         if let existing {
             guard existing.retiredAt == nil else { return nil }
-            if existing.name == name, existing.kind == kind, existing.actors == actors {
+            // The claim is compared by its FACTS, never its signature: ECDSA
+            // is randomized, so a claim signed afresh at each open would
+            // otherwise rewrite the record at every open.
+            if existing.name == name, existing.kind == kind, existing.actors == actors,
+               standingClaim?.facts == claim?.facts {
                 return nil
             }
         }
 
         let record = DeviceRecord(
             device: author.fingerprint, name: name, kind: kind, actors: actors,
-            madeAt: existing?.madeAt ?? now())
+            madeAt: existing?.madeAt ?? now(), personClaim: claim)
         return try RegistryWriter.write(
             record, signedBy: author, in: projectURL, presenter: presenter)
     }

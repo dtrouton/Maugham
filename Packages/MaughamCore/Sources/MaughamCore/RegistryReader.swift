@@ -225,6 +225,20 @@ public struct Registry: Equatable, Sendable {
     /// a first-wins scan of its own).
     public let actorKeyOwners: [String: String]
 
+    /// **Device fingerprint → the person claim that VERIFIES for it** (your
+    /// devices are you, Task 3) — absent for a device with no claim, and for a
+    /// device whose claim does not hold for it: copied from another record,
+    /// signed by a key other than the one it names, or edited after signing.
+    ///
+    /// Derived here, beside `actorKeyOwners` and for its reason: it is a
+    /// function of `devices` alone, so a registry the reader loaded and one a
+    /// test or a filter built in memory cannot disagree about it, and no
+    /// caller can hold a `DeviceRecord.personClaim` it forgot to check — the
+    /// raw field is on the record, the ANSWER is only here. Deliberately NOT a
+    /// fault in `malformed`: an old or bad claim must never un-admit a device,
+    /// so the device stays in `devices` and is simply missing from this map.
+    public let verifiedPersonClaims: [String: PersonClaim]
+
     public init(
         devices: [DeviceRecord] = [], people: [PersonRecord] = [],
         claims: [ClaimRecord] = [], events: [PermitEvent] = [],
@@ -238,6 +252,16 @@ public struct Registry: Equatable, Sendable {
         self.malformed = malformed
         self.sourceBytes = sourceBytes
         self.actorKeyOwners = Registry.resolveActorKeyOwners(devices: devices)
+        self.verifiedPersonClaims = devices.reduce(into: [:]) { claims, device in
+            if let claim = RegistryReader.verifiedPersonClaim(of: device) {
+                claims[device.device] = claim
+            }
+        }
+    }
+
+    /// The claim that verifies for `device`, or nil — never the raw field.
+    public func verifiedPersonClaim(forDevice device: String) -> PersonClaim? {
+        verifiedPersonClaims[device]
     }
 
     /// **Who owns each actor key, and what happens when two records claim one**
@@ -703,6 +727,43 @@ public enum RegistryReader {
                 named: device.actors[DeviceActor.author.rawValue]))
         }
         return nil
+    }
+
+    // MARK: - A person claim
+
+    /// **The claim `record` carries, if it holds for THAT record** — the one
+    /// place a claim is verified (your devices are you, Task 3).
+    ///
+    /// Three things, all required:
+    /// - the signature verifies over the canonical form of `{device,
+    ///   personKey, personPub, name}` with `device` taken from the RECORD,
+    ///   never from the claim — so a claim copied into another device's
+    ///   record is checked against that other device and fails;
+    /// - the signature's own key and pub are the ones the claim names, so a
+    ///   signature by one person key cannot vouch for another;
+    /// - `personKey` IS the fingerprint of `personPub`.
+    ///
+    /// It answers nil rather than throwing or listing a fault: a claim that
+    /// does not hold says nothing about whether the device record does.
+    nonisolated public static func verifiedPersonClaim(
+        of record: DeviceRecord
+    ) -> PersonClaim? {
+        guard let claim = record.personClaim else { return nil }
+        // The credentials the claim SAYS signed it. The stored `sig` must be
+        // exactly these (guard A), and the signature must hold under the
+        // claim's own `personPub` — whose fingerprint `credentialsVerify`
+        // requires to be `personKey` — over the content rebuilt with THIS
+        // record's device (guard B). B alone refuses every forgery; A keeps a
+        // claim whose stored metadata names some other key from ever being
+        // handed on as verified.
+        let asClaimed = OpLogChain.Credentials(
+            key: claim.personKey, pub: claim.personPub, sig: claim.sig.sig)
+        guard claim.sig == asClaimed else { return nil }
+        guard let digest = try? RegistryCanonical.digestHex(
+                ofJSON: RegistryCanonical.bytes(of: claim.signedContent(forDevice: record.device))),
+              OpLogChain.credentialsVerify(asClaimed, over: digest)
+        else { return nil }
+        return claim
     }
 
     /// Bytes → record, or the malformed listing that replaces it.

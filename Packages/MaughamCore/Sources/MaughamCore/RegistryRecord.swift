@@ -111,12 +111,21 @@ public struct DeviceRecord: RegistryRecordProtocol {
     /// Set by the device itself when it retires (spec §5). Its past stays
     /// verified; its future seals are quarantined.
     public let retiredAt: Date?
+    /// *This device belongs to person key P* — signed by P over a form that
+    /// names THIS record's `device` (`PersonClaim`, your devices are you).
+    ///
+    /// **Optional and omitted when nil** — the `PersonRecord.scope` pattern —
+    /// so a record with no claim encodes to exactly the bytes a v0.41 build
+    /// writes and signs. Whether it VERIFIES is never this record's validity:
+    /// the reader answers it separately (`Registry.verifiedPersonClaims`).
+    public let personClaim: PersonClaim?
     public var sig: OpLogChain.Credentials?
 
     public init(
         device: String, name: String, kind: DeviceKind,
         actors: [String: String], madeAt: Date,
-        retiredAt: Date? = nil, sig: OpLogChain.Credentials? = nil
+        retiredAt: Date? = nil, personClaim: PersonClaim? = nil,
+        sig: OpLogChain.Credentials? = nil
     ) {
         self.device = device
         self.name = name
@@ -124,7 +133,30 @@ public struct DeviceRecord: RegistryRecordProtocol {
         self.actors = actors
         self.madeAt = madeAt
         self.retiredAt = retiredAt
+        self.personClaim = personClaim
         self.sig = sig
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case device, name, kind, actors, madeAt, retiredAt, personClaim, sig
+    }
+
+    /// The synthesized decoding in every field but one: a `personClaim` that
+    /// is not a claim's SHAPE decodes as no claim rather than failing the
+    /// record. A record that fails to decode is listed malformed, and a bad
+    /// claim must never un-admit a device (your devices are you, Task 3). The
+    /// signature is checked over the FILE's bytes, so what the file said about
+    /// the claim is still covered by it.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        device = try container.decode(String.self, forKey: .device)
+        name = try container.decode(String.self, forKey: .name)
+        kind = try container.decode(DeviceKind.self, forKey: .kind)
+        actors = try container.decode([String: String].self, forKey: .actors)
+        madeAt = try container.decode(Date.self, forKey: .madeAt)
+        retiredAt = try container.decodeIfPresent(Date.self, forKey: .retiredAt)
+        personClaim = try? container.decodeIfPresent(PersonClaim.self, forKey: .personClaim)
+        sig = try container.decodeIfPresent(OpLogChain.Credentials.self, forKey: .sig)
     }
 
     public var fingerprint: String { device }
