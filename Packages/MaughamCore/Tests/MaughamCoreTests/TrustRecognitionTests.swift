@@ -93,6 +93,26 @@ final class TrustRecognitionTests: XCTestCase {
 
     // MARK: - No claim / unknown key
 
+    /// **A key forgotten anywhere in the chain is unknown** (Task 6, C2),
+    /// even where another record of the chain still holds it; a record
+    /// OUTSIDE the chain forgetting it changes nothing.
+    func test_aKeyForgottenInTheChainAsksAndOutsideItDoesNot() throws {
+        let s = linked(sam, samKey)
+        let forgettingRoot = PersonRecord(
+            person: rootFP, label: "Denver", ownName: root.ownName,
+            admittedAt: root.admittedAt, admittedBy: rootFP,
+            forgottenPersonKeys: [samKey.fingerprint])
+        let d = try device(claimBy: samKey)
+        XCTAssertEqual(decide(d, people: [root, s]), .knownPerson(s), "the control")
+        XCTAssertEqual(decide(d, people: [forgettingRoot, s]), hint("Sam"))
+        let stranger = PersonRecord(
+            person: "other-root", label: "Other", ownName: "x",
+            admittedAt: root.admittedAt, admittedBy: "other-root",
+            forgottenPersonKeys: [samKey.fingerprint])
+        XCTAssertEqual(decide(d, people: [root, s, stranger]), .knownPerson(s),
+                       "a foreign root's Forget is not this chain's")
+    }
+
     func test_noClaimAsksWithNoHint() throws {
         let d = try device(claimBy: nil)
         XCTAssertEqual(decide(d, people: [linked(root, denverKey)]), .ask(hint: nil))

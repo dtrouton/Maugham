@@ -722,6 +722,66 @@ final class AdmissionDecisionTests: XCTestCase {
                        "and with nobody left to look for, no verified read is paid for")
     }
 
+    /// **A recognised device never reaches the sheet** (your devices are you,
+    /// Task 6): with a device record waiting and nothing remembered, the
+    /// refresh asks the recognition pass BEFORE it reads the registry, and a
+    /// device the pass let in is no longer asked about. With nothing waiting
+    /// the pass is not asked at all.
+    @MainActor
+    func test_theRecognitionPassRunsBeforeTheReadAndItsDeviceIsNeverAskedAbout() async {
+        let log = RefreshLog(
+            registry: rootedRegistry(devices: [device(phone, name: "Denver’s iPhone")]),
+            held: [:])
+        let requests = await AdmissionDecision.refreshedRequests(
+            cause: .announcement,
+            heldLines: { log.held },
+            arrivedDevices: {
+                log.acts.append("list")
+                return Set(log.registry.devices.map(\.device))
+                    .subtracting(log.registry.people.map(\.person))
+                    .subtracting([self.root])
+            },
+            thisDevice: root,
+            // Remembered TOO: recognition runs first (C1b), so the memory
+            // path — which installs the whole book — never meets it.
+            memory: [phone: AdmissionMemory.Label(
+                label: "Denver", ownName: "Denver’s iPhone",
+                labelledAt: Date(timeIntervalSince1970: 1))],
+            admitRemembered: { log.acts.append("admit") },
+            admitRecognised: {
+                log.acts.append("recognise")
+                log.registry = Registry(
+                    devices: log.registry.devices,
+                    people: log.registry.people
+                        + [self.person(self.phone, label: "Denver", admittedBy: self.root)])
+                return true
+            },
+            resolve: {
+                log.acts.append("resolve")
+                return (registry: log.registry, myRoot: self.root)
+            })
+
+        XCTAssertEqual(requests, [], "no sheet for a device the pass let in")
+        XCTAssertEqual(log.acts, ["list", "recognise", "list"],
+                       "recognised before the remembered admission and any verified read; "
+                           + "nobody left, so neither runs")
+
+        // Nothing waiting: the pass is not asked.
+        let quiet = RefreshLog(registry: rootedRegistry(devices: []), held: [other: 1])
+        _ = await AdmissionDecision.refreshedRequests(
+            cause: .announcement,
+            heldLines: { quiet.held },
+            arrivedDevices: { [] },
+            thisDevice: root, memory: [:],
+            admitRemembered: {},
+            admitRecognised: { quiet.acts.append("recognise"); return true },
+            resolve: {
+                quiet.acts.append("resolve")
+                return (registry: quiet.registry, myRoot: self.root)
+            })
+        XCTAssertEqual(quiet.acts, ["resolve"])
+    }
+
     /// **A book of admitted people pays for no verified read** on a settle or
     /// an open: every device file has a person file beside it, nothing is
     /// held, and the listing is the whole of the cost.

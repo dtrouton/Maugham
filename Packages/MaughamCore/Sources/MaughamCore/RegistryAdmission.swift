@@ -199,6 +199,12 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// admission sheet already handles.
     case personLinkedToAnotherKey(person: String)
 
+    /// **The key was FORGOTTEN in this book** (Task 6, C2): `person` is a
+    /// record whose `forgottenPersonKeys` names it. Forget is the answer to a
+    /// compromised Apple ID and is durable; re-trusting a forgotten key is not
+    /// a verb in plan 1.
+    case personKeyForgotten(person: String)
+
     /// **A person record in this book is present and does not verify**, so a
     /// link cannot be decided (Task 4, RULING-54): that record might be the
     /// one holding the key, and linking over it would put one key on two
@@ -387,6 +393,10 @@ public enum RegistryAdmission {
         /// for it once or not at all.
         unsigned: PermitMark? = nil,
         silently: Bool = false,
+        /// Why a SILENT admission happened (`PermitEvent.reason`) — written
+        /// onto a `silentlyAdmitted` event and onto nothing else. Nil for the
+        /// memory path, which is every silent admission before plan 1 Task 6.
+        reason: String? = nil,
         in projectURL: URL,
         by root: DeviceIdentity,
         within registry: Registry,
@@ -519,6 +529,7 @@ public enum RegistryAdmission {
                 role: writtenRole, scope: writtenScope ?? Permit.bookScope,
                 pieces: writtenPieces ?? [],
                 mark: try mark(fingerprint), unsigned: unsigned,
+                reason: kind == .silentlyAdmitted ? reason : nil,
                 in: projectURL, by: root,
                 within: registry, now: now, presenter: presenter)
         }
@@ -538,11 +549,103 @@ public enum RegistryAdmission {
             // would make a device claiming Sam's key be recognised as Denver.
             // `linkPersonKey` re-links from a verified claim, under the rules.
             personKey: TrustTable.sharesLabel(existing?.label, label)
-                ? existing?.personKey : nil)
+                ? existing?.personKey : nil,
+            // A Forget is a fact about the KEY, so it survives a rename or a
+            // re-admission whatever the label (C2): dropping it would let the
+            // next open link the forgotten key straight back.
+            forgottenPersonKeys: existing?.forgottenPersonKeys)
         try RegistryWriter.write(
             record, signedBy: root, in: projectURL, presenter: presenter)
         memory.remember(fingerprint, label: label, ownName: ownName, at: now())
         return record
+    }
+
+    /// What `admitRecognised` did with one device.
+    public enum RecognisedAdmission: Equatable, Sendable {
+        /// Let in; the record it DECIDED (unsigned — the caller reads back).
+        case admitted(PersonRecord)
+        /// Recognised, but this build cannot install that person's permit
+        /// silently; the device goes to the sheet. The reason, in words.
+        case declined(String)
+        /// `Recognition` said ask.
+        case notRecognised
+    }
+
+    /// **Admit a device `Recognition` recognised, with the permit that person
+    /// holds NOW** (your devices are you, Task 6; PK-2) — the one place a
+    /// silent admission installs a permit other than the whole book, and it is
+    /// here rather than in `RegistryPresence` because the permit is this
+    /// layer's to write (tripwire 49: the presence file names no rung).
+    ///
+    /// - `.ownDevice(root)` → the root's label, and the root's timeline permit
+    ///   (the whole book: a root has no events).
+    /// - `.knownPerson(p)` → `p`'s label and `p`'s CURRENT timeline permit,
+    ///   read off `table` (tripwire 43 — never the record's fields).
+    /// - A permit this build cannot read (`.unjudgeable`) is declined.
+    /// - **A narrowing permit carries the book's GOVERNING photograph
+    ///   forward** — `table.unsignedSnapshot?.mark`, the same value
+    ///   `DocumentStore.sweptUnsignedSnapshot` returns for an already-narrowed
+    ///   book (Ruling Q) — through `admit`'s `unsigned:` into `writeEvent`,
+    ///   which writes it as the event's `unsigned` because the event narrows.
+    ///   A narrowing permit exists in the timeline only after a narrowing verb
+    ///   ran gate → event, so the book is already gated against older builds.
+    ///   A narrowed book with NO photograph (a P3a-era event) is declined: the
+    ///   sheet's Admit takes one.
+    ///
+    /// The event is `silentlyAdmitted` with `PermitEvent.recognisedReason`.
+    nonisolated static func admitRecognised(
+        device: DeviceRecord,
+        as recognition: Recognition,
+        table: TrustTable,
+        mark: (String) throws -> PermitMark,
+        in projectURL: URL,
+        by root: DeviceIdentity,
+        within registry: Registry,
+        memory: AdmissionMemory,
+        now: () -> Date,
+        presenter: NSFilePresenter?
+    ) throws -> RecognisedAdmission {
+        let person: PersonRecord
+        switch recognition {
+        case .ownDevice(let root): person = root
+        case .knownPerson(let known): person = known
+        case .ask: return .notRecognised
+        }
+        let permit = table.timeline(forPerson: person.person).current
+        if case .unjudgeable = permit {
+            return .declined("\(person.label)'s permit is a word this build cannot write")
+        }
+        var unsigned: PermitMark?
+        if permit.narrows {
+            guard let governing = table.unsignedSnapshot?.mark else {
+                return .declined(
+                    "\(person.label) is narrowed but the book holds no photograph to carry forward")
+            }
+            unsigned = governing
+        }
+        return .admitted(try admit(
+            device: device.device, label: person.label, ownName: device.name,
+            role: permit.wireRole, scope: permit.wireScope, pieces: permit.wirePieces,
+            mark: mark, unsigned: unsigned, silently: true,
+            reason: PermitEvent.recognisedReason,
+            in: projectURL, by: root, within: registry,
+            memory: memory, now: now, presenter: presenter))
+    }
+
+    /// **Is a remembered label, in THIS book, a person narrowed below the
+    /// whole book?** (Task 6, the controller's C1b.) `admitRemembered`
+    /// installs the whole book; a remembered label that names a person this
+    /// book has narrowed would hand their new device more than they hold, so
+    /// the memory path leaves it to the sheet. Any record sharing the label
+    /// counts, revoked ones included — this only ever turns silent into a
+    /// question. Asked of the permit layer (`Permit.narrows`), never a rung.
+    nonisolated static func labelNamesANarrowedPerson(
+        _ label: String, in registry: Registry, table: TrustTable
+    ) -> Bool {
+        registry.people.contains {
+            TrustTable.sharesLabel($0.label, label)
+                && table.timeline(forPerson: $0.person).current.narrows
+        }
     }
 
     /// **The record whose permit `admit` may not move** — one already standing.
@@ -953,6 +1056,7 @@ public enum RegistryAdmission {
         mark: PermitMark,
         unsigned: PermitMark? = nil,
         settling: Set<String> = [],
+        reason: String? = nil,
         in projectURL: URL,
         by signer: DeviceIdentity,
         within registry: Registry,
@@ -1039,6 +1143,8 @@ public enum RegistryAdmission {
                 // Nil unless this act answered §4.5's question, so every other
                 // event's bytes are what they were (P3b smoke find F9).
                 settled: settling.isEmpty ? nil : settling.sorted(),
+                // Nil except on a recognised silent admission (PK-4).
+                reason: reason,
                 at: at, by: signer.fingerprint)
         }
         let draft = made(unsigned: nil)
@@ -1410,6 +1516,14 @@ public enum RegistryAdmission {
         if let unreadable = unreadablePeople(in: registry).sorted().first {
             throw RegistryAdmissionError.personRecordUnreadable(fingerprint: unreadable)
         }
+        // **A forgotten key is never linked again** (C2): Forget is the answer
+        // to a compromised Apple ID, and a record anywhere in this folder that
+        // forgot the key is enough to refuse it — this only ever turns a link
+        // into none.
+        if let forgetter = registry.people
+            .filter({ $0.hasForgotten(key) }).min(by: { $0.person < $1.person }) {
+            throw RegistryAdmissionError.personKeyForgotten(person: forgetter.person)
+        }
         if let holder = otherPersonHolding(personKey: key, besides: existing, in: registry) {
             throw RegistryAdmissionError.personKeyLinkedElsewhere(person: holder.person)
         }
@@ -1460,6 +1574,12 @@ public enum RegistryAdmission {
             try RegistryWriter.resign(
                 holder, signedBy: root, in: projectURL, presenter: presenter
             ) { object in
+                // Unlink AND remember, in one re-sign (C2): the key goes into
+                // this record's forgotten list, so no later open re-links it.
+                if let key = holder.personKey {
+                    let already = object["forgottenPersonKeys"] as? [String] ?? []
+                    object["forgottenPersonKeys"] = Array(Set(already + [key])).sorted()
+                }
                 object.removeValue(forKey: "personKey")
             }
         }

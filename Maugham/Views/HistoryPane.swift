@@ -803,7 +803,7 @@ struct HistoryPane: View {
     /// somebody else's.
     nonisolated static func symbol(for kind: TrustEvent.Kind) -> String {
         switch kind {
-        case .admitted, .silentlyAdmitted: return "person.badge.plus"
+        case .admitted, .silentlyAdmitted, .recognised: return "person.badge.plus"
         // The same face as an admission: somebody let back in came IN, and the
         // sentence beside it is where the writer reads that there was something
         // before.

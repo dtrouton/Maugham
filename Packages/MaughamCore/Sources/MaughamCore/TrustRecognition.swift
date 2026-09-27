@@ -128,12 +128,21 @@ public enum Recognition: Equatable, Sendable {
         // record might be the key's holder, so nobody can be sure it is not.
         guard unreadable.isEmpty else { return .ask(hint: hint) }
 
+        // **A forgotten key is nobody's** (Task 6, C2): a record anywhere in
+        // this book's chain that Forget took the key off makes it unknown, so
+        // every device carrying it is asked about again — which is what
+        // Forget, the answer to a compromised Apple ID, promises.
+        let chain = TrustTable.chain(ofRoot: thisRoot, in: registry)
+        let forgotten = registry.people.contains {
+            chain.contains($0.person) && $0.hasForgotten(claim.personKey)
+        }
+        guard !forgotten else { return .ask(hint: hint) }
+
         let holders = registry.people.filter { $0.personKey == claim.personKey }
         guard let first = holders.first else { return .ask(hint: hint) }
 
         // Only records this book's chain vouches for are evidence — this root's
         // and every root it adopted, `TrustTable.myChain`'s rule exactly.
-        let chain = TrustTable.chain(ofRoot: thisRoot, in: registry)
         guard holders.allSatisfy({ chain.contains($0.person) }) else {
             return .ask(hint: elsewhere)
         }

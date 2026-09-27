@@ -45,6 +45,23 @@ public enum TrustEventSentence {
             let rung = rung(of: event)
             return actor.map { "\(subject) admitted by \($0) without asking\(rung)." }
                 ?? "\(subject) admitted without asking\(rung)."
+        case .recognised:
+            // **The DEVICE joined as the PERSON** (PK-4; spec: *"Sam's iPhone
+            // joined as Sam"*, *"Your iPhone joined as you"*). The device is
+            // named by its own name, not `<label> (<ownName>)`, because the
+            // label is the other half of the sentence. *You* where the person
+            // is the one at this device (`isMyPerson`) — every other Mac reads
+            // the same event in the third person.
+            let device = event.isMine
+                ? "This Mac"
+                : (event.ownName ?? labels[event.subject] ?? DeviceCode.short(event.subject))
+            let rung = rung(of: event)
+            if event.isMyPerson {
+                return "\(device) joined as you\(rung) \u{2014} recognised by your Apple ID."
+            }
+            let person = event.label ?? labels[event.subject]
+                ?? DeviceCode.short(event.subject)
+            return "\(device) joined as \(person)\(rung) \u{2014} recognised by their Apple ID."
         case .readmitted:
             let rung = rung(of: event)
             return actor.map { "\(subject) let back in by \($0)\(rung)." }
@@ -271,7 +288,7 @@ public enum TrustEventSentence {
               event.label == nil, labels[event.subject] == nil
         else { return nil }
         switch event.kind {
-        case .admitted, .silentlyAdmitted, .readmitted, .roleChanged,
+        case .admitted, .silentlyAdmitted, .recognised, .readmitted, .roleChanged,
              .scopeChanged, .revoked, .revokedEntirely, .retired,
              .recordRestored:
             return "This Mac hasn’t received their record yet."

@@ -230,6 +230,20 @@ public struct PersonRecord: RegistryRecordProtocol {
     /// `RegistryAdmission.linkPersonKey`/`forgetPersonKey`, which re-sign the
     /// file's object; `admit` carries it across the records it rewrites.
     public let personKey: String?
+    /// **Person keys this person's record has FORGOTTEN** — fingerprints the
+    /// root's Forget took off this record (your devices are you, Task 6; the
+    /// controller's C2 ruling). Forget is durable because of this: a device
+    /// already admitted still carries a claim with the key, and without a
+    /// record of the Forget the next open would link it straight back.
+    ///
+    /// Read in two places and nowhere else: `RegistryAdmission.linkPersonKey`
+    /// never links a key any record has forgotten, and `Recognition.recognise`
+    /// treats a key forgotten anywhere in the chain as unknown. Written only by
+    /// `forgetPersonKey`, in the same label-wide re-sign as the unlink; `admit`
+    /// carries it across the records it rewrites. Omitted when nil, `scope`'s
+    /// pattern, so no existing record's bytes move. Re-trusting a forgotten
+    /// key is not a verb in plan 1.
+    public let forgottenPersonKeys: [String]?
     public var sig: OpLogChain.Credentials?
 
     public init(
@@ -238,6 +252,7 @@ public struct PersonRecord: RegistryRecordProtocol {
         admittedAt: Date, admittedBy: String,
         revokedAt: Date? = nil, revokedBy: String? = nil,
         highestOpIdSeen: String? = nil, personKey: String? = nil,
+        forgottenPersonKeys: [String]? = nil,
         sig: OpLogChain.Credentials? = nil
     ) {
         self.person = person
@@ -252,6 +267,7 @@ public struct PersonRecord: RegistryRecordProtocol {
         self.revokedBy = revokedBy
         self.highestOpIdSeen = highestOpIdSeen
         self.personKey = personKey
+        self.forgottenPersonKeys = forgottenPersonKeys
         self.sig = sig
     }
 
@@ -266,6 +282,11 @@ public struct PersonRecord: RegistryRecordProtocol {
     public var isRoot: Bool { admittedBy == person }
 
     public var isRevoked: Bool { revokedAt != nil }
+
+    /// Has this record forgotten `key`? The one spelling of the question.
+    public func hasForgotten(_ key: String) -> Bool {
+        forgottenPersonKeys?.contains(key) ?? false
+    }
 }
 
 // MARK: - Claim record (spec §2.3)

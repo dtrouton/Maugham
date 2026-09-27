@@ -261,9 +261,10 @@ final class PersonKeyLinkTests: XCTestCase {
         XCTAssertNil(try registry().person(phone.author.fingerprint)?.personKey)
     }
 
-    /// Direction 2: once the holder's record no longer carries it — the root
-    /// pressed Forget, revoked or not — the key is linkable again.
-    func test_aForgottenKeyIsLinkableToSomebodyElse() throws {
+    /// Direction 2 — FLIPPED by Task 6's C2 ruling (Forget is durable): once
+    /// the root pressed Forget, the key is linked to NOBODY again, not even
+    /// somebody else. Re-trusting a forgotten key is not a verb in plan 1.
+    func test_aForgottenKeyIsLinkableToNobodyElse() throws {
         try becomeRoot(mine, name: "Denver's MacBook")
         try admit(sam, label: "Sam", ownName: "Sam's Mac")
         try admit(phone, label: "Denver", ownName: "Denver's iPhone")
@@ -274,9 +275,12 @@ final class PersonKeyLinkTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 100) })
 
         try forget(sam)
-        let linked = try link(phone, to: samsKey)
+        XCTAssertThrowsError(try link(phone, to: samsKey)) { error in
+            XCTAssertEqual(error as? RegistryAdmissionError,
+                           .personKeyForgotten(person: sam.author.fingerprint))
+        }
 
-        XCTAssertEqual(linked.personKey, samsKey.fingerprint)
+        XCTAssertNil(try registry().person(phone.author.fingerprint)?.personKey)
         XCTAssertNil(try registry().person(sam.author.fingerprint)?.personKey)
     }
 

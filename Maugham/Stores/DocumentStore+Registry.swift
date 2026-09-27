@@ -706,6 +706,48 @@ extension DocumentStore {
         return admitted
     }
 
+    /// **Admit, without asking, every device whose person claim this book
+    /// already knows — and link what the rules allow** (your devices are you,
+    /// Task 6). `admitRemembered`'s mid-session sibling, run by
+    /// `AdmissionDecision.refreshedRequests` right after it, so a recognised
+    /// device that arrives while the window is open never reaches the sheet.
+    ///
+    /// Same shape and same promises as `admitRemembered`: the verb is
+    /// `RegistryPresence.admitRecognised`, the one `DocumentStore.open` calls;
+    /// it throws nothing (a registry that will not read is logged, and the
+    /// sheet behind this is the recourse); and it settles only when it changed
+    /// the register.
+    @discardableResult
+    public func admitRecognised() async -> RegistryPresence.RecognitionPass {
+        let projectURL = self.projectURL
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        let memory = Document.loadAdmissionMemory
+        let state = Document.loadDeviceState
+        let pass: RegistryPresence.RecognitionPass
+        do {
+            pass = try await Task.detached(priority: .userInitiated) {
+                try RegistryPresence.admitRecognised(
+                    in: projectURL, identities: identities, cache: cache,
+                    memory: memory,
+                    mark: {
+                        try DocumentStore.rememberedAdmissionMark(
+                            forPerson: $0, in: projectURL,
+                            identities: identities, cache: cache, state: state)
+                    })
+            }.value
+        } catch {
+            registryVerbLog.error(
+                "recognition in \(projectURL.lastPathComponent, privacy: .public) could not read the registry: \(error.localizedDescription, privacy: .public)")
+            return .nothing
+        }
+        DocumentStore.logRecognition(pass, in: projectURL)
+        guard pass.changedTheRegister else { return pass }
+        await settle(after: "recognising", (pass.admitted + pass.linked)
+            .map { DeviceCode.short($0.person) }.joined(separator: ", "))
+        return pass
+    }
+
     /// Forget every resolved table, re-read every open document, and say so —
     /// `admit`'s own third act, shared rather than spelled twice.
     ///

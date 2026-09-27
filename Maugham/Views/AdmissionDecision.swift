@@ -407,6 +407,7 @@ enum AdmissionDecision {
         thisDevice: String? = nil,
         memory: [String: AdmissionMemory.Label],
         admitRemembered: @MainActor () async -> Void,
+        admitRecognised: @MainActor () async -> Bool = { false },
         resolve: @MainActor () async -> (registry: Registry, myRoot: String?)?
     ) async -> [AdmissionRequest]? {
         guard await holdsARootRecord() else { return [] }
@@ -416,6 +417,20 @@ enum AdmissionDecision {
         if cause == .settle, arrived.contains(where: { (pending[$0] ?? 0) == 0 }) {
             await recountCaptures()
             pending = heldLines()
+        }
+        // **Recognition FIRST** (your devices are you, Task 6; the controller's
+        // C1b): a device whose verified claim names a person this book knows
+        // is let in with that person's own permit, and so never reaches the
+        // remembered admission below, which installs the whole book. Only a
+        // device RECORD can carry a claim, and `arrived` is exactly the device
+        // records with no person record beside them — so a book whose only
+        // waiting writer is an unrecorded stream pays nothing for it. It
+        // answers whether it changed the register; only then are the counts
+        // read again.
+        if !arrived.isEmpty, await admitRecognised() {
+            pending = heldLines()
+            arrived = await arrivedDevices()
+            guard !pending.isEmpty || !arrived.isEmpty else { return [] }
         }
         if anyRemembered(pending: pending, arrived: arrived, memory: memory) {
             await admitRemembered()
@@ -838,6 +853,9 @@ enum AdmissionDecision {
             return "Nothing was changed. The person with code "
                 + "\(DeviceCode.short(person)) is already linked to a different "
                 + "Apple ID. Forget that one first."
+        case .personKeyForgotten:
+            return "Nothing was changed. That Apple ID was forgotten in this "
+                + "book, so it isn’t linked to anybody again."
         case .personRecordUnreadable(let fingerprint):
             // RULING-54: present and unreadable is not absent — that record
             // might be the one this Apple ID is already linked to.
