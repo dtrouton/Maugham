@@ -150,11 +150,11 @@ final class AdmissionClaimHintTests: XCTestCase {
         XCTAssertEqual(asked.sharesItsNameWith, "Denver")
     }
 
-    /// And the other direction: where the colliding label's standing records
-    /// hold exactly this claim's key, the claim is proposed in that label's
-    /// spelling — the key says it is them. Reached when recognition still
-    /// asks: here, an unreadable person record (RULING-54) forces the sheet.
-    func test_aClaimedNameWhoseLabelHoldsThisVeryKeyIsProposedInThatSpelling() throws {
+    /// **Not even under this very key** (controller ruling, Task 7 fix
+    /// round): a merge is never the starting value. Recognition asked about
+    /// this device — here an unreadable person record (RULING-54) forced the
+    /// sheet — and the root merges only by typing or choosing the label.
+    func test_aClaimedNameWhoseLabelHoldsThisVeryKeyIsStillNotProposed() throws {
         let lower = try XCTUnwrap(PersonKey.findOrCreate(
             in: InMemoryPersonKeyStore(), seedName: "denver"))
         let root = person(self.root, label: "Denver", key: lower, admittedBy: self.root)
@@ -163,9 +163,34 @@ final class AdmissionClaimHintTests: XCTestCase {
         let asked = try request(
             for: arrival, people: [root], malformed: [unreadablePerson("zzzz9999")])
 
-        XCTAssertEqual(asked.proposedLabel, "Denver")
+        XCTAssertEqual(asked.proposedLabel, "Denver’s iPhone", "today's proposal")
         XCTAssertEqual(AdmissionDecision.outcome(for: asked, typedLabel: asked.proposedLabel),
-                       .mergeUnder(label: "Denver"))
+                       .admit(label: "Denver’s iPhone"))
+        XCTAssertEqual(AdmissionDecision.outcome(for: asked, typedLabel: "Denver"),
+                       .mergeUnder(label: "Denver"), "the merge is still one deliberate pick away")
+    }
+
+    /// **The invariant, over every shape above**: whatever the claim says,
+    /// the field's starting value is never one `outcome` reads as a merge.
+    func test_noClaimEverMakesTheStartingValueAMerge() throws {
+        let impostor = try XCTUnwrap(PersonKey.findOrCreate(
+            in: InMemoryPersonKeyStore(), seedName: "Denver"))
+        let samMac = DeviceIdentity.softwareForTesting().fingerprint
+        let shapes: [(PersonKey, [PersonRecord], [MalformedRecord])] = [
+            (denverKey, [rootRecord()], [unreadablePerson("zzzz9999")]),
+            (impostor, [rootRecord()], []),
+            (samKey, [rootRecord(), person(samMac, label: "Sam", key: samKey, revoked: true)], []),
+            (ruizKey, [rootRecord()], []),
+        ]
+        for (key, people, malformed) in shapes {
+            let asked = try request(
+                for: try device(name: "Denver", claimBy: key), people: people,
+                malformed: malformed)
+            if case .mergeUnder = AdmissionDecision.outcome(
+                for: asked, typedLabel: asked.proposedLabel) {
+                XCTFail("\(key.name): the field starts at a merge (\(asked.proposedLabel))")
+            }
+        }
     }
 
     /// A label whose every record holding the key is REVOKED is not proposed:

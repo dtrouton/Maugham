@@ -30,8 +30,8 @@ struct AdmissionRequest: Identifiable, Equatable {
     ///
     /// **Or the name its own person claim carries** (your devices are you,
     /// Task 7) — `AdmissionDecision.claimedLabel`'s rule: the claim's name
-    /// where it is no label here, or where the label it matches holds this
-    /// claim's very key; otherwise the device-name proposal below stands.
+    /// where it is no label here; otherwise the device-name proposal below
+    /// stands. Never a known label, so never a merge.
     ///
     /// **And empty when its own name is a label this book already has** (P3b
     /// smoke find F1). Two Macs sharing a name is the ORDINARY case — the
@@ -224,8 +224,7 @@ enum AdmissionDecision {
                 Self.claimHint(for: $0, registry: registry, thisRoot: myRoot ?? "")
             }
             let claimed = Self.claimedLabel(
-                claim: registry.verifiedPersonClaims[fingerprint],
-                knownLabels: labels, registry: registry, thisRoot: myRoot ?? "")
+                claim: registry.verifiedPersonClaims[fingerprint], knownLabels: labels)
             return AdmissionRequest(
                 fingerprint: fingerprint,
                 ownName: ownName,
@@ -270,31 +269,17 @@ enum AdmissionDecision {
     /// - the claim's name (trimmed, non-empty) that matches NO label here —
     ///   `matches`, the rule `outcome` merges by — is proposed as it is: Admit
     ///   then makes a new person, never a merge;
-    /// - a name that matches a label is proposed, in that label's spelling,
-    ///   only where the STANDING records of this root's chain under that label
-    ///   hold exactly this claim's key and no other — the key is the evidence
-    ///   that makes the merge the right starting value. A label under a
-    ///   different key, under no key at all (absence is not a match, P3b's F1:
-    ///   a pre-filled known label is one press away from merging a stranger
-    ///   into that person), only under revoked records, only under another
-    ///   root's records, or only in this Mac's memory, is not proposed.
-    static func claimedLabel(
-        claim: PersonClaim?, knownLabels: [String], registry: Registry, thisRoot: String
-    ) -> String? {
+    /// - a name that matches ANY known label is never proposed, whatever key
+    ///   that label holds — even this claim's very key (controller ruling,
+    ///   Task 7 fix round): a device recognition ASKED about is asked about
+    ///   for a reason, and a merge is only ever the root's deliberate act,
+    ///   typed or chosen from *this is also…* (P3b's F1, absolute). Today's
+    ///   proposal then stands.
+    static func claimedLabel(claim: PersonClaim?, knownLabels: [String]) -> String? {
         guard let claim else { return nil }
         let name = claim.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
-        guard let existing = knownLabels.first(where: { matches($0, name) }) else {
-            return name
-        }
-        let chain = TrustTable.chain(ofRoot: thisRoot, in: registry)
-        let keys = Set(registry.people
-            .filter {
-                chain.contains($0.person) && $0.revokedAt == nil
-                    && matches($0.label, existing)
-            }
-            .map(\.personKey))
-        return keys == [claim.personKey] ? existing : nil
+        return knownLabels.contains(where: { matches($0, name) }) ? nil : name
     }
 
     /// **What the label field starts with — never a merge** (P3b smoke F1).
