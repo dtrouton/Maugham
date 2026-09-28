@@ -19,6 +19,10 @@
 #       after signing: Contents/embedded.provisionprofile exists and passes the
 #       same checks, and the app's own signature names the group and the
 #       application identifier, and the signature verifies.
+#   verify-mac-signing.sh resign-entitlements <Maugham.app> <out.plist>
+#       before the outer re-sign: writes the entitlements to re-sign with —
+#       Xcode's own set minus get-task-allow (see resign_entitlements). Needs
+#       none of the environment below.
 #
 # Required environment (no defaults — the workflow states each one):
 #   EXPECT_TEAM       e.g. FF3XH4ZJ45
@@ -141,9 +145,45 @@ check_app() {
     echo "ok: $app embeds its profile and is signed for $appid with $EXPECT_GROUP"
 }
 
+# The entitlements the release re-signs the outer app with: the set XCODE
+# signed it with (the file PLUS the com.apple.application-identifier and team
+# identifier it takes from the profile — without them the embedded profile
+# cannot be matched to the app), read back BEFORE anything is re-signed, with
+# com.apple.security.get-task-allow removed. Xcode's `build` action injects
+# get-task-allow = true into every signature it makes, whatever the identity
+# (only `archive` strips it), and notarization rejects a debuggable app — so a
+# set carried across verbatim is one the `app` check below refuses. The key is
+# stripped here rather than by CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO, because
+# the base entitlements are what supply the application identifier.
+resign_entitlements() {
+    local app="$1" out="$2"
+    # Any signed code, not only a bundle: the release passes the app; the fix
+    # wave's rehearsal ran it on Xcode's own Release-built maugham-mcp.
+    [[ -e "$app" ]] || fail "no signed code at $app"
+    codesign -d --entitlements - --xml "$app" > "$out" 2>/dev/null ||
+        fail "codesign could not read the entitlements of $app"
+    [[ -s "$out" ]] || fail "$app is signed with NO entitlements"
+    plutil -lint "$out" >/dev/null || fail "the entitlements read back from $app do not lint"
+    # NOT `plutil -remove`: plutil reads the key as a dotted KEYPATH
+    # (com → apple → security → …), finds nothing, and with `|| true` would
+    # leave the key in place without a word (measured, Xcode 27.0). PlistBuddy
+    # takes the key whole. Absent is fine; still present afterwards is not.
+    "$PB" -c "Delete :com.apple.security.get-task-allow" "$out" >/dev/null 2>&1 || true
+    if pb "$out" ":com.apple.security.get-task-allow" >/dev/null; then
+        fail "could not remove com.apple.security.get-task-allow from $out"
+    fi
+    plutil -p "$out"
+}
+
 mode="${1:-}"
 target="${2:-}"
-[[ -n "$mode" && -n "$target" ]] || fail "usage: $0 profile <file.provisionprofile> | app <Maugham.app>"
+[[ -n "$mode" && -n "$target" ]] ||
+    fail "usage: $0 profile <file.provisionprofile> | app <Maugham.app> | resign-entitlements <Maugham.app> <out.plist>"
+if [[ "$mode" == resign-entitlements ]]; then
+    [[ -n "${3:-}" ]] || fail "usage: $0 resign-entitlements <Maugham.app> <out.plist>"
+    resign_entitlements "$target" "$3"
+    exit 0
+fi
 require_env
 case "$mode" in
     profile)
@@ -152,5 +192,5 @@ case "$mode" in
         if [[ -n "${MAC_PROFILE_PLIST:-}" ]]; then cp "$TMP/profile.plist" "$MAC_PROFILE_PLIST"; fi
         ;;
     app) check_app "$target" ;;
-    *) fail "unknown mode '$mode' (expected profile or app)" ;;
+    *) fail "unknown mode '$mode' (expected profile, app or resign-entitlements)" ;;
 esac

@@ -117,7 +117,12 @@ version, not a manual post-publish flip. Real releases use normal patch numbers
                                      # fires on any v* tag regardless of branch
 
 Watch the run (`gh run watch`). The build must: install the profile (the log
-names it), sign without error, pass *Verify the app carries its provisioning profile* (the log prints the app's
+names it), sign without error — the re-sign step's `plutil -p` of the entitlements it
+re-signs with shows `com.apple.application-identifier`, the team identifier and
+`keychain-access-groups`, and **no `com.apple.security.get-task-allow`** (Xcode's
+Release `build` injects it as `true`; `verify-mac-signing.sh resign-entitlements`
+strips it before the outer re-sign, and the verify step refuses a signature that
+still carries it) — pass *Verify the app carries its provisioning profile* (the log prints the app's
 entitlements, then `ok:` lines naming the profile and the group), **notarytool
 accept** the hardened-runtime build (this is where a missing WhisperKit entitlement
 would surface — read `xcrun notarytool log <id>` if it rejects), staple, and pass the

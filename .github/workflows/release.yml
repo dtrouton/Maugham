@@ -339,10 +339,14 @@ jobs:
           # com.apple.application-identifier and team identifier it takes from
           # the profile, and without those the embedded profile cannot be
           # matched to the app, so the keychain group it grants does not hold.
+          # It is read MINUS com.apple.security.get-task-allow: the Release
+          # `build` action injects get-task-allow = true (only `archive` strips
+          # it), notarization rejects a debuggable app, and the verify step
+          # below refuses one. The script's resign-entitlements mode does the
+          # read, the strip and the print, and is the code
+          # scripts/tests/verify-mac-signing.test.sh runs on an Xcode-shaped app.
           ENTS="$RUNNER_TEMP/Maugham.signed-entitlements.plist"
-          codesign -d --entitlements - --xml "$APP" > "$ENTS"
-          plutil -lint "$ENTS"
-          plutil -p "$ENTS"
+          scripts/verify-mac-signing.sh resign-entitlements "$APP" "$ENTS"
           # Sign the bundled tectonic binary (ships via a type:folder reference,
           # so Xcode's build does not re-sign it — notarytool would reject it).
           TECTONIC="$APP/Contents/Resources/bin/tectonic"

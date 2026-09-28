@@ -138,6 +138,30 @@ ARGS=(app "$NOENTS")
 expect fail "app: a signature with no entitlements fails" "NO entitlements" -- "${ENV_OK[@]}"
 ARGS=(app "$GTA")
 expect fail "app: a signature carrying get-task-allow fails (notarization would reject it)" "get-task-allow" -- "${ENV_OK[@]}"
+# --- resign-entitlements mode: the release's re-sign body, run on an app shaped
+# the way Xcode's Release `build` really leaves it — the profile embedded and
+# the signature carrying get-task-allow = true (Xcode injects it on every
+# `build`; only `archive` strips it). The workflow reads the set back through
+# this mode, re-signs the outer app with it, and the app check must then pass.
+# Before the strip existed the re-signed app kept get-task-allow and every
+# Mac release stopped at the verify step.
+cp -R "$GTA" "$WORK/xcode.app"
+RESIGN_ENTS="$WORK/resign.plist"
+if "$SCRIPT" resign-entitlements "$WORK/xcode.app" "$RESIGN_ENTS" >/dev/null 2>&1 &&
+   ! /usr/libexec/PlistBuddy -c "Print :com.apple.security.get-task-allow" "$RESIGN_ENTS" >/dev/null 2>&1 &&
+   [[ "$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" "$RESIGN_ENTS" 2>/dev/null)" == "$TEAM.$PROBE_ID" ]] &&
+   [[ "$(/usr/libexec/PlistBuddy -c "Print :keychain-access-groups:0" "$RESIGN_ENTS" 2>/dev/null)" == "$GROUP" ]]; then
+    echo "PASS: resign-entitlements: Xcode's set comes back without get-task-allow, keeping the app id and group"; PASS=$((PASS + 1))
+else
+    echo "FAIL: resign-entitlements: expected Xcode's set minus get-task-allow"
+    sed 's/^/    /' "$RESIGN_ENTS" 2>/dev/null; FAILN=$((FAILN + 1))
+fi
+codesign --force --sign - --entitlements "$RESIGN_ENTS" "$WORK/xcode.app" 2>/dev/null
+ARGS=(app "$WORK/xcode.app")
+expect pass "app: an Xcode-shaped app (get-task-allow = true) re-signed through resign-entitlements passes" "" -- "${ENV_OK[@]}"
+ARGS=(resign-entitlements "$WORK/nowhere.app" "$WORK/nowhere.plist")
+expect fail "resign-entitlements: a missing app is refused" "no signed code at" --
+
 # A profile slipped in AFTER signing breaks the seal.
 cp -R "$NOPROFILE" "$WORK/late.app"
 cp "$DIRECT" "$WORK/late.app/Contents/embedded.provisionprofile"

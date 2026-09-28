@@ -86,7 +86,9 @@ the build through `MAUGHAM_MAC_PROFILE_SPECIFIER` (which `project.yml` routes to
 the Maugham target alone); *Embed the provisioning profile* copies it into
 `Contents/embedded.provisionprofile` if Xcode did not, before the outer re-sign;
 the re-sign keeps the entitlements Xcode signed with (the file plus the
-application identifier the profile needs to match); and *Verify the app carries
+application identifier the profile needs to match) minus the
+`com.apple.security.get-task-allow` Xcode's `build` action injects, which
+notarization would reject (`verify-mac-signing.sh resign-entitlements`); and *Verify the app carries
 its provisioning profile* runs `verify-mac-signing.sh app` after signing and
 again after stapling. `scripts/tests/verify-mac-signing.test.sh` pins every arm
 (it needs the person-key probe's Developer ID profile installed, and skips
