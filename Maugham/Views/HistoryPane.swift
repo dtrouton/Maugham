@@ -803,7 +803,7 @@ struct HistoryPane: View {
     /// somebody else's.
     nonisolated static func symbol(for kind: TrustEvent.Kind) -> String {
         switch kind {
-        case .admitted, .silentlyAdmitted: return "person.badge.plus"
+        case .admitted, .silentlyAdmitted, .recognised: return "person.badge.plus"
         // The same face as an admission: somebody let back in came IN, and the
         // sentence beside it is where the writer reads that there was something
         // before.
@@ -822,6 +822,9 @@ struct HistoryPane: View {
         case .joined: return "link"
         case .anotherClaimant: return "exclamationmark.triangle"
         case .recordRestored: return "arrow.uturn.backward.circle"
+        // A key let go: the person stays, their Apple ID no longer vouches
+        // for a new device.
+        case .personKeyForgotten: return "key.slash"
         // Not a person at all: a stream this book can name no key for. The
         // question-mark face rather than a warning triangle, because nothing is
         // wrong — the words are waiting, not refused (P3b Task 10).

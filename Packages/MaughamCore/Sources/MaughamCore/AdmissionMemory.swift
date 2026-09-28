@@ -155,6 +155,28 @@ public final class AdmissionMemory: @unchecked Sendable {
         persistLocked()
     }
 
+    /// **Update an entry that already exists; never create one** (the
+    /// whole-branch re-review, round 3). A rename is the writer correcting a
+    /// word, not naming a machine at a sheet: where this memory already holds
+    /// the device (a sheet decided it) the correction follows it, and where it
+    /// does not — a device RECOGNISED, which the memory must never hold — the
+    /// rename writes nothing here. Remembering it would let `admitRemembered`
+    /// admit that device, with the whole book, into every other book this Mac
+    /// roots. Check and write under one lock, so the two cannot interleave
+    /// with a `forget`.
+    public func update(
+        _ fingerprint: String, label: String, ownName: String, at when: Date = Date()
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let existing = stored.devices[fingerprint] else { return }
+        let decided = existing.label == label ? existing.labelledAt : when
+        let entry = Label(label: label, ownName: ownName, labelledAt: decided)
+        guard existing != entry else { return }
+        stored.devices[fingerprint] = entry
+        persistLocked()
+    }
+
     /// Forget one device — People & Devices' *Forget this device*, and the only
     /// thing that removes an entry here.
     public func forget(_ fingerprint: String) {

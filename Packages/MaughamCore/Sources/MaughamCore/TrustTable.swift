@@ -254,19 +254,7 @@ public struct TrustTable: Equatable, Sendable {
         // **Resolved here, above the events**, because who may narrow this book
         // is a question about the adopted closure (P3b Task 2's ruling A) and
         // `myChain` below is not the only reader of it any more.
-        var adoptedRoots: [String] = []
-        if let myRoot {
-            var reached: Set<String> = [myRoot]
-            var frontier: [String] = [myRoot]
-            while let root = frontier.popLast() {
-                for adopted in registry.adopted(by: root).sorted()
-                where reached.insert(adopted).inserted {
-                    adoptedRoots.append(adopted)
-                    frontier.append(adopted)
-                }
-            }
-            adoptedRoots.sort()
-        }
+        let adoptedRoots = myRoot.map { adoptedClosure(of: $0, in: registry) } ?? []
 
         // **Whose each actor key is, asked of the registry and never derived a
         // second time here** (fix round 2). `Registry.actorKeyOwners` is the
@@ -435,10 +423,9 @@ public struct TrustTable: Equatable, Sendable {
         // root that this registry holds no self-signed record for has no chain
         // to take in (`chain(underRoot:)` answers empty for a non-root), so a
         // claim naming a stranger admits nobody.
-        var myChain = myRoot.map { registry.chain(underRoot: $0) } ?? []
-        for adopted in adoptedRoots {
-            myChain.formUnion(registry.chain(underRoot: adopted))
-        }
+        let myChain = myRoot.map {
+            chain(ofRoot: $0, adopting: adoptedRoots, in: registry)
+        } ?? []
 
         var otherRootByMember: [String: String] = [:]
         for root in roots where root.person != myRoot {
@@ -1000,6 +987,43 @@ public struct TrustTable: Equatable, Sendable {
               (named.actor ?? DeviceIdentity.claimedActor(ofDeviceId: deviceId)) == .author
         else { return nil }
         return named.key
+    }
+
+    /// **The roots `root` adopted, followed through their own adoptions**,
+    /// sorted — the closure `resolve` computes `adoptedRoots` from. A root
+    /// that adopted `root` is not here: only claims written by a root in the
+    /// closure widen it. Spelled once so recognition (your devices are you,
+    /// Task 5) asks the same rule the table does.
+    nonisolated public static func adoptedClosure(
+        of root: String, in registry: Registry
+    ) -> [String] {
+        var adoptedRoots: [String] = []
+        var reached: Set<String> = [root]
+        var frontier: [String] = [root]
+        while let next = frontier.popLast() {
+            for adopted in registry.adopted(by: next).sorted()
+            where reached.insert(adopted).inserted {
+                adoptedRoots.append(adopted)
+                frontier.append(adopted)
+            }
+        }
+        return adoptedRoots.sorted()
+    }
+
+    /// **Everyone under `root` and under every root it adopted** — `myChain`'s
+    /// rule, for a caller that holds a root fingerprint rather than a table.
+    nonisolated public static func chain(ofRoot root: String, in registry: Registry) -> Set<String> {
+        chain(ofRoot: root, adopting: adoptedClosure(of: root, in: registry), in: registry)
+    }
+
+    nonisolated private static func chain(
+        ofRoot root: String, adopting adoptedRoots: [String], in registry: Registry
+    ) -> Set<String> {
+        var chain = registry.chain(underRoot: root)
+        for adopted in adoptedRoots {
+            chain.formUnion(registry.chain(underRoot: adopted))
+        }
+        return chain
     }
 
     /// **Do two person records name the same writer?** — the label rule above,

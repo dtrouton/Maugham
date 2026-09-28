@@ -239,6 +239,130 @@ public final class DocumentStore {
     /// account has none.
     static var thisWritersName: String { NSFullUserName() }
 
+    /// **Why this Mac's person claim could not be made or written at the
+    /// last open**, or nil (your devices are you, Task 6; Task 3's carry).
+    ///
+    /// Never an obstacle: the open goes on with the claim this Mac's record
+    /// already carried (`.keep`), so the device record, the root and both
+    /// silent admissions still happen. It is a programming defect rather than
+    /// a state — a claim made here for this Mac that does not verify for it —
+    /// so it is said where a developer looks (a `.fault` in the unified log,
+    /// which Console shows by default) and kept here for a surface and a test.
+    /// There is nothing a writer could do about it, which is why no window
+    /// draws it.
+    internal var personClaimProblem: String?
+
+    /// **The silent admissions run one at a time** (Task 6 fix round). Each
+    /// pass reads the registry, decides, and writes; two overlapping refreshes
+    /// would both read *nobody here yet* and both admit — two arrival events
+    /// for one device. So `admitRecognised` and `admitRemembered` queue
+    /// behind whichever pass is running (`serialisingSilentAdmission`), and a
+    /// second request finds the first one's records already on disk.
+    private var silentAdmissionTail: Task<Void, Never>?
+
+    /// Run `body` after every silent admission already queued has finished.
+    func serialisingSilentAdmission<T: Sendable>(
+        _ body: @escaping @MainActor () async -> T
+    ) async -> T {
+        let previous = silentAdmissionTail
+        let pass = Task { @MainActor () -> T in
+            await previous?.value
+            return await body()
+        }
+        silentAdmissionTail = Task { _ = await pass.value }
+        return await pass.value
+    }
+
+    /// What this Mac asks its record to say about whose it is.
+    ///
+    /// - A person key → `.set`, a claim signed for THIS Mac's author key.
+    /// - No key (the store is unavailable, or its item unreadable) → `.keep`:
+    ///   a keychain that cannot answer this launch is not evidence the writer
+    ///   left, and stripping a true claim would send this Mac's next new book
+    ///   to the sheet.
+    ///
+    /// **`.remove` is never chosen here.** The only signal that would justify
+    /// it — the Mac definitively signed out of the Apple ID — is not one this
+    /// app can read reliably: `ubiquityIdentityToken` answers for iCloud
+    /// DRIVE, not iCloud Keychain, the two can be switched independently, and
+    /// an ad-hoc build reads the keychain as unavailable whatever the account.
+    /// A claim that outlives a sign-out still names a key this Mac held; the
+    /// cost is a stale hint, never an admission, because every reader verifies
+    /// it and recognition links only what a root decided.
+    ///
+    /// The second value is the problem, if signing the claim failed.
+    nonisolated static func claimIntent(
+        for identities: LocalIdentities, personKey: PersonKey?
+    ) -> (intent: PersonClaimIntent, problem: String?) {
+        guard let personKey else { return (.keep, nil) }
+        do {
+            return (.set(try RegistryWriter.personClaim(
+                forDevice: identities.author.fingerprint, signedBy: personKey)), nil)
+        } catch {
+            return (.keep, "this Mac's person claim could not be signed: \(error.localizedDescription)")
+        }
+    }
+
+    /// **This Mac says who it is — and, where it can, whose it is.**
+    /// `ensureDeviceRecord` with the claim `claimIntent` decided; a claim the
+    /// door refuses (`PersonClaimError`) is logged as a fault and the record is
+    /// written again with `.keep`, so a broken claim never costs this Mac its
+    /// record, its root or its admissions. Answers the problem, or nil.
+    ///
+    /// Throws what the registry read and write throw, exactly as the bare
+    /// `ensureDeviceRecord` it replaces did.
+    @discardableResult
+    nonisolated static func declareThisMac(
+        in url: URL, identities: LocalIdentities, name: String,
+        claim: (intent: PersonClaimIntent, problem: String?),
+        presenter: NSFilePresenter?
+    ) throws -> String? {
+        var problem = claim.problem
+        do {
+            try RegistryPresence.ensureDeviceRecord(
+                in: url, identities: identities, name: name, kind: .mac,
+                presenter: presenter, personClaim: claim.intent)
+        } catch let refused as PersonClaimError {
+            problem = "this Mac's person claim was refused by its own record: \(refused)"
+            try RegistryPresence.ensureDeviceRecord(
+                in: url, identities: identities, name: name, kind: .mac,
+                presenter: presenter, personClaim: .keep)
+        }
+        if let problem {
+            documentStoreLog.fault(
+                "\(problem, privacy: .public) — in \(url.lastPathComponent, privacy: .public); the record keeps the claim it had")
+        }
+        return problem
+    }
+
+    /// One line per thing a recognition pass did, and one per link it was
+    /// refused. A refusal is information, not a failure: it is the label rules
+    /// saying *do not link*, which the writer resolves at People & Devices.
+    nonisolated static func logRecognition(
+        _ pass: RegistryPresence.RecognitionPass, in url: URL
+    ) {
+        for record in pass.admitted {
+            documentStoreLog.info(
+                "admitted \(DeviceCode.short(record.person), privacy: .public) as \(record.label, privacy: .public) in \(url.lastPathComponent, privacy: .public), recognised by its person claim")
+        }
+        for record in pass.linked {
+            documentStoreLog.info(
+                "linked a person key to \(DeviceCode.short(record.person), privacy: .public) (\(record.label, privacy: .public)) in \(url.lastPathComponent, privacy: .public)")
+        }
+        // `.debug`, not `.info` (whole-branch review, minor 5): a refusal
+        // is a steady state — the same key under another label is refused
+        // at every open until the writer settles it — and saying it at every
+        // open at `.info` fills the log with one unchanged fact.
+        for refusal in pass.refusedLinks {
+            documentStoreLog.debug(
+                "did not link a person key in \(url.lastPathComponent, privacy: .public): \(refusal, privacy: .public)")
+        }
+        for declined in pass.declined {
+            documentStoreLog.info(
+                "recognised but asking in \(url.lastPathComponent, privacy: .public): \(declined, privacy: .public)")
+        }
+    }
+
     public static func open(url: URL) async throws -> DocumentStore {
         let uiStateURL = url
             .appendingPathComponent(".maugham")
@@ -297,13 +421,59 @@ public final class DocumentStore {
         // their project — and quiet, because a record already saying this
         // touches no file. A Mac with no enclave writes neither, and says so
         // once per process (`RegistryPresence`).
+        //
+        // **And whose it is** (your devices are you, Task 6): the writer's
+        // person key, found or created in iCloud Keychain, signs a claim that
+        // rides on this Mac's device record. Looked up off the main actor (a
+        // keychain query), and nil — no claim, today's behaviour — wherever
+        // the store cannot answer.
+        let personKeyStore = PersonKeyAccess.store
+        let writersName = thisWritersName
+        let personKey = await Task.detached(priority: .userInitiated) {
+            PersonKey.findOrCreate(in: personKeyStore, seedName: writersName)
+        }.value
         do {
-            try RegistryPresence.ensureDeviceRecord(
-                in: url, identities: Document.loadIdentities,
-                name: thisMacsName, kind: .mac, presenter: store.presenter)
+            store.personClaimProblem = try declareThisMac(
+                in: url, identities: Document.loadIdentities, name: thisMacsName,
+                claim: claimIntent(
+                    for: Document.loadIdentities, personKey: personKey),
+                presenter: store.presenter)
             try RegistryPresence.ensureRootIfEmpty(
                 in: url, identities: Document.loadIdentities,
                 writerName: thisWritersName, presenter: store.presenter)
+            // **First, everyone whose device says whose it is** (your devices
+            // are you, Task 6). BEFORE the remembered admission (the
+            // controller's C1b): a device both remembered and recognised is
+            // let in here, with its person's own permit off the timeline, and
+            // never reaches the memory path, which installs the whole book. It
+            // also links this Mac's own key to its root record, and every
+            // admitted device's verified claim key to that device's record
+            // (PK-3). A root's act only: on somebody else's book it writes
+            // nothing.
+            //
+            // Its own `do`, so a recognition that could not read does not also
+            // cost the remembered admission below.
+            do {
+                let pass = try RegistryPresence.admitRecognised(
+                    in: url, identities: Document.loadIdentities,
+                    cache: Document.loadRegistryCache,
+                    mark: {
+                        try DocumentStore.rememberedAdmissionMark(
+                            forPerson: $0, in: url,
+                            identities: Document.loadIdentities,
+                            cache: Document.loadRegistryCache,
+                            state: Document.loadDeviceState)
+                    },
+                    presenter: store.presenter)
+                logRecognition(pass, in: url)
+                if pass.changedTheRegister {
+                    store.invalidateTrust()
+                    MaughamEvent.postAdmissionSettled(projectURL: url)
+                }
+            } catch {
+                documentStoreLog.error(
+                    "open-time recognition failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
             // And then everyone this writer has already named (decision B2,
             // spec §4.2). The sheet is worth putting up once per device; the
             // second book it syncs into gets the remembered label without

@@ -179,6 +179,43 @@ public enum RegistryAdmissionError: Error, Equatable {
     /// not be written* tells the writer nothing they can act on.
     case manifestNotGated(reason: String, act: Act)
 
+    /// **That person key is already linked to somebody else** (your devices
+    /// are you, Task 4; the spec's *if P is already linked elsewhere*).
+    ///
+    /// `person` is a verified record that holds it under a DIFFERENT label (a
+    /// person is a label; records sharing one may all hold the key). It holds
+    /// it whether or not that person is REVOKED: revocation is a state of a member rather
+    /// than an absence, and a key once linked to a revoked person moving
+    /// quietly to somebody else is the compromised-Apple-ID case arriving
+    /// through the door meant to answer it. The key is released by the root's
+    /// Forget on the holder's record, explicitly, and by nothing else.
+    case personKeyLinkedElsewhere(person: String)
+
+    /// **This person already has a DIFFERENT person key linked** (Task 4).
+    ///
+    /// A record holds one key, and replacing it would change who is
+    /// recognised as this person with nothing saying so. Forget the old key
+    /// first; two Apple IDs of one person are two person records, which the
+    /// admission sheet already handles.
+    case personLinkedToAnotherKey(person: String)
+
+    /// **The key was FORGOTTEN in this book** (Task 6, C2): `person` is a
+    /// record whose `forgottenPersonKeys` names it. Forget is the answer to a
+    /// compromised Apple ID and is durable; re-trusting a forgotten key is not
+    /// a verb in plan 1.
+    case personKeyForgotten(person: String)
+
+    /// **A person record in this book is present and does not verify**, so a
+    /// link cannot be decided (Task 4, RULING-54): that record might be the
+    /// one holding the key, and linking over it would put one key on two
+    /// people the moment it is restored. Restore it in People & Devices first.
+    case personRecordUnreadable(fingerprint: String)
+
+    /// **The key is not a person key's fingerprint** — not the lowercase
+    /// SHA-256 hex `DeviceIdentity.fingerprint(of:)` produces. Nothing that
+    /// shape could ever match a claim, so writing it links nobody forever.
+    case malformedPersonKey
+
     /// **Which act a refusal is about** (fix round 2, minor C).
     ///
     /// The four verbs that compute a mark all refuse over a short reading, and
@@ -356,10 +393,20 @@ public enum RegistryAdmission {
         /// for it once or not at all.
         unsigned: PermitMark? = nil,
         silently: Bool = false,
+        /// Why a SILENT admission happened (`PermitEvent.reason`) — written
+        /// onto a `silentlyAdmitted` event and onto nothing else. Nil for the
+        /// memory path, which is every silent admission before plan 1 Task 6.
+        reason: String? = nil,
         in projectURL: URL,
         by root: DeviceIdentity,
         within registry: Registry,
-        memory: AdmissionMemory,
+        /// The label memory, or nil for an admission that is NOT the writer's
+        /// sheet decision. Only a sheet (and the memory path re-stating what a
+        /// sheet decided) writes it; `admitRecognised` passes nil and takes no
+        /// memory at all (whole-branch review, Critical): a recognised device
+        /// remembered here would be let into every other book this Mac roots
+        /// by `admitRemembered`, with the whole book.
+        memory: AdmissionMemory?,
         now: () -> Date = { Date() },
         presenter: NSFilePresenter? = nil
     ) throws -> PersonRecord {
@@ -404,7 +451,7 @@ public enum RegistryAdmission {
         // pressing Re-admit at a device that stays shut out.
         if let existing, !existing.isRevoked,
            existing.label == label, existing.ownName == ownName {
-            memory.remember(fingerprint, label: label, ownName: ownName, at: existing.admittedAt)
+            memory?.remember(fingerprint, label: label, ownName: ownName, at: existing.admittedAt)
             return existing
         }
 
@@ -488,6 +535,7 @@ public enum RegistryAdmission {
                 role: writtenRole, scope: writtenScope ?? Permit.bookScope,
                 pieces: writtenPieces ?? [],
                 mark: try mark(fingerprint), unsigned: unsigned,
+                reason: kind == .silentlyAdmitted ? reason : nil,
                 in: projectURL, by: root,
                 within: registry, now: now, presenter: presenter)
         }
@@ -498,11 +546,140 @@ public enum RegistryAdmission {
             admittedAt: existing?.admittedAt ?? now(),
             admittedBy: root.fingerprint,
             revokedAt: nil, revokedBy: nil,
-            highestOpIdSeen: nil)
+            highestOpIdSeen: nil,
+            // **The linked person key is carried while the PERSON is the same
+            // one** (your devices are you, Task 4) — a machine renaming itself
+            // or a re-admission under the same label does not revisit it. A
+            // LABEL change drops it (fix round 2): the key was linked to the
+            // person that label names, and carrying it onto another label
+            // would make a device claiming Sam's key be recognised as Denver.
+            // `linkPersonKey` re-links from a verified claim, under the rules.
+            personKey: TrustTable.sharesLabel(existing?.label, label)
+                ? existing?.personKey : nil,
+            // A Forget is a fact about the KEY, so it survives a rename or a
+            // re-admission whatever the label (C2): dropping it would let the
+            // next open link the forgotten key straight back.
+            forgottenPersonKeys: existing?.forgottenPersonKeys)
         try RegistryWriter.write(
             record, signedBy: root, in: projectURL, presenter: presenter)
-        memory.remember(fingerprint, label: label, ownName: ownName, at: now())
+        memory?.remember(fingerprint, label: label, ownName: ownName, at: now())
         return record
+    }
+
+    /// What `admitRecognised` did with one device.
+    public enum RecognisedAdmission: Equatable, Sendable {
+        /// Let in; the record it DECIDED (unsigned — the caller reads back).
+        case admitted(PersonRecord)
+        /// Recognised, but this build cannot install that person's permit
+        /// silently; the device goes to the sheet. The reason, in words.
+        case declined(String)
+        /// `Recognition` said ask.
+        case notRecognised
+    }
+
+    /// **Admit a device `Recognition` recognised, with the permit that person
+    /// holds NOW** (your devices are you, Task 6; PK-2) — the one place a
+    /// silent admission installs a permit other than the whole book, and it is
+    /// here rather than in `RegistryPresence` because the permit is this
+    /// layer's to write (tripwire 49: the presence file names no rung).
+    ///
+    /// - `.ownDevice(root)` → the root's label, and the root's timeline permit
+    ///   (the whole book: a root has no events).
+    /// - `.knownPerson(p)` → `p`'s label and `p`'s CURRENT timeline permit,
+    ///   read off `table` (tripwire 43 — never the record's fields).
+    /// - A permit this build cannot read (`.unjudgeable`) is declined.
+    /// - **A narrowing permit carries the book's GOVERNING photograph
+    ///   forward** — `table.unsignedSnapshot?.mark`, the same value
+    ///   `DocumentStore.sweptUnsignedSnapshot` returns for an already-narrowed
+    ///   book (Ruling Q) — through `admit`'s `unsigned:` into `writeEvent`,
+    ///   which writes it as the event's `unsigned` because the event narrows.
+    ///   A narrowing permit exists in the timeline only after a narrowing verb
+    ///   ran gate → event, so the book is already gated against older builds.
+    ///   At open this runs BEFORE `healTheSchemaGateIfNarrowed` (unawaited,
+    ///   later in the open), and that order is safe: the book was narrowed
+    ///   before this admission, so a manifest an older build stamped lower is
+    ///   already exposed and the heal closes it, while this admission narrows
+    ///   nothing that was not narrowed already.
+    ///   A narrowed book whose governing event carries no photograph (a
+    ///   P3a-era event) is NOT declined: it reads as an EMPTY photograph
+    ///   (`PermitEvent.unsigned`, `UnsignedSnapshot.governing`), so
+    ///   `table.unsignedSnapshot` is non-nil in every narrowed book and that
+    ///   empty governing mark is carried forward — exactly what the sheet's
+    ///   Admit would take for the same book (pinned:
+    ///   `test_aNarrowedBookWithNoPhotographCarriesTheGoverningEmptyOneForward`).
+    ///   The `guard … else { .declined }` below is defensive and no narrowed
+    ///   book reaches it; the decline a book CAN reach is `.unjudgeable`.
+    ///
+    /// The event is `silentlyAdmitted` with `PermitEvent.recognisedReason`.
+    ///
+    /// **It takes no label memory and writes none** (whole-branch review,
+    /// Critical). `AdmissionMemory` is only ever a SHEET decision — the writer
+    /// naming a machine. A recognition remembered here would let
+    /// `admitRemembered` admit the same device, with the WHOLE BOOK, into any
+    /// other book this Mac roots that has not narrowed the label: a reviewer
+    /// in one book an author in the next. With no parameter to pass, no later
+    /// caller can write it by accident.
+    nonisolated static func admitRecognised(
+        device: DeviceRecord,
+        as recognition: Recognition,
+        table: TrustTable,
+        mark: (String) throws -> PermitMark,
+        in projectURL: URL,
+        by root: DeviceIdentity,
+        within registry: Registry,
+        now: () -> Date,
+        presenter: NSFilePresenter?
+    ) throws -> RecognisedAdmission {
+        let person: PersonRecord
+        switch recognition {
+        case .ownDevice(let root): person = root
+        case .knownPerson(let known): person = known
+        case .ask: return .notRecognised
+        }
+        let permit = table.timeline(forPerson: person.person).current
+        if case .unjudgeable = permit {
+            return .declined("\(person.label)'s permit is a word this build cannot write")
+        }
+        var unsigned: PermitMark?
+        if permit.narrows {
+            guard let governing = table.unsignedSnapshot?.mark else {
+                return .declined(
+                    "\(person.label) is narrowed but the book holds no photograph to carry forward")
+            }
+            unsigned = governing
+        }
+        return .admitted(try admit(
+            device: device.device, label: person.label, ownName: device.name,
+            role: permit.wireRole, scope: permit.wireScope, pieces: permit.wirePieces,
+            mark: mark, unsigned: unsigned, silently: true,
+            reason: PermitEvent.recognisedReason,
+            in: projectURL, by: root, within: registry,
+            memory: nil, now: now, presenter: presenter))
+    }
+
+    /// **Is a remembered label, in THIS book, a person narrowed below the
+    /// whole book?** (Task 6, the controller's C1b.) `admitRemembered`
+    /// installs the whole book; a remembered label that names a person this
+    /// book has narrowed would hand their new device more than they hold, so
+    /// the memory path leaves it to the sheet. Any record sharing the label
+    /// counts, revoked ones included — this only ever turns silent into a
+    /// question. Asked of the permit layer (`Permit.narrows`), never a rung.
+    ///
+    /// **Only this root's chain counts** (whole-branch review, minor 1; the
+    /// Task 6 ruling that every person fact is read from
+    /// `TrustTable.chain(ofRoot:in:)`). `TrustTable.resolve` already keeps
+    /// events signed outside the chain out of every timeline, so a foreign
+    /// record could not narrow anybody here; the explicit filter makes the
+    /// rule this function's own rather than an accident of the table's.
+    nonisolated static func labelNamesANarrowedPerson(
+        _ label: String, in registry: Registry, table: TrustTable, thisRoot: String
+    ) -> Bool {
+        let chain = TrustTable.chain(ofRoot: thisRoot, in: registry)
+        return registry.people.contains {
+            chain.contains($0.person)
+                && TrustTable.sharesLabel($0.label, label)
+                && table.timeline(forPerson: $0.person).current.narrows
+        }
     }
 
     /// **The record whose permit `admit` may not move** — one already standing.
@@ -913,6 +1090,7 @@ public enum RegistryAdmission {
         mark: PermitMark,
         unsigned: PermitMark? = nil,
         settling: Set<String> = [],
+        reason: String? = nil,
         in projectURL: URL,
         by signer: DeviceIdentity,
         within registry: Registry,
@@ -999,6 +1177,8 @@ public enum RegistryAdmission {
                 // Nil unless this act answered §4.5's question, so every other
                 // event's bytes are what they were (P3b smoke find F9).
                 settled: settling.isEmpty ? nil : settling.sorted(),
+                // Nil except on a recognised silent admission (PK-4).
+                reason: reason,
                 at: at, by: signer.fingerprint)
         }
         let draft = made(unsigned: nil)
@@ -1273,8 +1453,11 @@ public enum RegistryAdmission {
             person: fingerprint, by: root.fingerprint, in: registry).get()
 
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        // **`update`, never `remember`** (whole-branch re-review, round 3):
+        // a rename follows an entry a sheet made and never creates one, so a
+        // RECOGNISED device renamed here is still unknown to the memory.
         guard !trimmed.isEmpty, trimmed != existing.label else {
-            memory.remember(
+            memory.update(
                 fingerprint, label: existing.label, ownName: existing.ownName,
                 at: existing.admittedAt)
             return existing
@@ -1284,6 +1467,11 @@ public enum RegistryAdmission {
             existing, signedBy: root, in: projectURL, presenter: presenter
         ) { object in
             object["label"] = trimmed
+            // A label change drops the linked person key, for `admit`'s
+            // reason: the key belongs to the person the OLD label names.
+            if !TrustTable.sharesLabel(existing.label, trimmed) {
+                object.removeValue(forKey: "personKey")
+            }
         }
 
         let verified = try TrustResolution.verifiedRegistry(
@@ -1294,8 +1482,312 @@ public enum RegistryAdmission {
             // old name and believing they had changed it.
             throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
         }
-        memory.remember(
+        memory.update(
             fingerprint, label: record.label, ownName: record.ownName, at: now())
+        return record
+    }
+
+    // MARK: - The linked person key (your devices are you, Task 4)
+
+    /// **Link a person key to a person record** — the root's statement that
+    /// this person owns person key `key`, so a later device carrying a claim
+    /// that verifies with it can be recognised as theirs (spec: *Linking a
+    /// person key to an existing person*).
+    ///
+    /// **Who may.** Exactly who may rename: `renameOutcome`, the one
+    /// definition of *who may re-sign this person record* — a verified root of
+    /// this book, and the root that admitted them (so a root links its own
+    /// record, and never another root's).
+    ///
+    /// **A person is a LABEL, not a record** (v0.41.1 groups records by
+    /// `TrustTable.sharesLabel`; the group is `records(sharingLabelWith:in:)`).
+    /// A writer whose Mac and phone were both admitted is two records under
+    /// one label, and the same key may sit on every one of them. So, over the
+    /// VERIFIED registry:
+    /// - a key held by a record whose label does NOT share this record's label
+    ///   is refused (`personKeyLinkedElsewhere`) — and a REVOKED holder still
+    ///   holds it: a key once linked to a revoked person must not move quietly
+    ///   to somebody else;
+    /// - a key held by nobody, or only by records sharing this label, may be
+    ///   linked here;
+    /// - this record already holding a DIFFERENT key is refused
+    ///   (`personLinkedToAnotherKey`); Forget first.
+    ///
+    /// **Present-but-unreadable is not absent** (RULING-54): a person record
+    /// that is on disk and does not verify might be the key's holder, so any
+    /// such record refuses the link (`personRecordUnreadable`) until it is
+    /// restored. A key not in `DeviceIdentity.isFingerprint`'s shape is refused
+    /// (`malformedPersonKey`) before anything is read.
+    ///
+    /// Idempotent: this record already holding `key` writes nothing, and asks
+    /// nothing else.
+    ///
+    /// **What it does not decide** is whether `key` is really this person's.
+    /// The CALLER guarantees that (PK-3): it links only a key from a claim
+    /// that verified on a device already admitted under this very record, or
+    /// the root Mac's own key to the root's own record.
+    ///
+    /// The re-sign is over the FILE's object (`RegistryWriter.resign`), so a
+    /// later build's fields survive. **The caller invalidates trust.**
+    @discardableResult
+    nonisolated public static func linkPersonKey(
+        person fingerprint: String,
+        to key: String,
+        in projectURL: URL,
+        by root: DeviceIdentity,
+        cache: RegistryCache,
+        presenter: NSFilePresenter? = nil
+    ) throws -> PersonRecord {
+        guard DeviceIdentity.isFingerprint(key) else {
+            throw RegistryAdmissionError.malformedPersonKey
+        }
+        let registry = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        let existing = try renameOutcome(
+            person: fingerprint, by: root.fingerprint, in: registry).get()
+
+        if existing.personKey == key { return existing }
+        if existing.personKey != nil {
+            throw RegistryAdmissionError.personLinkedToAnotherKey(person: fingerprint)
+        }
+        if let unreadable = unreadablePeople(in: registry).sorted().first {
+            throw RegistryAdmissionError.personRecordUnreadable(fingerprint: unreadable)
+        }
+        // **Every person-key fact is read from THIS root's chain only**
+        // (Task 6 fix round, controller ruling): this root and every root it
+        // adopted, `TrustTable.chain(ofRoot:in:)` — the rule recognition uses.
+        // Anybody on a read-write share can self-sign a root record and write
+        // any key's fingerprint on it (they are public in device records), so a
+        // foreign record may never block, force or change a link.
+        let chain = TrustTable.chain(ofRoot: root.fingerprint, in: registry)
+        // **A forgotten key is never linked again** (C2): Forget is the answer
+        // to a compromised Apple ID, and a record of this chain that forgot the
+        // key is enough to refuse it.
+        if let forgetter = registry.people
+            .filter({ chain.contains($0.person) && $0.hasForgotten(key) })
+            .min(by: { $0.person < $1.person }) {
+            throw RegistryAdmissionError.personKeyForgotten(person: forgetter.person)
+        }
+        if let holder = otherPersonHolding(
+            personKey: key, besides: existing, in: registry,
+            withinChainOf: root.fingerprint) {
+            throw RegistryAdmissionError.personKeyLinkedElsewhere(person: holder.person)
+        }
+
+        try RegistryWriter.resign(
+            existing, signedBy: root, in: projectURL, presenter: presenter
+        ) { object in
+            object["personKey"] = key
+        }
+        return try readBack(fingerprint, in: projectURL, cache: cache, presenter: presenter)
+    }
+
+    /// **Forget this person's linked key — LABEL-WIDE** — the inverse of
+    /// `linkPersonKey`, and the answer to a compromised Apple ID: new devices
+    /// carrying the key are asked about again. Already-admitted devices stay;
+    /// the writer revokes them one by one if they must go.
+    ///
+    /// **Every record sharing this record's label that THIS root admitted is
+    /// cleared** (`forgetHolders(of:by:in:).mine`), revoked ones included, for
+    /// the reason the link is label-wide: People & Devices draws the person as
+    /// one row, and a Forget that left the phone's record holding the key
+    /// would leave the person recognised by it with the writer believing it
+    /// gone. Every such holder is checked against `renameOutcome` up front, so
+    /// an act this Mac may not complete writes nothing. A same-label holder
+    /// ANOTHER root admitted is not this Mac's to re-sign and never blocks
+    /// (whole-branch review, Important 1, and the controller's follow-up
+    /// ruling): one under a root this root ADOPTED is still this book's chain,
+    /// so the Forget SUCCEEDS and names it
+    /// (`PersonKeyForgetOutcome.stillLinkedInChain`); one outside the chain is
+    /// ignored entirely, exactly as recognition ignores it.
+    ///
+    /// **A write that fails part way is not atomic, and says so** —
+    /// `changePermit(everyRecordOf:)`'s shape: the loop stops, EVERY holder is
+    /// read back, and `PersonKeyForgetIncomplete` names which are cleared and
+    /// which still hold a key. The same error is thrown when every write
+    /// "succeeded" and a read-back still finds a key, or no record. Pressing
+    /// again finishes the rest and clears nothing twice.
+    ///
+    /// Allowed over a REVOKED record — it is the one way to release a key a
+    /// revoked person holds. Idempotent: a label with no linked key writes
+    /// nothing. Answers the SUBJECT's verified record, and the chain holders
+    /// this Mac could not clear.
+    @discardableResult
+    nonisolated public static func forgetPersonKey(
+        person fingerprint: String,
+        in projectURL: URL,
+        by root: DeviceIdentity,
+        cache: RegistryCache,
+        now: () -> Date = { Date() },
+        presenter: NSFilePresenter? = nil
+    ) throws -> PersonKeyForgetOutcome {
+        // One date for the whole act, so every record of the label records
+        // the SAME Forget and History derives one entry from them
+        // (whole-branch review, Important 2).
+        let at = try RegistryCanonical.dateString(now())
+        return try forgetPersonKey(
+            person: fingerprint, in: projectURL, by: root, cache: cache,
+            presenter: presenter
+        ) { holder in
+            try RegistryWriter.resign(
+                holder, signedBy: root, in: projectURL, presenter: presenter
+            ) { object in
+                // Unlink AND remember, in one re-sign (C2): the key goes into
+                // this record's forgotten list, dated, so no later open
+                // re-links it and History can say when it happened. A key
+                // already listed keeps its first date.
+                if let key = holder.personKey {
+                    var entries = object["forgottenPersonKeys"] as? [[String: Any]] ?? []
+                    if !entries.contains(where: { $0["key"] as? String == key }) {
+                        entries.append(["key": key, "at": at])
+                    }
+                    object["forgottenPersonKeys"] = entries.sorted {
+                        ($0["key"] as? String ?? "") < ($1["key"] as? String ?? "")
+                    }
+                }
+                object.removeValue(forKey: "personKey")
+            }
+        }
+    }
+
+    /// The same verb with its per-record write handed in — the seam a test
+    /// uses to fail the loop part way. Production passes the resign above.
+    nonisolated static func forgetPersonKey(
+        person fingerprint: String,
+        in projectURL: URL,
+        by root: DeviceIdentity,
+        cache: RegistryCache,
+        presenter: NSFilePresenter?,
+        clearing clear: (PersonRecord) throws -> Void
+    ) throws -> PersonKeyForgetOutcome {
+        let registry = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        let subject = try renameOutcome(
+            person: fingerprint, by: root.fingerprint, in: registry).get()
+        // **This root's holders only** (whole-branch review, Important 1):
+        // a same-label holder another root admitted — an adopted root's
+        // record, or one a share participant self-signed — is not this Mac's
+        // to re-sign, and must not be able to deny the Forget. An adopted
+        // root's is named on success; a foreign one is ignored.
+        let holders = forgetHolders(of: fingerprint, by: root.fingerprint, in: registry).mine
+        guard !holders.isEmpty else {
+            return PersonKeyForgetOutcome(record: subject, stillLinkedInChain: [])
+        }
+        // Up front, before anything is written: an act this Mac may not
+        // complete writes nothing.
+        for holder in holders {
+            _ = try renameOutcome(
+                person: holder.person, by: root.fingerprint, in: registry).get()
+        }
+        var failure: (person: String, error: Error)?
+        for holder in holders {
+            do {
+                try clear(holder)
+            } catch {
+                failure = (holder.person, error)
+                break
+            }
+        }
+
+        // Read back EVERY holder, not only the subject: what is on disk is the
+        // only honest account of what this act did.
+        let verified: Registry
+        do {
+            verified = try TrustResolution.verifiedRegistry(
+                projectURL: projectURL, presenter: presenter, cache: cache)
+        } catch {
+            throw PersonKeyForgetIncomplete(
+                cleared: [], notCleared: holders.map(\.person),
+                underlying: failure?.error ?? error)
+        }
+        let isClear: (String) -> Bool = { verified.person($0).map { $0.personKey == nil } ?? false }
+        let cleared = holders.map(\.person).filter(isClear)
+        let notCleared = holders.map(\.person).filter { !isClear($0) }
+        // **Incomplete is this root's own failure only** (controller ruling):
+        // its write failed, or its read-back still finds the key. A chain
+        // holder under an adopted root is not a failure of this act.
+        if failure != nil || !notCleared.isEmpty {
+            throw PersonKeyForgetIncomplete(
+                cleared: cleared, notCleared: notCleared, underlying: failure?.error)
+        }
+        guard let record = verified.person(fingerprint) else {
+            throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
+        }
+        return PersonKeyForgetOutcome(
+            record: record,
+            stillLinkedInChain: forgetHolders(
+                of: fingerprint, by: root.fingerprint, in: verified).elsewhere)
+    }
+
+    /// **Whose linked keys a Forget pressed about `person` reaches** — the
+    /// verb's own set, and the one People & Devices offers Forget over, so the
+    /// two cannot disagree (whole-branch review, Important 1).
+    ///
+    /// - `mine`: records sharing `person`'s label that hold a key and that
+    ///   `root` ADMITTED — the set this root can re-sign.
+    /// - `elsewhere`: records sharing the label that hold a key, that another
+    ///   root admitted, and that are in THIS root's chain
+    ///   (`TrustTable.chain(ofRoot:in:)` — this root plus the roots it
+    ///   adopted, the rule every person-key read uses). Named on success,
+    ///   never blocking. A record OUTSIDE the chain (one a share participant
+    ///   self-signed) is in neither list: it is ignored entirely, so one
+    ///   planted file can neither deny the root its answer to a compromised
+    ///   Apple ID nor put a note beside it.
+    ///
+    /// Both in `records(sharingLabelWith:in:)`'s order: the subject's own
+    /// record first, then by fingerprint, so the loop clears the pressed
+    /// record first and two runs report the same lists.
+    public struct ForgetHolders: Equatable, Sendable {
+        public let mine: [PersonRecord]
+        public let elsewhere: [PersonRecord]
+    }
+
+    nonisolated public static func forgetHolders(
+        of person: String, by root: String, in registry: Registry
+    ) -> ForgetHolders {
+        let holders = records(sharingLabelWith: person, in: registry)
+            .filter { $0.personKey != nil }
+        let chain = TrustTable.chain(ofRoot: root, in: registry)
+        return ForgetHolders(
+            mine: holders.filter { $0.admittedBy == root },
+            elsewhere: holders.filter { $0.admittedBy != root && chain.contains($0.person) })
+    }
+
+    /// **A verified record holding this key that is NOT the same person as
+    /// `subject`** — the one answer to *is this key linked elsewhere*. Same
+    /// person means the label rule (`TrustTable.sharesLabel`), and a revoked
+    /// holder still holds it. The lowest fingerprint answers where several do,
+    /// so two runs name the same holder.
+    ///
+    /// **Only records of `root`'s chain count** (Task 6 fix round): a foreign
+    /// self-signed root record holding the key is a claim nobody here made,
+    /// and must not block this root's link.
+    nonisolated public static func otherPersonHolding(
+        personKey key: String, besides subject: PersonRecord, in registry: Registry,
+        withinChainOf root: String
+    ) -> PersonRecord? {
+        let chain = TrustTable.chain(ofRoot: root, in: registry)
+        return registry.people
+            .filter {
+                chain.contains($0.person)
+                    && $0.personKey == key && $0.person != subject.person
+                    && !TrustTable.sharesLabel($0.label, subject.label)
+            }
+            .min { $0.person < $1.person }
+    }
+
+    /// The record as a reader VERIFIES it after a re-sign — the re-read also
+    /// refreshes this device's memory of the folder. Written and did not read
+    /// back is the one shape that must not be reported as success.
+    nonisolated private static func readBack(
+        _ fingerprint: String, in projectURL: URL, cache: RegistryCache,
+        presenter: NSFilePresenter?
+    ) throws -> PersonRecord {
+        let verified = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        guard let record = verified.person(fingerprint) else {
+            throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
+        }
         return record
     }
 
@@ -1587,5 +2079,54 @@ public enum RegistryAdmission {
             guard let ref = fault.ref, ref.directory == directory else { return nil }
             return ref.fingerprint
         })
+    }
+}
+
+/// **A label-wide Forget that did not clear every record** (your devices are
+/// you, Task 4, fix round 2) — `PermitChangePartlyApplied`'s shape: a write
+/// failed part way, or a record read back still holding a key. Both lists are
+/// what the folder says AFTER the act, not what the loop attempted.
+///
+/// `LocalizedError`, so a surface's fallback reads a sentence.
+public struct PersonKeyForgetIncomplete: Error, LocalizedError {
+    /// Holders read back with no linked key.
+    public let cleared: [String]
+    /// Holders still holding a key, or that did not read back at all.
+    public let notCleared: [String]
+    /// The write that failed, where one did.
+    public let underlying: Error?
+
+    public init(cleared: [String], notCleared: [String], underlying: Error?) {
+        self.cleared = cleared
+        self.notCleared = notCleared
+        self.underlying = underlying
+    }
+
+    public var errorDescription: String? {
+        let still = notCleared.map { DeviceCode.short($0) }.joined(separator: ", ")
+        let what = cleared.isEmpty
+            ? "Nothing was forgotten."
+            : "The Apple ID was forgotten on some of this person's devices, "
+                + "but \(still) still recognise it."
+        let why = underlying.map { " \($0.localizedDescription)" } ?? ""
+        return "\(what)\(why) Pressing again finishes the rest."
+    }
+}
+
+/// **What a Forget that succeeded did** (controller ruling on the fix wave's
+/// concerns): the subject's verified record, and the records of the same
+/// person in THIS root's chain that still hold a key because a root this root
+/// ADOPTED admitted them — this Mac cannot re-sign those, and the surface says
+/// so: *still linked on <device>, admitted by <root>*. A record outside the
+/// chain never appears here. The Forget itself is complete: every record this
+/// root admitted is cleared and read back clean, and recognition treats the
+/// key as forgotten from now on.
+public struct PersonKeyForgetOutcome: Equatable, Sendable {
+    public let record: PersonRecord
+    public let stillLinkedInChain: [PersonRecord]
+
+    public init(record: PersonRecord, stillLinkedInChain: [PersonRecord]) {
+        self.record = record
+        self.stillLinkedInChain = stillLinkedInChain
     }
 }

@@ -98,6 +98,10 @@ public enum DeviceKind: Codable, Equatable, Hashable, Sendable {
 /// *that Mac's assistant* rather than as a stranger — the actor keys are listed
 /// here, under a fingerprint the author's signature vouches for, so admitting a
 /// device admits every actor it lists (spec §4.4).
+///
+/// Its decoding is hand-written (a misshapen `personClaim` must not fail the
+/// record), so a new field must be added both to `CodingKeys` — which the
+/// synthesized encoding follows — and to `init(from:)`.
 public struct DeviceRecord: RegistryRecordProtocol {
     /// The device's author-key fingerprint. Also its filename.
     public let device: String
@@ -111,12 +115,21 @@ public struct DeviceRecord: RegistryRecordProtocol {
     /// Set by the device itself when it retires (spec §5). Its past stays
     /// verified; its future seals are quarantined.
     public let retiredAt: Date?
+    /// *This device belongs to person key P* — signed by P over a form that
+    /// names THIS record's `device` (`PersonClaim`, your devices are you).
+    ///
+    /// **Optional and omitted when nil** — the `PersonRecord.scope` pattern —
+    /// so a record with no claim encodes to exactly the bytes a v0.41 build
+    /// writes and signs. Whether it VERIFIES is never this record's validity:
+    /// the reader answers it separately (`Registry.verifiedPersonClaims`).
+    public let personClaim: PersonClaim?
     public var sig: OpLogChain.Credentials?
 
     public init(
         device: String, name: String, kind: DeviceKind,
         actors: [String: String], madeAt: Date,
-        retiredAt: Date? = nil, sig: OpLogChain.Credentials? = nil
+        retiredAt: Date? = nil, personClaim: PersonClaim? = nil,
+        sig: OpLogChain.Credentials? = nil
     ) {
         self.device = device
         self.name = name
@@ -124,7 +137,35 @@ public struct DeviceRecord: RegistryRecordProtocol {
         self.actors = actors
         self.madeAt = madeAt
         self.retiredAt = retiredAt
+        self.personClaim = personClaim
         self.sig = sig
+    }
+
+    /// **A new field goes in THREE places**: a property, a case here, and the
+    /// hand-written `init(from:)` below. The compiler catches a property the
+    /// decoder forgets to assign; it does NOT catch a missing case here — the
+    /// synthesized `encode(to:)` follows these keys, so the field would
+    /// silently never be written.
+    private enum CodingKeys: String, CodingKey {
+        case device, name, kind, actors, madeAt, retiredAt, personClaim, sig
+    }
+
+    /// The synthesized decoding in every field but one: a `personClaim` that
+    /// is not a claim's SHAPE decodes as no claim rather than failing the
+    /// record. A record that fails to decode is listed malformed, and a bad
+    /// claim must never un-admit a device (your devices are you, Task 3). The
+    /// signature is checked over the FILE's bytes, so what the file said about
+    /// the claim is still covered by it.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        device = try container.decode(String.self, forKey: .device)
+        name = try container.decode(String.self, forKey: .name)
+        kind = try container.decode(DeviceKind.self, forKey: .kind)
+        actors = try container.decode([String: String].self, forKey: .actors)
+        madeAt = try container.decode(Date.self, forKey: .madeAt)
+        retiredAt = try container.decodeIfPresent(Date.self, forKey: .retiredAt)
+        personClaim = try? container.decodeIfPresent(PersonClaim.self, forKey: .personClaim)
+        sig = try container.decodeIfPresent(OpLogChain.Credentials.self, forKey: .sig)
     }
 
     public var fingerprint: String { device }
@@ -177,6 +218,38 @@ public struct PersonRecord: RegistryRecordProtocol {
     /// The highest opId this root had applied from that device when it revoked
     /// them — the line between "before revocation" and "after" (spec §5).
     public let highestOpIdSeen: String?
+    /// **The person key this person owns** — its fingerprint
+    /// (`PersonKey.fingerprint`), linked by the root so a later device whose
+    /// record carries a verifying claim with this key can be recognised as
+    /// theirs (your devices are you, Task 4).
+    ///
+    /// Absent on every record written before it, and absent means *no key is
+    /// linked*: optional and omitted when nil, `scope`'s pattern, so no
+    /// existing record's bytes move and a v0.41 build reads a linked record
+    /// as it reads any other. Written and removed ONLY by
+    /// `RegistryAdmission.linkPersonKey`/`forgetPersonKey`, which re-sign the
+    /// file's object; `admit` carries it across the records it rewrites.
+    public let personKey: String?
+    /// **Person keys this person's record has FORGOTTEN** — fingerprints the
+    /// root's Forget took off this record (your devices are you, Task 6; the
+    /// controller's C2 ruling). Forget is durable because of this: a device
+    /// already admitted still carries a claim with the key, and without a
+    /// record of the Forget the next open would link it straight back.
+    ///
+    /// Read in two places and nowhere else: `RegistryAdmission.linkPersonKey`
+    /// never links a key any record has forgotten, and `Recognition.recognise`
+    /// treats a key forgotten anywhere in the chain as unknown. Written only by
+    /// `forgetPersonKey`, in the same label-wide re-sign as the unlink; `admit`
+    /// carries it across the records it rewrites. Omitted when nil, `scope`'s
+    /// pattern, so no existing record's bytes move. Re-trusting a forgotten
+    /// key is not a verb in plan 1.
+    ///
+    /// **Each entry is dated** (whole-branch review, Important 2): the spec
+    /// asks for a History entry per Forget, and `TrustEvents.derive` reads it
+    /// from here — `{key, at}` rather than a parallel date map, so the one
+    /// question the chain asks (`hasForgotten`) stays one spelling over one
+    /// list. Unreleased when the date was added, so no older shape is read.
+    public let forgottenPersonKeys: [ForgottenPersonKey]?
     public var sig: OpLogChain.Credentials?
 
     public init(
@@ -184,7 +257,9 @@ public struct PersonRecord: RegistryRecordProtocol {
         scope: String? = nil, pieces: [String]? = nil,
         admittedAt: Date, admittedBy: String,
         revokedAt: Date? = nil, revokedBy: String? = nil,
-        highestOpIdSeen: String? = nil, sig: OpLogChain.Credentials? = nil
+        highestOpIdSeen: String? = nil, personKey: String? = nil,
+        forgottenPersonKeys: [ForgottenPersonKey]? = nil,
+        sig: OpLogChain.Credentials? = nil
     ) {
         self.person = person
         self.label = label
@@ -197,6 +272,8 @@ public struct PersonRecord: RegistryRecordProtocol {
         self.revokedAt = revokedAt
         self.revokedBy = revokedBy
         self.highestOpIdSeen = highestOpIdSeen
+        self.personKey = personKey
+        self.forgottenPersonKeys = forgottenPersonKeys
         self.sig = sig
     }
 
@@ -211,6 +288,26 @@ public struct PersonRecord: RegistryRecordProtocol {
     public var isRoot: Bool { admittedBy == person }
 
     public var isRevoked: Bool { revokedAt != nil }
+
+    /// Has this record forgotten `key`? The one spelling of the question.
+    public func hasForgotten(_ key: String) -> Bool {
+        forgottenPersonKeys?.contains { $0.key == key } ?? false
+    }
+}
+
+/// **One Forget, as a person record remembers it** — the key's fingerprint
+/// and the day the root forgot it (whole-branch review, Important 2). The
+/// root that forgot it is the record's own `admittedBy`: only that root may
+/// re-sign the record (`RegistryAdmission.renameOutcome`), so the signature
+/// already says whose act it was and nothing stores it twice.
+public struct ForgottenPersonKey: Codable, Equatable, Hashable, Sendable {
+    public let key: String
+    public let at: Date
+
+    public init(key: String, at: Date) {
+        self.key = key
+        self.at = at
+    }
 }
 
 // MARK: - Claim record (spec §2.3)

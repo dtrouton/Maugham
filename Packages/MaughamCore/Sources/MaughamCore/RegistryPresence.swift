@@ -66,7 +66,8 @@ public enum RegistryPresence {
         name: String,
         kind: DeviceKind,
         now: () -> Date = { Date() },
-        presenter: NSFilePresenter? = nil
+        presenter: NSFilePresenter? = nil,
+        personClaim intent: PersonClaimIntent = .keep
     ) throws -> URL? {
         // MINTS, and should: this is a write path, and naming an actor is the
         // writer's act (`LocalIdentities`' lazy rule). Everything after this
@@ -89,16 +90,43 @@ public enum RegistryPresence {
 
         let registry = try RegistryReader.load(projectURL: projectURL, presenter: presenter)
         let existing = registry.devices.first { $0.device == author.fingerprint }
+        // The claim already on disk, only if it HOLDS for this device: a
+        // tampered or copied claim is not one this device can carry forward,
+        // and not one a new claim can be "the same as".
+        let standingClaim = existing.flatMap(RegistryReader.verifiedPersonClaim(of:))
+        // `keep` is *no claim to make now* (no keychain this launch): losing the
+        // keychain for a launch must not strip a true claim from the book.
+        // `set` is verified for THIS device through the one verifier before it
+        // can replace anything — a claim built for another device would never
+        // verify here, and would silently un-recognise this device everywhere.
+        let claim: PersonClaim?
+        switch intent {
+        case .keep:
+            claim = standingClaim
+        case .remove:
+            claim = nil
+        case .set(let offered):
+            guard let verified = RegistryReader.verifiedPersonClaim(
+                offered, forDevice: author.fingerprint)
+            else {
+                throw PersonClaimError.doesNotVerifyForThisDevice(device: author.fingerprint)
+            }
+            claim = verified
+        }
         if let existing {
             guard existing.retiredAt == nil else { return nil }
-            if existing.name == name, existing.kind == kind, existing.actors == actors {
+            // The claim is compared by its FACTS, never its signature: ECDSA
+            // is randomized, so a claim signed afresh at each open would
+            // otherwise rewrite the record at every open.
+            if existing.name == name, existing.kind == kind, existing.actors == actors,
+               standingClaim?.facts == claim?.facts {
                 return nil
             }
         }
 
         let record = DeviceRecord(
             device: author.fingerprint, name: name, kind: kind, actors: actors,
-            madeAt: existing?.madeAt ?? now())
+            madeAt: existing?.madeAt ?? now(), personClaim: claim)
         return try RegistryWriter.write(
             record, signedBy: author, in: projectURL, presenter: presenter)
     }
@@ -610,6 +638,9 @@ public enum RegistryPresence {
         let unreadable = RegistryAdmission.unreadablePeople(in: registry)
 
         var admitted: [PersonRecord] = []
+        // Resolved only once a remembered device is actually met, so an open
+        // with nobody to admit — every open of every book — pays nothing.
+        var narrowingTable: TrustTable?
         // Sorted, so an open that admits several devices writes them in the
         // same order whatever order the folder was read in — History reads the
         // same twice.
@@ -627,6 +658,31 @@ public enum RegistryPresence {
             guard device.retiredAt == nil else { continue }
             guard let remembered = memory.label(for: device.device),
                   !unreadable.contains(device.device) else { continue }
+            // **A remembered label that names a person this book has narrowed
+            // is the sheet's** (Task 6, C1b): this path installs the whole
+            // book, and a narrowed Sam's new machine must not arrive with more
+            // than Sam holds. A recognised one has already been let in, with
+            // Sam's own permit, by `admitRecognised`, which runs first.
+            let table = narrowingTable ?? TrustTable.resolve(
+                registry: registry, mine: identities,
+                joinedRoot: cache.joinedRoot(for: projectURL))
+            narrowingTable = table
+            guard !RegistryAdmission.labelNamesANarrowedPerson(
+                remembered.label, in: registry, table: table,
+                thisRoot: author.fingerprint) else { continue }
+            // **A device recognition RECOGNISES is recognition's business**
+            // (Task 6 fix round). `admitRecognised` runs first, so a recognised
+            // device still waiting here is one it DECLINED — a permit it could
+            // not install silently — and the memory path must not let it in
+            // with the whole book instead. The sheet decides.
+            if let claim = registry.verifiedPersonClaim(forDevice: device.device) {
+                switch Recognition.recognise(
+                    device: device, verifiedClaim: claim, registry: registry,
+                    thisRoot: author.fingerprint) {
+                case .ownDevice, .knownPerson: continue
+                case .ask: break
+                }
+            }
             admitted.append(try RegistryAdmission.admit(
                 device: device.device, label: remembered.label, ownName: device.name,
                 mark: mark, silently: true,
@@ -641,6 +697,227 @@ public enum RegistryPresence {
         let verified = try TrustResolution.verifiedRegistry(
             projectURL: projectURL, presenter: presenter, cache: cache)
         return admitted.map { verified.person($0.person) ?? $0 }
+    }
+
+    // MARK: - And I know whose device you are (your devices are you, Task 6)
+
+    /// What one recognition pass did — the records it admitted, the records it
+    /// linked a person key to, and every link the rules refused.
+    public struct RecognitionPass: Equatable, Sendable {
+        /// Devices let in without a sheet, as the records a reader verifies.
+        public let admitted: [PersonRecord]
+        /// Person records that gained a linked key in this pass.
+        public let linked: [PersonRecord]
+        /// Links `RegistryAdmission.linkPersonKey` refused, in its own words.
+        /// Logged by the caller, never thrown: a refusal means *do not link*.
+        public let refusedLinks: [String]
+        /// Recognised devices NOT admitted, and why — a permit this build
+        /// cannot write for them. They reach the sheet like any stranger.
+        public let declined: [String]
+
+        public static let nothing = RecognitionPass(
+            admitted: [], linked: [], refusedLinks: [], declined: [])
+
+        /// Did the pass change who this book admits or recognises?
+        public var changedTheRegister: Bool { !admitted.isEmpty || !linked.isEmpty }
+    }
+
+    /// **Admit, without asking, every newly seen device whose verified person
+    /// claim this book already knows — and link the keys the rules allow**
+    /// (spec *Your devices are you*; PK-2, PK-3).
+    ///
+    /// `admitRemembered`'s sibling, called right BEFORE it at open and
+    /// mid-session (the controller's C1b): a device both recognised and
+    /// remembered is let in here with its person's own permit, never by the
+    /// memory path's whole book. Two acts, in this order:
+    ///
+    /// 1. **Link.** A person record gains a linked key only where a device
+    ///    ALREADY admitted under that record shows a VERIFIED claim with that
+    ///    key (PK-3) — which, for this Mac's own root record, is this Mac's own
+    ///    claim, written by `ensureDeviceRecord` a moment before. Linking goes
+    ///    through `RegistryAdmission.linkPersonKey`, whose label rules and
+    ///    refusals are not relaxed here; a refusal is collected, never thrown.
+    ///    A revoked or retired device links nothing: a machine this book has
+    ///    let go is no evidence about anybody's key.
+    /// 2. **Recognise.** Every device with no person record, not retired, not
+    ///    shadowed by an unreadable person file, and carrying a verified claim
+    ///    is put to `Recognition.recognise` with THIS Mac's own author
+    ///    fingerprint as the root (never `TrustTable.myRoot`, which on an
+    ///    admitted Mac names somebody else's root), and the answer is handed
+    ///    to `RegistryAdmission.admitRecognised`, which reads the permit off
+    ///    the timeline and writes the event — this file names no rung
+    ///    (tripwire 49). Then act 1 again, so the record just written is
+    ///    linked in the same pass.
+    ///
+    /// **Only a root does this** (Review Focus 5): a Mac with no root record of
+    /// its own here admits nobody and links nothing, exactly as
+    /// `admitRemembered` refuses — the check is the same `holdsARootRecord`.
+    ///
+    /// What a recognised person's permit may be, and when it is declined, is
+    /// `RegistryAdmission.admitRecognised`'s.
+    ///
+    /// **It takes no label memory** (whole-branch review, Critical): the
+    /// memory is only ever a sheet decision, and a recognition written into it
+    /// would reach every other book this Mac roots through `admitRemembered`.
+    ///
+    /// The CALLER invalidates trust when `changedTheRegister`, and logs.
+    /// Throws what the reads and the admissions throw, `admitRemembered`'s
+    /// rule: a throw admits nobody else this time and the next open retries.
+    @discardableResult
+    nonisolated public static func admitRecognised(
+        in projectURL: URL,
+        identities: LocalIdentities,
+        cache: RegistryCache,
+        mark: (String) throws -> PermitMark = { _ in .nothingApplied },
+        now: () -> Date = { Date() },
+        presenter: NSFilePresenter? = nil
+    ) throws -> RecognitionPass {
+        let author = identities.author
+        guard author.canSign else {
+            reportUnsigned()
+            return .nothing
+        }
+        var registry = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        // Review Focus 5, and the same test `admitRemembered` makes.
+        guard registry.holdsARootRecord(author.fingerprint) else { return .nothing }
+
+        var linked: [String] = []
+        var refused: [String] = []
+        if try linkClaimedKeys(
+            in: projectURL, registry: registry, by: author, cache: cache,
+            presenter: presenter, linked: &linked, refused: &refused) {
+            registry = try TrustResolution.verifiedRegistry(
+                projectURL: projectURL, presenter: presenter, cache: cache)
+        }
+
+        let unreadable = RegistryAdmission.unreadablePeople(in: registry)
+        // The timeline is read off the same registry the decision is made
+        // from, so the permit and the recognition cannot disagree.
+        let table = TrustTable.resolve(
+            registry: registry, mine: identities,
+            joinedRoot: cache.joinedRoot(for: projectURL))
+        var admitted: [String] = []
+        var declined: [String] = []
+        for device in registry.devices.sorted(by: { $0.device < $1.device })
+        where registry.person(device.device) == nil {
+            guard device.retiredAt == nil,
+                  !unreadable.contains(device.device),
+                  let claim = registry.verifiedPersonClaim(forDevice: device.device)
+            else { continue }
+            let recognition = Recognition.recognise(
+                device: device, verifiedClaim: claim, registry: registry,
+                thisRoot: author.fingerprint)
+            // The permit is the permit layer's to install (tripwire 49): this
+            // file hands over WHO, and `RegistryAdmission` reads WHAT off the
+            // timeline and writes the event.
+            switch try RegistryAdmission.admitRecognised(
+                device: device, as: recognition, table: table,
+                mark: mark, in: projectURL, by: author, within: registry,
+                now: now, presenter: presenter) {
+            case .admitted(let record): admitted.append(record.person)
+            case .declined(let why):
+                declined.append("\(DeviceCode.short(device.device)): \(why)")
+            case .notRecognised: continue
+            }
+        }
+
+        if !admitted.isEmpty {
+            registry = try TrustResolution.verifiedRegistry(
+                projectURL: projectURL, presenter: presenter, cache: cache)
+            _ = try linkClaimedKeys(
+                in: projectURL, registry: registry, by: author, cache: cache,
+                presenter: presenter, linked: &linked, refused: &refused)
+        }
+        guard !admitted.isEmpty || !linked.isEmpty else {
+            return RecognitionPass(
+                admitted: [], linked: [], refusedLinks: refused, declined: declined)
+        }
+        let verified = try TrustResolution.verifiedRegistry(
+            projectURL: projectURL, presenter: presenter, cache: cache)
+        return RecognitionPass(
+            admitted: admitted.compactMap { verified.person($0) },
+            linked: linked.compactMap { verified.person($0) },
+            refusedLinks: refused, declined: declined)
+    }
+
+    /// Act 1 of `admitRecognised`: link each admitted, standing device's
+    /// verified claim key onto that device's own person record, where the
+    /// record holds none (PK-3). Answers whether anything was written.
+    ///
+    /// **This Mac's own record goes first.** Its claim is the one claim here
+    /// this Mac KNOWS is true — it holds that key — so the root's key reaches
+    /// the root's record before any other device's claim can reach for it.
+    /// Linked in fingerprint order instead, a device the root admitted as Sam
+    /// whose claim names the root's key would take it, and the root's own
+    /// record would then be refused its own key.
+    ///
+    /// **A key claimed under two labels links to neither** (outside this
+    /// Mac's own). Which of two people a key is cannot be read off two
+    /// devices that disagree, and whichever linked first would decide who
+    /// every later device carrying it is recognised as. The refusal is listed;
+    /// the writer settles it at People & Devices.
+    ///
+    /// Only records THIS root admitted are tried — `linkPersonKey` refuses any
+    /// other (`renameOutcome`), and asking would only fill the log. Every
+    /// other refusal (the key under another label, an unreadable person file,
+    /// a malformed key) is collected in its own words.
+    nonisolated private static func linkClaimedKeys(
+        in projectURL: URL, registry: Registry, by author: DeviceIdentity,
+        cache: RegistryCache, presenter: NSFilePresenter?,
+        linked: inout [String], refused: inout [String]
+    ) throws -> Bool {
+        // **A key this chain has FORGOTTEN is not a candidate at all**
+        // (whole-branch review, minor 5). `linkPersonKey` would refuse it,
+        // and it would go on refusing at every open for ever, because the
+        // devices already admitted keep carrying the claim: a Forget is a
+        // settled decision, not a refusal to report. The same chain rule
+        // `linkPersonKey` and `Recognition.recognise` read.
+        let chain = TrustTable.chain(ofRoot: author.fingerprint, in: registry)
+        let forgotten: (String) -> Bool = { key in
+            registry.people.contains { chain.contains($0.person) && $0.hasForgotten(key) }
+        }
+        var candidates: [(person: PersonRecord, key: String)] = []
+        for device in registry.devices.sorted(by: { $0.device < $1.device }) {
+            guard device.retiredAt == nil,
+                  let claim = registry.verifiedPersonClaim(forDevice: device.device),
+                  let person = registry.person(device.device),
+                  !person.isRevoked,
+                  person.admittedBy == author.fingerprint,
+                  person.personKey == nil,
+                  !forgotten(claim.personKey)
+            else { continue }
+            candidates.append((person, claim.personKey))
+        }
+        let mineFirst = candidates.filter { $0.person.person == author.fingerprint }
+            + candidates.filter { $0.person.person != author.fingerprint }
+        let myKey = registry.verifiedPersonClaim(forDevice: author.fingerprint)?.personKey
+
+        var wrote = false
+        for candidate in mineFirst {
+            let isMine = candidate.person.person == author.fingerprint
+            if !isMine, candidate.key != myKey {
+                let claimants = candidates.filter { $0.key == candidate.key }.map(\.person.label)
+                let disagree = claimants.contains {
+                    !TrustTable.sharesLabel($0, candidate.person.label)
+                }
+                if disagree {
+                    refused.append(
+                        "\(DeviceCode.short(candidate.person.person)): its key is claimed under more than one label")
+                    continue
+                }
+            }
+            do {
+                try RegistryAdmission.linkPersonKey(
+                    person: candidate.person.person, to: candidate.key,
+                    in: projectURL, by: author, cache: cache, presenter: presenter)
+                linked.append(candidate.person.person)
+                wrote = true
+            } catch let refusal as RegistryAdmissionError {
+                refused.append("\(DeviceCode.short(candidate.person.person)): \(refusal)")
+            }
+        }
+        return wrote
     }
 
     /// Is there a person record here this device could not vouch for?

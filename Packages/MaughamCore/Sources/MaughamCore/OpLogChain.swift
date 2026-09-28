@@ -297,13 +297,27 @@ public enum OpLogChain {
         signing digestHex: String, identity: DeviceIdentity
     ) throws -> Credentials {
         guard let publicKey = identity.publicKey else { throw DeviceIdentityError.unsigned }
+        return try credentials(signing: digestHex, publicKey: publicKey, signer: identity.sign)
+    }
+
+    /// Sign `digestHex`'s 32 bytes with a key that is not a device's — the
+    /// person key (`PersonKey`), which lives in iCloud Keychain rather than an
+    /// enclave. The SAME three fields as a device's credentials, so
+    /// `credentialsVerify` is the one verifier for both and a claim's signature
+    /// is not a second format. `signer` returns an ECDSA signature's raw
+    /// representation over the bytes it is handed, exactly as a device's does.
+    public static func credentials(
+        signing digestHex: String,
+        publicKey: P256.Signing.PublicKey,
+        signer: (Data) throws -> Data
+    ) throws -> Credentials {
         guard let digestBytes = hexDecode(digestHex) else {
             preconditionFailure("a signed digest is hex — got \(digestHex)")
         }
         return Credentials(
             key: DeviceIdentity.fingerprint(of: publicKey),
             pub: publicKey.x963Representation.base64EncodedString(),
-            sig: try identity.sign(digestBytes).base64EncodedString())
+            sig: try signer(digestBytes).base64EncodedString())
     }
 
     /// Do these credentials hold together over `digestHex`? Three questions,

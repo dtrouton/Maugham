@@ -214,6 +214,10 @@ struct AdmissionModifier: ViewModifier {
             // the held span into the draft in front of the writer — so a device
             // this Mac has already named never reaches the sheet a second time.
             admitRemembered: { _ = await documentStore.admitRemembered() },
+            // And a device whose verified claim names a person this book
+            // already knows (your devices are you) — the open's second silent
+            // path, run here for the same reason.
+            admitRecognised: { await documentStore.admitRecognised().changedTheRegister },
             resolve: {
                 await Task.detached(priority: .userInitiated) {
                     () -> (registry: Registry, myRoot: String?)? in

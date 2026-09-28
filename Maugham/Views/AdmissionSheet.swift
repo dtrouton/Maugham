@@ -7,6 +7,8 @@ import MaughamCore
 /// > **Denver’s iPhone wants to write in *Playlist***
 /// > 1 paragraph waiting in “Chapter 3”, and 14 captures in the Inbox
 /// > “The rain came in sideways…”
+/// > │ It calls itself Denver’s iPhone, belonging to Denver Trouton.
+/// > │ That’s what the device says about itself.
 /// > Label: [Denver ▾]
 /// > Code **4F2K** is shown on the device’s Settings too.
 /// > [Not now] [Admit]
@@ -118,6 +120,51 @@ struct AdmissionSheet: View {
 
     static func codeLine(code: String) -> String {
         "Code \(code) is shown on the device’s Settings too."
+    }
+
+    // MARK: - What the device says about itself (your devices are you, Task 7)
+
+    /// *It calls itself Denver’s iPhone, belonging to Denver Trouton.* — the
+    /// device's own claim, in its own words. A claim whose key carries no
+    /// name says only the device's name.
+    static func claimLine(for hint: ClaimHint) -> String {
+        let person = hint.personName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !person.isEmpty else { return "It calls itself \(hint.deviceName)." }
+        return "It calls itself \(hint.deviceName), belonging to \(person)."
+    }
+
+    /// **Whose word that is.** The claim is signed by a key the device
+    /// carries, and anybody can give a key any name — so the sheet marks the
+    /// line as the device's own and says nothing it did not check.
+    static let claimAttribution =
+        "That\u{2019}s what the device says about itself."
+
+    /// With `ClaimHint.linkedElsewhere`: the key it carries is already
+    /// somebody else's here. A fact, in the register of the lines above it —
+    /// not a warning, because the sheet is exactly where the writer decides.
+    static let linkedElsewhereLine =
+        "The Apple ID it carries is already linked to someone else in this book."
+
+    /// With `ClaimHint.linkedButRevoked` (whole-branch review, minor 2): the
+    /// key is linked to a person here every one of whose devices has been
+    /// revoked — quite possibly this device's own person, so "someone else"
+    /// would be false. Revoking a device never forgets the Apple ID, which is
+    /// why recognition asks rather than letting it in.
+    static let linkedButRevokedLine =
+        "The Apple ID it carries is linked in this book to someone whose "
+        + "devices have all been revoked."
+
+    /// Every line the sheet draws about the claim, in order — empty where the
+    /// device carries no claim that verifies, which is every device before
+    /// this milestone. **Plain on purpose** (Task 5's carry): a sheet forced
+    /// by an unreadable record or another root's say-so is still just a
+    /// device asking, and reads like one.
+    static func hintLines(for request: AdmissionRequest) -> [String] {
+        guard let hint = request.hint else { return [] }
+        var lines = [claimLine(for: hint), claimAttribution]
+        if hint.linkedElsewhere { lines.append(linkedElsewhereLine) }
+        if hint.linkedButRevoked { lines.append(linkedButRevokedLine) }
+        return lines
     }
 
     static let labelFieldTitle = "Label"
@@ -245,6 +292,24 @@ struct AdmissionSheet: View {
                     .italic()
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
+            }
+            let hintLines = Self.hintLines(for: request)
+            if !hintLines.isEmpty {
+                // The device's own word about itself, set apart as a quote is
+                // — secondary, never orange: a claim is information, and the
+                // writer is about to decide anyway.
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(hintLines, id: \.self) { line in
+                        Text(line)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.leading, 8)
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(.quaternary).frame(width: 2)
+                }
             }
 
             Divider()

@@ -28,6 +28,11 @@ struct AdmissionRequest: Identifiable, Equatable {
     /// the device has no record here, which leaves Admit refused until the
     /// writer types something (`outcome` answers `.notNow` for empty).
     ///
+    /// **Or the name its own person claim carries** (your devices are you,
+    /// Task 7) — `AdmissionDecision.claimedLabel`'s rule: the claim's name
+    /// where it is no label here; otherwise the device-name proposal below
+    /// stands. Never a known label, so never a merge.
+    ///
     /// **And empty when its own name is a label this book already has** (P3b
     /// smoke find F1). Two Macs sharing a name is the ORDINARY case — the
     /// shipped default, a machine restored from another's backup (tripwire
@@ -45,8 +50,15 @@ struct AdmissionRequest: Identifiable, Equatable {
     let knownLabels: [String]
     /// The label this book already has that the device's OWN name matches,
     /// in that label's spelling — nil when there is none (F1). Set exactly
-    /// when the device's name was withheld from `proposedLabel`.
+    /// when the device's name was withheld from the device-name proposal; the
+    /// sheet says why only while the field is empty.
     let sharesItsNameWith: String?
+    /// **What the device's own verified claim says about it** (your devices
+    /// are you, Task 7) — `Recognition.recognise`'s hint for a device it
+    /// would not let in silently. Nil where the device carries no claim that
+    /// verifies, which is every device before this milestone. A HINT, never
+    /// identity: anybody can name a key anything.
+    let hint: ClaimHint?
     /// **What is waiting, and where, in the writer's terms** (P3b smoke find
     /// F2) — *1 paragraph in “Chapter 3”* and the first words of it. Filled in
     /// by the window from the loads' own descriptions (`AdmissionWaiting
@@ -57,7 +69,8 @@ struct AdmissionRequest: Identifiable, Equatable {
     init(
         fingerprint: String, ownName: String?, code: String,
         waitingCount: Int, proposedLabel: String, knownLabels: [String],
-        sharesItsNameWith: String? = nil
+        sharesItsNameWith: String? = nil,
+        hint: ClaimHint? = nil
     ) {
         self.fingerprint = fingerprint
         self.ownName = ownName
@@ -66,6 +79,7 @@ struct AdmissionRequest: Identifiable, Equatable {
         self.proposedLabel = proposedLabel
         self.knownLabels = knownLabels
         self.sharesItsNameWith = sharesItsNameWith
+        self.hint = hint
     }
 
     var id: String { fingerprint }
@@ -204,15 +218,68 @@ enum AdmissionDecision {
             let record = registry.devices.first { $0.device == fingerprint }
             let ownName = record?.name
             let start = Self.proposal(ownName: ownName, knownLabels: labels)
+            // `myRoot` is non-nil past the guard above, and it is the asking
+            // root (`askingRoot`) — the one recognition decides for.
+            let hint = record.flatMap {
+                Self.claimHint(for: $0, registry: registry, thisRoot: myRoot ?? "")
+            }
+            let claimed = Self.claimedLabel(
+                claim: registry.verifiedPersonClaims[fingerprint], knownLabels: labels)
             return AdmissionRequest(
                 fingerprint: fingerprint,
                 ownName: ownName,
                 code: DeviceCode.short(fingerprint),
                 waitingCount: pending[fingerprint] ?? 0,
-                proposedLabel: start.label,
+                proposedLabel: claimed ?? start.label,
                 knownLabels: labels,
-                sharesItsNameWith: start.collidesWith)
+                sharesItsNameWith: start.collidesWith,
+                hint: hint)
         }
+    }
+
+    // MARK: - What the device's own claim says (your devices are you, Task 7)
+
+    /// **The hint the sheet draws**, asked of `Recognition.recognise` — the
+    /// one decision, never a second opinion — for the device record the
+    /// registry verified. Its `.ask` carries the hint (including whether the
+    /// key is linked elsewhere). A device recognition WOULD let in that still
+    /// reached the sheet — the silent admission declined it (a permit this
+    /// build cannot judge, a narrowed book with no photograph) — is described
+    /// plainly from its own claim: nothing about it is somebody else's.
+    ///
+    /// Nil where the device carries no claim that verifies.
+    static func claimHint(
+        for record: DeviceRecord, registry: Registry, thisRoot: String
+    ) -> ClaimHint? {
+        guard let claim = registry.verifiedPersonClaims[record.device] else { return nil }
+        switch Recognition.recognise(
+            device: record, verifiedClaim: claim, registry: registry, thisRoot: thisRoot) {
+        case .ask(let hint):
+            return hint ?? ClaimHint(
+                personName: claim.name, deviceName: record.name, linkedElsewhere: false)
+        case .ownDevice, .knownPerson:
+            return ClaimHint(
+                personName: claim.name, deviceName: record.name, linkedElsewhere: false)
+        }
+    }
+
+    /// **The label a claim proposes, or nil for today's proposal** (Task 7).
+    ///
+    /// Both directions:
+    /// - the claim's name (trimmed, non-empty) that matches NO label here —
+    ///   `matches`, the rule `outcome` merges by — is proposed as it is: Admit
+    ///   then makes a new person, never a merge;
+    /// - a name that matches ANY known label is never proposed, whatever key
+    ///   that label holds — even this claim's very key (controller ruling,
+    ///   Task 7 fix round): a device recognition ASKED about is asked about
+    ///   for a reason, and a merge is only ever the root's deliberate act,
+    ///   typed or chosen from *this is also…* (P3b's F1, absolute). Today's
+    ///   proposal then stands.
+    static func claimedLabel(claim: PersonClaim?, knownLabels: [String]) -> String? {
+        guard let claim else { return nil }
+        let name = claim.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        return knownLabels.contains(where: { matches($0, name) }) ? nil : name
     }
 
     /// **What the label field starts with — never a merge** (P3b smoke F1).
@@ -407,6 +474,7 @@ enum AdmissionDecision {
         thisDevice: String? = nil,
         memory: [String: AdmissionMemory.Label],
         admitRemembered: @MainActor () async -> Void,
+        admitRecognised: @MainActor () async -> Bool = { false },
         resolve: @MainActor () async -> (registry: Registry, myRoot: String?)?
     ) async -> [AdmissionRequest]? {
         guard await holdsARootRecord() else { return [] }
@@ -416,6 +484,20 @@ enum AdmissionDecision {
         if cause == .settle, arrived.contains(where: { (pending[$0] ?? 0) == 0 }) {
             await recountCaptures()
             pending = heldLines()
+        }
+        // **Recognition FIRST** (your devices are you, Task 6; the controller's
+        // C1b): a device whose verified claim names a person this book knows
+        // is let in with that person's own permit, and so never reaches the
+        // remembered admission below, which installs the whole book. Only a
+        // device RECORD can carry a claim, and `arrived` is exactly the device
+        // records with no person record beside them — so a book whose only
+        // waiting writer is an unrecorded stream pays nothing for it. It
+        // answers whether it changed the register; only then are the counts
+        // read again.
+        if !arrived.isEmpty, await admitRecognised() {
+            pending = heldLines()
+            arrived = await arrivedDevices()
+            guard !pending.isEmpty || !arrived.isEmpty else { return [] }
         }
         if anyRemembered(pending: pending, arrived: arrived, memory: memory) {
             await admitRemembered()
@@ -828,6 +910,29 @@ enum AdmissionDecision {
                 + "Maugham — otherwise an older copy would go on applying writing "
                 + "this book has set aside. Saving that mark failed, so "
                 + "\(act.phrase) did not happen: \(reason)"
+        case .personKeyLinkedElsewhere(let person):
+            // A key once linked stays with that person — revoked or not —
+            // until the writer forgets it there (your devices are you, Task 4).
+            return "Nothing was changed. That Apple ID is already linked to "
+                + "somebody else — the person with code \(DeviceCode.short(person)). "
+                + "Forget it there first if it now belongs to someone new."
+        case .personLinkedToAnotherKey(let person):
+            return "Nothing was changed. The person with code "
+                + "\(DeviceCode.short(person)) is already linked to a different "
+                + "Apple ID. Forget that one first."
+        case .personKeyForgotten:
+            return "Nothing was changed. That Apple ID was forgotten in this "
+                + "book, so it isn’t linked to anybody again."
+        case .personRecordUnreadable(let fingerprint):
+            // RULING-54: present and unreadable is not absent — that record
+            // might be the one this Apple ID is already linked to.
+            return "Nothing was changed. The record of the person with code "
+                + "\(DeviceCode.short(fingerprint)) doesn’t verify, and it might "
+                + "already be linked to this Apple ID. Restore it in People & "
+                + "Devices first."
+        case .malformedPersonKey:
+            return "Nothing was changed. That isn’t an Apple ID key Maugham can "
+                + "link — it may have come from a damaged record."
         }
     }
 }

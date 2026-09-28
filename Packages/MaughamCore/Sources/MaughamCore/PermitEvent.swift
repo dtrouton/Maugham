@@ -206,6 +206,23 @@ public struct PermitEvent: RegistryRecordProtocol {
     /// **Omitted while nil**, `unsigned`'s rule, so every other event's bytes
     /// and digest are untouched.
     public let settled: [String]?
+    /// **Why a SILENT admission happened**, or nil (your devices are you,
+    /// plan 1 Task 6; PK-4). `silentlyAdmitted` has two causes and History
+    /// tells them apart: this writer had already named the machine in another
+    /// book (`AdmissionMemory`, nil here), or the machine carried a verified
+    /// claim with a person key this book already knows
+    /// (`PermitEvent.recognisedReason`).
+    ///
+    /// **A field, never a new `Kind`**, and the reason is the older builds:
+    /// `Kind` is lossless about a word it does not know, but an unknown kind
+    /// holds that person's lines PENDING on a v0.41 Mac. A field that build
+    /// does not know is dropped by its decoder and still verifies, because the
+    /// signature is over the file's bytes (tripwire 42). Omitted while nil,
+    /// `unsigned`'s rule, so every other event's bytes are unchanged.
+    ///
+    /// It decides nothing: the permit the event installs is `role`/`scope`/
+    /// `pieces` as for any other, and no reader of the timeline looks here.
+    public let reason: String?
     public let at: Date
     /// Who signed it. A root of the subject's chain, or — for `.retired` — the
     /// subject itself.
@@ -218,6 +235,7 @@ public struct PermitEvent: RegistryRecordProtocol {
         mark: [String: StreamMark] = [:],
         unsigned: [String: StreamMark]? = nil,
         settled: [String]? = nil,
+        reason: String? = nil,
         at: Date, by: String, sig: OpLogChain.Credentials? = nil
     ) {
         self.event = event
@@ -229,9 +247,21 @@ public struct PermitEvent: RegistryRecordProtocol {
         self.mark = mark
         self.unsigned = unsigned
         self.settled = settled
+        self.reason = reason
         self.at = at
         self.by = by
         self.sig = sig
+    }
+
+    /// `reason`'s one value this build writes: the device was let in because
+    /// its verified person claim named a key this book already knows
+    /// (`RegistryPresence.admitRecognised`).
+    public static let recognisedReason = "recognised"
+
+    /// Was this a silent admission by recognition (`reason`), rather than by
+    /// this writer's memory of the machine?
+    public var isRecognition: Bool {
+        kind == .silentlyAdmitted && reason == Self.recognisedReason
     }
 
     public var fingerprint: String { event }

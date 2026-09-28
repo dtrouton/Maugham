@@ -30,6 +30,13 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
         /// `silentlyAdmitted` PERMIT EVENT — the records alone cannot tell it
         /// from `.admitted`, which is why it had no writer until P3a (C11).
         case silentlyAdmitted
+        /// Let in with no sheet because the device carried a verified person
+        /// claim whose key this book already knows (your devices are you,
+        /// PK-4). Derived from a `silentlyAdmitted` permit event carrying
+        /// `PermitEvent.recognisedReason` — a kind of History's own, never a
+        /// kind on the wire, so an older build reads the same event as an
+        /// ordinary silent admission.
+        case recognised
         /// A `roleChanged` event: author ⇄ reviewer.
         case roleChanged
         /// A `scopeChanged` event: which pieces of the book are theirs.
@@ -78,6 +85,15 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
         /// The subject is `HeldLines.unsignedHolder`'s string rather than a
         /// fingerprint, because there is no key: that is the whole fact.
         case unsigned
+        /// **The root forgot a person's Apple ID key** (your devices are you;
+        /// whole-branch review, Important 2 — the spec's History entry per
+        /// Forget). DERIVED from the dated entries in the person records'
+        /// `forgottenPersonKeys`, `.recordRestored`'s shape rather than a
+        /// permit event (PK-4: no new `PermitEvent.Kind`). A label-wide
+        /// Forget writes one entry per record of the person with one date, so
+        /// it derives ONE row: the subject is the lowest-fingerprint record,
+        /// `by` the root that forgot it.
+        case personKeyForgotten
     }
 
     /// When, or nil where nothing stamps it. Two kinds are honestly undated —
@@ -129,13 +145,19 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
     /// The permit event's own id, where the row came from one. It is what
     /// keeps two `roleChanged` rows about one person apart — see `id`.
     public let event: String?
+    /// **The person this row is about is the person at THIS device** — their
+    /// label is shared by a record of one of this device's own keys — so a
+    /// sentence may say *you* (spec: *"Your iPhone joined as you"*). False on
+    /// every Mac that is not one of that person's, which reads the same event
+    /// in the third person.
+    public let isMyPerson: Bool
 
     public init(
         date: Date?, kind: Kind, subject: String, label: String? = nil,
         ownName: String? = nil, by: String? = nil, isMine: Bool = false,
         permit: Permit? = nil, previousPermit: Permit? = nil,
         settledPieces: [String] = [], returnedPieces: [String] = [],
-        event: String? = nil
+        event: String? = nil, isMyPerson: Bool = false
     ) {
         self.date = date
         self.kind = kind
@@ -149,6 +171,7 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
         self.settledPieces = settledPieces
         self.returnedPieces = returnedPieces
         self.event = event
+        self.isMyPerson = isMyPerson
     }
 
     /// Stable across a re-derivation of the same facts, and distinct between
@@ -199,6 +222,9 @@ public enum TrustEvents {
     /// - `.claimed`, `.adopted`, `.joined` and `.anotherClaimant` are the
     ///   claim records and this device's own memory of the project; no event
     ///   kind corresponds to them.
+    /// - `.personKeyForgotten` is dated from the person records' own
+    ///   `forgottenPersonKeys` entries — one row per Forget, however many
+    ///   records of the person it re-signed.
     /// - `.recordRestored` is dated from `RegistryCache.restores(for:)`, the
     ///   bounded list `reconcile` writes as it puts records back (P2b Task 10).
     ///   Reading it here rather than re-deriving it is the whole point: a
@@ -206,6 +232,13 @@ public enum TrustEvents {
     ///   and looks exactly as it did before somebody deleted it — so this is the
     ///   only place the fact survives, and dating it at read time would stamp a
     ///   week-old deletion with the moment History was opened.
+    /// One Forget: the key, its day, and the root that forgot it.
+    private struct ForgetGroup: Hashable {
+        let key: String
+        let at: Date
+        let by: String
+    }
+
     nonisolated public static func derive(
         registry: Registry, cache: RegistryCache, mine: LocalIdentities,
         for projectURL: URL, unsigned: UnsignedStreams = .none
@@ -224,6 +257,10 @@ public enum TrustEvents {
         // take the event source for the whole person and drop the revocation,
         // which is the one row a writer comes here to find.
         let eventsBySubject = Dictionary(grouping: registry.events, by: \.subject)
+        // The labels this device's own person goes by here, for the one
+        // sentence that says *you* (a recognised arrival).
+        let myLabels = registry.people
+            .filter { myKeys.contains($0.person) }.map(\.label)
         for person in registry.people {
             let own = (eventsBySubject[person.person] ?? [])
                 .sorted { $0.event < $1.event }
@@ -246,9 +283,13 @@ public enum TrustEvents {
                         by: person.admittedBy, isMine: isMine))
                 }
             } else {
+                let isMyPerson = myLabels.contains {
+                    TrustTable.sharesLabel($0, person.label)
+                }
                 for arrival in admissions {
                     events.append(row(
-                        arrival, person: person, timeline: timeline, isMine: isMine))
+                        arrival, person: person, timeline: timeline, isMine: isMine,
+                        isMyPerson: isMyPerson))
                 }
             }
 
@@ -392,6 +433,37 @@ public enum TrustEvents {
                 isMine: myKeys.contains(fingerprint)))
         }
 
+        // **Every Forget, once** (whole-branch review, Important 2). A
+        // label-wide Forget re-signs every record of the person with ONE date,
+        // so the entries are grouped by (key, date, forgetting root) and each
+        // group is one row, named by its lowest-fingerprint record. Derived
+        // from the records, `.recordRestored`'s shape: no permit event says it
+        // (PK-4), and no log could disagree with the records it came from.
+        //
+        // **Only records in THIS book's chain** (whole-branch re-review, round
+        // 3; the Task 6 rule every person-key read follows): my root plus the
+        // roots it adopted, `TrustTable.myChain` — the same
+        // `chain(ofRoot:adopting:)` closure. A share participant's
+        // self-signed record can carry any dated entry it likes; it draws
+        // nothing here, exactly as recognition ignores it.
+        let myChain = TrustTable.resolve(
+            registry: registry, mine: mine,
+            joinedRoot: cache.joinedRoot(for: projectURL)).myChain
+        var forgets: [ForgetGroup: PersonRecord] = [:]
+        for person in registry.people where myChain.contains(person.person) {
+            for entry in person.forgottenPersonKeys ?? [] {
+                let group = ForgetGroup(key: entry.key, at: entry.at, by: person.admittedBy)
+                if let seen = forgets[group], seen.person < person.person { continue }
+                forgets[group] = person
+            }
+        }
+        for (group, person) in forgets {
+            events.append(TrustEvent(
+                date: group.at, kind: .personKeyForgotten, subject: person.person,
+                label: person.label, ownName: person.ownName, by: group.by,
+                isMine: myKeys.contains(person.person)))
+        }
+
         events.append(contentsOf: unsigned.events)
 
         return sorted(events)
@@ -471,14 +543,18 @@ public enum TrustEvents {
     /// admission, and `PermitTimeline.opening(before:)` says so.
     nonisolated private static func row(
         _ event: PermitEvent, person: PersonRecord,
-        timeline: PermitTimeline, isMine: Bool
+        timeline: PermitTimeline, isMine: Bool, isMyPerson: Bool = false
     ) -> TrustEvent {
         let installed = timeline.entries.firstIndex { $0.event == event.event }
         let previous = installed.flatMap { at in
             at > 0 && at < timeline.entries.count ? timeline.entries[at - 1].permit : nil
         }
         return TrustEvent(
-            date: event.at, kind: kind(of: event.kind), subject: event.subject,
+            // A recognition is a silent admission whose event says WHY
+            // (PK-4); History draws it as its own row.
+            date: event.at,
+            kind: event.isRecognition ? .recognised : kind(of: event.kind),
+            subject: event.subject,
             label: person.label, ownName: person.ownName,
             by: event.by, isMine: isMine,
             permit: installed == nil ? nil : Permit(event: event),
@@ -488,7 +564,7 @@ public enum TrustEvents {
                 timeline.entries[at].settles
                     .filter { timeline.wasTakenFromThem(piece: $0, before: at) }.sorted()
             } ?? [],
-            event: event.event)
+            event: event.event, isMyPerson: isMyPerson)
     }
 
     /// A permit event's kind as History's own. Exhaustive, so a ninth

@@ -43,6 +43,10 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
         /// **Write this Mac's own record again**, over one the reader refuses
         /// and this device holds no earlier bytes for (audit F4).
         case writeOwnRecord
+        /// **Forget this person key** (your devices are you, Task 7): unlink
+        /// a person's Apple ID key from every record under their label, and
+        /// remember it forgotten, so a new device carrying it is asked about.
+        case forgetPersonKey
     }
 
     /// **The one thing the writer types** (P2 smoke find 3).
@@ -140,8 +144,16 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
     /// said are gone (P3b Task 6). A revocation marks what this Mac had
     /// APPLIED, so it is the act an acknowledged loss changes most, and the
     /// clause is the same one every marking verb carries.
+    ///
+    /// **And what it leaves of their Apple ID** (your devices are you, Task
+    /// 5's carry): revoking a device never forgets the person key, so where
+    /// one is linked the alert says Forget is the verb for a key that may be
+    /// compromised — `personKey` is the group's own answer
+    /// (`PersonGroup.personKeyAfterRevoking`). With no key linked the message
+    /// is exactly what it was.
     static func revoke(
-        person fingerprint: String, named name: String, lostHistory: Int = 0
+        person fingerprint: String, named name: String, lostHistory: Int = 0,
+        personKey: PeopleAndDevicesModel.PersonKeyAfterRevoke = .noKey
     ) -> Self {
         PeopleAndDevicesConfirmation(
             verb: .revoke,
@@ -151,7 +163,8 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
             message: PeopleAndDevicesModel.revokeSentence
                 + " What they have already written stays in this book. "
                 + "You can let them back in from this Mac."
-                + (lostHistoryClause(count: lostHistory).map { " " + $0 } ?? ""),
+                + (lostHistoryClause(count: lostHistory).map { " " + $0 } ?? "")
+                + (personKeyClause(personKey).map { " " + $0 } ?? ""),
             confirmTitle: "Revoke",
             field: nil,
             permit: nil,
@@ -161,6 +174,49 @@ struct PeopleAndDevicesConfirmation: Identifiable, Equatable {
                     + "until you let them back in. Nothing is deleted \u{2014} it is "
                     + "kept in this project\u{2019}s set-aside records.",
                 scope: .nothing))
+    }
+
+    /// Revoking a device of a person whose other devices still stand: their
+    /// Apple ID still lets a new device in without asking.
+    static let revokeKeepsTheKeyRecognised =
+        "Revoking a device doesn\u{2019}t forget their Apple ID \u{2014} a new "
+        + "device signed into it is still let in without asking. If that Apple ID "
+        + "may be compromised, use Forget This Person Key as well."
+
+    /// Revoking the last device of theirs that stands: a new device is asked
+    /// about, but the key stays linked to them until it is forgotten.
+    static let revokeLeavesTheKeyLinked =
+        "Their Apple ID stays linked to them after this. If it may be "
+        + "compromised, use Forget This Person Key as well."
+
+    private static func personKeyClause(
+        _ key: PeopleAndDevicesModel.PersonKeyAfterRevoke
+    ) -> String? {
+        switch key {
+        case .noKey: return nil
+        case .staysRecognised: return revokeKeepsTheKeyRecognised
+        case .staysLinked: return revokeLeavesTheKeyLinked
+        }
+    }
+
+    /// **Forget this person key** (your devices are you, Task 7). It is asked
+    /// first because it cannot be taken back in this book — a forgotten key
+    /// is never linked again (Task 6's ruling C2) — and the message says what
+    /// it costs and what it keeps: the devices already let in stay.
+    static func forgetPersonKey(person fingerprint: String, label: String) -> Self {
+        PeopleAndDevicesConfirmation(
+            verb: .forgetPersonKey,
+            fingerprint: fingerprint,
+            record: nil,
+            title: "Forget \(label)\u{2019}s Apple ID key?",
+            message: "A new device signed into this Apple ID will be asked about "
+                + "again, one sheet each, instead of joining \(label) on its own. "
+                + "Devices already let in stay. This book won\u{2019}t link this "
+                + "key to anybody again.",
+            confirmTitle: "Forget",
+            field: nil,
+            permit: nil,
+            alternate: nil)
     }
 
     /// **Merge**, carrying the consequence in the words the row uses for it

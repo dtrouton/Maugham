@@ -181,6 +181,33 @@ public enum RegistryWriter {
         return url
     }
 
+    /// **A person claim for `device`, signed by `key`** (your devices are you,
+    /// Task 3): the one place a claim's signature is made, beside the one
+    /// place a record's is, because both are the writer asking
+    /// `RegistryCanonical` for a digest and signing it (tripwire 42's census
+    /// lets exactly the writer and the reader ask).
+    ///
+    /// What is signed is `PersonClaim.SignedContent` — `{device, personKey,
+    /// personPub, name}` — canonicalized exactly as a record is. `device` is
+    /// the device whose record will carry the claim; the reader rebuilds it
+    /// from that record, so a claim made here holds for `device` alone.
+    ///
+    /// It writes nothing: the claim goes into a `DeviceRecord`, and the record
+    /// goes through `write` like any other (`RegistryPresence.ensureDeviceRecord`).
+    nonisolated public static func personClaim(
+        forDevice device: String, signedBy key: PersonKey
+    ) throws -> PersonClaim {
+        let personPub = key.publicKey.x963Representation.base64EncodedString()
+        let content = PersonClaim.SignedContent(
+            device: device, personKey: key.fingerprint,
+            personPub: personPub, name: key.name)
+        let digest = try RegistryCanonical.digestHex(
+            ofJSON: try RegistryCanonical.bytes(of: content))
+        return PersonClaim(
+            personKey: key.fingerprint, personPub: personPub, name: key.name,
+            sig: try key.sign(digest))
+    }
+
     /// A coordinated atomic write — the store's own idiom, so a record landing
     /// while iCloud is reading the folder is a whole file or the old one, never
     /// half of either.

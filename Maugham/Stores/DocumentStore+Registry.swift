@@ -549,6 +549,40 @@ extension DocumentStore {
         return record
     }
 
+    /// **Forget a person's Apple ID key — label-wide** (your devices are you,
+    /// Task 7): People & Devices' *Forget This Person Key*. The write is
+    /// `RegistryAdmission.forgetPersonKey` off the main actor (the root's
+    /// verb, which re-signs every record of the label and remembers the key
+    /// forgotten), then trust is invalidated and every open document re-read —
+    /// `admit`'s own acts, in its order.
+    ///
+    /// **A Forget that stopped part way still settles, then throws** its
+    /// `PersonKeyForgetIncomplete`: whatever it DID write must reach every
+    /// reader, and the writer is handed the folder's own account of which
+    /// records were and were not cleared (the pane puts it in words).
+    ///
+    /// Answers the verb's `PersonKeyForgetOutcome`: a SUCCESS may still carry
+    /// records under an adopted root that hold the key, which the pane says
+    /// in a note (`PeopleAndDevicesModel.forgetNote`).
+    @discardableResult
+    public func forgetPersonKey(person fingerprint: String) async throws -> PersonKeyForgetOutcome {
+        let projectURL = self.projectURL
+        let author = Document.loadIdentities.author
+        let cache = Document.loadRegistryCache
+        let record: PersonKeyForgetOutcome
+        do {
+            record = try await Task.detached(priority: .userInitiated) {
+                try RegistryAdmission.forgetPersonKey(
+                    person: fingerprint, in: projectURL, by: author, cache: cache)
+            }.value
+        } catch let incomplete as PersonKeyForgetIncomplete {
+            await settle(after: "forgetting the person key of", DeviceCode.short(fingerprint))
+            throw incomplete
+        }
+        await settle(after: "forgetting the person key of", DeviceCode.short(fingerprint))
+        return record
+    }
+
     /// **Put a registry record back** (P2 smoke find 1). Answers the file it
     /// wrote.
     ///
@@ -670,6 +704,11 @@ extension DocumentStore {
     /// from it back round for a second helping.
     @discardableResult
     public func admitRemembered() async -> [PersonRecord] {
+        await serialisingSilentAdmission { [self] in await admitRememberedNow() }
+    }
+
+    /// `admitRemembered`'s body, run only inside the serialiser.
+    private func admitRememberedNow() async -> [PersonRecord] {
         let projectURL = self.projectURL
         let identities = Document.loadIdentities
         let cache = Document.loadRegistryCache
@@ -704,6 +743,51 @@ extension DocumentStore {
         await settle(after: "admitting", admitted.map { DeviceCode.short($0.person) }
             .joined(separator: ", "))
         return admitted
+    }
+
+    /// **Admit, without asking, every device whose person claim this book
+    /// already knows — and link what the rules allow** (your devices are you,
+    /// Task 6). `admitRemembered`'s mid-session sibling, run by
+    /// `AdmissionDecision.refreshedRequests` right after it, so a recognised
+    /// device that arrives while the window is open never reaches the sheet.
+    ///
+    /// Same shape and same promises as `admitRemembered`: the verb is
+    /// `RegistryPresence.admitRecognised`, the one `DocumentStore.open` calls;
+    /// it throws nothing (a registry that will not read is logged, and the
+    /// sheet behind this is the recourse); and it settles only when it changed
+    /// the register.
+    @discardableResult
+    public func admitRecognised() async -> RegistryPresence.RecognitionPass {
+        await serialisingSilentAdmission { [self] in await admitRecognisedNow() }
+    }
+
+    /// `admitRecognised`'s body, run only inside the serialiser.
+    private func admitRecognisedNow() async -> RegistryPresence.RecognitionPass {
+        let projectURL = self.projectURL
+        let identities = Document.loadIdentities
+        let cache = Document.loadRegistryCache
+        let state = Document.loadDeviceState
+        let pass: RegistryPresence.RecognitionPass
+        do {
+            pass = try await Task.detached(priority: .userInitiated) {
+                try RegistryPresence.admitRecognised(
+                    in: projectURL, identities: identities, cache: cache,
+                    mark: {
+                        try DocumentStore.rememberedAdmissionMark(
+                            forPerson: $0, in: projectURL,
+                            identities: identities, cache: cache, state: state)
+                    })
+            }.value
+        } catch {
+            registryVerbLog.error(
+                "recognition in \(projectURL.lastPathComponent, privacy: .public) could not read the registry: \(error.localizedDescription, privacy: .public)")
+            return .nothing
+        }
+        DocumentStore.logRecognition(pass, in: projectURL)
+        guard pass.changedTheRegister else { return pass }
+        await settle(after: "recognising", (pass.admitted + pass.linked)
+            .map { DeviceCode.short($0.person) }.joined(separator: ", "))
+        return pass
     }
 
     /// Forget every resolved table, re-read every open document, and say so —
