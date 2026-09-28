@@ -35,6 +35,9 @@ struct SettingsView: View {
     /// directory walk plus a signature check per record.
     @State private var standings: [ProjectId: DeviceStanding] = [:]
     @State private var code: String = ""
+    /// Whether this phone is recognised by the writer's person key — one
+    /// device-wide line, resolved with the standings (plan 2 Task 2).
+    @State private var personKeyLine: PersonKeyLine?
     @State private var resolvedStandings = false
 
     var body: some View {
@@ -86,6 +89,13 @@ struct SettingsView: View {
     private var thisDeviceSection: some View {
         Section {
             LabeledContent("Code", value: code.isEmpty ? "—" : code)
+            // Device-wide, not per book: the person key is the writer's.
+            // Absent until the first resolution lands.
+            if let personKeyLine {
+                Text(personKeyLine.sentence)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
             ForEach(standingRows, id: \.id) { entry in
                 let row = entry.row
                 VStack(alignment: .leading, spacing: 2) {
@@ -162,17 +172,24 @@ struct SettingsView: View {
             .map { (id: $0.id, url: $0.url) }
 
         let resolved = await Task.detached(priority: .userInitiated) {
-            () -> (code: String, standings: [ProjectId: DeviceStanding]) in
+            () -> (code: String, standings: [ProjectId: DeviceStanding],
+                   personKey: PersonKeyLine) in
             let mine = LocalIdentities.current
             var answers: [ProjectId: DeviceStanding] = [:]
             for project in projects {
                 answers[project.id] = BookStandingRow.standing(
                     in: project.url, mine: mine, cache: .shared)
             }
-            return (DeviceCode.short(mine.author.fingerprint), answers)
+            // The same look the claim takes (`PhoneDeviceRecord`'s one
+            // reader), so the line says what the next write will find — and,
+            // being in this task, it is re-read on foreground and on pull.
+            let personKey = PersonKeyLine.make(
+                PhoneDeviceRecord.findPersonKey(canSign: mine.author.canSign))
+            return (DeviceCode.short(mine.author.fingerprint), answers, personKey)
         }.value
 
         code = resolved.code
+        personKeyLine = resolved.personKey
         standings = resolved.standings
         resolvedStandings = true
     }

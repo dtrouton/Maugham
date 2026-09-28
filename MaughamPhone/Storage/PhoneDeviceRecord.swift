@@ -62,6 +62,23 @@ enum PhoneDeviceRecord {
     /// Project root path → what this run last declared there.
     private static var declared: [String: Declaration] = [:]
 
+    /// **The phone's ONE look for the writer's person key** (plan 2 Tasks 1
+    /// and 2) — the claim's (`ensure`) and Settings' *This Device* line's
+    /// alike, so the line says exactly what the next claim will find:
+    /// tripwire 53 counts this file's `PhonePersonKeyAccess.store` read and
+    /// its `PersonKey.finding` call, and a second phone reader would be a
+    /// second answer to *is this phone recognised*.
+    ///
+    /// Nil where this phone cannot sign (no enclave key): it writes no record,
+    /// so it makes no claim, so it never looks. Otherwise what the look found —
+    /// FOUND only, never created and never named (controller ruling 5).
+    /// Synchronous and off the main actor's isolation: a keychain query, run
+    /// from inside each caller's own detached task.
+    nonisolated static func findPersonKey(canSign: Bool) -> PersonKeyFinding? {
+        guard canSign else { return nil }
+        return PersonKey.finding(in: PhonePersonKeyAccess.store)
+    }
+
     /// Declare this phone in `projectRoot`, if it has anything new to say —
     /// and, where it holds the writer's person key, say whose it is.
     ///
@@ -117,15 +134,10 @@ enum PhoneDeviceRecord {
         let model = model ?? UIDevice.current.model
 
         // The writer's person key, if this phone can reach it.
-        let personKey: PersonKey?
-        if identity.canSign {
-            let store = PhonePersonKeyAccess.store
-            personKey = await Task.detached(priority: .userInitiated) {
-                PersonKey.find(in: store)
-            }.value
-        } else {
-            personKey = nil
-        }
+        let canSign = identity.canSign
+        let personKey = await Task.detached(priority: .userInitiated) {
+            findPersonKey(canSign: canSign)?.key
+        }.value
 
         let name = deviceName(
             system: systemName, model: model, personName: personKey?.name ?? "")

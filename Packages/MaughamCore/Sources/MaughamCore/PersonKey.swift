@@ -94,8 +94,22 @@ public struct PersonKey: Sendable {
     ///
     /// Nil for no item, an unavailable store, or an item that is not a key.
     public static func find(in store: any PersonKeyStore) -> PersonKey? {
-        guard case .found(let item) = store.find() else { return nil }
-        return key(from: item)
+        finding(in: store).key
+    }
+
+    /// **`find`, saying WHY there is no key** (plan 2 Task 2) — the phone's
+    /// Settings line tells the writer which of the three it is, because on a
+    /// phone that never mints, *no key* is not *iCloud Keychain is off*: the
+    /// Mac may simply not have made one yet, or it has not synced. Never
+    /// creates and never names, exactly as `find`.
+    public static func finding(in store: any PersonKeyStore) -> PersonKeyFinding {
+        switch store.find() {
+        case .absent: return .absent
+        case .unavailable: return .unavailable
+        case .found(let item):
+            guard let found = key(from: item) else { return .notAKey }
+            return .found(found)
+        }
     }
 
     /// An item's key, when its bytes are one — the private key parses and its
@@ -114,5 +128,24 @@ public struct PersonKey: Sendable {
             privateKey: key.rawRepresentation,
             publicKey: key.publicKey.x963Representation,
             name: name)
+    }
+}
+
+/// What looking for the person key found (`PersonKey.finding(in:)`).
+public enum PersonKeyFinding: Sendable {
+    /// The key, under the name its item carries (which may be empty).
+    case found(PersonKey)
+    /// The store answered, and holds no item.
+    case absent
+    /// The store could not answer — no entitlement, iCloud Keychain off or
+    /// locked, an item that would not decode (`PersonKeyLookup.unavailable`).
+    case unavailable
+    /// An item is there, but its bytes are not a key.
+    case notAKey
+
+    /// The key, where there is one.
+    public var key: PersonKey? {
+        if case .found(let key) = self { return key }
+        return nil
     }
 }

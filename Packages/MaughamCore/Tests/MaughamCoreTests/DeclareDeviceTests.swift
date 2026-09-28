@@ -111,6 +111,31 @@ final class DeclareDeviceTests: XCTestCase {
         XCTAssertNil(PersonKey.find(in: broken))
     }
 
+    /// `finding` says which of the three there is no key for, and `find` is
+    /// its key — both directions of each arm.
+    func test_findingSaysWhyThereIsNoKey() throws {
+        let empty = InMemoryPersonKeyStore()
+        guard case .absent = PersonKey.finding(in: empty) else { return XCTFail("no item is absent") }
+        XCTAssertEqual(empty.createCount, 0, "and finding it created nothing")
+
+        guard case .unavailable = PersonKey.finding(in: UnavailablePersonKeyStore())
+        else { return XCTFail("a store that cannot answer is unavailable, never absent") }
+
+        let broken = InMemoryPersonKeyStore(item: PersonKeyItem(
+            privateKey: Data(repeating: 1, count: 32), publicKey: Data([4, 1, 2]), name: "X"))
+        guard case .notAKey = PersonKey.finding(in: broken)
+        else { return XCTFail("an item that is not a key is neither found nor absent") }
+
+        let store = InMemoryPersonKeyStore()
+        let minted = try XCTUnwrap(PersonKey.findOrCreate(in: store, seedName: "Denver Trouton"))
+        guard case .found(let found) = PersonKey.finding(in: store)
+        else { return XCTFail("a key is found") }
+        XCTAssertEqual(found.fingerprint, minted.fingerprint)
+        XCTAssertEqual(found.name, "Denver Trouton")
+        XCTAssertEqual(PersonKey.finding(in: store).key?.fingerprint, minted.fingerprint)
+        XCTAssertNil(PersonKey.finding(in: empty).key)
+    }
+
     // MARK: - PersonKeyStoreChoice
 
     func test_theStoreChoiceBothWays() {
@@ -126,4 +151,11 @@ final class DeclareDeviceTests: XCTestCase {
         else { return XCTFail("production is the keychain") }
         XCTAssertEqual(group, "FF3XH4ZJ45.com.maugham.person")
     }
+}
+
+/// A store that cannot answer — the keychain without its entitlement.
+private struct UnavailablePersonKeyStore: PersonKeyStore {
+    func find() -> PersonKeyLookup { .unavailable }
+    func createIfAbsent(_ item: PersonKeyItem) -> PersonKeyCreation { .unavailable }
+    func setName(_ name: String) -> Bool { false }
 }

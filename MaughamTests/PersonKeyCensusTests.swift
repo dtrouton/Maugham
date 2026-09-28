@@ -186,8 +186,12 @@ final class PersonKeyCensusTests: XCTestCase {
              sample: "PersonKey.findOrCreate(in: s, seedName: n)",
              expected: ["DocumentStore.swift": 1]),
         // …and the phone only FINDS it (plan 2 Task 1, controller ruling 5:
-        // a phone that minted would fork the person).
-        Site(pattern: #"PersonKey\.find\("#,
+        // a phone that minted would fork the person) — once, in
+        // `PhoneDeviceRecord.findPersonKey`, which the claim AND Settings'
+        // *This Device* line both ask (plan 2 Task 2: the line routes through
+        // this reader rather than being a second one). `finding` is `find`
+        // saying why there is no key; either spelling is the same door.
+        Site(pattern: #"PersonKey\.find(?:ing)?\("#,
              sample: "PersonKey.find(in: s)",
              expected: ["MaughamPhone/PhoneDeviceRecord.swift": 1]),
         // The claim is signed in ONE place for both surfaces — Core's
