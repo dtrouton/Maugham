@@ -98,12 +98,15 @@ ENV_OK=("EXPECT_TEAM=$TEAM" "EXPECT_BUNDLE_ID=$PROBE_ID" "EXPECT_GROUP=$GROUP")
 write_ents "$WORK/good.plist" "$TEAM.$PROBE_ID" "$GROUP"
 write_ents "$WORK/nogroup.plist" "$TEAM.$PROBE_ID" ""
 write_ents "$WORK/noappid.plist" "" "$GROUP"
+write_ents "$WORK/gta.plist" "$TEAM.$PROBE_ID" "$GROUP"
+/usr/libexec/PlistBuddy -c "Add :com.apple.security.get-task-allow bool true" "$WORK/gta.plist"
 
 GOOD="$(make_app good "$DIRECT" "$WORK/good.plist")"
 NOPROFILE="$(make_app noprofile "" "$WORK/good.plist")"
 NOGROUP="$(make_app nogroup "$DIRECT" "$WORK/nogroup.plist")"
 NOAPPID="$(make_app noappid "$DIRECT" "$WORK/noappid.plist")"
 NOENTS="$(make_app noents "$DIRECT" "")"
+GTA="$(make_app gta "$DIRECT" "$WORK/gta.plist")"
 
 # --- profile mode
 ARGS=(profile "$DIRECT")
@@ -133,6 +136,8 @@ ARGS=(app "$NOAPPID")
 expect fail "app: a signature without the application identifier fails" "application identifier ''" -- "${ENV_OK[@]}"
 ARGS=(app "$NOENTS")
 expect fail "app: a signature with no entitlements fails" "NO entitlements" -- "${ENV_OK[@]}"
+ARGS=(app "$GTA")
+expect fail "app: a signature carrying get-task-allow fails (notarization would reject it)" "get-task-allow" -- "${ENV_OK[@]}"
 # A profile slipped in AFTER signing breaks the seal.
 cp -R "$NOPROFILE" "$WORK/late.app"
 cp "$DIRECT" "$WORK/late.app/Contents/embedded.provisionprofile"

@@ -24,6 +24,7 @@
 #   EXPECT_TEAM       e.g. FF3XH4ZJ45
 #   EXPECT_BUNDLE_ID  e.g. com.maugham.Maugham
 #   EXPECT_GROUP      e.g. FF3XH4ZJ45.com.maugham.person
+# Optional (profile mode): MAC_PROFILE_PLIST — where to leave the decoded plist.
 #
 # Exit 0 = every check passed; anything else prints `::error::<why>` (a GitHub
 # annotation; plain text locally) and exits 1. Exercised by
@@ -127,6 +128,13 @@ check_app() {
     [[ "$team" == "$EXPECT_TEAM" ]] ||
         fail "$app's signature carries team identifier '$team', not $EXPECT_TEAM"
 
+    # Notarization rejects a debuggable app; catch it here, before a 15-minute
+    # submission says so.
+    local gta
+    gta="$(pb "$ents" ":com.apple.security.get-task-allow" || true)"
+    [[ -z "$gta" || "$gta" == "false" ]] ||
+        fail "$app's signature carries com.apple.security.get-task-allow ($gta) — notarization rejects a debuggable app"
+
     codesign --verify --deep --strict "$app" 2>"$TMP/verify.err" ||
         fail "codesign --verify failed for $app: $(tr '\n' ' ' < "$TMP/verify.err")"
 
@@ -138,7 +146,11 @@ target="${2:-}"
 [[ -n "$mode" && -n "$target" ]] || fail "usage: $0 profile <file.provisionprofile> | app <Maugham.app>"
 require_env
 case "$mode" in
-    profile) check_profile "$target" "MAC_PROVISIONING_PROFILE" ;;
+    profile)
+        check_profile "$target" "MAC_PROVISIONING_PROFILE"
+        # Optional: hand the decoded plist back so the caller need not decode again.
+        if [[ -n "${MAC_PROFILE_PLIST:-}" ]]; then cp "$TMP/profile.plist" "$MAC_PROFILE_PLIST"; fi
+        ;;
     app) check_app "$target" ;;
     *) fail "unknown mode '$mode' (expected profile or app)" ;;
 esac

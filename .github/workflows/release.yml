@@ -220,9 +220,10 @@ jobs:
             exit 1
           fi
           # Team, bundle id, Developer ID (all devices), not expired, grants the group.
+          # It also leaves the decoded plist at MAC_PROFILE_PLIST for the reads below.
           EXPECT_BUNDLE_ID="$MAC_BUNDLE_ID" EXPECT_GROUP="$PERSON_KEY_GROUP" \
+            MAC_PROFILE_PLIST="$RUNNER_TEMP/maugham-mac-profile.plist" \
             scripts/verify-mac-signing.sh profile "$PROFILE"
-          security cms -D -i "$PROFILE" > "$RUNNER_TEMP/maugham-mac-profile.plist"
           UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$RUNNER_TEMP/maugham-mac-profile.plist")
           NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" "$RUNNER_TEMP/maugham-mac-profile.plist")
           # Install under its UUID in both places Xcode has looked: the current
