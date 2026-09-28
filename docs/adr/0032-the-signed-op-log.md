@@ -2749,6 +2749,263 @@ no longer asks.
   load's own placement. The load is now one decode for its permit and
   amendment table, and a second inside `loadDiagnosed`.
 
+## Addendum — your devices are you, plan 1: the person key, 2026-09-28
+
+A writer's own devices should never ask about each other, and a known
+collaborator's new device should join as her. The spec is
+`docs/superpowers/specs/2026-09-27-your-devices-are-you-design.md`. The spike
+that proved the keychain group is
+`docs/superpowers/notes/2026-09-27-person-key-spike.md`. The plan is
+`docs/superpowers/plans/2026-09-27-your-devices-are-you-plan1-the-person-key.md`.
+Every controller ruling, with its cost, is in the plan's ledger
+(`.superpowers/sdd/2026-09-27-your-devices-are-you-plan1-the-person-key/progress.md`),
+and the task reports sit beside it. The outcome note is
+`docs/superpowers/notes/2026-09-28-your-devices-plan1-outcome.md`.
+
+Plan 1 builds the Mac and Core halves. **It ships no entitlements**, so no
+production build makes a claim until plan 2 adds the keychain access group,
+the provisioning profile and the phone's half. Until then every build reads
+the keychain as unavailable, and admission is exactly what it was. Nothing
+here changes what anybody may WRITE: permits, the partition, the timeline and
+the load are untouched. Recognition decides only who is ADMITTED.
+
+### What shipped
+
+- **The person key** (`PersonKey.swift`, `PersonKeyStore.swift`, MaughamCore).
+  - A P256 signing key in iCloud Keychain: a synchronizable generic password
+    in the team's access group (`KeychainPersonKeyStore.accessGroup(teamID:)`),
+    whose value carries the key and the person's name.
+  - `PersonKey.findOrCreate(in:seedName:)` finds the item or mints one. A lost
+    create race adopts the winner's item. An item it cannot read is
+    unavailable and is NEVER replaced, because minting over it would fork the
+    person on every device. A non-empty stored name is never overwritten; an
+    empty one takes the Mac's account name.
+  - It is the one production software private key: tripwire 36's allow-list
+    names `PersonKey.swift` by name beside `DeviceIdentity+Testing.swift`. It
+    signs only a claim, never a line of manuscript. A device key must never
+    leave its machine; a person key must move across one person's devices, and
+    iCloud Keychain moves it without it ever touching the book folder.
+  - Signing reuses `OpLogChain.credentials(signing:publicKey:signer:)`, so a
+    device and a person key produce one credential format and one verifier.
+  - The Mac's one store construction is `PersonKeyAccess` (Maugham/Stores). A
+    test host gets an in-memory store that refuses to create, so the gate never
+    reaches a keychain; a suite that wants a key injects one.
+- **The claim** (`RegistryPersonClaim.swift`), PK-1. It is an optional field
+  of the device record, `DeviceRecord.personClaim`, omitted when absent, so no
+  existing record's bytes move and an older build keeps it byte-faithfully.
+  - The person key signs `{kind, device, personKey, personPub, name}`, where
+    `kind` is the constant domain `maugham.personClaim.v1`. The canonical form
+    is `RegistryCanonical`'s (tripwire 42): `RegistryWriter.personClaim` signs,
+    and `RegistryReader.verifiedPersonClaim` verifies. The device comes from
+    the CONTAINING record, never from the claim, so a claim copied into
+    another device's record does not verify there.
+  - The device record's own signature, made by the enclave key, covers the
+    claim too.
+  - A misshapen claim decodes as nil and never makes its record malformed.
+  - `Registry.verifiedPersonClaims` is derived in `Registry.init`, so a raw
+    field is never trusted.
+  - `ensureDeviceRecord` takes an explicit `PersonClaimIntent` (`.keep`,
+    `.set`, `.remove`). A `.set` is verified for THIS device or refused
+    loudly, writing nothing. The short-circuit compares claim FACTS, not
+    signatures, because ECDSA is randomized and a fresh claim at every open
+    would otherwise rewrite the record at every open. The Mac chooses `.set`
+    when it has a key and `.keep` otherwise; it never chooses `.remove`,
+    because no signal it can read says the Mac left the Apple ID.
+- **The linked key and Forget** (`PersonRecord.personKey`,
+  `PersonRecord.forgottenPersonKeys`, both omitted when nil).
+  - `RegistryAdmission.linkPersonKey` and `forgetPersonKey` are root-only (the
+    rename rule, `renameOutcome`) and re-sign through `RegistryWriter.resign`,
+    so a later build's unknown fields survive.
+  - **A person is a LABEL.** The same key may sit on every record sharing a
+    label, and it is refused for any other label, revoked holders included.
+  - **A label change drops the key** from the record whose label changed, in
+    `admit` and in `rename`.
+  - **Forget is label-wide and durable.** It clears the key from every record
+    of the label, checks every holder up front, reads every holder back, and
+    throws `PersonKeyForgetIncomplete` naming what was and was not cleared. It
+    records the key in `forgottenPersonKeys`, which `admit` carries whatever
+    the label. A forgotten key is never linked again, and recognition treats
+    it as unknown.
+  - A present-but-unreadable person record refuses a link (RULING-54): it
+    might already hold the key.
+- **Person-key facts come from this root's chain only.** The forgotten keys,
+  the holders and the claim-name contradiction are all read from
+  `TrustTable.chain(ofRoot:in:)`, this root plus every root it adopted. That
+  closure is `TrustTable.adoptedClosure(of:in:)`, extracted from `resolve` so
+  the two cannot drift. A foreign self-signed record neither blocks nor admits
+  anyone. The unreadable-record rule still asks.
+- **The recognition table, as built** (`Recognition.recognise`,
+  `TrustRecognition.swift`). It is a pure function and reads no permit, rung,
+  digest or trust closure. It answers `.ownDevice(root:)`,
+  `.knownPerson(_:)` or `.ask(hint:)`. It asks when:
+  - there is no claim, the claim is not the registry's verified one, or the
+    device record is not the registry's;
+  - `thisRoot` holds no root record (Review Focus 5; the caller passes THIS
+    Mac's author fingerprint, never `TrustTable.myRoot`);
+  - the device already has a person record, or is retired;
+  - any person record is present but unreadable;
+  - a record in the chain forgot the key;
+  - nobody in the chain holds the key;
+  - the holders span more than one label, or every record of the label is
+    revoked, or the label is empty;
+  - the claim's name names another person in the chain.
+
+  Otherwise a key under the root's label answers `.ownDevice`, and a key under
+  one other label answers `.knownPerson` with the lowest-fingerprint standing
+  holder. **Revoked records neither help nor block**: a person with one
+  standing record is still that person.
+- **The silent admission** (`RegistryAdmission.admitRecognised`), PK-2. It
+  takes the recognition answer and the resolved `TrustTable`.
+  - `.ownDevice` admits under the root's label with the root's timeline permit:
+    the whole book.
+  - `.knownPerson` admits under that person's label with their CURRENT
+    timeline permit (tripwire 43), never their first record's.
+  - `.unjudgeable` is declined to the sheet.
+  - A narrowing permit carries the book's GOVERNING photograph forward
+    (`table.unsignedSnapshot.mark`, Ruling Q's value). A narrowed book whose
+    governing event has no photograph reads as an EMPTY one, and that is
+    carried forward, exactly what the sheet's Admit would take. The
+    nil-photograph decline is defensive, and no narrowed book reaches it.
+  - It lives in `RegistryAdmission` because the permit is that layer's to
+    write. `RegistryPresence` names no rung, and tripwire 49's census is
+    unedited.
+  - The event is `silentlyAdmitted` with `PermitEvent.reason = "recognised"`,
+    PK-4. `PermitEvent.Kind` does decode an unknown kind losslessly, but an
+    unknown kind holds that person's lines PENDING on an older build, so a new
+    field was added instead of a new kind. History draws it as
+    `TrustEvent.Kind.recognised`: *"<device> joined as <label> — recognised by
+    their Apple ID"*, and *"… joined as you — recognised by your Apple ID"*
+    where the label is this writer's own.
+- **The pass, and its order** (`RegistryPresence.admitRecognised`). It runs
+  only on a Mac holding its own root record. First it links: this Mac's own
+  record first, then each standing record this root admitted, from a
+  non-retired device with a verified claim, onto a record with no key yet
+  (PK-3). A key claimed under two labels links to neither, and refusals are
+  collected rather than thrown. Then it recognises and admits every unadmitted
+  device, then links the new records.
+  - **Recognised before remembered.** At open and mid-session
+    (`AdmissionDecision.refreshedRequests`), the recognition pass runs BEFORE
+    `admitRemembered`.
+  - **The remembered-pass fix.** `admitRemembered` used to admit a remembered
+    label as author of the whole book whatever that person's permit in this
+    book. It now leaves to the sheet any device whose remembered label is a
+    person narrowed here (`RegistryAdmission.labelNamesANarrowedPerson`). It
+    also never admits a device that recognition recognises: such a device
+    still waiting was declined, and must not fall through to the whole book.
+  - **Single flight.** `DocumentStore.serialisingSilentAdmission` queues both
+    silent passes, so overlapping refreshes admit a device once.
+  - **The v0.41 rewrite.** An older build's `ensureDeviceRecord` builds a
+    fresh record and drops the claim. The next new-build open writes it back.
+    Nothing refuses, and nothing is admitted twice.
+- **The surfaces** (Mac).
+  - The admission sheet shows what the claim says (*It calls itself <device>,
+    belonging to <person>.*), marks it as the device's own word, and says when
+    the key is linked to somebody else. Nothing here is drawn as an alarm.
+  - The sheet pre-fills the claimed name only where it matches NO known label,
+    so its starting value is never a merge.
+  - People & Devices says *Recognised on every device signed into this
+    person's Apple ID.* and offers **Forget This Person Key** where the verb
+    would succeed (root only; hidden elsewhere). A partial Forget is said in
+    words.
+  - Revoke's confirmation says that revoking a device does not forget its
+    Apple ID, wherever a key is linked.
+- **Censuses.** `PersonKeyCensusTests` counts every door by per-file equality,
+  including the phone with an EMPTY allow-list: store construction, claim
+  verification, recognition, link and forget, and finding and signing. Each
+  census has a planted-offender control. See CLAUDE.md tripwire 53.
+
+### The rulings, with their costs
+
+- **PK-1 — the claim lives inside the device record.** *Cost:* a v0.41 build
+  that rewrites the record drops the claim until the next new-build open.
+- **PK-2 — own device admits with the root's standing; a known person with
+  their current timeline permit.** *Cost:* none known.
+- **PK-3 — linking needs an already-admitted device.** *Cost:* a collaborator
+  whose only device predates her person key needs one device to open the book
+  on the new build before her other devices go silent.
+- **PK-4 — reuse `.silentlyAdmitted` with a `reason`.** *Cost:* wording only.
+- **An explicit claim intent** (Task 3). *Cost:* one more parameter shape.
+- **A signed domain in the claim** (Task 3). *Cost:* none; the form freezes at
+  ship.
+- **A person is a label** (Task 4). *Cost:* two people deliberately given one
+  label share recognition, as they already share Change….
+- **An unreadable person record blocks a link** (Task 4). *Cost:* an unrelated
+  broken record blocks linking until it is restored.
+- **A label change drops the linked key** (Task 4). *Cost:* a root correcting
+  a label's spelling loses recognition for that device until its next open
+  re-links it.
+- **Revoked records neither help nor block; an all-revoked label asks** (Task
+  5, overriding "any revoked holder asks"). *Cost:* a revoked device's person
+  is still recognised by key. Forget is the verb for a compromised key.
+- **Recognition lives in `RegistryAdmission`; tripwire 49 stands** (Task 6).
+  *Cost:* none; one more `RegistryAdmission` verb.
+- **Recognised before remembered, and the remembered pass never hands a
+  narrowed person the whole book** (Task 6). *Cost:* a narrowed collaborator's
+  new remembered device gets the sheet instead of silence.
+- **Forget is durable** (Task 6). *Cost:* a forgotten key cannot be re-trusted
+  in that book (a limit, below).
+- **Person-key facts from this root's chain only** (Task 6). *Cost:* an
+  unadopted second root's records do not count, as they never did for trust.
+- **The sheet never pre-fills a merge** (Task 7). *Cost:* one extra pick in a
+  rare case.
+- **The censuses scan the phone with an empty allow-list** (Task 8). *Cost:*
+  none; plan 2 registers its sites deliberately.
+
+### What plan 1 does NOT do — the limits, stated
+
+- **No production build makes a claim yet.** Plan 1 ships no
+  `keychain-access-groups` entitlement and no provisioning profile. Every
+  build reads the keychain as unavailable, so nothing a writer sees changes
+  until plan 2. The guide is unchanged for that reason.
+- **Debug and ad-hoc builds never make claims.** An ad-hoc-signed binary gets
+  `-34018` (spike §3). The dev app and CI run with no claim; a test host never
+  reaches a keychain. Real-keychain behaviour is proven only by plan 2's signed
+  dry run.
+- **A v0.41 rewrite drops a claim until the next new-build open** (PK-1). An
+  older build rewriting its own record loses the field. While it is missing,
+  that device is recognised by nothing (if not yet admitted it gets the
+  sheet), and no key is linked from it. A key already linked sits on the
+  PERSON record, which a device-record rewrite does not touch. Nothing
+  refuses and nothing is admitted twice (pinned:
+  `PersonKeyOpenTests.test_aClaimDroppedByAnOlderBuildIsRestoredAtReopenAndNothingIsAdmittedTwice`).
+- **A person key proves an Apple ID, not a person.** Anybody signed into that
+  Apple ID, or holding its iCloud Keychain, carries the key.
+- **A compromised Apple ID is answered by Forget plus per-device revoke.**
+  Forget stops new devices joining silently; revoke stops the devices already
+  let in.
+- **Revoking a lost device does not forget its person's key.** While another
+  record of that person stands, a new device on the same Apple ID still joins
+  silently. Revoke's confirmation says Forget is the verb for a compromised
+  key.
+- **A forgotten key cannot be re-trusted in plan 1.** No verb clears
+  `forgottenPersonKeys`. Every later device on that Apple ID is asked about.
+- **An admitted in-chain collaborator can force another person's new devices
+  to ask.** Her own claim can carry a name that is another person's label in
+  this book, and recognition then asks about that person's new devices (the
+  name-contradiction rule). This only ever turns silent into ask; it admits
+  nobody.
+- **The claim's name is the device's own word.** A stranger may call her key
+  "Denver Trouton". Such a claim reaches only the sheet, marked as the
+  device's own claim, and admitting it makes a new person, never a merge.
+- **The name contradiction is case-sensitive** against trimmed labels. It only
+  ever turns silent into ask.
+- **Mid-session linking waits for arrival.** The link pass runs mid-session
+  only when an unadmitted device record is waiting; otherwise the next open
+  links. The open's inline passes run before any window and bypass the
+  serialiser.
+- **Schema-gate heal order.** At open, recognition runs before the unawaited
+  `healTheSchemaGateIfNarrowed`. That is safe: a narrowing permit exists only
+  after its verb ran gate → event, and this admission narrows nothing that was
+  not narrowed already.
+- **A stored claim that does not verify lingers** until the record's next real
+  rewrite. No reader trusts it.
+- **Forget has no History entry.** The spec named one per Forget. Forget
+  re-signs person records and writes no event, so History says nothing about
+  it; People & Devices shows the row's standing.
+- **Plan 2 owes:** the phone's claim, its device-name rule and census entries;
+  the iCloud saved-by hint; the entitlements, profiles and `release.yml`; the
+  phone's Settings line; the smoke on real hardware; and the paired release.
+
 ## Consequences
 
 - **A device is its key, so a device that loses its key is a new device.** It
@@ -2907,6 +3164,16 @@ no longer asks.
   `PhonePostureRoundTripTests` and `PhoneAnnotationOwnershipTests`, both over
   real signed records.
 
+- Your devices are you, plan 1: `PersonKeyCensusTests` (its censuses, by
+  per-file equality over the Mac, Core and the phone, each with a planted
+  offender, plus a phone-planted control and
+  `test_theSharpestOffendersFireUnderAllowListedNames`); tripwire 36's
+  `TripwireGrepTests.softwarePrivateKeyAllowed`, which names `PersonKey.swift`;
+  and the behaviour suites `PersonKeyTests`, `RegistryPersonClaimTests`,
+  `PersonKeyLinkTests`, `TrustRecognitionTests`, `RecognitionAdmissionTests`
+  (Core), `PersonKeyOpenTests`, `AdmissionClaimHintTests` and
+  `PeopleAndDevicesPersonKeyTests` (Mac).
+
 ## Related
 
 - `docs/superpowers/specs/2026-09-05-signed-op-log-design.md` — §3 (the
@@ -2933,3 +3200,6 @@ no longer asks.
   `Maugham/Stores/AREA.md` (the inbox manifest; the `.maugham/` layout),
   `MaughamPhone/AREA.md` (the phone's writers and the aim's removal).
 - CLAUDE.md tripwires 35, 36, 37 and 38; and 51, the posture census (P3c).
+- `docs/superpowers/specs/2026-09-27-your-devices-are-you-design.md` and
+  `docs/superpowers/notes/2026-09-27-person-key-spike.md` — the person key;
+  CLAUDE.md tripwire 53, its census.

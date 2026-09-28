@@ -1850,6 +1850,108 @@ such fact, deliberately**: the builder sets it only for the `.piece` class,
 because a statement is not the piece's text and claims nothing (§4.5). Editing
 the statement of an unclaimed piece is not a lock to add.
 
+## The person key — your devices are you (plan 1, [ADR 0032](../../docs/adr/0032-the-signed-op-log.md)'s plan-1 addendum)
+
+A writer's own devices should never ask about each other, and a known
+collaborator's new device should join as her. **Nothing here changes what
+anybody may write**: permits, the partition, the timeline and the load are
+untouched. Recognition decides only who is ADMITTED. **Plan 1 ships no
+entitlements**, so every build reads the keychain as unavailable, makes no
+claim, and admits exactly as before. Plan 2 adds the access group, the
+profiles and the phone.
+
+**The key.** `PersonKey` (MaughamCore) is a P256 signing key held in iCloud
+Keychain behind `PersonKeyStore`. There are two stores:
+`KeychainPersonKeyStore`, a synchronizable generic password in the team's
+access group, and `InMemoryPersonKeyStore` for tests. `PersonKey.findOrCreate`
+adopts a lost create race's winner. It NEVER mints over an item it cannot
+read, because that would fork the person on every device. It fills an empty
+name and never overwrites a set one. `PersonKey.swift` is the one production
+software key: tripwire 7 below and CLAUDE.md tripwire 36 name it. It signs a
+claim and nothing else, through `OpLogChain.credentials(signing:publicKey:signer:)`,
+the device key's own credential format. The Mac's one store construction is
+`Maugham/Stores/PersonKeyAccess.swift`.
+
+**The claim.** `DeviceRecord.personClaim` (`RegistryPersonClaim.swift`) is
+optional and omitted when nil. The person key signs `{kind, device, personKey,
+personPub, name}`, with the constant domain `PersonClaim.signedKind`.
+`RegistryWriter.personClaim` signs and `RegistryReader.verifiedPersonClaim`
+verifies. The DEVICE comes from the containing record, never from the claim,
+so a copied claim does not verify. `Registry.verifiedPersonClaims` is the
+derived answer; never read `.personClaim` raw. A misshapen claim decodes nil
+and never makes its record malformed. `DeviceRecord` has a hand-written
+`init(from:)`, so a new field goes into both `CodingKeys` and that init.
+`RegistryPresence.ensureDeviceRecord(…, personClaim: PersonClaimIntent)` takes
+one of three intents:
+- `.keep` carries the verified standing claim through a rewrite.
+- `.set` is verified for THIS device, or it throws `PersonClaimError` and
+  writes nothing.
+- `.remove` strips the claim.
+
+The short-circuit compares claim FACTS, because ECDSA is randomized.
+
+**The link and Forget.** `PersonRecord.personKey` and
+`PersonRecord.forgottenPersonKeys` are both omitted when nil. They are written
+by `RegistryAdmission.linkPersonKey` and `forgetPersonKey` only, root-only
+through `renameOutcome`, re-signed through `RegistryWriter.resign`.
+- A person is a LABEL. The same key may sit on every record sharing a label,
+  and it is refused for any other label (`otherPersonHolding`, revoked holders
+  included).
+- A label change drops the key.
+- Forget is label-wide. It checks every holder up front, reads every holder
+  back, and throws `PersonKeyForgetIncomplete` on a partial result. It is also
+  durable: `hasForgotten(_:)` refuses a relink for ever, and there is no
+  re-trust verb in plan 1.
+- A present-but-unreadable person record refuses a link (RULING-54).
+- **Every person-key fact** (forgotten, holders, the claim-name contradiction)
+  **is read from `TrustTable.chain(ofRoot:in:)` only**. That is this root
+  plus the roots it adopted, through `adoptedClosure(of:in:)`, the closure
+  `resolve` itself uses. A foreign self-signed record neither blocks nor
+  admits.
+
+**The decision.** `Recognition.recognise(device:verifiedClaim:registry:thisRoot:)`
+(`TrustRecognition.swift`) is pure. It answers `.ownDevice(root:)`,
+`.knownPerson(_:)` or `.ask(hint: ClaimHint?)`. Read the file's doc table for
+the rows, in order; the ADR addendum states them. Every doubt becomes an ask:
+- not the root;
+- an unreadable record;
+- a forgotten key;
+- an unknown key;
+- a key held under more than one label;
+- a label that is all-revoked or empty;
+- a claimed name that is another person's.
+
+A revoked record neither helps nor blocks.
+
+**The silent admission.** `RegistryPresence.admitRecognised` runs on a Mac
+holding its own root record. It links, recognises, admits, and links again.
+The admission itself is `RegistryAdmission.admitRecognised`, because the
+permit is that layer's to write and `RegistryPresence` names no rung
+(tripwire 21 below).
+- `.ownDevice` admits with the root's timeline permit.
+- `.knownPerson` admits with that person's CURRENT timeline permit.
+- `.unjudgeable` is declined.
+- A narrowing permit carries the governing photograph forward. An empty
+  photograph is a real, carried value.
+
+The event is `silentlyAdmitted` with `PermitEvent.reason ==
+PermitEvent.recognisedReason`, and History draws it as
+`TrustEvent.Kind.recognised`.
+
+**It runs BEFORE `admitRemembered`**, at open and in
+`AdmissionDecision.refreshedRequests`. `admitRemembered` leaves two kinds of
+device to the sheet:
+- a device whose remembered label is a person narrowed in this book
+  (`labelNamesANarrowedPerson`);
+- any device recognition recognises. Such a device still waiting was declined,
+  and must not reach the whole book through memory.
+
+The Mac serialises both passes (`DocumentStore.serialisingSilentAdmission`).
+Pins: `PersonKeyTests`, `RegistryPersonClaimTests`, `PersonKeyLinkTests`,
+`TrustRecognitionTests`, `RecognitionAdmissionTests`; the Mac's
+`PersonKeyOpenTests`. The doors are counted in `PersonKeyCensusTests`
+(CLAUDE.md tripwire 53).
+
 ## Sealed segments (ADR 0016, M2)
 
 When a device's own live tail `<docId>.<slug>.jsonl` exceeds
@@ -2061,7 +2163,7 @@ Failure modes:
 
 6. **No identity from the host name, and no hand-built device id.** `DeviceIdentity.author.deviceId` (and, for the other three actors, `LocalIdentities.current[<actor>].deviceId`) is the one answer on both surfaces; two Macs can share a name and then share a per-device op-log file, which is how a writer's lines go missing (tripwire 17). `TripwireGrepTests.test_noHostnameIdentity` and `test_noHandBuiltDeviceIdOutsideDeviceIdentity` (plus the phone's twin) are the census, each with a planted-offender self-check.
 
-7. **No software private key in production.** The device key is the enclave's — `SecureEnclave.P256.Signing.PrivateKey` — because a software key copies off the machine with the file that holds it, and a signature made with one proves nothing about which device wrote the op. `DeviceIdentity+Testing.swift` is the sole allow-list entry of `TripwireGrepTests.test_noSoftwarePrivateKeyInProduction`; a test that needs a *verified* line injects that signer.
+7. **No software private key in production.** The device key is the enclave's — `SecureEnclave.P256.Signing.PrivateKey` — because a software key copies off the machine with the file that holds it, and a signature made with one proves nothing about which device wrote the op. The allow-list is `TripwireGrepTests.softwarePrivateKeyAllowed`, by name: `DeviceIdentity+Testing.swift` (the test signer; a test that needs a *verified* line injects it) and `PersonKey.swift` (your devices are you, plan 1) — the person key, which must MOVE across one person's devices through iCloud Keychain, proves *which person* and never *which device*, and signs a claim, never a line.
 
 8. **A seal line is recognised in `OpLogChain` only.** `isSealLine` is the one door onto the `{"seal":` prefix, and `JSONLAppendStore.parse` — the one parser every reader shares (tails, decompressed segments, the inbox) — is its one caller. A second recogniser is a second opinion about what a seal is, and the failure is silent: a reader that hands a seal to an element decoder reports a healthy file as damaged.
 
@@ -2090,11 +2192,13 @@ Failure modes:
 
 20. **Which lines the LOAD emitted is decided once, and the rule is permanent** (final fix wave, W3(a)). `Permit.isALoadEmission` names the two kinds — `bootstrap` and the anchor `taskCreate` — and `Permit.actorJudging` answers which actor judges a line; the partition asks both and restates neither. Released builds v0.37–v0.40 signed those emissions with whichever actor opened the document, and a refused `bootstrap` is a document whose opening op is gone. The rule widens the ACTOR and never the permit, so a reviewer's device's assistant-signed bootstrap is still refused under her own permit; and it is NOT gated on `hasNarrowingPermits`, because a grandfather the first reviewer switches off is the same defect later. **The stop, stated**: the three `typingBurst` load emissions are not covered — an assistant-signed ordinary burst stays refused, which is the constitution's sentence about MCP and the manuscript. They DO carry a `synthesisSource` since P3b Task 3 (`.pendingRecovery`, `.anchorSplice`) and the rule was deliberately not widened to read it: the label only reaches lines written after it ships, and a field the assistant writes is a field the assistant can write. Census: `TripwireGrepTests.test_theLoadEmissionRuleIsSpelledInThePermitLayerOnly` + the shared planted-offender control. CLAUDE.md tripwire 48.
 
-21. **The unsigned door's decisions each have ONE home** (P3b). The narrowing predicate (`PermitTimeline.narrows`) and `UnsignedSnapshot` are spelled in the permit layer only; whether a file is unattributable AT ALL is decided in `OpLogChain` (the `unattributable:` label); the three `HeldLines.Holder` arms are BUILT in `HeldLines`; `AdmissionDecision.HeldKeyStanding` is the one *why is this held key not offered*; `Permit.permit(offering:)` is walked through by `PermitControl` alone; and `RegistryPresence` names no rung, because the admission that shows no sheet may only install the whole book. Every one fails silently and in the direction that moves words — a second answer to *is this book narrowed* holds a line here and applies it there, and a second opinion about *unattributable* keeps a file out of the photograph altogether. Censuses: `TripwireGrepTests.test_theNarrowingPredicateAndTheSnapshotAreInThePermitLayerOnly`, `test_whetherAFileIsUnattributableIsDecidedInOpLogChainOnly`, `test_theThreeHoldersAreBuiltInHeldLinesOnly`, `test_theHolderStandingClassifierIsOneFile`, `test_aSurfaceBuildsAPermitInOnePlace`, `test_theSilentAdmissionNarrowsNobody`, sharing `test_theP3bCensusesFireOnPlantedOffenders`. CLAUDE.md tripwire 49.
+21. **The unsigned door's decisions each have ONE home** (P3b). The narrowing predicate (`PermitTimeline.narrows`) and `UnsignedSnapshot` are spelled in the permit layer only; whether a file is unattributable AT ALL is decided in `OpLogChain` (the `unattributable:` label); the three `HeldLines.Holder` arms are BUILT in `HeldLines`; `AdmissionDecision.HeldKeyStanding` is the one *why is this held key not offered*; `Permit.permit(offering:)` is walked through by `PermitControl` alone; and `RegistryPresence` names no rung, because the admission that shows no sheet may only install the whole book — the recognised admission (your devices are you, plan 1), which installs a person's CURRENT timeline permit, lives in `RegistryAdmission.admitRecognised` for exactly that reason, and the census is unedited. Every one fails silently and in the direction that moves words — a second answer to *is this book narrowed* holds a line here and applies it there, and a second opinion about *unattributable* keeps a file out of the photograph altogether. Censuses: `TripwireGrepTests.test_theNarrowingPredicateAndTheSnapshotAreInThePermitLayerOnly`, `test_whetherAFileIsUnattributableIsDecidedInOpLogChainOnly`, `test_theThreeHoldersAreBuiltInHeldLinesOnly`, `test_theHolderStandingClassifierIsOneFile`, `test_aSurfaceBuildsAPermitInOnePlace`, `test_theSilentAdmissionNarrowsNobody`, sharing `test_theP3bCensusesFireOnPlantedOffenders`. CLAUDE.md tripwire 49.
 
 22. **The P3b call-site lists are ARRAYS, not numbers in prose** (P3b; count `TripwireGrepTests.countedLists`' members, never this entry). `expectedStreams`, `acknowledgedLosses`, `absentStreams`, `gateOldBuildsOut`, the `currentSchemaVersion` assignments and the held-line door's one caller live in `TripwireGrepTests.countedLists` with a count per file. A builder of `expecting:` somewhere else is a sweep that does not take the acknowledgement, so a loss the writer has already put down refuses a marking verb for ever; a narrowing verb that stopped calling the gate lets a v0.40 Mac into a narrowed book. Census: `test_theP3bCountedListsAreExactlyTheNamedArrays`. CLAUDE.md tripwire 50.
 
 23. **`author_collaborator_id` is decoded and never written** (P3c Task 4). Only `Op.swift` names the `authorCollaboratorId:` label — the field, its init parameter and its decode; a read carries no colon. A second writer is a second attribution beside the signature, one nothing verifies. `TripwireGrepTests.test_theCollaboratorIdIsDecodedAndNeverWritten` + `test_theCollaboratorIdCensusFiresOnAPlantedOffender`, over `Maugham/`, `MaughamPhone/` and Core sources.
+
+24. **The person key's doors are counted** (your devices are you, plan 1). Where a `PersonKeyStore` is built, where a claim is verified, who asks `Recognition.recognise` and the two `admitRecognised` verbs, who calls `linkPersonKey`/`forgetPersonKey`, and where the key is found and signs — each a named array of `[file: count]` in `PersonKeyCensusTests`, over `Maugham/`, Core and `MaughamPhone/` (whose allow-list is EMPTY until plan 2 registers the phone's sites). Every one is a door a device walks through with no root asked: a second verifier forgets the device binding, a second store reaches the developer's own iCloud Keychain from a gate worker, a second recogniser admits on a Mac that is not the root. Count the arrays, never this entry. CLAUDE.md tripwire 53.
 
 - **Cross-surface contracts:** if you touch op-log/inbox filenames, ids, formats, or Fountain rendering, you may be in shared phone↔Mac territory — the reach-around tripwires will tell you. Registry: `docs/superpowers/notes/cross-surface-contracts.md`.
 

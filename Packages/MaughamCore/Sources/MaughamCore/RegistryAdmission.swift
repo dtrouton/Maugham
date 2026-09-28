@@ -594,8 +594,15 @@ public enum RegistryAdmission {
     ///   before this admission, so a manifest an older build stamped lower is
     ///   already exposed and the heal closes it, while this admission narrows
     ///   nothing that was not narrowed already.
-    ///   A narrowed book with NO photograph (a P3a-era event) is declined: the
-    ///   sheet's Admit takes one.
+    ///   A narrowed book whose governing event carries no photograph (a
+    ///   P3a-era event) is NOT declined: it reads as an EMPTY photograph
+    ///   (`PermitEvent.unsigned`, `UnsignedSnapshot.governing`), so
+    ///   `table.unsignedSnapshot` is non-nil in every narrowed book and that
+    ///   empty governing mark is carried forward — exactly what the sheet's
+    ///   Admit would take for the same book (pinned:
+    ///   `test_aNarrowedBookWithNoPhotographCarriesTheGoverningEmptyOneForward`).
+    ///   The `guard … else { .declined }` below is defensive and no narrowed
+    ///   book reaches it; the decline a book CAN reach is `.unjudgeable`.
     ///
     /// The event is `silentlyAdmitted` with `PermitEvent.recognisedReason`.
     nonisolated static func admitRecognised(
