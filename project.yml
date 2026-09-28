@@ -96,6 +96,16 @@ targets:
           ENABLE_HARDENED_RUNTIME: YES
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: "Developer ID Application"
+          # Release-only, and the group is LITERAL (P2-4): release.yml re-signs
+          # the app with `codesign --entitlements Maugham/Maugham.entitlements`,
+          # which reads the raw file and expands no `$(AppIdentifierPrefix)`.
+          # It grants `FF3XH4ZJ45.com.maugham.person`, the person key's
+          # iCloud Keychain group (Core: `KeychainPersonKeyStore`), and it
+          # holds only under an embedded Developer ID profile granting it.
+          # Debug carries NO entitlements file on purpose: the dev app and the
+          # test host are ad-hoc signed, a restricted entitlement with no
+          # profile can be refused at launch, and the keychain answers
+          # -34018 to an ad-hoc binary anyway (person-key spike, §3).
           CODE_SIGN_ENTITLEMENTS: Maugham/Maugham.entitlements
     resources:
       - path: Maugham/Resources
@@ -167,6 +177,7 @@ targets:
       - path: MaughamPhone
         excludes:
           - Info.plist
+          - MaughamPhone.entitlements
           - "**/AREA.md"
     info:
       path: MaughamPhone/Info.plist
@@ -212,6 +223,17 @@ targets:
           PRODUCT_BUNDLE_IDENTIFIER: com.Maugham.MaughamPhone
           MAUGHAM_DISPLAY_NAME: Maugham
           ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+          # The person key's iCloud Keychain group (P2-4). Xcode signs the
+          # phone, so the file says `$(AppIdentifierPrefix)com.maugham.person`
+          # and the build expands it to `FF3XH4ZJ45.com.maugham.person`; the
+          # "Maugham Phone App Store" profile already grants `FF3XH4ZJ45.*`.
+          # Release-only, like the Mac's. The simulator gate is blind to the
+          # choice (CODE_SIGNING_ALLOWED=NO processes no entitlements at all),
+          # and every hands-on test of the person key runs on a TestFlight or
+          # release build. A Debug DEVICE build signed with the team's
+          # development profile reads the keychain as unavailable and makes
+          # no claim — add it under Debug only if that ever needs testing.
+          CODE_SIGN_ENTITLEMENTS: MaughamPhone/MaughamPhone.entitlements
     dependencies:
       - package: MaughamCore
   MaughamPhoneTests:
