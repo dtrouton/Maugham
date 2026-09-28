@@ -349,8 +349,12 @@ public final class DocumentStore {
             documentStoreLog.info(
                 "linked a person key to \(DeviceCode.short(record.person), privacy: .public) (\(record.label, privacy: .public)) in \(url.lastPathComponent, privacy: .public)")
         }
+        // `.debug`, not `.info` (whole-branch review, minor 5): a refusal
+        // is a steady state — the same key under another label is refused
+        // at every open until the writer settles it — and saying it at every
+        // open at `.info` fills the log with one unchanged fact.
         for refusal in pass.refusedLinks {
-            documentStoreLog.info(
+            documentStoreLog.debug(
                 "did not link a person key in \(url.lastPathComponent, privacy: .public): \(refusal, privacy: .public)")
         }
         for declined in pass.declined {

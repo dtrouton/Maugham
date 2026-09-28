@@ -512,6 +512,8 @@ final class RecognitionAdmissionTests: XCTestCase {
         // The next open: both admitted devices still claim the key.
         let pass = try recognise()
         XCTAssertTrue(pass.linked.isEmpty, "not re-linked")
+        XCTAssertEqual(pass.refusedLinks, [],
+                       "not re-ATTEMPTED either: a forgotten key is not a refusal at every open (minor 5)")
         XCTAssertNil(try registry().person(mine.author.fingerprint)?.personKey)
 
         let next = try declare("Denver's iPad", claimBy: denverKey)

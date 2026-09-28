@@ -867,6 +867,16 @@ public enum RegistryPresence {
         cache: RegistryCache, presenter: NSFilePresenter?,
         linked: inout [String], refused: inout [String]
     ) throws -> Bool {
+        // **A key this chain has FORGOTTEN is not a candidate at all**
+        // (whole-branch review, minor 5). `linkPersonKey` would refuse it,
+        // and it would go on refusing at every open for ever, because the
+        // devices already admitted keep carrying the claim: a Forget is a
+        // settled decision, not a refusal to report. The same chain rule
+        // `linkPersonKey` and `Recognition.recognise` read.
+        let chain = TrustTable.chain(ofRoot: author.fingerprint, in: registry)
+        let forgotten: (String) -> Bool = { key in
+            registry.people.contains { chain.contains($0.person) && $0.hasForgotten(key) }
+        }
         var candidates: [(person: PersonRecord, key: String)] = []
         for device in registry.devices.sorted(by: { $0.device < $1.device }) {
             guard device.retiredAt == nil,
@@ -874,7 +884,8 @@ public enum RegistryPresence {
                   let person = registry.person(device.device),
                   !person.isRevoked,
                   person.admittedBy == author.fingerprint,
-                  person.personKey == nil
+                  person.personKey == nil,
+                  !forgotten(claim.personKey)
             else { continue }
             candidates.append((person, claim.personKey))
         }
