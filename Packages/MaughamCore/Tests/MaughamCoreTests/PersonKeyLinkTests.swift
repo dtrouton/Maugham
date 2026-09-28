@@ -518,6 +518,32 @@ final class PersonKeyLinkTests: XCTestCase {
                        [ForgottenPersonKey(key: samsKey.fingerprint, at: when)])
     }
 
+    /// **Only this book's chain draws a Forget** (re-review, round 3; the
+    /// Task 6 rule). A share participant's self-signed root carrying a dated
+    /// forgotten entry says nothing in History; the control is this root's.
+    func test_aForeignRootsForgottenEntryDrawsNoHistoryRow() throws {
+        try becomeRoot(mine, name: "Denver")
+        try declare(otherRoot, name: "Mallory", kind: .mac)
+        try RegistryWriter.write(
+            PersonRecord(
+                person: otherRoot.author.fingerprint, label: "Sam", ownName: "Mallory",
+                admittedAt: Date(timeIntervalSince1970: 3),
+                admittedBy: otherRoot.author.fingerprint,
+                forgottenPersonKeys: [ForgottenPersonKey(
+                    key: samsKey.fingerprint, at: Date(timeIntervalSince1970: 1_800_000_000))]),
+            signedBy: otherRoot.author, in: projectURL)
+        XCTAssertNotNil(try registry().person(otherRoot.author.fingerprint),
+                        "premise: the planted root verifies")
+
+        XCTAssertTrue(try historyForgets().isEmpty, "a foreign record's Forget is not this book's")
+
+        try admit(sam, label: "Sam", ownName: "Sam's Mac")
+        try link(sam, to: samsKey)
+        try forget(sam)
+        XCTAssertEqual(try historyForgets().map(\.subject), [sam.author.fingerprint],
+                       "the control: this root's Forget is drawn, and only it")
+    }
+
     /// Two Forgets of two people are two rows; a person whose key is linked
     /// and never forgotten draws none.
     func test_eachForgetIsItsOwnRowAndALinkedKeyIsNone() throws {

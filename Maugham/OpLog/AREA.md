@@ -1925,7 +1925,8 @@ through `renameOutcome`, re-signed through `RegistryWriter.resign`.
   refuses a relink for ever, and there is no re-trust verb in plan 1. Each
   entry is a dated `ForgottenPersonKey {key, at}` with one date for the whole
   act, and `TrustEvents.derive` draws one `.personKeyForgotten` History row per
-  (key, date, root) — derived from the records, no permit event (Important 2).
+  (key, date, root) — derived from the records, no permit event (Important 2),
+  and only from records in this book's chain (`TrustTable.myChain`; round 3).
 - A present-but-unreadable person record refuses a link (RULING-54).
 - **Every person-key fact** (forgotten, holders, the claim-name contradiction)
   **is read from `TrustTable.chain(ofRoot:in:)` only**. That is this root

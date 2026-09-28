@@ -439,8 +439,18 @@ public enum TrustEvents {
         // group is one row, named by its lowest-fingerprint record. Derived
         // from the records, `.recordRestored`'s shape: no permit event says it
         // (PK-4), and no log could disagree with the records it came from.
+        //
+        // **Only records in THIS book's chain** (whole-branch re-review, round
+        // 3; the Task 6 rule every person-key read follows): my root plus the
+        // roots it adopted, `TrustTable.myChain` — the same
+        // `chain(ofRoot:adopting:)` closure. A share participant's
+        // self-signed record can carry any dated entry it likes; it draws
+        // nothing here, exactly as recognition ignores it.
+        let myChain = TrustTable.resolve(
+            registry: registry, mine: mine,
+            joinedRoot: cache.joinedRoot(for: projectURL)).myChain
         var forgets: [ForgetGroup: PersonRecord] = [:]
-        for person in registry.people {
+        for person in registry.people where myChain.contains(person.person) {
             for entry in person.forgottenPersonKeys ?? [] {
                 let group = ForgetGroup(key: entry.key, at: entry.at, by: person.admittedBy)
                 if let seen = forgets[group], seen.person < person.person { continue }
