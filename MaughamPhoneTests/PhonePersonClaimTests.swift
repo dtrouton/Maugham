@@ -41,7 +41,7 @@ final class PhonePersonClaimTests: XCTestCase {
 
     private func ensure(
         name: String = "iPhone", model: String = "iPhone",
-        declare: ((URL, LocalIdentities, String, PersonClaimIntent) throws -> URL?)? = nil
+        declare: ((URL, LocalIdentities, String, (intent: PersonClaimIntent, problem: String?)) throws -> String?)? = nil
     ) async {
         if let declare {
             await PhoneDeviceRecord.ensure(
@@ -72,6 +72,7 @@ final class PhonePersonClaimTests: XCTestCase {
         guard !(store is KeychainPersonKeyStore) else {
             return XCTFail("a test host must never be handed the keychain")
         }
+        XCTAssertNil(PersonKey.find(in: store))
         XCTAssertNil(PersonKey.findOrCreate(in: store, seedName: ""),
                      "no key, and none created")
     }
@@ -149,23 +150,39 @@ final class PhonePersonClaimTests: XCTestCase {
         XCTAssertEqual(registry.devices.first?.name, "Denver's iPhone")
         XCTAssertEqual(registry.devices.first?.kind, .phone)
         XCTAssertTrue(registry.malformed.isEmpty)
-        XCTAssertEqual(store.createCount, 1, "found, never minted again by the phone")
+        XCTAssertEqual(store.createCount, 1, "the Mac's one mint; the phone only found it")
     }
 
-    /// The seed is empty: iOS has no owner name. A phone that finds no item
-    /// mints one with an empty name, which a Mac fills in later.
-    func test_aPhoneThatMintsTheKeyLeavesTheNameEmpty() async throws {
-        let store = InMemoryPersonKeyStore()
+    /// **The phone never mints a person key** (controller ruling 5). A phone
+    /// whose key has not synced yet finds nothing, creates nothing, names
+    /// nothing, and makes no claim — the Mac's sheet asks once, and a later
+    /// write claims when the key arrives (`test_aKeyThatAppearsMidRunIsDeclaredOnce`).
+    func test_aPhoneWhoseKeyHasNotSyncedCreatesNothingAndClaimsNothing() async throws {
+        let store = InMemoryPersonKeyStore()   // absent, and WILLING to create
         PhonePersonKeyAccess.storeForTesting = store
 
         await ensure()
 
-        XCTAssertEqual(store.createCount, 1)
-        guard case .found(let item) = store.find() else { return XCTFail("minted") }
-        XCTAssertEqual(item.name, "")
+        XCTAssertEqual(store.createCount, 0, "no item minted on the phone")
+        XCTAssertEqual(store.setNameCount, 0, "and none named")
+        XCTAssertEqual(store.find(), .absent)
+        XCTAssertNil(try registry().verifiedPersonClaims[phone.author.fingerprint])
         XCTAssertEqual(try registry().devices.first?.name, "iPhone",
                        "no person name, so the system name stands")
-        XCTAssertNotNil(try registry().verifiedPersonClaims[phone.author.fingerprint])
+    }
+
+    /// And an item with an EMPTY name is not named by the phone either.
+    func test_thePhoneNeverNamesAnItem() async throws {
+        let store = InMemoryPersonKeyStore()
+        _ = try XCTUnwrap(PersonKey.findOrCreate(in: store, seedName: ""))
+        PhonePersonKeyAccess.storeForTesting = store
+
+        await ensure()
+
+        XCTAssertEqual(store.setNameCount, 0)
+        let claim = try XCTUnwrap(try registry().verifiedPersonClaims[phone.author.fingerprint])
+        XCTAssertEqual(claim.name, "")
+        XCTAssertEqual(try registry().devices.first?.name, "iPhone")
     }
 
     /// Without a key the intent is `.keep`, never `.remove`: a keychain that
@@ -180,10 +197,10 @@ final class PhonePersonClaimTests: XCTestCase {
         gone.refusesCreate = true
         PhonePersonKeyAccess.storeForTesting = gone
         var intents: [PersonClaimIntent] = []
-        await ensure(name: "Kitchen phone") { url, ids, name, intent in
-            intents.append(intent)
-            return try RegistryPresence.ensureDeviceRecord(
-                in: url, identities: ids, name: name, kind: .phone, personClaim: intent)
+        await ensure(name: "Kitchen phone") { url, ids, name, claim in
+            intents.append(claim.intent)
+            return try RegistryPresence.declareDevice(
+                in: url, identities: ids, name: name, kind: .phone, claim: claim)
         }
 
         XCTAssertEqual(intents, [.keep])
@@ -195,12 +212,11 @@ final class PhonePersonClaimTests: XCTestCase {
     /// The memo holds the claim's facts: a key that syncs in mid-run is
     /// declared once, and only once.
     func test_aKeyThatAppearsMidRunIsDeclaredOnce() async throws {
-        let store = InMemoryPersonKeyStore()
-        store.refusesCreate = true
+        let store = InMemoryPersonKeyStore()   // not synced yet
         PhonePersonKeyAccess.storeForTesting = store
         var intents: [PersonClaimIntent] = []
-        let record: (URL, LocalIdentities, String, PersonClaimIntent) throws -> URL? = {
-            _, _, _, intent in intents.append(intent); return nil
+        let record: (URL, LocalIdentities, String, (intent: PersonClaimIntent, problem: String?)) throws -> String? = {
+            _, _, _, claim in intents.append(claim.intent); return nil
         }
 
         // A name the writer chose, so the name rule moves nothing when the
@@ -208,6 +224,7 @@ final class PhonePersonClaimTests: XCTestCase {
         await ensure(name: "Kitchen phone", declare: record)
         await ensure(name: "Kitchen phone", declare: record)
         XCTAssertEqual(intents, [.keep], "no key: declared once")
+        XCTAssertEqual(store.createCount, 0, "and the phone minted none")
 
         // iCloud Keychain delivers the Mac's item.
         let synced = try denversStore()
@@ -220,33 +237,29 @@ final class PhonePersonClaimTests: XCTestCase {
         XCTAssertEqual(claim.name, "Denver Trouton")
     }
 
-    /// A claim the record refuses is logged and the record written anyway,
-    /// with `.keep` — nothing reaches the writer's path.
-    func test_aRefusedClaimIsWrittenWithKeep() async throws {
+    /// A problem the declaration answers (a refused claim — Core re-writes
+    /// the record with `.keep`, `DeclareDeviceTests`) is logged, not thrown,
+    /// and the declaration is remembered: it landed.
+    func test_aDeclarationThatAnswersAProblemIsRememberedAndNotThrown() async throws {
         PhonePersonKeyAccess.storeForTesting = try denversStore()
-        var intents: [PersonClaimIntent] = []
-        await ensure { _, _, _, intent in
-            intents.append(intent)
-            if case .set = intent {
-                throw PersonClaimError.doesNotVerifyForThisDevice(device: "x")
-            }
-            return nil
+        var calls = 0
+        let record: (URL, LocalIdentities, String, (intent: PersonClaimIntent, problem: String?)) throws -> String? = { _, _, _, _ in
+            calls += 1; return "the person claim was refused"
         }
-        XCTAssertEqual(intents.count, 2)
-        if case .set = intents.first {} else { XCTFail("the claim was offered first") }
-        XCTAssertEqual(intents.last, .keep)
+        await ensure(declare: record)
+        await ensure(declare: record)
+        XCTAssertEqual(calls, 1)
     }
 
     /// A phone with no enclave key writes no record, so it has no business
-    /// reaching for the person key — or minting one.
+    /// reaching for the person key at all.
     func test_anUnsignedPhoneNeverReachesForTheKey() async throws {
-        let store = InMemoryPersonKeyStore()
+        let store = CountingStore()
         PhonePersonKeyAccess.storeForTesting = store
         let unsigned = DeviceIdentity.unsignedForTesting(token: Data([7, 7, 7]))
         await PhoneDeviceRecord.ensure(in: projectRoot, identity: unsigned, name: "iPhone",
                                        model: "iPhone")
-        XCTAssertEqual(store.createCount, 0)
-        XCTAssertEqual(store.find(), .absent)
+        XCTAssertEqual(store.finds, 0, "never looked")
     }
 
     // MARK: - The round trip (Review Focus 1, iOS tripwire #7)
@@ -296,4 +309,14 @@ final class PhonePersonClaimTests: XCTestCase {
         XCTAssertEqual(pass.admitted.map(\.person), [phone.author.fingerprint])
         XCTAssertEqual(try self.registry().person(phone.author.fingerprint)?.label, "Denver")
     }
+}
+
+/// A store that counts lookups and holds nothing.
+private final class CountingStore: PersonKeyStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _finds = 0
+    var finds: Int { lock.withLock { _finds } }
+    func find() -> PersonKeyLookup { lock.withLock { _finds += 1 }; return .absent }
+    func createIfAbsent(_ item: PersonKeyItem) -> PersonKeyCreation { .unavailable }
+    func setName(_ name: String) -> Bool { false }
 }

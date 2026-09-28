@@ -71,21 +71,25 @@ enum PhoneDeviceRecord {
     /// every write takes (P2-1: the claim rides on the phone's first WRITE in a
     /// book, as its record always has; there is no open-time write).
     ///
-    /// **The person key is found OFF the main actor** (a keychain query), on
-    /// every call, BEFORE the memo is consulted: the memo holds the claim's
-    /// facts, so a key that syncs in mid-run must be looked for to be noticed.
-    /// A phone that cannot sign (no enclave) writes no record and never
-    /// reaches for the key — it would only mint an item for nothing.
+    /// **The person key is FOUND, never made** (controller ruling 5), OFF the
+    /// main actor (a keychain query), on every call, BEFORE the memo is
+    /// consulted: the memo holds the claim's facts, so a key that syncs in
+    /// mid-run must be looked for to be noticed. `PersonKey.find` never
+    /// creates and never names — a phone that minted would fork the person
+    /// the moment its item and a Mac's crossed in iCloud Keychain. A phone
+    /// whose key has not synced yet makes no claim (the Mac's sheet asks
+    /// once) and claims on a later write once the key arrives. A phone that
+    /// cannot sign (no enclave) writes no record and never looks.
     ///
-    /// The claim intent mirrors the Mac's open exactly: a key → `.set`, signed
-    /// through `RegistryWriter.personClaim` for THIS phone's author key; no key
-    /// → `.keep`; never `.remove` (plan 1's rule — a keychain that cannot
-    /// answer is not evidence the writer left). A claim the record refuses
-    /// (`PersonClaimError`) is logged and the record written again with
-    /// `.keep`; nothing reaches the writer's path.
+    /// The claim rule is Core's, shared with the Mac's open (tripwire 19):
+    /// `RegistryPresence.claimIntent` (a key → `.set`, no key → `.keep`,
+    /// never `.remove`) and `RegistryPresence.declareDevice`, which re-writes
+    /// the record with `.keep` when it refuses the claim. What stays here is
+    /// the phone's saying of a problem: a line in the log. Nothing reaches
+    /// the writer's path.
     ///
     /// `declare` is the seam the memo is pinned through; production is
-    /// `RegistryPresence.ensureDeviceRecord`, and nothing else calls it.
+    /// `RegistryPresence.declareDevice`, and nothing else calls it.
     static func ensure(
         in projectRoot: URL,
         identity: DeviceIdentity,
@@ -102,9 +106,10 @@ enum PhoneDeviceRecord {
         // generic-name rule (`deviceName`).
         name: String? = nil,
         model: String? = nil,
-        declare: (URL, LocalIdentities, String, PersonClaimIntent) throws -> URL? = {
-            try RegistryPresence.ensureDeviceRecord(
-                in: $0, identities: $1, name: $2, kind: .phone, personClaim: $3)
+        declare: (URL, LocalIdentities, String, (intent: PersonClaimIntent, problem: String?))
+            throws -> String? = {
+            try RegistryPresence.declareDevice(
+                in: $0, identities: $1, name: $2, kind: .phone, claim: $3)
         }
     ) async {
         let identities = identities ?? .forAuthor(identity)
@@ -116,10 +121,7 @@ enum PhoneDeviceRecord {
         if identity.canSign {
             let store = PhonePersonKeyAccess.store
             personKey = await Task.detached(priority: .userInitiated) {
-                // The seed is EMPTY: iOS gives an app no owner name, and an
-                // empty-named item is filled in later by a Mac
-                // (`PersonKey.findOrCreate` never overwrites a name).
-                PersonKey.findOrCreate(in: store, seedName: "")
+                PersonKey.find(in: store)
             }.value
         } else {
             personKey = nil
@@ -136,18 +138,15 @@ enum PhoneDeviceRecord {
             personName: personKey?.name)
         guard declared[key] != facts else { return }
 
-        let intent = claimIntent(for: identity.fingerprint, personKey: personKey)
+        let claim = RegistryPresence.claimIntent(
+            forDevice: identity.fingerprint, personKey: personKey)
         do {
-            do {
-                _ = try declare(projectRoot, identities, name, intent)
-            } catch let refused as PersonClaimError {
+            if let problem = try declare(projectRoot, identities, name, claim) {
                 phoneRecordLog.fault("""
-                    This phone's person claim was refused by its own record: \
-                    \(String(describing: refused), privacy: .public) — in \
+                    This phone: \(problem, privacy: .public) — in \
                     \(projectRoot.lastPathComponent, privacy: .public); the \
                     record keeps the claim it had.
                     """)
-                _ = try declare(projectRoot, identities, name, .keep)
             }
             // Remembered only on success: a read that threw declared nothing,
             // and skipping the next attempt would leave this phone undeclared
@@ -161,26 +160,6 @@ enum PhoneDeviceRecord {
                 The write itself goes ahead; until the record lands, the Mac \
                 has nothing to admit.
                 """)
-        }
-    }
-
-    /// What this phone asks its record to say about whose it is — the Mac's
-    /// `DocumentStore.claimIntent`, for the phone's author key. A key →
-    /// `.set`; no key, or a claim that could not be signed → `.keep`. Never
-    /// `.remove`.
-    nonisolated static func claimIntent(
-        for device: String, personKey: PersonKey?
-    ) -> PersonClaimIntent {
-        guard let personKey else { return .keep }
-        do {
-            return .set(try RegistryWriter.personClaim(forDevice: device, signedBy: personKey))
-        } catch {
-            phoneRecordLog.fault("""
-                This phone's person claim could not be signed: \
-                \(String(describing: error), privacy: .public); the record \
-                keeps the claim it had.
-                """)
-            return .keep
         }
     }
 

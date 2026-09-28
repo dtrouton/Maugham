@@ -30,6 +30,11 @@ public struct PersonKey: Sendable {
         self.name = name
     }
 
+    /// The same key under another name — the seed a Mac just wrote.
+    fileprivate func renamed(_ name: String) -> PersonKey {
+        PersonKey(privateKey: privateKey, name: name)
+    }
+
     /// Sign `digestHex`'s 32 bytes. Same three fields as a device's seal.
     public func sign(_ digestHex: String) throws -> OpLogChain.Credentials {
         let key = privateKey
@@ -67,17 +72,38 @@ public struct PersonKey: Sendable {
             }
         }
 
-        guard let key = try? P256.Signing.PrivateKey(rawRepresentation: item.privateKey),
-              key.publicKey.x963Representation == item.publicKey
-        else { return nil }
+        guard let found = key(from: item) else { return nil }
 
         let stored = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
         if stored.isEmpty && !seed.isEmpty {
             // The name is a courtesy; the key is the identity. A failed write
             // still yields the key, under the name this device tried to give it.
             _ = store.setName(seed)
-            return PersonKey(privateKey: key, name: seed)
+            return found.renamed(seed)
         }
+        return found
+    }
+
+    /// **The person key in `store`, if there is one — never creating it and
+    /// never naming it** (your devices are you, plan 2 Task 1, controller
+    /// ruling 5). The phone's entry: iOS gives an app no owner name, and a
+    /// phone that minted would fork the person the moment its item and a
+    /// Mac's crossed in iCloud Keychain. So the phone only FINDS; a phone whose
+    /// key has not synced yet makes no claim, and claims on a later write once
+    /// the Mac's item arrives. `findOrCreate` is the Mac's.
+    ///
+    /// Nil for no item, an unavailable store, or an item that is not a key.
+    public static func find(in store: any PersonKeyStore) -> PersonKey? {
+        guard case .found(let item) = store.find() else { return nil }
+        return key(from: item)
+    }
+
+    /// An item's key, when its bytes are one — the private key parses and its
+    /// public key is the one the item names. Shared by both entries.
+    private static func key(from item: PersonKeyItem) -> PersonKey? {
+        guard let key = try? P256.Signing.PrivateKey(rawRepresentation: item.privateKey),
+              key.publicKey.x963Representation == item.publicKey
+        else { return nil }
         return PersonKey(privateKey: key, name: item.name)
     }
 

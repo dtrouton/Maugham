@@ -213,3 +213,37 @@ public struct KeychainPersonKeyStore: PersonKeyStore {
         return status == errSecSuccess
     }
 }
+
+// MARK: - Which store a process uses
+
+/// **Which person-key store a process gets** (your devices are you, plan 2
+/// Task 1 fix round) — the decision and the team id, once, for the Mac's
+/// `PersonKeyAccess` and the phone's `PhonePersonKeyAccess` alike.
+///
+/// It answers an ARM, not a store: each surface keeps its own construction
+/// site (tripwire 53 counts them per file) and passes its own test-host flag,
+/// because neither can import the other's detection.
+public enum PersonKeyStoreChoice: Sendable {
+    /// A suite's injected store — it wins over both arms below.
+    case injected(any PersonKeyStore)
+    /// An XCTest host with nothing injected: build a store that holds no item
+    /// and refuses to create one. A test host must never reach a keychain —
+    /// the simulator may not fence one by access group, and a host signed with
+    /// the team would CREATE an item on the developer's own Apple ID.
+    case testHost
+    /// Production: iCloud Keychain in this access group.
+    case keychain(accessGroup: String)
+
+    /// The team whose access group holds the item. Not a variant fact
+    /// (tripwire 13): both apps and both variants are signed by one team, and
+    /// the item is the PERSON's, shared by every Maugham on the Apple ID.
+    public static let teamID = "FF3XH4ZJ45"
+
+    public static func choose(
+        injected: (any PersonKeyStore)?, isTestHost: Bool
+    ) -> PersonKeyStoreChoice {
+        if let injected { return .injected(injected) }
+        if isTestHost { return .testHost }
+        return .keychain(accessGroup: KeychainPersonKeyStore.accessGroup(teamID: teamID))
+    }
+}

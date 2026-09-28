@@ -966,3 +966,70 @@ public enum RegistryPresence {
         }
     }
 }
+
+// MARK: - Whose device this is (your devices are you, plan 2 Task 1 fix round)
+
+extension RegistryPresence {
+
+    /// **What a device asks its record to say about whose it is** — the one
+    /// rule, for the Mac's open and the phone's first write alike (tripwire 19).
+    ///
+    /// - A person key → `.set`, a claim signed for `device` (the device's
+    ///   AUTHOR fingerprint — the record's own `device`).
+    /// - No key (the store is unavailable, has no item, or the item is
+    ///   unreadable) → `.keep`: a keychain that cannot answer now is not
+    ///   evidence the writer left, and stripping a true claim would send this
+    ///   device back to the sheet in the next book.
+    /// - **`.remove` is never chosen here.** No signal either app can read says
+    ///   a device left the Apple ID (`ubiquityIdentityToken` answers for iCloud
+    ///   DRIVE, not iCloud Keychain). A claim that outlives a sign-out names a
+    ///   key the device held; every reader verifies it and recognition links
+    ///   only what a root decided, so the cost is a stale hint, never an
+    ///   admission.
+    ///
+    /// The second value is the problem, if signing failed — a programming
+    /// defect, answered as `.keep` so it costs the device nothing.
+    nonisolated public static func claimIntent(
+        forDevice device: String, personKey: PersonKey?
+    ) -> (intent: PersonClaimIntent, problem: String?) {
+        guard let personKey else { return (.keep, nil) }
+        do {
+            return (.set(try RegistryWriter.personClaim(
+                forDevice: device, signedBy: personKey)), nil)
+        } catch {
+            return (.keep, "the person claim could not be signed: \(error)")
+        }
+    }
+
+    /// **A device says who it is — and, where it can, whose it is.**
+    /// `ensureDeviceRecord` with the claim `claimIntent` decided. A claim the
+    /// record refuses (`PersonClaimError` — made for another device, or with
+    /// another key than it names) is never written: the record is written
+    /// again with `.keep`, so a broken claim never costs a device its record.
+    ///
+    /// Answers the problem (signing's or the refusal's), or nil. Saying it is
+    /// the surface's — the Mac logs a fault and keeps it for a test, the phone
+    /// logs it — and that is all each surface keeps.
+    ///
+    /// Throws what the registry read and write throw, exactly as the bare
+    /// `ensureDeviceRecord` does.
+    @discardableResult
+    nonisolated public static func declareDevice(
+        in projectURL: URL, identities: LocalIdentities, name: String,
+        kind: DeviceKind, presenter: NSFilePresenter? = nil,
+        claim: (intent: PersonClaimIntent, problem: String?)
+    ) throws -> String? {
+        var problem = claim.problem
+        do {
+            try ensureDeviceRecord(
+                in: projectURL, identities: identities, name: name, kind: kind,
+                presenter: presenter, personClaim: claim.intent)
+        } catch let refused as PersonClaimError {
+            problem = "the person claim was refused by this device's own record: \(refused)"
+            try ensureDeviceRecord(
+                in: projectURL, identities: identities, name: name, kind: kind,
+                presenter: presenter, personClaim: .keep)
+        }
+        return problem
+    }
+}

@@ -19,14 +19,10 @@ import MaughamCore
 /// injected gets a store that holds no item and refuses to create one: no
 /// key, no claim, every existing phone suite behaviour-neutral.
 ///
-/// Not shared with the Mac's file because the phone cannot import the Mac's
-/// `TestHost`; the detection reads the same three environment keys.
+/// The decision is Core's `PersonKeyStoreChoice`, shared with the Mac's
+/// `PersonKeyAccess`; the host flag is this file's, because the phone cannot
+/// import the Mac's `TestHost` — it reads the same three environment keys.
 enum PhonePersonKeyAccess {
-
-    /// The team whose access group holds the item — the Mac's
-    /// `PersonKeyAccess.teamID`, because the item is the PERSON's and both
-    /// apps are signed by one team. Not a variant fact (tripwire 13).
-    static let teamID = "FF3XH4ZJ45"
 
     /// Test-only: the store a suite injects. Process-wide, so a suite that
     /// sets it clears it in `tearDown`.
@@ -52,13 +48,17 @@ enum PhonePersonKeyAccess {
     static func store(
         injected: (any PersonKeyStore)?, isTestHost: Bool
     ) -> any PersonKeyStore {
-        if let injected { return injected }
-        if isTestHost {
+        // The decision and the team are Core's (`PersonKeyStoreChoice`); the
+        // construction SITE is this file's, which is what tripwire 53 counts.
+        switch PersonKeyStoreChoice.choose(injected: injected, isTestHost: isTestHost) {
+        case .injected(let store):
+            return store
+        case .testHost:
             let none = InMemoryPersonKeyStore()
             none.refusesCreate = true
             return none
+        case .keychain(let accessGroup):
+            return KeychainPersonKeyStore(accessGroup: accessGroup)
         }
-        return KeychainPersonKeyStore(
-            accessGroup: KeychainPersonKeyStore.accessGroup(teamID: teamID))
     }
 }

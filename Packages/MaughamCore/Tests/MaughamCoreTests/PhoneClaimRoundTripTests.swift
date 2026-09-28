@@ -5,11 +5,14 @@ import XCTest
 /// **A phone-written claim, read on the Mac** (your devices are you, plan 2
 /// Task 1; Review Focus 1; the phone's AREA.md iOS tripwire #7).
 ///
-/// The bytes below were WRITTEN BY THE PHONE: `MaughamPhoneTests` ran a
-/// capture on the iOS simulator through the real `InboxCaptureWriter` →
-/// `PhoneDeviceRecord.ensure` → `RegistryPresence.ensureDeviceRecord`, with
-/// an `InMemoryPersonKeyStore` holding the item below, and this is the device
-/// record that landed on disk, verbatim, together with that store's item. This
+/// The bytes below were WRITTEN BY THE PHONE: `MaughamPhoneTests`'
+/// `PhoneClaimFixtureDump` (opt-in — its header says how to run it to
+/// regenerate these) ran a capture on the iOS simulator through the real
+/// `InboxCaptureWriter` → `PhoneDeviceRecord.ensure` → Core's device
+/// declaration, with an `InMemoryPersonKeyStore` holding the item below, and
+/// this is the device record that landed on disk, verbatim, together with that
+/// store's item. (The record's claim format is unchanged by the fix round that
+/// moved the claim rule into Core, so these bytes stand.) This
 /// suite runs on macOS, so what it proves is the cross-platform half the
 /// phone's own in-process round trip
 /// (`PhonePersonClaimTests.test_thePhonesClaimIsRecognisedByTheRootsMac`)

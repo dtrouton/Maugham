@@ -20,11 +20,6 @@ import MaughamCore
 /// suite that wants a key injects an `InMemoryPersonKeyStore`.
 enum PersonKeyAccess {
 
-    /// The team whose access group holds the item. Not a variant fact
-    /// (tripwire 13): both variants are signed by one team, and the item is
-    /// the PERSON's, shared by every Maugham on the Apple ID.
-    static let teamID = "FF3XH4ZJ45"
-
     /// Test-only: the store a suite injects. Process-wide, so a suite that
     /// sets it clears it in `tearDown`, like `Document`'s other seams.
     nonisolated(unsafe) static var storeForTesting: (any PersonKeyStore)?
@@ -39,13 +34,17 @@ enum PersonKeyAccess {
     static func store(
         injected: (any PersonKeyStore)?, isTestHost: Bool
     ) -> any PersonKeyStore {
-        if let injected { return injected }
-        if isTestHost {
+        // The decision is Core's (`PersonKeyStoreChoice`); the construction
+        // SITE is this file's, which is what tripwire 53 counts.
+        switch PersonKeyStoreChoice.choose(injected: injected, isTestHost: isTestHost) {
+        case .injected(let store):
+            return store
+        case .testHost:
             let none = InMemoryPersonKeyStore()
             none.refusesCreate = true
             return none
+        case .keychain(let accessGroup):
+            return KeychainPersonKeyStore(accessGroup: accessGroup)
         }
-        return KeychainPersonKeyStore(
-            accessGroup: KeychainPersonKeyStore.accessGroup(teamID: teamID))
     }
 }

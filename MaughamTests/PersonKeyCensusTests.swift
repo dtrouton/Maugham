@@ -69,6 +69,12 @@ final class PersonKeyCensusTests: XCTestCase {
         // `PhonePersonKeyAccess.store` matches this spelling by design, so
         // the phone's reader is counted here rather than escaping).
         // `storeForTesting` is a different identifier (no `\b` match).
+        // The decision (and the team id) is Core's; each surface asks it once,
+        // from its own construction file (plan 2 Task 1 fix round).
+        Site(pattern: #"PersonKeyStoreChoice\.choose\("#,
+             sample: "PersonKeyStoreChoice.choose(injected: i, isTestHost: h)",
+             expected: ["PersonKeyAccess.swift": 1,
+                        "MaughamPhone/PhonePersonKeyAccess.swift": 1]),
         Site(pattern: #"PersonKeyAccess\.store\b"#,
              sample: "let s = PersonKeyAccess.store",
              expected: ["DocumentStore.swift": 1,
@@ -162,24 +168,33 @@ final class PersonKeyCensusTests: XCTestCase {
 
     // MARK: - 5. Who finds the key, and who signs with it
 
-    /// **The person key is found once, and signs one thing.** `findOrCreate`
-    /// is called at the open alone; the claim is made by
-    /// `RegistryWriter.personClaim` alone, called from that same open; and the
-    /// only `.sign(` in Mac + Core is the writer's, over the claim's content.
+    /// **The person key is found once per surface, and signs one thing.**
+    /// `findOrCreate` is called at the Mac's open alone; the phone calls the
+    /// find-only `PersonKey.find` from its declaration and never mints; the
+    /// claim is made by `RegistryWriter.personClaim` alone, called from Core's
+    /// one claim rule (`RegistryPresence.claimIntent`) that both surfaces ask;
+    /// and the only `.sign(` in Mac + Core is the writer's, over the claim's
+    /// content.
     /// The person key is a SOFTWARE key (tripwire 36's one named exception), so
     /// what it signs is the whole of what it can vouch for — a second signing
     /// site is the key vouching for something nobody designed it to.
     /// `mintItem(` / `PersonKeyItem(` are the key's one mint, in its own file.
     static let personKeySigning: [Site] = [
-        // The Mac's open, and the phone's declaration (plan 2 Task 1).
+        // The Mac's open alone MAY create the key (it has the writer's name
+        // to seed it with)…
         Site(pattern: #"PersonKey\.findOrCreate\("#,
              sample: "PersonKey.findOrCreate(in: s, seedName: n)",
-             expected: ["DocumentStore.swift": 1,
-                        "MaughamPhone/PhoneDeviceRecord.swift": 1]),
+             expected: ["DocumentStore.swift": 1]),
+        // …and the phone only FINDS it (plan 2 Task 1, controller ruling 5:
+        // a phone that minted would fork the person).
+        Site(pattern: #"PersonKey\.find\("#,
+             sample: "PersonKey.find(in: s)",
+             expected: ["MaughamPhone/PhoneDeviceRecord.swift": 1]),
+        // The claim is signed in ONE place for both surfaces — Core's
+        // `RegistryPresence.claimIntent` (plan 2 Task 1 fix round, tripwire 19).
         Site(pattern: #"RegistryWriter\.personClaim\("#,
              sample: "RegistryWriter.personClaim(forDevice: d, signedBy: k)",
-             expected: ["DocumentStore.swift": 1,
-                        "MaughamPhone/PhoneDeviceRecord.swift": 1]),
+             expected: ["RegistryPresence.swift": 1]),
         Site(pattern: #"\.sign\("#,
              sample: "let s = try key.sign(digest)",
              expected: ["RegistryWriter.swift": 1]),
@@ -296,8 +311,10 @@ final class PersonKeyCensusTests: XCTestCase {
             XCTAssertEqual(try Self.counts(of: [site], in: [mac, phone])[site.pattern],
                            site.expected)
             // …then one phone offender under an allow-listed Mac file's name.
-            let borrowed = try XCTUnwrap(
-                site.expected.keys.sorted().first { !$0.hasPrefix(Self.phoneRootName + "/") })
+            // A site the phone alone is allowed (`PersonKey.find`) has no Mac
+            // name to borrow; a second phone file under a new name must fail.
+            let borrowed = site.expected.keys.sorted()
+                .first { !$0.hasPrefix(Self.phoneRootName + "/") } ?? "PlantedOffender.swift"
             try site.sample.write(to: phone.appendingPathComponent(borrowed),
                                   atomically: true, encoding: .utf8)
             let found = try Self.counts(of: [site], in: [mac, phone])[site.pattern]

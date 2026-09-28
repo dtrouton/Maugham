@@ -1006,7 +1006,9 @@ final class TripwirePhoneGrepTest: XCTestCase {
     /// `PhonePersonKeyAccess.store`, the person key's store (your devices are
     /// you, plan 2 Task 1), which is no op-log store at all and is counted by
     /// its own census (`PersonKeyCensusTests.storeConstruction`, tripwire 53).
-    /// The carve-out names that one type, so any other `.store` still fires.
+    /// The carve-out names that one type, so any other `.store` still fires;
+    /// the FILE half — that this read happens in `PhoneDeviceRecord.swift`
+    /// and nowhere else — is the Mac's census, `PersonKeyCensusTests`.
     private let writersStoreAccess = #"(?<!PhonePersonKeyAccess)\.store\b(?!\()"#
 
     private func writeOnlyOffenders(in dir: URL) throws -> [String] {

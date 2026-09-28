@@ -273,41 +273,13 @@ public final class DocumentStore {
         return await pass.value
     }
 
-    /// What this Mac asks its record to say about whose it is.
-    ///
-    /// - A person key → `.set`, a claim signed for THIS Mac's author key.
-    /// - No key (the store is unavailable, or its item unreadable) → `.keep`:
-    ///   a keychain that cannot answer this launch is not evidence the writer
-    ///   left, and stripping a true claim would send this Mac's next new book
-    ///   to the sheet.
-    ///
-    /// **`.remove` is never chosen here.** The only signal that would justify
-    /// it — the Mac definitively signed out of the Apple ID — is not one this
-    /// app can read reliably: `ubiquityIdentityToken` answers for iCloud
-    /// DRIVE, not iCloud Keychain, the two can be switched independently, and
-    /// an ad-hoc build reads the keychain as unavailable whatever the account.
-    /// A claim that outlives a sign-out still names a key this Mac held; the
-    /// cost is a stale hint, never an admission, because every reader verifies
-    /// it and recognition links only what a root decided.
-    ///
-    /// The second value is the problem, if signing the claim failed.
-    nonisolated static func claimIntent(
-        for identities: LocalIdentities, personKey: PersonKey?
-    ) -> (intent: PersonClaimIntent, problem: String?) {
-        guard let personKey else { return (.keep, nil) }
-        do {
-            return (.set(try RegistryWriter.personClaim(
-                forDevice: identities.author.fingerprint, signedBy: personKey)), nil)
-        } catch {
-            return (.keep, "this Mac's person claim could not be signed: \(error.localizedDescription)")
-        }
-    }
-
-    /// **This Mac says who it is — and, where it can, whose it is.**
-    /// `ensureDeviceRecord` with the claim `claimIntent` decided; a claim the
-    /// door refuses (`PersonClaimError`) is logged as a fault and the record is
-    /// written again with `.keep`, so a broken claim never costs this Mac its
-    /// record, its root or its admissions. Answers the problem, or nil.
+    /// **This Mac says who it is — and, where it can, whose it is.** The
+    /// rule is Core's and shared with the phone (tripwire 19):
+    /// `RegistryPresence.claimIntent` decides `.set`/`.keep` (never
+    /// `.remove`), and `RegistryPresence.declareDevice` writes the record,
+    /// re-writing it with `.keep` when the claim is refused. What stays here
+    /// is the Mac's saying of it: a problem is logged as a `.fault` and
+    /// returned for `personClaimProblem`.
     ///
     /// Throws what the registry read and write throw, exactly as the bare
     /// `ensureDeviceRecord` it replaces did.
@@ -317,20 +289,12 @@ public final class DocumentStore {
         claim: (intent: PersonClaimIntent, problem: String?),
         presenter: NSFilePresenter?
     ) throws -> String? {
-        var problem = claim.problem
-        do {
-            try RegistryPresence.ensureDeviceRecord(
-                in: url, identities: identities, name: name, kind: .mac,
-                presenter: presenter, personClaim: claim.intent)
-        } catch let refused as PersonClaimError {
-            problem = "this Mac's person claim was refused by its own record: \(refused)"
-            try RegistryPresence.ensureDeviceRecord(
-                in: url, identities: identities, name: name, kind: .mac,
-                presenter: presenter, personClaim: .keep)
-        }
+        let problem = try RegistryPresence.declareDevice(
+            in: url, identities: identities, name: name, kind: .mac,
+            presenter: presenter, claim: claim)
         if let problem {
             documentStoreLog.fault(
-                "\(problem, privacy: .public) — in \(url.lastPathComponent, privacy: .public); the record keeps the claim it had")
+                "this Mac: \(problem, privacy: .public) — in \(url.lastPathComponent, privacy: .public); the record keeps the claim it had")
         }
         return problem
     }
@@ -435,8 +399,9 @@ public final class DocumentStore {
         do {
             store.personClaimProblem = try declareThisMac(
                 in: url, identities: Document.loadIdentities, name: thisMacsName,
-                claim: claimIntent(
-                    for: Document.loadIdentities, personKey: personKey),
+                claim: RegistryPresence.claimIntent(
+                    forDevice: Document.loadIdentities.author.fingerprint,
+                    personKey: personKey),
                 presenter: store.presenter)
             try RegistryPresence.ensureRootIfEmpty(
                 in: url, identities: Document.loadIdentities,
