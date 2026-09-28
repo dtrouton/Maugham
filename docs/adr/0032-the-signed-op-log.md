@@ -2821,11 +2821,17 @@ the load are untouched. Recognition decides only who is ADMITTED.
   - **A label change drops the key** from the record whose label changed, in
     `admit` and in `rename`.
   - **Forget is label-wide and durable.** It clears the key from every record
-    of the label, checks every holder up front, reads every holder back, and
-    throws `PersonKeyForgetIncomplete` naming what was and was not cleared. It
-    records the key in `forgottenPersonKeys`, which `admit` carries whatever
-    the label. A forgotten key is never linked again, and recognition treats
-    it as unknown.
+    of the label THIS root admitted (`RegistryAdmission.forgetHolders`'s
+    `mine`, the set it can re-sign), checks those holders up front, reads them
+    back, and throws `PersonKeyForgetIncomplete` naming what was and was not
+    cleared. A same-label holder another root admitted — an adopted root's
+    record, or one any share participant self-signs — is REPORTED
+    (`heldElsewhere`) and never blocks, and People & Devices offers Forget
+    over the same set: were such a record to block, one planted file could
+    deny the root its answer to a compromised Apple ID (whole-branch review,
+    Important 1). It records the key in `forgottenPersonKeys`, which `admit`
+    carries whatever the label. A forgotten key is never linked again, and
+    recognition treats it as unknown.
   - A present-but-unreadable person record refuses a link (RULING-54): it
     might already hold the key.
 - **Person-key facts come from this root's chain only.** The forgotten keys,

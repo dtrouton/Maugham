@@ -621,9 +621,26 @@ struct PeopleAndDevicesModel: Equatable {
     /// folder says no longer carry the link and which still do, named as this
     /// pane names them. `PersonKeyForgetIncomplete`'s lists are what the
     /// folder read back AFTER the act, so this is the honest account.
+    ///
+    /// **A holder another root admitted** (`heldElsewhere`, whole-branch
+    /// review Important 1) is named as that, and where it is all that is left
+    /// the sentence says the Forget is done here and does NOT say *press
+    /// again* — pressing again changes nothing about another root's record.
     func forgetIncompleteSentence(_ error: PersonKeyForgetIncomplete) -> String {
         let cleared = error.cleared.map(deviceName(ofRecord:))
         let still = error.notCleared.map(deviceName(ofRecord:))
+        let elsewhere = error.heldElsewhere.map(deviceName(ofRecord:))
+        let elsewhereSentence = "It is still linked on \(Self.list(elsewhere)), "
+            + "which another root admitted and this Mac can\u{2019}t change."
+        if still.isEmpty, error.underlying == nil {
+            var parts: [String] = []
+            if !cleared.isEmpty {
+                parts.append("Their Apple ID is no longer linked on "
+                    + "\(Self.list(cleared)).")
+            }
+            if !elsewhere.isEmpty { parts.append(elsewhereSentence) }
+            return parts.joined(separator: " ")
+        }
         var parts: [String] = []
         if cleared.isEmpty {
             parts.append("Nothing was forgotten.")
@@ -640,6 +657,7 @@ struct PeopleAndDevicesModel: Equatable {
         if let underlying = error.underlying {
             parts.append(underlying.localizedDescription)
         }
+        if !elsewhere.isEmpty { parts.append(elsewhereSentence) }
         parts.append("Press Forget again to finish the rest.")
         return parts.joined(separator: " ")
     }
@@ -1444,23 +1462,21 @@ struct PeopleAndDevicesModel: Equatable {
             mayForgetPersonKey: mayForgetPersonKey(of: record, in: registry, me: me))
     }
 
-    /// **The verb's own up-front rule, asked of the verb**: Forget re-signs
-    /// every record sharing the label that holds a key, and refuses the whole
-    /// act unless `RegistryAdmission.renameOutcome` lets this Mac re-sign each
-    /// one. `records(sharingLabelWith:)` is the verb's own group — every root's
-    /// records, not only this chain's — so the pane never offers an act the
-    /// verb would refuse.
+    /// **The verb's own set, asked of the verb** (whole-branch review,
+    /// Important 1): Forget clears the label's key holders THIS root admitted
+    /// (`RegistryAdmission.forgetHolders(of:by:in:).mine`) and reports any
+    /// other root's without being blocked by them. So a record is a Forget
+    /// subject where `renameOutcome` lets this Mac re-sign IT, and this root
+    /// has at least one holder to clear. A holder another root admitted —
+    /// an adopted root's, or a record a share participant self-signed — can
+    /// neither hide the button nor be the record it is pressed about.
     private static func mayForgetPersonKey(
         of record: PersonRecord, in registry: Registry, me: String
     ) -> Bool {
-        let holders = RegistryAdmission.records(sharingLabelWith: record.person, in: registry)
-            .filter { $0.personKey != nil }
-        guard !holders.isEmpty else { return false }
-        return holders.allSatisfy {
-            if case .success = RegistryAdmission.renameOutcome(
-                person: $0.person, by: me, in: registry) { return true }
-            return false
-        }
+        guard case .success = RegistryAdmission.renameOutcome(
+            person: record.person, by: me, in: registry) else { return false }
+        return !RegistryAdmission.forgetHolders(
+            of: record.person, by: me, in: registry).mine.isEmpty
     }
 
     /// The device row a record with no device record still gets (v0.41.1).

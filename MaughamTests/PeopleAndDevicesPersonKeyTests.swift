@@ -127,22 +127,42 @@ final class PeopleAndDevicesPersonKeyTests: XCTestCase {
         XCTAssertFalse(denver.offersForgetPersonKey)
     }
 
-    /// Forget is label-wide, so it is offered only where THIS Mac may re-sign
-    /// every record holding the key — the verb's own `renameOutcome`, asked of
-    /// every holder. One holder another root admitted refuses the whole act.
-    func test_forgetIsNotOfferedWhereAnyHolderIsAnotherRootsToReSign() throws {
+    /// **Forget's offer follows the verb's own set** (whole-branch review,
+    /// Important 1 — FLIPPED): the holders are the label's records THIS root
+    /// admitted. A same-label holder another root admitted — here one a share
+    /// participant self-signed — is reported by the verb and never blocks, so
+    /// it cannot hide Forget either; and it is never the record Forget is
+    /// pressed about.
+    func test_aForeignHolderUnderTheLabelNeitherHidesForgetNorIsItsSubject() throws {
         let foreign = person(otherRoot, label: "Sam", admittedBy: otherRoot, key: samKey)
         var reg = registry(samKeyed: true)
         reg = Registry(devices: reg.devices, people: reg.people + [foreign])
 
         let sam = try group(model(reg), "Sam")
 
-        XCTAssertEqual(sam.personKeyLine,
-                       PeopleAndDevicesModel.PersonGroup.recognisedSentence)
-        XCTAssertFalse(sam.offersForgetPersonKey,
-                       "the verb would refuse: one holder is not this Mac's to re-sign")
-        let alone = try group(model(registry(samKeyed: true)), "Sam")
-        XCTAssertTrue(alone.offersForgetPersonKey, "the control")
+        XCTAssertTrue(sam.offersForgetPersonKey,
+                      "a planted record cannot deny the root its Forget")
+        XCTAssertEqual(sam.forgetSubject?.fingerprint, samMac.fingerprint,
+                       "pressed about the record THIS root admitted")
+        // Whatever order the group draws its records in, the foreign record
+        // is never a subject: the verb would refuse to re-sign it.
+        let foreignRow = try XCTUnwrap(sam.records.first {
+            $0.fingerprint == otherRoot.fingerprint })
+        XCTAssertFalse(foreignRow.mayForgetPersonKey)
+    }
+
+    /// The converse: where the ONLY holder is another root's, this Mac has
+    /// nothing of its own to clear, and Forget is not offered.
+    func test_forgetIsNotOfferedWhereOnlyAnotherRootsRecordHoldsTheKey() throws {
+        let foreign = person(otherRoot, label: "Sam", admittedBy: otherRoot, key: samKey)
+        var reg = registry(samKeyed: false)
+        reg = Registry(devices: reg.devices, people: reg.people + [foreign])
+
+        let sam = try group(model(reg), "Sam")
+
+        XCTAssertFalse(sam.offersForgetPersonKey)
+        XCTAssertTrue(try group(model(registry(samKeyed: true)), "Sam").offersForgetPersonKey,
+                      "the control")
     }
 
     /// Every record of the label revoked: recognition asks (Task 5's ruling),
@@ -197,6 +217,26 @@ final class PeopleAndDevicesPersonKeyTests: XCTestCase {
             "still linked on Denver’s iPhone (\(DeviceCode.short(phone.fingerprint)))"),
             sentence)
         XCTAssertTrue(sentence.contains("Press Forget again"), sentence)
+    }
+
+    /// A Forget that cleared every record this root admitted, with a holder
+    /// another root admitted: said as done here, the other record named, and
+    /// no *press again* — pressing again changes nothing about it.
+    func test_aForgetLeavingOnlyAnotherRootsHolderSaysSoWithoutPressAgain() {
+        let model = model(registry())
+        let error = PersonKeyForgetIncomplete(
+            cleared: [mac.fingerprint], notCleared: [], underlying: nil,
+            heldElsewhere: [samMac.fingerprint])
+
+        let sentence = model.forgetIncompleteSentence(error)
+
+        XCTAssertTrue(sentence.contains(
+            "no longer linked on Denver’s MacBook Pro (\(DeviceCode.short(mac.fingerprint)))"),
+            sentence)
+        XCTAssertTrue(sentence.contains("Sam’s MacBook Air"), sentence)
+        XCTAssertTrue(sentence.contains("another root"), sentence)
+        XCTAssertFalse(sentence.contains("Press Forget again"), sentence)
+        XCTAssertFalse(sentence.contains("didn’t finish"), sentence)
     }
 
     func test_aForgetThatClearedNothingSaysSo() {

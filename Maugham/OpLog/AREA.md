@@ -1906,10 +1906,15 @@ through `renameOutcome`, re-signed through `RegistryWriter.resign`.
   and it is refused for any other label (`otherPersonHolding`, revoked holders
   included).
 - A label change drops the key.
-- Forget is label-wide. It checks every holder up front, reads every holder
-  back, and throws `PersonKeyForgetIncomplete` on a partial result. It is also
-  durable: `hasForgotten(_:)` refuses a relink for ever, and there is no
-  re-trust verb in plan 1.
+- Forget is label-wide over the holders THIS root admitted
+  (`RegistryAdmission.forgetHolders(of:by:in:).mine`, the one set the verb and
+  People & Devices' offer both read). It checks them up front, reads them
+  back, and throws `PersonKeyForgetIncomplete` on a partial result. A
+  same-label holder ANOTHER root admitted (`.elsewhere` — an adopted root's
+  record, or one a share participant self-signed) never blocks it and never
+  hides the button: it is reported as `heldElsewhere`, with no *press again*
+  (whole-branch review, Important 1). It is also durable: `hasForgotten(_:)`
+  refuses a relink for ever, and there is no re-trust verb in plan 1.
 - A present-but-unreadable person record refuses a link (RULING-54).
 - **Every person-key fact** (forgotten, holders, the claim-name contradiction)
   **is read from `TrustTable.chain(ofRoot:in:)` only**. That is this root

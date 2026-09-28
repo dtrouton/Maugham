@@ -1575,13 +1575,16 @@ public enum RegistryAdmission {
     /// carrying the key are asked about again. Already-admitted devices stay;
     /// the writer revokes them one by one if they must go.
     ///
-    /// **Every record sharing this record's label is cleared**, revoked ones
-    /// included, for the reason the link is label-wide: People & Devices draws
-    /// the person as one row, and a Forget that left the phone's record
-    /// holding the key would leave the person recognised by it with the
-    /// writer believing it gone. Every holder is checked against
-    /// `renameOutcome` up front, so an act this Mac may not complete writes
-    /// nothing.
+    /// **Every record sharing this record's label that THIS root admitted is
+    /// cleared** (`forgetHolders(of:by:in:).mine`), revoked ones included, for
+    /// the reason the link is label-wide: People & Devices draws the person as
+    /// one row, and a Forget that left the phone's record holding the key
+    /// would leave the person recognised by it with the writer believing it
+    /// gone. Every such holder is checked against `renameOutcome` up front, so
+    /// an act this Mac may not complete writes nothing. A same-label holder
+    /// ANOTHER root admitted is not this Mac's to re-sign: it never blocks, and
+    /// is reported as `PersonKeyForgetIncomplete.heldElsewhere` once this
+    /// root's holders are cleared (whole-branch review, Important 1).
     ///
     /// **A write that fails part way is not atomic, and says so** —
     /// `changePermit(everyRecordOf:)`'s shape: the loop stops, EVERY holder is
@@ -1633,8 +1636,12 @@ public enum RegistryAdmission {
             projectURL: projectURL, presenter: presenter, cache: cache)
         let subject = try renameOutcome(
             person: fingerprint, by: root.fingerprint, in: registry).get()
-        let holders = records(sharingLabelWith: fingerprint, in: registry)
-            .filter { $0.personKey != nil }
+        // **This root's holders only** (whole-branch review, Important 1):
+        // a same-label holder another root admitted — an adopted root's
+        // record, or one a share participant self-signed — is not this Mac's
+        // to re-sign, and must not be able to deny the Forget. It is reported
+        // (`heldElsewhere`) and never blocks.
+        let holders = forgetHolders(of: fingerprint, by: root.fingerprint, in: registry).mine
         guard !holders.isEmpty else { return subject }
         // Up front, before anything is written: an act this Mac may not
         // complete writes nothing.
@@ -1666,14 +1673,47 @@ public enum RegistryAdmission {
         let isClear: (String) -> Bool = { verified.person($0).map { $0.personKey == nil } ?? false }
         let cleared = holders.map(\.person).filter(isClear)
         let notCleared = holders.map(\.person).filter { !isClear($0) }
-        if failure != nil || !notCleared.isEmpty {
+        let elsewhere = forgetHolders(
+            of: fingerprint, by: root.fingerprint, in: verified).elsewhere.map(\.person)
+        if failure != nil || !notCleared.isEmpty || !elsewhere.isEmpty {
             throw PersonKeyForgetIncomplete(
-                cleared: cleared, notCleared: notCleared, underlying: failure?.error)
+                cleared: cleared, notCleared: notCleared, underlying: failure?.error,
+                heldElsewhere: elsewhere)
         }
         guard let record = verified.person(fingerprint) else {
             throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
         }
         return record
+    }
+
+    /// **Whose linked keys a Forget pressed about `person` reaches** — the
+    /// verb's own set, and the one People & Devices offers Forget over, so the
+    /// two cannot disagree (whole-branch review, Important 1).
+    ///
+    /// - `mine`: records sharing `person`'s label that hold a key and that
+    ///   `root` ADMITTED — the set this root can re-sign.
+    /// - `elsewhere`: records sharing the label that hold a key and that some
+    ///   other root admitted (an adopted root's, or one a share participant
+    ///   self-signed). Reported, never blocking: were they to block, anybody
+    ///   able to write one file into `.maugham/people/` could deny the root
+    ///   its answer to a compromised Apple ID.
+    ///
+    /// Both in `records(sharingLabelWith:in:)`'s order: the subject's own
+    /// record first, then by fingerprint, so the loop clears the pressed
+    /// record first and two runs report the same lists.
+    public struct ForgetHolders: Equatable, Sendable {
+        public let mine: [PersonRecord]
+        public let elsewhere: [PersonRecord]
+    }
+
+    nonisolated public static func forgetHolders(
+        of person: String, by root: String, in registry: Registry
+    ) -> ForgetHolders {
+        let holders = records(sharingLabelWith: person, in: registry)
+            .filter { $0.personKey != nil }
+        return ForgetHolders(
+            mine: holders.filter { $0.admittedBy == root },
+            elsewhere: holders.filter { $0.admittedBy != root })
     }
 
     /// **A verified record holding this key that is NOT the same person as
@@ -2018,20 +2058,37 @@ public struct PersonKeyForgetIncomplete: Error, LocalizedError {
     public let notCleared: [String]
     /// The write that failed, where one did.
     public let underlying: Error?
+    /// Records sharing the label that still hold a key and that ANOTHER root
+    /// admitted (whole-branch review, Important 1): this Mac cannot re-sign
+    /// them, so they are reported and never block. Pressing again changes
+    /// nothing about them.
+    public let heldElsewhere: [String]
 
-    public init(cleared: [String], notCleared: [String], underlying: Error?) {
+    public init(
+        cleared: [String], notCleared: [String], underlying: Error?,
+        heldElsewhere: [String] = []
+    ) {
         self.cleared = cleared
         self.notCleared = notCleared
         self.underlying = underlying
+        self.heldElsewhere = heldElsewhere
     }
 
     public var errorDescription: String? {
+        let why = underlying.map { " \($0.localizedDescription)" } ?? ""
+        let elsewhereSentence = heldElsewhere.isEmpty ? "" :
+            " It is still linked on "
+                + heldElsewhere.map { DeviceCode.short($0) }.joined(separator: ", ")
+                + ", which another root admitted and this Mac cannot change."
+        guard !notCleared.isEmpty || underlying != nil else {
+            return "The Apple ID was forgotten on this person's devices this Mac "
+                + "admitted.\(elsewhereSentence)"
+        }
         let still = notCleared.map { DeviceCode.short($0) }.joined(separator: ", ")
         let what = cleared.isEmpty
             ? "Nothing was forgotten."
             : "The Apple ID was forgotten on some of this person's devices, "
                 + "but \(still) still recognise it."
-        let why = underlying.map { " \($0.localizedDescription)" } ?? ""
-        return "\(what)\(why) Pressing again finishes the rest."
+        return "\(what)\(why)\(elsewhereSentence) Pressing again finishes the rest."
     }
 }
