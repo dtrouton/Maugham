@@ -3175,7 +3175,14 @@ may WRITE: recognition decides only who is ADMITTED.
     from the built app, rather than the raw file. Xcode's set adds the
     application identifier and team identifier from the profile, and the
     embedded profile is matched to the app through the application
-    identifier; re-signing with the raw file would drop it.
+    identifier; re-signing with the raw file would drop it. It is read
+    MINUS `com.apple.security.get-task-allow`, which Xcode's Release `build`
+    action injects as `true` whatever the identity (only `archive` strips
+    it; measured, Xcode 27.0) — carried across, it stopped every release at
+    the verify step (whole-branch review's Critical).
+    `verify-mac-signing.sh resign-entitlements` does the read and the strip,
+    and the test runs it on an Xcode-shaped app. The base entitlements stay
+    injected, because they supply the application identifier.
   - `scripts/verify-mac-signing.sh` checks the profile (team, bundle id,
     Developer ID, not expired, grants the group) and the app (the embedded
     profile passes those checks; the signature names the group, the
@@ -3287,6 +3294,16 @@ may WRITE: recognition decides only who is ADMITTED.
 - **The signing check is not run in CI.** `verify-mac-signing.test.sh` needs
   the probe profile and skips without it; in CI the verify step itself is the
   check.
+- **The Mac's profile expires, and an installed build does not warn.** Nothing
+  in the app reads the embedded profile's `ExpirationDate`. After it passes,
+  the installed build's keychain query answers `.unavailable`, so
+  `claimIntent` answers `.keep`: the device declares no claim, and a new
+  device is asked about on the sheet exactly as before plan 2. Nothing is
+  lost and nobody is let in wrongly; recognition simply stops until a build
+  signed under a renewed profile is installed. Renewal is
+  `SETUP-mac-signing.md` §4, and the release's install step refuses an
+  expired profile, so no new release can ship one. The date is recorded at
+  the Task 7 portal step.
 
 ## Consequences
 

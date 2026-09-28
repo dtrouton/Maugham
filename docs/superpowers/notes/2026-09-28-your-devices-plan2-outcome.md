@@ -62,7 +62,9 @@ behaviour beyond the plan as written:
 - The Settings line's sentences are the truthful ones, with two added states.
 - The saved-by line says "was last saved by".
 - The phone's Debug build stays unentitled.
-- The outer re-sign keeps Xcode's entitlements rather than the raw file.
+- The outer re-sign keeps Xcode's entitlements rather than the raw file,
+  minus the `get-task-allow` Xcode's Release `build` injects (whole-branch
+  review's Critical: `verify-mac-signing.sh resign-entitlements`).
 - The verify step refuses `get-task-allow`.
 
 ## Task 7 — portal steps and dry runs (Denver + controller)
@@ -72,10 +74,15 @@ Not yet run at the time of writing. Record the results here:
 - [ ] Developer ID profile for `com.maugham.Maugham` created with the keychain
       group, checked with `scripts/verify-mac-signing.sh profile`, stored as
       `MAC_PROVISIONING_PROFILE` (`docs/release-notes/SETUP-mac-signing.md` §4).
+- [ ] The generated Mac profile's `ExpirationDate` recorded here: ______.
+      After it, an installed build's keychain query reads `.unavailable` →
+      the claim is `.keep` → new devices get the sheet as before plan 2
+      (ADR 0032 plan-2 limits). Renew per SETUP-mac-signing §4 before then.
 - [ ] Phone App Store profile shows `keychain-access-groups: FF3XH4ZJ45.*`
       (it did locally in Task 5).
 - [ ] Mac dry run `v0.41.9x`: the install/embed/verify steps print their `ok:`
-      lines; no `get-task-allow`; notarized; the app launches; the embedded
+      lines; the re-sign step's printed entitlements carry no
+      `get-task-allow`; notarized; the app launches; the embedded
       profile is there; a scratch book's `devices/<fp>.json` carries
       `personClaim`.
 - [ ] Phone dry run `phone-v0.0.x` on TestFlight: its first capture in a
@@ -90,7 +97,10 @@ On Denver's Mac and iPhone, plus the second Apple ID:
    History line. The phone's Settings line says *Recognised as Denver Trouton
    on your other devices.*
 2. Playlist's `0ECB` becomes his *"Denver's iPhone"* under Denver Trouton after
-   the phone's first write.
+   the phone's first write. **Precondition:** `0ECB`'s label in Playlist must
+   already be the root's label, *Denver Trouton*. Otherwise `linkPersonKey`
+   refuses, and the only trace is a `.debug` log line. **Recovery:** rename
+   `0ECB` in People & Devices so the labels match, then reopen the book.
 3. A second-Apple-ID device's first write: the sheet shows its claimed name and
    *iCloud says this device's record was last saved by …*.
 4. That person's second device joins silently as them.
@@ -130,3 +140,8 @@ second press; the owner-side saved-by line is absent for the owner's own saves.
     not run it.
   - Where Xcode reads profiles from on the `xcode-27` runner is not measured;
     the step installs to both locations.
+- **The phone gate has one standing opt-in skip:** `PhoneClaimFixtureDump`
+  (MaughamPhoneTests). It skips unless `MAUGHAM_PHONE_CLAIM_FIXTURE_DIR` is
+  set, because it writes outside `TestTemp`. It regenerates the bytes
+  `PhoneClaimRoundTripTests` reads. A phone gate's skip list reads one skip
+  from it; that skip is expected, not a regression.

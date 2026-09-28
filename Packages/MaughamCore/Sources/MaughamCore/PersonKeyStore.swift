@@ -121,10 +121,13 @@ public struct KeychainPersonKeyStore: PersonKeyStore {
     /// One fixed service and account: there is one person key per Apple ID.
     public static let service = "com.maugham.person-key"
     public static let account = "person-key"
-    /// The group's suffix after the team id. Neither app is entitled to it
-    /// yet: plan 2 adds `keychain-access-groups` naming
-    /// `$(AppIdentifierPrefix)` + this to both apps' entitlements. Until then
-    /// every build reads `.unavailable`.
+    /// The group's suffix after the team id. Both apps' RELEASE builds are
+    /// entitled to it (plan 2 Task 5, ruling P2-4: `keychain-access-groups`
+    /// naming it — the literal `FF3XH4ZJ45.` prefix on the Mac, whose
+    /// Developer ID profile grants it; `$(AppIdentifierPrefix)` on the
+    /// phone). Debug and ad-hoc builds stay unentitled and read
+    /// `.unavailable` (`-34018`), as does a Mac build whose profile has
+    /// expired.
     public static let accessGroupSuffix = "com.maugham.person"
 
     /// `<TEAMID>.com.maugham.person` — the production access group.

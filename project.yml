@@ -96,9 +96,10 @@ targets:
           ENABLE_HARDENED_RUNTIME: YES
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: "Developer ID Application"
-          # Release-only, and the group is LITERAL (P2-4): release.yml re-signs
-          # the app with `codesign --entitlements Maugham/Maugham.entitlements`,
-          # which reads the raw file and expands no `$(AppIdentifierPrefix)`.
+          # Release-only, and the group is LITERAL (P2-4): it is written the
+          # way it is signed, with no `$(AppIdentifierPrefix)` to expand.
+          # (release.yml re-signs with the set Xcode signed with, minus
+          # get-task-allow — `verify-mac-signing.sh resign-entitlements`.)
           # It grants `FF3XH4ZJ45.com.maugham.person`, the person key's
           # iCloud Keychain group (Core: `KeychainPersonKeyStore`), and it
           # holds only under an embedded Developer ID profile granting it.
