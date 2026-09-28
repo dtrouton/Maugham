@@ -1453,8 +1453,11 @@ public enum RegistryAdmission {
             person: fingerprint, by: root.fingerprint, in: registry).get()
 
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        // **`update`, never `remember`** (whole-branch re-review, round 3):
+        // a rename follows an entry a sheet made and never creates one, so a
+        // RECOGNISED device renamed here is still unknown to the memory.
         guard !trimmed.isEmpty, trimmed != existing.label else {
-            memory.remember(
+            memory.update(
                 fingerprint, label: existing.label, ownName: existing.ownName,
                 at: existing.admittedAt)
             return existing
@@ -1479,7 +1482,7 @@ public enum RegistryAdmission {
             // old name and believing they had changed it.
             throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
         }
-        memory.remember(
+        memory.update(
             fingerprint, label: record.label, ownName: record.ownName, at: now())
         return record
     }

@@ -2921,8 +2921,10 @@ the load are untouched. Recognition decides only who is ADMITTED.
     as an author of the whole book in another book this Mac roots that has
     never admitted Sam (whole-branch review, Critical; pinned:
     `RecognitionAdmissionTests.test_aRecognisedAdmissionInOneBookIsNotRememberedIntoAnother`).
-    *Cost:* a recognised device is recognised again, or asked about, in the
-    next book rather than remembered.
+    A rename writes the memory only where an entry already exists
+    (`AdmissionMemory.update`), so the same device renamed one click later
+    is still unknown to it. *Cost:* a recognised device is recognised again,
+    or asked about, in the next book rather than remembered.
   - **The remembered-pass fix.** `admitRemembered` used to admit a remembered
     label as author of the whole book whatever that person's permit in this
     book. It now leaves to the sheet any device whose remembered label is a

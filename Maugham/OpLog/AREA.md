@@ -891,7 +891,12 @@ internal `admit` takes `AdmissionMemory?`, which recognition passes as nil. A
 recognition remembered would let `admitRemembered` admit the same device, with
 the WHOLE BOOK, into any other book this Mac roots (a reviewer in one book an
 author in the next). Pinned: `RecognitionAdmissionTests
-.test_aRecognisedAdmissionInOneBookIsNotRememberedIntoAnother`.
+.test_aRecognisedAdmissionInOneBookIsNotRememberedIntoAnother`. **A rename
+only UPDATES an entry** (`AdmissionMemory.update`, which never creates one):
+a rename is a word corrected, not a machine named, so renaming a recognised
+device leaves it unknown to the memory (round 3; pinned by
+`test_renamingARecognisedDeviceNeverCreatesAMemoryEntry` and
+`test_aRecognisedThenRenamedDeviceIsStillAskedAboutInAnotherBook`).
 
 **The table gained a verdict whose answer depends on a DATE, and adoption.** `.retired(device:retiredAt:)`
 is the one verdict whose answer depends on WHEN a seal was made — hence

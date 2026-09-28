@@ -180,6 +180,80 @@ final class RecognitionAdmissionTests: XCTestCase {
             .person(samsPhone.author.fingerprint), "the sheet asks")
     }
 
+    /// **A rename is not a sheet decision either** (re-review, round 3). A
+    /// root renaming a recognised device — to the same label or a new one —
+    /// updates a memory entry that exists and never creates one, so the
+    /// Critical is not reachable one click after a recognised admission.
+    func test_renamingARecognisedDeviceNeverCreatesAMemoryEntry() throws {
+        try rootHere()
+        let phone = try declare("Denver's iPhone", claimBy: denverKey)
+        _ = try recognise()
+        XCTAssertNil(memory.label(for: phone.author.fingerprint), "premise")
+
+        try RegistryAdmission.rename(
+            person: phone.author.fingerprint, to: "Denver", in: projectURL,
+            by: mine.author, cache: cache, memory: memory)
+        XCTAssertNil(memory.label(for: phone.author.fingerprint), "same label: nothing created")
+
+        try RegistryAdmission.rename(
+            person: phone.author.fingerprint, to: "Denver T", in: projectURL,
+            by: mine.author, cache: cache, memory: memory)
+        XCTAssertNil(memory.label(for: phone.author.fingerprint), "new label: nothing created")
+    }
+
+    /// The converse: a device the writer DID name at a sheet keeps its memory
+    /// current through a rename.
+    func test_renamingASheetAdmittedDeviceUpdatesItsMemory() throws {
+        try rootHere()
+        let samsMac = try declare("Sam's Mac", kind: .mac, claimBy: nil)
+        try RegistryAdmission.admit(
+            device: samsMac.author.fingerprint, label: "Sam", ownName: "Sam's Mac",
+            in: projectURL, by: mine.author, cache: cache, memory: memory)
+        try RegistryAdmission.rename(
+            person: samsMac.author.fingerprint, to: "Samantha", in: projectURL,
+            by: mine.author, cache: cache, memory: memory)
+        XCTAssertEqual(memory.label(for: samsMac.author.fingerprint)?.label, "Samantha")
+    }
+
+    /// The two-book scenario with a rename in between: still the sheet in
+    /// Book 2.
+    func test_aRecognisedThenRenamedDeviceIsStillAskedAboutInAnotherBook() throws {
+        try rootHere()
+        let samsMac = try declare("Sam's Mac", kind: .mac, claimBy: samKey)
+        try RegistryAdmission.admit(
+            device: samsMac.author.fingerprint, label: "Sam", ownName: "Sam's Mac",
+            in: projectURL, by: mine.author, cache: cache, memory: memory)
+        try RegistryAdmission.changePermit(
+            person: samsMac.author.fingerprint, role: Permit.reviewerRole,
+            scope: Permit.bookScope, pieces: [], mark: .nothingApplied,
+            unsigned: .nothingApplied,
+            in: projectURL, by: mine.author, cache: cache)
+        let samsPhone = try declare("Sam's iPhone", claimBy: samKey)
+        _ = try recognise()
+        try RegistryAdmission.rename(
+            person: samsPhone.author.fingerprint, to: "Sam R", in: projectURL,
+            by: mine.author, cache: cache, memory: memory)
+
+        let bookTwo = TestTemp.root.appendingPathComponent("recognise-two-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: bookTwo, withIntermediateDirectories: true)
+        try RegistryPresence.ensureDeviceRecord(
+            in: bookTwo, identities: mine, name: "Denver's MacBook", kind: .mac,
+            personClaim: try claim(denverKey, for: mine))
+        try RegistryPresence.ensureRootIfEmpty(
+            in: bookTwo, identities: mine, writerName: "Denver")
+        try RegistryPresence.ensureDeviceRecord(
+            in: bookTwo, identities: samsPhone, name: "Sam's iPhone", kind: .phone,
+            personClaim: try claim(samKey, for: samsPhone))
+
+        _ = try RegistryPresence.admitRecognised(in: bookTwo, identities: mine, cache: cache)
+        let remembered = try RegistryPresence.admitRemembered(
+            in: bookTwo, identities: mine, cache: cache, memory: memory)
+
+        XCTAssertTrue(remembered.isEmpty)
+        XCTAssertNil(try RegistryReader.load(projectURL: bookTwo)
+            .person(samsPhone.author.fingerprint), "the sheet asks")
+    }
+
     // MARK: - Known person (PK-2): the CURRENT permit, off the timeline
 
     func test_samsSecondDeviceJoinsAsSamWithSamsCurrentDemotedPermit() throws {
