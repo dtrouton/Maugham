@@ -65,10 +65,35 @@ Desktop config entries (`maugham` vs `maugham-dev`) — see `Maugham/BuildVarian
 cert + hardened runtime; CI notarizes and staples, so downloaded `.dmg`/`.zip`
 launch Gatekeeper-clean (no right-click → Open). Dev builds stay ad-hoc
 (`com.maugham.Maugham.dev`, updater disabled). One-time secret setup:
-`docs/release-notes/SETUP-mac-signing.md`. New secrets: `DEVELOPER_ID_CERT`,
-`DEVELOPER_ID_CERT_PASSWORD`; notarytool reuses the phone's ASC API key. The Mac
-entitlements file is `Maugham/Maugham.entitlements` (minimal — add WhisperKit keys
-only if a notarization dry-run proves them needed).
+`docs/release-notes/SETUP-mac-signing.md`. Mac secrets: `DEVELOPER_ID_CERT`,
+`DEVELOPER_ID_CERT_PASSWORD` and `MAC_PROVISIONING_PROFILE`; notarytool reuses the
+phone's ASC API key. The Mac entitlements file is `Maugham/Maugham.entitlements`,
+Release-only, and it carries ONE entitlement: `keychain-access-groups` =
+`FF3XH4ZJ45.com.maugham.person`, the person key's iCloud Keychain group, spelled
+literally (no WhisperKit keys — the notarization dry runs never needed any).
+
+**The Release app needs its Developer ID provisioning profile, and the workflow
+fails without it.** The keychain group is a restricted entitlement: a signed
+Release build stops with *"Maugham" requires a provisioning profile* unless one
+granting it is installed, and an app signed with the group but no embedded
+profile still passes `codesign --verify` — then ships reading the keychain as
+unavailable. So `release.yml` checks it explicitly: *Install the Mac provisioning
+profile* decodes `MAC_PROVISIONING_PROFILE` (a missing or empty secret fails the
+job naming the secret), checks it with `scripts/verify-mac-signing.sh profile`
+(this team, `com.maugham.Maugham`, a Developer ID profile rather than a
+development one, unexpired, grants the group), installs it and hands its name to
+the build through `MAUGHAM_MAC_PROFILE_SPECIFIER` (which `project.yml` routes to
+the Maugham target alone); *Embed the provisioning profile* copies it into
+`Contents/embedded.provisionprofile` if Xcode did not, before the outer re-sign;
+the re-sign keeps the entitlements Xcode signed with (the file plus the
+application identifier the profile needs to match); and *Verify the app carries
+its provisioning profile* runs `verify-mac-signing.sh app` after signing and
+again after stapling. `scripts/tests/verify-mac-signing.test.sh` pins every arm
+(it needs the person-key probe's Developer ID profile installed, and skips
+without it; CI does not run it). **`cut-release.sh` gains no such check** — it
+builds unsigned (`CODE_SIGNING_ALLOWED=NO`) on your Mac, where no profile is
+involved; the profile is checked only where the app is signed, in CI. Profile
+setup and renewal: `docs/release-notes/SETUP-mac-signing.md` §4.
 
 **Auto-update is in-place — for the `.zip` path only.** The updater downloads the
 notarized `.zip`, verifies it in-app (codesign + our Team ID via
@@ -151,7 +176,7 @@ Use `--skip-pin-check` only for an offline cut where you already trust the pins.
 ## Phone releases
 
 Phone releases use `scripts/cut-phone-release.sh` (mirrors the Mac cut script, `phone-v*` tags).
-Pipeline: `.github/workflows/phone-release.yml` (`macos-latest`, version-from-tag,
+Pipeline: `.github/workflows/phone-release.yml` (`macos-15`, version-from-tag,
 build-number = `git rev-list --count HEAD`, archive → `-exportArchive` with `destination=upload`
 + ASC API key — **altool-free on purpose**: it's deprecated and silently broken on Xcode 26).
 

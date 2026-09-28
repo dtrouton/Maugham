@@ -19,6 +19,13 @@ jobs:
     # There is no `macos-27` label; `xcode-27` is it, and it is a public-preview
     # image carrying Xcode 27.0 RELEASE (27A266a), the dev machine's build.
     runs-on: xcode-27
+    env:
+      # What the signed Release app must be, stated once for the profile
+      # install, the build and both verify steps (scripts/verify-mac-signing.sh).
+      # The group is the literal in Maugham/Maugham.entitlements — the install
+      # step fails if the two ever disagree.
+      MAC_BUNDLE_ID: com.maugham.Maugham
+      PERSON_KEY_GROUP: FF3XH4ZJ45.com.maugham.person
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -181,13 +188,69 @@ jobs:
           echo "team_id=$TEAM" >> "$GITHUB_OUTPUT"
           echo "Team: $TEAM"
 
+      - name: Install the Mac provisioning profile
+        # The Release app is entitled to the person key's iCloud Keychain group
+        # (keychain-access-groups, Maugham/Maugham.entitlements). That is a
+        # restricted entitlement: the signed build refuses to start without a
+        # Developer ID provisioning profile granting it ("Maugham" requires a
+        # provisioning profile), and an app signed with the group but NO
+        # embedded profile still passes `codesign --verify` — so a missing
+        # profile is checked for explicitly, here and after signing, and never
+        # allowed to ship an app that silently reads the keychain as
+        # unavailable. Setup: docs/release-notes/SETUP-mac-signing.md.
+        id: macprof
+        env:
+          MAC_PROVISIONING_PROFILE: ${{ secrets.MAC_PROVISIONING_PROFILE }}
+          EXPECT_TEAM: ${{ steps.team.outputs.team_id }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${MAC_PROVISIONING_PROFILE:-}" ]]; then
+            echo "::error::The MAC_PROVISIONING_PROFILE secret is missing or empty. The Release app carries the keychain-access-groups entitlement and cannot be signed or shipped without its Developer ID provisioning profile — see docs/release-notes/SETUP-mac-signing.md (Provisioning profile)."
+            exit 1
+          fi
+          # The workflow's group and the entitlements file must name the same one.
+          FILE_GROUP=$(/usr/libexec/PlistBuddy -c "Print :keychain-access-groups:0" Maugham/Maugham.entitlements)
+          if [[ "$FILE_GROUP" != "$PERSON_KEY_GROUP" ]]; then
+            echo "::error::Maugham/Maugham.entitlements names '$FILE_GROUP' but release.yml expects '$PERSON_KEY_GROUP'"
+            exit 1
+          fi
+          PROFILE="$RUNNER_TEMP/maugham-mac.provisionprofile"
+          if ! printf '%s' "$MAC_PROVISIONING_PROFILE" | base64 --decode > "$PROFILE"; then
+            echo "::error::The MAC_PROVISIONING_PROFILE secret is not valid base64."
+            exit 1
+          fi
+          # Team, bundle id, Developer ID (all devices), not expired, grants the group.
+          EXPECT_BUNDLE_ID="$MAC_BUNDLE_ID" EXPECT_GROUP="$PERSON_KEY_GROUP" \
+            scripts/verify-mac-signing.sh profile "$PROFILE"
+          security cms -D -i "$PROFILE" > "$RUNNER_TEMP/maugham-mac-profile.plist"
+          UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$RUNNER_TEMP/maugham-mac-profile.plist")
+          NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" "$RUNNER_TEMP/maugham-mac-profile.plist")
+          # Install under its UUID in both places Xcode has looked: the current
+          # UserData directory and the legacy MobileDevice one (which
+          # phone-release.yml uses).
+          for DIR in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" \
+                     "$HOME/Library/MobileDevice/Provisioning Profiles"; do
+            mkdir -p "$DIR"
+            cp "$PROFILE" "$DIR/$UUID.provisionprofile"
+          done
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "uuid=$UUID" >> "$GITHUB_OUTPUT"
+          echo "path=$PROFILE" >> "$GITHUB_OUTPUT"
+          echo "Installed Mac profile '$NAME' ($UUID)"
+
       - name: Build (Release, signed + hardened)
         env:
           TEAM_ID: ${{ steps.team.outputs.team_id }}
+          PROFILE_NAME: ${{ steps.macprof.outputs.name }}
         run: |
+          # MAUGHAM_MAC_PROFILE_SPECIFIER reaches the Maugham target's
+          # PROVISIONING_PROFILE_SPECIFIER alone (project.yml, Release) — a bare
+          # PROVISIONING_PROFILE_SPECIFIER here would reach maugham-mcp and the
+          # package products too. CODE_SIGN_STYLE is already Manual there.
           xcodebuild -project Maugham.xcodeproj -scheme Maugham \
             -configuration Release build \
-            DEVELOPMENT_TEAM="${TEAM_ID}"
+            DEVELOPMENT_TEAM="${TEAM_ID}" \
+            MAUGHAM_MAC_PROFILE_SPECIFIER="${PROFILE_NAME}"
 
       - name: Restore the tectonic TeX bundle cache
         # Mirrors ci.yml's step (see the WHY comment there — run 31874029028).
@@ -241,6 +304,27 @@ jobs:
           test -d "$APP_PATH" || { echo "::error::App not found at $APP_PATH"; exit 1; }
           echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
 
+      - name: Embed the provisioning profile
+        # Xcode embeds the profile it signed with; this is the backstop for a
+        # build that did not. It runs BEFORE the outer re-sign so the app's
+        # seal covers the file (a profile added after signing breaks the seal).
+        env:
+          APP: ${{ steps.locate.outputs.app_path }}
+          PROFILE: ${{ steps.macprof.outputs.path }}
+        run: |
+          set -euo pipefail
+          EMBEDDED="$APP/Contents/embedded.provisionprofile"
+          if [[ -s "$EMBEDDED" ]]; then
+            if cmp -s "$EMBEDDED" "$PROFILE"; then
+              echo "Xcode embedded the installed profile."
+            else
+              echo "::warning::Xcode embedded a profile that differs from MAC_PROVISIONING_PROFILE; the verify step judges it."
+            fi
+          else
+            echo "::warning::Xcode did not embed a provisioning profile; copying MAC_PROVISIONING_PROFILE in."
+            cp "$PROFILE" "$EMBEDDED"
+          fi
+
       - name: Re-sign nested executables (inside-out, hardened)
         env:
           APP: ${{ steps.locate.outputs.app_path }}
@@ -248,6 +332,16 @@ jobs:
           set -euo pipefail
           IDENTITY="Developer ID Application"
           OPTS="--force --options runtime --timestamp --sign"
+          # The outer app is re-signed with the entitlements XCODE signed it
+          # with, read back before anything is re-signed — not the raw
+          # Maugham/Maugham.entitlements. Xcode's set is that file PLUS the
+          # com.apple.application-identifier and team identifier it takes from
+          # the profile, and without those the embedded profile cannot be
+          # matched to the app, so the keychain group it grants does not hold.
+          ENTS="$RUNNER_TEMP/Maugham.signed-entitlements.plist"
+          codesign -d --entitlements - --xml "$APP" > "$ENTS"
+          plutil -lint "$ENTS"
+          plutil -p "$ENTS"
           # Sign the bundled tectonic binary (ships via a type:folder reference,
           # so Xcode's build does not re-sign it — notarytool would reject it).
           TECTONIC="$APP/Contents/Resources/bin/tectonic"
@@ -262,15 +356,34 @@ jobs:
           # Re-sign the outer app LAST so its seal covers the freshly-signed
           # nested code. (Xcode already signed it once; this re-seals with the
           # entitlements + hardened runtime intact.)
-          codesign $OPTS "$IDENTITY" --entitlements Maugham/Maugham.entitlements "$APP"
+          codesign $OPTS "$IDENTITY" --entitlements "$ENTS" "$APP"
           # Verify the whole thing is internally consistent before we notarize.
           codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: Verify the app carries its provisioning profile
+        # FAILS the release unless (a) Contents/embedded.provisionprofile
+        # exists, is this team's Developer ID profile for com.maugham.Maugham,
+        # is unexpired and grants the keychain group; (b) the app's signature
+        # (`codesign -d --entitlements -`) names the group, the application
+        # identifier and the team; and (c) the signature verifies. (a) is the
+        # check `codesign --verify` cannot make: it passes an app signed with
+        # the group and no profile. scripts/tests/verify-mac-signing.test.sh
+        # pins every arm.
+        env:
+          APP: ${{ steps.locate.outputs.app_path }}
+          EXPECT_TEAM: ${{ steps.team.outputs.team_id }}
+        run: |
+          set -euo pipefail
+          codesign -d --entitlements - "$APP"
+          EXPECT_BUNDLE_ID="$MAC_BUNDLE_ID" EXPECT_GROUP="$PERSON_KEY_GROUP" \
+            scripts/verify-mac-signing.sh app "$APP"
 
       - name: Notarize + staple
         env:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP: ${{ steps.locate.outputs.app_path }}
+          TEAM_ID: ${{ steps.team.outputs.team_id }}
         run: |
           set -euo pipefail
           KEY="/tmp/asc/AuthKey_${ASC_KEY_ID}.p8"
@@ -326,6 +439,9 @@ jobs:
           # Gate: assessment + signature must pass or we don't ship.
           spctl -a -t exec -vv "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
+          # Once more over exactly what gets packaged.
+          EXPECT_TEAM="$TEAM_ID" EXPECT_BUNDLE_ID="$MAC_BUNDLE_ID" EXPECT_GROUP="$PERSON_KEY_GROUP" \
+            scripts/verify-mac-signing.sh app "$APP"
 
       - name: Package .dmg and .zip
         env:

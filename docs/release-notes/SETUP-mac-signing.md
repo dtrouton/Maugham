@@ -2,9 +2,10 @@
 
 The release workflow (`.github/workflows/release.yml`) signs the Mac app with a
 **Developer ID Application** certificate and notarizes it with an App Store Connect
-API key. The ASC key is the **same one the phone pipeline already uses** — only the
-certificate is new. This is the one-time setup to do before cutting the first signed
-release.
+API key, and embeds a **Developer ID provisioning profile** that grants the app its
+keychain entitlement. The ASC key is the **same one the phone pipeline already uses**;
+the certificate and the profile are the Mac's own. This is the one-time setup to do
+before cutting the first signed release.
 
 ## 1. Create the Developer ID Application certificate
 
@@ -42,7 +43,59 @@ notarytool authenticates with these.
 The workflow derives the Team ID at runtime from the imported certificate
 (`security find-identity`), so there is no Team-ID secret to set.
 
-## 4. Dry run (the integration test)
+## 4. Provisioning profile
+
+The Release app is entitled to the person key's iCloud Keychain group,
+`FF3XH4ZJ45.com.maugham.person` (`keychain-access-groups` in
+`Maugham/Maugham.entitlements`). That entitlement is **restricted**: it holds only
+under an embedded provisioning profile that grants it, and without one the signed
+build fails (*"Maugham" requires a provisioning profile*). The release workflow
+refuses to run without the profile rather than ship an app that silently reads the
+keychain as unavailable.
+
+**In the portal** (Certificates, Identifiers & Profiles):
+
+1. **Identifiers** → find or register the explicit App ID **`com.maugham.Maugham`**
+   (platform macOS). Register one only if it is missing — **+** → App IDs → App →
+   macOS, description `Maugham`, Bundle ID *Explicit* `com.maugham.Maugham`.
+2. On that App ID's **Capabilities**, make sure **Keychain Sharing** is enabled if
+   the portal lists it (on some accounts the keychain group rides on the App ID
+   prefix and there is no switch — either way the downloaded profile must grant
+   `FF3XH4ZJ45.*` or the exact group; the workflow checks this). Save.
+3. **Profiles** → **+** → under *Distribution*, **Developer ID** → App ID
+   `com.maugham.Maugham` → the **Developer ID Application** certificate from §1 →
+   name it (e.g. `Maugham Developer ID`) → Generate → Download. The file ends in
+   `.provisionprofile`.
+
+**Check it before storing it** (from the directory you downloaded it to):
+
+    security cms -D -i Maugham_Developer_ID.provisionprofile > /tmp/mac-profile.plist
+    /usr/libexec/PlistBuddy -c 'Print :Entitlements' /tmp/mac-profile.plist
+    /usr/libexec/PlistBuddy -c 'Print :ProvisionsAllDevices' /tmp/mac-profile.plist
+    EXPECT_TEAM=FF3XH4ZJ45 EXPECT_BUNDLE_ID=com.maugham.Maugham \
+      EXPECT_GROUP=FF3XH4ZJ45.com.maugham.person \
+      scripts/verify-mac-signing.sh profile Maugham_Developer_ID.provisionprofile
+
+The entitlements must show `com.apple.application-identifier =
+FF3XH4ZJ45.com.maugham.Maugham` and `keychain-access-groups` containing `FF3XH4ZJ45.*`
+(or the exact group); `ProvisionsAllDevices` must be `true` (a *development* profile
+lists devices instead, and would limit the app to those Macs). The last command is
+the check the workflow itself runs, and must print `ok:`.
+
+**Store it** as a repository secret (Settings → Secrets and variables → Actions):
+
+    base64 -i Maugham_Developer_ID.provisionprofile | pbcopy
+
+| Secret | Value |
+|---|---|
+| `MAC_PROVISIONING_PROFILE` | the base64 string now on your clipboard |
+
+**Renewal.** A Developer ID profile expires with (at most) its certificate; the
+workflow refuses an expired one by name. Regenerating the certificate means
+regenerating this profile against it and replacing the secret — the build needs no
+other change, because the workflow reads the profile's name from the secret.
+
+## 5. Dry run (the integration test)
 
 Per the dry-run-is-the-integration-test rule, prove the signing/notarization/install
 path on a **throwaway** tag before a real release — cert/profile/API-key/upload and
@@ -63,7 +116,9 @@ version, not a manual post-publish flip. Real releases use normal patch numbers
     git push origin v0.5.90          # cut from the feature branch; the workflow
                                      # fires on any v* tag regardless of branch
 
-Watch the run (`gh run watch`). The build must: sign without error, **notarytool
+Watch the run (`gh run watch`). The build must: install the profile (the log
+names it), sign without error, pass *Verify the app carries its provisioning profile* (the log prints the app's
+entitlements, then `ok:` lines naming the profile and the group), **notarytool
 accept** the hardened-runtime build (this is where a missing WhisperKit entitlement
 would surface — read `xcrun notarytool log <id>` if it rejects), staple, and pass the
 `spctl`/`codesign` gate. The published release will be a **prerelease** (hidden from
@@ -76,8 +131,10 @@ Delete the throwaway tag + release afterward:
     git push --delete origin v0.5.90
     git tag -d v0.5.90
 
-Build numbers are `github.run_number`, so throwaway tags never collide with later
-real releases. The full dry-run checklist is Task 14 of
+Build numbers are `git rev-list --count HEAD` (the tagged commit's count — see the
+workflow's *Extract version* step), not `github.run_number`. The updater compares
+`CFBundleShortVersionString` alone, so a throwaway's build number never gets in a
+later real release's way. The full dry-run checklist is Task 14 of
 `docs/superpowers/plans/2026-06-01-mac-auto-update.md`.
 
 ## Switching to lowercase later (optional)
