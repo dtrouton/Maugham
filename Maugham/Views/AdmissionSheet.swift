@@ -145,6 +145,15 @@ struct AdmissionSheet: View {
     static let linkedElsewhereLine =
         "The Apple ID it carries is already linked to someone else in this book."
 
+    /// With `ClaimHint.linkedButRevoked` (whole-branch review, minor 2): the
+    /// key is linked to a person here every one of whose devices has been
+    /// revoked — quite possibly this device's own person, so "someone else"
+    /// would be false. Revoking a device never forgets the Apple ID, which is
+    /// why recognition asks rather than letting it in.
+    static let linkedButRevokedLine =
+        "The Apple ID it carries is linked in this book to someone whose "
+        + "devices have all been revoked."
+
     /// Every line the sheet draws about the claim, in order — empty where the
     /// device carries no claim that verifies, which is every device before
     /// this milestone. **Plain on purpose** (Task 5's carry): a sheet forced
@@ -154,6 +163,7 @@ struct AdmissionSheet: View {
         guard let hint = request.hint else { return [] }
         var lines = [claimLine(for: hint), claimAttribution]
         if hint.linkedElsewhere { lines.append(linkedElsewhereLine) }
+        if hint.linkedButRevoked { lines.append(linkedButRevokedLine) }
         return lines
     }
 

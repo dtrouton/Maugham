@@ -204,8 +204,10 @@ final class AdmissionClaimHintTests: XCTestCase {
         let asked = try request(for: arrival, people: [rootRecord(), sam])
 
         XCTAssertEqual(asked.proposedLabel, "New Phone")
-        XCTAssertEqual(asked.hint?.linkedElsewhere, true,
+        XCTAssertEqual(asked.hint?.linkedButRevoked, true,
                        "recognition's own answer: every record of that label revoked")
+        XCTAssertEqual(asked.hint?.linkedElsewhere, false,
+                       "and not someone else's (whole-branch review, minor 2)")
     }
 
     /// A remembered label (this Mac named a device the folder has no record
@@ -258,6 +260,29 @@ final class AdmissionClaimHintTests: XCTestCase {
             AdmissionSheet.claimAttribution,
             AdmissionSheet.linkedElsewhereLine,
         ])
+    }
+
+    /// **A key whose every holder is revoked is not "someone else's"**
+    /// (whole-branch review, minor 2): Sam's key, Sam's every device revoked,
+    /// and a device of Sam's asking. The sheet says what is true — the key's
+    /// person has had every device revoked — and never that it is linked to
+    /// somebody else.
+    func test_aKeyWhosePersonIsAllRevokedSaysSoAndNotSomeoneElse() throws {
+        let samMac = DeviceIdentity.softwareForTesting().fingerprint
+        let samRecord = person(samMac, label: "Sam", key: samKey, revoked: true)
+        let arrival = try device(name: "Sam’s iPad", claimBy: samKey)
+
+        let asked = try request(for: arrival, people: [rootRecord(), samRecord])
+
+        XCTAssertEqual(asked.hint?.linkedElsewhere, false)
+        XCTAssertEqual(asked.hint?.linkedButRevoked, true)
+        XCTAssertEqual(AdmissionSheet.hintLines(for: asked), [
+            "It calls itself Sam’s iPad, belonging to Sam.",
+            AdmissionSheet.claimAttribution,
+            AdmissionSheet.linkedButRevokedLine,
+        ])
+        XCTAssertFalse(AdmissionSheet.hintLines(for: asked)
+            .contains(AdmissionSheet.linkedElsewhereLine))
     }
 
     // MARK: - A forced sheet is not an alarm (Task 5's carry)

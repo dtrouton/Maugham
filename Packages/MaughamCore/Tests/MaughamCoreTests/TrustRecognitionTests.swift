@@ -78,9 +78,11 @@ final class TrustRecognitionTests: XCTestCase {
     }
 
     private func hint(
-        _ person: String, _ device: String = "New iPhone", elsewhere: Bool = false
+        _ person: String, _ device: String = "New iPhone", elsewhere: Bool = false,
+        revoked: Bool = false
     ) -> Recognition {
-        .ask(hint: ClaimHint(personName: person, deviceName: device, linkedElsewhere: elsewhere))
+        .ask(hint: ClaimHint(personName: person, deviceName: device,
+                             linkedElsewhere: elsewhere, linkedButRevoked: revoked))
     }
 
     private func unreadablePerson(_ fp: String) -> MalformedRecord {
@@ -250,8 +252,10 @@ final class TrustRecognitionTests: XCTestCase {
 
     func test_aKeyWhoseEveryHolderIsRevokedAsks() throws {
         let s = person(samFP, label: "Sam", by: rootFP, key: samKey, revoked: true)
+        // Linked to Sam, every one of whose devices is revoked: not "someone
+        // else" (whole-branch review, minor 2).
         XCTAssertEqual(decide(try device(claimBy: samKey), people: [root, s]),
-                       hint("Sam", elsewhere: true))
+                       hint("Sam", revoked: true))
     }
 
     /// Revoking a device says the DEVICE is gone, not that the key is
@@ -286,7 +290,7 @@ final class TrustRecognitionTests: XCTestCase {
         let mac = person("sam-a", label: "Sam", by: rootFP, key: samKey, revoked: true)
         let phone = person("sam-b", label: "Sam", by: rootFP, key: nil, revoked: true)
         XCTAssertEqual(decide(try device(claimBy: samKey), people: [root, mac, phone]),
-                       hint("Sam", elsewhere: true))
+                       hint("Sam", revoked: true))
     }
 
     // MARK: - Adopted roots are this book's chain

@@ -10,15 +10,24 @@ public struct ClaimHint: Equatable, Hashable, Sendable {
     public let personName: String
     /// The device record's own name.
     public let deviceName: String
-    /// The claim's key is already linked to somebody this device will not
-    /// silently admit it as — another label, another root's record, or a
-    /// revoked one — so the sheet says the key is linked elsewhere.
+    /// The claim's key is linked to somebody ELSE here — another label, or a
+    /// claim naming another person than the key's — so the sheet says the key
+    /// is linked to someone else.
     public let linkedElsewhere: Bool
+    /// The claim's key is linked to a person here EVERY one of whose records
+    /// is revoked (whole-branch review, minor 2). It may well be the same
+    /// person, so "someone else" would be false; the sheet says the key's
+    /// person has had every device revoked instead.
+    public let linkedButRevoked: Bool
 
-    public init(personName: String, deviceName: String, linkedElsewhere: Bool) {
+    public init(
+        personName: String, deviceName: String, linkedElsewhere: Bool,
+        linkedButRevoked: Bool = false
+    ) {
         self.personName = personName
         self.deviceName = deviceName
         self.linkedElsewhere = linkedElsewhere
+        self.linkedButRevoked = linkedButRevoked
     }
 }
 
@@ -62,7 +71,7 @@ public enum Recognition: Equatable, Sendable {
     /// | the holders include the root record or share the root's label, and the claim names another person (Review Focus 3) | `.ask(hint, linkedElsewhere)` |
     /// | the holders include the root record or share the root's label | `.ownDevice(root)` |
     /// | the holders' one label has no name | `.ask(hint)` |
-    /// | every record of that label in the chain is revoked | `.ask(hint, linkedElsewhere)` |
+    /// | every record of that label in the chain is revoked | `.ask(hint, linkedButRevoked)` |
     /// | the claim's name names another person (Review Focus 3) | `.ask(hint, linkedElsewhere)` |
     /// | otherwise | `.knownPerson(representative)` |
     ///
@@ -112,6 +121,9 @@ public enum Recognition: Equatable, Sendable {
             personName: claim.name, deviceName: device.name, linkedElsewhere: false)
         let elsewhere = ClaimHint(
             personName: claim.name, deviceName: device.name, linkedElsewhere: true)
+        let revoked = ClaimHint(
+            personName: claim.name, deviceName: device.name, linkedElsewhere: false,
+            linkedButRevoked: true)
 
         guard registry.holdsARootRecord(thisRoot),
               let root = registry.person(thisRoot), root.isRoot
@@ -178,7 +190,9 @@ public enum Recognition: Equatable, Sendable {
             chain.contains($0.person) && !$0.isRevoked
                 && TrustTable.sharesLabel($0.label, first.label)
         }
-        guard !standing.isEmpty else { return .ask(hint: elsewhere) }
+        // The key is this label's, not somebody else's: the hint says every
+        // device of theirs is revoked (whole-branch review, minor 2).
+        guard !standing.isEmpty else { return .ask(hint: revoked) }
 
         let contradicted = claimNamesAnotherPerson(
             claim, label: first.label, excluding: Set(holders.map(\.person)),
