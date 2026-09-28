@@ -86,12 +86,15 @@ public enum Recognition: Equatable, Sendable {
     /// evidence, and (Task 6 fix round, controller ruling) never an obstacle
     /// either: it is ignored, exactly as if the record were not there.
     ///
-    /// **Revoked records neither help nor block** (controller ruling, fix
-    /// round 1). Revoking a device says that device is gone, not that the key
-    /// is compromised — Forget is the verb for that. So a person stands while
-    /// any record of their label in the chain stands; the root always stands,
-    /// so a revoked record under the root's label never blocks `.ownDevice`;
-    /// every record of another label revoked is `.ask`.
+    /// **Revoked records never block** (controller ruling, fix round 1).
+    /// Revoking a device says that device is gone, not that the key is
+    /// compromised — Forget is the verb for that. So a person stands while
+    /// any record of their label in the chain stands; every record of another
+    /// label revoked is `.ask`. **Under the ROOT's label a revoked holder
+    /// HELPS**: the root always stands, and the root-label arm counts every
+    /// chain holder, so a key held only by a revoked record of the root's
+    /// label still answers `.ownDevice` (whole-branch review, minor 3 —
+    /// behaviour kept, the sentence corrected).
     ///
     /// **The representative** is the lowest-fingerprint STANDING holder (the
     /// record the root actually linked), else the lowest-fingerprint standing

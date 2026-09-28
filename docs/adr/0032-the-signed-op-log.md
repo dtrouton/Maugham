@@ -2863,14 +2863,27 @@ the load are untouched. Recognition decides only who is ADMITTED.
 
   Otherwise a key under the root's label answers `.ownDevice`, and a key under
   one other label answers `.knownPerson` with the lowest-fingerprint standing
-  holder. **Revoked records neither help nor block**: a person with one
-  standing record is still that person.
+  holder. **Revoked records never block**: a person with one standing record
+  is still that person. **Under another label they never help either** — a
+  label whose every record is revoked asks. **Under the ROOT's label a revoked
+  holder does help**: the root record always stands, so a key held only by a
+  revoked record of the root's label (Denver's lost phone, when his own
+  record was never linked) still answers `.ownDevice` (`recognise`'s
+  root-label arm counts every chain holder, revoked or not). Kept on purpose:
+  revoking a lost device is not forgetting its Apple ID, and Forget is the
+  verb for a key that may be compromised (whole-branch review, minor 3).
 - **The silent admission** (`RegistryAdmission.admitRecognised`), PK-2. It
   takes the recognition answer and the resolved `TrustTable`.
   - `.ownDevice` admits under the root's label with the root's timeline permit:
     the whole book.
   - `.knownPerson` admits under that person's label with their CURRENT
-    timeline permit (tripwire 43), never their first record's.
+    timeline permit (tripwire 43), never their first record's. **The permit is
+    the REPRESENTATIVE record's timeline** — the lowest-fingerprint standing
+    holder, else the lowest-fingerprint standing record of the label. Where one
+    person's records carry DIFFERENT permits (a label-wide change that half
+    applied, or a record narrowed on its own before `changePermit(everyRecordOf:)`),
+    the new device takes that one record's permit, not the narrowest or the
+    widest of them (whole-branch review, minor 6).
   - `.unjudgeable` is declined to the sheet.
   - A narrowing permit carries the book's GOVERNING photograph forward
     (`table.unsignedSnapshot.mark`, Ruling Q's value). A narrowed book whose
@@ -2954,9 +2967,11 @@ the load are untouched. Recognition decides only who is ADMITTED.
 - **A label change drops the linked key** (Task 4). *Cost:* a root correcting
   a label's spelling loses recognition for that device until its next open
   re-links it.
-- **Revoked records neither help nor block; an all-revoked label asks** (Task
-  5, overriding "any revoked holder asks"). *Cost:* a revoked device's person
-  is still recognised by key. Forget is the verb for a compromised key.
+- **Revoked records never block; an all-revoked label asks** (Task 5,
+  overriding "any revoked holder asks"). Under the root's label a revoked
+  holder still counts toward `.ownDevice` (minor 3, above). *Cost:* a revoked
+  device's person is still recognised by key. Forget is the verb for a
+  compromised key.
 - **Recognition lives in `RegistryAdmission`; tripwire 49 stands** (Task 6).
   *Cost:* none; one more `RegistryAdmission` verb.
 - **Recognised before remembered, and the remembered pass never hands a
@@ -3019,6 +3034,18 @@ the load are untouched. Recognition decides only who is ADMITTED.
   not narrowed already.
 - **A stored claim that does not verify lingers** until the record's next real
   rewrite. No reader trusts it.
+- **Anybody on the share can switch recognition off for the whole book.** One
+  junk file in `.maugham/people/` is a present-but-unreadable person record,
+  and RULING-54 then makes recognition ask about every device and refuses
+  every link. It only ever turns silent into ask, and the file is visible
+  under People & Devices' *Records that don't verify*, where the root can
+  see it named.
+- **An iCloud Keychain create race can link a key nobody holds.** Two devices
+  of one Apple ID that each mint a person key before the keychain syncs hold
+  two keys until one wins; the root record may by then be linked to the
+  loser, which no device carries, and the person's new devices are asked
+  about. The recovery is Forget, then let the next open relink from a device
+  carrying the surviving key.
 - **Plan 2 owes:** the phone's claim, its device-name rule and census entries;
   the iCloud saved-by hint; the entitlements, profiles and `release.yml`; the
   phone's Settings line; the smoke on real hardware; and the paired release.

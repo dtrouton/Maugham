@@ -94,8 +94,22 @@ costs*. These are the ones that changed behaviour beyond the plan as written:
   `healTheSchemaGateIfNarrowed`. The order is reasoned safe (the book was
   narrowed before this admission) but not pinned by a test.
 - **A forgotten key cannot be re-trusted**, and there is no verb for it.
+- **Open-path cost (carried to plan 2).** `admitRecognised` runs inline on the
+  main actor at every root open. Resolve it lazily, or measure it in the smoke
+  on a real book.
+- **A launched app binary is not a test host (carried to plan 2).** An app a
+  test LAUNCHES (rather than hosts) constructs `KeychainPersonKeyStore`. Today
+  that reads unavailable under ad-hoc signing; revisit it when a team-signed
+  Debug build gets the `keychain-access-groups` entitlement, or a launched
+  binary could reach the developer's real keychain.
+- **The whole-branch fix wave (2026-09-28)**: recognised admissions never write
+  `AdmissionMemory`; Forget reaches this root's holders only and reports
+  another root's; each Forget is one dated History row; the sheet's
+  all-revoked hint; the link pass skips forgotten keys. See the ADR addendum.
 - **Minor, deferred:**
   - The claim-name contradiction is case-sensitive.
+  - `labelNamesANarrowedPerson` now reads this root's chain explicitly; the
+    table already filtered foreign events, so its pin cannot go red alone.
   - An unreachable defensive guard remains in `TrustRecognition`.
   - A stored claim that does not verify lingers until the record's next real
     rewrite; no reader trusts it.
