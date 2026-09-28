@@ -453,7 +453,6 @@ public final class DocumentStore {
                 let pass = try RegistryPresence.admitRecognised(
                     in: url, identities: Document.loadIdentities,
                     cache: Document.loadRegistryCache,
-                    memory: Document.loadAdmissionMemory,
                     mark: {
                         try DocumentStore.rememberedAdmissionMark(
                             forPerson: $0, in: url,

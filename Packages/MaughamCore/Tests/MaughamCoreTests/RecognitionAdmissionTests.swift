@@ -71,7 +71,7 @@ final class RecognitionAdmissionTests: XCTestCase {
 
     private func recognise(as identities: LocalIdentities? = nil) throws -> RegistryPresence.RecognitionPass {
         try RegistryPresence.admitRecognised(
-            in: projectURL, identities: identities ?? mine, cache: cache, memory: memory)
+            in: projectURL, identities: identities ?? mine, cache: cache)
     }
 
     private func events(about fingerprint: String) throws -> [PermitEvent] {
@@ -128,8 +128,56 @@ final class RecognitionAdmissionTests: XCTestCase {
         XCTAssertEqual(record.personKey, denverKey.fingerprint,
                        "the record just written is linked in the same pass")
         XCTAssertTrue(try registry().malformed.isEmpty)
-        // The label is remembered, as every admission's is.
-        XCTAssertEqual(memory.label(for: phone.author.fingerprint)?.label, "Denver")
+        // **Not remembered** (whole-branch review, Critical): the label memory
+        // is only ever a SHEET decision. A recognised admission is not the
+        // writer naming a device, and remembering it would let the memory
+        // path admit it with the whole book into every other book this Mac
+        // roots.
+        XCTAssertNil(memory.label(for: phone.author.fingerprint))
+    }
+
+    /// The whole-branch review's scenario: Sam is a reviewer in book 1, her
+    /// iPhone is recognised there; book 2, rooted by the same Mac, has never
+    /// admitted Sam. Her iPhone must reach book 2's SHEET, never be let in by
+    /// the memory path as an author of the whole book.
+    func test_aRecognisedAdmissionInOneBookIsNotRememberedIntoAnother() throws {
+        try rootHere()
+        let samsMac = try declare("Sam's Mac", kind: .mac, claimBy: samKey)
+        try RegistryAdmission.admit(
+            device: samsMac.author.fingerprint, label: "Sam", ownName: "Sam's Mac",
+            in: projectURL, by: mine.author, cache: cache, memory: memory)
+        try RegistryAdmission.changePermit(
+            person: samsMac.author.fingerprint, role: Permit.reviewerRole,
+            scope: Permit.bookScope, pieces: [], mark: .nothingApplied,
+            unsigned: .nothingApplied,
+            in: projectURL, by: mine.author, cache: cache)
+        let samsPhone = try declare("Sam's iPhone", claimBy: samKey)
+        let bookOne = try recognise()
+        XCTAssertEqual(bookOne.admitted.map(\.person), [samsPhone.author.fingerprint],
+                       "precondition: recognised in book 1")
+
+        // Book 2: this Mac roots it; Sam has never been admitted there.
+        let bookTwo = TestTemp.root.appendingPathComponent("recognise-two-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: bookTwo, withIntermediateDirectories: true)
+        try RegistryPresence.ensureDeviceRecord(
+            in: bookTwo, identities: mine, name: "Denver's MacBook", kind: .mac,
+            personClaim: try claim(denverKey, for: mine))
+        try RegistryPresence.ensureRootIfEmpty(
+            in: bookTwo, identities: mine, writerName: "Denver")
+        try RegistryPresence.ensureDeviceRecord(
+            in: bookTwo, identities: samsPhone, name: "Sam's iPhone", kind: .phone,
+            personClaim: try claim(samKey, for: samsPhone))
+
+        // The open's order: recognition, then the memory.
+        let recognised = try RegistryPresence.admitRecognised(
+            in: bookTwo, identities: mine, cache: cache)
+        let remembered = try RegistryPresence.admitRemembered(
+            in: bookTwo, identities: mine, cache: cache, memory: memory)
+
+        XCTAssertTrue(recognised.admitted.isEmpty, "nobody in book 2 holds Sam's key")
+        XCTAssertTrue(remembered.isEmpty, "the recognition in book 1 was never remembered")
+        XCTAssertNil(try RegistryReader.load(projectURL: bookTwo)
+            .person(samsPhone.author.fingerprint), "the sheet asks")
     }
 
     // MARK: - Known person (PK-2): the CURRENT permit, off the timeline

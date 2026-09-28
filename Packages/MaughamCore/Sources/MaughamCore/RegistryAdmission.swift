@@ -400,7 +400,13 @@ public enum RegistryAdmission {
         in projectURL: URL,
         by root: DeviceIdentity,
         within registry: Registry,
-        memory: AdmissionMemory,
+        /// The label memory, or nil for an admission that is NOT the writer's
+        /// sheet decision. Only a sheet (and the memory path re-stating what a
+        /// sheet decided) writes it; `admitRecognised` passes nil and takes no
+        /// memory at all (whole-branch review, Critical): a recognised device
+        /// remembered here would be let into every other book this Mac roots
+        /// by `admitRemembered`, with the whole book.
+        memory: AdmissionMemory?,
         now: () -> Date = { Date() },
         presenter: NSFilePresenter? = nil
     ) throws -> PersonRecord {
@@ -445,7 +451,7 @@ public enum RegistryAdmission {
         // pressing Re-admit at a device that stays shut out.
         if let existing, !existing.isRevoked,
            existing.label == label, existing.ownName == ownName {
-            memory.remember(fingerprint, label: label, ownName: ownName, at: existing.admittedAt)
+            memory?.remember(fingerprint, label: label, ownName: ownName, at: existing.admittedAt)
             return existing
         }
 
@@ -556,7 +562,7 @@ public enum RegistryAdmission {
             forgottenPersonKeys: existing?.forgottenPersonKeys)
         try RegistryWriter.write(
             record, signedBy: root, in: projectURL, presenter: presenter)
-        memory.remember(fingerprint, label: label, ownName: ownName, at: now())
+        memory?.remember(fingerprint, label: label, ownName: ownName, at: now())
         return record
     }
 
@@ -605,6 +611,14 @@ public enum RegistryAdmission {
     ///   book reaches it; the decline a book CAN reach is `.unjudgeable`.
     ///
     /// The event is `silentlyAdmitted` with `PermitEvent.recognisedReason`.
+    ///
+    /// **It takes no label memory and writes none** (whole-branch review,
+    /// Critical). `AdmissionMemory` is only ever a SHEET decision — the writer
+    /// naming a machine. A recognition remembered here would let
+    /// `admitRemembered` admit the same device, with the WHOLE BOOK, into any
+    /// other book this Mac roots that has not narrowed the label: a reviewer
+    /// in one book an author in the next. With no parameter to pass, no later
+    /// caller can write it by accident.
     nonisolated static func admitRecognised(
         device: DeviceRecord,
         as recognition: Recognition,
@@ -613,7 +627,6 @@ public enum RegistryAdmission {
         in projectURL: URL,
         by root: DeviceIdentity,
         within registry: Registry,
-        memory: AdmissionMemory,
         now: () -> Date,
         presenter: NSFilePresenter?
     ) throws -> RecognisedAdmission {
@@ -641,7 +654,7 @@ public enum RegistryAdmission {
             mark: mark, unsigned: unsigned, silently: true,
             reason: PermitEvent.recognisedReason,
             in: projectURL, by: root, within: registry,
-            memory: memory, now: now, presenter: presenter))
+            memory: nil, now: now, presenter: presenter))
     }
 
     /// **Is a remembered label, in THIS book, a person narrowed below the

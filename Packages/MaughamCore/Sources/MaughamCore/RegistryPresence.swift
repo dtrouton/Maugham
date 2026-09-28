@@ -755,6 +755,10 @@ public enum RegistryPresence {
     /// What a recognised person's permit may be, and when it is declined, is
     /// `RegistryAdmission.admitRecognised`'s.
     ///
+    /// **It takes no label memory** (whole-branch review, Critical): the
+    /// memory is only ever a sheet decision, and a recognition written into it
+    /// would reach every other book this Mac roots through `admitRemembered`.
+    ///
     /// The CALLER invalidates trust when `changedTheRegister`, and logs.
     /// Throws what the reads and the admissions throw, `admitRemembered`'s
     /// rule: a throw admits nobody else this time and the next open retries.
@@ -763,7 +767,6 @@ public enum RegistryPresence {
         in projectURL: URL,
         identities: LocalIdentities,
         cache: RegistryCache,
-        memory: AdmissionMemory,
         mark: (String) throws -> PermitMark = { _ in .nothingApplied },
         now: () -> Date = { Date() },
         presenter: NSFilePresenter? = nil
@@ -810,7 +813,7 @@ public enum RegistryPresence {
             switch try RegistryAdmission.admitRecognised(
                 device: device, as: recognition, table: table,
                 mark: mark, in: projectURL, by: author, within: registry,
-                memory: memory, now: now, presenter: presenter) {
+                now: now, presenter: presenter) {
             case .admitted(let record): admitted.append(record.person)
             case .declined(let why):
                 declined.append("\(DeviceCode.short(device.device)): \(why)")

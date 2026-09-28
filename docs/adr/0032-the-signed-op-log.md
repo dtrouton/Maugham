@@ -2883,9 +2883,18 @@ the load are untouched. Recognition decides only who is ADMITTED.
   (PK-3). A key claimed under two labels links to neither, and refusals are
   collected rather than thrown. Then it recognises and admits every unadmitted
   device, then links the new records.
-  - **Recognised before remembered.** At open and mid-session
-    (`AdmissionDecision.refreshedRequests`), the recognition pass runs BEFORE
-    `admitRemembered`.
+  - **Recognised before remembered, and never INTO the memory.** At open and
+    mid-session (`AdmissionDecision.refreshedRequests`), the recognition pass
+    runs BEFORE `admitRemembered`. A recognised admission writes nothing to
+    `AdmissionMemory`, which is only ever a sheet decision: both
+    `admitRecognised`s take no memory parameter, and `admit`'s memory is
+    optional, passed as nil by recognition alone. Remembered, Sam's iPhone
+    recognised as a reviewer in one book would be admitted by the memory path
+    as an author of the whole book in another book this Mac roots that has
+    never admitted Sam (whole-branch review, Critical; pinned:
+    `RecognitionAdmissionTests.test_aRecognisedAdmissionInOneBookIsNotRememberedIntoAnother`).
+    *Cost:* a recognised device is recognised again, or asked about, in the
+    next book rather than remembered.
   - **The remembered-pass fix.** `admitRemembered` used to admit a remembered
     label as author of the whole book whatever that person's permit in this
     book. It now leaves to the sheet any device whose remembered label is a

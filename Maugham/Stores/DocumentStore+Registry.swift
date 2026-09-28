@@ -762,14 +762,12 @@ extension DocumentStore {
         let projectURL = self.projectURL
         let identities = Document.loadIdentities
         let cache = Document.loadRegistryCache
-        let memory = Document.loadAdmissionMemory
         let state = Document.loadDeviceState
         let pass: RegistryPresence.RecognitionPass
         do {
             pass = try await Task.detached(priority: .userInitiated) {
                 try RegistryPresence.admitRecognised(
                     in: projectURL, identities: identities, cache: cache,
-                    memory: memory,
                     mark: {
                         try DocumentStore.rememberedAdmissionMark(
                             forPerson: $0, in: projectURL,

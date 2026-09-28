@@ -883,7 +883,15 @@ device already admitted under another root is skipped rather than thrown on.
 device-local, identity-scoped like the cache, and has **no project key at all**
 — what the writer decided a machine is called is a fact about their decision,
 not about a folder. `labelledAt` moves only when the label actually changes,
-which is what keeps History's *remembered from Playlist* true.
+which is what keeps History's *remembered from Playlist* true. **It is only
+ever a SHEET decision** (your devices are you, whole-branch review): a
+recognised admission writes nothing to it — `RegistryAdmission.admitRecognised`
+and `RegistryPresence.admitRecognised` take no memory parameter, and the
+internal `admit` takes `AdmissionMemory?`, which recognition passes as nil. A
+recognition remembered would let `admitRemembered` admit the same device, with
+the WHOLE BOOK, into any other book this Mac roots (a reviewer in one book an
+author in the next). Pinned: `RecognitionAdmissionTests
+.test_aRecognisedAdmissionInOneBookIsNotRememberedIntoAnother`.
 
 **The table gained a verdict whose answer depends on a DATE, and adoption.** `.retired(device:retiredAt:)`
 is the one verdict whose answer depends on WHEN a seal was made — hence
