@@ -59,6 +59,16 @@ struct AdmissionRequest: Identifiable, Equatable {
     /// verifies, which is every device before this milestone. A HINT, never
     /// identity: anybody can name a key anything.
     let hint: ClaimHint?
+    /// **Who iCloud says last saved this device's record** (your devices are
+    /// you, plan 2 Task 3; ruling P2-3) — `SavedByReader`'s answer for the
+    /// record's own file, read off the main actor by the refresh
+    /// (`AdmissionDecision.refreshedRequests`' `savedBy`). Independent of
+    /// `hint`: Apple's servers set it, not the device, so it is drawn with or
+    /// without a claim. **Nil is the ordinary answer** — the OS says nothing
+    /// about a file the current user saved, so on the root's own Mac a record
+    /// the root saved has no saved-by name at all, and nothing here supplies
+    /// one; nor a record that is not in iCloud, or has no file here.
+    var savedBy: String?
     /// **What is waiting, and where, in the writer's terms** (P3b smoke find
     /// F2) — *1 paragraph in “Chapter 3”* and the first words of it. Filled in
     /// by the window from the loads' own descriptions (`AdmissionWaiting
@@ -70,7 +80,8 @@ struct AdmissionRequest: Identifiable, Equatable {
         fingerprint: String, ownName: String?, code: String,
         waitingCount: Int, proposedLabel: String, knownLabels: [String],
         sharesItsNameWith: String? = nil,
-        hint: ClaimHint? = nil
+        hint: ClaimHint? = nil,
+        savedBy: String? = nil
     ) {
         self.fingerprint = fingerprint
         self.ownName = ownName
@@ -80,6 +91,7 @@ struct AdmissionRequest: Identifiable, Equatable {
         self.knownLabels = knownLabels
         self.sharesItsNameWith = sharesItsNameWith
         self.hint = hint
+        self.savedBy = savedBy
     }
 
     var id: String { fingerprint }
@@ -463,6 +475,13 @@ enum AdmissionDecision {
     /// other Mac, and `RegistryPresence.admitRemembered` refuses one. It used
     /// to pay one verified resolve per settle to learn that. Defaulted to
     /// *look*, the side that errs toward the verified read.
+    ///
+    /// **`savedBy` is asked after `requests`, with exactly the fingerprints it
+    /// asks about** (your devices are you, plan 2 Task 3). The production
+    /// closure reads `SavedByReader` over each device record's file in a
+    /// detached task — a resource-value read is disk and a daemon round trip,
+    /// and this function is main-actor. Defaulted to nobody, so a caller that
+    /// passes nothing draws no saved-by line.
     @MainActor
     static func refreshedRequests(
         cause: RefreshCause = .announcement,
@@ -475,6 +494,7 @@ enum AdmissionDecision {
         memory: [String: AdmissionMemory.Label],
         admitRemembered: @MainActor () async -> Void,
         admitRecognised: @MainActor () async -> Bool = { false },
+        savedBy: @MainActor ([String]) async -> [String: String] = { _ in [:] },
         resolve: @MainActor () async -> (registry: Registry, myRoot: String?)?
     ) async -> [AdmissionRequest]? {
         guard await holdsARootRecord() else { return [] }
@@ -508,11 +528,33 @@ enum AdmissionDecision {
             guard !pending.isEmpty || !arrived.isEmpty else { return [] }
         }
         guard let resolved = await resolve() else { return nil }
-        return requests(
+        let asked = requests(
             pending: pending, streams: heldStreams(),
             registry: resolved.registry,
             memory: memory, myRoot: resolved.myRoot,
             thisDevice: thisDevice)
+        // **Who iCloud says saved each record** (plan 2 Task 3) — asked LAST,
+        // and only about the devices the sheet will actually ask about, so a
+        // refresh that asks about nobody reads no resource value at all.
+        guard !asked.isEmpty else { return asked }
+        return withSavedBy(asked, names: await savedBy(asked.map(\.fingerprint)))
+    }
+
+    /// **Each request with iCloud's saved-by name, where there is one** (plan
+    /// 2 Task 3). A fingerprint the map does not name keeps nil — the answer
+    /// for a record the current user saved, or one iCloud says nothing about —
+    /// and a blank name is no name, so nothing reaches the sheet that the
+    /// reader did not report.
+    static func withSavedBy(
+        _ requests: [AdmissionRequest], names: [String: String]
+    ) -> [AdmissionRequest] {
+        requests.map { request in
+            var request = request
+            let name = names[request.fingerprint]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            request.savedBy = name.isEmpty ? nil : name
+            return request
+        }
     }
 
     /// **Which event asked for a refresh** — the window's four triggers, named

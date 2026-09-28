@@ -154,16 +154,56 @@ struct AdmissionSheet: View {
         "The Apple ID it carries is linked in this book to someone whose "
         + "devices have all been revoked."
 
-    /// Every line the sheet draws about the claim, in order — empty where the
-    /// device carries no claim that verifies, which is every device before
-    /// this milestone. **Plain on purpose** (Task 5's carry): a sheet forced
-    /// by an unreadable record or another root's say-so is still just a
+    /// **What iCloud says about the device's record** (your devices are you,
+    /// plan 2 Task 3; ruling P2-3): Apple's servers name whoever last saved
+    /// the file, which the device cannot write for itself — an independent
+    /// hint beside its claim, drawn in the same plain register.
+    static func savedByLine(name: String) -> String {
+        "iCloud says this device\u{2019}s record was saved by \(name)."
+    }
+
+    /// With `savedByLine`, where the device also claims a person and iCloud's
+    /// name is not that one. A fact, not a warning: the writer is deciding
+    /// anyway, and a person's Apple ID name and the name on their key can
+    /// differ for ordinary reasons.
+    static let savedByDisagreesLine = "That isn\u{2019}t the name the device gives."
+
+    /// **Do two names say the same person?** Case-insensitive, and blind to
+    /// whitespace — leading, trailing and how much sits between words — so
+    /// *Sam  Ruiz* and *sam ruiz* agree.
+    static func sameName(_ a: String, _ b: String) -> Bool {
+        func folded(_ s: String) -> String {
+            s.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+        return folded(a).caseInsensitiveCompare(folded(b)) == .orderedSame
+    }
+
+    /// Every line the sheet draws about who the device is, in order: the
+    /// claim's lines (none where the device carries no claim that verifies,
+    /// which is every device before this milestone), then iCloud's saved-by
+    /// line — **with or without a claim**, since the two are independent —
+    /// and, where both name somebody and they differ, the line saying so.
+    /// Nothing about saved-by where `savedBy` is nil: that is the OS's answer
+    /// for a record the current user saved, and the sheet never supplies a
+    /// name in its place. **Plain on purpose** (Task 5's carry): a sheet
+    /// forced by an unreadable record or another root's say-so is still just a
     /// device asking, and reads like one.
     static func hintLines(for request: AdmissionRequest) -> [String] {
-        guard let hint = request.hint else { return [] }
-        var lines = [claimLine(for: hint), claimAttribution]
-        if hint.linkedElsewhere { lines.append(linkedElsewhereLine) }
-        if hint.linkedButRevoked { lines.append(linkedButRevokedLine) }
+        var lines: [String] = []
+        if let hint = request.hint {
+            lines += [claimLine(for: hint), claimAttribution]
+            if hint.linkedElsewhere { lines.append(linkedElsewhereLine) }
+            if hint.linkedButRevoked { lines.append(linkedButRevokedLine) }
+        }
+        let savedBy = request.savedBy?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !savedBy.isEmpty {
+            lines.append(savedByLine(name: savedBy))
+            let claimed = request.hint?.personName
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !claimed.isEmpty, !sameName(claimed, savedBy) {
+                lines.append(savedByDisagreesLine)
+            }
+        }
         return lines
     }
 
@@ -295,9 +335,10 @@ struct AdmissionSheet: View {
             }
             let hintLines = Self.hintLines(for: request)
             if !hintLines.isEmpty {
-                // The device's own word about itself, set apart as a quote is
-                // — secondary, never orange: a claim is information, and the
-                // writer is about to decide anyway.
+                // The device's own word about itself, and iCloud's word about
+                // its record, set apart as a quote is — secondary, never
+                // orange: both are information, and the writer is about to
+                // decide anyway.
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(hintLines, id: \.self) { line in
                         Text(line)

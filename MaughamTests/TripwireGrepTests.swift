@@ -7462,6 +7462,103 @@ final class TripwireGrepTests: XCTestCase {
             + "still be caught. Caught:\n" + lookalike.joined(separator: "\n"))
     }
 
+    // MARK: - One reader of iCloud's saved-by name (your devices are you, plan 2 Task 3)
+
+    /// The spelling the census looks for: the key's name and the value's
+    /// property share it, so one substring finds a request, a read and prose.
+    static let savedByKeySpelling = "MostRecentEditorNameComponents"
+
+    /// **Is this line in this file a use of the saved-by key the census
+    /// refuses?** `SavedByReader.swift` is the one reader and is allowed
+    /// whole. `FileURLShareMetadataReader.swift` REQUESTS the key for the share
+    /// pill and never reads it, so there every occurrence must be the key's
+    /// own name — `…NameComponentsKey` — and a read of the value there fires
+    /// too. Everything else fires on any mention, prose included: a comment
+    /// elsewhere can say `SavedByReader`.
+    static func isForeignSavedByKeyUse(_ line: String, file: String) -> Bool {
+        guard line.contains(savedByKeySpelling) else { return false }
+        switch file {
+        case "SavedByReader.swift":
+            return false
+        case "FileURLShareMetadataReader.swift":
+            return line.components(separatedBy: savedByKeySpelling).dropFirst()
+                .contains { !$0.hasPrefix("Key") }
+        default:
+            return true
+        }
+    }
+
+    private func savedByKeyOffenders(in roots: [URL]) throws -> [String] {
+        var offenders: [String] = []
+        for root in roots {
+            guard let walker = FileManager.default.enumerator(
+                at: root, includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                for (i, line) in text.split(
+                    separator: "\n", omittingEmptySubsequences: false).enumerated()
+                where Self.isForeignSavedByKeyUse(String(line), file: url.lastPathComponent) {
+                    offenders.append("\(url.lastPathComponent):\(i + 1): "
+                        + line.trimmingCharacters(in: .whitespaces))
+                }
+            }
+        }
+        return offenders
+    }
+
+    /// **`SavedByReader` is the one reader of iCloud's saved-by name.** A
+    /// second reader is a second opinion about what nil means — and nil is
+    /// the owner's own save, so a reader that filled it in would put the
+    /// root's own save in somebody else's name (Review Focus 3).
+    func test_theSavedByKeyIsReadBySavedByReaderOnly() throws {
+        let offenders = try savedByKeyOffenders(in: [
+            sourceDir,
+            repoRoot.appendingPathComponent("MaughamPhone", isDirectory: true),
+            repoRoot.appendingPathComponent("Packages/MaughamCore/Sources", isDirectory: true),
+        ])
+        XCTAssertTrue(offenders.isEmpty,
+            "iCloud's most-recent-editor name is read in SavedByReader.swift only "
+            + "(FileURLShareMetadataReader.swift may request the key, never read "
+            + "it). Ask SavedByReader. Offenders:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// CONTROL: the census fires on a planted reader, on a read of the value
+    /// inside `FileURLShareMetadataReader.swift`, and on a file whose name
+    /// only resembles the allowed one — and lets the allowed request through.
+    func test_theSavedByKeyCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-savedby-selfcheck-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let request = "    .ubiquitousSharedItemMostRecentEditorNameComponentsKey,\n"
+        let read = "let who = values.ubiquitousSharedItemMostRecentEditorNameComponents\n"
+
+        try (request + read).write(to: tmp.appendingPathComponent("SecondReader.swift"),
+                                   atomically: true, encoding: .utf8)
+        XCTAssertEqual(try savedByKeyOffenders(in: [tmp]).count, 2,
+                       "Self-check: any file but the two named fires on both lines")
+
+        try fm.moveItem(at: tmp.appendingPathComponent("SecondReader.swift"),
+                        to: tmp.appendingPathComponent("FileURLShareMetadataReader.swift"))
+        let inShare = try savedByKeyOffenders(in: [tmp])
+        XCTAssertEqual(inShare.count, 1,
+            "Self-check: the share reader may request the key and not read it. Caught:\n"
+            + inShare.joined(separator: "\n"))
+        XCTAssertTrue(inShare.first?.contains("let who") == true)
+
+        try fm.moveItem(at: tmp.appendingPathComponent("FileURLShareMetadataReader.swift"),
+                        to: tmp.appendingPathComponent("SavedByReader.swift"))
+        XCTAssertEqual(try savedByKeyOffenders(in: [tmp]), [],
+                       "Self-check: SavedByReader.swift is allowed whole")
+
+        try fm.moveItem(at: tmp.appendingPathComponent("SavedByReader.swift"),
+                        to: tmp.appendingPathComponent("SavedByReaderHelpers.swift"))
+        XCTAssertEqual(try savedByKeyOffenders(in: [tmp]).count, 2,
+                       "Self-check: allowed by exact name, not by resemblance")
+    }
+
     // MARK: - The device string is the key (signed op log, spec §4.8)
 
     /// The three production roots the device-identity censuses scan. The

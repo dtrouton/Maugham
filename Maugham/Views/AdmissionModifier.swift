@@ -218,6 +218,14 @@ struct AdmissionModifier: ViewModifier {
             // already knows (your devices are you) — the open's second silent
             // path, run here for the same reason.
             admitRecognised: { await documentStore.admitRecognised().changedTheRegister },
+            // Who iCloud says saved each asked-about device's record (plan 2
+            // Task 3) — a resource-value read per record, detached like the
+            // resolve, never on the main actor. Nil on the root's own saves.
+            savedBy: { fingerprints in
+                await Task.detached(priority: .userInitiated) {
+                    SavedByReader().savedBy(deviceRecordsOf: fingerprints, in: url)
+                }.value
+            },
             resolve: {
                 await Task.detached(priority: .userInitiated) {
                     () -> (registry: Registry, myRoot: String?)? in
