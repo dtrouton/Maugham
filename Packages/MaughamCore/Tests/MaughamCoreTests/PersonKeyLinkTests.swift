@@ -124,7 +124,7 @@ final class PersonKeyLinkTests: XCTestCase {
     @discardableResult
     private func forget(
         _ person: LocalIdentities, by root: LocalIdentities? = nil
-    ) throws -> PersonRecord {
+    ) throws -> PersonKeyForgetOutcome {
         try RegistryAdmission.forgetPersonKey(
             person: person.author.fingerprint, in: projectURL,
             by: (root ?? mine).author, cache: makeCache())
@@ -381,13 +381,13 @@ final class PersonKeyLinkTests: XCTestCase {
         XCTAssertTrue(try registry().malformed.isEmpty)
     }
 
-    /// **Forget's holders are the records THIS root admitted** (whole-branch
-    /// review, Important 1 — FLIPPED from "whole or nothing"). A same-label
-    /// record another root holds — here a self-signed root beside mine, which
-    /// anybody on a read-write share can write — is not this Mac's to re-sign,
-    /// so it is REPORTED and never blocks: this root's holders are cleared and
-    /// the key is forgotten on them.
-    func test_aForgetClearsThisRootsHoldersAndReportsAnotherRootsHolder() throws {
+    /// **Forget's holders are the records THIS root admitted; a foreign one is
+    /// ignored entirely** (whole-branch review, Important 1, and the
+    /// controller's follow-up ruling). A same-label record under a root this
+    /// root never adopted — here a self-signed root beside mine, which anybody
+    /// on a read-write share can write — neither blocks nor is reported: the
+    /// Forget is a clean success with no note.
+    func test_aForeignRootsHolderIsIgnoredAndTheForgetIsACleanSuccess() throws {
         try becomeRoot(mine, name: "Denver")
         try admit(phone, label: "Denver", ownName: "Denver's iPhone")
         try becomeRootBeside(otherRoot, name: "Denver")
@@ -399,14 +399,9 @@ final class PersonKeyLinkTests: XCTestCase {
                 fileURL: cacheURL.appendingPathExtension("other"),
                 identity: otherRoot.author.fingerprint))
 
-        XCTAssertThrowsError(try forget(phone)) { error in
-            let incomplete = error as? PersonKeyForgetIncomplete
-            XCTAssertNotNil(incomplete, "reported through the incomplete path: \(error)")
-            XCTAssertEqual(incomplete?.cleared, [phone.author.fingerprint])
-            XCTAssertEqual(incomplete?.notCleared, [])
-            XCTAssertEqual(incomplete?.heldElsewhere, [otherRoot.author.fingerprint])
-            XCTAssertNil(incomplete?.underlying)
-        }
+        let outcome = try forget(phone)
+
+        XCTAssertEqual(outcome.stillLinkedInChain, [], "a foreign record is never named")
         XCTAssertNil(try registry().person(phone.author.fingerprint)?.personKey,
                      "this root's holder is cleared")
         XCTAssertTrue(try registry().person(phone.author.fingerprint)?
@@ -417,8 +412,8 @@ final class PersonKeyLinkTests: XCTestCase {
     }
 
     /// The share-participant case: somebody self-signs a root record AND a
-    /// "Sam" record for a device of theirs carrying Sam's key. Denver can
-    /// still Forget Sam's key on the records Denver admitted.
+    /// "Sam" record for a device of theirs carrying Sam's key. Denver still
+    /// Forgets Sam's key cleanly, with no note about the planted record.
     func test_aPlantedForeignRecordUnderTheLabelCannotDenyTheRootsForget() throws {
         try becomeRoot(mine, name: "Denver")
         try admit(sam, label: "Sam", ownName: "Sam's Mac")
@@ -435,14 +430,44 @@ final class PersonKeyLinkTests: XCTestCase {
         XCTAssertEqual(try registry().person(samsPhone.author.fingerprint)?.personKey,
                        samsKey.fingerprint, "premise: the planted record verifies")
 
-        XCTAssertThrowsError(try forget(sam)) { error in
-            let incomplete = error as? PersonKeyForgetIncomplete
-            XCTAssertEqual(incomplete?.cleared, [sam.author.fingerprint])
-            XCTAssertEqual(incomplete?.heldElsewhere, [samsPhone.author.fingerprint])
-        }
+        let outcome = try forget(sam)
+
+        XCTAssertEqual(outcome.stillLinkedInChain, [])
         XCTAssertNil(try registry().person(sam.author.fingerprint)?.personKey)
         XCTAssertTrue(try registry().person(sam.author.fingerprint)?
             .hasForgotten(samsKey.fingerprint) ?? false)
+    }
+
+    /// **A holder under a root this root ADOPTED is this book's chain**: this
+    /// Mac cannot re-sign it, so the Forget succeeds and NAMES it (the
+    /// surface says *still linked on <device>, admitted by <root>*) — never
+    /// `PersonKeyForgetIncomplete`, which is this root's own failure only.
+    func test_anAdoptedRootsHolderIsNamedOnASuccessfulForget() throws {
+        try becomeRoot(mine, name: "Denver")
+        try admit(sam, label: "Sam", ownName: "Sam's Mac")
+        try link(sam, to: samsKey)
+        try becomeRootBeside(otherRoot, name: "Amelia")
+        let theirCache = RegistryCache(
+            fileURL: cacheURL.appendingPathExtension("other"),
+            identity: otherRoot.author.fingerprint)
+        try declare(samsPhone, name: "Sam's iPhone")
+        try RegistryAdmission.admit(
+            device: samsPhone.author.fingerprint, label: "Sam", ownName: "Sam's iPhone",
+            in: projectURL, by: otherRoot.author, cache: theirCache, memory: makeMemory())
+        try RegistryAdmission.linkPersonKey(
+            person: samsPhone.author.fingerprint, to: samsKey.fingerprint,
+            in: projectURL, by: otherRoot.author, cache: theirCache)
+        try RegistryAdmission.claim(
+            adopting: [otherRoot.author.fingerprint], in: projectURL,
+            by: mine.author, cache: makeCache())
+
+        let outcome = try forget(sam)
+
+        XCTAssertEqual(outcome.stillLinkedInChain.map(\.person), [samsPhone.author.fingerprint])
+        XCTAssertEqual(outcome.stillLinkedInChain.first?.admittedBy, otherRoot.author.fingerprint)
+        XCTAssertNil(try registry().person(sam.author.fingerprint)?.personKey)
+        XCTAssertEqual(try registry().person(samsPhone.author.fingerprint)?.personKey,
+                       samsKey.fingerprint, "the adopted root's record is not this Mac's to re-sign")
     }
 
     /// The converse: with no other root's holder, a Forget is whole and
@@ -593,7 +618,7 @@ final class PersonKeyLinkTests: XCTestCase {
         let admitted = try admit(phone, label: "Denver", ownName: "Denver's iPhone")
         try link(phone, to: denversKey)
 
-        let forgotten = try forget(phone)
+        let forgotten = try forget(phone).record
 
         XCTAssertNil(forgotten.personKey)
         XCTAssertNil(try object(of: phone)["personKey"], "the key is gone from the file")
@@ -607,7 +632,7 @@ final class PersonKeyLinkTests: XCTestCase {
         try admit(phone, label: "Denver", ownName: "Denver's iPhone")
         let before = try bytes(of: phone)
 
-        let same = try forget(phone)
+        let same = try forget(phone).record
 
         XCTAssertNil(same.personKey)
         XCTAssertEqual(try bytes(of: phone), before)

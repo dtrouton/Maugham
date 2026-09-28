@@ -1909,11 +1909,14 @@ through `renameOutcome`, re-signed through `RegistryWriter.resign`.
 - Forget is label-wide over the holders THIS root admitted
   (`RegistryAdmission.forgetHolders(of:by:in:).mine`, the one set the verb and
   People & Devices' offer both read). It checks them up front, reads them
-  back, and throws `PersonKeyForgetIncomplete` on a partial result. A
-  same-label holder ANOTHER root admitted (`.elsewhere` — an adopted root's
-  record, or one a share participant self-signed) never blocks it and never
-  hides the button: it is reported as `heldElsewhere`, with no *press again*
-  (whole-branch review, Important 1). It is also durable: `hasForgotten(_:)`
+  back, and throws `PersonKeyForgetIncomplete` only when THIS root's own write
+  fails or its own read-back still finds the key. A same-label holder another
+  root admitted never blocks it and never hides the button: under a root this
+  root ADOPTED (`.elsewhere`, chain-scoped by `TrustTable.chain(ofRoot:in:)`)
+  it is named on a SUCCESS (`PersonKeyForgetOutcome.stillLinkedInChain` →
+  `PeopleAndDevicesModel.forgetNote`, *still linked on <device>, admitted by
+  <root>*); outside the chain it is ignored entirely (whole-branch review,
+  Important 1, and the controller's follow-up ruling). It is also durable: `hasForgotten(_:)`
   refuses a relink for ever, and there is no re-trust verb in plan 1. Each
   entry is a dated `ForgottenPersonKey {key, at}` with one date for the whole
   act, and `TrustEvents.derive` draws one `.personKeyForgotten` History row per

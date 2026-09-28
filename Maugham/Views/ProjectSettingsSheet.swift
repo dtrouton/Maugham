@@ -722,7 +722,12 @@ struct ProjectSettingsSheet: View {
         Task { @MainActor in
             guard let store = store.documentStore else { return }
             do {
-                try await store.forgetPersonKey(person: fingerprint)
+                let outcome = try await store.forgetPersonKey(person: fingerprint)
+                // A success can still name records under an adopted root
+                // that carry the key (controller ruling): said, not thrown.
+                if let note = peopleAndDevices?.forgetNote(outcome) {
+                    peopleNotice = note
+                }
             } catch let incomplete as PersonKeyForgetIncomplete {
                 peopleNotice = peopleAndDevices?.forgetIncompleteSentence(incomplete)
                     ?? incomplete.localizedDescription

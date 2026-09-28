@@ -620,27 +620,12 @@ struct PeopleAndDevicesModel: Equatable {
     /// **A Forget that did not finish, in words** (Task 7) — which devices the
     /// folder says no longer carry the link and which still do, named as this
     /// pane names them. `PersonKeyForgetIncomplete`'s lists are what the
-    /// folder read back AFTER the act, so this is the honest account.
-    ///
-    /// **A holder another root admitted** (`heldElsewhere`, whole-branch
-    /// review Important 1) is named as that, and where it is all that is left
-    /// the sentence says the Forget is done here and does NOT say *press
-    /// again* — pressing again changes nothing about another root's record.
+    /// folder read back AFTER the act, so this is the honest account. It is
+    /// this root's own failure only (controller ruling): a holder under an
+    /// adopted root is a successful Forget's note, `forgetNote(_:)`.
     func forgetIncompleteSentence(_ error: PersonKeyForgetIncomplete) -> String {
         let cleared = error.cleared.map(deviceName(ofRecord:))
         let still = error.notCleared.map(deviceName(ofRecord:))
-        let elsewhere = error.heldElsewhere.map(deviceName(ofRecord:))
-        let elsewhereSentence = "It is still linked on \(Self.list(elsewhere)), "
-            + "which another root admitted and this Mac can\u{2019}t change."
-        if still.isEmpty, error.underlying == nil {
-            var parts: [String] = []
-            if !cleared.isEmpty {
-                parts.append("Their Apple ID is no longer linked on "
-                    + "\(Self.list(cleared)).")
-            }
-            if !elsewhere.isEmpty { parts.append(elsewhereSentence) }
-            return parts.joined(separator: " ")
-        }
         var parts: [String] = []
         if cleared.isEmpty {
             parts.append("Nothing was forgotten.")
@@ -657,9 +642,37 @@ struct PeopleAndDevicesModel: Equatable {
         if let underlying = error.underlying {
             parts.append(underlying.localizedDescription)
         }
-        if !elsewhere.isEmpty { parts.append(elsewhereSentence) }
         parts.append("Press Forget again to finish the rest.")
         return parts.joined(separator: " ")
+    }
+
+    /// **A SUCCESSFUL Forget's note** (controller ruling on the fix wave's
+    /// concerns), or nil where there is nothing to add: the records of this
+    /// person under a root this root ADOPTED still carry the key, and this
+    /// Mac cannot re-sign them — *still linked on <device>, admitted by
+    /// <root>*. The Forget itself is done: recognition treats the key as
+    /// forgotten from now on. A record outside this book's chain is never in
+    /// the outcome, so it is never named.
+    func forgetNote(_ outcome: PersonKeyForgetOutcome) -> String? {
+        guard !outcome.stillLinkedInChain.isEmpty else { return nil }
+        let where_ = outcome.stillLinkedInChain.map {
+            "\(deviceName(ofRecord: $0.person)), admitted by \(rootName($0.admittedBy))"
+        }
+        return "Forgotten. Their Apple ID is still linked on "
+            + Self.list(where_) + ", which this Mac can\u{2019}t change; "
+            + "a new device of theirs will still be asked about."
+    }
+
+    /// An adopted root as this pane names it — its merged row, else a person
+    /// row, else its code.
+    private func rootName(_ fingerprint: String) -> String {
+        if let merged = merged.first(where: { $0.fingerprint == fingerprint }) {
+            return merged.name
+        }
+        if let person = people.first(where: { $0.fingerprint == fingerprint }) {
+            return person.label
+        }
+        return DeviceCode.short(fingerprint)
     }
 
     /// *Denver’s iPhone (4F2K)* — a record's machine as its row names it, with

@@ -560,12 +560,16 @@ extension DocumentStore {
     /// `PersonKeyForgetIncomplete`: whatever it DID write must reach every
     /// reader, and the writer is handed the folder's own account of which
     /// records were and were not cleared (the pane puts it in words).
+    ///
+    /// Answers the verb's `PersonKeyForgetOutcome`: a SUCCESS may still carry
+    /// records under an adopted root that hold the key, which the pane says
+    /// in a note (`PeopleAndDevicesModel.forgetNote`).
     @discardableResult
-    public func forgetPersonKey(person fingerprint: String) async throws -> PersonRecord {
+    public func forgetPersonKey(person fingerprint: String) async throws -> PersonKeyForgetOutcome {
         let projectURL = self.projectURL
         let author = Document.loadIdentities.author
         let cache = Document.loadRegistryCache
-        let record: PersonRecord
+        let record: PersonKeyForgetOutcome
         do {
             record = try await Task.detached(priority: .userInitiated) {
                 try RegistryAdmission.forgetPersonKey(

@@ -239,24 +239,34 @@ final class PeopleAndDevicesPersonKeyTests: XCTestCase {
         XCTAssertTrue(sentence.contains("Press Forget again"), sentence)
     }
 
-    /// A Forget that cleared every record this root admitted, with a holder
-    /// another root admitted: said as done here, the other record named, and
-    /// no *press again* — pressing again changes nothing about it.
-    func test_aForgetLeavingOnlyAnotherRootsHolderSaysSoWithoutPressAgain() {
-        let model = model(registry())
-        let error = PersonKeyForgetIncomplete(
-            cleared: [mac.fingerprint], notCleared: [], underlying: nil,
-            heldElsewhere: [samMac.fingerprint])
+    /// **A successful Forget with a holder under an adopted root** (controller
+    /// ruling): a note naming the device and the root that admitted it, and
+    /// nothing about finishing or pressing again; no holder, no note.
+    func test_aSuccessfulForgetNamesAnAdoptedRootsHolderInANote() throws {
+        let adoptedSam = DeviceIdentity.softwareForTesting()
+        let base = registry(samKeyed: true)
+        let reg = Registry(
+            devices: base.devices + [deviceRecord(adoptedSam, name: "Sam’s iPad")],
+            people: base.people + [
+                person(otherRoot, label: "Amelia", admittedBy: otherRoot),
+                person(adoptedSam, label: "Sam", admittedBy: otherRoot, key: samKey),
+            ],
+            claims: [ClaimRecord(newRoot: mac.fingerprint,
+                                 adopted: [otherRoot.fingerprint], claimedAt: admitted)])
+        let model = model(reg)
+        let still = try XCTUnwrap(reg.person(adoptedSam.fingerprint))
+        let samRecord = try XCTUnwrap(reg.person(samMac.fingerprint))
 
-        let sentence = model.forgetIncompleteSentence(error)
+        let note = try XCTUnwrap(model.forgetNote(
+            PersonKeyForgetOutcome(record: samRecord, stillLinkedInChain: [still])))
 
-        XCTAssertTrue(sentence.contains(
-            "no longer linked on Denver’s MacBook Pro (\(DeviceCode.short(mac.fingerprint)))"),
-            sentence)
-        XCTAssertTrue(sentence.contains("Sam’s MacBook Air"), sentence)
-        XCTAssertTrue(sentence.contains("another root"), sentence)
-        XCTAssertFalse(sentence.contains("Press Forget again"), sentence)
-        XCTAssertFalse(sentence.contains("didn’t finish"), sentence)
+        XCTAssertTrue(note.contains("Sam’s iPad (\(DeviceCode.short(adoptedSam.fingerprint)))"), note)
+        XCTAssertTrue(note.contains("admitted by Amelia"), note)
+        XCTAssertFalse(note.contains("Press Forget again"), note)
+        XCTAssertFalse(note.contains("didn’t finish"), note)
+        XCTAssertNil(model.forgetNote(
+            PersonKeyForgetOutcome(record: samRecord, stillLinkedInChain: [])),
+            "a clean Forget says nothing more")
     }
 
     func test_aForgetThatClearedNothingSaysSo() {

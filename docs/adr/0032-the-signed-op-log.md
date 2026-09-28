@@ -2824,12 +2824,16 @@ the load are untouched. Recognition decides only who is ADMITTED.
     of the label THIS root admitted (`RegistryAdmission.forgetHolders`'s
     `mine`, the set it can re-sign), checks those holders up front, reads them
     back, and throws `PersonKeyForgetIncomplete` naming what was and was not
-    cleared. A same-label holder another root admitted — an adopted root's
-    record, or one any share participant self-signs — is REPORTED
-    (`heldElsewhere`) and never blocks, and People & Devices offers Forget
-    over the same set: were such a record to block, one planted file could
-    deny the root its answer to a compromised Apple ID (whole-branch review,
-    Important 1). It records the key in `forgottenPersonKeys` — each entry a
+    cleared — only for THIS root's own write failing or its own read-back
+    still finding the key. A same-label holder another root admitted never
+    blocks, and People & Devices offers Forget over the same set: were such a
+    record to block, one planted file could deny the root its answer to a
+    compromised Apple ID. Under a root this root ADOPTED (this book's chain,
+    `TrustTable.chain(ofRoot:in:)`) the Forget SUCCEEDS with a note naming it,
+    *still linked on <device>, admitted by <root>*
+    (`PersonKeyForgetOutcome.stillLinkedInChain`); outside the chain it is
+    ignored entirely, never reported (whole-branch review, Important 1, and
+    the controller's follow-up ruling). It records the key in `forgottenPersonKeys` — each entry a
     dated `ForgottenPersonKey {key, at}`, one date for the whole act, so
     `TrustEvents.derive` draws ONE History row per Forget
     (`TrustEvent.Kind.personKeyForgotten`: *"<label>'s Apple ID key was

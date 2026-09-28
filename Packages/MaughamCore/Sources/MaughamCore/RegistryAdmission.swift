@@ -1591,9 +1591,12 @@ public enum RegistryAdmission {
     /// would leave the person recognised by it with the writer believing it
     /// gone. Every such holder is checked against `renameOutcome` up front, so
     /// an act this Mac may not complete writes nothing. A same-label holder
-    /// ANOTHER root admitted is not this Mac's to re-sign: it never blocks, and
-    /// is reported as `PersonKeyForgetIncomplete.heldElsewhere` once this
-    /// root's holders are cleared (whole-branch review, Important 1).
+    /// ANOTHER root admitted is not this Mac's to re-sign and never blocks
+    /// (whole-branch review, Important 1, and the controller's follow-up
+    /// ruling): one under a root this root ADOPTED is still this book's chain,
+    /// so the Forget SUCCEEDS and names it
+    /// (`PersonKeyForgetOutcome.stillLinkedInChain`); one outside the chain is
+    /// ignored entirely, exactly as recognition ignores it.
     ///
     /// **A write that fails part way is not atomic, and says so** —
     /// `changePermit(everyRecordOf:)`'s shape: the loop stops, EVERY holder is
@@ -1604,7 +1607,8 @@ public enum RegistryAdmission {
     ///
     /// Allowed over a REVOKED record — it is the one way to release a key a
     /// revoked person holds. Idempotent: a label with no linked key writes
-    /// nothing. Answers the SUBJECT's verified record.
+    /// nothing. Answers the SUBJECT's verified record, and the chain holders
+    /// this Mac could not clear.
     @discardableResult
     nonisolated public static func forgetPersonKey(
         person fingerprint: String,
@@ -1613,7 +1617,7 @@ public enum RegistryAdmission {
         cache: RegistryCache,
         now: () -> Date = { Date() },
         presenter: NSFilePresenter? = nil
-    ) throws -> PersonRecord {
+    ) throws -> PersonKeyForgetOutcome {
         // One date for the whole act, so every record of the label records
         // the SAME Forget and History derives one entry from them
         // (whole-branch review, Important 2).
@@ -1652,7 +1656,7 @@ public enum RegistryAdmission {
         cache: RegistryCache,
         presenter: NSFilePresenter?,
         clearing clear: (PersonRecord) throws -> Void
-    ) throws -> PersonRecord {
+    ) throws -> PersonKeyForgetOutcome {
         let registry = try TrustResolution.verifiedRegistry(
             projectURL: projectURL, presenter: presenter, cache: cache)
         let subject = try renameOutcome(
@@ -1660,10 +1664,12 @@ public enum RegistryAdmission {
         // **This root's holders only** (whole-branch review, Important 1):
         // a same-label holder another root admitted — an adopted root's
         // record, or one a share participant self-signed — is not this Mac's
-        // to re-sign, and must not be able to deny the Forget. It is reported
-        // (`heldElsewhere`) and never blocks.
+        // to re-sign, and must not be able to deny the Forget. An adopted
+        // root's is named on success; a foreign one is ignored.
         let holders = forgetHolders(of: fingerprint, by: root.fingerprint, in: registry).mine
-        guard !holders.isEmpty else { return subject }
+        guard !holders.isEmpty else {
+            return PersonKeyForgetOutcome(record: subject, stillLinkedInChain: [])
+        }
         // Up front, before anything is written: an act this Mac may not
         // complete writes nothing.
         for holder in holders {
@@ -1694,17 +1700,20 @@ public enum RegistryAdmission {
         let isClear: (String) -> Bool = { verified.person($0).map { $0.personKey == nil } ?? false }
         let cleared = holders.map(\.person).filter(isClear)
         let notCleared = holders.map(\.person).filter { !isClear($0) }
-        let elsewhere = forgetHolders(
-            of: fingerprint, by: root.fingerprint, in: verified).elsewhere.map(\.person)
-        if failure != nil || !notCleared.isEmpty || !elsewhere.isEmpty {
+        // **Incomplete is this root's own failure only** (controller ruling):
+        // its write failed, or its read-back still finds the key. A chain
+        // holder under an adopted root is not a failure of this act.
+        if failure != nil || !notCleared.isEmpty {
             throw PersonKeyForgetIncomplete(
-                cleared: cleared, notCleared: notCleared, underlying: failure?.error,
-                heldElsewhere: elsewhere)
+                cleared: cleared, notCleared: notCleared, underlying: failure?.error)
         }
         guard let record = verified.person(fingerprint) else {
             throw RegistryAdmissionError.recordUnreadable(fingerprint: fingerprint)
         }
-        return record
+        return PersonKeyForgetOutcome(
+            record: record,
+            stillLinkedInChain: forgetHolders(
+                of: fingerprint, by: root.fingerprint, in: verified).elsewhere)
     }
 
     /// **Whose linked keys a Forget pressed about `person` reaches** — the
@@ -1713,11 +1722,14 @@ public enum RegistryAdmission {
     ///
     /// - `mine`: records sharing `person`'s label that hold a key and that
     ///   `root` ADMITTED — the set this root can re-sign.
-    /// - `elsewhere`: records sharing the label that hold a key and that some
-    ///   other root admitted (an adopted root's, or one a share participant
-    ///   self-signed). Reported, never blocking: were they to block, anybody
-    ///   able to write one file into `.maugham/people/` could deny the root
-    ///   its answer to a compromised Apple ID.
+    /// - `elsewhere`: records sharing the label that hold a key, that another
+    ///   root admitted, and that are in THIS root's chain
+    ///   (`TrustTable.chain(ofRoot:in:)` — this root plus the roots it
+    ///   adopted, the rule every person-key read uses). Named on success,
+    ///   never blocking. A record OUTSIDE the chain (one a share participant
+    ///   self-signed) is in neither list: it is ignored entirely, so one
+    ///   planted file can neither deny the root its answer to a compromised
+    ///   Apple ID nor put a note beside it.
     ///
     /// Both in `records(sharingLabelWith:in:)`'s order: the subject's own
     /// record first, then by fingerprint, so the loop clears the pressed
@@ -1732,9 +1744,10 @@ public enum RegistryAdmission {
     ) -> ForgetHolders {
         let holders = records(sharingLabelWith: person, in: registry)
             .filter { $0.personKey != nil }
+        let chain = TrustTable.chain(ofRoot: root, in: registry)
         return ForgetHolders(
             mine: holders.filter { $0.admittedBy == root },
-            elsewhere: holders.filter { $0.admittedBy != root })
+            elsewhere: holders.filter { $0.admittedBy != root && chain.contains($0.person) })
     }
 
     /// **A verified record holding this key that is NOT the same person as
@@ -2079,37 +2092,38 @@ public struct PersonKeyForgetIncomplete: Error, LocalizedError {
     public let notCleared: [String]
     /// The write that failed, where one did.
     public let underlying: Error?
-    /// Records sharing the label that still hold a key and that ANOTHER root
-    /// admitted (whole-branch review, Important 1): this Mac cannot re-sign
-    /// them, so they are reported and never block. Pressing again changes
-    /// nothing about them.
-    public let heldElsewhere: [String]
 
-    public init(
-        cleared: [String], notCleared: [String], underlying: Error?,
-        heldElsewhere: [String] = []
-    ) {
+    public init(cleared: [String], notCleared: [String], underlying: Error?) {
         self.cleared = cleared
         self.notCleared = notCleared
         self.underlying = underlying
-        self.heldElsewhere = heldElsewhere
     }
 
     public var errorDescription: String? {
-        let why = underlying.map { " \($0.localizedDescription)" } ?? ""
-        let elsewhereSentence = heldElsewhere.isEmpty ? "" :
-            " It is still linked on "
-                + heldElsewhere.map { DeviceCode.short($0) }.joined(separator: ", ")
-                + ", which another root admitted and this Mac cannot change."
-        guard !notCleared.isEmpty || underlying != nil else {
-            return "The Apple ID was forgotten on this person's devices this Mac "
-                + "admitted.\(elsewhereSentence)"
-        }
         let still = notCleared.map { DeviceCode.short($0) }.joined(separator: ", ")
         let what = cleared.isEmpty
             ? "Nothing was forgotten."
             : "The Apple ID was forgotten on some of this person's devices, "
                 + "but \(still) still recognise it."
-        return "\(what)\(why)\(elsewhereSentence) Pressing again finishes the rest."
+        let why = underlying.map { " \($0.localizedDescription)" } ?? ""
+        return "\(what)\(why) Pressing again finishes the rest."
+    }
+}
+
+/// **What a Forget that succeeded did** (controller ruling on the fix wave's
+/// concerns): the subject's verified record, and the records of the same
+/// person in THIS root's chain that still hold a key because a root this root
+/// ADOPTED admitted them — this Mac cannot re-sign those, and the surface says
+/// so: *still linked on <device>, admitted by <root>*. A record outside the
+/// chain never appears here. The Forget itself is complete: every record this
+/// root admitted is cleared and read back clean, and recognition treats the
+/// key as forgotten from now on.
+public struct PersonKeyForgetOutcome: Equatable, Sendable {
+    public let record: PersonRecord
+    public let stillLinkedInChain: [PersonRecord]
+
+    public init(record: PersonRecord, stillLinkedInChain: [PersonRecord]) {
+        self.record = record
+        self.stillLinkedInChain = stillLinkedInChain
     }
 }
