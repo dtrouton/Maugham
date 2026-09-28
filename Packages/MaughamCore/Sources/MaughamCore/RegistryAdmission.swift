@@ -664,11 +664,20 @@ public enum RegistryAdmission {
     /// the memory path leaves it to the sheet. Any record sharing the label
     /// counts, revoked ones included — this only ever turns silent into a
     /// question. Asked of the permit layer (`Permit.narrows`), never a rung.
+    ///
+    /// **Only this root's chain counts** (whole-branch review, minor 1; the
+    /// Task 6 ruling that every person fact is read from
+    /// `TrustTable.chain(ofRoot:in:)`). `TrustTable.resolve` already keeps
+    /// events signed outside the chain out of every timeline, so a foreign
+    /// record could not narrow anybody here; the explicit filter makes the
+    /// rule this function's own rather than an accident of the table's.
     nonisolated static func labelNamesANarrowedPerson(
-        _ label: String, in registry: Registry, table: TrustTable
+        _ label: String, in registry: Registry, table: TrustTable, thisRoot: String
     ) -> Bool {
-        registry.people.contains {
-            TrustTable.sharesLabel($0.label, label)
+        let chain = TrustTable.chain(ofRoot: thisRoot, in: registry)
+        return registry.people.contains {
+            chain.contains($0.person)
+                && TrustTable.sharesLabel($0.label, label)
                 && table.timeline(forPerson: $0.person).current.narrows
         }
     }

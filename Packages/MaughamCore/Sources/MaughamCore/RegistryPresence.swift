@@ -668,7 +668,8 @@ public enum RegistryPresence {
                 joinedRoot: cache.joinedRoot(for: projectURL))
             narrowingTable = table
             guard !RegistryAdmission.labelNamesANarrowedPerson(
-                remembered.label, in: registry, table: table) else { continue }
+                remembered.label, in: registry, table: table,
+                thisRoot: author.fingerprint) else { continue }
             // **A device recognition RECOGNISES is recognition's business**
             // (Task 6 fix round). `admitRecognised` runs first, so a recognised
             // device still waiting here is one it DECLINED — a permit it could

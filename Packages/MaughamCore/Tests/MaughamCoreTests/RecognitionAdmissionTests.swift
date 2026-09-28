@@ -429,6 +429,52 @@ final class RecognitionAdmissionTests: XCTestCase {
                      "never the whole book for a narrowed Sam: the sheet asks")
     }
 
+    /// **Only THIS root's chain says a label is narrowed** (whole-branch
+    /// review, minor 1; the Task 6 ruling that every person fact is read from
+    /// this root's chain). A share participant's self-signed root that admits
+    /// its own "Sam" and narrows her says nothing about the Sam this Mac
+    /// remembers; the control is the same narrowing in THIS chain.
+    func test_aNarrowedLabelOutsideThisChainDoesNotStopTheMemory() throws {
+        try rootHere()
+        let foreign = LocalIdentities.softwareForTesting()
+        let foreignCache = RegistryCache(
+            fileURL: TestTemp.root.appendingPathComponent("foreign-\(UUID().uuidString).json"),
+            identity: foreign.author.fingerprint)
+        try RegistryPresence.ensureDeviceRecord(
+            in: projectURL, identities: foreign, name: "Mallory's Mac", kind: .mac)
+        try RegistryWriter.write(
+            PersonRecord(
+                person: foreign.author.fingerprint, label: "Mallory", ownName: "Mallory's Mac",
+                admittedAt: Date(timeIntervalSince1970: 1),
+                admittedBy: foreign.author.fingerprint),
+            signedBy: foreign.author, in: projectURL)
+        let theirSam = try declare("Their Sam's Mac", kind: .mac, claimBy: nil)
+        try RegistryAdmission.admit(
+            device: theirSam.author.fingerprint, label: "Sam", ownName: "Their Sam's Mac",
+            in: projectURL, by: foreign.author, cache: foreignCache, memory: memory)
+        try RegistryAdmission.changePermit(
+            person: theirSam.author.fingerprint, role: Permit.reviewerRole,
+            scope: Permit.bookScope, pieces: [], mark: .nothingApplied,
+            unsigned: .nothingApplied,
+            in: projectURL, by: foreign.author, cache: foreignCache)
+        XCTAssertTrue(try registry().events.contains {
+            $0.subject == theirSam.author.fingerprint && $0.kind == .roleChanged
+        }, "premise: the foreign root narrowed its Sam, and that event verifies")
+        // Two guards say the same thing here, and neither alone is observable:
+        // `TrustTable.resolve` already drops events signed outside this root's
+        // chain from every timeline, and `labelNamesANarrowedPerson` now reads
+        // this root's chain explicitly (whole-branch review, minor 1).
+
+        let samsPhone = try declare("Sam's iPhone", claimBy: nil)
+        memory.remember(samsPhone.author.fingerprint, label: "Sam", ownName: "Sam's iPhone")
+
+        let admitted = try RegistryPresence.admitRemembered(
+            in: projectURL, identities: mine, cache: cache, memory: memory)
+
+        XCTAssertEqual(admitted.map(\.person), [samsPhone.author.fingerprint],
+                       "a label nobody in THIS chain holds is as today")
+    }
+
     func test_aRememberedLabelOfAnUnnarrowedPersonIsStillSilent() throws {
         try rootHere()
         _ = try admitSamsMac(narrowed: false)
