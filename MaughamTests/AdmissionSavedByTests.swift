@@ -42,7 +42,7 @@ final class AdmissionSavedByTests: XCTestCase {
     /// claim still shows what iCloud says about its record.
     func test_aSavedByNameShowsWithNoClaim() {
         XCTAssertEqual(AdmissionSheet.hintLines(for: request(savedBy: "Sam Ruiz")), [
-            "iCloud says this device’s record was saved by Sam Ruiz.",
+            "iCloud says this device’s record was last saved by Sam Ruiz.",
         ])
     }
 
@@ -67,7 +67,7 @@ final class AdmissionSavedByTests: XCTestCase {
                 AdmissionSheet.hintLines(for: request(hint: claim("Sam Ruiz"), savedBy: saved)),
                 ["It calls itself Sam’s MacBook Air, belonging to Sam Ruiz.",
                  AdmissionSheet.claimAttribution,
-                 "iCloud says this device’s record was saved by \(saved.trimmingCharacters(in: .whitespacesAndNewlines))."],
+                 "iCloud says this device’s record was last saved by \(saved.trimmingCharacters(in: .whitespacesAndNewlines))."],
                 "\(saved) is the same name")
         }
     }
@@ -79,7 +79,7 @@ final class AdmissionSavedByTests: XCTestCase {
             AdmissionSheet.hintLines(for: request(hint: claim("Sam Ruiz"), savedBy: "Rebecca Burgess")),
             ["It calls itself Sam’s MacBook Air, belonging to Sam Ruiz.",
              AdmissionSheet.claimAttribution,
-             "iCloud says this device’s record was saved by Rebecca Burgess.",
+             "iCloud says this device’s record was last saved by Rebecca Burgess.",
              "That isn’t the name the device gives."])
     }
 
@@ -89,7 +89,7 @@ final class AdmissionSavedByTests: XCTestCase {
             AdmissionSheet.hintLines(for: request(hint: claim("  "), savedBy: "Rebecca Burgess")),
             ["It calls itself Sam’s MacBook Air.",
              AdmissionSheet.claimAttribution,
-             "iCloud says this device’s record was saved by Rebecca Burgess."])
+             "iCloud says this device’s record was last saved by Rebecca Burgess."])
     }
 
     func test_sameNameBothDirections() {

@@ -159,7 +159,7 @@ struct AdmissionSheet: View {
     /// the file, which the device cannot write for itself — an independent
     /// hint beside its claim, drawn in the same plain register.
     static func savedByLine(name: String) -> String {
-        "iCloud says this device\u{2019}s record was saved by \(name)."
+        "iCloud says this device\u{2019}s record was last saved by \(name)."
     }
 
     /// With `savedByLine`, where the device also claims a person and iCloud's

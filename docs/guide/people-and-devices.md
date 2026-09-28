@@ -74,7 +74,7 @@ already linked to somebody else in this book, the panel says that too.
 **What iCloud says about it.** In a shared folder, iCloud also knows who last
 saved each file, and it takes that from Apple's servers, not from anything a
 device writes. Where it knows who last saved the device's own record, the panel
-adds a line: *iCloud says this device's record was saved by Sam Ruiz.* That is
+adds a line: *iCloud says this device's record was last saved by Sam Ruiz.* That is
 usually the person at that device, but it is whoever saved that file last. If
 it isn't the name the device gives, the panel says so plainly: *That isn't the
 name the device gives.* The two can also differ harmlessly, for example when
