@@ -175,7 +175,9 @@ like any other op).
 mints a `SecureEnclave.P256.Signing.PrivateKey` and persists its
 `dataRepresentation` as a plain file under
 `~/Library/Application Support/<BuildVariant.current.supportFolderName>/device/`
-— no keychain item, no entitlement, and the blob is useless off this machine.
+— no keychain item, and the blob is useless off this machine. (The Release
+builds' one entitlement, the person key's `keychain-access-groups`, is for the
+person key below; the device key never uses it.)
 `deviceId` is `<actor>-<16-hex prefix of the fingerprint>` — the author's
 carries its prefix too, so a per-device file reads as itself,
 `<doc>.author-<16hex>-<8hex>.jsonl` — `slug` is
@@ -1868,10 +1870,16 @@ the statement of an unclaimed piece is not a lock to add.
 A writer's own devices should never ask about each other, and a known
 collaborator's new device should join as her. **Nothing here changes what
 anybody may write**: permits, the partition, the timeline and the load are
-untouched. Recognition decides only who is ADMITTED. **Plan 1 ships no
-entitlements**, so every build reads the keychain as unavailable, makes no
-claim, and admits exactly as before. Plan 2 adds the access group, the
-profiles and the phone.
+untouched. Recognition decides only who is ADMITTED. **Only a Release build
+reaches the keychain** (plan 2): both apps' Release configurations carry the
+`keychain-access-groups` entitlement for `FF3XH4ZJ45.com.maugham.person` — the
+Mac's file spells it literally, because `release.yml` re-signs; the phone's
+uses `$(AppIdentifierPrefix)` — backed by a provisioning profile that grants
+it (the Mac's Developer ID profile, checked by `scripts/verify-mac-signing.sh`
+in `release.yml`; the phone's existing App Store profile). A Debug build, an
+ad-hoc build and the test gate carry no entitlement and read the keychain as
+unavailable, so they make no claim and admit exactly as before. The phone
+FINDS the key and never makes one (`MaughamPhone/AREA.md`).
 
 **The key.** `PersonKey` (MaughamCore) is a P256 signing key held in iCloud
 Keychain behind `PersonKeyStore`. There are two stores:

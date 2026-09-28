@@ -195,6 +195,10 @@ and in sync, or the export/sign step fails. If you ever regenerate the App ID yo
 lowercase — but then change both project.yml ids + the ExportOptions key together.
 
 One-time Apple setup (6 GitHub secrets, ASC record): `docs/release-notes/phone/SETUP.md`.
+The Release phone build carries one entitlement, `keychain-access-groups` for the person key
+(`MaughamPhone/MaughamPhone.entitlements`, `$(AppIdentifierPrefix)com.maugham.person`), which the
+App Store profile must grant — the existing *Maugham Phone App Store* profile grants
+`FF3XH4ZJ45.*`; SETUP.md §1 shows how to check. A TestFlight dry run is the only proof.
 M+¶ app icon: editable SVG sources + `render.sh` in `scripts/phone-icon/`.
 
 **Four release-phase bugs (TestFlight dry runs found these; unit tests / debug builds can't):**

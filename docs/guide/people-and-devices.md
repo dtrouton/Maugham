@@ -16,8 +16,11 @@ this feature: one list, and a small number of verbs.
   not *Denver's MacBook Air* — with the machine named on its own row just
   beneath, so the list can tell you apart from your laptop. **Rename…** changes
   it if the account name isn't what you'd call yourself here.
-- When another machine — your iPhone, a second Mac — writes into the same book,
-  Maugham asks you once who it is. You give it a name. That is admission.
+- Your other devices — your iPhone, a second Mac — are usually **recognised**:
+  when they are signed into the same Apple ID with iCloud Keychain on, they join
+  the book as you, with no question. See *Recognised devices* below.
+- When a machine Maugham can't recognise writes into the same book, Maugham asks
+  you once who it is. You give it a name. That is admission.
 - After that it goes in silently, everywhere. You are never asked about the same
   machine twice.
 - Nothing is ever thrown away while you decide. Changes from a machine you
@@ -57,6 +60,28 @@ the machine you think you are: open Settings on the iPhone and it shows the same
 four characters at the top of the **This device** section. If the codes match,
 it's that phone.
 
+**What the device says about itself.** A device signed into an Apple ID with
+iCloud Keychain carries a key for that Apple ID, and signs a line saying whose
+it is. When a device like that still reaches the panel — a collaborator's first
+device, say — the panel shows what it says: *It calls itself Sam's MacBook Air,
+belonging to Sam Ruiz.*, then *That's what the device says about itself.* The
+name field starts at that person's name, unless somebody here already goes by
+it, in which case it starts as it always did: the panel never starts you on
+joining a device to somebody. It is the device's own word, and anybody can call
+a key anything, which is why Maugham still asks. If the Apple ID it carries is
+already linked to somebody else in this book, the panel says that too.
+
+**What iCloud says about it.** In a shared folder, iCloud also knows who last
+saved each file, and it takes that from Apple's servers, not from anything a
+device writes. Where it knows who last saved the device's own record, the panel
+adds a line: *iCloud says this device's record was saved by Sam Ruiz.* That is
+usually the person at that device, but it is whoever saved that file last. If
+it isn't the name the device gives, the panel says so plainly: *That isn't the
+name the device gives.* The two can also differ harmlessly, for example when
+iCloud has somebody under a nickname. The line never appears for a file you
+saved yourself, and it never fills in the name field. It is only there to help
+you answer.
+
 If you already have people in this book, the panel offers their names. Picking
 one means *this machine is also that person* — a second Mac and a phone can both
 be you, and Maugham then treats them as one person rather than two.
@@ -65,6 +90,56 @@ You can press **Not now**. Nothing is written, nothing is lost, and Maugham
 won't raise the panel again until you next open the project. You can always ask
 for it deliberately: the History pane's waiting line has an **Admit…** button,
 and so does the Inbox banner, and so does People & Devices itself.
+
+## Recognised devices
+
+Most of the time you should never see the panel for a device of your own.
+Maugham keeps a key for **you**, the person, in iCloud Keychain, so every device
+signed into your Apple ID holds the same one. Each device uses it to sign a
+line in the book saying *this device belongs to Denver*, and the Mac that holds
+the book checks that line and lets the device in as you, with no panel. It
+writes the whole book, as you do.
+
+For that to happen:
+
+- **iCloud Keychain is on**, on the Mac and on the other device, and both are
+  signed into the same Apple ID.
+- **A Mac makes the key.** The first time Maugham opens a book on a Mac, it
+  looks for the key and makes one if there is none, named with the name on your
+  macOS account. An iPhone never makes one: it waits until the key arrives from
+  your Mac through iCloud Keychain. Until then the phone is asked about in the
+  ordinary way.
+- **The phone says whose it is the first time it writes in a book** — a capture
+  into the Inbox, or something done to a note. Opening a book on the phone
+  writes nothing, so a phone that has only read a book hasn't been seen by it
+  yet.
+
+A recognised iPhone also gets a proper name. iOS usually tells an app nothing
+more than "iPhone", so where that is all it says, Maugham calls it
+*Denver's iPhone*, using the first name on the key. A name you gave the phone
+yourself is never replaced.
+
+**A collaborator's other devices** join the same way. The first time Sam's
+device turns up, you are asked, as above. Once you have let one of her devices
+in and it has told the book which Apple ID it belongs to, the book links that
+Apple ID to her. From then on a new device of hers signed into it joins as Sam,
+with whatever you have said she may write here, and no panel. This happens
+separately in each book.
+
+Maugham still asks, with the device's own claim shown on the panel, when:
+
+- the Apple ID it carries is linked to somebody else in this book;
+- every device of that person's has been revoked here;
+- you have told this book to forget that Apple ID (see *The list* below);
+- or, occasionally, the book can't yet settle what that person may write.
+
+Without iCloud Keychain, or on a device that can't reach it, nothing is
+different from before: the device is asked about once, and after that it goes
+in silently. Nothing is ever held back because a key is missing.
+
+Each recognised arrival is a dated entry in History: *Denver's iPhone joined as
+you — recognised by your Apple ID.*, or *Sam's iPad joined as Sam — recognised
+by their Apple ID.*
 
 ## The list
 
@@ -108,6 +183,22 @@ nothing else: it lets nobody in, shuts nobody out, and leaves untouched when
 they were admitted and what they wrote. Every machine on the book sees the new
 name. You can rename anybody this Mac admitted, and yourself; somebody another
 Mac admitted is renamed from that Mac, and the button says so.
+
+**Recognised on every device signed into this person's Apple ID.** That line,
+under a person, means the book has linked their Apple ID to them, so a new
+device of theirs joins as them without a panel (see *Recognised devices*
+above). If every device of theirs has been revoked, it says instead that the
+Apple ID is still linked but a new device will be asked about.
+
+On the Mac that holds the book, a linked person also has **Forget This Person
+Key**. Use it if that Apple ID may be in somebody else's hands. After it, each
+new device signed into that Apple ID gets the panel again, one at a time, and
+the devices already let in stay exactly as they are. **Forgetting lasts**: this
+book won't link that Apple ID to anybody again, and History records the day
+you did it (*Sam's Apple ID key was forgotten by Denver.*). If
+Forget can't finish (a record it has to change can't be written, for
+instance), it says which devices it cleared and which it didn't, and pressing
+it again finishes the rest. On any other Mac the button isn't there at all.
 
 Beneath the people you may also see:
 
@@ -199,6 +290,13 @@ paragraphs as you watch, rather than when you next reopen the project.
 
 Only the Mac that admitted somebody can revoke them. You can let them back in:
 the row then offers **Re-admit**.
+
+**Revoking a device doesn't forget the Apple ID it carried.** Revoke is about
+one machine, such as a lost phone. While another device of theirs is still let
+in, a new device signed into the same Apple ID still joins without asking. If
+you are revoking because the Apple ID itself may be compromised, use **Forget
+This Person Key** as well. The confirmation says so wherever an Apple ID is
+linked.
 
 An **owner** of the book — your own row, or another Mac that started it — has no
 Revoke at all, rather than one you can't press. An owner answers to itself, on
@@ -476,9 +574,12 @@ deliberate.
   7 September, revoked on the 9th, this book claimed, a record put back, the day
   this book was first narrowed while some machine in it was signing nothing.
 
-Two of those are worth a word. An entry that says somebody was **admitted
+Three of those are worth a word. An entry that says somebody was **admitted
 without asking** is the silent admission above: a machine you had already named
-elsewhere, let in with no panel. And where a machine's history is waiting, the
+elsewhere, let in with no panel. An entry that says a device **joined as you —
+recognised by your Apple ID** (or *joined as Sam — recognised by their Apple
+ID*) is a recognised device, and one that says an **Apple ID key was
+forgotten** is a Forget. And where a machine's history is waiting, the
 row says so and — for a machine nothing in this book signs for yet — carries a
 **Send to Inbox** button, which copies the waiting paragraphs into your Inbox
 as captures. Nothing is applied to your draft; you put them where they belong
@@ -500,6 +601,27 @@ Started on Denver's MacBook.*, or *Not yet admitted — the Mac will ask*, or,
 where the book holds a damaged file about this phone, *This book's file about
 this device doesn't check out, so nothing here confirms it* (see *Records that
 don't verify* above — the Mac is where that one is put right).
+
+Just under the code, one line says whether your other devices will recognise
+this phone (see *Recognised devices* above):
+
+- *Recognised as Denver Trouton on your other devices.* The phone has your
+  key, and it says so in each book the next time it writes there.
+- *Recognised on your other devices. Your name shows here once a Mac has named
+  you.* The phone has the key, but no Mac has put your name on it yet.
+  Recognition doesn't wait for the name.
+- *Not recognised yet. Your Mac makes the key, and this phone picks it up
+  through iCloud Keychain. Until then, your Mac asks who this phone is.*
+- *iCloud Keychain isn't reachable from this phone, so your Mac asks who this
+  phone is instead of recognising it.* iCloud Keychain may be off, or the phone
+  may be locked.
+- *The key in iCloud Keychain couldn't be read, so your Mac asks who this phone
+  is instead of recognising it.*
+- *This phone has no key of its own to sign with, so your Mac asks who this
+  phone is instead of recognising it.*
+
+Being asked is not a failure. After you answer once on the Mac, the phone
+goes into your other books silently, as any admitted machine does.
 
 Under each book it has been admitted to, a second line says what this phone
 may write there, in the words People & Devices uses: *Reviewer*, *Author of

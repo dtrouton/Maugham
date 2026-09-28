@@ -22,10 +22,28 @@ of ad-hoc, and a monotonic build number.
 
 Developer portal → **Certificates, Identifiers & Profiles → Identifiers → +** →
 App IDs → App → description "MaughamPhone", bundle id **explicit**
-`com.Maugham.MaughamPhone` (capital "M"). No special capabilities are needed (the
-app uses iCloud Drive via the document picker / security-scoped bookmarks, not an
-iCloud *container* entitlement, so you do **not** need to enable the iCloud
-capability here).
+`com.Maugham.MaughamPhone` (capital "M").
+
+The app needs ONE entitlement: **`keychain-access-groups`** =
+`FF3XH4ZJ45.com.maugham.person`, the person key's iCloud Keychain group, shared
+with the Mac app (`MaughamPhone/MaughamPhone.entitlements` spells it
+`$(AppIdentifierPrefix)com.maugham.person`; Release configuration only). Every
+App ID already grants its own team's keychain groups (`FF3XH4ZJ45.*`), so there is
+normally **no capability to enable** here — but the App Store profile of step 4
+must carry that grant, or the archive fails to sign. The existing *Maugham Phone
+App Store* profile does. To check a profile:
+
+```sh
+security cms -D -i MaughamPhone_AppStore.mobileprovision > /tmp/phone-profile.plist
+/usr/libexec/PlistBuddy -c 'Print :Entitlements:keychain-access-groups' /tmp/phone-profile.plist
+```
+
+The output must list `FF3XH4ZJ45.*` (or `FF3XH4ZJ45.com.maugham.person`). If it
+doesn't, regenerate the profile in step 4 after the App ID is saved.
+
+Nothing else is needed: the app uses iCloud Drive via the document picker /
+security-scoped bookmarks, not an iCloud *container* entitlement, so you do
+**not** need to enable the iCloud capability here.
 
 ## 2. Create the App Store Connect app record
 
