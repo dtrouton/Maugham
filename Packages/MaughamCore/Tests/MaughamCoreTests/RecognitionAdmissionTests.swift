@@ -458,8 +458,9 @@ final class RecognitionAdmissionTests: XCTestCase {
             person: mine.author.fingerprint, in: projectURL, by: mine.author, cache: cache)
         let root = try XCTUnwrap(try registry().person(mine.author.fingerprint))
         XCTAssertNil(root.personKey)
-        XCTAssertEqual(root.forgottenPersonKeys, [denverKey.fingerprint])
-        XCTAssertEqual(try registry().person(phone.author.fingerprint)?.forgottenPersonKeys,
+        XCTAssertEqual(root.forgottenPersonKeys?.map(\.key), [denverKey.fingerprint])
+        XCTAssertEqual(try registry().person(phone.author.fingerprint)?
+                        .forgottenPersonKeys?.map(\.key),
                        [denverKey.fingerprint], "label-wide, in the same re-sign")
 
         // The next open: both admitted devices still claim the key.
@@ -503,7 +504,8 @@ final class RecognitionAdmissionTests: XCTestCase {
         try RegistryAdmission.admit(
             device: samsMac.author.fingerprint, label: "Samantha", ownName: "Sam's Mac",
             in: projectURL, by: mine.author, cache: cache, memory: memory)
-        XCTAssertEqual(try registry().person(samsMac.author.fingerprint)?.forgottenPersonKeys,
+        XCTAssertEqual(try registry().person(samsMac.author.fingerprint)?
+                        .forgottenPersonKeys?.map(\.key),
                        [String(repeating: "a", count: 64)],
                        "a Forget is about the key and survives a relabel")
     }
@@ -527,7 +529,9 @@ final class RecognitionAdmissionTests: XCTestCase {
                 person: foreign.author.fingerprint, label: label, ownName: "Mallory's Mac",
                 admittedAt: Date(timeIntervalSince1970: 1),
                 admittedBy: foreign.author.fingerprint,
-                personKey: personKey, forgottenPersonKeys: forgotten),
+                personKey: personKey,
+                forgottenPersonKeys: forgotten?.map {
+                    ForgottenPersonKey(key: $0, at: Date(timeIntervalSince1970: 2)) }),
             signedBy: foreign.author, in: projectURL)
         XCTAssertNotNil(try registry().person(foreign.author.fingerprint),
                         "precondition: the planted root verifies")

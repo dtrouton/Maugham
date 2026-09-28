@@ -25,7 +25,8 @@ describes what ships. The text Task 7 proposed for it waits for plan 2.
 - **Link and Forget** (Task 4, then Task 6's fix round):
   `PersonRecord.personKey` and `forgottenPersonKeys`. Link and Forget are
   root-only and label-wide. Forget is durable, and a partial Forget says what
-  it cleared. Every person-key fact is read from this root's chain only.
+  it cleared. Each Forget is dated on the records and History draws one row
+  for it (`TrustEvent.Kind.personKeyForgotten`, the whole-branch fix wave). Every person-key fact is read from this root's chain only.
 - **The recognition decision** (Task 5): `Recognition.recognise`, pure, every
   doubt an ask. Revoked records neither help nor block.
 - **The silent admission** (Task 6): `RegistryAdmission.admitRecognised` admits
@@ -92,9 +93,6 @@ costs*. These are the ones that changed behaviour beyond the plan as written:
 - **Schema-gate heal order.** At open, recognition runs before the unawaited
   `healTheSchemaGateIfNarrowed`. The order is reasoned safe (the book was
   narrowed before this admission) but not pinned by a test.
-- **Forget writes no History entry.** The spec asked for one per Forget.
-  Forget re-signs person records and writes no event. Plan 2 decides whether
-  it earns an event, or whether People & Devices' standing is enough.
 - **A forgotten key cannot be re-trusted**, and there is no verb for it.
 - **Minor, deferred:**
   - The claim-name contradiction is case-sensitive.

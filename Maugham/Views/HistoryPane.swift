@@ -822,6 +822,9 @@ struct HistoryPane: View {
         case .joined: return "link"
         case .anotherClaimant: return "exclamationmark.triangle"
         case .recordRestored: return "arrow.uturn.backward.circle"
+        // A key let go: the person stays, their Apple ID no longer vouches
+        // for a new device.
+        case .personKeyForgotten: return "key.slash"
         // Not a person at all: a stream this book can name no key for. The
         // question-mark face rather than a warning triangle, because nothing is
         // wrong — the words are waiting, not refused (P3b Task 10).

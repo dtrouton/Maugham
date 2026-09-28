@@ -1602,9 +1602,14 @@ public enum RegistryAdmission {
         in projectURL: URL,
         by root: DeviceIdentity,
         cache: RegistryCache,
+        now: () -> Date = { Date() },
         presenter: NSFilePresenter? = nil
     ) throws -> PersonRecord {
-        try forgetPersonKey(
+        // One date for the whole act, so every record of the label records
+        // the SAME Forget and History derives one entry from them
+        // (whole-branch review, Important 2).
+        let at = try RegistryCanonical.dateString(now())
+        return try forgetPersonKey(
             person: fingerprint, in: projectURL, by: root, cache: cache,
             presenter: presenter
         ) { holder in
@@ -1612,10 +1617,17 @@ public enum RegistryAdmission {
                 holder, signedBy: root, in: projectURL, presenter: presenter
             ) { object in
                 // Unlink AND remember, in one re-sign (C2): the key goes into
-                // this record's forgotten list, so no later open re-links it.
+                // this record's forgotten list, dated, so no later open
+                // re-links it and History can say when it happened. A key
+                // already listed keeps its first date.
                 if let key = holder.personKey {
-                    let already = object["forgottenPersonKeys"] as? [String] ?? []
-                    object["forgottenPersonKeys"] = Array(Set(already + [key])).sorted()
+                    var entries = object["forgottenPersonKeys"] as? [[String: Any]] ?? []
+                    if !entries.contains(where: { $0["key"] as? String == key }) {
+                        entries.append(["key": key, "at": at])
+                    }
+                    object["forgottenPersonKeys"] = entries.sorted {
+                        ($0["key"] as? String ?? "") < ($1["key"] as? String ?? "")
+                    }
                 }
                 object.removeValue(forKey: "personKey")
             }

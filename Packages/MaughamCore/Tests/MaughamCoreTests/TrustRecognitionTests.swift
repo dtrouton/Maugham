@@ -101,14 +101,14 @@ final class TrustRecognitionTests: XCTestCase {
         let forgettingRoot = PersonRecord(
             person: rootFP, label: "Denver", ownName: root.ownName,
             admittedAt: root.admittedAt, admittedBy: rootFP,
-            forgottenPersonKeys: [samKey.fingerprint])
+            forgottenPersonKeys: [ForgottenPersonKey(key: samKey.fingerprint, at: root.admittedAt)])
         let d = try device(claimBy: samKey)
         XCTAssertEqual(decide(d, people: [root, s]), .knownPerson(s), "the control")
         XCTAssertEqual(decide(d, people: [forgettingRoot, s]), hint("Sam"))
         let stranger = PersonRecord(
             person: "other-root", label: "Other", ownName: "x",
             admittedAt: root.admittedAt, admittedBy: "other-root",
-            forgottenPersonKeys: [samKey.fingerprint])
+            forgottenPersonKeys: [ForgottenPersonKey(key: samKey.fingerprint, at: root.admittedAt)])
         XCTAssertEqual(decide(d, people: [root, s, stranger]), .knownPerson(s),
                        "a foreign root's Forget is not this chain's")
     }

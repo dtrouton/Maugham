@@ -110,6 +110,13 @@ public enum TrustEventSentence {
                 : "\(subject) also claims this book."
         case .recordRestored:
             return "\(possessive(subject)) record was missing and has been put back."
+        case .personKeyForgotten:
+            // The PERSON, by their label — the key was theirs, not one
+            // device's (whole-branch review, Important 2).
+            let person = event.label ?? labels[event.subject]
+                ?? DeviceCode.short(event.subject)
+            return actor.map { "\(possessive(person)) Apple ID key was forgotten by \($0)." }
+                ?? "\(possessive(person)) Apple ID key was forgotten."
         case .unsigned:
             // **Named by its STREAM, not by a code** (P3b Task 10). There is no
             // fingerprint here — that is the whole fact — so `DeviceCode.short`
@@ -290,7 +297,7 @@ public enum TrustEventSentence {
         switch event.kind {
         case .admitted, .silentlyAdmitted, .recognised, .readmitted, .roleChanged,
              .scopeChanged, .revoked, .revokedEntirely, .retired,
-             .recordRestored:
+             .recordRestored, .personKeyForgotten:
             return "This Mac hasn’t received their record yet."
         case .claimed, .adopted, .joined, .anotherClaimant:
             return nil

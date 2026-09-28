@@ -243,7 +243,13 @@ public struct PersonRecord: RegistryRecordProtocol {
     /// carries it across the records it rewrites. Omitted when nil, `scope`'s
     /// pattern, so no existing record's bytes move. Re-trusting a forgotten
     /// key is not a verb in plan 1.
-    public let forgottenPersonKeys: [String]?
+    ///
+    /// **Each entry is dated** (whole-branch review, Important 2): the spec
+    /// asks for a History entry per Forget, and `TrustEvents.derive` reads it
+    /// from here — `{key, at}` rather than a parallel date map, so the one
+    /// question the chain asks (`hasForgotten`) stays one spelling over one
+    /// list. Unreleased when the date was added, so no older shape is read.
+    public let forgottenPersonKeys: [ForgottenPersonKey]?
     public var sig: OpLogChain.Credentials?
 
     public init(
@@ -252,7 +258,7 @@ public struct PersonRecord: RegistryRecordProtocol {
         admittedAt: Date, admittedBy: String,
         revokedAt: Date? = nil, revokedBy: String? = nil,
         highestOpIdSeen: String? = nil, personKey: String? = nil,
-        forgottenPersonKeys: [String]? = nil,
+        forgottenPersonKeys: [ForgottenPersonKey]? = nil,
         sig: OpLogChain.Credentials? = nil
     ) {
         self.person = person
@@ -285,7 +291,22 @@ public struct PersonRecord: RegistryRecordProtocol {
 
     /// Has this record forgotten `key`? The one spelling of the question.
     public func hasForgotten(_ key: String) -> Bool {
-        forgottenPersonKeys?.contains(key) ?? false
+        forgottenPersonKeys?.contains { $0.key == key } ?? false
+    }
+}
+
+/// **One Forget, as a person record remembers it** — the key's fingerprint
+/// and the day the root forgot it (whole-branch review, Important 2). The
+/// root that forgot it is the record's own `admittedBy`: only that root may
+/// re-sign the record (`RegistryAdmission.renameOutcome`), so the signature
+/// already says whose act it was and nothing stores it twice.
+public struct ForgottenPersonKey: Codable, Equatable, Hashable, Sendable {
+    public let key: String
+    public let at: Date
+
+    public init(key: String, at: Date) {
+        self.key = key
+        self.at = at
     }
 }
 

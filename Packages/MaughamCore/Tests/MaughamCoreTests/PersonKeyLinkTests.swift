@@ -455,6 +455,67 @@ final class PersonKeyLinkTests: XCTestCase {
         XCTAssertNil(try registry().person(sam.author.fingerprint)?.personKey)
     }
 
+    // MARK: - History: one dated entry per Forget (whole-branch review, Important 2)
+
+    private func historyForgets() throws -> [TrustEvent] {
+        TrustEvents.derive(
+            registry: try registry(), cache: makeCache(), mine: mine, for: projectURL)
+            .filter { $0.kind == .personKeyForgotten }
+    }
+
+    /// A label-wide Forget over two of Sam's records is ONE History entry,
+    /// dated the day it happened, by the root — and before it, none.
+    func test_aForgetIsOneDatedHistoryEntryByTheRoot() throws {
+        try becomeRoot(mine, name: "Denver")
+        try admit(sam, label: "Sam", ownName: "Sam's Mac")
+        try admit(samsPhone, label: "Sam", ownName: "Sam's iPhone")
+        try link(sam, to: samsKey)
+        try link(samsPhone, to: samsKey)
+        XCTAssertTrue(try historyForgets().isEmpty, "nothing forgotten, nothing drawn")
+
+        let when = Date(timeIntervalSince1970: 1_800_000_000)
+        try RegistryAdmission.forgetPersonKey(
+            person: sam.author.fingerprint, in: projectURL, by: mine.author,
+            cache: makeCache(), now: { when })
+
+        let rows = try historyForgets()
+        XCTAssertEqual(rows.count, 1, "one Forget, one row, however many records")
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(row.date, when)
+        XCTAssertEqual(row.by, mine.author.fingerprint)
+        XCTAssertEqual(row.label, "Sam")
+        XCTAssertEqual(row.subject, min(sam.author.fingerprint, samsPhone.author.fingerprint))
+        XCTAssertEqual(
+            TrustEventSentence.sentence(for: row, labels: [mine.author.fingerprint: "Denver"]),
+            "Sam\u{2019}s Apple ID key was forgotten by Denver.")
+        XCTAssertEqual(try registry().person(samsPhone.author.fingerprint)?
+                        .forgottenPersonKeys,
+                       [ForgottenPersonKey(key: samsKey.fingerprint, at: when)])
+    }
+
+    /// Two Forgets of two people are two rows; a person whose key is linked
+    /// and never forgotten draws none.
+    func test_eachForgetIsItsOwnRowAndALinkedKeyIsNone() throws {
+        try becomeRoot(mine, name: "Denver")
+        try admit(sam, label: "Sam", ownName: "Sam's Mac")
+        try admit(phone, label: "Alex", ownName: "Alex's iPhone")
+        try link(sam, to: samsKey)
+        try link(phone, to: denversKey)
+        try link(mine, to: XCTUnwrap(PersonKey.findOrCreate(
+            in: InMemoryPersonKeyStore(), seedName: "Denver")))
+
+        try RegistryAdmission.forgetPersonKey(
+            person: sam.author.fingerprint, in: projectURL, by: mine.author,
+            cache: makeCache(), now: { Date(timeIntervalSince1970: 1_800_000_000) })
+        try RegistryAdmission.forgetPersonKey(
+            person: phone.author.fingerprint, in: projectURL, by: mine.author,
+            cache: makeCache(), now: { Date(timeIntervalSince1970: 1_800_000_100) })
+
+        XCTAssertEqual(Set(try historyForgets().map(\.label)), ["Sam", "Alex"])
+        XCTAssertNotNil(try registry().person(mine.author.fingerprint)?.personKey,
+                        "premise: Denver's own key is linked and never forgotten")
+    }
+
     // MARK: - The key's shape
 
     func test_aKeyNotInAFingerprintsShapeIsRefused() throws {

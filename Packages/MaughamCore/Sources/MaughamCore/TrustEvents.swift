@@ -85,6 +85,15 @@ public struct TrustEvent: Equatable, Hashable, Sendable, Identifiable {
         /// The subject is `HeldLines.unsignedHolder`'s string rather than a
         /// fingerprint, because there is no key: that is the whole fact.
         case unsigned
+        /// **The root forgot a person's Apple ID key** (your devices are you;
+        /// whole-branch review, Important 2 — the spec's History entry per
+        /// Forget). DERIVED from the dated entries in the person records'
+        /// `forgottenPersonKeys`, `.recordRestored`'s shape rather than a
+        /// permit event (PK-4: no new `PermitEvent.Kind`). A label-wide
+        /// Forget writes one entry per record of the person with one date, so
+        /// it derives ONE row: the subject is the lowest-fingerprint record,
+        /// `by` the root that forgot it.
+        case personKeyForgotten
     }
 
     /// When, or nil where nothing stamps it. Two kinds are honestly undated —
@@ -213,6 +222,9 @@ public enum TrustEvents {
     /// - `.claimed`, `.adopted`, `.joined` and `.anotherClaimant` are the
     ///   claim records and this device's own memory of the project; no event
     ///   kind corresponds to them.
+    /// - `.personKeyForgotten` is dated from the person records' own
+    ///   `forgottenPersonKeys` entries — one row per Forget, however many
+    ///   records of the person it re-signed.
     /// - `.recordRestored` is dated from `RegistryCache.restores(for:)`, the
     ///   bounded list `reconcile` writes as it puts records back (P2b Task 10).
     ///   Reading it here rather than re-deriving it is the whole point: a
@@ -220,6 +232,13 @@ public enum TrustEvents {
     ///   and looks exactly as it did before somebody deleted it — so this is the
     ///   only place the fact survives, and dating it at read time would stamp a
     ///   week-old deletion with the moment History was opened.
+    /// One Forget: the key, its day, and the root that forgot it.
+    private struct ForgetGroup: Hashable {
+        let key: String
+        let at: Date
+        let by: String
+    }
+
     nonisolated public static func derive(
         registry: Registry, cache: RegistryCache, mine: LocalIdentities,
         for projectURL: URL, unsigned: UnsignedStreams = .none
@@ -412,6 +431,27 @@ public enum TrustEvents {
                     ?? registry.devices.first { $0.device == fingerprint }?.name,
                 ownName: registry.person(fingerprint)?.ownName,
                 isMine: myKeys.contains(fingerprint)))
+        }
+
+        // **Every Forget, once** (whole-branch review, Important 2). A
+        // label-wide Forget re-signs every record of the person with ONE date,
+        // so the entries are grouped by (key, date, forgetting root) and each
+        // group is one row, named by its lowest-fingerprint record. Derived
+        // from the records, `.recordRestored`'s shape: no permit event says it
+        // (PK-4), and no log could disagree with the records it came from.
+        var forgets: [ForgetGroup: PersonRecord] = [:]
+        for person in registry.people {
+            for entry in person.forgottenPersonKeys ?? [] {
+                let group = ForgetGroup(key: entry.key, at: entry.at, by: person.admittedBy)
+                if let seen = forgets[group], seen.person < person.person { continue }
+                forgets[group] = person
+            }
+        }
+        for (group, person) in forgets {
+            events.append(TrustEvent(
+                date: group.at, kind: .personKeyForgotten, subject: person.person,
+                label: person.label, ownName: person.ownName, by: group.by,
+                isMine: myKeys.contains(person.person)))
         }
 
         events.append(contentsOf: unsigned.events)

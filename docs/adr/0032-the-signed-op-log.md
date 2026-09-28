@@ -2829,8 +2829,13 @@ the load are untouched. Recognition decides only who is ADMITTED.
     (`heldElsewhere`) and never blocks, and People & Devices offers Forget
     over the same set: were such a record to block, one planted file could
     deny the root its answer to a compromised Apple ID (whole-branch review,
-    Important 1). It records the key in `forgottenPersonKeys`, which `admit`
-    carries whatever the label. A forgotten key is never linked again, and
+    Important 1). It records the key in `forgottenPersonKeys` — each entry a
+    dated `ForgottenPersonKey {key, at}`, one date for the whole act, so
+    `TrustEvents.derive` draws ONE History row per Forget
+    (`TrustEvent.Kind.personKeyForgotten`: *"<label>'s Apple ID key was
+    forgotten by <root>."*), derived from the records as `.recordRestored` is,
+    with no new `PermitEvent.Kind` (PK-4; whole-branch review, Important 2).
+    `admit` carries the list whatever the label. A forgotten key is never linked again, and
     recognition treats it as unknown.
   - A present-but-unreadable person record refuses a link (RULING-54): it
     might already hold the key.
@@ -3014,9 +3019,6 @@ the load are untouched. Recognition decides only who is ADMITTED.
   not narrowed already.
 - **A stored claim that does not verify lingers** until the record's next real
   rewrite. No reader trusts it.
-- **Forget has no History entry.** The spec named one per Forget. Forget
-  re-signs person records and writes no event, so History says nothing about
-  it; People & Devices shows the row's standing.
 - **Plan 2 owes:** the phone's claim, its device-name rule and census entries;
   the iCloud saved-by hint; the entitlements, profiles and `release.yml`; the
   phone's Settings line; the smoke on real hardware; and the paired release.
