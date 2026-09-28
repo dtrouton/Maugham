@@ -103,36 +103,36 @@ final class PhoneDeviceRecordTests: XCTestCase {
     /// reads NOTHING. `ensureDeviceRecord` verifies the whole registry folder
     /// before deciding it has nothing to add, and it runs on every capture and
     /// every annotation — so *idempotent* is not the same as *free*.
-    func test_aSecondWriteIntoTheSameBookDeclaresNothingAndReadsNothing() throws {
+    func test_aSecondWriteIntoTheSameBookDeclaresNothingAndReadsNothing() async throws {
         var reads = 0
-        func ensure() {
-            PhoneDeviceRecord.ensure(
+        func ensure() async {
+            await PhoneDeviceRecord.ensure(
                 in: projectRoot, identity: identity, name: "Denver's iPhone",
-                declare: { _, _, _ in reads += 1; return nil })
+                declare: { _, _, _, _ in reads += 1; return nil })
         }
 
-        ensure()
+        await ensure()
         XCTAssertEqual(reads, 1, "the first write declares this phone")
 
-        ensure()
-        ensure()
+        await ensure()
+        await ensure()
         XCTAssertEqual(reads, 1, "and nothing after it reads the folder again")
     }
 
     /// Two books are two declarations: the record lives in the project, so a
     /// memory of one says nothing about the other.
-    func test_asecondBookIsDeclaredInItsOwnRight() throws {
+    func test_asecondBookIsDeclaredInItsOwnRight() async throws {
         let other = projectRoot.appendingPathComponent("elsewhere", isDirectory: true)
         var roots: [URL] = []
-        func ensure(_ root: URL) {
-            PhoneDeviceRecord.ensure(
+        func ensure(_ root: URL) async {
+            await PhoneDeviceRecord.ensure(
                 in: root, identity: identity, name: "Denver's iPhone",
-                declare: { url, _, _ in roots.append(url); return nil })
+                declare: { url, _, _, _ in roots.append(url); return nil })
         }
 
-        ensure(projectRoot)
-        ensure(other)
-        ensure(projectRoot)
+        await ensure(projectRoot)
+        await ensure(other)
+        await ensure(projectRoot)
 
         XCTAssertEqual(roots, [projectRoot, other])
     }
@@ -140,27 +140,27 @@ final class PhoneDeviceRecordTests: XCTestCase {
     /// An actor key minted since the last declaration invalidates it: a device
     /// record that does not list the new actor has every reader treating this
     /// phone's next writer as a stranger (spec §4.4).
-    func test_anActorMintedSinceTheLastDeclarationDeclaresAgain() throws {
+    func test_anActorMintedSinceTheLastDeclarationDeclaresAgain() async throws {
         let lazy = LocalIdentities.lazySoftwareForTesting()
         _ = lazy.author  // the phone's own writer, named by its first write
         var declaredActors: [[String]] = []
-        func ensure() {
-            PhoneDeviceRecord.ensure(
+        func ensure() async {
+            await PhoneDeviceRecord.ensure(
                 in: projectRoot, identity: lazy.author, identities: lazy,
                 name: "Denver's iPhone",
-                declare: { _, identities, _ in
+                declare: { _, identities, _, _ in
                     declaredActors.append(identities.existingActors.map(\.rawValue))
                     return nil
                 })
         }
 
-        ensure()
-        ensure()
+        await ensure()
+        await ensure()
         XCTAssertEqual(declaredActors.count, 1)
 
         _ = lazy.assistant  // a second key, minted by naming it
 
-        ensure()
+        await ensure()
         XCTAssertEqual(declaredActors.count, 2,
                        "the actor set moved, so the record is re-signed")
         XCTAssertEqual(declaredActors.last, ["author", "assistant"])
@@ -168,17 +168,17 @@ final class PhoneDeviceRecordTests: XCTestCase {
 
     /// A name the writer changed in iOS Settings is the other thing
     /// `RegistryPresence` re-signs for, so the memo must not hold over it.
-    func test_arenamedPhoneDeclaresItselfAgain() throws {
+    func test_arenamedPhoneDeclaresItselfAgain() async throws {
         var names: [String] = []
-        func ensure(_ name: String) {
-            PhoneDeviceRecord.ensure(
+        func ensure(_ name: String) async {
+            await PhoneDeviceRecord.ensure(
                 in: projectRoot, identity: identity, name: name,
-                declare: { _, _, declared in names.append(declared); return nil })
+                declare: { _, _, declared, _ in names.append(declared); return nil })
         }
 
-        ensure("Denver's iPhone")
-        ensure("Denver's iPhone")
-        ensure("The new iPhone")
+        await ensure("Denver's iPhone")
+        await ensure("Denver's iPhone")
+        await ensure("The new iPhone")
 
         XCTAssertEqual(names, ["Denver's iPhone", "The new iPhone"])
     }
@@ -186,24 +186,24 @@ final class PhoneDeviceRecordTests: XCTestCase {
     /// A declaration that THREW is not remembered: a transient iCloud fault
     /// would otherwise leave this phone undeclared for the rest of the run,
     /// and the Mac with nothing to admit.
-    func test_afailedDeclarationIsTriedAgain() throws {
+    func test_afailedDeclarationIsTriedAgain() async throws {
         struct Refused: Error {}
         var attempts = 0
-        func ensure(throwing: Bool) {
-            PhoneDeviceRecord.ensure(
+        func ensure(throwing: Bool) async {
+            await PhoneDeviceRecord.ensure(
                 in: projectRoot, identity: identity, name: "Denver's iPhone",
-                declare: { _, _, _ in
+                declare: { _, _, _, _ in
                     attempts += 1
                     if throwing { throw Refused() }
                     return nil
                 })
         }
 
-        ensure(throwing: true)
-        ensure(throwing: false)
+        await ensure(throwing: true)
+        await ensure(throwing: false)
         XCTAssertEqual(attempts, 2)
 
-        ensure(throwing: false)
+        await ensure(throwing: false)
         XCTAssertEqual(attempts, 2, "and the one that landed is remembered")
     }
 

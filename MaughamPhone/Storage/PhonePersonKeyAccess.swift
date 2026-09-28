@@ -1,0 +1,64 @@
+import Foundation
+import MaughamCore
+
+/// **Where this phone finds the writer's person key** (your devices are you,
+/// plan 2 Task 1) — the phone's ONE construction of a `PersonKeyStore`, the
+/// twin of the Mac's `PersonKeyAccess` (census: `PersonKeyCensusTests`,
+/// tripwire 53, under `MaughamPhone/PhonePersonKeyAccess.swift`).
+///
+/// Production is iCloud Keychain in the team's shared access group — the same
+/// group the Mac reads, which is the whole point: the item the Mac seeded with
+/// the writer's name is the item this phone finds. A build without the
+/// entitlement reads `.unavailable` (-34018) and this phone makes no claim,
+/// which is exactly what it did before.
+///
+/// **A test host never reaches the keychain at all**, and the simulator may
+/// not enforce access groups — so an unentitled test host is NOT safe by
+/// itself, and this guard is what keeps a test from reading, or creating, a
+/// synchronizable item on the developer's own Apple ID. A host with nothing
+/// injected gets a store that holds no item and refuses to create one: no
+/// key, no claim, every existing phone suite behaviour-neutral.
+///
+/// Not shared with the Mac's file because the phone cannot import the Mac's
+/// `TestHost`; the detection reads the same three environment keys.
+enum PhonePersonKeyAccess {
+
+    /// The team whose access group holds the item — the Mac's
+    /// `PersonKeyAccess.teamID`, because the item is the PERSON's and both
+    /// apps are signed by one team. Not a variant fact (tripwire 13).
+    static let teamID = "FF3XH4ZJ45"
+
+    /// Test-only: the store a suite injects. Process-wide, so a suite that
+    /// sets it clears it in `tearDown`.
+    nonisolated(unsafe) static var storeForTesting: (any PersonKeyStore)?
+
+    /// Whether this process is an XCTest host — the environment XCTest
+    /// injects, never a build flag, so the Debug app a developer runs by hand
+    /// is not mistaken for one. The same three keys as the Mac's `TestHost`.
+    static var isTestHost: Bool {
+        let env = ProcessInfo.processInfo.environment
+        return env["XCTestConfigurationFilePath"] != nil
+            || env["XCTestSessionIdentifier"] != nil
+            || env["XCTestBundlePath"] != nil
+    }
+
+    /// The store this process uses.
+    static var store: any PersonKeyStore {
+        store(injected: storeForTesting, isTestHost: isTestHost)
+    }
+
+    /// The decision, pure over its two inputs so the test-host arm is
+    /// pinnable from inside a test host.
+    static func store(
+        injected: (any PersonKeyStore)?, isTestHost: Bool
+    ) -> any PersonKeyStore {
+        if let injected { return injected }
+        if isTestHost {
+            let none = InMemoryPersonKeyStore()
+            none.refusesCreate = true
+            return none
+        }
+        return KeychainPersonKeyStore(
+            accessGroup: KeychainPersonKeyStore.accessGroup(teamID: teamID))
+    }
+}

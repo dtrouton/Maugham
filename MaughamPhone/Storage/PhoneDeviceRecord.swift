@@ -40,9 +40,10 @@ private let phoneRecordLog = Logger(
 enum PhoneDeviceRecord {
 
     /// What was declared in one project, as facts rather than as a moment.
-    /// A name the writer changed in iOS Settings, or an actor key that did not
-    /// exist last time, are exactly the two things `RegistryPresence` re-signs
-    /// for — so they are what the memory is keyed on.
+    /// A name the writer changed in iOS Settings, an actor key that did not
+    /// exist last time, or a person key that synced in since, are exactly the
+    /// things `RegistryPresence` re-signs for — so they are what the memory is
+    /// keyed on.
     private struct Declaration: Equatable {
         let device: String
         /// `DeviceActor.rawValue`s, in `allCases` order. The fingerprints
@@ -50,17 +51,38 @@ enum PhoneDeviceRecord {
         /// (`LocalIdentities`' lazy rule), and a memo lookup must not.
         let actors: [String]
         let name: String
+        /// The person key this phone found, and the name its item carries —
+        /// the claim's facts (your devices are you, plan 2 Task 1). Nil where
+        /// there was no key: an item that syncs in mid-run changes these, so
+        /// the phone declares again, once.
+        let personKey: String?
+        let personName: String?
     }
 
     /// Project root path → what this run last declared there.
     private static var declared: [String: Declaration] = [:]
 
-    /// Declare this phone in `projectRoot`, if it has anything new to say.
+    /// Declare this phone in `projectRoot`, if it has anything new to say —
+    /// and, where it holds the writer's person key, say whose it is.
     ///
     /// Idempotent and quiet in two layers: with facts this run has already
     /// declared here nothing is read at all, and with a matching record already
     /// on disk nothing is written — which is what makes it safe on a path
-    /// every write takes.
+    /// every write takes (P2-1: the claim rides on the phone's first WRITE in a
+    /// book, as its record always has; there is no open-time write).
+    ///
+    /// **The person key is found OFF the main actor** (a keychain query), on
+    /// every call, BEFORE the memo is consulted: the memo holds the claim's
+    /// facts, so a key that syncs in mid-run must be looked for to be noticed.
+    /// A phone that cannot sign (no enclave) writes no record and never
+    /// reaches for the key — it would only mint an item for nothing.
+    ///
+    /// The claim intent mirrors the Mac's open exactly: a key → `.set`, signed
+    /// through `RegistryWriter.personClaim` for THIS phone's author key; no key
+    /// → `.keep`; never `.remove` (plan 1's rule — a keychain that cannot
+    /// answer is not evidence the writer left). A claim the record refuses
+    /// (`PersonClaimError`) is logged and the record written again with
+    /// `.keep`; nothing reaches the writer's path.
     ///
     /// `declare` is the seam the memo is pinned through; production is
     /// `RegistryPresence.ensureDeviceRecord`, and nothing else calls it.
@@ -68,32 +90,65 @@ enum PhoneDeviceRecord {
         in projectRoot: URL,
         identity: DeviceIdentity,
         identities: LocalIdentities? = nil,
-        // The phone's own name, as a display string — what People & Devices
-        // shows beside the label the writer chooses. Never an identity: this
-        // device IS its key's fingerprint (tripwire 35). Nil is this device's
-        // own name, read in the body. Both callers are `@MainActor` (the two
+        // The phone's own name as iOS gives it — what People & Devices shows
+        // beside the label the writer chooses. Never an identity: this device
+        // IS its key's fingerprint (tripwire 35). Nil is this device's own
+        // name, read in the body. Both callers are `@MainActor` (the two
         // writers' `appendChained` hops), so reading it is safe either way;
         // the warning came from Swift evaluating a DEFAULT-ARGUMENT expression
         // isolation-blind, which flags the main-actor-isolated
         // `UIDevice.current` there. In the body it is checked against this
-        // `@MainActor` enum's own isolation.
+        // `@MainActor` enum's own isolation. `model` is the same, for the
+        // generic-name rule (`deviceName`).
         name: String? = nil,
-        declare: (URL, LocalIdentities, String) throws -> URL? = {
+        model: String? = nil,
+        declare: (URL, LocalIdentities, String, PersonClaimIntent) throws -> URL? = {
             try RegistryPresence.ensureDeviceRecord(
-                in: $0, identities: $1, name: $2, kind: .phone)
+                in: $0, identities: $1, name: $2, kind: .phone, personClaim: $3)
         }
-    ) {
+    ) async {
         let identities = identities ?? .forAuthor(identity)
-        let name = name ?? UIDevice.current.name
+        let systemName = name ?? UIDevice.current.name
+        let model = model ?? UIDevice.current.model
+
+        // The writer's person key, if this phone can reach it.
+        let personKey: PersonKey?
+        if identity.canSign {
+            let store = PhonePersonKeyAccess.store
+            personKey = await Task.detached(priority: .userInitiated) {
+                // The seed is EMPTY: iOS gives an app no owner name, and an
+                // empty-named item is filled in later by a Mac
+                // (`PersonKey.findOrCreate` never overwrites a name).
+                PersonKey.findOrCreate(in: store, seedName: "")
+            }.value
+        } else {
+            personKey = nil
+        }
+
+        let name = deviceName(
+            system: systemName, model: model, personName: personKey?.name ?? "")
         let key = projectRoot.standardizedFileURL.path
         let facts = Declaration(
             device: identity.fingerprint,
             actors: identities.existingActors.map(\.rawValue),
-            name: name)
+            name: name,
+            personKey: personKey?.fingerprint,
+            personName: personKey?.name)
         guard declared[key] != facts else { return }
 
+        let intent = claimIntent(for: identity.fingerprint, personKey: personKey)
         do {
-            _ = try declare(projectRoot, identities, name)
+            do {
+                _ = try declare(projectRoot, identities, name, intent)
+            } catch let refused as PersonClaimError {
+                phoneRecordLog.fault("""
+                    This phone's person claim was refused by its own record: \
+                    \(String(describing: refused), privacy: .public) — in \
+                    \(projectRoot.lastPathComponent, privacy: .public); the \
+                    record keeps the claim it had.
+                    """)
+                _ = try declare(projectRoot, identities, name, .keep)
+            }
             // Remembered only on success: a read that threw declared nothing,
             // and skipping the next attempt would leave this phone undeclared
             // for the rest of the run over a transient iCloud fault.
@@ -107,6 +162,48 @@ enum PhoneDeviceRecord {
                 has nothing to admit.
                 """)
         }
+    }
+
+    /// What this phone asks its record to say about whose it is — the Mac's
+    /// `DocumentStore.claimIntent`, for the phone's author key. A key →
+    /// `.set`; no key, or a claim that could not be signed → `.keep`. Never
+    /// `.remove`.
+    nonisolated static func claimIntent(
+        for device: String, personKey: PersonKey?
+    ) -> PersonClaimIntent {
+        guard let personKey else { return .keep }
+        do {
+            return .set(try RegistryWriter.personClaim(forDevice: device, signedBy: personKey))
+        } catch {
+            phoneRecordLog.fault("""
+                This phone's person claim could not be signed: \
+                \(String(describing: error), privacy: .public); the record \
+                keeps the claim it had.
+                """)
+            return .keep
+        }
+    }
+
+    /// **The name this phone goes by** (P2-2). iOS 16 and later hand an app
+    /// the bare model (`"iPhone"`) rather than the name the writer gave the
+    /// phone, so a book would otherwise list every phone as *iPhone*.
+    ///
+    /// - The system name is kept unless it is GENERIC — exactly equal to the
+    ///   model. A name the writer chose (*Kitchen phone*, *Denver's iPhone*)
+    ///   is never overwritten, whoever the key says the person is.
+    /// - A generic name with a person name becomes *"<first name>'s <model>"*,
+    ///   the first name being the first whitespace-delimited word of the key
+    ///   item's name (seeded on the Mac from `NSFullUserName()`).
+    /// - With no person name, the system name stands.
+    nonisolated static func deviceName(
+        system: String, model: String, personName: String
+    ) -> String {
+        guard system == model,
+              let first = personName
+                .split(whereSeparator: { $0.isWhitespace })
+                .first
+        else { return system }
+        return "\(first)'s \(model)"
     }
 
     /// Forget what this run has declared. Test-only: the memo is process-wide

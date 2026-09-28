@@ -362,7 +362,7 @@ struct AnnotationWriter: Sendable {
         // whose key it is. Best-effort — `PhoneDeviceRecord` never fails a
         // write — and quiet, because a record that already says this touches
         // no file.
-        PhoneDeviceRecord.ensure(in: projectRoot, identity: identity)
+        await PhoneDeviceRecord.ensure(in: projectRoot, identity: identity)
         // **The default single-signer trust, on purpose** (P3c plan 2, C7).
         // This store only ever APPENDS and SEALS — it never reads for the
         // phone (the phone's reads go through `OpLogStore`, whose `trust()` is

@@ -58,15 +58,21 @@ final class PersonKeyCensusTests: XCTestCase {
     static let storeConstruction: [Site] = [
         Site(pattern: #"KeychainPersonKeyStore\("#,
              sample: "KeychainPersonKeyStore(accessGroup: g)",
-             expected: ["PersonKeyAccess.swift": 1]),
+             expected: ["PersonKeyAccess.swift": 1,
+                        "MaughamPhone/PhonePersonKeyAccess.swift": 1]),
         Site(pattern: #"InMemoryPersonKeyStore\("#,
              sample: "InMemoryPersonKeyStore()",
-             expected: ["PersonKeyAccess.swift": 1]),
-        // The store's one consumer: the open that finds the key and makes the
-        // claim. `storeForTesting` is a different identifier (no `\b` match).
+             expected: ["PersonKeyAccess.swift": 1,
+                        "MaughamPhone/PhonePersonKeyAccess.swift": 1]),
+        // The store's one consumer per surface: the Mac's open, and the
+        // phone's declaration on its first write in a book (plan 2 Task 1 —
+        // `PhonePersonKeyAccess.store` matches this spelling by design, so
+        // the phone's reader is counted here rather than escaping).
+        // `storeForTesting` is a different identifier (no `\b` match).
         Site(pattern: #"PersonKeyAccess\.store\b"#,
              sample: "let s = PersonKeyAccess.store",
-             expected: ["DocumentStore.swift": 1]),
+             expected: ["DocumentStore.swift": 1,
+                        "MaughamPhone/PhoneDeviceRecord.swift": 1]),
     ]
 
     // MARK: - 2. Where a person claim is verified
@@ -165,12 +171,15 @@ final class PersonKeyCensusTests: XCTestCase {
     /// site is the key vouching for something nobody designed it to.
     /// `mintItem(` / `PersonKeyItem(` are the key's one mint, in its own file.
     static let personKeySigning: [Site] = [
+        // The Mac's open, and the phone's declaration (plan 2 Task 1).
         Site(pattern: #"PersonKey\.findOrCreate\("#,
              sample: "PersonKey.findOrCreate(in: s, seedName: n)",
-             expected: ["DocumentStore.swift": 1]),
+             expected: ["DocumentStore.swift": 1,
+                        "MaughamPhone/PhoneDeviceRecord.swift": 1]),
         Site(pattern: #"RegistryWriter\.personClaim\("#,
              sample: "RegistryWriter.personClaim(forDevice: d, signedBy: k)",
-             expected: ["DocumentStore.swift": 1]),
+             expected: ["DocumentStore.swift": 1,
+                        "MaughamPhone/PhoneDeviceRecord.swift": 1]),
         Site(pattern: #"\.sign\("#,
              sample: "let s = try key.sign(digest)",
              expected: ["RegistryWriter.swift": 1]),
@@ -281,13 +290,14 @@ final class PersonKeyCensusTests: XCTestCase {
             try FileManager.default.createDirectory(at: phone, withIntermediateDirectories: true)
             // The Mac side exactly as expected…
             for (name, count) in site.expected {
-                try Array(repeating: site.sample, count: count).joined(separator: "\n")
-                    .write(to: mac.appendingPathComponent(name), atomically: true, encoding: .utf8)
+                try plant(Array(repeating: site.sample, count: count).joined(separator: "\n"),
+                          as: name, in: mac)
             }
             XCTAssertEqual(try Self.counts(of: [site], in: [mac, phone])[site.pattern],
                            site.expected)
             // …then one phone offender under an allow-listed Mac file's name.
-            let borrowed = try XCTUnwrap(site.expected.keys.sorted().first)
+            let borrowed = try XCTUnwrap(
+                site.expected.keys.sorted().first { !$0.hasPrefix(Self.phoneRootName + "/") })
             try site.sample.write(to: phone.appendingPathComponent(borrowed),
                                   atomically: true, encoding: .utf8)
             let found = try Self.counts(of: [site], in: [mac, phone])[site.pattern]
@@ -328,9 +338,15 @@ final class PersonKeyCensusTests: XCTestCase {
         for root in roots {
             guard let walker = FileManager.default.enumerator(
                 at: root, includingPropertiesForKeys: nil) else { continue }
-            let prefix = root.lastPathComponent == phoneRootName ? phoneRootName + "/" : ""
+            let rootIsPhone = root.lastPathComponent == phoneRootName
+            let rootDepth = root.resolvingSymlinksInPath().pathComponents.count
             for case let url as URL in walker where url.pathExtension == "swift" {
-                let key = prefix + url.lastPathComponent
+                // Under the phone's root, or under a `MaughamPhone` folder
+                // beneath a planted root (the controls' phone sites, plan 2).
+                let between = url.resolvingSymlinksInPath().pathComponents
+                    .dropLast().dropFirst(rootDepth)
+                let isPhone = rootIsPhone || between.contains(phoneRootName)
+                let key = (isPhone ? phoneRootName + "/" : "") + url.lastPathComponent
                 let text = try String(contentsOf: url, encoding: .utf8)
                 let lines = SourceScan.codeLines(of: text)
                 for (pattern, regex) in regexes {
@@ -358,6 +374,17 @@ final class PersonKeyCensusTests: XCTestCase {
                 + "\((found[site.pattern] ?? [:]).sorted(by: { $0.key < $1.key }))",
                 file: file, line: line)
         }
+    }
+
+    /// Write `text` at `name` under `dir` — a `MaughamPhone/<file>` key lands
+    /// in a `MaughamPhone` folder, which `counts` keys back to the same name.
+    @discardableResult
+    private func plant(_ text: String, as name: String, in dir: URL) throws -> URL {
+        let url = dir.appendingPathComponent(name)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        return url
     }
 
     private func plantedDirectory() throws -> URL {
@@ -395,8 +422,7 @@ final class PersonKeyCensusTests: XCTestCase {
             for (name, count) in site.expected {
                 let body = ["// \(site.sample) — prose only"]
                     + Array(repeating: site.sample, count: count)
-                try body.joined(separator: "\n").write(
-                    to: dir.appendingPathComponent(name), atomically: true, encoding: .utf8)
+                try plant(body.joined(separator: "\n"), as: name, in: dir)
             }
             XCTAssertEqual(try Self.counts(of: [site], in: [dir])[site.pattern], site.expected,
                 "the reproduced tree must satisfy `\(site.pattern)` exactly "

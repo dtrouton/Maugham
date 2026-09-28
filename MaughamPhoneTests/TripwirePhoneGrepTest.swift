@@ -1002,8 +1002,12 @@ final class TripwirePhoneGrepTest: XCTestCase {
     private let chainedStoreEscapes = [": JSONLAppendStore", "-> JSONLAppendStore"]
     /// And from the other side: the writers' store is named `store`, so any
     /// phone file reaching `.store` as a MEMBER (not the `.store(` method
-    /// spelling) outside the two writers is reaching for it.
-    private let writersStoreAccess = #"\.store\b(?!\()"#
+    /// spelling) outside the two writers is reaching for it — except
+    /// `PhonePersonKeyAccess.store`, the person key's store (your devices are
+    /// you, plan 2 Task 1), which is no op-log store at all and is counted by
+    /// its own census (`PersonKeyCensusTests.storeConstruction`, tripwire 53).
+    /// The carve-out names that one type, so any other `.store` still fires.
+    private let writersStoreAccess = #"(?<!PhonePersonKeyAccess)\.store\b(?!\()"#
 
     private func writeOnlyOffenders(in dir: URL) throws -> [String] {
         let fm = FileManager.default
@@ -1090,6 +1094,7 @@ final class TripwirePhoneGrepTest: XCTestCase {
         // A comment may say writer.store here.
         let leaked = try await writer.store.load()
         let fine = OpLogStore.store(forDocId: d, deviceSlug: s)
+        let personKeys = PhonePersonKeyAccess.store
         """.write(to: tmp.appendingPathComponent("ThirdFile.swift"),
                   atomically: true, encoding: .utf8)
 
@@ -1100,6 +1105,8 @@ final class TripwirePhoneGrepTest: XCTestCase {
                       "a writer's store read from a third file")
         XCTAssertFalse(offenders.contains { $0.contains("let fine") },
                        "the `.store(` method spelling is not the writer's store")
+        XCTAssertFalse(offenders.contains { $0.contains("let personKeys") },
+                       "the person key's store is not the writer's store")
         XCTAssertEqual(offenders.count, 5,
             "Self-check: one offender per half, and both sides of the writers' store. Caught:\n"
             + offenders.joined(separator: "\n"))
