@@ -129,11 +129,10 @@ final class PeopleAndDevicesPersonKeyTests: XCTestCase {
 
     /// **Forget's offer follows the verb's own set** (whole-branch review,
     /// Important 1 — FLIPPED): the holders are the label's records THIS root
-    /// admitted. A same-label holder another root admitted — here one a share
-    /// participant self-signed — is reported by the verb and never blocks, so
-    /// it cannot hide Forget either; and it is never the record Forget is
-    /// pressed about.
-    func test_aForeignHolderUnderTheLabelNeitherHidesForgetNorIsItsSubject() throws {
+    /// admitted. A same-label holder another root admitted — here a record a
+    /// share participant self-signed, which the pane does not even draw — is
+    /// reported by the verb and never blocks, so it cannot hide Forget.
+    func test_aForeignHolderUnderTheLabelDoesNotHideForget() throws {
         let foreign = person(otherRoot, label: "Sam", admittedBy: otherRoot, key: samKey)
         var reg = registry(samKeyed: true)
         reg = Registry(devices: reg.devices, people: reg.people + [foreign])
@@ -144,11 +143,32 @@ final class PeopleAndDevicesPersonKeyTests: XCTestCase {
                       "a planted record cannot deny the root its Forget")
         XCTAssertEqual(sam.forgetSubject?.fingerprint, samMac.fingerprint,
                        "pressed about the record THIS root admitted")
-        // Whatever order the group draws its records in, the foreign record
-        // is never a subject: the verb would refuse to re-sign it.
-        let foreignRow = try XCTUnwrap(sam.records.first {
-            $0.fingerprint == otherRoot.fingerprint })
-        XCTAssertFalse(foreignRow.mayForgetPersonKey)
+    }
+
+    /// The adopted-root case, where the other root's record IS drawn in the
+    /// group: Amelia's chain, adopted by this root, admitted a "Sam" device
+    /// holding Sam's key. That row is never a Forget subject — the verb could
+    /// not re-sign it — while this root's own Sam row is.
+    func test_anAdoptedRootsHolderIsDrawnButIsNeverTheForgetSubject() throws {
+        let adoptedSam = DeviceIdentity.softwareForTesting()
+        let base = registry(samKeyed: true)
+        let reg = Registry(
+            devices: base.devices + [deviceRecord(adoptedSam, name: "Sam’s iPad")],
+            people: base.people + [
+                person(otherRoot, label: "Amelia", admittedBy: otherRoot),
+                person(adoptedSam, label: "Sam", admittedBy: otherRoot, key: samKey),
+            ],
+            claims: [ClaimRecord(newRoot: mac.fingerprint,
+                                 adopted: [otherRoot.fingerprint], claimedAt: admitted)])
+
+        let sam = try group(model(reg), "Sam")
+
+        let adoptedRow = try XCTUnwrap(sam.records.first {
+            $0.fingerprint == adoptedSam.fingerprint }, "premise: an adopted root's row is drawn")
+        XCTAssertFalse(adoptedRow.mayForgetPersonKey,
+                       "another root's record is not this Mac's to re-sign")
+        XCTAssertTrue(sam.offersForgetPersonKey, "neither hidden by it")
+        XCTAssertEqual(sam.forgetSubject?.fingerprint, samMac.fingerprint)
     }
 
     /// The converse: where the ONLY holder is another root's, this Mac has
