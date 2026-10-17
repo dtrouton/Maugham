@@ -183,6 +183,31 @@ final class DocBudgetTests: XCTestCase {
         }
     }
 
+    /// AGENTS.md is CLAUDE.md under a generated header (scripts/gen-agents-md.sh);
+    /// its budget is CLAUDE.md's. Returns the problem, or nil when it is current.
+    static func agentsMdProblem(agents: String, claude: String) -> String? {
+        let lines = agents.components(separatedBy: "\n")
+        guard let first = lines.first, first.contains("GENERATED from CLAUDE.md") else {
+            return "AGENTS.md is stale: run scripts/gen-agents-md.sh"
+        }
+        let body = lines.dropFirst(2).joined(separator: "\n")
+        return body == claude ? nil : "AGENTS.md is stale: run scripts/gen-agents-md.sh"
+    }
+
+    func test_agentsMdIsCLAUDEmdWithItsGeneratedHeader() throws {
+        let problem = Self.agentsMdProblem(agents: try Self.read("AGENTS.md"),
+                                           claude: try Self.read("CLAUDE.md"))
+        XCTAssertNil(problem)
+    }
+
+    func test_theAgentsMdGuardFiresOnAStaleBody() {
+        let header = "<!-- GENERATED from CLAUDE.md by scripts/gen-agents-md.sh -->\n\n"
+        XCTAssertNil(Self.agentsMdProblem(agents: header + "# Rules\nA\n", claude: "# Rules\nA\n"))
+        XCTAssertNotNil(Self.agentsMdProblem(agents: header + "# Rules\nOLD\n", claude: "# Rules\nA\n"))
+        XCTAssertNotNil(Self.agentsMdProblem(agents: "# Rules\nA\n", claude: "# Rules\nA\n"),
+                        "a missing header is reported")
+    }
+
     // MARK: - Planted controls (each helper fires, and lets clean text through)
 
     func test_theHelpersFireOnPlantedOffenders() {
