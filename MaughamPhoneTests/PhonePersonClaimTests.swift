@@ -108,10 +108,10 @@ final class PhonePersonClaimTests: XCTestCase {
     func test_aGenericSystemNameBecomesTheFirstNamesModel() {
         XCTAssertEqual(PhoneDeviceRecord.deviceName(
             system: "iPhone", model: "iPhone", personName: "Denver Trouton"),
-            "Denver's iPhone")
+            "Denver’s iPhone")
         XCTAssertEqual(PhoneDeviceRecord.deviceName(
             system: "iPad", model: "iPad", personName: "  Denver\tTrouton "),
-            "Denver's iPad", "the first whitespace-delimited word, trimmed")
+            "Denver’s iPad", "the first whitespace-delimited word, trimmed")
     }
 
     func test_aRealNameIsNeverOverwritten() {
@@ -147,7 +147,7 @@ final class PhonePersonClaimTests: XCTestCase {
         let key = try XCTUnwrap(PersonKey.findOrCreate(in: store, seedName: ""))
         XCTAssertEqual(claim.personKey, key.fingerprint)
         XCTAssertEqual(claim.name, "Denver Trouton")
-        XCTAssertEqual(registry.devices.first?.name, "Denver's iPhone")
+        XCTAssertEqual(registry.devices.first?.name, "Denver’s iPhone")
         XCTAssertEqual(registry.devices.first?.kind, .phone)
         XCTAssertTrue(registry.malformed.isEmpty)
         XCTAssertEqual(store.createCount, 1, "the Mac's one mint; the phone only found it")

@@ -182,7 +182,8 @@ enum PhoneDeviceRecord {
     /// - The system name is kept unless it is GENERIC — exactly equal to the
     ///   model. A name the writer chose (*Kitchen phone*, *Denver's iPhone*)
     ///   is never overwritten, whoever the key says the person is.
-    /// - A generic name with a person name becomes *"<first name>'s <model>"*,
+    /// - A generic name with a person name becomes *"<first name>’s <model>"* —
+    ///   with the curly apostrophe macOS uses, so it matches a Mac's name —
     ///   the first name being the first whitespace-delimited word of the key
     ///   item's name (seeded on the Mac from `NSFullUserName()`).
     /// - With no person name, the system name stands.
@@ -194,7 +195,7 @@ enum PhoneDeviceRecord {
                 .split(whereSeparator: { $0.isWhitespace })
                 .first
         else { return system }
-        return "\(first)'s \(model)"
+        return "\(first)’s \(model)"
     }
 
     /// Forget what this run has declared. Test-only: the memo is process-wide
