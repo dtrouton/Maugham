@@ -4,26 +4,21 @@ Maugham is a Mac-native focus text editor for serious creative writing (prose, n
 
 ## First five minutes of any session
 
-Read in this order, then start work:
-
-1. `MEMORY.md` at `~/.claude/projects/-Users-denver-src-Maugham/memory/MEMORY.md` — the milestone index. Don't re-derive what's shipped; it's all there.
-2. `README.md` and `docs/roadmap.md` — current shipped scope and open work.
-3. `docs/constitution.md` — the product constitution: musts / must-nots, each marked *identity* or *position*, with falsification conditions. Test new milestones against it; ADRs cite its principles by name. Companions: `docs/product.md` (honest what-is-built overview) and `docs/problem-map.md` (writer jobs → what serves them; ✓/~/• status).
-4. `docs/adr/` — every architectural decision made since the master spec. **ADRs supersede the master spec.** Don't re-read `docs/superpowers/specs/2026-05-07-maugham-master-design.md` except for original-intent questions.
-5. This file's "Hard invariants" and "Tripwires" sections.
-
-The most recent codebase audits live at `docs/superpowers/notes/2026-05-19-state-of-the-code.md` and `docs/superpowers/notes/2026-05-19-step-back-audit.md` — load them if you're touching anything they cover.
+1. Read `~/.claude/projects/-Users-denver-src-Maugham/memory/MEMORY.md` (the milestone index; it loads automatically).
+2. Skim `docs/INDEX.md` for where things are.
+3. Before editing a path, read the area guide the table below names for it.
+4. Test new milestones against `docs/constitution.md`; ADRs in `docs/adr/` supersede the master spec.
 
 ## Hard invariants
 
 These are non-negotiable. Violating one is a regression even if tests pass.
 
-- **Op log is the source of truth for manuscripts.** `.md` files on disk are derived. Editing means appending to the per-doc JSONL op log under `.maugham/ops/` and re-rendering. Inline `<!-- ¶id -->` HTML-comment anchors are the join key **in the op log and the in-memory representation** — the on-disk `.md` is a clean derived render (standard Markdown/Fountain, no `¶id`/`t-` anchors), ADR 0019. `sequence` is authoritative — walk by `sequence`, never raw `paragraphs`. **External `.md` edits are not honored**: editing is through Maugham; cross-device sync flows through the op-log merge (ADR 0012); an outside `.md` mutation is discarded on re-materialize. (2026-06-09: "blow away changes to the .md outside of Maugham" is intended.) **Every line this device writes is chained to the one before it and every span it wrote is sealed** (signed op log P1, [ADR 0032](docs/adr/0032-the-signed-op-log.md)): a line something else appended is classified, set aside as a `.lines` record and never applied, and a load never refuses a manuscript over it. **And a device is four writers, each with a key of its own** (P1b, ADR 0032's Actors addendum): `DeviceActor`'s `author` (the writer's hand and its automations), `assistant` (anything through MCP), `translator` (the pipeline and `write_translation`) and `maugham` (the task rebalance) each sign their own file, so a production `Document.load` names an ACTOR and never a device string (tripwire 38). See `Maugham/OpLog/` and ADRs 6–8.
+- **The op log is the source of truth for manuscripts; the `.md` on disk is a clean derived render** (no `¶id` anchors, ADR 0019). Editing appends to the per-doc JSONL op log under `.maugham/ops/`; walk by `sequence`, never raw `paragraphs`. **External `.md` edits are discarded** on re-materialize; sync flows through the op-log merge (ADR 0012). Every line is chained and sealed, signed by one of four actor keys: `author`, `assistant`, `translator`, `maugham` (ADR 0032). Full text: `Maugham/OpLog/AREA.md`.
 - **Plain text on disk, full stop.** Manuscripts live as human-readable `.md` / `.fountain` at the writer's chosen paths. Anything derived (op log, checkpoints, sessions, conflict backups, UI state, trash) goes under `.maugham/`. Don't propose sidecar formats for manuscript content.
 - **MCP never mutates manuscript text directly.** Claude operates in a parallel annotation layer (`add_note`, annotations against paragraph IDs), or writes into `research/` — never the manuscript itself.
 - **Single-file screenplays.** One `.fountain` per screenplay project. Multi-file compound screenplay is dead (Phase 3d abandonment). The Scenes segment is a slugline navigator within that one file.
 - **⌘S is a labeled checkpoint, not a save.** Saving is autosave (750ms debounce via `DocumentStore`). ⌘S writes a project-scope checkpoint. Keep the muscle-memory flash.
-- **`Bootstrap.run` must be called from any new manuscript load path *that may write the piece*.** It mints the inline `¶id` anchors the op log joins on. The contract surface is `Document.load`. Both production callers (`EditorHost.loadDocumentIfNeeded` and `AnnotationToolHelpers.withAnnotationDocument`) funnel through it. `BootstrapWiringTests` enforces this. Route new load paths through `Document.load`; don't construct `Document` any other way. **The qualifier is P3a Task 8's** (spec §4.6), **narrowed by P3c plan 2's Option A**: in a book where somebody is narrowed, the load mints only where `LocalWritePermit.mayMintOpening` says — a piece whose manifest records who started it (`StructureItem.startedBy`, written by every creation site through `ProjectStore.thisMacAsAStarter`, census `TripwireGrepTests.test_everyStructureItemAProductionFileConstructsRecordsItsStarter`, and never rewritten) is minted by THAT Mac alone, the root's included; a creation that yields a piece WITH content mints its opening at creation (`ProjectStore.mintOpenings`, through this same load); and a piece with no recorded starter, or one whose starter the register shows REVOKED or RETIRED (`TrustTable.starterStanding` → `.gone`; every other starter — unknown, a stranger, another root's member — waits), keeps the older rule (whoever may write its text mints it). Everywhere else the load mints NOTHING and refuses with `DocumentLoadError.waitingForPiece` — naming the starter where this Mac did not start the piece — because *no op log* on such a device means *its ops have not synced yet* rather than *a new file whose `.md` is the seed*, and a `bootstrap` the partition sets aside derives the document EMPTY. The read side follows the same fact (P3 closing smoke F1, Denver's ruling *refuse, don't ask*): a scoped author's line in a piece whose recorded starter the register has PLACED as somebody else — the root included — is refused for scope on every Mac, hers included, and asks nobody; §4.5's question is put only for a piece one of her devices started or one with no recorded starter, and a starter the register cannot place yet (`TrustTable.starterStanding` → `.unknown`, a device named only by its own record included) keeps her line waiting. **And everything the load emits on its own account is the AUTHOR actor's, whoever opened the file** — the bootstrap, the pending-recovery fold, the task anchors and their `taskCreate` breadcrumbs are the writer's own words arriving through whichever door was first, so an MCP or translator load signs them `.author` (`Document.authorEmissionDevice(loadedAs:)`); only what the CALLER then writes stays the loading actor's.
+- **Every manuscript load goes through `Document.load`**, which runs `Bootstrap.run` to mint the `¶id` anchors the op log joins on; never construct `Document` any other way (`BootstrapWiringTests`). In a narrowed book the load mints only where `LocalWritePermit.mayMintOpening` says, and otherwise refuses with `DocumentLoadError.waitingForPiece`. Everything the load emits on its own account is the author actor's, whoever opened the file (tripwire 38). Full text: `Maugham/OpLog/AREA.md`.
 
 ## Build flow
 
@@ -66,7 +61,8 @@ When a gate is red and the failure doesn't name your change, read docs/testing/T
 
 ## Releases
 
-See `docs/RELEASING.md` for the full recipe (cut-release.sh, signing/notarization, auto-update-in-place, phone pipeline, the capital-M bundle-id history). One-line summary: `./scripts/cut-release.sh 0.X.Y` then `git push origin v0.X.Y` (the one tag by name — never `--tags`, which fires no workflow past three tags); write release notes first. Version is tag-derived — don't bump `project.yml`. **The Mac release needs the `MAC_PROVISIONING_PROFILE` secret** (a Developer ID profile for `com.maugham.Maugham` granting the person-key keychain group): with the group in the entitlements a signed Release build fails without it, and `release.yml` stops at its install step naming the secret (`docs/release-notes/SETUP-mac-signing.md` §4).
+See `docs/RELEASING.md` for the full recipe (cut-release.sh, signing/notarization, auto-update-in-place, phone pipeline, the capital-M bundle-id history). One-line summary: `./scripts/cut-release.sh 0.X.Y` then `git push origin v0.X.Y` (the one tag by name — never `--tags`, which fires no workflow past three tags); write release notes first. Version is tag-derived — don't bump `project.yml`.
+**The Mac release needs the `MAC_PROVISIONING_PROFILE` secret** (a Developer ID profile for `com.maugham.Maugham` granting the person-key keychain group): with the group in the entitlements a signed Release build fails without it, and `release.yml` stops at its install step naming the secret (`docs/release-notes/SETUP-mac-signing.md` §4).
 
 ## Architectural tripwires
 
@@ -134,19 +130,16 @@ Follow this without asking — the user has answered these questions enough time
 
 1. **Brainstorm → spec → plan → subagent-driven implementation → manual smoke → tag.** Specs live in `docs/superpowers/specs/`, plans in `docs/superpowers/plans/`.
 2. **Use subagent-driven dispatch by default.** Do not ask which execution mode.
-3. **Model selection:**
-   - `haiku` for mechanical tasks — Codable types, small structs, thin SwiftUI views, smoke-build-only files.
-   - `sonnet` *or* `opus` for substantive tasks — async + file I/O with error handling, AppKit/SwiftUI architectural composition, anything touching the Editor/OpLog seam. **The user explicitly prefers paying for `opus` on substantive work over risking rework**, so default to opus when in doubt.
-   - Reviewer subagents: `haiku` is sufficient for spec-compliance and code-quality review.
+3. **Model selection:** `haiku` for mechanical tasks (Codable types, small structs, thin views, smoke-build-only files); `opus` or `sonnet` for substantive ones (async file I/O, AppKit/SwiftUI composition, the Editor/OpLog seam), opus when in doubt. `haiku` suffices for reviewers.
 4. **Skip the formal two-stage review for trivial tasks.** Reserve dual-reviewer for tasks with real design judgment.
-5. **Bundle related features into one milestone.** The user prefers ambitious scope; don't pre-trim on their behalf. See `memory/feedback_scope_ambition.md`.
+5. **Bundle related features into one milestone.** The user prefers ambitious scope; don't pre-trim on their behalf (memory: feedback_scope_ambition.md).
 6. **Read every bug the user lists in one message — not just the first.** Users batch regressions.
 7. **Help/docs surfaces describe what *ships*, not what's planned.**
 8. **Every new data type needs a UI surface for inspection/action.** MCP access alone is not enough.
 9. **Whole-branch review before merge** — after per-task reviews, one review of the full branch diff; per-task reviews cannot see emergent interactions (T5×T6 precedent).
 10. When a roadmap item flips •→✓, sweep sibling docs (CLAUDE.md, AREA.md, guide) for now-false claims in the same commit.
-11. **Build the first plan of a multi-plan milestone before writing the rest.** Plans written against an API that does not exist yet drift against imaginary Swift, and no compiler can catch it — M1C's four canvas plans cost four review rounds and five fix rounds, and three separate times one plan would have deleted a day's work from another. Re-derive the remaining plans against the built code; they get shorter. See `memory/feedback_plan_detail_and_sequencing.md`.
-12. **Cap a plan at ~10 tasks; past that, split it.** M1C's 15-task plan needed four fix rounds; the three written under the cap needed one each — same authors, same standards, same day. Relatedly: a plan must never restate another plan's API (a copy drifts); point at the defining task instead.
+11. **Build the first plan of a multi-plan milestone before writing the rest**, then re-derive the remaining plans against the built code: plans written against an API that does not exist yet drift, and no compiler catches it (memory: feedback_plan_detail_and_sequencing.md).
+12. **Cap a plan at ~10 tasks; past that, split it.** A plan never restates another plan's API (a copy drifts); point at the defining task instead.
 
 ## Per-area pointers
 
@@ -174,17 +167,16 @@ MCP's scope over the inbox is **read + promote only** (no add/trash from MCP).
 
 ## Behavioural claims + rulings (`register/`)
 
-Claims (verified facts, each pinned by a test) and rulings (Denver's product decisions) live under `register/`; start at `register/START-HERE.md`.
+Claims (verified facts, each pinned by a test) and rulings (Denver's product decisions) live under `register/`; start at `register/START-HERE.md`, and see `register/reconciliation/` for the modules covered.
 - **Before changing behaviour in a module that has a claims file, read its filings**, and fixing a filed defect closes the loop in the same branch: fix, pinned production test, claim updated, filing flipped `VIOLATES→COMPLIES`.
 
 ## Questions you do not need to ask
 
 - "Should we use subagents?" → Yes.
 - "Which model?" → Haiku mechanical, sonnet-or-opus substantive (opus preferred when in doubt).
-- "Should we migrate test data?" → No. Delete and recreate.
 - "Should this annotation be paragraph- or doc-scoped?" → Both should work and both need a UI surface.
 - "Should I write a migration for this schema change?" → No, unless the user explicitly asks.
 - "Should we ship one feature first or bundle?" → Bundle, default to ambitious.
 - "How do I cut a release?" → see `docs/RELEASING.md`.
 - "Should I bump version in `project.yml`?" → No. The git tag is the source of truth; CI writes the version into the bundle at build time.
-- "Should dev or stable do X?" → see `Maugham/BuildVariant.swift` — one enum, all the seams hang off it.
+- "Should dev or stable do X?" → see `Packages/MaughamCore/Sources/MaughamCore/BuildVariant.swift` — one enum, all the seams hang off it.

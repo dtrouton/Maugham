@@ -12,7 +12,7 @@ A one-page map of Maugham's docs. Each line says what a file is for and when to 
 
 ## Decisions and rules
 
-- [`docs/adr/README.md`](adr/README.md) and the [ADR folder](adr/) — every architectural decision since the master spec. ADRs supersede the master spec.
+- [`docs/adr/README.md`](adr/README.md) and the [ADR folder](adr/) — every architectural decision since the master spec. ADRs supersede the master spec; re-read the master spec (`docs/superpowers/specs/2026-05-07-maugham-master-design.md`) only for original-intent questions.
 - [docs/tripwires.md](tripwires.md) — "do not do X, here's why it broke before", with the test that enforces each rule.
 - [`register/START-HERE.md`](../register/START-HERE.md) — the behavioural claims (verified facts pinned by tests) and Denver's rulings (what should be true).
 

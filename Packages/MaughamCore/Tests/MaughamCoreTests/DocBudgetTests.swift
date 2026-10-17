@@ -10,15 +10,15 @@ final class DocBudgetTests: XCTestCase {
 
     /// Repo-relative path → the most words it may hold.
     static let wordCeilings: [String: Int] = [
-        "CLAUDE.md": 3_565,
+        "CLAUDE.md": 4_000,  // the kernel's ceiling (2,912 words at the diet's end, 2026-10-17)
         "docs/tripwires.md": 6_400,
         "docs/testing/TROUBLESHOOTING.md": 4_400,
         "docs/INDEX.md": 600,
         "Maugham/Canvas/AREA.md": 48_005,
-        "Maugham/OpLog/AREA.md": 29_629,  // + residue from CLAUDE.md, 2026-10-17
-        "Maugham/Views/AREA.md": 27_710,  // + residue from CLAUDE.md, 2026-10-17
+        "Maugham/OpLog/AREA.md": 30_073,  // + residue and the two invariant bullets from CLAUDE.md, 2026-10-17
+        "Maugham/Views/AREA.md": 27_717,  // + residue from CLAUDE.md; PersonaMemory claim corrected, 2026-10-17
         "Maugham/Compiler/AREA.md": 23_386,  // + residue from CLAUDE.md, 2026-10-17
-        "Maugham/Stores/AREA.md": 16_106,  // + residue from CLAUDE.md, 2026-10-17
+        "Maugham/Stores/AREA.md": 16_114,  // + residue from CLAUDE.md; ProjectStore size claim replaced by an ls, 2026-10-17
         "Maugham/MCP/AREA.md": 8_576,  // + residue from CLAUDE.md, 2026-10-17
         "MaughamPhone/AREA.md": 5_007,
         "Maugham/Editor/AREA.md": 3_673,
@@ -30,12 +30,13 @@ final class DocBudgetTests: XCTestCase {
     /// Repo-relative path → the longest line it may hold, in characters.
     /// A single 15,000-character bullet cannot be skimmed or cited.
     static let lineCeilings: [String: Int] = [
-        "CLAUDE.md": 2_691,
+        "CLAUDE.md": 1_000,
         "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 1_000,
     ]
 
     /// Docs whose backticked file names must name a file that exists.
     static let pathCheckedDocs: [String] = [
+        "CLAUDE.md",
         "docs/INDEX.md",
         "docs/testing/TROUBLESHOOTING.md",
         "docs/tripwires.md",
@@ -45,6 +46,7 @@ final class DocBudgetTests: XCTestCase {
     /// Docs that must carry no milestone tag (a rule outlives the milestone
     /// that made it; the tag is history and belongs in git or an ADR).
     static let untaggedDocs: [String] = [
+        "CLAUDE.md",
         "docs/INDEX.md",
         "Packages/MaughamCore/Sources/MaughamCore/AREA.md",
     ]

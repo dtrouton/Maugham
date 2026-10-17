@@ -23,11 +23,11 @@ final class DocSyncTests: XCTestCase {
         return try String(contentsOf: url, encoding: .utf8)
     }
 
-    // MARK: - Test 1: MCP tool-count sync (CLAUDE.md + AREA.md vs MCPToolCatalog.all)
+    // MARK: - Test 1: MCP tool-count sync (AREA.md vs MCPToolCatalog.all; CLAUDE.md states none)
 
-    /// Extracts the `NN` from CLAUDE.md's `**NN tools**` MCP-row claim.
-    /// `nil` means the doc's phrasing changed shape — callers must fail
-    /// loudly rather than silently skip the check.
+    /// Extracts the `NN` from a `**NN tools**` claim. CLAUDE.md used to carry
+    /// one in its MCP row; now `nil` is the expected answer for CLAUDE.md, and
+    /// the planted self-check below proves a returning count would be found.
     static func extractToolCountFromCLAUDEmd(_ text: String) -> Int? {
         guard let regex = try? NSRegularExpression(pattern: #"\*\*(\d+) tools\*\*"#) else { return nil }
         let ns = text as NSString
@@ -48,25 +48,22 @@ final class DocSyncTests: XCTestCase {
     }
 
     func test_toolCountSyncedAcrossDocsAndCatalog() throws {
-        let claudeMd = try readFile("CLAUDE.md")
         let areaMd = try readFile("Maugham/MCP/AREA.md")
-
-        guard let claudeCount = Self.extractToolCountFromCLAUDEmd(claudeMd) else {
-            XCTFail("Could not find \"**NN tools**\" in CLAUDE.md's MCP row — doc structure changed?")
-            return
-        }
         guard let areaCount = Self.extractToolCountFromAREAmd(areaMd) else {
             XCTFail("Could not find \"Tool catalogue (NN)\" heading in Maugham/MCP/AREA.md — doc structure changed?")
             return
         }
-
         let actual = MCPToolCatalog.all.count
-        XCTAssertEqual(claudeCount, actual,
-            "CLAUDE.md claims \(claudeCount) MCP tools but MCPToolCatalog.all has \(actual). "
-            + "Update the \"**\(actual) tools**\" phrase in CLAUDE.md's MCP row.")
         XCTAssertEqual(areaCount, actual,
             "Maugham/MCP/AREA.md claims \(areaCount) MCP tools but MCPToolCatalog.all has \(actual). "
             + "Update the \"## Tool catalogue (\(actual))\" heading.")
+
+        // CLAUDE.md left this census in the 2026-10-17 docs diet: it states
+        // no count, so the number cannot drift back into it.
+        let claudeMd = try readFile("CLAUDE.md")
+        XCTAssertNil(Self.extractToolCountFromCLAUDEmd(claudeMd),
+            "CLAUDE.md states an MCP tool count again. Count MCPToolCatalog.all instead; "
+            + "the count lives in Maugham/MCP/AREA.md's catalogue heading only.")
     }
 
     /// Self-check: a doctored CLAUDE.md/AREA.md claiming counts one/two more
@@ -577,8 +574,9 @@ final class DocSyncTests: XCTestCase {
     /// states the ring's memory must leave the list — the check fires on
     /// silence, so keeping it here would demand the guide say a number it has
     /// no business saying.
+    ///
+    /// CLAUDE.md left this census in the 2026-10-17 docs diet; the figure lives in Maugham/Compiler/AREA.md.
     static let roundRingDocs: [String] = [
-        "CLAUDE.md",
         "Maugham/Compiler/AREA.md",
         "docs/guide/review-passes.md",
         "docs/roadmap.md",
