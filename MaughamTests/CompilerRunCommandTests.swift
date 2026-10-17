@@ -198,7 +198,7 @@ final class CompilerRunCommandTests: XCTestCase {
     /// fixture's arithmetic. The counts themselves are asserted where they are
     /// the subject (`test_theRunningStateCarriesWhatItIsReading`).
     private var runningOnTheStandingReading: CompilerOrchestrator.RunState {
-        .running(docId: docId, checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0))
+        .running(docId: docId, kind: .check, checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0))
     }
 
     private func makeProjectRoot() throws -> URL {
@@ -690,7 +690,7 @@ final class CompilerRunCommandTests: XCTestCase {
         harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
         XCTAssertEqual(harness.orchestrator.runState,
-                       .running(docId: docId,
+                       .running(docId: docId, kind: .check,
                                 checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0)))
         XCTAssertEqual(harness.flashesSaid, [.started])
 
@@ -699,7 +699,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
         XCTAssertEqual(runner.sends.count, 1, "the second ⌘R must not reach the runner")
         XCTAssertEqual(harness.orchestrator.runState,
-                       .running(docId: docId,
+                       .running(docId: docId, kind: .check,
                                 checking: CompilerOrchestrator.DeltaCounts(new: 1, revised: 0)))
         XCTAssertEqual(harness.flashesSaid, [.started, .alreadyChecking],
                        "the second press is acknowledged, and by a different sentence — "
@@ -769,7 +769,7 @@ final class CompilerRunCommandTests: XCTestCase {
         harness.orchestrator.runRequested(docId: docId, kind: .check)
         awaitSends(1, on: runner)
 
-        guard case .running(_, let checking) = harness.orchestrator.runState else {
+        guard case .running(_, _, let checking) = harness.orchestrator.runState else {
             return XCTFail("expected a running state, got \(harness.orchestrator.runState)")
         }
         XCTAssertEqual(checking.new + checking.revised, 3,
@@ -795,7 +795,7 @@ final class CompilerRunCommandTests: XCTestCase {
         settle()
 
         XCTAssertEqual(runner.sends.count, 0)
-        guard case .nothingNew(let stateDocId, _) = harness.orchestrator.runState else {
+        guard case .nothingNew(let stateDocId, _, _) = harness.orchestrator.runState else {
             return XCTFail("expected the idle 'nothing new' variant, got "
                            + "\(harness.orchestrator.runState)")
         }
@@ -905,7 +905,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
         XCTAssertNil(harness.diagnostics.lastOpId(docId: docId),
                      "a run that never produced a result checked nothing")
-        guard case .failed(let stateDocId, let failure, _) = harness.orchestrator.runState
+        guard case .failed(let stateDocId, _, let failure, _) = harness.orchestrator.runState
         else {
             return XCTFail("expected a reported failure, got \(harness.orchestrator.runState)")
         }
@@ -943,7 +943,7 @@ final class CompilerRunCommandTests: XCTestCase {
         settle()
 
         XCTAssertNil(harness.diagnostics.lastOpId(docId: docId))
-        guard case .failed(_, let failure, _) = harness.orchestrator.runState else {
+        guard case .failed(_, _, let failure, _) = harness.orchestrator.runState else {
             return XCTFail("expected a reported failure, got \(harness.orchestrator.runState)")
         }
         XCTAssertEqual(failure, .unusableOutput)
@@ -2691,7 +2691,7 @@ final class CompilerRunCommandTests: XCTestCase {
         settle()
         harness.orchestrator.shutdown()
 
-        guard case .failed(_, let failure, _) = harness.orchestrator.runState else {
+        guard case .failed(_, _, let failure, _) = harness.orchestrator.runState else {
             return XCTFail("the failure was erased by an unrelated teardown")
         }
         XCTAssertEqual(failure, .cliNotFound)
@@ -5061,7 +5061,7 @@ final class CompilerRunCommandTests: XCTestCase {
     private func failure(
         of state: CompilerOrchestrator.RunState
     ) -> (docId: String, failure: CompilerRunFailure)? {
-        guard case .failed(let docId, let failure, _) = state else { return nil }
+        guard case .failed(let docId, _, let failure, _) = state else { return nil }
         return (docId, failure)
     }
 
@@ -5208,7 +5208,7 @@ final class CompilerRunCommandTests: XCTestCase {
                        + "the writer their warm session")
         XCTAssertEqual(harness.spawns, 1, "…and nothing was spawned in its place")
         XCTAssertEqual(runner.sends.count, 1, "…and no turn was spent")
-        guard case .nothingNew(let stateDocId, _) = harness.orchestrator.runState else {
+        guard case .nothingNew(let stateDocId, _, _) = harness.orchestrator.runState else {
             return XCTFail("expected the idle 'nothing new' variant, got "
                            + "\(harness.orchestrator.runState)")
         }

@@ -530,20 +530,48 @@ struct DiagnosticsPane: View {
         runStartedAt: Date? = nil,
         runProgress: RunProgress? = nil
     ) -> HeaderState {
+        // **`.check` on all three arms** (#77 F7): this pane is Author's, and
+        // the window's one run state also carries Review's rounds. A round on
+        // this document falls through to what is on disk here — the pane's
+        // OWN state — and `otherLoopLine` says the one sentence about it.
         switch runState {
-        case .running(let runDocId, let checking) where runDocId == docId:
+        case .running(let runDocId, .check, let checking) where runDocId == docId:
             // The clock and the progress are the ORCHESTRATOR's, not the run
             // state's: they belong to the live turn rather than to the delta
             // it was launched over, and a caller with neither passes neither.
             return .running(checking: checking, since: runStartedAt, progress: runProgress)
-        case .nothingNew(let runDocId, let at) where runDocId == docId:
+        case .nothingNew(let runDocId, .check, let at) where runDocId == docId:
             return .nothingNew(at: at)
-        case .failed(let runDocId, let failure, let at) where runDocId == docId:
+        case .failed(let runDocId, .check, let failure, let at) where runDocId == docId:
             return .failed(failure, at: at)
         default:
             guard let lastRun else { return .neverRun }
             return noteCount == 0 ? .clean(lastRun: lastRun) : .idle(lastRun: lastRun)
         }
+    }
+
+    /// **Review's round is holding the window's one session** (#77 F7) — the
+    /// ruling's sentence, verbatim (Denver 2026-10-17, applied symmetrically by
+    /// the controller to the cockpit's "Author's check is running" line).
+    /// `static let` for `headerCopy`'s reason: every sentence this pane says
+    /// is assertable without mounting anything.
+    static let reviewsRoundIsRunningLine =
+        "Review's round is running \u{2014} \u{2318}R waits until it finishes."
+
+    /// **The one line this pane says about the OTHER loop's run** — `nil`
+    /// unless a ROUND is running on this document. Scoped by `docId` on
+    /// `headerState`'s rule: the run state is per window, this pane per
+    /// document. It sits beside the header's own state rather than replacing
+    /// it — the last check is still the last check — and ⌘R stays refused by
+    /// the orchestrator's in-flight guard exactly as it was; this only says
+    /// why before the press rather than after it.
+    static func otherLoopLine(
+        runState: CompilerOrchestrator.RunState, docId: String
+    ) -> String? {
+        if case .running(let runDocId, .round, _) = runState, runDocId == docId {
+            return reviewsRoundIsRunningLine
+        }
+        return nil
     }
 
     /// **Whether a row offers a fate at all — false for every row of a preview.**
@@ -666,8 +694,12 @@ struct DiagnosticsPane: View {
                 }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(isRunningState)
-                    .help(Self.rereadHelp)
+                    // A round on this piece holds the window's one session
+                    // too (#77 F7): Reread stays refused exactly as it was
+                    // while the header read `.running` over that round, and
+                    // now says whose run it is waiting for.
+                    .disabled(isRunningState || otherLoopLine != nil)
+                    .help(otherLoopLine ?? Self.rereadHelp)
                 gearMenu
             }
             // **The picker P1 promised, and it travels nowhere** (two loops
@@ -676,6 +708,13 @@ struct DiagnosticsPane: View {
             // a CHECK is not chosen on the review board. What replaces the
             // label is a menu over the READERS themselves: every item writes
             // the choice and stays on this pane.
+            // **The other loop's run, in one line** (#77 F7): under the
+            // header's own state, never in place of it.
+            if let otherLoopLine {
+                Text(otherLoopLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             readerMenu
             // **Under the reader line, because it is addressed TO them**
             // (spec §3.7). The header already says who reads this piece; the
@@ -723,6 +762,12 @@ struct DiagnosticsPane: View {
     /// The one state Reread refuses in — the same predicate Cancel's presence
     /// turns on, read off `state` rather than the orchestrator so both
     /// controls in this row answer to one description of the run.
+    /// This view's one reading of the other loop's run — `orchestrator.runState`
+    /// through the pure `otherLoopLine`, scoped to this document.
+    private var otherLoopLine: String? {
+        Self.otherLoopLine(runState: orchestrator.runState, docId: docId)
+    }
+
     private var isRunningState: Bool {
         if case .running = state { return true }
         return false

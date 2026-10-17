@@ -180,6 +180,15 @@ struct ReviewRoundCockpit: View {
         /// carries it, so a later surface can age the line rather than needing
         /// a second read of the orchestrator.
         case failed(CompilerRunFailure, at: Date)
+        /// **Author's CHECK is running on this document** (#77 F7). One
+        /// session per window serves both loops, so the check holds the
+        /// session this strip's Run would need — but it is not a round, and
+        /// drawing its counts as "running" here told the writer a round was
+        /// under way that nobody had pressed Run for. The strip keeps its own
+        /// state (`statusLine` answers the report line, as `.idle` does), adds
+        /// `otherLoopLine`'s one sentence, and refuses Run exactly as before.
+        /// No Cancel: the check is Author's to stop.
+        case authorsCheckIsRunning
     }
 
     // MARK: - The decisions, pure
@@ -205,10 +214,15 @@ struct ReviewRoundCockpit: View {
     static func phase(
         runState: CompilerOrchestrator.RunState, docId: String
     ) -> RunPhase {
+        // **Each loop shows its own run** (#77 F7): a round is this strip's,
+        // a check on the same document is named rather than drawn as one, and
+        // a check's failure is Author's to report — here it is idle.
         switch runState {
-        case .running(let runDocId, let checking) where runDocId == docId:
+        case .running(let runDocId, .round, let checking) where runDocId == docId:
             return .running(checking)
-        case .failed(let runDocId, let failure, let at) where runDocId == docId:
+        case .running(let runDocId, .check, _) where runDocId == docId:
+            return .authorsCheckIsRunning
+        case .failed(let runDocId, .round, let failure, let at) where runDocId == docId:
             return .failed(failure, at: at)
         default:
             return .idle
@@ -505,10 +519,7 @@ struct ReviewRoundCockpit: View {
         activePassId.flatMap { id in passes.first { $0.id == id } }
     }
 
-    private var isRunning: Bool {
-        if case .running = phase { return true }
-        return false
-    }
+    private var isRunning: Bool { Self.refusesRun(phase: phase) }
 
     private var isFailure: Bool {
         if case .failed = phase { return true }
@@ -548,8 +559,43 @@ struct ReviewRoundCockpit: View {
                 elapsed: runSince.map { now.timeIntervalSince($0) },
                 thinkingTokens: runProgress?.thinkingTokens)
         case .failed(let failure, _): return RoundNarrative.failureCopy(failure)
-        case .idle: return reportLine
+        // The strip's own state under the other loop's line, never replaced
+        // by it (#77 F7, Denver's ruling: "its own state plus the line").
+        case .idle, .authorsCheckIsRunning: return reportLine
         }
+    }
+
+    /// **Author's check holds the window's one session** — the ruling's
+    /// sentence, verbatim (Denver, 2026-10-17). `static let` so it is
+    /// assertable without a mount.
+    static let authorsCheckIsRunningLine =
+        "Author's check is running \u{2014} Run waits until it finishes."
+
+    /// The one line this strip says about the OTHER loop's run (#77 F7), or
+    /// `nil`. Drawn under the strip's own status line rather than in place
+    /// of it.
+    static func otherLoopLine(phase: RunPhase) -> String? {
+        if case .authorsCheckIsRunning = phase { return authorsCheckIsRunningLine }
+        return nil
+    }
+
+    /// **Whether Run and Fresh Eyes refuse on the phase alone** — a round in
+    /// flight, or Author's check holding the one session (#77 F7). The
+    /// refusal is exactly what it was before the run state carried a kind,
+    /// when a check on this document read `.running` here. `.failed` never
+    /// refuses (see `runRow`'s doc).
+    static func refusesRun(phase: RunPhase) -> Bool {
+        switch phase {
+        case .running, .authorsCheckIsRunning: return true
+        case .idle, .failed: return false
+        }
+    }
+
+    /// **Cancel is this loop's own** — offered over a round in flight and
+    /// never over Author's check, which Author's header stops.
+    static func offersCancel(phase: RunPhase) -> Bool {
+        if case .running = phase { return true }
+        return false
     }
 
     private var statusLine: String? {
@@ -593,6 +639,15 @@ struct ReviewRoundCockpit: View {
                 // about a turn that finished.
                 statusText(statusLine)
                     .help(isFailure ? "" : Self.reportHelp(reportTiming))
+            }
+            // The other loop's run, in one line under this strip's own state
+            // (#77 F7).
+            if let otherLoopLine = Self.otherLoopLine(phase: phase) {
+                Text(otherLoopLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             letterRow
             askRow
@@ -763,6 +818,7 @@ struct ReviewRoundCockpit: View {
     /// missing pass: it is the state the writer just caused, and the piece's
     /// lane is not what stands between them and a second turn.
     private func runButtonHelp(offer: String) -> String {
+        if let other = Self.otherLoopLine(phase: phase) { return other }
         if isRunning { return Self.busyReason }
         if activePass == nil { return Self.noEditorReason }
         return offer
@@ -784,7 +840,7 @@ struct ReviewRoundCockpit: View {
             }
             // Cancel is not the posture's: a round already in flight when a
             // demotion lands is still the writer's to stop.
-            if isRunning {
+            if Self.offersCancel(phase: phase) {
                 Button(Self.cancelTitle) { onCancel() }
                     .buttonStyle(.bordered)
             }

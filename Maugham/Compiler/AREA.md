@@ -1955,7 +1955,12 @@ The fix is one bit and one precondition, no new run-state reading:
 - `DiagnosticsPane.offersDurableActions(state:)` — pure, taking `HeaderState`
   so it inherits `headerState`'s per-document scoping. Only `.running`
   withholds Answer and Promote; a run on ANOTHER document reaches it as
-  `.idle`/`.clean` and that pane keeps its fates. `.failed`/`.nothingNew`
+  `.idle`/`.clean` and that pane keeps its fates — and so, since #77 F7, does
+  a ROUND on this one: `RunState`'s three run cases carry a `RunKind`,
+  `headerState` matches `.check` alone and `ReviewRoundCockpit.phase` `.round`
+  alone, and each surface names the other loop's run in one pure line
+  (`DiagnosticsPane.otherLoopLine`, `ReviewRoundCockpit.otherLoopLine`) while
+  its Run/Reread stays refused for the window's one session. `.failed`/`.nothingNew`
   describe runs that are over and their rows are the last finished report's.
 - `DiagnosticsStore.dismiss` refuses outright while `previewing.contains(docId)`
   — in memory as well as on disk, so the door is shut rather than the handle
