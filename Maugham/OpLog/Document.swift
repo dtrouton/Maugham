@@ -486,6 +486,10 @@ public final class Document {
         /// A restore this Mac's permit refuses (P3c whole-branch fix wave,
         /// C1's restore door) — a History restore's ⌘Z or ⇧⌘Z after a demotion.
         case restoreNotPermitted
+        /// A suggestion's accept or revert this Mac may not write right now
+        /// (#79) — a yield (Edit Anyway lifts it) or a demotion, so it names
+        /// neither "no longer" nor a restore.
+        case suggestionNotPermitted
 
         /// One sentence for however many notes of this verb declined. A batch
         /// that ALSO undid some notes says nothing about them: the queue has
@@ -516,6 +520,8 @@ public final class Document {
                 "Couldn't change \(count) tasks — this Mac can no longer file tasks in this piece."
             case .restoreNotPermitted:
                 "Couldn't undo \(count) restores — this Mac can no longer change this piece's text."
+            case .suggestionNotPermitted:
+                "Couldn't undo \(count) suggestions — this Mac can't change this piece's text right now."
             }
         }
 
@@ -543,6 +549,8 @@ public final class Document {
                 "Couldn't change that task — this Mac can no longer file tasks in this piece."
             case .restoreNotPermitted:
                 "Couldn't undo the restore — this Mac can no longer change this piece's text."
+            case .suggestionNotPermitted:
+                "Couldn't undo the suggestion — this Mac can't change this piece's text right now."
             }
         }
     }

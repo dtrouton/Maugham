@@ -266,11 +266,11 @@ enum AnnotationBulkActions {
     /// the one verb routed through a throwing catch rather than `try?`: a lost
     /// span anchor is a refusal the writer must hear about (RULING-5), and the
     /// batch carries on past it rather than halting on the first.
-    @MainActor
     ///
     /// `mayWrite` is the window's yield-aware posture (#79), handed to every
     /// accept so a suggestion's accept and its ⌘Z/⇧⌘Z ask it; `nil` asks
     /// nothing beyond the document's own stamp.
+    @MainActor
     static func perform(
         _ verb: BulkVerb, on ids: [String], in document: Document,
         undoManager: UndoManager?,

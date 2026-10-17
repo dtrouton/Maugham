@@ -638,6 +638,8 @@ extension Document {
                     // reverted. Bounded: any intervening external buffer
                     // replace clears the stack, and the re-accept itself is a
                     // legal op-log append, never a crash.
+                    // A revert refused under the yield leaves a re-accept redo over
+                    // a still-accepted note; that redo asks `mayWrite` again.
                     guard let um else { return }
                     um.registerUndo(withTarget: doc) { [weak um] d2 in
                         guard let um else { return }
@@ -1469,11 +1471,6 @@ extension Document {
         }
     }
 
-    /// **The door** (P3c Task 5): throw `PostureRefusal` unless this device's
-    /// own hand may write `kind` here. The stamp is the one answer — resolved
-    /// at load by `OpLogStore.localWritePermit` and re-stamped on every trust
-    /// change by the posture door (P3c Task 2), so a demotion arriving
-    /// mid-session closes it at the next press and a promotion reopens it.
     /// **The host's half of a text-writing disposition** (#79): `mayWrite` is
     /// the window's yield-aware posture (`.writeText`), handed in because this
     /// file may not ask the posture (tripwire 51). `nil` asks nothing.
@@ -1483,10 +1480,15 @@ extension Document {
         if let mayWrite, !mayWrite() {
             throw PostureRefusal(
                 kind: kind, leftAsItWas: "the text",
-                undoDecline: .restoreNotPermitted)
+                undoDecline: .suggestionNotPermitted)
         }
     }
 
+    /// **The door** (P3c Task 5): throw `PostureRefusal` unless this device's
+    /// own hand may write `kind` here. The stamp is the one answer — resolved
+    /// at load by `OpLogStore.localWritePermit` and re-stamped on every trust
+    /// change by the posture door (P3c Task 2), so a demotion arriving
+    /// mid-session closes it at the next press and a promotion reopens it.
     internal func requireDispositionPermitted(_ kind: OpKind) throws {
         guard localWritePermit.allows(.op(Self.dispositionProbe(kind))) == .yes else {
             throw PostureRefusal(kind: kind)
@@ -1638,7 +1640,8 @@ extension Document {
     /// **⌘Z and ⇧⌘Z's half of the door** (P3c Task 5). An undo registered
     /// while this Mac could write here can fire after it no longer may; the
     /// compensating op is refused like any other press, and the refusal is
-    /// SAID (`declineUndo(.notPermitted)`) rather than swallowed — the Edit
+    /// SAID (`declineUndo(refusal.undoDecline)`, `.notPermitted` unless a
+    /// host's `mayWrite` refused) rather than swallowed — the Edit
     /// menu named the act, the writer pressed it, and a silent no-op is the
     /// control not doing what it says (RULING-22's shape). Every other error
     /// keeps the `try?` it replaced: those closures' other failures were

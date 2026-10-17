@@ -991,6 +991,6 @@
   "evidence": {
    "property_test": null
   },
-  "fix_history": "Filed already fixed — the defect and its fix land in the same branch (issue #51, commit 39272dd3). Same class as M5-AN-019 and M5-AN-060's stet guard, at the two resolutions and the Reopen that M5-AN-061's accumulator did not yet reach"
+  "fix_history": "Filed already fixed — the defect and its fix land in the same branch (issue #51, commit 15724bca). Same class as M5-AN-019 and M5-AN-060's stet guard, at the two resolutions and the Reopen that M5-AN-061's accumulator did not yet reach"
  }
 ]

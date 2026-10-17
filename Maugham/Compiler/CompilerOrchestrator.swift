@@ -1807,7 +1807,7 @@ final class CompilerOrchestrator {
             // grace, not a tick (#36) — and a writer quick enough to toggle
             // Claude back on and press ⌘R has a newer run live by then. Ending
             // it here would call that run idle, stop its clock and throw away
-            // what it is streaming. A Cancel does not bump the generation, so
+            // what it is streaming. A Cancel of a sent run does not bump the generation, so
             // its own failure still lands.
             guard runGeneration == generation else { return }
             // The marker and the briefing hash are both left exactly where they

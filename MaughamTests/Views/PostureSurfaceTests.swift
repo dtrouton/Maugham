@@ -375,10 +375,11 @@ final class PostureSurfaceTests: XCTestCase {
 
     // MARK: - ⌘Z after the yield begins (#79)
 
-    /// The yield's refusal (Ruling U) is about the piece's TEXT, so it says
-    /// the restore door's sentence rather than the note door's.
+    /// The yield's refusal (Ruling U) is about the piece's TEXT and is not
+    /// permanent, so it has a sentence of its own (neither the note door's nor
+    /// the restore door's).
     private static let yieldRefusal =
-        "Couldn't undo the restore — this Mac can no longer change this piece's text."
+        "Couldn't undo the suggestion — this Mac can't change this piece's text right now."
 
     private func aSuggestion(_ h: Harness) async throws -> String {
         try await h.doc.addAnnotation(

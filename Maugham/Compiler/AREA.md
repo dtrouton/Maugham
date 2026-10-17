@@ -791,7 +791,7 @@ a send inside the grace spawns fresh rather than reusing the process that is
 dying. The orchestrator has its own guard on the far side: `finish`'s failure
 and unusable-output arms ignore a turn whose run generation has been retired
 (#63 item 1), so a dying session's late failure cannot end a newer run, stop
-its clock or discard its stream preview. A Cancel does not bump the
+its clock or discard its stream preview. A Cancel of a sent run does not bump the
 generation, so a cancelled run's own failure still lands.
 
 ## The `--resume` fallback — pre-authorized, and NOT built

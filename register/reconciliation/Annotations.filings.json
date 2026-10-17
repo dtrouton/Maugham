@@ -552,7 +552,7 @@
   "call_path": "AnnotationsPane row → Reject / Archive (or Reopen) → Document.rejectAnnotation / archiveAnnotation / reopenAnnotation(id:undoManager:) → OpUndoRegistrar.register → ⌘Z → the closure's status re-check → Document.declineUndo(.reject / .archive / .reopen) → one Document.notifyWriter at the hop → RewindModifier's toast",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "39272dd3",
+   "commit": "15724bca",
    "date": "2026-10-17",
    "authorised_by": "RULING-22 — Denver 2026-08-08, 'Maugham should never surprise the writer'; issue #51 scoped it",
    "pinned_by": "MaughamTests/AnnotationResolutionUndoDriftTests.swift (drifted reject/archive/Reopen each decline with nothing appended; Undo Reject never reopens an archive nor resurrects a withdrawn note; three silent controls)",
