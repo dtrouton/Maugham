@@ -15,8 +15,8 @@ final class DocBudgetTests: XCTestCase {
         "docs/testing/TROUBLESHOOTING.md": 4_400,
         "docs/INDEX.md": 600,
         "Maugham/Canvas/AREA.md": 48_005,
-        "Maugham/OpLog/AREA.md": 29_616,  // + residue from CLAUDE.md, 2026-10-17
-        "Maugham/Views/AREA.md": 27_678,  // + residue from CLAUDE.md, 2026-10-17
+        "Maugham/OpLog/AREA.md": 29_629,  // + residue from CLAUDE.md, 2026-10-17
+        "Maugham/Views/AREA.md": 27_710,  // + residue from CLAUDE.md, 2026-10-17
         "Maugham/Compiler/AREA.md": 23_386,  // + residue from CLAUDE.md, 2026-10-17
         "Maugham/Stores/AREA.md": 16_106,  // + residue from CLAUDE.md, 2026-10-17
         "Maugham/MCP/AREA.md": 8_576,  // + residue from CLAUDE.md, 2026-10-17

@@ -2270,3 +2270,4 @@ Known thin coverage (file an issue before relying on these areas for novel behav
 
 - Echo guard = `Document.lastDiskEcho: EchoState` (don't add a parallel "last text" string).
 - Sweep gated on `_pendingSweep: SweepReason?` (don't reintroduce a bool flag).
+- **Retirement is one-way** and §7.3's third load question was withdrawn for it.
