@@ -71,10 +71,10 @@ behaviour beyond the plan as written:
 
 Not yet run at the time of writing. Record the results here:
 
-- [ ] Developer ID profile for `com.maugham.Maugham` created with the keychain
+- [x] Developer ID profile for `com.maugham.Maugham` created (2026-10-17, `Maugham Developer ID`) with the keychain
       group, checked with `scripts/verify-mac-signing.sh profile`, stored as
       `MAC_PROVISIONING_PROFILE` (`docs/release-notes/SETUP-mac-signing.md` §4).
-- [ ] The generated Mac profile's `ExpirationDate` recorded here: ______.
+- [x] The generated Mac profile's `ExpirationDate` recorded here: 2044-10-12 — but it is bound to the Developer ID Application certificate, which expires **2031-06-03**; that is the effective date.
       After it, an installed build's keychain query reads `.unavailable` →
       the claim is `.keep` → new devices get the sheet as before plan 2
       (ADR 0032 plan-2 limits). Renew per SETUP-mac-signing §4 before then.
