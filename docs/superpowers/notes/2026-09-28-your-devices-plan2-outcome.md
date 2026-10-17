@@ -80,7 +80,7 @@ Not yet run at the time of writing. Record the results here:
       (ADR 0032 plan-2 limits). Renew per SETUP-mac-signing §4 before then.
 - [x] Phone App Store profile shows `keychain-access-groups: FF3XH4ZJ45.*`
       (it did locally in Task 5; run 39046213389 archived with `FF3XH4ZJ45.com.maugham.person`).
-- [ ] Mac dry run `v0.41.9x` (v0.41.91, run 39046211955, 2026-10-17: green; downloaded app verifies — embedded profile, group, no get-task-allow, notarized and stapled; launch + personClaim pending Denver's install): the install/embed/verify steps print their `ok:`
+- [x] Mac dry run `v0.41.9x` (v0.41.91, run 39046211955, 2026-10-17: green; downloaded app verifies — embedded profile, group, no get-task-allow, notarized and stapled; installed and launched; Playlist's Mac record carries a signed personClaim and the root person record gained personKey ba9d4f12…, 17:11): the install/embed/verify steps print their `ok:`
       lines; the re-sign step's printed entitlements carry no
       `get-task-allow`; notarized; the app launches; the embedded
       profile is there; a scratch book's `devices/<fp>.json` carries
