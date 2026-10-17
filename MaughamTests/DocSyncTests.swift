@@ -66,14 +66,17 @@ final class DocSyncTests: XCTestCase {
             + "the count lives in Maugham/MCP/AREA.md's catalogue heading only.")
     }
 
-    /// Self-check: a doctored CLAUDE.md/AREA.md claiming counts one/two more
-    /// than the real catalog size parses to those planted numbers, which
-    /// would NOT equal the real catalog count — proving the assertion above
-    /// would go red on drift, not silently pass. The planted numbers are
-    /// derived from the live catalog count (not hardcoded) so this check
-    /// keeps working as the catalog grows — a hardcoded literal collided
-    /// with reality the moment the real count caught up to it (Task 10,
-    /// move_research_item: catalog hit 48, the same number this self-check
+    /// Self-check, two halves. AREA.md: a doctored heading claiming two more
+    /// than the real catalog size parses to that planted number, which would
+    /// NOT equal the real catalog count — proving the AREA assertion above
+    /// would go red on drift, not silently pass. CLAUDE.md: a doctored
+    /// `**NN tools**` claim parses to its number — proving only that the
+    /// parser would FIND a count if one came back, so the `XCTAssertNil`
+    /// above cannot pass merely because the parser is blind. The planted
+    /// numbers are derived from the live catalog count (not hardcoded) so
+    /// this check keeps working as the catalog grows — a hardcoded literal
+    /// collided with reality the moment the real count caught up to it
+    /// (move_research_item: catalog hit 48, the same number this self-check
     /// used to plant).
     func test_toolCountCheckWouldFireOnPlantedOffender() {
         let actual = MCPToolCatalog.all.count
@@ -89,10 +92,9 @@ final class DocSyncTests: XCTestCase {
             return XCTFail("Self-check: parser should extract a count from the doctored AREA.md text.")
         }
 
-        XCTAssertEqual(claudeCount, plantedClaude)
+        XCTAssertEqual(claudeCount, plantedClaude,
+            "Self-check: the parser must find a returning CLAUDE.md count, or the XCTAssertNil above proves nothing.")
         XCTAssertEqual(areaCount, plantedArea)
-        XCTAssertNotEqual(claudeCount, actual,
-            "Self-check expected the planted \(plantedClaude) to disagree with the real catalog count.")
         XCTAssertNotEqual(areaCount, actual,
             "Self-check expected the planted \(plantedArea) to disagree with the real catalog count.")
     }

@@ -10,7 +10,7 @@ final class DocBudgetTests: XCTestCase {
 
     /// Repo-relative path → the most words it may hold.
     static let wordCeilings: [String: Int] = [
-        "CLAUDE.md": 4_000,  // the kernel's ceiling (2,912 words at the diet's end, 2026-10-17)
+        "CLAUDE.md": 2_920,  // ratchet: actual size; the hard cap is 4,000 words (foundations plan 1) — raise only with a reason
         "docs/tripwires.md": 6_400,
         "docs/testing/TROUBLESHOOTING.md": 4_400,
         "docs/INDEX.md": 600,
@@ -30,7 +30,7 @@ final class DocBudgetTests: XCTestCase {
     /// Repo-relative path → the longest line it may hold, in characters.
     /// A single 15,000-character bullet cannot be skimmed or cited.
     static let lineCeilings: [String: Int] = [
-        "CLAUDE.md": 1_000,
+        "CLAUDE.md": 516,  // ratchet: actual size; the hard cap is 1,000 characters (foundations plan 1) — raise only with a reason
         "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 1_000,
     ]
 

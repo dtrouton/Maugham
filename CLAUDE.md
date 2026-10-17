@@ -4,7 +4,7 @@ Maugham is a Mac-native focus text editor for serious creative writing (prose, n
 
 ## First five minutes of any session
 
-1. Read `~/.claude/projects/-Users-denver-src-Maugham/memory/MEMORY.md` (the milestone index; it loads automatically).
+1. MEMORY.md is already loaded: it is the milestone index — don't re-derive what's shipped.
 2. Skim `docs/INDEX.md` for where things are.
 3. Before editing a path, read the area guide the table below names for it.
 4. Test new milestones against `docs/constitution.md`; ADRs in `docs/adr/` supersede the master spec.
@@ -13,7 +13,7 @@ Maugham is a Mac-native focus text editor for serious creative writing (prose, n
 
 These are non-negotiable. Violating one is a regression even if tests pass.
 
-- **The op log is the source of truth for manuscripts; the `.md` on disk is a clean derived render** (no `¶id` anchors, ADR 0019). Editing appends to the per-doc JSONL op log under `.maugham/ops/`; walk by `sequence`, never raw `paragraphs`. **External `.md` edits are discarded** on re-materialize; sync flows through the op-log merge (ADR 0012). Every line is chained and sealed, signed by one of four actor keys: `author`, `assistant`, `translator`, `maugham` (ADR 0032). Full text: `Maugham/OpLog/AREA.md`.
+- **The op log is the source of truth for manuscripts; the `.md` on disk is a clean derived render** (no `¶id`/`t-` anchors, ADR 0019). Editing appends to the per-doc JSONL op log under `.maugham/ops/`; walk by `sequence`, never raw `paragraphs`. **External `.md` edits are discarded**; sync flows through the op-log merge (ADR 0012). Every line is chained, and sealed by one of four actor keys where the device has one: `author`, `assistant`, `translator`, `maugham` (ADR 0032). Full text: `Maugham/OpLog/AREA.md`.
 - **Plain text on disk, full stop.** Manuscripts live as human-readable `.md` / `.fountain` at the writer's chosen paths. Anything derived (op log, checkpoints, sessions, conflict backups, UI state, trash) goes under `.maugham/`. Don't propose sidecar formats for manuscript content.
 - **MCP never mutates manuscript text directly.** Claude operates in a parallel annotation layer (`add_note`, annotations against paragraph IDs), or writes into `research/` — never the manuscript itself.
 - **Single-file screenplays.** One `.fountain` per screenplay project. Multi-file compound screenplay is dead (Phase 3d abandonment). The Scenes segment is a slugline navigator within that one file.
