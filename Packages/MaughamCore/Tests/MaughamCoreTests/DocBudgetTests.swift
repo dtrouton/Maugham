@@ -10,27 +10,27 @@ final class DocBudgetTests: XCTestCase {
 
     /// Repo-relative path → the most words it may hold.
     static let wordCeilings: [String: Int] = [
-        "CLAUDE.md": 2_920,  // ratchet: actual size; the hard cap is 4,000 words (foundations plan 1) — raise only with a reason
-        "docs/tripwires.md": 6_400,
-        "docs/testing/TROUBLESHOOTING.md": 4_400,
-        "docs/INDEX.md": 600,
+        "CLAUDE.md": 2_939,  // ratchet: actual size; the hard cap is 4,000 words (foundations plan 1) — raise only with a reason. +19: the Maugham/Models row names its two real guides (final fix wave)
+        "docs/tripwires.md": 6_306,  // ratchet: actual size
+        "docs/testing/TROUBLESHOOTING.md": 4_406,  // ratchet: actual size; +28 over 4,378 for the line naming the old CLAUDE.md phrases comments still cite
+        "docs/INDEX.md": 394,  // ratchet: actual size (Core and Publish guides and the recipes line added)
         "Maugham/Canvas/AREA.md": 48_005,
-        "Maugham/OpLog/AREA.md": 30_073,  // + residue and the two invariant bullets from CLAUDE.md, 2026-10-17
+        "Maugham/OpLog/AREA.md": 30_088,  // + residue and the two invariant bullets from CLAUDE.md, 2026-10-17; +15: tripwire 10 names all three keyless OpLogStore sites
         "Maugham/Views/AREA.md": 27_717,  // + residue from CLAUDE.md; PersonaMemory claim corrected, 2026-10-17
         "Maugham/Compiler/AREA.md": 23_386,  // + residue from CLAUDE.md, 2026-10-17
         "Maugham/Stores/AREA.md": 16_114,  // + residue from CLAUDE.md; ProjectStore size claim replaced by an ls, 2026-10-17
-        "Maugham/MCP/AREA.md": 8_576,  // + residue from CLAUDE.md, 2026-10-17
+        "Maugham/MCP/AREA.md": 8_592,  // + residue from CLAUDE.md, 2026-10-17; +16: the bump-the-catalogue-heading step
         "MaughamPhone/AREA.md": 5_007,
         "Maugham/Editor/AREA.md": 3_673,
         "Maugham/Updates/AREA.md": 1_622,
-        "Maugham/Publish/AREA.md": 939,  // new: the Publish cell of CLAUDE.md's area table, 2026-10-17
-        "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 2_851,
+        "Maugham/Publish/AREA.md": 977,  // new: the Publish cell of CLAUDE.md's area table, 2026-10-17; +38: the pointer to Core's block-kind recipe
+        "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 2_879,  // +28: Statement.Kind recipe gains the Persona.panes and one-writer-census steps
     ]
 
     /// Repo-relative path → the longest line it may hold, in characters.
     /// A single 15,000-character bullet cannot be skimmed or cited.
     static let lineCeilings: [String: Int] = [
-        "CLAUDE.md": 516,  // ratchet: actual size; the hard cap is 1,000 characters (foundations plan 1) — raise only with a reason
+        "CLAUDE.md": 515,  // ratchet: actual size; the hard cap is 1,000 characters (foundations plan 1) — raise only with a reason
         "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 1_000,
     ]
 
@@ -75,11 +75,11 @@ final class DocBudgetTests: XCTestCase {
             .map(\.count).max() ?? 0
     }
 
-    /// `Task 4`, `P3a`, `P3c plan 2`, `plan 1`, `fix round`, an ISO date.
+    /// `Task 4`, `P3a`, `P3c plan 2`, `plan 1`, `fix round`, `M4`, `M1A`, an ISO date.
     /// Text inside backtick spans is ignored: a dated file path is a pointer, not history.
     static func milestoneTags(in rawText: String) -> [String] {
         let text = rawText.replacingOccurrences(of: "`[^`]*`", with: " ", options: .regularExpression)
-        let pattern = #"\bTask \d+\b|\bP\d[a-c]?\b|\bplan \d+\b|\bfix round\b|\b20\d\d-\d\d-\d\d\b"#
+        let pattern = #"\bTask \d+\b|\bP\d[a-c]?\b|\bM\d[A-Z]?\b|\bplan \d+\b|\bfix round\b|\b20\d\d-\d\d-\d\d\b"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         let ns = text as NSString
         return regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
@@ -160,8 +160,14 @@ final class DocBudgetTests: XCTestCase {
     func test_everyCoreSourceFileIsOnTheCoreMap() throws {
         let dir = Self.repoRoot.appendingPathComponent("Packages/MaughamCore/Sources/MaughamCore")
         let area = try Self.read("Packages/MaughamCore/Sources/MaughamCore/AREA.md")
-        let files = try FileManager.default.contentsOfDirectory(atPath: dir.path)
-            .filter { $0.hasSuffix(".swift") }.sorted()
+        // Recursive: the map promises `Inbox/` (and any later subfolder) too.
+        // Matched by file name, as the map spells it.
+        let walker = try XCTUnwrap(FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil))
+        var files: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            files.append(url.lastPathComponent)
+        }
+        files.sort()
         XCTAssertFalse(files.isEmpty, "the control: no Core files found means the scan reads nothing")
         let missing = files.filter { !area.contains("`\($0)`") }
         XCTAssertEqual(missing, [], "Core files missing from Packages/MaughamCore/Sources/MaughamCore/AREA.md's Map")
@@ -220,6 +226,9 @@ final class DocBudgetTests: XCTestCase {
         XCTAssertEqual(Self.milestoneTags(in: "See `a.md`, written 2026-10-17."), ["2026-10-17"])
         XCTAssertEqual(Self.milestoneTags(in: "Phase 3d was abandoned; tripwire 36 holds."), [],
                        "Phase 3d and tripwire numbers are not milestone tags")
+        XCTAssertEqual(Self.milestoneTags(in: "Shipped in M4, reworked in M1A."), ["M4", "M1A"])
+        XCTAssertEqual(Self.milestoneTags(in: "The MCP server follows ADR 0019."), [],
+                       "MCP and ADR numbers are not milestone tags")
         let missing = Self.unresolvedPaths(
             in: "See `CLAUDE.md`, `Packages/MaughamCore/Package.swift`, `NoSuchFile.swift`, "
                 + "`docs/nope.md` and the pattern `Foo*.swift`.",
