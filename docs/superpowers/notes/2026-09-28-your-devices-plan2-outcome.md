@@ -78,14 +78,14 @@ Not yet run at the time of writing. Record the results here:
       After it, an installed build's keychain query reads `.unavailable` →
       the claim is `.keep` → new devices get the sheet as before plan 2
       (ADR 0032 plan-2 limits). Renew per SETUP-mac-signing §4 before then.
-- [ ] Phone App Store profile shows `keychain-access-groups: FF3XH4ZJ45.*`
-      (it did locally in Task 5).
-- [ ] Mac dry run `v0.41.9x`: the install/embed/verify steps print their `ok:`
+- [x] Phone App Store profile shows `keychain-access-groups: FF3XH4ZJ45.*`
+      (it did locally in Task 5; run 39046213389 archived with `FF3XH4ZJ45.com.maugham.person`).
+- [ ] Mac dry run `v0.41.9x` (v0.41.91, run 39046211955, 2026-10-17: green; downloaded app verifies — embedded profile, group, no get-task-allow, notarized and stapled; launch + personClaim pending Denver's install): the install/embed/verify steps print their `ok:`
       lines; the re-sign step's printed entitlements carry no
       `get-task-allow`; notarized; the app launches; the embedded
       profile is there; a scratch book's `devices/<fp>.json` carries
       `personClaim`.
-- [ ] Phone dry run `phone-v0.0.x` on TestFlight: its first capture in a
+- [ ] Phone dry run `phone-v0.0.x` on TestFlight (phone-v0.14.90, run 39046213389: uploaded; Settings reads "no key yet", i.e. the group is reachable): its first capture in a
       scratch book writes a claim.
 - [ ] Throwaway tags and releases deleted.
 
