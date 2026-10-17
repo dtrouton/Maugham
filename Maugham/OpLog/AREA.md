@@ -1293,7 +1293,7 @@ stamp cannot see the yield (Ruling U) or Edit Anyway, so the window hands in a
 shape), asked in the suggestion arm before the append and forwarded into all
 three text-writing re-entries (accept's ⌘Z revert, its ⇧⌘Z re-accept, the
 pane Revert's ⌘Z re-accept), so each asks afresh; its refusal is said as
-`UndoDecline.restoreNotPermitted` (`PostureRefusal.undoDecline`). A textless
+`UndoDecline.suggestionNotPermitted` (`PostureRefusal.undoDecline`). A textless
 accept never asks it, and a windowless caller passes `nil`. Annotation creation and the writer's own note's edit and withdraw are
 not doors here: they are the reviewer row. **A reopen is judged by what it
 undoes** (ruling P, P3c plan 2). The table files `annotationReopen` with edit
