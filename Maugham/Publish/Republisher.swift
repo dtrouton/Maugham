@@ -167,7 +167,21 @@ public struct Republisher {
                 + "written in — and without that a republish cannot tell a "
                 + "translated edition from the source.")
         }
-        let sourceTag = stagedConfig.metadata.language
+        // #73 F2: the SOURCE tag is the imprint-RESOLVED config's, exactly as
+        // at the compile door (`CompileOrchestrator`'s `LanguageSet`): an
+        // imprint's `metadata` is a merge-patch over the book's and may
+        // respell `metadata.language`, and reading the book's unresolved tag
+        // would take that imprint's own source body for a translation —
+        // gating it, or naming it as the translated edition. Resolution
+        // applies no `languageOverrides`, so this is resolved but NOT folded.
+        // Resolved ONCE, here, and handed to `foldingBase` below. A staged
+        // config that cannot describe this snapshot's imprint (a pre-fix
+        // snapshot) keeps today's answer: the unresolved book tag.
+        let stagedResolution = Self.resolveStaged(
+            stagedConfig: stagedConfig, snapshotConfig: snap.config,
+            liveSource: astSource)
+        let sourceTag = (try? stagedResolution.get())?.metadata.language
+            ?? stagedConfig.metadata.language
         let recordedTags = snap.languages
             ?? prior?.language.map { $0.split(separator: "+").map(String.init) }
         let set = try LanguageSet(
@@ -225,8 +239,8 @@ public struct Republisher {
         // entries on which they differ describe pieces this republish does not
         // render at all.
         let base = try Self.foldingBase(
-            stagedConfig: stagedConfig, snapshotConfig: snap.config,
-            set: set, liveSource: astSource, version: newVersion)
+            resolution: stagedResolution, snapshotConfig: snap.config,
+            set: set, version: newVersion)
 
         // F1: reproduce the historical subset. The snapshot's config is already
         // language-effective (Task 7 Rule 1), so its `include` flags are exactly
@@ -537,13 +551,45 @@ public struct Republisher {
         liveSource: ProjectASTBuilder.Source,
         version: String
     ) throws -> PublishConfig {
-        var base: PublishConfig
-        do {
+        try foldingBase(
+            resolution: resolveStaged(
+                stagedConfig: stagedConfig, snapshotConfig: snapshotConfig,
+                liveSource: liveSource),
+            snapshotConfig: snapshotConfig, set: set, version: version)
+    }
+
+    /// The staged `config.json` resolved the way the compile door resolves
+    /// it — the snapshot's own imprint, the live piece ids only when the
+    /// config defines imprints — kept as a `Result` because its failure is
+    /// not decided here: `republish` falls back to the unresolved book tag
+    /// for the SOURCE tag (#73 F2), and `foldingBase` falls back or refuses
+    /// by body count. Resolution applies no `languageOverrides`, so the
+    /// answer is resolved but never language-folded.
+    static func resolveStaged(
+        stagedConfig: PublishConfig,
+        snapshotConfig: PublishConfig,
+        liveSource: ProjectASTBuilder.Source
+    ) -> Result<PublishConfig, Error> {
+        Result {
             let pieceIDs = stagedConfig.imprints.isEmpty
                 ? []
                 : try liveSource.orderedPieces().map(\.pieceID)
-            base = try stagedConfig.resolved(
+            return try stagedConfig.resolved(
                 imprint: snapshotConfig.imprint, pieceIDs: pieceIDs)
+        }
+    }
+
+    /// `foldingBase` over a resolution already made — `republish` resolves
+    /// once, for its source tag, and hands the same answer here.
+    static func foldingBase(
+        resolution: Result<PublishConfig, Error>,
+        snapshotConfig: PublishConfig,
+        set: LanguageSet,
+        version: String
+    ) throws -> PublishConfig {
+        var base: PublishConfig
+        do {
+            base = try resolution.get()
         } catch {
             guard set.bodies.count == 1 else {
                 throw RepublishError.unreadableSnapshotConfig(

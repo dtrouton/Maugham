@@ -1436,6 +1436,54 @@ final class RepublisherTests: XCTestCase {
             + "so the new piece joins it too")
     }
 
+    /// #73 F2. An imprint's `metadata` is a merge-patch over the book's, so it
+    /// may respell `metadata.language` — and the compile door reads the
+    /// imprint-RESOLVED tag as the source. A republish that read the book's
+    /// unresolved tag instead would take the imprint's own source body for a
+    /// translation: the coverage gate refuses it, or the identity is wrong.
+    func test_anImprintThatRespellsTheSourceLanguageRepublishesAsTheSource() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Doble", author: "T"))
+        cfg.metadata.language = "en"
+        cfg.imprints = ["hispana": .init(metadata: ["language": .string("es")])]
+        try await configStore.save(cfg)
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: GrowingSrc(pieces: ["p1"]),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let initial = try await orch.compile(
+            format: .epub, label: nil, imprint: "hispana")
+        guard case .completed(let initialPub, _) = initial else {
+            return XCTFail("the imprint's source compile failed: \(initial)")
+        }
+
+        var r = Republisher(
+            projectURL: tmp, astSource: GrowingSrc(pieces: ["p1"]),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        r.mintSuffix = { "f2f2" }
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .completed(let pub, _) = outcome else {
+            return XCTFail("the imprint's source edition must republish as the "
+                           + "source, not be gated as a translation: \(outcome)")
+        }
+        XCTAssertEqual(pub.imprint, "hispana")
+        XCTAssertEqual(pub.language, initialPub.language,
+                       "the republish is the same edition the compile named")
+        XCTAssertTrue(pub.outputPath.contains("-rf2f2"), pub.outputPath)
+        XCTAssertEqual(
+            pub.outputPath.replacingOccurrences(of: "-rf2f2", with: ""),
+            initialPub.outputPath,
+            "same filename as the original, but for the republish suffix")
+    }
+
     /// I2 (whole-branch review). A republish mints a triple too, and its
     /// in-flight refusal is the third of the three that used to name only
     /// `(version, language, format)` — ambiguous the moment an imprint holds a
