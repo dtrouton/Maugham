@@ -34,4 +34,17 @@ enum EditorEditPolicy {
                                    isTranslationReview: Bool = false) -> Bool {
         !isReviewMode && !lockEditing && !isTranslationReview
     }
+
+    /// True when a click on a checkbox glyph may flip it. A flip writes text
+    /// through `checkboxToggleHandler`, so it asks the membrane a keystroke
+    /// asks: the hard lock (a posture that refuses `.writeText`, a read-only
+    /// share) and the translated view. A click that flipped anyway would, in
+    /// the yield case, sign text in a piece the writer has not claimed (#74).
+    ///
+    /// `isReviewMode` is deliberately NOT a parameter: the writer's own review
+    /// render keeps checkboxes live, matching the Tasks pane.
+    static func allowsCheckboxToggle(lockEditing: Bool,
+                                     isTranslationReview: Bool) -> Bool {
+        !lockEditing && !isTranslationReview
+    }
 }
