@@ -1365,6 +1365,16 @@ one leg's `setLive(.gap, …)` and before the next leg's own `setLive` — is
 caught by the loop's own `guard generation == gen`, which records `.cancelled`
 for the leg that never got to start rather than doing nothing
 (`TranslationPipelineCancelTests.test_cancelInTheGapStopsThePipelineWithoutStartingTheNextLeg`).
+**A cancel landing during a fix leg's `mintDeclinedQueries` is that same gap
+case, not a cancel of the fix leg** (#77 F8): by then the leg has written its
+entries and the mint has queued its queries, so there is deliberately no
+generation check after the mint — the leg's addressed rewrites, its declined →
+annotation links and (leg 7) the summary and glossary proposals are applied,
+the leg is recorded as `.ran`, and the loop's top guard records the NEXT leg as
+`.cancelled`. Checking there orphaned minted queries from the round record and
+called a finished leg cancelled
+(`TranslationPipelineCancelTests.test_aCancelLandingAfterTheMintKeepsWhatItMinted`,
+`test_aCancelLandingAfterTheFinalMintKeepsTheSummary`).
 `generation` is bumped by `start`, `cancel()` and `shutdown()` alike; `runToken`
 is bumped only by `start` — which is what lets a cancelled run still put
 `status` back to `.idle` in `execute`'s tail while a run that was shut down and

@@ -314,6 +314,83 @@ final class TranslationPipelineCancelTests: XCTestCase {
     func test_anEmptyBookIsRefused() {
         XCTAssertFalse(FakeWorld().pipeline.runBook(documentIds: [], language: "es"))
     }
+
+    // MARK: - A cancel landing inside the mint (#77 F8)
+
+    /// The fix leg has already written its entries and the mint has already
+    /// put the declined queries in the queue by the time a cancel that landed
+    /// DURING the mint is noticed. The round keeps both halves of what the
+    /// leg did — the addressed rewrites and the declined → annotation links —
+    /// and records the leg as RUN, because it did; the leg that never
+    /// started is the one recorded as cancelled.
+    func test_aCancelLandingAfterTheMintKeepsWhatItMinted() async throws {
+        let world = FakeWorld()
+        world.coldEvents = [.resultText("""
+            {"overall":{"verdict":"mixed","text":"Reads well."},\
+            "notes":[{"paragraph_id":"a1b2","kind":"rhythm","severity":"minor","text":"Limps."},\
+            {"paragraph_id":"c3d4","kind":"rhythm","severity":"minor","text":"Drags."}]}
+            """), nil, nil]
+        world.fixAnswer = { notes, _ in
+            .ingested(.init(
+                entriesWritten: 1, addressed: [notes[0].id],
+                declined: [.init(noteId: notes[1].id, reason: "Deliberate.")],
+                rewrites: [.init(paragraphId: notes[0].paragraphId, beforeRecordId: "b",
+                                 before: "old", afterRecordId: "a", after: "new")]))
+        }
+        world.mintAnswer = { [unowned world] mint in
+            world.pipeline.cancel()   // the writer presses Cancel mid-mint
+            return Dictionary(uniqueKeysWithValues: mint.items.map { ($0.note.id, "ann-\($0.note.id)") })
+        }
+        world.pipeline.run(docId: "doc-1", language: "es")
+        await TranslationPipelineTests.settle(world)
+
+        let round = try XCTUnwrap(world.saved.first)
+        XCTAssertEqual(world.mints.count, 1)
+        XCTAssertEqual(round.legs.map(\.leg), [.translate, .read, .fix, .reread])
+        XCTAssertEqual(round.legs.map(\.status), [.ran, .ran, .ran, .cancelled],
+                       "the fix leg finished; the leg after it is what the cancel stopped")
+        XCTAssertEqual(round.legs[2].counts?.entries, 1)
+        XCTAssertEqual(round.stoppedAt, .reread)
+        XCTAssertEqual(round.notes.count, 2)
+        XCTAssertEqual(round.notes[0].outcome,
+                       .addressed(.init(beforeRecordId: "b", before: "old",
+                                        afterRecordId: "a", after: "new")),
+                       "the addressed rewrite record survives the cancel")
+        XCTAssertEqual(round.notes[1].outcome,
+                       .declined(reason: "Deliberate.", annotationId: "ann-\(round.notes[1].id)"),
+                       "the minted query stays linked to the round")
+        XCTAssertEqual(world.calls, ["translate", "cold", "fix"], "nothing later starts")
+    }
+
+    /// The final fix's own products — the summary and the glossary
+    /// proposals — survive a cancel that lands during its mint too.
+    func test_aCancelLandingAfterTheFinalMintKeepsTheSummary() async throws {
+        let world = FakeWorld()
+        world.fixAnswer = { notes, isFinal in
+            guard isFinal else {
+                return .ingested(.init(entriesWritten: 1, addressed: notes.map(\.id)))
+            }
+            return .ingested(.init(
+                entriesWritten: 0,
+                declined: notes.map { .init(noteId: $0.id, reason: "Deliberate.") },
+                summary: "Done.",
+                glossaryProposals: [.init(term: "fog", rendering: "niebla", reason: "fixed")]))
+        }
+        world.mintAnswer = { [unowned world] mint in
+            world.pipeline.cancel()
+            return Dictionary(uniqueKeysWithValues: mint.items.map { ($0.note.id, "ann-\($0.note.id)") })
+        }
+        world.pipeline.run(docId: "doc-1", language: "es")
+        await TranslationPipelineTests.settle(world)
+
+        let round = try XCTUnwrap(world.saved.first)
+        XCTAssertEqual(round.legs.map(\.leg), TranslationRound.Leg.allCases)
+        XCTAssertTrue(round.legs.allSatisfy { $0.status == .ran }, "every leg finished")
+        XCTAssertEqual(round.summary, "Done.")
+        XCTAssertEqual(round.glossaryProposals.map(\.term), ["fog"])
+        XCTAssertEqual(round.departures[0].outcome,
+                       .declined(reason: "Deliberate.", annotationId: "ann-\(round.departures[0].id)"))
+    }
 }
 
 private extension TranslationPipeline.Status {

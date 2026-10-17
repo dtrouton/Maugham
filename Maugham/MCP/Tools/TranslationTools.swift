@@ -76,7 +76,9 @@ public enum WriteTranslationTool: MCPTool {
     public static let description =
         "Record per-paragraph translations of a document into a language, stored " +
         "in a parallel translation layer (the manuscript itself is never mutated). " +
-        "Each entry supplies exactly one of `text` (the translated paragraph), " +
+        "Each entry supplies exactly one of `text` (the translated paragraph; " +
+        "empty or whitespace-only text is refused — use `verbatim: true` for an " +
+        "empty source paragraph), " +
         "`verbatim: true` (copy the current source text unchanged — for chrome " +
         "like sluglines or numerals that don't translate), or `delete: true` " +
         "(remove this paragraph's translation — retracting one, or purging an " +

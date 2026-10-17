@@ -225,6 +225,37 @@ final class WriteTranslationToolTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    /// `"text": ""` (or whitespace) is not a translation (#77 F9). Stored,
+    /// it read as translated for coverage and publishing and blanked the
+    /// paragraph in the edition. It is read as ABSENT — the pipeline ingest's
+    /// own discipline — so it meets the same exactly-one-form refusal, naming
+    /// the paragraph, and the batch writes nothing.
+    func test_writeTranslationRefusesAnEmptyParagraph() async throws {
+        let h = try await makeHarness()
+        let pid = h.doc.sequence[0]
+
+        for empty in ["", "   ", " \n\t "] {
+            do {
+                _ = try await call(h, [
+                    "project_id": h.projectId,
+                    "document_id": h.doc.docId,
+                    "language": "es",
+                    "entries": [["paragraph_id": pid, "text": empty]]
+                ])
+                XCTFail("expected invalidArgument for empty text \(empty.debugDescription)")
+            } catch let MCPError.invalidArgument(msg) {
+                XCTAssertTrue(msg.contains(pid), "message should name the paragraph: \(msg)")
+                XCTAssertTrue(msg.contains("must supply exactly one of"), "got: \(msg)")
+            }
+        }
+        XCTAssertTrue(
+            try TranslationStore.loadMerged(
+                forDocId: h.doc.docId, language: "es", in: h.projectURL).isEmpty,
+            "an empty text writes nothing")
+
+        await h.documentStore.close()
+    }
+
     func test_writeTranslation_bothTextAndVerbatim() async throws {
         let h = try await makeHarness()
         let pid = h.doc.sequence[0]
