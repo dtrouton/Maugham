@@ -339,7 +339,10 @@ fallback: `runRequested` flashes `Acknowledgment.noEditor` ("Set a pass to run
 a round.") and starts nothing at all — no session spawned, no marker moved, no
 record, `runState` still `.idle`. A **retired** pass id refuses the same way;
 under the old single resolution it fell to the coach and quietly filed a round
-in her lane.
+in her lane. `beginRun` re-asks after the hops (#77 G1/F6): a stage cleared or
+a pass retired while the settled posture or the burst flush was on its way
+refuses the same way (a second `.noEditor` flash after `.started`), rather than
+filing a passless "Claude" round.
 
 **A round is also the piece-writer's** (signed op log P3c Task 6, plan ruling
 R4). Below the `noEditor` refusal, a round asks `Environment.mayRunRound(docId)`
@@ -785,7 +788,11 @@ Before this join, an EOF-only verdict collapsed the writer's diagnostic to a
 sentence with no body and no essence (issue #36). The generation guard is what
 makes the wait safe: a verdict returned to a retired generation is ignored, so
 a send inside the grace spawns fresh rather than reusing the process that is
-dying.
+dying. The orchestrator has its own guard on the far side: `finish`'s failure
+and unusable-output arms ignore a turn whose run generation has been retired
+(#63 item 1), so a dying session's late failure cannot end a newer run, stop
+its clock or discard its stream preview. A Cancel does not bump the
+generation, so a cancelled run's own failure still lands.
 
 ## The `--resume` fallback — pre-authorized, and NOT built
 

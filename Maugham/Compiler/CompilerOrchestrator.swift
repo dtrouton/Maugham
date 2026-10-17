@@ -812,6 +812,21 @@ final class CompilerOrchestrator {
         freshEyes: Bool,
         environment: Environment, diagnostics: DiagnosticsStore
     ) {
+        // **The stage is re-read on this side of the hop, and a round that
+        // lost it is refused as `runRequested` refuses one** (#77 G1/F6). The
+        // writer can clear the piece's stage or retire its pass — or a synced
+        // manifest can — while the settled posture or the burst flush is on
+        // its way, and a round resolved to nobody here used to be filed as a
+        // passless "Claude" round. Above the empty-delta guard, so an empty
+        // piece with no editor is refused rather than `nothingNew`, and above
+        // every `runState`, marker and session write. `.started` has already
+        // flashed; a second flash saying what is missing is the honest answer.
+        let roundPass: ActivePass? = kind == .round ? environment.roundEditor(docId) : nil
+        if kind == .round, roundPass == nil {
+            environment.onRunAcknowledged(.noEditor)
+            return
+        }
+
         let marker = diagnostics.lastOpId(docId: docId)
         // **A cold read does not consult the marker** (M3-P3 §6). `since: nil`
         // is `DeltaBuilder`'s "everything is new", which is what makes ⌘⇧R
@@ -861,11 +876,11 @@ final class CompilerOrchestrator {
         // given — is read further down, at the site that needs it.
         //
         // A round that reached here has an editor: `runRequested` refused the
-        // press without one. `.nobody` on the round arm is the honest reading
+        // press without one, and the top of this method re-asked after the
+        // hop (`roundPass`, resolved there). `.nobody` on the round arm is the honest reading
         // of "a round is read by no `AuthorReader` at all"; asking the roster
         // for one would be the fusion this milestone split apart.
         let reader: AuthorReader = kind == .check ? environment.authorReader(docId) : .nobody
-        let roundPass: ActivePass? = kind == .round ? environment.roundEditor(docId) : nil
 
         // **Maugham's own observation of the writer's process, at the
         // keystroke** (spec §5). Computed off `reading` and nothing else —
@@ -1777,6 +1792,15 @@ final class CompilerOrchestrator {
             return
 
         case .failed(let failure):
+            // **A retired session's failure is not this run's** (#63 item 1).
+            // `shutdown()` bumps the generation and kills the process, but the
+            // old `send` resolves only once that process has died — a bounded
+            // grace, not a tick (#36) — and a writer quick enough to toggle
+            // Claude back on and press ⌘R has a newer run live by then. Ending
+            // it here would call that run idle, stop its clock and throw away
+            // what it is streaming. A Cancel does not bump the generation, so
+            // its own failure still lands.
+            guard runGeneration == generation else { return }
             // The marker and the briefing hash are both left exactly where they
             // were. A run that produced nothing checked nothing — advance
             // either and the next run describes a session that never read it.
@@ -1809,6 +1833,9 @@ final class CompilerOrchestrator {
                 // either.
                 dosage: dosage)
             else {
+                // The failure arm's guard, for the same reason (#63 item 1): a
+                // retired session's unreadable turn is not the newer run's.
+                guard runGeneration == generation else { return }
                 discardStreamPreview()
                 runState = .failed(docId: docId, failure: .unusableOutput, at: Date())
                 // The arm's own early return, and the third place a run stops
