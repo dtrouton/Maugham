@@ -150,3 +150,9 @@ public enum MCPError: Error, Equatable {
             fields: ["paragraph_id": .string(paragraphId)]))
     }
 }
+
+/// Without this, `localizedDescription` is Foundation's generic "The operation
+/// couldn't be completed. (Maugham.MCPError error 3.)" (#47).
+extension MCPError: LocalizedError {
+    public var errorDescription: String? { message }
+}

@@ -244,18 +244,10 @@ enum EditionStatus {
                     // arrives here.
                     title: TreeWalk.find(id: documentId, in: store.manifest.structure)?
                         .title ?? documentId,
-                    // **`MCPError` is not a `LocalizedError`**, so
-                    // `localizedDescription` renders it as "The operation
-                    // couldn't be completed. (Maugham.MCPError error 3.)" —
-                    // and `MCPError.invalidArgument` is precisely what a
-                    // manifest row with no path throws
-                    // (`withAnnotationDocument`). Naming the chapter and then
-                    // saying nothing usable about it is the labelled silent
-                    // skip this degrade exists to replace, so its own `message`
-                    // comes first; every other error class keeps
-                    // `localizedDescription`, which for them is a real
-                    // sentence (`OpLogStore.ReadError`).
-                    reason: (error as? MCPError)?.message ?? error.localizedDescription))
+                    // `MCPError` is a `LocalizedError`, so this is its own
+                    // sentence ("Invalid argument: …") for a manifest row with
+                    // no path, rather than a silent labelled skip.
+                    reason: error.localizedDescription))
             }
         }
         return DocumentReport(rows: rows, unreadable: unreadable)
@@ -387,9 +379,9 @@ enum EditionStatus {
     /// back as `.unknown`, deliberately) but an in-memory role could carry one,
     /// and a blank language would put a nameless row on every desk.
     ///
-    /// **Lowercased, and that is load-bearing rather than tidy.** A role's tag
-    /// is whatever named the edition and `translatorRole(for:)` stores it
-    /// verbatim, so a manifest can carry `ES` while every translation file for
+    /// **Lowercased on read — a legacy tolerance (#46).** `translatorRole(for:)`
+    /// now mints lowercase, but a manifest written by an earlier build stored the
+    /// tag verbatim, so it can still carry `ES` while every translation file for
     /// it is `es`. Left alone, the chapter with a file would report `es` and the
     /// chapter without one would report `ES` — one edition drawn as two rows,
     /// which no per-document fold can see. And the write pipeline's own
