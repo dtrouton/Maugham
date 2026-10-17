@@ -137,3 +137,24 @@ func test_anMCPErrorsLocalizedDescriptionIsItsMessage() {
 - [ ] `./scripts/test.sh full`, green (if Core fails with only a `started.` line, re-run it; that's another session's build).
 - [ ] Whole-branch review (opus), told not to run builds.
 - [ ] Open a PR closing #73, #46 and #47, with the smoke steps: in a Publish project set `metadata.language` to `../x` via Project Settings or MCP and expect a refusal; compile a bilingual `en-US`+`sr` edition and expect the file in `Exports/`; add a language `ES` in the desk and expect the row to read `es`.
+
+### Task 4: People & Devices explains a group that can't change its permission (#78 SW4)
+
+Denver's ruling (2026-10-17, on #78): keep the rule (a name is one person with one permission, so a group containing the root offers no *Change…*), and explain it in the pane.
+
+**Files:**
+- Modify: `Maugham/Views/PeopleAndDevicesModel.swift` (`PersonGroup`)
+- Modify: `Maugham/Views/PeopleAndDevicesSection.swift` (`groupRow`, ~:376-408)
+- Modify: the guide topic that describes People & Devices (`grep -rln "People & Devices" docs/guide`), with one sentence
+- Test: `MaughamTests/PeopleAndDevicesModelTests.swift`
+
+**Interfaces:**
+- `PersonGroup.static let sharedPermitSentence = "Devices under one name share one permission. Rename a device to split it off and give it its own."`
+- `PersonGroup.sharedPermitNote: String?` is `sharedPermitSentence` exactly when `!offersPermitChange` AND the group holds at least one non-root record. Otherwise nil: a root alone has nothing to split off, and a group without a root already offers *Change…*.
+- `groupRow` draws the note under `permitSentence` in `.caption` / `.secondary` when non-nil. No new button, and no change to Revoke.
+
+- [ ] **Step 1: Failing tests:** `test_aGroupWithTheRootAndAPhoneSaysWhyItCannotChange` (note == sentence), `test_theRootAloneCarriesNoSharedPermitNote` (nil), `test_aGroupWithoutTheRootCarriesNoNoteBecauseItOffersChange` (nil, and offersPermitChange is true). Build groups the way the file's existing grouping tests do.
+- [ ] **Step 2: Run and see them fail.** `./scripts/test.sh`
+- [ ] **Step 3: Implement,** plus the guide sentence.
+- [ ] **Step 4: Run and see them pass.** `./scripts/test.sh`
+- [ ] **Step 5: Commit.** `feat(people): a group holding the root says why it has no Change… and how to split a device off (#78 SW4)`
