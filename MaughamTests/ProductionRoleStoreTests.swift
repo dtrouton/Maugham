@@ -128,6 +128,8 @@ final class ProductionRoleStoreTests: XCTestCase {
         let role = try await store.translatorRole(for: "ES")
         guard case .translator(let lang) = role.role else { return XCTFail("not a translator") }
         XCTAssertEqual(lang, "es")
+        XCTAssertEqual(role.name, "Cortázar",
+                       "and it is named from the lowercase table's preset")
     }
 
     func test_aReaderAndACollatorAreStoredLowercaseToo() async throws {

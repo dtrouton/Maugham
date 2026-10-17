@@ -147,8 +147,8 @@ final class EditionStatusTests: XCTestCase {
     /// sentence naming a chapter the writer is told to repair while saying
     /// nothing whatever about what is wrong with it.
     ///
-    /// The disable experiment: drop the `(error as? MCPError)?.message` arm in
-    /// `documentRows` and the first assertion fails with that exact string.
+    /// The disable experiment: remove `MCPError`'s `LocalizedError`
+    /// conformance and the first assertion fails with that exact string.
     func test_aPathlessChapterDegradesWithAReasonTheWriterCanActOn() async throws {
         let h = try await makeProject(pathlessThirdChapter: true)
 

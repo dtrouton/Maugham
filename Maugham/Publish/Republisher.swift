@@ -79,7 +79,13 @@ public struct Republisher {
         // path. A crafted `"../../outside"` would escape the project root.
         // `republish` trusts the snapshot, so we must re-check it rather than
         // relying only on `set_publish_config`'s write-time validation.
-        let configErrors = PublishConfigValidator.validate(snap.config)
+        //
+        // `validateFrozenEdition`, not `validate`: a republish reproduces an
+        // edition already compiled, so it does not re-decide whether that
+        // edition's language values are valid tags (#73 whole-branch review) —
+        // every other rule still runs, and the filename sanitiser covers the
+        // path.
+        let configErrors = PublishConfigValidator.validateFrozenEdition(snap.config)
         if !configErrors.isEmpty {
             throw RepublishError.invalidSnapshotConfig(
                 "Snapshot config failed validation: " +

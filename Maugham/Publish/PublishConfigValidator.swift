@@ -12,7 +12,29 @@ public enum PublishConfigValidator {
         public let message: String
     }
 
+    /// The pure rules, every one of them — the write and compile doors'.
     public static func validate(_ cfg: PublishConfig) -> [ValidationError] {
+        validate(cfg, checksLanguageValues: true)
+    }
+
+    /// The pure rules a FROZEN edition is held to — `Republisher`'s door.
+    ///
+    /// Everything `validate(_:)` asks EXCEPT whether each language value is a
+    /// valid tag (`languageValueErrors`). A snapshot's config is the first
+    /// body's language-FOLDED config, so its `metadata.language` may be a
+    /// `language_overrides.<k>.metadata.language` a build before #73 never
+    /// judged — and refusing it would make an edition the writer already
+    /// compiled impossible to reproduce, over a field they may never have set.
+    /// A republish reproduces; it does not re-decide. The path is still safe:
+    /// `OutputFilenameBuilder` sanitises whatever reaches `{language}`. Every
+    /// rule this door ran before #73 still runs here.
+    public static func validateFrozenEdition(_ cfg: PublishConfig) -> [ValidationError] {
+        validate(cfg, checksLanguageValues: false)
+    }
+
+    private static func validate(
+        _ cfg: PublishConfig, checksLanguageValues: Bool
+    ) -> [ValidationError] {
         var errs: [ValidationError] = []
 
         if cfg.schemaVersion < 1 || cfg.schemaVersion > supportedSchemaVersion {
@@ -72,13 +94,8 @@ public enum PublishConfigValidator {
                 message: "at least one format must be enabled"))
         }
 
-        // #73 F1: metadata.language reaches `{language}` in output filenames, so
-        // it must be a tag and never a path. Lowercased for the check only
-        // (`en-US` stays legal); the stored value is not rewritten.
-        if !TranslationRecord.isValidLanguageTag(cfg.metadata.language.lowercased()) {
-            errs.append(.init(
-                field: "metadata.language",
-                message: "'\(cfg.metadata.language)' is not a valid language tag (BCP-47, e.g. 'en', 'en-US', 'pt-br')"))
+        if checksLanguageValues {
+            errs.append(contentsOf: languageValueErrors(cfg))
         }
 
         for key in cfg.languageOverrides.keys where !TranslationRecord.isValidLanguageTag(key) {
@@ -94,8 +111,38 @@ public enum PublishConfigValidator {
         // none; `PublishConfigImprintValidationTests
         // .test_nextVersion_isUnconstrained_atBothLevels` pins the pair, so
         // adding a rule at one level goes red until it is added at the other.
-        errs.append(contentsOf: imprintErrors(cfg))
+        errs.append(contentsOf: imprintErrors(cfg, checksLanguageValues: checksLanguageValues))
 
+        return errs
+    }
+
+    /// #73 F1: a language VALUE reaches `{language}` in output filenames, so
+    /// it must be a tag and never a path. Lowercased for the check only
+    /// (`en-US` stays legal); the stored value is not rewritten.
+    private static func languageTagError(_ value: String, field: String) -> ValidationError? {
+        guard !TranslationRecord.isValidLanguageTag(value.lowercased()) else { return nil }
+        return .init(
+            field: field,
+            message: "'\(value)' is not a valid language tag (BCP-47, e.g. 'en', 'en-US', 'pt-br')")
+    }
+
+    /// Every language value a writer can set outside an imprint: the book's
+    /// own `metadata.language`, and each override's `metadata["language"]` —
+    /// which `effectiveMetadata` folds into the book's for that edition, so it
+    /// reaches the filename exactly as the book's does. An imprint's fragment
+    /// is judged in `imprintErrors`.
+    private static func languageValueErrors(_ cfg: PublishConfig) -> [ValidationError] {
+        var errs: [ValidationError] = []
+        if let err = languageTagError(cfg.metadata.language, field: "metadata.language") {
+            errs.append(err)
+        }
+        for (key, override) in cfg.languageOverrides.sorted(by: { $0.key < $1.key }) {
+            if let value = override.metadata["language"],
+               let err = languageTagError(
+                value, field: "language_overrides.\(key).metadata.language") {
+                errs.append(err)
+            }
+        }
         return errs
     }
 
@@ -197,7 +244,9 @@ public enum PublishConfigValidator {
 
     /// The pure imprint rules. Fields are `imprints.<name>.<field>`; the name
     /// rule, which has no sub-field, reports `imprints.<name>`.
-    private static func imprintErrors(_ cfg: PublishConfig) -> [ValidationError] {
+    private static func imprintErrors(
+        _ cfg: PublishConfig, checksLanguageValues: Bool
+    ) -> [ValidationError] {
         var errs: [ValidationError] = []
 
         // Constraint 3: nothing writes the empty string — nil is the book.
@@ -227,6 +276,16 @@ public enum PublishConfigValidator {
 
             if let template = imprint.template,
                let err = templatePathError(template, field: "imprints.\(name).template") {
+                errs.append(err)
+            }
+
+            // #73 F1: an imprint's `metadata` is a merge-patch over the book's,
+            // so a `language` it carries replaces the book's tag for every
+            // compile of that imprint. `null` deletes (the book's applies); a
+            // non-string is resolution's to refuse, not this rule's.
+            if checksLanguageValues,
+               case .string(let value)? = imprint.metadata?["language"],
+               let err = languageTagError(value, field: "imprints.\(name).metadata.language") {
                 errs.append(err)
             }
 

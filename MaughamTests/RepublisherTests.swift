@@ -1186,6 +1186,62 @@ final class RepublisherTests: XCTestCase {
         }
     }
 
+    /// #73 whole-branch review: the REPUBLISH door does not re-decide whether
+    /// a frozen edition's language values are tags. `snap.config` is the first
+    /// body's language-FOLDED config, so its `metadata.language` can be an
+    /// override's value no build before #73 judged (or a pre-fix book tag such
+    /// as `en_US`); refusing it would make an edition already compiled
+    /// impossible to reproduce. The filename sanitiser covers the path.
+    ///
+    /// Disable experiment: have `Republisher` call `validate` rather than
+    /// `validateFrozenEdition` and this fails on `invalidSnapshotConfig`
+    /// naming `metadata.language`.
+    func test_republishOfASnapshotWhoseFrozenLanguageIsNotATagStillCompletes() async throws {
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hello.")]
+            }
+        }
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Frozen", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        guard case .completed(let initialPub, _) = try await orch.compile(
+            format: .epub, label: nil) else {
+            return XCTFail("fixture: the initial compile must complete")
+        }
+
+        // Write the frozen config directly, as a pre-fix build froze it.
+        let snap = try snapStore.load(id: initialPub.snapshotID)
+        var frozen = snap.config
+        frozen.metadata.language = "en_US"
+        XCTAssertTrue(PublishConfigValidator.validate(frozen)
+            .contains { $0.field == "metadata.language" },
+                      "fixture: the write door WOULD refuse this value")
+        try snapStore.save(PublicationSnapshot(
+            snapshotID: snap.snapshotID, createdAt: snap.createdAt,
+            publishFiles: snap.publishFiles, config: frozen,
+            maughamVersion: snap.maughamVersion, tectonicVersion: snap.tectonicVersion,
+            languages: snap.languages))
+
+        let r = Republisher(
+            projectURL: tmp, astSource: Src(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        guard case .completed = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil) else {
+            return XCTFail("a frozen edition must republish whatever its language value")
+        }
+    }
+
     // MARK: - Task 5: republish carries the imprint
 
     /// A republish of an imprint publication must mint an imprint publication:
