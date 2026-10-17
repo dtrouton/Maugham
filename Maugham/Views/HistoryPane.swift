@@ -1168,6 +1168,10 @@ struct HistoryPane: View {
                     // item 1); no door behind the pane fails closed.
                     mayAppend: Self.offersRewind(
                         documentStore?.posture(forDocId: activeDocId)),
+                    // The door's own posture, asked fresh at the press (#74).
+                    postureNow: { [weak store = documentStore, docId = activeDocId] in
+                        store?.posture(forDocId: docId)
+                    },
                     onDismiss: { showingRecoveredHistorySheet = false })
             }
         }

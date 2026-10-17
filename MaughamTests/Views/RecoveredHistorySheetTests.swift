@@ -34,7 +34,7 @@ final class RecoveredHistorySheetTests: XCTestCase {
         let doc = try await makeDocument("One.\n\nTwo.\n")
         let orphan = RecoveredHistoryReport.Orphan(paragraphId: "orig-id", text: "Recovered paragraph.")
 
-        let newId = RecoveredHistorySheet.append(orphan, to: doc)
+        let newId = RecoveredHistorySheet.append(orphan, to: doc, posture: nil)
 
         XCTAssertEqual(doc.sequence.last, newId,
                        "the orphan lands after whatever was previously last")
@@ -48,8 +48,8 @@ final class RecoveredHistorySheetTests: XCTestCase {
         let first = RecoveredHistoryReport.Orphan(paragraphId: "a", text: "First recovered.")
         let second = RecoveredHistoryReport.Orphan(paragraphId: "b", text: "Second recovered.")
 
-        let firstId = RecoveredHistorySheet.append(first, to: doc)
-        let secondId = RecoveredHistorySheet.append(second, to: doc)
+        let firstId = RecoveredHistorySheet.append(first, to: doc, posture: nil)
+        let secondId = RecoveredHistorySheet.append(second, to: doc, posture: nil)
 
         let tail = doc.sequence.suffix(2)
         XCTAssertEqual(Array(tail), [firstId, secondId])
@@ -59,7 +59,7 @@ final class RecoveredHistorySheetTests: XCTestCase {
         let doc = try await makeDocument("")
         let orphan = RecoveredHistoryReport.Orphan(paragraphId: "orig-id", text: "Only paragraph.")
 
-        let newId = RecoveredHistorySheet.append(orphan, to: doc)
+        let newId = RecoveredHistorySheet.append(orphan, to: doc, posture: nil)
 
         XCTAssertEqual(doc.sequence, [newId])
         XCTAssertEqual(doc.paragraph(id: newId), "Only paragraph.")

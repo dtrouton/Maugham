@@ -72,7 +72,7 @@ final class InlineTaskToggleUndoTests: XCTestCase {
         XCTAssertNotEqual(prior, flipped)
 
         InlineToggleUndo.perform(on: doc, paragraphId: pid,
-                                 prior: prior, flipped: flipped, undoManager: um)
+                                 prior: prior, flipped: flipped, undoManager: um, mayWrite: { true })
         XCTAssertEqual(doc.paragraph(id: pid), flipped)
 
         um.undo(); await doc.awaitPendingUndoWork()
@@ -101,7 +101,7 @@ final class InlineTaskToggleUndoTests: XCTestCase {
         let prior = try XCTUnwrap(doc.paragraph(id: pid))
         let flipped = flipInlineCheckbox(prior)
         InlineToggleUndo.perform(on: doc, paragraphId: pid,
-                                 prior: prior, flipped: flipped, undoManager: um)
+                                 prior: prior, flipped: flipped, undoManager: um, mayWrite: { true })
 
         // Drift the paragraph out from under the pending undo.
         doc.setParagraph(id: pid, text: "- [x] buy oat milk")
@@ -128,7 +128,7 @@ final class InlineTaskToggleUndoTests: XCTestCase {
         let flipped = flipFountainTodoDone(in: anchored, anchorId: anchorId)
         XCTAssertTrue(flipped.contains("[[done:"), "flip produced a done marker")
         InlineToggleUndo.perform(on: doc, paragraphId: pid,
-                                 prior: anchored, flipped: flipped, undoManager: um)
+                                 prior: anchored, flipped: flipped, undoManager: um, mayWrite: { true })
         XCTAssertEqual(doc.paragraph(id: pid), flipped)
 
         um.undo(); await doc.awaitPendingUndoWork()
@@ -210,7 +210,7 @@ final class InlineTaskToggleUndoTests: XCTestCase {
         let prior = try XCTUnwrap(doc.paragraph(id: pid))     // "- [ ] buy milkX"
         let flipped = flipInlineCheckbox(prior)               // "- [x] buy milkX"
         InlineToggleUndo.perform(on: doc, paragraphId: pid,
-                                 prior: prior, flipped: flipped, undoManager: um)
+                                 prior: prior, flipped: flipped, undoManager: um, mayWrite: { true })
         pumpEditorApply()
         XCTAssertEqual(h.textView.string, "- [x] buy milkX",
             "toggle replaced the buffer")

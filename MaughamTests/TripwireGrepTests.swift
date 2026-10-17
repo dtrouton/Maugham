@@ -9910,13 +9910,16 @@ final class TripwireGrepTests: XCTestCase {
     ///   the task door that refuses the archive whole where the splice is
     ///   refused.
     /// - `OpUndoRegistrar.swift` × 2 — `InlineToggleUndo`'s checkbox flip and
-    ///   its undo: each asks `mayWriteItsText` first and a refusal is said
-    ///   (`declineUndo(.taskNotPermitted)`); the press is hidden by
-    ///   `TaskRowVerbs` on the drawing posture.
+    ///   its undo/redo: each asks `mayWriteItsText` AND the host's `mayWrite`
+    ///   (the yield-aware posture's `.writeText`, #74) first, and a refusal is
+    ///   said (`declineUndo(.taskNotPermitted)`); the press is hidden by
+    ///   `TaskRowVerbs` on the drawing posture, and refused by the editor's
+    ///   membrane while it is locked.
     /// - `RecoveredHistorySheet.swift` × 1 — *Append to End* / *Append All*:
     ///   drawn only where `.writeText` is allowed (`mayAppend`), the door
-    ///   `RecoveredHistorySheet.mayAppend(to:)` on the stamp, a refusal said
-    ///   in the sheet.
+    ///   `RecoveredHistorySheet.mayAppend(to:posture:)` asking the stamp AND
+    ///   the yield-aware posture at the press (#74), a refusal said in the
+    ///   sheet.
     ///
     /// And beneath all four paragraph primitives, whatever the caller:
     /// `Document.rejectTextWriteIfNotPermitted` refuses inside
