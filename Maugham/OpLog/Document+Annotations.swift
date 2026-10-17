@@ -504,7 +504,8 @@ extension Document {
     public func acceptAnnotation(
         id: String,
         userResponse: String? = nil,
-        undoManager: UndoManager? = nil
+        undoManager: UndoManager? = nil,
+        mayWrite: (@MainActor () -> Bool)? = nil
     ) async throws {
         // Accept SPLICES the suggestion into the manuscript and appends the
         // accept op — two writes, neither reachable on a doc that must not
@@ -549,6 +550,16 @@ extension Document {
         let changes: [Op.ParagraphChange]
         switch kind {
         case .suggestedChange:
+            // The host's YIELD-AWARE answer (#79): a book author's Mac
+            // yielding to a piece's starter (Ruling U) has a stamp that says
+            // yes, and only the window's posture knows the yield — or that
+            // Edit Anyway lifted it. So the host hands it in as a closure
+            // (`InlineToggleUndo.perform`'s shape) and every re-entry below
+            // forwards it, so a ⌘Z or ⇧⌘Z asks afresh. Suggestion arm only:
+            // a textless accept moves no words, and `.writeText` is not its
+            // question. `nil` where no window stands behind the call — the
+            // stamp is then the whole answer.
+            try Self.requireYieldAwareWrite(mayWrite, kind: .claudeAccept)
             guard let orig = creation.changes.first else { changes = []; break }
             let pid = orig.paragraphId
             let current = paragraphs[pid] ?? orig.prior ?? ""
@@ -642,14 +653,16 @@ extension Document {
                             guard let d2 else { return }
                             await d2.refusingLoudly {
                                 try await d2.acceptAnnotation(
-                                    id: id, userResponse: userResponse, undoManager: um)
+                                    id: id, userResponse: userResponse, undoManager: um,
+                                    mayWrite: mayWrite)
                             }
                         }
                     }
                     doc._lastUndoWorkTask = Task.detached { [weak doc] in
                         guard let doc else { return }
                         await doc.refusingLoudly {
-                            try await doc.revertAcceptedAnnotation(id: id, undoManager: nil)
+                            try await doc.revertAcceptedAnnotation(
+                                id: id, undoManager: nil, mayWrite: mayWrite)
                         }
                     }
                 }
@@ -699,7 +712,8 @@ extension Document {
                 redo: { [weak undoManager] doc in
                     await doc.refusingLoudly {
                         try await doc.acceptAnnotation(
-                            id: id, userResponse: userResponse, undoManager: undoManager)
+                            id: id, userResponse: userResponse, undoManager: undoManager,
+                            mayWrite: mayWrite)
                     }
                 })
         }
@@ -745,7 +759,8 @@ extension Document {
     /// redo registration already covers re-accept — registering here too would
     /// double up).
     public func revertAcceptedAnnotation(
-        id: String, undoManager: UndoManager? = nil
+        id: String, undoManager: UndoManager? = nil,
+        mayWrite: (@MainActor () -> Bool)? = nil
     ) async throws {
         // The mirror of accept: restores the paragraph text and appends the
         // revert op. Same two writes, same refusal.
@@ -756,6 +771,9 @@ extension Document {
             documentLog.error("revertAcceptedAnnotation: \(id, privacy: .public) is not a suggestion creation op — ignoring")
             return
         }
+        // Restores the paragraph's text, so the host's yield-aware answer is
+        // asked here too (#79) — the pane's Revert press, and accept's ⌘Z.
+        try Self.requireYieldAwareWrite(mayWrite, kind: .claudeAcceptRevert)
         // Query with an explicit status filter: `annotations()` defaults to
         // `statuses: [.open]` (AnnotationFilter), which would EXCLUDE the very
         // `.accepted` annotation we're reverting and make this a silent no-op.
@@ -831,7 +849,7 @@ extension Document {
                     await doc.refusingLoudly {
                         try await doc.acceptAnnotation(
                             id: id, userResponse: originalUserResponse,
-                            undoManager: um)
+                            undoManager: um, mayWrite: mayWrite)
                     }
                 }
             }
@@ -1380,6 +1398,11 @@ extension Document {
         var leftAsItWas: String = "the note"
         /// Why, where the reason is not this Mac's rung (P3 plan 3 Task 5).
         var cause: Cause = .notPermitted
+        /// What `refusingLoudly` says when this refusal declines a ⌘Z/⇧⌘Z.
+        /// The stamp's refusal is about answering notes; the host's
+        /// yield-aware `mayWrite` refusal (#79) is about the piece's TEXT, and
+        /// says the restore door's sentence (batch-c ruling: no new case).
+        var undoDecline: UndoDecline = .notPermitted
 
         enum Cause: Equatable {
             /// The door's own answer: this Mac may not write this here.
@@ -1414,6 +1437,19 @@ extension Document {
     /// at load by `OpLogStore.localWritePermit` and re-stamped on every trust
     /// change by the posture door (P3c Task 2), so a demotion arriving
     /// mid-session closes it at the next press and a promotion reopens it.
+    /// **The host's half of a text-writing disposition** (#79): `mayWrite` is
+    /// the window's yield-aware posture (`.writeText`), handed in because this
+    /// file may not ask the posture (tripwire 51). `nil` asks nothing.
+    internal static func requireYieldAwareWrite(
+        _ mayWrite: (@MainActor () -> Bool)?, kind: OpKind
+    ) throws {
+        if let mayWrite, !mayWrite() {
+            throw PostureRefusal(
+                kind: kind, leftAsItWas: "the text",
+                undoDecline: .restoreNotPermitted)
+        }
+    }
+
     internal func requireDispositionPermitted(_ kind: OpKind) throws {
         guard localWritePermit.allows(.op(Self.dispositionProbe(kind))) == .yes else {
             throw PostureRefusal(kind: kind)
@@ -1573,8 +1609,8 @@ extension Document {
     internal func refusingLoudly(_ work: @MainActor () async throws -> Void) async {
         do {
             try await work()
-        } catch is PostureRefusal {
-            declineUndo(.notPermitted)
+        } catch let refusal as PostureRefusal {
+            declineUndo(refusal.undoDecline)
         } catch {
             documentLog.error("annotation undo/redo failed: \(error.localizedDescription, privacy: .public)")
         }

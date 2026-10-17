@@ -837,7 +837,15 @@ struct EditorHost: View {
             annotationActions: .init(
                 reviewAcceptHandler: { id in
                     do {
-                        try await doc.acceptAnnotation(id: id, undoManager: um)
+                        // `mayWrite` is the window's yield-aware posture
+                        // (#79), asked at the press and again inside the
+                        // suggestion's ⌘Z and ⇧⌘Z (`InlineToggleUndo`'s shape).
+                        try await doc.acceptAnnotation(
+                            id: id, undoManager: um,
+                            mayWrite: { [weak postureStore = documentStore, docId = doc.docId] in
+                                postureStore?.posture(forDocId: docId)
+                                    .allows(.writeText) ?? false
+                            })
                     } catch let error as AnnotationAcceptError
                         where error == .suggestionAnchorLost {
                         // RULING-5's told-why half on the margin-card surface —
@@ -870,7 +878,12 @@ struct EditorHost: View {
                     try? await doc.archiveAnnotation(id: id, undoManager: um)
                 },
                 reviewReplyHandler: { id, reply in
-                    try? await doc.acceptAnnotation(id: id, userResponse: reply, undoManager: um)
+                    try? await doc.acceptAnnotation(
+                        id: id, userResponse: reply, undoManager: um,
+                        mayWrite: { [weak postureStore = documentStore, docId = doc.docId] in
+                            postureStore?.posture(forDocId: docId)
+                                .allows(.writeText) ?? false
+                        })
                 },
                 reviewEditHandler: { id, newBody, newSuggested in
                     try? await doc.editReviewerAnnotation(

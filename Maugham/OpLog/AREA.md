@@ -1287,7 +1287,14 @@ callers catch by type. The surfaces hide these verbs by the posture, so the
 door is what stops a stale row, a margin card drawn before a demotion, or a ⌘Z
 registered while this Mac could still write. An undo or redo refused this way
 says so (`refusingLoudly` → `UndoDecline.notPermitted`) rather than falling
-silent. Annotation creation and the writer's own note's edit and withdraw are
+silent. **A suggestion's accept and revert also ask the HOST** (#79): the
+stamp cannot see the yield (Ruling U) or Edit Anyway, so the window hands in a
+`mayWrite` closure over its posture's `.writeText` (`InlineToggleUndo`'s
+shape), asked in the suggestion arm before the append and forwarded into all
+three text-writing re-entries (accept's ⌘Z revert, its ⇧⌘Z re-accept, the
+pane Revert's ⌘Z re-accept), so each asks afresh; its refusal is said as
+`UndoDecline.restoreNotPermitted` (`PostureRefusal.undoDecline`). A textless
+accept never asks it, and a windowless caller passes `nil`. Annotation creation and the writer's own note's edit and withdraw are
 not doors here: they are the reviewer row. **A reopen is judged by what it
 undoes** (ruling P, P3c plan 2). The table files `annotationReopen` with edit
 and withdraw (`.ownAnnotation`), because the partition sees only the kind, and

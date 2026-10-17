@@ -267,9 +267,14 @@ enum AnnotationBulkActions {
     /// span anchor is a refusal the writer must hear about (RULING-5), and the
     /// batch carries on past it rather than halting on the first.
     @MainActor
+    ///
+    /// `mayWrite` is the window's yield-aware posture (#79), handed to every
+    /// accept so a suggestion's accept and its ⌘Z/⇧⌘Z ask it; `nil` asks
+    /// nothing beyond the document's own stamp.
     static func perform(
         _ verb: BulkVerb, on ids: [String], in document: Document,
-        undoManager: UndoManager?
+        undoManager: UndoManager?,
+        mayWrite: (@MainActor () -> Bool)? = nil
     ) async -> Outcome {
         var outcome = Outcome(verb: verb)
         for id in ids {
@@ -277,7 +282,7 @@ enum AnnotationBulkActions {
                 switch verb {
                 case .accept:
                     try await document.acceptAnnotation(
-                        id: id, undoManager: undoManager)
+                        id: id, undoManager: undoManager, mayWrite: mayWrite)
                 case .stet:
                     try await document.stetAnnotation(
                         id: id, undoManager: undoManager)

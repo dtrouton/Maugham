@@ -373,6 +373,159 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertEqual(annotation(h.doc, suggestion)?.status, .accepted)
     }
 
+    // MARK: - ⌘Z after the yield begins (#79)
+
+    /// The yield's refusal (Ruling U) is about the piece's TEXT, so it says
+    /// the restore door's sentence rather than the note door's.
+    private static let yieldRefusal =
+        "Couldn't undo the restore — this Mac can no longer change this piece's text."
+
+    private func aSuggestion(_ h: Harness) async throws -> String {
+        try await h.doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: h.pid, body: "tighter",
+            suggestedText: "A paragraph.")
+    }
+
+    /// The stamp says yes throughout — only the host's yield-aware `mayWrite`
+    /// changes its answer, which is the whole of #79: the Document cannot see
+    /// the yield, so the undo must ask the closure the host handed it.
+    func test_aSuggestionAcceptUndoneAfterTheYieldBeginsLeavesTheWordsAndSaysSo() async throws {
+        let h = try await makeHarness(prefix: "Yield-AcceptUndo")
+        let suggestion = try await aSuggestion(h)
+        var allowed = true
+        let um = UndoManager()
+        try await h.doc.acceptAnnotation(
+            id: suggestion, undoManager: um, mayWrite: { allowed })
+        let accepted = h.doc.displayText
+        allowed = false
+        let before = h.doc._opLogMirror.count
+
+        let said = await notices {
+            um.undo()
+            await h.doc.awaitPendingUndoWork()
+        }
+
+        XCTAssertEqual(said, [Self.yieldRefusal])
+        XCTAssertEqual(h.doc._opLogMirror.count, before, "the undo appended nothing")
+        XCTAssertEqual(h.doc.displayText, accepted, "the accepted words stay")
+        XCTAssertEqual(annotation(h.doc, suggestion)?.status, .accepted)
+    }
+
+    /// The redo re-enters the accept, which asks `mayWrite` again.
+    func test_aSuggestionAcceptRedoneAfterTheYieldBeginsIsRefused() async throws {
+        let h = try await makeHarness(prefix: "Yield-AcceptRedo")
+        let suggestion = try await aSuggestion(h)
+        var allowed = true
+        let um = UndoManager()
+        try await h.doc.acceptAnnotation(
+            id: suggestion, undoManager: um, mayWrite: { allowed })
+        um.undo()
+        await h.doc.awaitPendingUndoWork()
+        XCTAssertEqual(annotation(h.doc, suggestion)?.status, .open,
+                       "precondition: the undo reverted the accept")
+        let reverted = h.doc.displayText
+        XCTAssertTrue(um.canRedo)
+        allowed = false
+        let before = h.doc._opLogMirror.count
+
+        let said = await notices {
+            um.redo()
+            await h.doc.awaitPendingUndoWork()
+        }
+
+        XCTAssertEqual(said, [Self.yieldRefusal])
+        XCTAssertEqual(h.doc._opLogMirror.count, before, "the redo appended nothing")
+        XCTAssertEqual(h.doc.displayText, reverted, "the redo moved no words")
+        XCTAssertEqual(annotation(h.doc, suggestion)?.status, .open)
+    }
+
+    /// The pane's own Revert registers a re-accept as its ⌘Z — the third
+    /// text-writing re-entry, and it asks too.
+    func test_aPaneRevertUndoneAfterTheYieldBeginsIsRefused() async throws {
+        let h = try await makeHarness(prefix: "Yield-RevertUndo")
+        let suggestion = try await aSuggestion(h)
+        var allowed = true
+        try await h.doc.acceptAnnotation(id: suggestion, mayWrite: { allowed })
+        let um = UndoManager()
+        try await h.doc.revertAcceptedAnnotation(
+            id: suggestion, undoManager: um, mayWrite: { allowed })
+        XCTAssertEqual(annotation(h.doc, suggestion)?.status, .open)
+        let reverted = h.doc.displayText
+        XCTAssertTrue(um.canUndo)
+        allowed = false
+        let before = h.doc._opLogMirror.count
+
+        let said = await notices {
+            um.undo()
+            await h.doc.awaitPendingUndoWork()
+        }
+
+        XCTAssertEqual(said, [Self.yieldRefusal])
+        XCTAssertEqual(h.doc._opLogMirror.count, before, "the re-accept appended nothing")
+        XCTAssertEqual(h.doc.displayText, reverted, "the reverted words stay")
+        XCTAssertEqual(annotation(h.doc, suggestion)?.status, .open)
+
+        // And the press itself asks: a Revert pressed after the yield begins
+        // is refused before it writes.
+        allowed = true
+        try await h.doc.acceptAnnotation(id: suggestion, mayWrite: { allowed })
+        allowed = false
+        await assertRefused(h.doc, "revert under the yield") {
+            try await h.doc.revertAcceptedAnnotation(
+                id: suggestion, undoManager: UndoManager(), mayWrite: { allowed })
+        }
+    }
+
+    /// **Edit Anyway** is a posture with no yield: `mayWrite` answers yes, so
+    /// the accept, its undo and its redo all write.
+    func test_editAnywayLetsASuggestionAcceptAndItsUndoWrite() async throws {
+        let h = try await makeHarness(prefix: "Yield-EditAnyway")
+        let suggestion = try await aSuggestion(h)
+        let original = h.doc.displayText
+        let override = Posture(h.doc.localWritePermit)
+        XCTAssertFalse(
+            Posture(h.doc.localWritePermit, yieldingTo: "Sam").allows(.writeText),
+            "precondition: the yield refuses text")
+        let mayWrite: @MainActor () -> Bool = { override.allows(.writeText) }
+        let um = UndoManager()
+        try await h.doc.acceptAnnotation(
+            id: suggestion, undoManager: um, mayWrite: mayWrite)
+        let accepted = h.doc.displayText
+        XCTAssertNotEqual(accepted, original)
+
+        let said = await notices {
+            um.undo()
+            await h.doc.awaitPendingUndoWork()
+            XCTAssertEqual(h.doc.displayText, original, "the undo wrote")
+            um.redo()
+            await h.doc.awaitPendingUndoWork()
+        }
+        XCTAssertEqual(said, [], "nothing refused")
+        XCTAssertEqual(h.doc.displayText, accepted, "the redo wrote")
+        XCTAssertEqual(annotation(h.doc, suggestion)?.status, .accepted)
+    }
+
+    /// The textless arm moves no words, so `.writeText` is not its question:
+    /// a comment's accept, undo and redo all land under a refusing `mayWrite`.
+    func test_aCommentAcceptsRedoIsNeverRefusedForWriteText() async throws {
+        let h = try await makeHarness(prefix: "Yield-CommentRedo")
+        let comment = try await h.doc.addAnnotation(
+            kind: .comment, paragraphId: h.pid, body: "a note")
+        let um = UndoManager()
+        let said = try await notices {
+            try await h.doc.acceptAnnotation(
+                id: comment, undoManager: um, mayWrite: { false })
+            XCTAssertEqual(annotation(h.doc, comment)?.status, .accepted)
+            um.undo()
+            await h.doc.awaitPendingUndoWork()
+            XCTAssertEqual(annotation(h.doc, comment)?.status, .open)
+            um.redo()
+            await h.doc.awaitPendingUndoWork()
+        }
+        XCTAssertEqual(said, [], "nothing refused")
+        XCTAssertEqual(annotation(h.doc, comment)?.status, .accepted)
+    }
+
     // MARK: - One queue, two documents, each by its own posture
 
     private func beASigningMac(_ projectURL: URL) -> LocalIdentities {

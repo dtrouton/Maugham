@@ -1703,7 +1703,8 @@ struct AnnotationsPane: View {
         if verb == .stet { stetFlourishIds.formUnion(ids) }
         Task {
             let outcome = await AnnotationBulkActions.perform(
-                verb, on: ids, in: document, undoManager: undoManager)
+                verb, on: ids, in: document, undoManager: undoManager,
+                mayWrite: mayWriteText(document))
             bulkInFlight = false
             noteChanged()
             // Selection hygiene: the run may have taken its own rows off
@@ -1764,12 +1765,26 @@ struct AnnotationsPane: View {
             + "against the current text."
     }
 
+    /// The window's yield-aware answer for a text-writing disposition (#79):
+    /// a suggestion's accept, its Revert, and their ⌘Z/⇧⌘Z re-ask it, because
+    /// only the posture knows the yield (Ruling U) and Edit Anyway. Weak, as
+    /// the undo stack outlives the pane.
+    private func mayWriteText(_ document: Document) -> @MainActor () -> Bool {
+        let docId = document.docId
+        let store = documentStore
+        return { [weak store] in
+            store?.posture(forDocId: docId).allows(.writeText) ?? false
+        }
+    }
+
     /// The one accept executor for suggestion-capable paths: a refusal for a
     /// lost span anchor (RULING-5) is surfaced, never swallowed — `try?` here
     /// would be the M5-AN-050 silence back again.
     private func performAccept(_ document: Document, _ ann: Annotation) async {
         do {
-            try await document.acceptAnnotation(id: ann.id, undoManager: undoManager)
+            try await document.acceptAnnotation(
+                id: ann.id, undoManager: undoManager,
+                mayWrite: mayWriteText(document))
         } catch let error as AnnotationAcceptError where error == .suggestionAnchorLost {
             anchorLostNotice = AnnotationTarget(document: document, annotation: ann)
         } catch {
@@ -1784,7 +1799,8 @@ struct AnnotationsPane: View {
     ) {
         Task {
             try? await document.acceptAnnotation(
-                id: ann.id, userResponse: reply, undoManager: undoManager)
+                id: ann.id, userResponse: reply, undoManager: undoManager,
+                mayWrite: mayWriteText(document))
             noteChanged()
         }
     }
@@ -2008,7 +2024,8 @@ struct AnnotationsPane: View {
     private func performRevert(_ document: Document, _ ann: Annotation) {
         Task {
             try? await document.revertAcceptedAnnotation(
-                id: ann.id, undoManager: undoManager)
+                id: ann.id, undoManager: undoManager,
+                mayWrite: mayWriteText(document))
             noteChanged()
         }
     }
