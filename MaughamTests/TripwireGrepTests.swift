@@ -10369,8 +10369,23 @@ extension TripwireGrepTests {
         return found
     }
 
+    /// Does a construction's argument list record a starter? It must NAME
+    /// `startedBy:`, and its value must not be a bare `nil` (2026-10-11 sweep,
+    /// SW3 — the label alone passed a construction that records nobody). A
+    /// conditional that can yield nil (`isDocument ? starter : nil`) passes:
+    /// that is the census's stated limit, and `addStructureItem`'s group arm
+    /// is the one such site today.
+    static func recordsAStarter(_ args: String) -> Bool {
+        guard let label = args.range(of: "startedBy:") else { return false }
+        let value = args[label.upperBound...].drop(while: { $0.isWhitespace })
+        guard value.hasPrefix("nil") else { return true }
+        let after = value.dropFirst(3).first
+        return after.map { $0.isLetter || $0.isNumber || $0 == "_" } ?? false
+    }
+
     /// The census over a set of `(file name, source)` pairs: the per-file
-    /// counts, and every construction missing `startedBy:` that is not allowed.
+    /// counts, and every construction missing `startedBy:` (or recording a
+    /// bare `nil`) that is not allowed.
     static func structureItemCensus(
         _ files: [(name: String, text: String)]
     ) -> (counts: [String: Int], missing: [String]) {
@@ -10381,7 +10396,7 @@ extension TripwireGrepTests {
             guard !calls.isEmpty else { continue }
             counts[file.name, default: 0] += calls.count
             for (index, args) in calls.enumerated()
-            where !args.contains("startedBy:")
+            where !recordsAStarter(args)
                 && structureItemConstructionsWithoutAStarter["\(file.name)#\(index + 1)"] == nil {
                 missing.append("\(file.name)#\(index + 1)")
             }
@@ -10418,8 +10433,9 @@ extension TripwireGrepTests {
                        "the control: no construction found means the scan reads nothing")
     }
 
-    /// The planted offender: a construction without `startedBy:` is caught, a
-    /// name ending in `StructureItem(` and a comment are not, and a nested
+    /// The planted offender: a construction without `startedBy:`, or with a
+    /// bare `startedBy: nil`, is caught; a name ending in `StructureItem(` and
+    /// a comment are not, and a nested
     /// call inside the argument list does not end it early.
     func test_theStarterCensusFiresOnAPlantedOffender() {
         let planted = """
@@ -10429,10 +10445,17 @@ extension TripwireGrepTests {
         let c = StructureItem(
             id: newId(prefix: "doc"), title: t, type: .document,
             startedBy: Self.thisMacAsAStarter)
+        let d = StructureItem(id: newId(prefix: "doc"), title: t, type: .document,
+                              startedBy: nil)
+        let e = StructureItem(id: i, title: t, type: .document, startedBy:nil)
+        let f = StructureItem(id: i, title: t, type: .document, startedBy: nilStarter)
+        let g = StructureItem(id: i, title: t, type: k, startedBy: isDoc ? me : nil)
         """
         let census = Self.structureItemCensus([("Planted.swift", planted)])
-        XCTAssertEqual(census.counts, ["Planted.swift": 2])
-        XCTAssertEqual(census.missing, ["Planted.swift#1"], "the offender is named")
+        XCTAssertEqual(census.counts, ["Planted.swift": 6])
+        XCTAssertEqual(census.missing, ["Planted.swift#1", "Planted.swift#3", "Planted.swift#4"],
+                       "a missing label and a bare nil are named (SW3); an identifier "
+                       + "beginning with nil and a conditional are not")
     }
 
     // MARK: - The editor's checkbox click asks the membrane first (#74)

@@ -463,7 +463,7 @@ struct AnnotationDetailView: View {
                 // Mac would honour it — a reviewer's Delete of somebody else's
                 // note deletes nothing, on the Mac or here.
                 let fresh = (try? await AnnotationLoading.loadJudged(
-                    docId: docId, from: OpLogStore(projectURL: projectURL))) ?? loaded
+                    docId: docId, from: await postures.judgingStore(for: projectURL))) ?? loaded
                 try await writer.accept(
                     current, currentParagraph: currentParagraph,
                     verifyingAgainst: fresh)
@@ -620,7 +620,7 @@ struct AnnotationDetailView: View {
     /// the loaded values in place and the actions available.
     private func rederive() async {
         guard let judged = try? await AnnotationLoading.loadJudged(
-            docId: docId, from: OpLogStore(projectURL: projectURL)) else {
+            docId: docId, from: await postures.judgingStore(for: projectURL)) else {
             return
         }
         loaded = judged
