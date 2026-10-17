@@ -10,7 +10,8 @@ final class DocBudgetTests: XCTestCase {
 
     /// Repo-relative path → the most words it may hold.
     static let wordCeilings: [String: Int] = [
-        "CLAUDE.md": 19_652,
+        "CLAUDE.md": 14_468,
+        "docs/tripwires.md": 6_400,
         "docs/testing/TROUBLESHOOTING.md": 4_400,
         "docs/INDEX.md": 600,
         "Maugham/Canvas/AREA.md": 48_005,
@@ -27,13 +28,14 @@ final class DocBudgetTests: XCTestCase {
     /// Repo-relative path → the longest line it may hold, in characters.
     /// A single 15,000-character bullet cannot be skimmed or cited.
     static let lineCeilings: [String: Int] = [
-        "CLAUDE.md": 21_623,
+        "CLAUDE.md": 21_416,
     ]
 
     /// Docs whose backticked file names must name a file that exists.
     static let pathCheckedDocs: [String] = [
         "docs/INDEX.md",
         "docs/testing/TROUBLESHOOTING.md",
+        "docs/tripwires.md",
     ]
 
     /// Docs that must carry no milestone tag (a rule outlives the milestone
