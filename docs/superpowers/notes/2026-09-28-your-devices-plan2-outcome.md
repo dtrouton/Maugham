@@ -114,7 +114,7 @@ Also worth watching in the same session (they rest on reports, not hardware):
 a locked phone reads as *isn't reachable*; a partial Forget finishes on a
 second press; the owner-side saved-by line is absent for the owner's own saves.
 
-**Then the release:** push main, wait for CI green, cut `v0.42.0` and
+**Then the release (DONE 2026-10-17: v0.42.0 + phone-v0.15.0; the Mac run's Test step died once with exit 65 and no failing test, green on a re-run of the failed job):** push main, wait for CI green, cut `v0.42.0` and
 `phone-v0.15.0`, push each tag by name, watch both runs.
 
 ## Open notes
