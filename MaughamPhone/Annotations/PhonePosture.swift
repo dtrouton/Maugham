@@ -161,6 +161,17 @@ final class PhonePosture {
         for store in stores.values { store.invalidateTrust() }
     }
 
+    /// **The project's one store, for a judged read** (2026-10-04 sweep, F4).
+    /// The detail view's accept check and its re-derive judge a document's
+    /// annotation ops on THIS store rather than a fresh `OpLogStore` each
+    /// time, which paid a folder read and a P256 verify per registry record
+    /// on every re-derive. The ops are still read from disk on every call;
+    /// only the verified table is shared, and it re-resolves when the
+    /// register moves or after `refresh()`.
+    func judgingStore(for projectURL: URL) async -> OpLogStore {
+        await warmStore(for: projectURL)
+    }
+
     /// The project's one store, its table prepared under the register as it
     /// stands now.
     private func warmStore(for projectURL: URL) async -> OpLogStore {
@@ -266,7 +277,12 @@ final class PhonePosture {
             why = "This book says something about what you may do that this "
                 + "version of Maugham doesn\u{2019}t recognise"
         case .yielding(let name):
-            why = "This piece is \(name)\u{2019}s to settle"
+            // The owner yield is the Mac's alone and this surface never
+            // produces it (2026-10-04 sweep, F5). Were it ever to reach the
+            // phone it reads as a lock, as Ruling W makes every yield here —
+            // never the Mac's wording, which promises an *Edit Anyway*.
+            return "This piece is \(name)\u{2019}s, so nothing was written "
+                + "\u{2014} settle it from your Mac."
         case .yieldingToItsStarter(let name):
             // Ruling W: a lock on the phone, which has no *Edit Anyway*.
             return "\(name) started this piece and it isn\u{2019}t settled "

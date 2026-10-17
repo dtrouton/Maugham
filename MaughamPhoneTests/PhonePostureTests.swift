@@ -168,6 +168,22 @@ final class PhonePostureTests: XCTestCase {
                 + "so nothing was written \u{2014} settle it from your Mac.")
     }
 
+    /// The owner yield is the Mac's alone (2026-10-04 sweep, F5): the phone
+    /// never produces it, but were it to arrive it reads as a lock that sends
+    /// the writer to the Mac — never the Mac's wording, which promises an
+    /// *Edit Anyway* the phone does not have.
+    func test_anOwnerYieldReadsAsALockToSettleFromTheMac() {
+        let owner = PostureDoor.posture(
+            permit: LocalWritePermit(
+                permit: .bookAuthor, actor: .author, documentClass: .piece("doc-kits")),
+            yieldingTo: "Kit")
+        XCTAssertEqual(owner.reason, .yielding(to: "Kit"))
+        XCTAssertEqual(
+            PhonePosture.refusal(.archive, under: owner),
+            "This piece is Kit\u{2019}s, so nothing was written "
+                + "\u{2014} settle it from your Mac.")
+    }
+
     // MARK: - The cache is per load, and a perform re-asks
 
     func test_theLoadAsksTheDoorOncePerPieceAndAPerformAsksAgain() async {
