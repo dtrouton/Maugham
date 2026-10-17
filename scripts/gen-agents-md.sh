@@ -3,7 +3,7 @@
 set -euo pipefail
 ROOT="${MAUGHAM_REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 {
-  echo "<!-- GENERATED from CLAUDE.md by scripts/gen-agents-md.sh — edit CLAUDE.md, then re-run. -->"
+  echo "<!-- GENERATED from CLAUDE.md by scripts/gen-agents-md.sh — edit CLAUDE.md, then re-run. MEMORY.md is Claude Code's memory index; other tools can skip it. -->"
   echo
   cat "$ROOT/CLAUDE.md"
 } > "$ROOT/AGENTS.md"

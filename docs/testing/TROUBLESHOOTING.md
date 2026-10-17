@@ -2,6 +2,8 @@
 
 Read this when a gate is red and the failure does not obviously name your change. Each section is a SYMPTOM, then what it really is, then what to do. The text was moved from CLAUDE.md on 2026-10-17 and keeps its original wording, measurements and pointers.
 
+Older code comments cite CLAUDE.md for "the third confounder", "the runner-parity rule", "the synthetic-click premise", "the warning-census caveat" or "the build-flow notes": these name sections of this file.
+
 | Symptom | Section |
 |---|---|
 | A test fails in the parallel suite but passes alone | [read](#a-test-fails-in-the-parallel-suite-but-passes-alone) |

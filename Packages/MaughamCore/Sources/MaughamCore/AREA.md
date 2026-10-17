@@ -211,8 +211,9 @@ Checks: the compiler (exhaustive `MarkdownBlock` and AST switches), `ElementCens
 2. `StatementLookup.swift` — add a `StatementConvention` path and a `newPath` row. That switch has a `default:`, so a missing row silently returns `nil`.
 3. Exhaustive switches on `Maugham/` (from `grep -rn 'case \.lessons'`): `Maugham/Canvas/Promotion.swift` (`kindTitle`), `Maugham/Compiler/RulingPerformer.swift` (`noun`), `Maugham/Views/ProjectWindow.swift` (`statementPane(forMark:in:)`).
 4. `if case` sites that default silently: `Maugham/Views/StatementPane.swift` (pane title) and `Maugham/Views/RulingsStratum.swift` (stratum title).
-5. If the kind gets a pane: a `DetailSegment` case in `Maugham/Models/DetailSegment.swift`, its arm in `Maugham/Views/DetailPaneToggle.swift`, a shortcut in `Maugham/MaughamApp.swift`, and a place in `PersonaPaneRegistryTests.canonicalPaneOrder`.
+5. If the kind gets a pane: a `DetailSegment` case in `Maugham/Models/DetailSegment.swift`, its arm in `Maugham/Views/DetailPaneToggle.swift`, a shortcut in `Maugham/MaughamApp.swift`, a place in `PersonaPaneRegistryTests.canonicalPaneOrder`, and membership in each persona's `Persona.panes` (`Maugham/Models/Persona.swift`).
 6. If Claude reads it: a read tool beside `Maugham/MCP/Tools/LessonsTools.swift`. `CompilerAllowlistTests.statementWriters` must still find no writer.
+7. If the writer writes it: one production file names the kind to `RulingPerformer`, guarded by a census copied from `TripwireGrepTests.test_theLessonsLedgerIsWrittenFromOneFile` or `test_theFirstReadersStatementIsWrittenFromOneFile`.
 
 Checks: the compiler, `StatementTests` and `StatementLookupTests` round-trips, `PersonaPaneRegistryTests` and the allowlist census.
 
@@ -225,7 +226,7 @@ Checks: the compiler, `StatementTests` and `StatementLookupTests` round-trips, `
    - `MaughamPhone/Read/ReadIcons.swift` — `projectSymbol`;
    - `MaughamPhone/Capture/ProjectPickerSheet.swift` — `symbolName`.
 3. A factory in `Maugham/Stores/ProjectFactory.swift` for `create()` to call.
-4. Then the `type ==` sites. Run `grep -rn '\.screenplay\b' Maugham MaughamPhone`: the most are in `Maugham/Views/PieceInspector.swift`, `Maugham/Views/ProjectWindow.swift` and `Maugham/Views/BinderView.swift`, with `BinderShell.shell(for:)` among them. These default silently: the compiler cannot find a site that should treat the new type like a screenplay or a collection, so read every one.
+4. Then the `type ==` sites. Run `grep -rn '\.screenplay\b' Maugham MaughamPhone`: most are in `Maugham/Views/PieceInspector.swift`, `Maugham/Views/ProjectWindow.swift` and `Maugham/Views/BinderView.swift`, with `BinderShell.shell(for:)` among them. These default silently: the compiler cannot find a site that should treat the new type like a screenplay or a collection, so read every one.
 
 Checks: the compiler for step 2, `SchemaEvolutionToleranceTests`, and reading every grep hit for step 4.
 

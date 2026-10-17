@@ -2,6 +2,8 @@
 
 PDF and EPUB publishing through the bundled tectonic. What the body emitter produces is `Maugham/Resources/PublishStarter/EMISSION.md`, generated from `EmissionContract.swift`. This guide began as the text CLAUDE.md's area table carried for this directory.
 
+Adding a block kind to publish? Start at the Core guide's recipe "Add a block kind to the text model" (`Packages/MaughamCore/Sources/MaughamCore/AREA.md`): it covers `MarkdownBlockParser`, `ElementCensus`, the phone reader and ADR 0022's ruling step, none of which live here.
+
 ## From CLAUDE.md's area table (2026-10-17)
 
 - PDF+EPUB via bundled tectonic. Flow: `ProjectStoreASTSource` → `ProjectASTBuilder` → `LaTeXBodyEmitter`/`XHTMLBodyEmitter` → output under `Exports/`. `EMISSION.md` is generated (edit `EmissionContract.swift`, run tests). Per-piece `style_file` must stay inside a scoped `\begingroup…\endgroup` — don't hoist the `\input` out. ADR 0013.

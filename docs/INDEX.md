@@ -31,12 +31,16 @@ A one-page map of Maugham's docs. Each line says what a file is for and when to 
 
 Each directory with an `AREA.md` asks you to read it before editing anything there.
 
+- [`Packages/MaughamCore/Sources/MaughamCore/AREA.md`](../Packages/MaughamCore/Sources/MaughamCore/AREA.md) — the shared package both apps build on: a map of every file, its rules, and recipes.
 - [`Maugham/OpLog/AREA.md`](../Maugham/OpLog/AREA.md) — the op log, the signed chain, the register and permits.
 - [`Maugham/Stores/AREA.md`](../Maugham/Stores/AREA.md) — project and document stores, the typed mover, the `.maugham/` layout.
 - [`Maugham/Editor/AREA.md`](../Maugham/Editor/AREA.md) — the editor coordinator and its fragile binding contract.
+- [`Maugham/Publish/AREA.md`](../Maugham/Publish/AREA.md) — PDF and EPUB publishing, the department desk, imprints and editions.
 - [`Maugham/Canvas/AREA.md`](../Maugham/Canvas/AREA.md) — the Plan persona's canvas.
 - [`Maugham/Compiler/AREA.md`](../Maugham/Compiler/AREA.md) — checks, rounds, the editorial letter, the translation pipeline.
 - [`Maugham/MCP/AREA.md`](../Maugham/MCP/AREA.md) — the MCP server and its tool catalogue.
 - [`Maugham/Views/AREA.md`](../Maugham/Views/AREA.md) — the window, personas, the binder tree, posture surfaces.
 - [`Maugham/Updates/AREA.md`](../Maugham/Updates/AREA.md) — the in-place updater.
 - [`MaughamPhone/AREA.md`](../MaughamPhone/AREA.md) — the iPhone companion: build command, seam injection, iOS tripwires, releases.
+
+Recipes — add a block kind, a Statement.Kind or a ProjectType: the Core area guide's Recipes section.
