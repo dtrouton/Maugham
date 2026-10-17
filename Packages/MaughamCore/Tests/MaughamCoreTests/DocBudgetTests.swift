@@ -23,12 +23,14 @@ final class DocBudgetTests: XCTestCase {
         "MaughamPhone/AREA.md": 5_007,
         "Maugham/Editor/AREA.md": 3_673,
         "Maugham/Updates/AREA.md": 1_622,
+        "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 6_000,
     ]
 
     /// Repo-relative path → the longest line it may hold, in characters.
     /// A single 15,000-character bullet cannot be skimmed or cited.
     static let lineCeilings: [String: Int] = [
         "CLAUDE.md": 21_416,
+        "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 1_000,
     ]
 
     /// Docs whose backticked file names must name a file that exists.
@@ -36,12 +38,14 @@ final class DocBudgetTests: XCTestCase {
         "docs/INDEX.md",
         "docs/testing/TROUBLESHOOTING.md",
         "docs/tripwires.md",
+        "Packages/MaughamCore/Sources/MaughamCore/AREA.md",
     ]
 
     /// Docs that must carry no milestone tag (a rule outlives the milestone
     /// that made it; the tag is history and belongs in git or an ADR).
     static let untaggedDocs: [String] = [
         "docs/INDEX.md",
+        "Packages/MaughamCore/Sources/MaughamCore/AREA.md",
     ]
 
     // MARK: - Helpers (pure; the planted controls below exercise them)
@@ -146,6 +150,18 @@ final class DocBudgetTests: XCTestCase {
             let missing = Self.unresolvedPaths(in: try Self.read(path), repoRoot: Self.repoRoot)
             XCTAssertEqual(missing, [], "\(path) names files that do not exist: \(missing)")
         }
+    }
+
+    /// Every Core source file is on the Core map (D3). A new file that is
+    /// missing fails here, so the map cannot rot into a partial list.
+    func test_everyCoreSourceFileIsOnTheCoreMap() throws {
+        let dir = Self.repoRoot.appendingPathComponent("Packages/MaughamCore/Sources/MaughamCore")
+        let area = try Self.read("Packages/MaughamCore/Sources/MaughamCore/AREA.md")
+        let files = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            .filter { $0.hasSuffix(".swift") }.sorted()
+        XCTAssertFalse(files.isEmpty, "the control: no Core files found means the scan reads nothing")
+        let missing = files.filter { !area.contains("`\($0)`") }
+        XCTAssertEqual(missing, [], "Core files missing from Packages/MaughamCore/Sources/MaughamCore/AREA.md's Map")
     }
 
     func test_untaggedDocsCarryNoMilestoneTag() throws {
