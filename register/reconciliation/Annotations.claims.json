@@ -975,5 +975,22 @@
    "property_test": null
   },
   "fix_history": "Filed already fixed — the defect and its fix land in the same branch (issue #41 A1, commit 0405364f511000fa317628423147bb6f294fd787). M5-AN-041 is the same coalescing problem on the sweep's side, ruled RULING-32 and fixed 2026-08-09; this is that ruling's shape reused rather than a second mechanism"
+ },
+ {
+  "claim_id": "M5-AN-062",
+  "scope": "Document.rejectAnnotation / archiveAnnotation ⌘Z, and the pane Reopen's ⌘Z (reopenAnnotation(id:undoManager:))",
+  "kind": "GUARD",
+  "statement": "The reject and archive undos re-check, at fire time and from an UNFILTERED query, that the note still shows the status this action wrote (`.rejected` / `.archived`) before they reopen it; on drift they append nothing and DECLINE OUT LOUD through `Document.declineUndo(.reject)` / `(.archive)` — \"Couldn't undo rejecting the note — it changed on another device.\" / \"Couldn't undo archiving the note — it changed on another device.\" (plurals 'Couldn't undo rejecting N notes — they changed on another device.' and the archiving twin, on adjacent lines in `UndoDecline`). Before this both ended in a bare `reopenAnnotation(id:)`, which dispatches on the status NOW rather than on what the undo wrote, so 'Undo Reject' reopened a note ARCHIVED since on another device (the wrong verb), and over a note WITHDRAWN since took the `.annotationWithdraw` arm and RESTORED the deleted note — in every case documentLog alone. The pane Reopen's undo, which re-applies the prior reject/archive/stet, has the converse guard: it acts only while the note is still `.open`, else declines with `.reopen` (\"Couldn't undo reopening the note — it changed on another device.\") rather than overwriting a resolution made since. `reopenAnnotation(id:)` is unchanged — it is also the pane's Reopen, the phone's and the withdrawal restore, and M5-AN-034 pins its status set",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/AnnotationResolutionUndoDriftTests.swift: test_aDriftedRejectUndoDeclinesToTheWriter, test_aDriftedArchiveUndoDeclinesToTheWriter, test_undoRejectNeverReopensAnArchivedNote, test_undoRejectNeverResurrectsAWithdrawnNote, test_aReopenUndoneAfterTheNoteMovedDeclines, test_theNewDeclinesCountInThePlural, and the three silent controls (test_aRejectUndoThatSucceedsIsSilent, test_anArchiveUndoThatSucceedsIsSilent, test_aReopenUndoThatSucceedsIsSilent)"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-22); issue #51",
+  "reachability": "RACE — a peer device or the phone acts on the same note (reopen, accept, stet, archive or withdraw) between the reject/archive/Reopen and the ⌘Z; no bulk reject or archive exists (`AnnotationBulkActions.BulkVerb` is accept | stet | triage), so the decline is per-note",
+  "evidence": {
+   "property_test": null
+  },
+  "fix_history": "Filed already fixed — the defect and its fix land in the same branch (issue #51, commit 39272dd3). Same class as M5-AN-019 and M5-AN-060's stet guard, at the two resolutions and the Reopen that M5-AN-061's accumulator did not yet reach"
  }
 ]
