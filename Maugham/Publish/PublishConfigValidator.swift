@@ -72,6 +72,15 @@ public enum PublishConfigValidator {
                 message: "at least one format must be enabled"))
         }
 
+        // #73 F1: metadata.language reaches `{language}` in output filenames, so
+        // it must be a tag and never a path. Lowercased for the check only
+        // (`en-US` stays legal); the stored value is not rewritten.
+        if !TranslationRecord.isValidLanguageTag(cfg.metadata.language.lowercased()) {
+            errs.append(.init(
+                field: "metadata.language",
+                message: "'\(cfg.metadata.language)' is not a valid language tag (BCP-47, e.g. 'en', 'en-US', 'pt-br')"))
+        }
+
         for key in cfg.languageOverrides.keys where !TranslationRecord.isValidLanguageTag(key) {
             errs.append(.init(
                 field: "language_overrides.\(key)",

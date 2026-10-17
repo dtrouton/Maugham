@@ -46,6 +46,17 @@ final class OutputFilenameBuilderTests: XCTestCase {
 
     // MARK: - always-on safety sanitization (NOT writer-controllable)
 
+    func test_aLanguageCarryingASlashNeverBecomesAPath() {
+        let cfg = makeConfig(title: "Book")
+        let name = OutputFilenameBuilder.make(config: cfg, format: .pdf, label: nil, language: "../../evil+sr")
+        XCTAssertFalse(name.contains("/"))
+    }
+
+    func test_aJoinedIdentityKeepsItsPlus() {
+        let cfg = makeConfig(title: "Book")
+        XCTAssertTrue(OutputFilenameBuilder.make(config: cfg, format: .pdf, label: nil, language: "en+sr").contains("en+sr"))
+    }
+
     func testSlashes_alwaysStripped() {
         // Slash in title would create a subdirectory path on macOS, not a
         // filename. Strip it regardless of sanitize_spaces.

@@ -9,6 +9,20 @@ final class PublishConfigValidatorTests: XCTestCase {
         XCTAssertTrue(errs.isEmpty)
     }
 
+    func test_aMetadataLanguageThatIsAPathIsRefused() {
+        var cfg = PublishConfig(metadata: .init(title: "X", author: "Y"))
+        cfg.metadata.language = "../../evil"
+        XCTAssertTrue(PublishConfigValidator.validate(cfg).contains { $0.field == "metadata.language" })
+    }
+
+    func test_aRegionalMetadataLanguageInEitherCaseIsAccepted() {
+        for tag in ["en", "en-US", "pt-br", "sr-Latn"] {
+            var cfg = PublishConfig(metadata: .init(title: "X", author: "Y"))
+            cfg.metadata.language = tag
+            XCTAssertFalse(PublishConfigValidator.validate(cfg).contains { $0.field == "metadata.language" }, tag)
+        }
+    }
+
     func testRejects_emptyTitle() {
         var cfg = PublishConfig()
         cfg.metadata.title = ""
