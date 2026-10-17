@@ -143,8 +143,9 @@ final class ReviewRoundCockpitTests: XCTestCase {
                        "Author's check is running \u{2014} Run waits until it finishes.")
         XCTAssertTrue(ReviewRoundCockpit.refusesRun(phase: phase),
                       "Run stays refused while the window's one session is the check's")
-        XCTAssertFalse(ReviewRoundCockpit.offersCancel(phase: phase),
-                       "Cancel is the loop's own: the cockpit does not stop Author's check")
+        XCTAssertTrue(ReviewRoundCockpit.offersCancel(phase: phase),
+                      "the writer may stop Author's check from here rather than being "
+                      + "stranded in the wrong tab (#77 F7 review ruling)")
         XCTAssertEqual(
             ReviewRoundCockpit.statusLine(phase: phase, reportLine: "Read in 4m 12s.",
                                           runSince: nil, runProgress: nil),
@@ -160,6 +161,29 @@ final class ReviewRoundCockpitTests: XCTestCase {
         XCTAssertTrue(ReviewRoundCockpit.offersCancel(phase: round))
         XCTAssertNil(ReviewRoundCockpit.otherLoopLine(phase: .idle))
         XCTAssertFalse(ReviewRoundCockpit.refusesRun(phase: .idle))
+    }
+
+    /// **The other loop's line is WINDOW-wide** (#77 F7 review ruling). The
+    /// session is the window's, so Run on chapter 2 is refused while a check
+    /// reads chapter 1 — and an idle strip whose Run refuses on press is the
+    /// dead control RULING-35 forbids. The loop's OWN running state still
+    /// matches by document.
+    func test_theCockpitNamesAuthorsCheckOnAnyDocument() {
+        let checkOnA = CompilerOrchestrator.RunState.running(
+            docId: "ch-a", kind: .check,
+            checking: CompilerOrchestrator.DeltaCounts(new: 2, revised: 0))
+        let phaseOnB = ReviewRoundCockpit.phase(runState: checkOnA, docId: "ch-b")
+        XCTAssertEqual(phaseOnB, .authorsCheckIsRunning)
+        XCTAssertEqual(ReviewRoundCockpit.otherLoopLine(phase: phaseOnB),
+                       "Author's check is running \u{2014} Run waits until it finishes.")
+        XCTAssertTrue(ReviewRoundCockpit.refusesRun(phase: phaseOnB))
+        XCTAssertTrue(ReviewRoundCockpit.offersCancel(phase: phaseOnB))
+
+        let roundOnA = CompilerOrchestrator.RunState.running(
+            docId: "ch-a", kind: .round,
+            checking: CompilerOrchestrator.DeltaCounts(new: 2, revised: 0))
+        XCTAssertEqual(ReviewRoundCockpit.phase(runState: roundOnA, docId: "ch-b"), .idle,
+                       "control: the cockpit's OWN round still matches by document")
     }
 
     /// **A check that died is Author's failure, not a round's** (#77 F7): the

@@ -559,19 +559,30 @@ struct DiagnosticsPane: View {
         "Review's round is running \u{2014} \u{2318}R waits until it finishes."
 
     /// **The one line this pane says about the OTHER loop's run** — `nil`
-    /// unless a ROUND is running on this document. Scoped by `docId` on
-    /// `headerState`'s rule: the run state is per window, this pane per
-    /// document. It sits beside the header's own state rather than replacing
-    /// it — the last check is still the last check — and ⌘R stays refused by
-    /// the orchestrator's in-flight guard exactly as it was; this only says
-    /// why before the press rather than after it.
+    /// unless a ROUND is running, on ANY document (#77 F7 review ruling). The
+    /// pane's own states match by document (`headerState`), but the session
+    /// is the window's: ⌘R here is refused while a round reads any piece, and
+    /// a header that read idle over a refusal would be a dead control. It
+    /// sits beside the header's own state rather than replacing it — the last
+    /// check is still the last check — and ⌘R stays refused by the
+    /// orchestrator's in-flight guard exactly as it was; this only says why
+    /// before the press rather than after it. `docId` is kept so the call
+    /// site reads like every other per-pane decision.
     static func otherLoopLine(
         runState: CompilerOrchestrator.RunState, docId: String
     ) -> String? {
-        if case .running(let runDocId, .round, _) = runState, runDocId == docId {
-            return reviewsRoundIsRunningLine
-        }
+        if case .running(_, .round, _) = runState { return reviewsRoundIsRunningLine }
         return nil
+    }
+
+    /// **Whether the header offers Cancel** — over this pane's own check in
+    /// flight, and over the other loop's run wherever it is (#77 F7 review
+    /// ruling): the session is the window's, and a writer standing in Author
+    /// while Review's round holds it must not be stranded in the wrong tab.
+    /// Both Cancels call the one `orchestrator.cancel()`.
+    static func offersCancel(state: HeaderState, otherLoopLine: String?) -> Bool {
+        if case .running = state { return true }
+        return otherLoopLine != nil
     }
 
     /// **Whether a row offers a fate at all — false for every row of a preview.**
@@ -669,7 +680,9 @@ struct DiagnosticsPane: View {
                         .help(timingHelp)
                 }
                 Spacer()
-                if case .running = state {
+                // The pane's own check, or Review's round (#77 F7 review
+                // ruling) — one session, one `cancel()`.
+                if Self.offersCancel(state: state, otherLoopLine: otherLoopLine) {
                     Button("Cancel") { orchestrator.cancel() }
                         .buttonStyle(.bordered)
                         .controlSize(.small)

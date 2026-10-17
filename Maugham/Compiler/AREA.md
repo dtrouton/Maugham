@@ -1959,8 +1959,12 @@ The fix is one bit and one precondition, no new run-state reading:
   a ROUND on this one: `RunState`'s three run cases carry a `RunKind`,
   `headerState` matches `.check` alone and `ReviewRoundCockpit.phase` `.round`
   alone, and each surface names the other loop's run in one pure line
-  (`DiagnosticsPane.otherLoopLine`, `ReviewRoundCockpit.otherLoopLine`) while
-  its Run/Reread stays refused for the window's one session. `.failed`/`.nothingNew`
+  (`DiagnosticsPane.otherLoopLine`, `ReviewRoundCockpit.otherLoopLine`) —
+  WINDOW-wide, because the session is the window's — while its Run/Reread
+  stays refused and Cancel is offered beside the line. That makes a check
+  note answerable mid-ROUND, which is safe only because `DiagnosticsStore`'s
+  one `persist` writes every previewing slot's FINISHED answer
+  (`finishedBeforePreview`) rather than its half-report, whoever is writing. `.failed`/`.nothingNew`
   describe runs that are over and their rows are the last finished report's.
 - `DiagnosticsStore.dismiss` refuses outright while `previewing.contains(docId)`
   — in memory as well as on disk, so the door is shut rather than the handle

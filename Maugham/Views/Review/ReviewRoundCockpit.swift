@@ -106,8 +106,8 @@ struct ReviewRoundCockpit: View {
     /// it returns the strip to idle with the Run button pressable again, the
     /// same as any other run that finished.
     ///
-    /// Only reachable from `.running` — the arm this strip has anything to
-    /// cancel from.
+    /// Reachable from `.running` and `.authorsCheckIsRunning` (#77 F7 review
+    /// ruling) — the two arms where a run holds the window's session.
     let onCancel: () -> Void
 
     /// **The gear menu's persisted choice** — `DiagnosticsPane`'s own
@@ -180,14 +180,15 @@ struct ReviewRoundCockpit: View {
         /// carries it, so a later surface can age the line rather than needing
         /// a second read of the orchestrator.
         case failed(CompilerRunFailure, at: Date)
-        /// **Author's CHECK is running on this document** (#77 F7). One
+        /// **Author's CHECK is running, on any document** (#77 F7). One
         /// session per window serves both loops, so the check holds the
         /// session this strip's Run would need — but it is not a round, and
         /// drawing its counts as "running" here told the writer a round was
         /// under way that nobody had pressed Run for. The strip keeps its own
         /// state (`statusLine` answers the report line, as `.idle` does), adds
-        /// `otherLoopLine`'s one sentence, and refuses Run exactly as before.
-        /// No Cancel: the check is Author's to stop.
+        /// `otherLoopLine`'s one sentence, refuses Run, and offers Cancel
+        /// (the review's rulings: window-wide, so Run never sits idle over a
+        /// refusal, and cancellable, so the writer is not stranded here).
         case authorsCheckIsRunning
     }
 
@@ -220,7 +221,10 @@ struct ReviewRoundCockpit: View {
         switch runState {
         case .running(let runDocId, .round, let checking) where runDocId == docId:
             return .running(checking)
-        case .running(let runDocId, .check, _) where runDocId == docId:
+        // WINDOW-wide (#77 F7 review ruling): the check holds the window's
+        // one session whatever piece it reads, so Run here is refused on
+        // every piece, and an idle strip over that refusal is a dead control.
+        case .running(_, .check, _):
             return .authorsCheckIsRunning
         case .failed(let runDocId, .round, let failure, let at) where runDocId == docId:
             return .failed(failure, at: at)
@@ -591,11 +595,15 @@ struct ReviewRoundCockpit: View {
         }
     }
 
-    /// **Cancel is this loop's own** — offered over a round in flight and
-    /// never over Author's check, which Author's header stops.
+    /// **Cancel is offered over ANY run holding the session** — a round in
+    /// flight, and Author's check (#77 F7 review ruling), so a writer who
+    /// pressed ⌘R and walked into Review is not stranded in the wrong tab.
+    /// Both reach the one `orchestrator.cancel()` through `onCancel`.
     static func offersCancel(phase: RunPhase) -> Bool {
-        if case .running = phase { return true }
-        return false
+        switch phase {
+        case .running, .authorsCheckIsRunning: return true
+        case .idle, .failed: return false
+        }
     }
 
     private var statusLine: String? {
@@ -805,7 +813,8 @@ struct ReviewRoundCockpit: View {
     /// RULING-35's dead control with a red line over it. A `!isFailure` added
     /// to the predicate would be the defect.
     ///
-    /// **Cancel is `.running`-only** — the tracked follow-up from the
+    /// **Cancel is `offersCancel`'s** — `.running`, and since the #77 F7
+    /// review Author's check too — the tracked follow-up from the
     /// failure-visibility review. At the 300s timeout the strip can say
     /// "Checking N paragraphs…" for up to five minutes with nothing to press;
     /// `DiagnosticsPane`'s header carries the identical control
