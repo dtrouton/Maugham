@@ -475,8 +475,8 @@ public final class OpLogStore {
     /// the access surface; not part of the public API.
     var appendFailureForTesting: Error?
 
-    /// Test-only: when non-nil, the interval seal's `sealChain(docId:by:)`
-    /// throws this, so a test can prove a failed seal never fails the append
+    /// Test-only: when non-nil, every seal that goes through
+    /// `sealChain(docId:by:)` (all seal paths share it) throws this, so a test can prove a failed seal never fails the append
     /// whose op had already landed (#75). Default nil.
     var sealFailureForTesting: Error?
 
