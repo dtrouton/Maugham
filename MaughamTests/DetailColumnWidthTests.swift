@@ -194,7 +194,8 @@ private struct DetailColumnHarness: View {
 /// as I change modes, that needs to stop."*
 ///
 /// **The mechanism, measured before anything was fixed** (macOS 26.5, 2026-08-08
-/// — and note CLAUDE.md's runner-parity rule: these mount real AppKit views, so
+/// — and note the runner-parity rule, docs/testing/TROUBLESHOOTING.md "A
+/// mounted-view test is red on CI only": these mount real AppKit views, so
 /// a green run here says nothing about a runner on a different major).
 /// `ProjectWindow` had exactly one `navigationSplitViewColumnWidth` on the
 /// detail column and the width still moved, because **a range is not a width**.
@@ -235,7 +236,8 @@ private struct DetailColumnHarness: View {
 /// requesting 1400pt and asserting against the 480pt range that width affords.
 /// `NSWindow` clamps to the screen's visible frame, and GitHub's `macos-26`
 /// runner — the SAME macOS and Xcode as the developer machine, which is what
-/// CLAUDE.md's runner-parity rule is about — mounts a 1024pt display against
+/// the runner-parity rule (docs/testing/TROUBLESHOOTING.md, "A mounted-view
+/// test is red on CI only") is about — mounts a 1024pt display against
 /// this Mac's 1470. So the runner's "wide" window was 1024pt, the affordability
 /// sum quite correctly reduced a 480 wish to 336, and three tests went red for
 /// being right. **Same OS is not the same DISPLAY.** Every mounted case here now

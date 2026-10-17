@@ -623,13 +623,14 @@ final class DocSyncTests: XCTestCase {
     ///
     /// Correct means `doc` names `remembered` (e.g. "six") immediately next
     /// to "finished checks" or "later checks" — case-insensitive, because
-    /// CLAUDE.md capitalises SIX — and carries none of `stale`'s three stale
+    /// a doc may capitalise it (CLAUDE.md once wrote SIX) — and carries none of `stale`'s three stale
     /// shapes: `stale` + "finished checks", `stale` + "later checks", or the
     /// bare digit form "N-deep ring of finished checks" (`Maugham/Compiler/
     /// AREA.md`'s pre-fix wording — naming the RING as the memory, rather
     /// than the ring plus the standing run).
     ///
-    /// CLAUDE.md's "5-deep `rounds` ring PLUS the standing run" does **not**
+    /// A phrase like "5-deep `rounds` ring PLUS the standing run" (CLAUDE.md's
+    /// wording before the 2026-10-17 docs diet) does **not**
     /// match the bare pattern — "ring" there is followed by "PLUS", not "of
     /// finished checks" — so the calibration-notation form (`roundHistoryDepth
     /// (5)`, which correctly names the ring's own depth) stays legal

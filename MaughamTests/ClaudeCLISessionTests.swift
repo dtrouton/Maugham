@@ -581,8 +581,9 @@ final class ClaudeCLISessionTests: XCTestCase {
     ///
     /// **Margin**: the fixture never answers at all, so the only clock this
     /// test races is its own upper bound — 6 s against a 0.4 s budget, ~15×.
-    /// The gate runs seven XCTest workers in parallel (CLAUDE.md's build
-    /// flow), and a spawn scheduled behind six other hosts is the confounder
+    /// The gate runs seven XCTest workers in parallel (docs/testing/
+    /// TROUBLESHOOTING.md, "A test fails in the parallel suite but passes
+    /// alone"), and a spawn scheduled behind six other hosts is the confounder
     /// that makes a tight bound fail in-suite and pass in isolation.
     func test_silenceEndsATurnAndSaysSo() async throws {
         let cli = try makeFakeCLI(mode: .slowWhileFlagged)
@@ -614,7 +615,8 @@ final class ClaudeCLISessionTests: XCTestCase {
     /// **Margin**: the fixture writes a line every 0.1 s against a 1.5 s
     /// silence budget, so fourteen consecutive lines would have to be lost to
     /// scheduling before this stalls — 15×. The gate runs seven XCTest
-    /// workers in parallel (CLAUDE.md's build flow) and every one of them can
+    /// workers in parallel (docs/testing/TROUBLESHOOTING.md, "A test fails in
+    /// the parallel suite but passes alone") and every one of them can
     /// hold the CPU while this fixture's `sleep` loop waits, which is exactly
     /// the in-suite/in-isolation confounder a 5× margin would surface as a
     /// mystery flake.
@@ -644,7 +646,8 @@ final class ClaudeCLISessionTests: XCTestCase {
     ///
     /// **Margin**: a line every 0.1 s against a 1.5 s budget, for 3 s — the
     /// same 15× as `test_aChildStillWritingIsNotKilled`, and for the same
-    /// reason (CLAUDE.md's seven parallel XCTest workers).
+    /// reason (seven parallel XCTest workers: docs/testing/TROUBLESHOOTING.md,
+    /// "A test fails in the parallel suite but passes alone").
     func test_stderrCountsAsLiveness() async throws {
         let cli = try makeFakeCLI(mode: .stderrChatterWhileFlagged)
         try Data().write(to: slowFlagURL)
@@ -668,7 +671,8 @@ final class ClaudeCLISessionTests: XCTestCase {
     /// their RATIO that decides which one fires — a 1.5 s ceiling under a
     /// 10 s silence budget is 6.7×, so the ceiling wins even if the fixture's
     /// 0.1 s lines arrive a hundredfold late. Under seven parallel XCTest
-    /// workers (CLAUDE.md's build flow) the old 0.6 s / 5 s pair left only
+    /// workers (docs/testing/TROUBLESHOOTING.md, "A test fails in the
+    /// parallel suite but passes alone") the old 0.6 s / 5 s pair left only
     /// 8× and no headroom for a starved spawn; the chatter also has to get
     /// its first line out before the ceiling, which 1.5 s affords and 0.6 s
     /// barely did.

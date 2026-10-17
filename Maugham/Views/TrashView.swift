@@ -62,7 +62,8 @@ struct TrashView: View {
 
     /// Extracted from the body's modifier chain: the inline closure tripped
     /// the type-checker's reasonable-time budget (the REAL SourceKit
-    /// diagnostic class — see CLAUDE.md's build-flow notes).
+    /// diagnostic class — see docs/testing/TROUBLESHOOTING.md, "SourceKit
+    /// diagnostics").
     @ViewBuilder
     private func permanentDeleteActions(for entry: TrashEntry) -> some View {
         Button("Permanently Delete \(entry.displayTitle)", role: .destructive) {

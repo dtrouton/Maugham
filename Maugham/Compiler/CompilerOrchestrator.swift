@@ -476,8 +476,8 @@ final class CompilerOrchestrator {
     /// type's: main-actor isolation on a constant string bought nothing and was
     /// a Swift 6 error waiting at that call site. The diagnostic had been there
     /// since the gear menu landed and was invisible in every warm build that
-    /// did not recompile that file (CLAUDE.md's warning-census caveat, met in
-    /// the wild).
+    /// did not recompile that file (docs/testing/TROUBLESHOOTING.md, "A warning
+    /// census reads clean on an incremental build", met in the wild).
     nonisolated static let defaultModel = "sonnet"
 
     /// Who signs a passless run's notes (M4 P1 Task 3). "Claude" is M2's own

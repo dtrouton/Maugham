@@ -1269,7 +1269,8 @@ final class DesignGateTests: XCTestCase {
     /// Press a verb through the accessibility tree — `DepartmentPaneTests`'
     /// idiom: it is the action a click ultimately performs and, unlike a
     /// synthetic `mouseDown`, it does not need this process to be the active app
-    /// (CLAUDE.md's synthetic-click premise).
+    /// (the synthetic-click premise: docs/testing/TROUBLESHOOTING.md, "A
+    /// mounted click test sees selectedRow == -1").
     private func press(_ verb: DesignGate.Verb, in window: NSWindow) throws {
         let published = try axButtonLabels(in: window).sorted()
         let buttons = try axButtons(labelled: verb.accessibilityLabel, in: window)

@@ -32,7 +32,8 @@ import MaughamCore
 /// `@State private`; nothing outside the view can study a pin in a real window,
 /// so a real mount could observe the arm only by clicking a References row
 /// through a full project — a synthetic click, which needs the test host to be
-/// the active app (CLAUDE.md's build-flow notes) and would make this file
+/// the active app (docs/testing/TROUBLESHOOTING.md, "A mounted click test
+/// sees selectedRow == -1") and would make this file
 /// unrunnable on a locked screen for a fact that is about layout. What is
 /// mounted instead is `DetailColumnWidthTests.DetailColumnHarness`'s shape: a
 /// three-column `NavigationSplitView` carrying the production floors, the
@@ -249,7 +250,8 @@ final class StudyColumnMountTests: XCTestCase {
 
         // The premise, read off the window this test actually got rather than
         // the one it asked for: AppKit clamps a window to its display, and CI's
-        // is 1024pt wide (CLAUDE.md's runner-parity note).
+        // is 1024pt wide (docs/testing/TROUBLESHOOTING.md, "A mounted-view test
+        // is red on CI only").
         XCTAssertEqual(window.frame.width, 980, accuracy: 1,
                        "premise: the window opened at the width this file "
                        + "measures against")
