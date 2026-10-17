@@ -538,6 +538,21 @@ struct PeopleAndDevicesModel: Equatable {
         /// exception for its reason: no button, rather than a dead one.
         var offersPermitChange: Bool { records.allSatisfy(\.offersPermitChange) }
 
+        /// **Why a group holding the root has no Change…, and the way out**
+        /// (Denver's ruling on #78 SW4: the rule stays, the pane explains it).
+        static let sharedPermitSentence =
+            "Devices under one name share one permission. "
+            + "Rename a device to split it off and give it its own."
+
+        /// The sentence, where Change… is absent AND there is a non-root device
+        /// that Rename could split off. A root alone has nothing to split off,
+        /// and a group without a root already offers Change…. Asked of
+        /// `offersPermitChange`, never of a permit rung (tripwire 47).
+        var sharedPermitNote: String? {
+            !offersPermitChange && records.contains(where: \.offersPermitChange)
+                ? Self.sharedPermitSentence : nil
+        }
+
         /// Why Change… is refused, when it is: the first refusal among the
         /// records it would reach.
         var whyNotChangeable: String? {

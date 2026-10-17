@@ -154,6 +154,42 @@ final class PeopleAndDevicesOneWriterTests: XCTestCase {
         XCTAssertEqual(samGroup.records.map { $0.devices.first?.kind }, ["Mac", "iPhone"])
     }
 
+    /// **Denver's ruling on #78 SW4: the rule stays, and the pane explains it.**
+    /// A group holding the root and a phone has no Change…, so it says why and
+    /// how to split a device off.
+    func test_aGroupWithTheRootAndAPhoneSaysWhyItCannotChange() throws {
+        let denver = try XCTUnwrap(model(denversBook()).groups.first)
+        XCTAssertFalse(denver.offersPermitChange)
+        XCTAssertEqual(denver.sharedPermitNote,
+                       "Devices under one name share one permission. "
+                       + "Rename a device to split it off and give it its own.")
+        XCTAssertEqual(denver.sharedPermitNote,
+                       PeopleAndDevicesModel.PersonGroup.sharedPermitSentence)
+    }
+
+    /// A root alone has nothing to split off.
+    func test_theRootAloneCarriesNoSharedPermitNote() throws {
+        let registry = Registry(
+            devices: [device(mac, name: "Mac", kind: .mac)],
+            people: [person(mac, label: "Denver", ownName: "Mac", at: made)])
+        let denver = try XCTUnwrap(model(registry).groups.first)
+        XCTAssertFalse(denver.offersPermitChange)
+        XCTAssertNil(denver.sharedPermitNote)
+    }
+
+    /// A group without the root already offers Change….
+    func test_aGroupWithoutTheRootCarriesNoNoteBecauseItOffersChange() throws {
+        let registry = Registry(
+            devices: [device(mac, name: "Mac", kind: .mac)],
+            people: [person(mac, label: "Denver", ownName: "Mac", at: made),
+                     person(sam, label: "Sam", ownName: "Sam's Mac"),
+                     person(samsPhone, label: "Sam", ownName: "Sam's iPhone",
+                            at: later)])
+        let samGroup = try XCTUnwrap(model(registry).groups.first { $0.label == "Sam" })
+        XCTAssertTrue(samGroup.offersPermitChange)
+        XCTAssertNil(samGroup.sharedPermitNote)
+    }
+
     /// **Legacy: two records under one label holding different permits.** The
     /// person says they differ; each device row says its own. And the
     /// converse: agreeing permits are said once, on the person.

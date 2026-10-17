@@ -161,7 +161,8 @@ says. If the machines under one name don't all hold the same permission (a book
 set up before permissions were changed name-wide can have this), the person row
 says so and each machine's row says its own. Where the Mac the book was started
 on is one of them, there is no Change… at all: that Mac writes the whole of the
-book.
+book. The person row says so, and that renaming a device splits it off under a name
+of its own with its own permission.
 
 **A machine the book has no description of** still gets its row. A phone
 admitted by an older build, for instance, never wrote the small record that
