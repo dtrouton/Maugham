@@ -21,6 +21,11 @@ struct RecoveredHistorySheet: View {
     /// re-review item 1). Append is a typing burst; where it would be set
     /// aside, it is not drawn. The door behind it is `append`'s own.
     let mayAppend: Bool
+    /// **The posture the door asks at the press** (#74) — the host's
+    /// yield-aware `DocumentStore.posture(forDocId:)`, read fresh on every
+    /// press so a yield (or Edit Anyway lifting it) since the sheet opened is
+    /// honoured. `nil` where no store stands behind the sheet: the stamp alone.
+    let postureNow: () -> Posture?
     let onDismiss: () -> Void
 
     @State private var appendedIds: Set<String> = []
@@ -31,10 +36,14 @@ struct RecoveredHistorySheet: View {
     static let refusedSentence =
         "This Mac may not change this piece's text, so nothing was appended."
 
-    /// **The door** (re-review item 1): may this press write? The Document's
-    /// own stamp, re-stamped on every trust change.
-    static func mayAppend(to document: Document) -> Bool {
-        document.mayWriteItsText
+    /// **The door** (re-review item 1, #74): may this press write? The
+    /// Document's own stamp, re-stamped on every trust change, AND the
+    /// window's posture — the stamp does not know a book author's Mac is
+    /// yielding to a piece's starter (Ruling U), nor that Edit Anyway lifted
+    /// it; only the posture does. A `nil` posture (no window) is the stamp.
+    static func mayAppend(to document: Document, posture: Posture?) -> Bool {
+        guard document.mayWriteItsText else { return false }
+        return posture?.allows(.writeText) ?? true
     }
 
     /// Shown in place of the per-orphan Append control when `document` is
@@ -55,10 +64,11 @@ struct RecoveredHistorySheet: View {
     /// pure logic.
     ///
     /// Returns "" and writes nothing where this Mac may not write the text
-    /// (`mayAppend(to:)`); the sheet asks first and says so.
+    /// (`mayAppend(to:posture:)`); the sheet asks first and says so.
     @discardableResult
-    static func append(_ orphan: RecoveredHistoryReport.Orphan, to document: Document) -> String {
-        guard mayAppend(to: document) else { return "" }
+    static func append(_ orphan: RecoveredHistoryReport.Orphan, to document: Document,
+                       posture: Posture?) -> String {
+        guard mayAppend(to: document, posture: posture) else { return "" }
         return document.insertParagraph(after: document.sequence.last, text: orphan.text)
     }
 
@@ -129,11 +139,12 @@ struct RecoveredHistorySheet: View {
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 Button("Append to End") {
-                    guard Self.mayAppend(to: document) else {
+                    let posture = postureNow()
+                    guard Self.mayAppend(to: document, posture: posture) else {
                         refusal = Self.refusedSentence
                         return
                     }
-                    Self.append(orphan, to: document)
+                    Self.append(orphan, to: document, posture: posture)
                     appendedIds.insert(orphan.id)
                 }
                 .controlSize(.small)
@@ -147,12 +158,13 @@ struct RecoveredHistorySheet: View {
 
     private func appendAll() {
         guard let document else { return }
-        guard Self.mayAppend(to: document) else {
+        let posture = postureNow()
+        guard Self.mayAppend(to: document, posture: posture) else {
             refusal = Self.refusedSentence
             return
         }
         for orphan in report.orphans where !appendedIds.contains(orphan.id) {
-            Self.append(orphan, to: document)
+            Self.append(orphan, to: document, posture: posture)
             appendedIds.insert(orphan.id)
         }
     }

@@ -590,7 +590,15 @@ final class MaughamTextView: NSTextView {
         // the bracket. Routed through the host's wiring of
         // Document.setParagraph (standard typing-burst path), NOT through
         // applyExternalText — see tripwire #7.
-        if let hit = coordinator?.checkboxHitTest(atCharacterIndex: charIndex),
+        // A flip writes text, so it asks the membrane a keystroke asks
+        // (hard lock, translation view). Refused, it falls through to the
+        // wiki-link check and `super.mouseDown`, so caret, selection and copy
+        // still work. Without this a book author's Mac yielding to a piece's
+        // starter flipped the box and silently claimed it (#74). Review mode
+        // deliberately does not gate it: the writer's own review render keeps
+        // checkboxes live, like the Tasks pane.
+        if coordinator?.allowsCheckboxToggle == true,
+           let hit = coordinator?.checkboxHitTest(atCharacterIndex: charIndex),
            let toggle = coordinator?.checkboxToggleHandler {
             toggle(hit.paragraphId, hit.offsetWithinParagraph, hit.kind)
             return

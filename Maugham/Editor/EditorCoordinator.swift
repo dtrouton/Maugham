@@ -802,6 +802,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         lockEditing = locked
     }
 
+    /// Whether a checkbox click may flip its bracket: the membrane's answer
+    /// for a click (`EditorEditPolicy.allowsCheckboxToggle`), read from the
+    /// coordinator's own stored flags — no new state (tripwire 2).
+    var allowsCheckboxToggle: Bool {
+        EditorEditPolicy.allowsCheckboxToggle(
+            lockEditing: lockEditing, isTranslationReview: isTranslationReview)
+    }
+
     /// Translation-review posture changed (Task 11). Plain stored-property flip
     /// threaded ONE-WAY from EditorSurface (tripwires 2 & 6). The membrane reads
     /// `isTranslationReview` live in `shouldChangeTextIn`, so no restyle is needed

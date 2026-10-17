@@ -9910,13 +9910,16 @@ final class TripwireGrepTests: XCTestCase {
     ///   the task door that refuses the archive whole where the splice is
     ///   refused.
     /// - `OpUndoRegistrar.swift` × 2 — `InlineToggleUndo`'s checkbox flip and
-    ///   its undo: each asks `mayWriteItsText` first and a refusal is said
-    ///   (`declineUndo(.taskNotPermitted)`); the press is hidden by
-    ///   `TaskRowVerbs` on the drawing posture.
+    ///   its undo/redo: each asks `mayWriteItsText` AND the host's `mayWrite`
+    ///   (the yield-aware posture's `.writeText`, #74) first, and a refusal is
+    ///   said (`declineUndo(.taskNotPermitted)`); the press is hidden by
+    ///   `TaskRowVerbs` on the drawing posture, and refused by the editor's
+    ///   membrane while it is locked.
     /// - `RecoveredHistorySheet.swift` × 1 — *Append to End* / *Append All*:
     ///   drawn only where `.writeText` is allowed (`mayAppend`), the door
-    ///   `RecoveredHistorySheet.mayAppend(to:)` on the stamp, a refusal said
-    ///   in the sheet.
+    ///   `RecoveredHistorySheet.mayAppend(to:posture:)` asking the stamp AND
+    ///   the yield-aware posture at the press (#74), a refusal said in the
+    ///   sheet.
     ///
     /// And beneath all four paragraph primitives, whatever the caller:
     /// `Document.rejectTextWriteIfNotPermitted` refuses inside
@@ -10430,6 +10433,82 @@ extension TripwireGrepTests {
         let census = Self.structureItemCensus([("Planted.swift", planted)])
         XCTAssertEqual(census.counts, ["Planted.swift": 2])
         XCTAssertEqual(census.missing, ["Planted.swift#1"], "the offender is named")
+    }
+
+    // MARK: - The editor's checkbox click asks the membrane first (#74)
+
+    /// Names what is wrong with a `mouseDown` body, or returns nil. The rule:
+    /// the first `checkboxToggleHandler` in the body is preceded by an
+    /// `allowsCheckboxToggle` — the clause that stops a click in a locked or
+    /// yielding editor from writing text (and silently claiming a piece).
+    static func checkboxGateProblem(inMouseDownBody body: String) -> String? {
+        guard let use = body.range(of: "checkboxToggleHandler") else { return nil }
+        guard let gate = body.range(of: "allowsCheckboxToggle"), gate.lowerBound < use.lowerBound else {
+            return "checkboxToggleHandler is reached without allowsCheckboxToggle before it"
+        }
+        return nil
+    }
+
+    /// The text of `override func mouseDown(with event: NSEvent) { … }`, brace-matched.
+    static func mouseDownBody(in source: String) -> String? {
+        guard let sig = source.range(of: "override func mouseDown(with event: NSEvent)"),
+              let open = source[sig.upperBound...].firstIndex(of: "{") else { return nil }
+        var depth = 0
+        var i = open
+        while i < source.endIndex {
+            if source[i] == "{" { depth += 1 }
+            if source[i] == "}" { depth -= 1; if depth == 0 { return String(source[open...i]) } }
+            i = source.index(after: i)
+        }
+        return nil
+    }
+
+    func test_theEditorsCheckboxClickAsksTheMembraneFirst() throws {
+        let editorDir = sourceDir.appendingPathComponent("Editor")
+        let surface = try String(contentsOf: editorDir.appendingPathComponent("EditorSurface.swift"),
+                                 encoding: .utf8)
+        let body = try XCTUnwrap(Self.mouseDownBody(in: surface), "mouseDown not found")
+        XCTAssertTrue(body.contains("checkboxToggleHandler"), "the click still reaches the handler")
+        XCTAssertNil(Self.checkboxGateProblem(inMouseDownBody: body))
+
+        // Nowhere else INVOKES the handler: a use is `checkboxToggleHandler` followed
+        // by `{`/`(`-free reads only in wiring (`= …checkboxToggleHandler`, a label,
+        // a declaration) — so flag any other file where it is read into a `let`
+        // binding or called, and any second use in EditorSurface outside mouseDown.
+        let fm = FileManager.default
+        var offenders: [String] = []
+        for dir in [editorDir, sourceDir.appendingPathComponent("Views")] {
+            for case let url as URL in fm.enumerator(at: dir, includingPropertiesForKeys: nil)!
+            where url.pathExtension == "swift" {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+                    let t = line.trimmingCharacters(in: .whitespaces)
+                    guard t.contains("checkboxToggleHandler"), !t.hasPrefix("//"), !t.hasPrefix("///") else { continue }
+                    let wiring = t.contains("var checkboxToggleHandler")
+                        || t.contains("checkboxToggleHandler = ")
+                        || t.hasPrefix("checkboxToggleHandler:")
+                        || t.contains("let toggle = coordinator?.checkboxToggleHandler")
+                    if !wiring { offenders.append("\(url.lastPathComponent): \(t)") }
+                }
+            }
+        }
+        XCTAssertEqual(offenders, [], "checkboxToggleHandler is read only by mouseDown, behind the gate")
+        XCTAssertEqual(surface.components(separatedBy: "coordinator?.checkboxToggleHandler").count - 1, 1,
+                       "EditorSurface reads the handler off the coordinator in exactly one place")
+    }
+
+    func test_theCheckboxGateCensusFiresOnAPlantedOffender() {
+        let ungated = """
+        { let hit = coordinator?.checkboxHitTest(atCharacterIndex: i)
+          if let toggle = coordinator?.checkboxToggleHandler { toggle(a, b, c); return } }
+        """
+        XCTAssertNotNil(Self.checkboxGateProblem(inMouseDownBody: ungated))
+        let reordered = "{ if let t = coordinator?.checkboxToggleHandler, coordinator?.allowsCheckboxToggle == true {} }"
+        XCTAssertNotNil(Self.checkboxGateProblem(inMouseDownBody: reordered))
+        let gated = "{ if coordinator?.allowsCheckboxToggle == true, let t = coordinator?.checkboxToggleHandler {} }"
+        XCTAssertNil(Self.checkboxGateProblem(inMouseDownBody: gated))
+        XCTAssertEqual(Self.mouseDownBody(in: "override func mouseDown(with event: NSEvent) { if x { y } } z"),
+                       "{ if x { y } }")
     }
 }
 

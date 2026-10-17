@@ -197,13 +197,13 @@ final class ManuscriptWriterPostureTests: XCTestCase {
         beAReviewer(doc)
         let text = doc.displayText
 
-        XCTAssertFalse(RecoveredHistorySheet.mayAppend(to: doc))
-        XCTAssertEqual(RecoveredHistorySheet.append(orphan, to: doc), "")
+        XCTAssertFalse(RecoveredHistorySheet.mayAppend(to: doc, posture: nil))
+        XCTAssertEqual(RecoveredHistorySheet.append(orphan, to: doc, posture: nil), "")
         XCTAssertEqual(doc.displayText, text, "nothing was appended")
 
         doc.stamp(localWritePermit: .unrestricted)
-        XCTAssertTrue(RecoveredHistorySheet.mayAppend(to: doc))
-        XCTAssertNotEqual(RecoveredHistorySheet.append(orphan, to: doc), "")
+        XCTAssertTrue(RecoveredHistorySheet.mayAppend(to: doc, posture: nil))
+        XCTAssertNotEqual(RecoveredHistorySheet.append(orphan, to: doc, posture: nil), "")
         XCTAssertTrue(doc.displayText.hasSuffix("Lost words."))
         await doc.close()
     }
@@ -221,7 +221,7 @@ final class ManuscriptWriterPostureTests: XCTestCase {
         let um = UndoManager()
         let saidOnPress = await notices {
             InlineToggleUndo.perform(on: doc, paragraphId: pid, prior: prior,
-                                     flipped: flipped, undoManager: um)
+                                     flipped: flipped, undoManager: um, mayWrite: { true })
             await doc.awaitPendingUndoWork()
         }
         XCTAssertEqual(saidOnPress, [
@@ -232,7 +232,7 @@ final class ManuscriptWriterPostureTests: XCTestCase {
         // Permitted press, then a demotion, then ⌘Z: refused and said.
         doc.stamp(localWritePermit: .unrestricted)
         InlineToggleUndo.perform(on: doc, paragraphId: pid, prior: prior,
-                                 flipped: flipped, undoManager: um)
+                                 flipped: flipped, undoManager: um, mayWrite: { true })
         XCTAssertEqual(doc.paragraph(id: pid), flipped)
         beAReviewer(doc)
         let saidOnUndo = await notices {
@@ -242,6 +242,112 @@ final class ManuscriptWriterPostureTests: XCTestCase {
         XCTAssertEqual(saidOnUndo, [
             "Couldn't change that task — this Mac can no longer file tasks in this piece."])
         XCTAssertEqual(doc.paragraph(id: pid), flipped, "the flip stays")
+        await doc.close()
+    }
+
+    // MARK: - The yield (#74): the stamp allows, the posture does not
+
+    private static let taskRefusal =
+        "Couldn't change that task — this Mac can no longer file tasks in this piece."
+
+    /// **Append asks the posture as well as the stamp** (#74): a book author's
+    /// Mac yielding to a piece's starter has a stamp that allows and a posture
+    /// that refuses — Append writes nothing. Edit Anyway's shape (a posture
+    /// with no yield) appends, and with no window the stamp is the answer.
+    func test_recoveredHistoryAppendIsRefusedWhereThePostureYields() async throws {
+        let doc = try await loadOne(prefix: "RecoveredAppendYield")
+        let orphan = RecoveredHistoryReport.Orphan(paragraphId: "abcd", text: "Lost words.")
+        XCTAssertTrue(doc.mayWriteItsText, "precondition: the stamp allows")
+        let yielding = Posture(doc.localWritePermit, yieldingTo: "Sam")
+        XCTAssertFalse(yielding.allows(.writeText), "precondition: the posture yields")
+
+        XCTAssertFalse(RecoveredHistorySheet.mayAppend(to: doc, posture: yielding))
+        let before = doc.sequence.count
+        XCTAssertEqual(RecoveredHistorySheet.append(orphan, to: doc, posture: yielding), "")
+        XCTAssertEqual(doc.sequence.count, before, "nothing was appended")
+
+        XCTAssertTrue(RecoveredHistorySheet.mayAppend(
+            to: doc, posture: Posture(doc.localWritePermit)), "Edit Anyway: no yield")
+        XCTAssertTrue(RecoveredHistorySheet.mayAppend(to: doc, posture: nil),
+                      "no window: the stamp alone")
+        await doc.close()
+    }
+
+    /// **The checkbox flip asks `mayWrite` after the stamp** (#74): refused
+    /// where the posture yields, and SAID.
+    func test_theInlineToggleIsRefusedWhereThePostureYields() async throws {
+        let doc = try await loadOne(prefix: "InlineToggleYield")
+        let pid = try XCTUnwrap(doc.sequence.first)
+        let prior = try XCTUnwrap(doc.paragraph(id: pid))
+        let um = UndoManager()
+        let said = await notices {
+            InlineToggleUndo.perform(on: doc, paragraphId: pid, prior: prior,
+                                     flipped: prior + " (done)", undoManager: um,
+                                     mayWrite: { false })
+            await doc.awaitPendingUndoWork()
+        }
+        XCTAssertEqual(said, [Self.taskRefusal])
+        XCTAssertEqual(doc.paragraph(id: pid), prior, "nothing was flipped")
+        XCTAssertFalse(um.canUndo, "nothing was registered")
+        await doc.close()
+    }
+
+    /// **A toggle made before the yield, undone after it**: the undo asks
+    /// `mayWrite` again, and is refused and said. And its redo asks too.
+    func test_anUndoOfAToggleAfterTheYieldBeginsIsRefusedAndSaid() async throws {
+        let doc = try await loadOne(prefix: "InlineToggleYieldUndo")
+        let pid = try XCTUnwrap(doc.sequence.first)
+        let prior = try XCTUnwrap(doc.paragraph(id: pid))
+        let flipped = prior + " (done)"
+        var allowed = true
+        let um = UndoManager()
+        InlineToggleUndo.perform(on: doc, paragraphId: pid, prior: prior,
+                                 flipped: flipped, undoManager: um,
+                                 mayWrite: { allowed })
+        XCTAssertEqual(doc.paragraph(id: pid), flipped)
+
+        allowed = false
+        let saidOnUndo = await notices {
+            um.undo()
+            await doc.awaitPendingUndoWork()
+        }
+        XCTAssertEqual(saidOnUndo, [Self.taskRefusal])
+        XCTAssertEqual(doc.paragraph(id: pid), flipped, "the flip stays")
+
+        // The redo re-entry asks as well: a fresh toggle (flipped → prior),
+        // undone while allowed, redone after the yield begins.
+        allowed = true
+        let um2 = UndoManager()
+        InlineToggleUndo.perform(on: doc, paragraphId: pid, prior: flipped,
+                                 flipped: prior, undoManager: um2,
+                                 mayWrite: { allowed })
+        XCTAssertEqual(doc.paragraph(id: pid), prior)
+        um2.undo()
+        await doc.awaitPendingUndoWork()
+        XCTAssertEqual(doc.paragraph(id: pid), flipped, "precondition: undone")
+        allowed = false
+        let saidOnRedo = await notices {
+            um2.redo()
+            await doc.awaitPendingUndoWork()
+        }
+        XCTAssertEqual(saidOnRedo, [Self.taskRefusal])
+        XCTAssertEqual(doc.paragraph(id: pid), flipped, "the redo wrote nothing")
+        await doc.close()
+    }
+
+    /// **Edit Anyway lets the toggle write again**: the override's shape is a
+    /// posture with no yield, so `mayWrite` answers yes and the flip lands.
+    func test_editAnywayLetsTheToggleWriteAgain() async throws {
+        let doc = try await loadOne(prefix: "InlineToggleEditAnyway")
+        let pid = try XCTUnwrap(doc.sequence.first)
+        let prior = try XCTUnwrap(doc.paragraph(id: pid))
+        let override = Posture(doc.localWritePermit)
+        let um = UndoManager()
+        InlineToggleUndo.perform(on: doc, paragraphId: pid, prior: prior,
+                                 flipped: prior + " (done)", undoManager: um,
+                                 mayWrite: { override.allows(.writeText) })
+        XCTAssertEqual(doc.paragraph(id: pid), prior + " (done)")
+        XCTAssertTrue(um.canUndo)
         await doc.close()
     }
 

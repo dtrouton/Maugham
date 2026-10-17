@@ -475,6 +475,11 @@ public final class OpLogStore {
     /// the access surface; not part of the public API.
     var appendFailureForTesting: Error?
 
+    /// Test-only: when non-nil, every seal that goes through
+    /// `sealChain(docId:by:)` (all seal paths share it) throws this, so a test can prove a failed seal never fails the append
+    /// whose op had already landed (#75). Default nil.
+    var sealFailureForTesting: Error?
+
     /// Test-only observation seam: called in `append` after the actor's key is
     /// declared and before the line is written, so a test can see the order.
     var beforeChainedAppendForTesting: (() -> Void)?
@@ -2669,7 +2674,20 @@ public final class OpLogStore {
         // file's — signed by the actor who just wrote into it, not by the
         // author on everyone's behalf, and not spread over four files because
         // one of them filled up.
-        if try await sealChain(docId: op.docId, by: signer) { linesSinceSeal[url] = 0 }
+        // Best-effort, like every other seal site: the op is already durable,
+        // so a failure here is LOGGED and dropped; sealing is maintenance, and
+        // it must never cost the caller the op that has already landed (a
+        // retry would mint a duplicate). The counter resets only on success,
+        // so the next append asks again.
+        do {
+            if try await sealChain(docId: op.docId, by: signer) { linesSinceSeal[url] = 0 }
+        } catch {
+            opLogLoadLog.error("""
+                interval seal failed for \(url.lastPathComponent, privacy: .public): \
+                \(error.localizedDescription, privacy: .public). The op is on disk; \
+                sealing is maintenance and will be retried on the next append.
+                """)
+        }
     }
 
     /// How many chained lines this device writes into a file before it seals
@@ -2756,7 +2774,8 @@ public final class OpLogStore {
     /// One local actor's own tail for `docId`, sealed with that actor's key.
     @discardableResult
     private func sealChain(docId: String, by actor: DeviceIdentity) async throws -> Bool {
-        try await store(
+        if let injected = sealFailureForTesting { throw injected }
+        return try await store(
             forDocId: docId, deviceSlug: actor.slug, signer: actor
         ).appendSeal()
     }

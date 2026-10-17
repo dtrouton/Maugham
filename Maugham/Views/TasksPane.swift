@@ -405,7 +405,8 @@ struct TasksPane: View {
             guard flipped != current else { return }
             InlineToggleUndo.perform(
                 on: doc, paragraphId: pid,
-                prior: current, flipped: flipped, undoManager: undoManager)
+                prior: current, flipped: flipped, undoManager: undoManager,
+                mayWrite: mayWriteText(of: doc))
         case .fountainBoneyard:
             // Fountain: flip the specific `[[todo:` / `[[done:` segment
             // whose closing anchor matches this task's id. Paragraphs
@@ -420,7 +421,20 @@ struct TasksPane: View {
             guard flipped != current else { return }
             InlineToggleUndo.perform(
                 on: doc, paragraphId: pid,
-                prior: current, flipped: flipped, undoManager: undoManager)
+                prior: current, flipped: flipped, undoManager: undoManager,
+                mayWrite: mayWriteText(of: doc))
+        }
+    }
+
+    /// **The yield-aware `mayWrite` an inline toggle asks** (#74) — at the
+    /// press and inside every undo/redo re-entry: the drawing posture's
+    /// `.writeText` for the task's own document. Synchronous, fails closed
+    /// (`.settling` refuses; a store gone refuses) — `projectTaskRefusal`'s
+    /// precedent.
+    private func mayWriteText(of doc: Document) -> @MainActor () -> Bool {
+        let docId = doc.docId
+        return { [weak postureStore = documentStore] in
+            postureStore?.posture(forDocId: docId).allows(.writeText) ?? false
         }
     }
 

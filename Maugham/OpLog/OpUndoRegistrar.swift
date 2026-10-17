@@ -98,12 +98,21 @@ enum OpUndoRegistrar {
 enum InlineToggleUndo {
     static func perform(on doc: Document, paragraphId: String,
                         prior: String, flipped: String,
-                        undoManager: UndoManager?) {
+                        undoManager: UndoManager?,
+                        mayWrite: @escaping @MainActor () -> Bool) {
         // The permit, before the stack clear and before the write (P3c
         // whole-branch fix wave, re-review item 1): a press or a redo that
         // reaches here after a demotion is refused and SAID, never a burst
         // the next read sets aside.
-        guard doc.mayWriteItsText else {
+        //
+        // Then the host's `mayWrite` (#74): the window's YIELD-AWARE posture
+        // (`DocumentStore.posture(forDocId:)` → `.writeText`). A book author's
+        // Mac yielding to a piece's starter (Ruling U) has a stamp that says
+        // yes; only the posture knows the yield, and only it knows Edit Anyway
+        // lifted it — which is why this is a closure the host supplies and
+        // not a read of `unsettledStarter`. `{ true }` where no store stands
+        // behind the door: the stamp is then the whole answer.
+        guard doc.mayWriteItsText, mayWrite() else {
             doc.declineUndo(.taskNotPermitted)
             return
         }
@@ -132,8 +141,9 @@ enum InlineToggleUndo {
                     return
                 }
                 // Registered while this Mac could write here; a demotion may
-                // have landed since. Said, not swallowed (Task 5's rule).
-                guard d.mayWriteItsText else {
+                // have landed since, or the yield begun (#74). Said, not
+                // swallowed (Task 5's rule).
+                guard d.mayWriteItsText, mayWrite() else {
                     d.declineUndo(.taskNotPermitted)
                     return
                 }
@@ -143,14 +153,16 @@ enum InlineToggleUndo {
             redo: { [weak undoManager] d in
                 // Re-arm through the forward path, forwarding the LIVE manager
                 // so ⌘Z/⇧⌘Z cycles indefinitely (never nil — the T3 dead-cycle
-                // regression). Guarded so a drifted redo declines.
+                // regression). Guarded so a drifted redo declines; the
+                // re-entry carries `mayWrite`, so a redo asks it afresh.
                 guard d.paragraph(id: paragraphId) == prior else {
                     documentLog.error("InlineToggleUndo redo: \(paragraphId, privacy: .public) drifted since undo — ignoring")
                     return
                 }
                 InlineToggleUndo.perform(on: d, paragraphId: paragraphId,
                                          prior: prior, flipped: flipped,
-                                         undoManager: undoManager)
+                                         undoManager: undoManager,
+                                         mayWrite: mayWrite)
             })
     }
 }

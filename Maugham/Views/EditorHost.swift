@@ -770,9 +770,16 @@ struct EditorHost: View {
                     // undo is a guarded flip-back. `InlineToggleUndo` sets the
                     // undo-coherent flag so the buffer replace this
                     // setParagraph drives doesn't wipe the fresh registration.
+                    // `mayWrite` is the window's yield-aware posture (#74),
+                    // asked at the press and again inside every undo/redo.
+                    let docId = doc.docId
                     InlineToggleUndo.perform(
                         on: doc, paragraphId: paragraphId,
-                        prior: para, flipped: flipped, undoManager: um)
+                        prior: para, flipped: flipped, undoManager: um,
+                        mayWrite: { [weak postureStore = documentStore] in
+                            postureStore?.posture(forDocId: docId)
+                                .allows(.writeText) ?? false
+                        })
                 },
                 paragraphRangeAtLocation: { location in
                     doc.paragraphRange(at: location)
