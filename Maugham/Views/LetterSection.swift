@@ -327,10 +327,8 @@ struct LetterSection: View {
     /// the pass in one home and not the other would be two signatures.
     ///
     /// **The stage the run derived rides the end of it** (P3 Task 5, global
-    /// constraint 28) — Review's lane line carries the same word, and this is
-    /// the deliberate Author-side sibling of that line, so the two homes sign
-    /// one letter one way. A `DraftStage` rather than a string, so this file
-    /// and `ReviewRoundCockpit` are the only two that read `laneWord`.
+    /// constraint 28). A `DraftStage` rather than a string, so this file and
+    /// `LetterKeep` are the only two that read `laneWord`.
     static func signature(
         voice: String, round: Int?, stage: DraftStage? = nil
     ) -> String {

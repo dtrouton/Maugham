@@ -626,8 +626,7 @@ final class DiagnosticsStore {
     /// It exists for the two questions that are about the DOCUMENT rather
     /// than about either loop: `IntentDrift.mayTrailDraft`, whose mark says
     /// the draft may have wandered from the intent and is answered by whoever
-    /// judged that last, and the unread badge, which counts what any finished
-    /// run left the writer unread. Every other reader wants one verb's answer
+    /// judged that last. Every other reader wants one verb's answer
     /// and asks `lastCheck` or `lastRound` by name — a surface reading
     /// "whichever ran last" is a surface that changes what it is reporting on
     /// when the writer switches persona.

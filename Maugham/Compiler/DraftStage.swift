@@ -35,8 +35,9 @@ enum DraftStage: String, Codable, Equatable, Sendable {
     }
 
     /// The word the lane line shows — the rawValue, so
-    /// "Le Guin · round 3 · drafting". Read from exactly two view files:
-    /// `ReviewRoundCockpit.swift` and `LetterSection.swift` (constraint 28) —
+    /// "Le Guin · drafting" (a check's form; a round carries no stage). Read from
+    /// the view files that sign a letter, `LetterSection.swift` and
+    /// `LetterKeep.swift` (constraint 28) —
     /// a third reader is a second place the lane's spelling could drift.
     var laneWord: String { rawValue }
 }
