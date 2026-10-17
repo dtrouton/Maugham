@@ -93,10 +93,10 @@ Not yet run at the time of writing. Record the results here:
 
 On Denver's Mac and iPhone, plus the second Apple ID:
 
-1. His iPhone writes in his book and is filed under him silently, with the
+1. ✅ (2026-10-17) His iPhone writes in his book and is filed under him silently, with the
    History line. The phone's Settings line says *Recognised as Denver Trouton
    on your other devices.*
-2. Playlist's `0ECB` becomes his *"Denver's iPhone"* under Denver Trouton after
+2. ✅ (2026-10-17, record verified: name "Denver's iPhone", claim key ba9d4f12 = the root's) Playlist's `0ECB` becomes his *"Denver's iPhone"* under Denver Trouton after
    the phone's first write. **Precondition:** `0ECB`'s label in Playlist must
    already be the root's label, *Denver Trouton*. Otherwise `linkPersonKey`
    refuses, and the only trace is a `.debug` log line. **Recovery:** rename
