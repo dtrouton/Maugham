@@ -10,7 +10,9 @@ final class DocBudgetTests: XCTestCase {
 
     /// Repo-relative path → the most words it may hold.
     static let wordCeilings: [String: Int] = [
-        "CLAUDE.md": 23_030,
+        "CLAUDE.md": 19_652,
+        "docs/testing/TROUBLESHOOTING.md": 4_400,
+        "docs/INDEX.md": 600,
         "Maugham/Canvas/AREA.md": 48_005,
         "Maugham/OpLog/AREA.md": 29_586,
         "Maugham/Views/AREA.md": 27_098,
@@ -29,11 +31,16 @@ final class DocBudgetTests: XCTestCase {
     ]
 
     /// Docs whose backticked file names must name a file that exists.
-    static let pathCheckedDocs: [String] = []
+    static let pathCheckedDocs: [String] = [
+        "docs/INDEX.md",
+        "docs/testing/TROUBLESHOOTING.md",
+    ]
 
     /// Docs that must carry no milestone tag (a rule outlives the milestone
     /// that made it; the tag is history and belongs in git or an ADR).
-    static let untaggedDocs: [String] = []
+    static let untaggedDocs: [String] = [
+        "docs/INDEX.md",
+    ]
 
     // MARK: - Helpers (pure; the planted controls below exercise them)
 
