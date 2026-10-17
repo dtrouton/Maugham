@@ -101,14 +101,14 @@ On Denver's Mac and iPhone, plus the second Apple ID:
    already be the root's label, *Denver Trouton*. Otherwise `linkPersonKey`
    refuses, and the only trace is a `.debug` log line. **Recovery:** rename
    `0ECB` in People & Devices so the labels match, then reopen the book.
-3. A second-Apple-ID device's first write: the sheet shows its claimed name and
+3. â­ SKIPPED by Denver 2026-10-17 (steps 3â5, no collaborator this round). A second-Apple-ID device's first write: the sheet shows its claimed name and
    *iCloud says this device's record was last saved by …*.
 4. That person's second device joins silently as them.
 5. Forget, then their next device gets the sheet again, with a dated History
    line.
-6. iCloud Keychain off on a device: the sheet as today, and the phone's line
+6. â­ SKIPPED (turning iCloud Keychain off is disruptive; tests cover it). iCloud Keychain off on a device: the sheet as today, and the phone's line
    says iCloud Keychain isn't reachable.
-7. Measure the open-path time with recognition on a book with several devices.
+7. â Playlist opened on the signed build with no noticeable delay (Denver, 2026-10-17). Measure the open-path time with recognition on a book with several devices.
 
 Also worth watching in the same session (they rest on reports, not hardware):
 a locked phone reads as *isn't reachable*; a partial Forget finishes on a
