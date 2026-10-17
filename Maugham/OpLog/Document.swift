@@ -479,6 +479,8 @@ public final class Document {
     /// the compensating op before it was written (`refusingLoudly`).
     internal enum UndoDecline: Hashable, CaseIterable {
         case annotationEdit, acceptNote, stet, triage, stetRestore, notPermitted
+        /// The reject, archive and pane-Reopen undos' drift declines (#51).
+        case reject, archive, reopen
         /// A task op this Mac's permit refuses (P3c Task 8's task door).
         case taskNotPermitted
         /// A restore this Mac's permit refuses (P3c whole-branch fix wave,
@@ -498,6 +500,12 @@ public final class Document {
                 "Couldn't undo accepting \(count) notes — they changed on another device."
             case .stet:
                 "Couldn't undo stetting \(count) notes — they changed on another device."
+            case .reject:
+                "Couldn't undo rejecting \(count) notes — they changed on another device."
+            case .archive:
+                "Couldn't undo archiving \(count) notes — they changed on another device."
+            case .reopen:
+                "Couldn't undo reopening \(count) notes — they changed on another device."
             case .triage:
                 "Couldn't undo \(count) triage marks — they changed on another device."
             case .stetRestore:
@@ -519,6 +527,12 @@ public final class Document {
                 "Couldn't undo accepting the note — it changed on another device."
             case .stet:
                 "Couldn't undo stetting the note — it changed on another device."
+            case .reject:
+                "Couldn't undo rejecting the note — it changed on another device."
+            case .archive:
+                "Couldn't undo archiving the note — it changed on another device."
+            case .reopen:
+                "Couldn't undo reopening the note — it changed on another device."
             case .triage:
                 "Couldn't undo the triage mark — it changed on another device."
             case .stetRestore:

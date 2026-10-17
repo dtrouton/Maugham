@@ -883,6 +883,18 @@ extension Document {
             undoManager, actionName: "Reject Annotation", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
+                // Fire-time re-check with a LOUD decline (#51, RULING-22 —
+                // `stetAnnotation`'s shape). `reopenAnnotation` dispatches on
+                // the status NOW, not on what this undo wrote: unguarded, a
+                // note archived since would be reopened out of its archive,
+                // and one withdrawn since RESTORED, both under "Undo Reject".
+                // Unfiltered query — a `.rejected` note is invisible to the
+                // default `[.open]` filter (M5-AN-002).
+                guard doc.undoTargetStillShows(.rejected, id: id) else {
+                    documentLog.error("rejectAnnotation undo: \(id, privacy: .public) drifted — ignoring")
+                    doc.declineUndo(.reject)
+                    return
+                }
                 await doc.refusingLoudly { try await doc.reopenAnnotation(id: id) }
             },
             redo: { [weak undoManager] doc in
@@ -1057,6 +1069,13 @@ extension Document {
             undoManager, actionName: "Archive Annotation", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
+                // The reject undo's re-check (#51): only an archive this undo
+                // can see is one it may reopen.
+                guard doc.undoTargetStillShows(.archived, id: id) else {
+                    documentLog.error("archiveAnnotation undo: \(id, privacy: .public) drifted — ignoring")
+                    doc.declineUndo(.archive)
+                    return
+                }
                 await doc.refusingLoudly { try await doc.reopenAnnotation(id: id) }
             },
             redo: { [weak undoManager] doc in
@@ -1304,6 +1323,15 @@ extension Document {
             undoManager, actionName: "Reopen Annotation", target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
+                // The re-apply lands only over the `.open` this Reopen left
+                // (#51). A note that moved since — stetted, accepted, archived
+                // or withdrawn on another device — is not this undo's to
+                // overwrite with the resolution it had before.
+                guard doc.undoTargetStillShows(.open, id: id) else {
+                    documentLog.error("reopenAnnotation undo: \(id, privacy: .public) drifted — ignoring")
+                    doc.declineUndo(.reopen)
+                    return
+                }
                 await doc.refusingLoudly {
                     switch priorStatus {
                     case .rejected:
@@ -1322,6 +1350,15 @@ extension Document {
                     try await doc.reopenAnnotation(id: id, undoManager: undoManager)
                 }
             })
+    }
+
+    /// Whether the note `id` still shows `status` — the fire-time re-check of
+    /// the reject, archive and pane-Reopen undos (#51). Unfiltered, because
+    /// the default `[.open]` filter hides every resolved status (M5-AN-002); a
+    /// withdrawn note is absent from the projection and so never matches.
+    private func undoTargetStillShows(_ status: AnnotationStatus, id: String) -> Bool {
+        annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }?.status == status
     }
 
     /// Shared tail for annotation-only ops (reopen, edit-revert): persist,
