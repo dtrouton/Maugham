@@ -71,17 +71,20 @@ final class PeopleAndDevicesOneWriterTests: XCTestCase {
     }
 
     private func model(
-        _ registry: Registry, unsignedStreams: [String] = []
+        _ registry: Registry, unsignedStreams: [String] = [],
+        viewer: DeviceIdentity? = nil
     ) -> PeopleAndDevicesModel {
+        let me = viewer ?? mac!
         let table = TrustTable.resolve(
-            registry: registry, mine: .forAuthor(mac), joinedRoot: nil)
+            registry: registry, mine: .forAuthor(me), joinedRoot: nil)
         return PeopleAndDevicesModel.make(
             registry: registry, table: table, remembered: [:],
             requests: [], claimants: [],
             standing: DeviceStanding(
-                code: DeviceCode.short(mac.fingerprint), label: "Denver Trouton",
-                rootLabel: "Denver Trouton", admitted: true, isRoot: true),
-            me: mac.fingerprint, unsignedStreams: unsignedStreams, pieces: pieces)
+                code: DeviceCode.short(me.fingerprint), label: "Denver Trouton",
+                rootLabel: "Denver Trouton", admitted: true,
+                isRoot: me.fingerprint == mac.fingerprint),
+            me: me.fingerprint, unsignedStreams: unsignedStreams, pieces: pieces)
     }
 
     // MARK: - 1. One person per label
@@ -152,6 +155,62 @@ final class PeopleAndDevicesOneWriterTests: XCTestCase {
         XCTAssertTrue(samGroup.canChangePermit, samGroup.whyNotChangeable ?? "")
         XCTAssertEqual(samGroup.changeSubject.fingerprint, sam.fingerprint)
         XCTAssertEqual(samGroup.records.map { $0.devices.first?.kind }, ["Mac", "iPhone"])
+    }
+
+    /// **Denver's ruling on #78 SW4: the rule stays, and the pane explains it.**
+    /// A group holding the root and a phone has no Change…, so it says why and
+    /// how to split a device off.
+    func test_aGroupWithTheRootAndAPhoneSaysWhyItCannotChange() throws {
+        let denver = try XCTUnwrap(model(denversBook()).groups.first)
+        XCTAssertFalse(denver.offersPermitChange)
+        XCTAssertEqual(denver.sharedPermitNote,
+                       "Devices under one name share one permission. "
+                       + "Rename a device to split it off and give it its own.")
+        XCTAssertEqual(denver.sharedPermitNote,
+                       PeopleAndDevicesModel.PersonGroup.sharedPermitSentence)
+    }
+
+    /// **Not an instruction this Mac cannot carry out** (whole-branch review).
+    /// Rename is the admitting root's alone, so from a collaborator's Mac the
+    /// same group says why it has no Change… and stops there — the Rename
+    /// beside it is drawn disabled.
+    func test_aCollaboratorsMacSaysWhyButNotHowToSplit() throws {
+        let book = denversBook()
+        let registry = Registry(
+            devices: book.devices + [device(sam, name: "Sam's Mac", kind: .mac)],
+            people: book.people + [person(sam, label: "Sam", ownName: "Sam's Mac")])
+        let denver = try XCTUnwrap(
+            model(registry, viewer: sam).groups.first { $0.label == "Denver Trouton" })
+        XCTAssertFalse(denver.offersPermitChange)
+        XCTAssertFalse(denver.records.contains(where: \.canRename),
+                       "premise: nothing in this group is Sam's Mac's to rename")
+        XCTAssertEqual(denver.sharedPermitNote,
+                       "Devices under one name share one permission.")
+        XCTAssertEqual(denver.sharedPermitNote,
+                       PeopleAndDevicesModel.PersonGroup.sharedPermitReason)
+    }
+
+    /// A root alone has nothing to split off.
+    func test_theRootAloneCarriesNoSharedPermitNote() throws {
+        let registry = Registry(
+            devices: [device(mac, name: "Mac", kind: .mac)],
+            people: [person(mac, label: "Denver", ownName: "Mac", at: made)])
+        let denver = try XCTUnwrap(model(registry).groups.first)
+        XCTAssertFalse(denver.offersPermitChange)
+        XCTAssertNil(denver.sharedPermitNote)
+    }
+
+    /// A group without the root already offers Change….
+    func test_aGroupWithoutTheRootCarriesNoNoteBecauseItOffersChange() throws {
+        let registry = Registry(
+            devices: [device(mac, name: "Mac", kind: .mac)],
+            people: [person(mac, label: "Denver", ownName: "Mac", at: made),
+                     person(sam, label: "Sam", ownName: "Sam's Mac"),
+                     person(samsPhone, label: "Sam", ownName: "Sam's iPhone",
+                            at: later)])
+        let samGroup = try XCTUnwrap(model(registry).groups.first { $0.label == "Sam" })
+        XCTAssertTrue(samGroup.offersPermitChange)
+        XCTAssertNil(samGroup.sharedPermitNote)
     }
 
     /// **Legacy: two records under one label holding different permits.** The

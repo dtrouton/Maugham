@@ -39,8 +39,10 @@ enum OutputFilenameBuilder {
         config: PublishConfig,
         format: PublishConfig.Format,
         label: String?,
-        language: String?
+        language rawLanguage: String?
     ) -> String {
+        // #73 F1: a language identity is never trusted as a path component.
+        let language = rawLanguage.map { sanitizeForFilesystem($0) }
         var title = sanitizeForFilesystem(config.metadata.title)
         if config.outputs.sanitizeSpaces {
             title = title.replacingOccurrences(of: " ", with: "-")

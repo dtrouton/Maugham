@@ -538,6 +538,32 @@ struct PeopleAndDevicesModel: Equatable {
         /// exception for its reason: no button, rather than a dead one.
         var offersPermitChange: Bool { records.allSatisfy(\.offersPermitChange) }
 
+        /// **Why a group holding the root has no Change…, and the way out**
+        /// (Denver's ruling on #78 SW4: the rule stays, the pane explains it).
+        /// Drawn where this Mac can take the way out — a non-root record here
+        /// that it may Rename.
+        static let sharedPermitSentence =
+            sharedPermitReason + " Rename a device to split it off and give it its own."
+
+        /// **The why alone**, where Rename is not this Mac's to press (a
+        /// collaborator's Mac, or a foreign or adopted root's group): the
+        /// control is drawn disabled there, and a sentence telling the writer
+        /// to press it would be an instruction this Mac cannot carry out.
+        static let sharedPermitReason = "Devices under one name share one permission."
+
+        /// The note, where Change… is absent AND there is a non-root device
+        /// under the label. A root alone has nothing to split off, and a group
+        /// without a root already offers Change…. The way out is added only
+        /// where this Mac may Rename one of those non-root records
+        /// (`Person.canRename`, the verb's own rule). Asked of
+        /// `offersPermitChange`, never of a permit rung (tripwire 47).
+        var sharedPermitNote: String? {
+            let splittable = records.filter(\.offersPermitChange)
+            guard !offersPermitChange, !splittable.isEmpty else { return nil }
+            return splittable.contains(where: \.canRename)
+                ? Self.sharedPermitSentence : Self.sharedPermitReason
+        }
+
         /// Why Change… is refused, when it is: the first refusal among the
         /// records it would reach.
         var whyNotChangeable: String? {

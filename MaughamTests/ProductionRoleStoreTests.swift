@@ -121,6 +121,27 @@ final class ProductionRoleStoreTests: XCTestCase {
         XCTAssertEqual(store.manifest.productionRoles.count, 1)
     }
 
+    /// #46: what is MINTED is lowercase, because the write pipeline only accepts
+    /// lowercase tags and a role stored as `ES` offers a Run that can never write.
+    func test_aTranslatorMintedFromAnUppercaseTagIsStoredLowercase() async throws {
+        let (_, store) = try await loadedNovel(named: "UpperTranslator")
+        let role = try await store.translatorRole(for: "ES")
+        guard case .translator(let lang) = role.role else { return XCTFail("not a translator") }
+        XCTAssertEqual(lang, "es")
+        XCTAssertEqual(role.name, "Cortázar",
+                       "and it is named from the lowercase table's preset")
+    }
+
+    func test_aReaderAndACollatorAreStoredLowercaseToo() async throws {
+        let (_, store) = try await loadedNovel(named: "UpperReaderCollator")
+        let reader = try await store.readerRole(for: "FR")
+        let collator = try await store.collatorRole(for: "FR")
+        guard case .reader(let r) = reader.role else { return XCTFail("not a reader") }
+        guard case .collator(let c) = collator.role else { return XCTFail("not a collator") }
+        XCTAssertEqual(r, "fr")
+        XCTAssertEqual(c, "fr")
+    }
+
     /// A regional tag is a language of its own — `defaultTranslatorName`'s table
     /// is deliberately exact, and so is this lookup.
     func test_aRegionalTagIsItsOwnTranslator() async throws {

@@ -1186,6 +1186,62 @@ final class RepublisherTests: XCTestCase {
         }
     }
 
+    /// #73 whole-branch review: the REPUBLISH door does not re-decide whether
+    /// a frozen edition's language values are tags. `snap.config` is the first
+    /// body's language-FOLDED config, so its `metadata.language` can be an
+    /// override's value no build before #73 judged (or a pre-fix book tag such
+    /// as `en_US`); refusing it would make an edition already compiled
+    /// impossible to reproduce. The filename sanitiser covers the path.
+    ///
+    /// Disable experiment: have `Republisher` call `validate` rather than
+    /// `validateFrozenEdition` and this fails on `invalidSnapshotConfig`
+    /// naming `metadata.language`.
+    func test_republishOfASnapshotWhoseFrozenLanguageIsNotATagStillCompletes() async throws {
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C", mode: .prose, displayText: "Hello.")]
+            }
+        }
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Frozen", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: Src(),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        guard case .completed(let initialPub, _) = try await orch.compile(
+            format: .epub, label: nil) else {
+            return XCTFail("fixture: the initial compile must complete")
+        }
+
+        // Write the frozen config directly, as a pre-fix build froze it.
+        let snap = try snapStore.load(id: initialPub.snapshotID)
+        var frozen = snap.config
+        frozen.metadata.language = "en_US"
+        XCTAssertTrue(PublishConfigValidator.validate(frozen)
+            .contains { $0.field == "metadata.language" },
+                      "fixture: the write door WOULD refuse this value")
+        try snapStore.save(PublicationSnapshot(
+            snapshotID: snap.snapshotID, createdAt: snap.createdAt,
+            publishFiles: snap.publishFiles, config: frozen,
+            maughamVersion: snap.maughamVersion, tectonicVersion: snap.tectonicVersion,
+            languages: snap.languages))
+
+        let r = Republisher(
+            projectURL: tmp, astSource: Src(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        guard case .completed = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil) else {
+            return XCTFail("a frozen edition must republish whatever its language value")
+        }
+    }
+
     // MARK: - Task 5: republish carries the imprint
 
     /// A republish of an imprint publication must mint an imprint publication:
@@ -1434,6 +1490,54 @@ final class RepublisherTests: XCTestCase {
             try pieceIDs(inEPUBAt: tmp.appendingPathComponent(pub.outputPath)), ["p1", "p3"],
             "an imprint with no allowlist of its own inherits the book's denylist, "
             + "so the new piece joins it too")
+    }
+
+    /// #73 F2. An imprint's `metadata` is a merge-patch over the book's, so it
+    /// may respell `metadata.language` — and the compile door reads the
+    /// imprint-RESOLVED tag as the source. A republish that read the book's
+    /// unresolved tag instead would take the imprint's own source body for a
+    /// translation: the coverage gate refuses it, or the identity is wrong.
+    func test_anImprintThatRespellsTheSourceLanguageRepublishesAsTheSource() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Doble", author: "T"))
+        cfg.metadata.language = "en"
+        cfg.imprints = ["hispana": .init(metadata: ["language": .string("es")])]
+        try await configStore.save(cfg)
+
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: GrowingSrc(pieces: ["p1"]),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let initial = try await orch.compile(
+            format: .epub, label: nil, imprint: "hispana")
+        guard case .completed(let initialPub, _) = initial else {
+            return XCTFail("the imprint's source compile failed: \(initial)")
+        }
+
+        var r = Republisher(
+            projectURL: tmp, astSource: GrowingSrc(pieces: ["p1"]),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        r.mintSuffix = { "f2f2" }
+        let outcome = try await r.republish(
+            snapshotID: initialPub.snapshotID, format: .epub, label: nil)
+        guard case .completed(let pub, _) = outcome else {
+            return XCTFail("the imprint's source edition must republish as the "
+                           + "source, not be gated as a translation: \(outcome)")
+        }
+        XCTAssertEqual(pub.imprint, "hispana")
+        XCTAssertEqual(pub.language, initialPub.language,
+                       "the republish is the same edition the compile named")
+        XCTAssertTrue(pub.outputPath.contains("-rf2f2"), pub.outputPath)
+        XCTAssertEqual(
+            pub.outputPath.replacingOccurrences(of: "-rf2f2", with: ""),
+            initialPub.outputPath,
+            "same filename as the original, but for the republish suffix")
     }
 
     /// I2 (whole-branch review). A republish mints a triple too, and its

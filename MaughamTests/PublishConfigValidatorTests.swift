@@ -9,6 +9,63 @@ final class PublishConfigValidatorTests: XCTestCase {
         XCTAssertTrue(errs.isEmpty)
     }
 
+    func test_aMetadataLanguageThatIsAPathIsRefused() {
+        var cfg = PublishConfig(metadata: .init(title: "X", author: "Y"))
+        cfg.metadata.language = "../../evil"
+        XCTAssertTrue(PublishConfigValidator.validate(cfg).contains { $0.field == "metadata.language" })
+    }
+
+    func test_aRegionalMetadataLanguageInEitherCaseIsAccepted() {
+        for tag in ["en", "en-US", "pt-br", "sr-Latn"] {
+            var cfg = PublishConfig(metadata: .init(title: "X", author: "Y"))
+            cfg.metadata.language = tag
+            XCTAssertFalse(PublishConfigValidator.validate(cfg).contains { $0.field == "metadata.language" }, tag)
+        }
+    }
+
+    /// #73 whole-branch review: an override's `metadata.language` is folded
+    /// into the book's for that edition, so it reaches the filename exactly as
+    /// the book's does and is held to the same rule.
+    func test_anOverrideMetadataLanguageThatIsNotATagIsRefused() {
+        var cfg = PublishConfig(metadata: .init(title: "X", author: "Y"))
+        cfg.languageOverrides["sr"] = .init(metadata: ["language": "sr_Latn"])
+        XCTAssertTrue(PublishConfigValidator.validate(cfg)
+            .contains { $0.field == "language_overrides.sr.metadata.language" })
+        cfg.languageOverrides["sr"] = .init(metadata: ["language": "sr-Latn"])
+        XCTAssertFalse(PublishConfigValidator.validate(cfg)
+            .contains { $0.field == "language_overrides.sr.metadata.language" },
+                       "a regional tag in either case stays legal")
+    }
+
+    /// An imprint's `metadata` merge-patch can respell the book's language.
+    func test_anImprintMetadataLanguageThatIsAPathIsRefused() {
+        var cfg = PublishConfig(metadata: .init(title: "X", author: "Y"))
+        cfg.imprints["special"] = .init(metadata: ["language": .string("../x")])
+        XCTAssertTrue(PublishConfigValidator.validate(cfg)
+            .contains { $0.field == "imprints.special.metadata.language" })
+        cfg.imprints["special"] = .init(metadata: ["language": .null])
+        XCTAssertFalse(PublishConfigValidator.validate(cfg)
+            .contains { $0.field == "imprints.special.metadata.language" },
+                       "null deletes — the book's tag applies")
+    }
+
+    /// The frozen-edition door skips exactly the language-value rules and
+    /// keeps every other one.
+    func test_theFrozenEditionDoorSkipsLanguageValuesAndNothingElse() {
+        var cfg = PublishConfig(metadata: .init(title: "X", author: "Y"))
+        cfg.metadata.language = "en_US"
+        cfg.languageOverrides["sr"] = .init(metadata: ["language": "sr_Latn"])
+        cfg.imprints["special"] = .init(metadata: ["language": .string("../x")])
+        XCTAssertTrue(PublishConfigValidator.validateFrozenEdition(cfg).isEmpty,
+                      "\(PublishConfigValidator.validateFrozenEdition(cfg))")
+        cfg.outputs.filenameTemplate = "{title}.{ext}"
+        cfg.languageOverrides["FR"] = .init()
+        let fields = PublishConfigValidator.validateFrozenEdition(cfg).map(\.field)
+        XCTAssertTrue(fields.contains("outputs.filename_template"), "\(fields)")
+        XCTAssertTrue(fields.contains("language_overrides.FR"),
+                      "the override KEY rule predates #73 and still runs: \(fields)")
+    }
+
     func testRejects_emptyTitle() {
         var cfg = PublishConfig()
         cfg.metadata.title = ""

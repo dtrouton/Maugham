@@ -130,7 +130,12 @@ extension ProjectStore {
         guard TranslationRecord.isValidLanguageTag(tag.lowercased()) else {
             throw ProjectStoreError.languageTagInvalid(language)
         }
-        let minted = ProductionRole(id: Self.newId(prefix: "role"), role: role(tag), name: presetName(tag))
+        // Minted lowercase: the translation write pipeline accepts lowercase
+        // tags only, so a role stored as `ES` would offer a Run that can never
+        // write (#46). The stored lookup above is case-insensitive already.
+        let canonical = tag.lowercased()
+        let minted = ProductionRole(
+            id: Self.newId(prefix: "role"), role: role(canonical), name: presetName(canonical))
         try await commitProductionRoles(manifest.productionRoles + [minted])
         return minted
     }

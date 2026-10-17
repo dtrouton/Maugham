@@ -388,6 +388,11 @@ struct PeopleAndDevicesSection: View {
                     Text(group.permitSentence)
                         .font(.caption)
                         .foregroundStyle(group.permitsDiffer ? .orange : .secondary)
+                    if let note = group.sharedPermitNote {
+                        Text(note)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer(minLength: 8)
                 if group.offersPermitChange {

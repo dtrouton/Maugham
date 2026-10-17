@@ -765,10 +765,10 @@ extension TranslatorOrchestrator.Environment {
             .flatMap { String(data: $0, encoding: .utf8) }
     }
 
-    /// The sentence the writer reads when a batch is refused. `MCPError.message`
-    /// is the pipeline's own wording — the unknown-`¶id` listing among it — and
-    /// is written to be read by a person, so it travels unchanged.
+    /// The sentence the writer reads when a batch is refused. `MCPError` is a
+    /// `LocalizedError` whose description is its `message` — the pipeline's own
+    /// wording, the unknown-`¶id` listing among it — so it travels unchanged.
     private static func sentence(for error: Error) -> String {
-        (error as? MCPError)?.message ?? error.localizedDescription
+        error.localizedDescription
     }
 }
