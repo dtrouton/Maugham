@@ -287,3 +287,9 @@ End-to-end-through-the-bridge coverage lives in `MaughamTests/MCP/MCPBinaryInteg
 - The "Set up Claude Desktop…" flow — `Maugham/Views/` (Help menu wiring; also hosts the Claude Code section, `HelpClaudeDesktopSheet.swift`).
 - Skill content loading — `Maugham/Help/SkillIndex.swift` (mirrors `HelpTopicIndex`'s pattern but lives in `Help/`, not `MCP/`, since it's also consumed by `get_help`; this area only implements the SEP-2640 protocol surface and the Claude Code installer on top of it).
 - The standalone `maugham-mcp` CLI source — `../maugham-mcp/` (separate Swift package, ships bundled inside `Maugham.app/Contents/MacOS/`).
+
+## From CLAUDE.md's area table (2026-10-17)
+
+- **⌘⌥F still does not reach a statement** and that is a stop rather than an omission — see the roadmap's 1A entry for why (`search_text` is unaffected: it filters to `.manuscript`).
+- `get_help`, which serves the bundled `docs/guide/` topic files — the SAME single docs source shown in-app via **Help → Maugham Help** (`HelpWindow`) and rendered on GitHub. `HelpTopicIndex` is the shared loader; edit docs in `docs/guide/`, don't add a second copy.
+- Tools fail loudly on unknown ids.

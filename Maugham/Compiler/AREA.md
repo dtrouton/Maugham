@@ -2132,3 +2132,9 @@ everything it touches.
   Plan 2 shipped Author with none, and nothing since has argued otherwise.
 - **A new MCP tool, in either direction.** The compiler is an MCP *client*. The
   catalogue did not move for M2.
+
+## From CLAUDE.md's area table (2026-10-17)
+
+- Notes are anchored at ingest against the **live** paragraph, never against text the model echoed back, which is what makes the exact-match staleness rule right and the mid-run edit a non-case.
+- **The assistant column studies in Review too, as of M3-P3** (`Persona.studiesPinnedReferences`) — Plan and Publish keep the inert shelf.
+- **The depth menu has a fourth rung**, `CompilerModelChoice.exhaustive` (`fable`), last in the enum and last in the menu — count `allCases`, not this line.

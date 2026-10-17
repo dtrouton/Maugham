@@ -2265,3 +2265,8 @@ Known thin coverage (file an issue before relying on these areas for novel behav
 - Document load coordination, autosave timing, conflict UI — `Maugham/Stores/DocumentStore.swift`.
 - Project-folder filesystem layout (`.maugham/ops/` etc.) — owned conceptually by Stores; this area writes *into* `.maugham/ops/` but doesn't decide the layout.
 - Annotation layer (paragraph-anchored comments from Claude/MCP) — `Maugham/MCP/` + a Stores extension.
+
+## From CLAUDE.md's area table (2026-10-17)
+
+- Echo guard = `Document.lastDiskEcho: EchoState` (don't add a parallel "last text" string).
+- Sweep gated on `_pendingSweep: SweepReason?` (don't reintroduce a bool flag).

@@ -10,26 +10,27 @@ final class DocBudgetTests: XCTestCase {
 
     /// Repo-relative path → the most words it may hold.
     static let wordCeilings: [String: Int] = [
-        "CLAUDE.md": 14_468,
+        "CLAUDE.md": 3_565,
         "docs/tripwires.md": 6_400,
         "docs/testing/TROUBLESHOOTING.md": 4_400,
         "docs/INDEX.md": 600,
         "Maugham/Canvas/AREA.md": 48_005,
-        "Maugham/OpLog/AREA.md": 29_586,
-        "Maugham/Views/AREA.md": 27_098,
-        "Maugham/Compiler/AREA.md": 23_303,
-        "Maugham/Stores/AREA.md": 16_059,
-        "Maugham/MCP/AREA.md": 8_490,
+        "Maugham/OpLog/AREA.md": 29_616,  // + residue from CLAUDE.md, 2026-10-17
+        "Maugham/Views/AREA.md": 27_678,  // + residue from CLAUDE.md, 2026-10-17
+        "Maugham/Compiler/AREA.md": 23_386,  // + residue from CLAUDE.md, 2026-10-17
+        "Maugham/Stores/AREA.md": 16_106,  // + residue from CLAUDE.md, 2026-10-17
+        "Maugham/MCP/AREA.md": 8_576,  // + residue from CLAUDE.md, 2026-10-17
         "MaughamPhone/AREA.md": 5_007,
         "Maugham/Editor/AREA.md": 3_673,
         "Maugham/Updates/AREA.md": 1_622,
-        "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 6_000,
+        "Maugham/Publish/AREA.md": 939,  // new: the Publish cell of CLAUDE.md's area table, 2026-10-17
+        "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 2_851,
     ]
 
     /// Repo-relative path → the longest line it may hold, in characters.
     /// A single 15,000-character bullet cannot be skimmed or cited.
     static let lineCeilings: [String: Int] = [
-        "CLAUDE.md": 21_416,
+        "CLAUDE.md": 2_691,
         "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 1_000,
     ]
 

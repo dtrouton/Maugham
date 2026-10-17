@@ -174,12 +174,14 @@ Every `.swift` file in this folder and in `Inbox/` appears once. `DocBudgetTests
 - No `UndoManager` here; undo is expressed as compensating ops (`AnnotationInverse`, ADR 0023).
 - Persisted enums follow ADR 0015: an `.unknown` case and a tolerant decoder; an identity-bearing value keeps `.unknown(raw)` verbatim.
 - Adding a `ProjectType` case bumps `ProjectManifest.currentSchemaVersion`.
+- `ProjectType` is polymorphic; Collection references are Mac-local.
+- Manifest `modified` must round-trip through ISO8601 with whole-second rounding.
 - Switches over `OpKind`, `ReviewStatus` and `ProjectType` carry no `default:`, so a new case is a compile error.
 - Mint paragraph ids with `mintUnique(excluding:)`; test literals use the id alphabet (tripwires 23, 8).
 - `SynthesisSource` is a typed enum; adding a cause adds a case (tripwire 12).
 - Variant names and socket paths live only in `BuildVariant` (tripwire 13).
 - Every JSONL stream is partitioned per device; never one shared file (tripwire 17). Filenames take a `DeviceSlug` (tripwire 24).
-- Closed manuscripts are read through `DerivedManuscript`, never the `.md` (tripwire 20). Anchors are stripped only by `MarkdownDisplayFilter`.
+- Closed manuscripts are read through `DerivedManuscript`, never the `.md` (tripwire 20). Anchors are stripped only by `MarkdownDisplayFilter`; don't add a target-local copy.
 - Device ids come from `DeviceIdentity`/`LocalIdentities`; no host names (tripwire 35).
 - No software private key outside `PersonKey.swift` and `DeviceIdentity+Testing.swift` (tripwire 36).
 - Seal lines are recognised in `OpLogChain` only (tripwire 37).

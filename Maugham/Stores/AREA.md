@@ -486,3 +486,9 @@ four things to know before editing in here:
 - UI for any of these (binder views, conflict diff sheet, trash UI) — `Maugham/Views/`.
 - MCP tool handlers that read store state — `Maugham/MCP/Tools/`.
 - Model types (ProjectType, Manifest, ItemRole, etc.) — `Maugham/Models/`.
+
+## From CLAUDE.md's area table (2026-10-17)
+
+From its "Inbox + transcription" section (iPhone-companion Mac side):
+
+- `InboxStore` owns `.maugham/inbox/` (per-device `inbox.<slug>.jsonl`, monotonic `writtenAt`). `InboxPane` is ⌘⌥B. `InboxTranscriptionWorker` runs an injected `Transcriber`; production is `WhisperKitTranscriber` (Apple-Silicon only). MCP's scope over the inbox is read and promote only (CLAUDE.md).
