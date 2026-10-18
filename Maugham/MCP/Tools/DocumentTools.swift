@@ -218,10 +218,15 @@ public enum ReadDocumentTool: MCPTool {
             quality: params.quality)
     }
 
-    private static func modeFor(path: String, projectType: ProjectType) -> String {
-        if path.hasSuffix(".fountain") { return "fountain" }
-        if projectType == .screenplay { return "screenplay" }
-        return "prose"
+    /// `read_document.mode`: the file's `DocumentFormat.ofManuscript(path:)`,
+    /// and for a Markdown file the project's `primaryFormat.isScreenplay`.
+    /// The three strings are MCP wire vocabulary, spelled here and pinned by
+    /// `DocumentToolsTests` — the one allowance in the fountain-literal census.
+    static func modeFor(path: String, projectType: ProjectType) -> String {
+        switch DocumentFormat.ofManuscript(path: path) {
+        case .fountain: return "fountain"
+        case .markdown: return projectType.primaryFormat.isScreenplay ? "screenplay" : "prose"
+        }
     }
 }
 

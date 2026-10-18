@@ -40,13 +40,15 @@ final class BinderRoutingTests: XCTestCase {
         XCTAssertNil(BinderRouting.documentURL(for: document(path: nil), projectRoot: root))
     }
 
-    func test_kind_classifiesExtensions() {
-        XCTAssertEqual(BinderRouting.kind(of: URL(fileURLWithPath: "/a/b.md")), .markdown)
-        XCTAssertEqual(BinderRouting.kind(of: URL(fileURLWithPath: "/a/b.fountain")), .fountain)
-        XCTAssertEqual(BinderRouting.kind(of: URL(fileURLWithPath: "/a/b.txt")), .other)
+    func test_format_classifiesExtensions() {
+        XCTAssertEqual(DocumentFormat(url: URL(fileURLWithPath: "/a/b.md")), .markdown)
+        XCTAssertEqual(DocumentFormat(url: URL(fileURLWithPath: "/a/b.fountain")), .fountain)
+        XCTAssertNil(DocumentFormat(url: URL(fileURLWithPath: "/a/b.txt")))
     }
 
-    func test_kind_caseInsensitiveExtension() {
-        XCTAssertEqual(BinderRouting.kind(of: URL(fileURLWithPath: "/a/B.MD")), .markdown)
+    func test_format_caseInsensitiveExtension() {
+        XCTAssertEqual(DocumentFormat(url: URL(fileURLWithPath: "/a/B.MD")), .markdown)
+        // The phone already folded case before Core owned this; Core keeps it so.
+        XCTAssertEqual(DocumentFormat(url: URL(fileURLWithPath: "/a/X.FOUNTAIN")), .fountain)
     }
 }

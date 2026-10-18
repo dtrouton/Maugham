@@ -80,9 +80,9 @@ struct EditorSurfaceConfiguration {
         /// Invoked when the user clicks a checkbox bracket — markdown `- [ ]`
         /// or Fountain `[[todo:]]`. The host wires this to
         /// `Document.setParagraph(id:text:)` with the flipped bracket text,
-        /// dispatching by `MaughamCheckboxKind` to `MarkdownCheckboxScanner.flipBracket`
+        /// dispatching by `DocumentFormat` to `MarkdownCheckboxScanner.flipBracket`
         /// or `FountainBoneyardScanner.flipTodoDone`.
-        var checkboxToggleHandler: ((String, Int, MaughamCheckboxKind) -> Void)? = nil
+        var checkboxToggleHandler: ((String, Int, DocumentFormat) -> Void)? = nil
         /// Maps a doc-wide UTF-16 location to the containing paragraph's id + range.
         /// Wired to `Document.paragraphRange(at:)`. Used by the review toolbar to
         /// capture a paragraph-relative span anchor for the selection.

@@ -245,9 +245,9 @@ final class TranslationRoundReportTests: XCTestCase {
         updated.departures[1].dismissed = true
         var other = Self.round()
         other = TranslationRound(number: 4, language: "es", docId: "doc-1", startedAt: Date())
-        XCTAssertEqual(ProjectWindow.publishSelection(after: updated, showing: Self.round()), updated)
-        XCTAssertEqual(ProjectWindow.publishSelection(after: updated, showing: other), other)
-        XCTAssertNil(ProjectWindow.publishSelection(after: updated, showing: nil))
+        XCTAssertEqual(PublishCentreModel.publishSelection(after: updated, showing: Self.round()), updated)
+        XCTAssertEqual(PublishCentreModel.publishSelection(after: updated, showing: other), other)
+        XCTAssertNil(PublishCentreModel.publishSelection(after: updated, showing: nil))
     }
 
     // MARK: - Fixture

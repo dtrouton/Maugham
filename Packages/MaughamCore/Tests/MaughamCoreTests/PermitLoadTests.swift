@@ -2850,7 +2850,7 @@ final class PermitLoadTests: XCTestCase {
 
         let rootsTable = try await store(on: rootsMac).trust()
         XCTAssertEqual(
-            OpLogStore.unownedPiece(forDocId: docId, in: projectURL, trust: rootsTable),
+            LocalWritePermitBuilder.unownedPiece(forDocId: docId, in: projectURL, trust: rootsTable),
             .nobodyHasWrittenItsText)
         let onRoots = try await appliedOpIds(on: rootsMac)
         XCTAssertEqual(onRoots, ["0rootsOpening"], "her line held, not set aside")
@@ -2876,7 +2876,7 @@ final class PermitLoadTests: XCTestCase {
 
             let rootsTable = try await store(on: rootsMac).trust()
             XCTAssertEqual(
-                OpLogStore.unownedPiece(forDocId: docId, in: projectURL, trust: rootsTable),
+                LocalWritePermitBuilder.unownedPiece(forDocId: docId, in: projectURL, trust: rootsTable),
                 .aBookAuthorHasWrittenItsText, "starter \(starter ?? "nil")")
             let onRoots = try await appliedOpIds(on: rootsMac)
             XCTAssertEqual(onRoots, ["0rootsOpening"])

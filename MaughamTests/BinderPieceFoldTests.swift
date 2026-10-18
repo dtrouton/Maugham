@@ -147,7 +147,7 @@ final class BinderPieceFoldTests: XCTestCase {
 
     func test_aCollectionPieceUnfoldsToTheResearchInItsOwnFolder() async throws {
         let store = try await collection()
-        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
         let owned = try await store.addPieceResearchNote(
             pieceId: piece.id, title: "Alpha's Note")
         _ = try await store.addResearchTextNote(parentId: nil, title: "Shared Note")
@@ -168,7 +168,7 @@ final class BinderPieceFoldTests: XCTestCase {
 
     func test_aCollectionPieceWithNoResearchOfItsOwnHasNoChevron() async throws {
         let store = try await collection()
-        _ = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        _ = try await store.addLoosePiece(title: "Alpha", format: .markdown)
         _ = try await store.addResearchTextNote(parentId: nil, title: "Shared Note")
 
         let (window, _) = try await hostCollection(store: store)
@@ -180,7 +180,7 @@ final class BinderPieceFoldTests: XCTestCase {
 
     func test_aFoldedPieceRowIsStillThePiecesOwnSubject() async throws {
         let store = try await collection()
-        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
         _ = try await store.addPieceResearchNote(pieceId: piece.id, title: "Alpha's Note")
 
         let (window, probe) = try await hostCollection(store: store)
@@ -196,7 +196,7 @@ final class BinderPieceFoldTests: XCTestCase {
     /// disclosure triangle, where a novel chapter's fold is flat.
     func test_aGroupInsideACollectionPiecesFoldExpandsToItsChildren() async throws {
         let store = try await collection()
-        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
         let group = try await store.addResearchItem(
             parentId: nil, title: "Sources", kind: nil)
         let child = try await store.addResearchTextNote(
@@ -247,7 +247,7 @@ final class BinderPieceFoldTests: XCTestCase {
     /// had nothing to do.
     func test_theWritersChevronRoundTripsThroughTheBoundState() async throws {
         let store = try await collection()
-        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
         _ = try await store.addPieceResearchNote(pieceId: piece.id, title: "Alpha's Note")
 
         let state = BinderTreeSectionsState()
@@ -271,7 +271,7 @@ final class BinderPieceFoldTests: XCTestCase {
     /// and the reveal opened the shared section instead.
     func test_aRevealOfAPieceScopedNotePutsItsRowOnScreen() async throws {
         let store = try await collection()
-        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
         let owned = try await store.addPieceResearchNote(
             pieceId: piece.id, title: "Alpha's Note")
 
@@ -307,9 +307,9 @@ final class BinderPieceFoldTests: XCTestCase {
     func test_aRevealOfAPieceScopedNotePutsThePieceRowOnScreen() async throws {
         let store = try await collection()
         for i in 0..<60 {
-            _ = try await store.addLoosePiece(title: "Filler \(i)", mode: .prose)
+            _ = try await store.addLoosePiece(title: "Filler \(i)", format: .markdown)
         }
-        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
         let owned = try await store.addPieceResearchNote(
             pieceId: piece.id, title: "Alpha's Note")
 
@@ -367,7 +367,7 @@ final class BinderPieceFoldTests: XCTestCase {
     /// than at a row that is gone.
     func test_deletingAFoldedResearchItemSweepsTheSubjectToTheProject() async throws {
         let store = try await collection()
-        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
         let owned = try await store.addPieceResearchNote(
             pieceId: piece.id, title: "Alpha's Note")
 
@@ -395,7 +395,7 @@ final class BinderPieceFoldTests: XCTestCase {
     /// nowhere near the piece they asked from.
     func test_aNoteMadeFromACollectionPiecesFoldLandsInThatPiecesFolder() async throws {
         let store = try await collection()
-        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
         _ = try await store.addPieceResearchNote(pieceId: piece.id, title: "Alpha's Note")
         let before = store.manifest.research.count
 
@@ -440,7 +440,7 @@ final class BinderPieceFoldTests: XCTestCase {
     /// research group from a fold row would have jumped to the piece's root.
     func test_aNoteMadeInsideAFoldsGroupStillLandsInThatGroup() async throws {
         let store = try await collection()
-        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
         let group = try await store.addResearchItem(
             parentId: nil, title: "Sources", kind: nil)
         try await store.moveResearchItems(ids: [group.id], to: .piece(piece.id))
@@ -545,7 +545,7 @@ final class BinderPieceFoldTests: XCTestCase {
     /// removing rename from every fold would pass the two tests above.
     func test_aNoteInACollectionPiecesFoldStillRenamesInPlace() async throws {
         let store = try await collection()
-        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
         let owned = try await store.addPieceResearchNote(
             pieceId: piece.id, title: "Alpha's Note")
 
@@ -633,7 +633,7 @@ final class BinderPieceFoldTests: XCTestCase {
             navigator.components(separatedBy: "BinderTreeSectionsState()").count - 1, 0)
         XCTAssertTrue(navigator.contains("let treeState: BinderTreeSectionsState"))
         // And the window owns exactly one, for all three of them.
-        let window = try source(of: "Maugham/Views/ProjectWindow.swift")
+        let window = try SourceTree.windowSource()
         XCTAssertEqual(
             window.components(separatedBy: "BinderTreeSectionsState()").count - 1, 1,
             "one window, one tree, one state")

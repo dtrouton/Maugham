@@ -62,7 +62,7 @@ final class ManifestAdoptionTests: XCTestCase {
     ) async throws -> StructureItem {
         let other = try await ProjectStore.load(from: url)
         return try await other.addStructureItem(
-            parentId: nil, title: title, kind: .document(extension: "md"))
+            parentId: nil, title: title, kind: .document(.markdown))
     }
 
     // MARK: - The headline
@@ -88,7 +88,7 @@ final class ManifestAdoptionTests: XCTestCase {
         ds.presenterDidChangeSubitem(at: manifestURL(url))
 
         let mine = try await store.addStructureItem(
-            parentId: nil, title: "Chapter Four", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter Four", kind: .document(.markdown))
 
         let disk = try manifestOnDisk(url)
         XCTAssertNotNil(TreeWalk.find(id: added.id, in: disk.structure),
@@ -191,7 +191,7 @@ final class ManifestAdoptionTests: XCTestCase {
     func test_aManifestArrivingMidVerbIsHeldAndKeptAsTheLoser() async throws {
         let (url, store, ds) = try await openWindow()
         let second = try await store.addStructureItem(
-            parentId: nil, title: "Chapter Two", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter Two", kind: .document(.markdown))
         var added: StructureItem?
         var adoptedMidVerb = false
         ds.relocateWillMove = { [weak ds, weak store] in

@@ -32,8 +32,8 @@ import MaughamCore
 ///   (`PublicationStore.load()` is ascending `compiledAt`) and answers with
 ///   every row it can actually put on screen. Both of its guards are about facts
 ///   on disk — a row can outlive its file (`ExportsListView`'s Delete removes the
-///   file and never the JSONL), and an unknown format decodes to `.pdf` — so
-///   these tests write real catalogs and real PDFs.
+///   file and never the JSONL), and a row's `.pdf` format is a claim, not
+///   the bytes at its path — so these tests write real catalogs and real PDFs.
 /// - **The rule.** `ProjectWindow.publishCentre` is a static over
 ///   `(persona, subject, structure, resolution)`, so it is assertable with no
 ///   window at all.
@@ -194,11 +194,11 @@ final class PublishPreviewCentreTests: XCTestCase {
                        + "of standing beside it")
     }
 
-    /// **And a file that is not a PDF at all.** An unknown `format` decodes to
-    /// `.pdf` (ADR 0015's forward-tolerance, `PublishConfig.Format`), so the
-    /// format field alone is not enough: the file must open. Written as bytes
-    /// that are not a PDF at a `.pdf` path, which is exactly what a newer
-    /// build's third output format would leave behind.
+    /// **And a file that is not a PDF at all.** A row's `format == .pdf` is
+    /// what the catalog claims, not what is on disk, so the format field alone
+    /// is not enough: the file must open. Written as bytes that are not a PDF
+    /// at a `.pdf` path. (A newer build's format no longer claims `.pdf` — it
+    /// decodes as `.unknown`, `PublishFormatToleranceTests`.)
     func test_aRowWhoseFileIsNotReallyAPDFIsWalkedPast() async throws {
         let project = try makeProject()
         let store = PublicationStore(projectURL: project)
@@ -212,9 +212,9 @@ final class PublishPreviewCentreTests: XCTestCase {
             store: store, projectURL: project)
 
         assertReady(resolution, is: real,
-                    "`format == .pdf` is a decoded field and an unknown "
-                    + "format decodes to it — so the file has to open, not "
-                    + "merely be claimed")
+                    "`format == .pdf` is a claim the catalog makes, not the "
+                    + "bytes on disk — so the file has to open, not merely be "
+                    + "claimed")
         XCTAssertEqual(resolution.publications.map(\.publicationID), [real.publicationID],
                        "…and the picker does not offer it")
     }
@@ -1406,8 +1406,8 @@ final class PublishPreviewCentreTests: XCTestCase {
         promoted.status = .approved
 
         XCTAssertEqual(
-            ProjectWindow.publishSelection(after: promoted,
-                                           showing: Self.aProposal)?.status,
+            PublishCentreModel.publishSelection(after: promoted,
+                                                showing: Self.aProposal)?.status,
             .approved,
             "the round on screen takes its own verb's answer, or the gate goes "
             + "on offering Approve over a design already live")
@@ -1418,26 +1418,50 @@ final class PublishPreviewCentreTests: XCTestCase {
             status: .pending, specMarkdown: "# another design",
             filePaths: ["template.tex"], sampleResult: nil, revertNote: nil)
         XCTAssertEqual(
-            ProjectWindow.publishSelection(after: promoted, showing: another)?.id,
+            PublishCentreModel.publishSelection(after: promoted, showing: another)?.id,
             another.id,
             "the writer moved on; a verb about the round they left must not "
             + "pull it back into the centre column")
         XCTAssertNil(
-            ProjectWindow.publishSelection(after: promoted, showing: nil),
+            PublishCentreModel.publishSelection(after: promoted, showing: nil),
             "…and one about a gate they CLOSED must not reopen it")
     }
 
     /// The bridge: the window's write-back goes through that rule rather than
     /// straight into its own state. Without this the pure test above pins a rule
-    /// nothing obeys.
+    /// nothing obeys. Two halves since foundations plan 4 Task 2 moved the rule
+    /// onto `PublishCentreModel`: the model's adopting verb asks the rule, and
+    /// the window's `onProposalChanged` reaches that verb, and so does its
+    /// `onRoundChanged`. That nothing ELSE writes either back is held by the
+    /// compiler (`selectedProposal` and `selectedRound` are `private(set)`),
+    /// and by the assertions below for the two callbacks.
     func test_theWindowsWriteBackGoesThroughTheSelectionRule() throws {
-        let code = SourceScan.codeLines(
-            of: try Self.source(of: "Views/ProjectWindow.swift"))
+        let model = SourceScan.codeLines(
+            of: try SourceTree.sourceOfType("PublishCentreModel", under: ["Maugham"]))
+        let adopt = try XCTUnwrap(
+            model.firstIndex { $0.contains("func adoptVerbAnswer(_ updated: DesignProposalStore.Proposal)") },
+            "the model's proposal write-back verb is gone")
         XCTAssertTrue(
-            code.contains { $0.contains("publishSelection(") },
-            "`onProposalChanged` must adopt through `publishSelection`, or a "
+            model[adopt...].prefix(4).contains { $0.contains("Self.publishSelection(") },
+            "`adoptVerbAnswer` must adopt through `publishSelection`, or a "
             + "verb answering after the writer moved on writes the old proposal "
             + "back into the centre column")
+
+        // The window's code with its family — the gate is mounted in
+        // `CentreColumn` since foundations plan 4 Task 4.
+        let window = try SourceTree.windowCodeLines()
+        let changed = try XCTUnwrap(
+            window.firstIndex { $0.contains("onProposalChanged:") },
+            "the window no longer takes the gate's answer back at all")
+        XCTAssertTrue(
+            window[changed...].prefix(3).contains { $0.contains("publishCentre.adoptVerbAnswer(") },
+            "`onProposalChanged` must adopt through the model's verb")
+        let roundChanged = try XCTUnwrap(
+            window.firstIndex { $0.contains("onRoundChanged:") },
+            "the window no longer takes the round report's answer back at all")
+        XCTAssertTrue(
+            window[roundChanged...].prefix(3).contains { $0.contains("publishCentre.adoptVerbAnswer(") },
+            "`onRoundChanged` must adopt through the model's verb")
     }
 
     // MARK: - The shape, in production
@@ -1447,55 +1471,51 @@ final class PublishPreviewCentreTests: XCTestCase {
     /// production's statics, but the SHAPE of the last arm is the probe's own and
     /// a probe cannot vouch for it. This reads the real `manuscriptEditor`.
     func test_theBookIsAThirdLayerOfTheSameZStackAndNotAFourthArm() throws {
-        let source = try Self.source(of: "Views/ProjectWindow.swift")
-        let arm = try XCTUnwrap(
-            Self.declaration(named: "private func manuscriptEditor(", in: source),
-            "the editor arm must still be a member of its own")
+        let arm = try SourceTree.declaration(
+            named: "func manuscriptEditor(", under: "Maugham")
 
-        XCTAssertTrue(arm.contains("ZStack"), "still one stack, not a choice")
-        XCTAssertTrue(arm.contains("EditorHost("),
-                      "…with the host mounted unconditionally underneath")
-        XCTAssertTrue(arm.contains("ProjectAltitudePane("),
-                      "…altitude over it")
-        XCTAssertTrue(arm.contains("ReviewBoardPane("),
-                      "…Review's passes board over that (M3 P1 Task 6)")
-        XCTAssertTrue(arm.contains("Self.reviewCentreShowsBoard("),
-                      "…gated on its own named rule, for this layer's reason")
-        XCTAssertTrue(arm.contains("PublishPreviewCentre("),
-                      "…and the book over all of them")
-        XCTAssertTrue(arm.contains("PublishCentreNoticeBanner("),
-                      "…with the notice standing in the same place when there "
-                      + "is no book")
-        XCTAssertTrue(arm.contains("Self.publishCentre("),
-                      "both are gated on the ONE named rule rather than on a "
-                      + "second spelling written out here — and a second gate "
-                      + "is how a 'nothing published yet' banner ends up over a "
-                      + "compiled book")
+        // Still one stack, the host mounted unconditionally underneath, altitude
+        // over it, and the book in the cover switch's `.books` arm with the
+        // notice in the `.notice` arm when there is no book — both gated on the ROUTE,
+        // which asks the ONE named rule, rather than on a second spelling here
+        // (a second gate is how a "nothing published yet" banner ends up over a
+        // compiled book). The planted control is
+        // `CentreRouteTests.test_theShapeCensusesFireOnPlantedOffenders`.
+        XCTAssertEqual(CentreRouteSource.stackFaults(in: arm), [])
+        XCTAssertTrue(try CentreRouteSource.rule().contains("publishCentre("),
+                      "the route asks the ONE named rule for Publish's surface")
 
-        let altitudeAt = try XCTUnwrap(arm.range(of: "ProjectAltitudePane("))
-        let boardAt = try XCTUnwrap(arm.range(of: "ReviewBoardPane("))
-        let bookAt = try XCTUnwrap(arm.range(of: "PublishPreviewCentre("))
-        XCTAssertTrue(altitudeAt.lowerBound < bookAt.lowerBound,
-                      "the book must be the LAST layer of the stack — a "
-                      + "corkboard drawn over a compiled book is the truth "
-                      + "table read upside down")
-        XCTAssertTrue(boardAt.lowerBound < bookAt.lowerBound,
-                      "…LAST means after Review's board too. The two are never "
-                      + "both offered today (each predicate is true of one "
-                      + "persona), so nothing behavioural would catch a layer "
-                      + "that slipped in front of the book — this ordering is "
-                      + "the only thing holding the book's place")
-
+        // **Which surface wins**, which the stack's text order used to say:
+        // the book over altitude (premise: altitude was offered too). The book
+        // and Review's board are never both offered — `CentreRouteTests`
+        // asserts that over the whole product, where this suite used to rest
+        // it on the book's position LAST in the stack.
+        XCTAssertTrue(ProjectWindow.subjectShowsAltitude(
+            persona: .publish, subject: .project, structure: Self.oneDocument),
+            "premise: altitude is offered at Publish's project level")
         XCTAssertEqual(
-            Self.occurrences(of: "PublishPreviewCentre(", in: source), 1,
-            "one mount for the book, in the centre column's overlay. A second "
+            ProjectWindow.centreRoute(
+                persona: .publish, subject: .project, projectType: .novel,
+                structure: Self.oneDocument, showsPaletteWall: false,
+                preview: .ready(newestFirst: [Self.aBook])),
+            .editor(altitude: true, cover: .books([Self.aBook])),
+            "the book must WIN over altitude — a corkboard drawn over a "
+            + "compiled book is the truth table read upside down")
+
+        // Counted as CODE across every view (foundations plan 4 Task 4), not
+        // over one type's text: the centre moved out of `ProjectWindow` into
+        // `CentreColumn`, and a count that read a single type would have gone
+        // to zero there — or passed over a second mount in a sibling view.
+        XCTAssertEqual(
+            try SourceTree.viewMounts(of: "PublishPreviewCentre("), 1,
+            "one mount for the book, in the centre column's cover. A second "
             + "is a surface nobody decided to add")
         XCTAssertEqual(
-            Self.occurrences(of: "PublishCentreNoticeBanner(", in: source), 1,
+            try SourceTree.viewMounts(of: "PublishCentreNoticeBanner("), 1,
             "and one for the notice, for the same reason")
         XCTAssertEqual(
-            Self.occurrences(of: "manuscriptEditor(", in: source), 2,
-            "the declaration and exactly ONE call — unchanged by this task")
+            try SourceTree.viewMounts(of: "manuscriptEditor("), 2,
+            "the declaration and exactly ONE call — `editorPane`'s `.editor` arm")
     }
 
     /// **The centre's rule asks the subject question that already exists.**
@@ -1506,9 +1526,8 @@ final class PublishPreviewCentreTests: XCTestCase {
     /// the chapter a writer is fixing as the visible cost. The rule composes it
     /// instead, and this is the census that says so.
     func test_theRuleComposesTheWindowsOwnDocumentQuestion() throws {
-        let source = try Self.source(of: "Views/ProjectWindow.swift")
-        let rule = try XCTUnwrap(
-            Self.declaration(named: "static func publishCentre(", in: source))
+        let rule = try SourceTree.declaration(
+            named: "static func publishCentre(", under: "Maugham")
 
         XCTAssertTrue(rule.contains("subjectShowsAltitude("),
                       "the project-level question is asked of the function that "
@@ -1544,18 +1563,17 @@ final class PublishPreviewCentreTests: XCTestCase {
     /// (`BinderPaneToggle`'s `persona != .plan`), which is about exporting
     /// rather than about what the centre column draws — and it lives in neither
     /// file scanned here, which is why this census can be absolute.
+    ///
+    /// The ban reads every file under `Maugham/Views` and `Maugham/Publish`
+    /// (foundations plan 2) — it named four files, and the day the window is
+    /// split a name-gate in `ProjectWindow+Centre.swift` would be in none of
+    /// them. The asking half reads the two deciding functions by symbol.
     func test_theCentreRulesFilesAskThePredicateRatherThanNamingThePersona() throws {
-        let files = ["Views/ProjectWindow.swift", "Views/ResearchSubjectColumns.swift",
-                     "Views/Publish/PublishPreviewCentre.swift",
-                     "Publish/PublishPreviewResolver.swift"]
-        for file in files {
-            let source = try Self.source(of: file)
-            XCTAssertTrue(
-                Self.nameGates(in: source).isEmpty,
-                "\(file) compares the persona by name: "
-                + "\(Self.nameGates(in: source)). The one spelling is "
-                + "`Persona.previewsThePublishedBook`")
-        }
+        let offenders = try Self.nameGateOffenders(under: ["Maugham/Views", "Maugham/Publish"])
+        XCTAssertTrue(
+            offenders.isEmpty,
+            "these files compare the persona by name: \(offenders). The one "
+            + "spelling is `Persona.previewsThePublishedBook`")
         // The control: the scanner sees the offender it is asserting the absence
         // of, or every line above is green over any file at all.
         XCTAssertFalse(
@@ -1563,13 +1581,23 @@ final class PublishPreviewCentreTests: XCTestCase {
             "the scanner cannot see a planted name-gate, so its silence above "
             + "says nothing")
 
-        for file in ["Views/ProjectWindow.swift", "Views/ResearchSubjectColumns.swift"] {
-            let source = try Self.source(of: file)
+        for decider in ["static func publishCentre(", "static func researchSubjectPlacement("] {
+            let source = try SourceTree.declaration(named: decider, under: "Maugham")
             XCTAssertTrue(
                 source.contains("previewsThePublishedBook"),
-                "\(file) decides something about Publish's centre and must ASK "
+                "`\(decider)` decides something about Publish's centre and must ASK "
                 + "the predicate — a file that neither names the persona nor "
                 + "asks the question has stopped deciding")
+        }
+    }
+
+    private static func nameGateOffenders(
+        under roots: [String], base: URL = SourceTree.repoRoot
+    ) throws -> [String] {
+        try roots.flatMap { root in
+            try SourceTree.sources(under: root, base: base).flatMap { file in
+                nameGates(in: file.text).map { "\(file.path): \($0)" }
+            }
         }
     }
 
@@ -1578,6 +1606,58 @@ final class PublishPreviewCentreTests: XCTestCase {
             .components(separatedBy: .newlines)
             .filter { $0.contains("== .publish") || $0.contains("!= .publish") }
             .map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// **The planted control for the reads above** (foundations plan 2): a
+    /// `ProjectWindow` struct in one file, the centre's rule in an
+    /// `extension ProjectWindow` in another, and the editor arm in a
+    /// `CentreColumn` in a third. Both are found by symbol wherever they live,
+    /// the mount count reads every view file, and the widened
+    /// ban catches a name-gate in a sibling view outside the window.
+    func test_theLookupsFollowTheTypeAndTheBanReachesSiblingViews() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": """
+            struct ProjectWindow: View {
+                var body: some View { PublishPreviewCentre() }
+            }
+            """,
+            "Maugham/Views/ProjectWindow+Centre.swift": """
+            extension ProjectWindow {
+                static func publishCentre(persona: Persona) -> PublishCentre? {
+                    guard persona.previewsThePublishedBook else { return nil }
+                    return nil
+                }
+            }
+            """,
+            "Maugham/Views/CentreColumn.swift": """
+            struct CentreColumn: View {
+                private func manuscriptEditor(store: ProjectStore) -> some View {
+                    ZStack { EditorHost(); PublishPreviewCentre() }
+                }
+            }
+            """,
+            "Maugham/Views/Publish/SomeSiblingView.swift": """
+            struct SomeSiblingView {
+                func f(persona: Persona) -> Bool { persona == .publish }
+            }
+            """,
+            "Maugham/Publish/Empty.swift": "enum Empty {}\n",
+        ])
+        let rule = try SourceTree.declaration(
+            named: "static func publishCentre(", under: "Maugham", base: base)
+        XCTAssertTrue(rule.contains("previewsThePublishedBook"))
+        XCTAssertFalse(rule.contains("EditorHost("), "the rule is bounded to itself")
+        let arm = try SourceTree.declaration(
+            named: "func manuscriptEditor(", under: "Maugham", base: base)
+        XCTAssertTrue(arm.contains("PublishPreviewCentre("), "the arm is found in the extension")
+        XCTAssertEqual(
+            try SourceTree.viewMounts(of: "PublishPreviewCentre(", base: base),
+            2, "the mount count reads the window's file AND the centre column's")
+        XCTAssertEqual(
+            try Self.nameGateOffenders(under: ["Maugham/Views", "Maugham/Publish"], base: base),
+            ["Maugham/Views/Publish/SomeSiblingView.swift: "
+             + "func f(persona: Persona) -> Bool { persona == .publish }"],
+            "the widened ban sees a name-gate in a view outside the window")
     }
 
     // MARK: - Hosting
@@ -1855,25 +1935,6 @@ final class PublishPreviewCentreTests: XCTestCase {
 
     // MARK: - Reading the source
 
-    private static func source(of relativePath: String) throws -> String {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // MaughamTests/
-            .deletingLastPathComponent()   // repo root
-            .appendingPathComponent("Maugham", isDirectory: true)
-        return try String(contentsOf: root.appendingPathComponent(relativePath),
-                          encoding: .utf8)
-    }
-
-    private static func declaration(named header: String, in source: String) -> String? {
-        guard let start = source.range(of: header) else { return nil }
-        let rest = source[start.lowerBound...]
-        guard let end = rest.range(of: "\n    }\n") else { return String(rest) }
-        return String(rest[..<end.upperBound])
-    }
-
-    private static func occurrences(of needle: String, in haystack: String) -> Int {
-        haystack.components(separatedBy: needle).count - 1
-    }
 }
 
 // MARK: - Probes
@@ -1886,16 +1947,38 @@ final class PublishPreviewCentreTests: XCTestCase {
 final class PublishCentreProbeBox {
     var subject: BinderSubject?
     var persona: Persona
-    var preview: PublishPreviewResolution = .nothingCompiled
+    /// **The window's own model** (foundations plan 4 Task 2): the same
+    /// `PublishCentreModel` `ProjectWindow` holds, so the modifier under test
+    /// writes it exactly as production does. The four properties below forward
+    /// to it so a test can move the column the way the window does.
+    let centre = PublishCentreModel()
+    var preview: PublishPreviewResolution {
+        get { centre.preview }
+        set { centre.preview = newValue }
+    }
     /// The header picker's window-transient choice — `nil` is "the newest".
-    var selectedPublicationID: String?
+    var selectedPublicationID: String? {
+        get { centre.selectedPublicationID }
+        set { centre.selectedPublicationID = newValue }
+    }
     /// The design proposal the desk's Show put in the centre (P4 Task 5) —
     /// window-transient like the pick above, but cleared by a persona change
-    /// where the pick deliberately is not.
-    var selectedProposal: DesignProposalStore.Proposal?
+    /// where the pick deliberately is not. Set through the desk's Show and the
+    /// gate's Back, the model's only doors.
+    var selectedProposal: DesignProposalStore.Proposal? {
+        get { centre.selectedProposal }
+        set {
+            if let newValue { centre.show(proposal: newValue) } else { centre.clearProposal() }
+        }
+    }
     /// …and the translation round the desk's other Show put there (translation
     /// pipeline P4 Task 3), cleared by a persona change for the same reason.
-    var selectedRound: TranslationRound?
+    var selectedRound: TranslationRound? {
+        get { centre.selectedRound }
+        set {
+            if let newValue { centre.show(round: newValue) } else { centre.clearRound() }
+        }
+    }
     /// The window the REFRESH MODIFIER actually got, which is not the same fact
     /// as the window the test made: `WindowAccessor` resolves it a runloop turn
     /// later, and ADR 0021's project scope drops a post whose receiver has no
@@ -1905,9 +1988,8 @@ final class PublishCentreProbeBox {
     init(persona: Persona) { self.persona = persona }
 }
 
-/// **The centre column, wired the way `editorPane` wires it** — the research
-/// placement, the canvas route, the Collection reference arm, then the editor
-/// arm, with every decision taken from production's own statics.
+/// **The centre column, wired the way `editorPane` wires it** — one switch over
+/// production's own `ProjectWindow.centreRoute`, in its case order.
 ///
 /// What it spells for itself is the SHAPE of the last arm, which is the thing
 /// under test and cannot be reached from outside `ProjectWindow`. Hence two
@@ -1937,49 +2019,46 @@ struct PublishCentreProbeView: View {
                 set: { box.selectedPublicationID = $0 })
     }
 
-    private var referencePiece: StructureItem? {
-        guard let id = box.subject?.itemID,
-              let piece = store.manifest.structure.first(where: { $0.id == id }),
-              piece.pieceKind == .reference
-        else { return nil }
-        return piece
-    }
-
     var body: some View {
         centre.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// The route is production's own (`ProjectWindow.centreRoute`), switched
+    /// over in production's case order. The wall is never open here.
     @ViewBuilder
     private var centre: some View {
-        let route = ProjectWindow.editorRoute(
-            persona: box.persona, projectType: store.manifest.type,
-            selectedPieceIsReference: referencePiece != nil)
-        if let id = ProjectWindow.researchSubjectPlacement(
-            persona: box.persona, subject: box.subject).centreItemID {
+        switch ProjectWindow.centreRoute(
+            persona: box.persona, subject: box.subject,
+            projectType: store.manifest.type, structure: store.manifest.structure,
+            showsPaletteWall: false, preview: box.preview,
+            proposal: box.selectedProposal, round: box.selectedRound) {
+        case .paletteWall:
+            EmptyView()
+        case .research(let id):
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: false,
                                   readOnly: !box.persona.editsResearchInTheCentre)
-        } else if route == .canvas {
+        case .canvas:
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { [] })
-        } else if route == .collectionReference, let piece = referencePiece {
+        case .reference(let piece):
             ReferencePlaceholderCard(piece: piece, onOpen: {})
-        } else {
-            manuscriptCentre
+        case .editor(let showsAltitude, let cover):
+            manuscriptCentre(showsAltitude: showsAltitude, cover: cover)
         }
     }
 
     @ViewBuilder
-    private var manuscriptCentre: some View {
+    private func manuscriptCentre(showsAltitude: Bool, cover: CentreCover?) -> some View {
         switch shape {
         case .layered:
             ZStack {
                 editor
                 if showsAltitude { altitude }
-                publishLayer
+                coverView(cover)
             }
         case .ownArm:
-            if case .books(let publications) = publishCentre {
+            if case .books(let publications) = cover {
                 book(publications)
             } else if showsAltitude {
                 altitude
@@ -1989,23 +2068,23 @@ struct PublishCentreProbeView: View {
         }
     }
 
+    /// Production's cover switch, arm for arm. Review's board is not modelled:
+    /// nothing here is Review, and `ReviewBoardRoutingTests` owns it.
     @ViewBuilder
-    private var publishLayer: some View {
-        switch publishCentre {
-        // The round report (translation pipeline P4 Task 3) — production's
-        // fifth layer, above the gate.
+    private func coverView(_ cover: CentreCover?) -> some View {
+        switch cover {
+        case .notice(let notice): PublishCentreNoticeBanner(notice: notice)
+        // The round report (translation pipeline P4 Task 3).
         case .translationRound(let round):
             TranslationRoundReportHost(
                 round: round, store: store, documentStore: documentStore,
                 projectURL: store.url, window: nil)
-        // The gate arm (publish-department P4 Task 5) — production's fourth
-        // layer, so this probe stays what it claims to be: `manuscriptEditor`'s
-        // own shape with the same decisions taken from the same statics.
-        case .designProposal(let proposal):
+        // The gate (publish-department P4 Task 5).
+        case .designGate(let proposal):
             DesignGateView(proposal: proposal, projectURL: store.url,
                            onClose: { box.selectedProposal = nil })
         case .books(let publications): book(publications)
-        case .notice(let notice): PublishCentreNoticeBanner(notice: notice)
+        case .reviewBoard: EmptyView()
         case .none: EmptyView()
         }
     }
@@ -2014,20 +2093,6 @@ struct PublishCentreProbeView: View {
         PublishPreviewCentre(publications: publications, projectURL: store.url,
                              title: store.manifest.title,
                              selectedPublicationID: selection)
-    }
-
-    private var showsAltitude: Bool {
-        ProjectWindow.subjectShowsAltitude(persona: box.persona,
-                                           subject: box.subject,
-                                           structure: store.manifest.structure)
-    }
-
-    private var publishCentre: PublishCentre? {
-        ProjectWindow.publishCentre(persona: box.persona, subject: box.subject,
-                                    structure: store.manifest.structure,
-                                    preview: box.preview,
-                                    proposal: box.selectedProposal,
-                                    round: box.selectedRound)
     }
 
     private var editor: some View {
@@ -2059,17 +2124,7 @@ private struct PublishRefreshProbeView: View {
             .background(WindowAccessor(window: $window))
             .modifier(PublishPreviewModifier(
                 projectURL: projectURL, window: window, persona: box.persona,
-                publishPreview: Binding(get: { box.preview },
-                                        set: { box.preview = $0 }),
-                selectedPublicationID: Binding(
-                    get: { box.selectedPublicationID },
-                    set: { box.selectedPublicationID = $0 }),
-                selectedProposal: Binding(
-                    get: { box.selectedProposal },
-                    set: { box.selectedProposal = $0 }),
-                selectedRound: Binding(
-                    get: { box.selectedRound },
-                    set: { box.selectedRound = $0 })))
+                centre: box.centre))
             .onChange(of: window) { _, next in box.modifierWindow = next }
     }
 }

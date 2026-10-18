@@ -24,7 +24,7 @@ final class ProjectStoreTidyTests: XCTestCase {
         for i in 2...chapters {
             _ = try await store.addStructureItem(
                 parentId: nil, title: "Chapter \(i)",
-                kind: .document(extension: "md"))
+                kind: .document(.markdown))
         }
         return (url, store, ds)
     }
@@ -67,10 +67,10 @@ final class ProjectStoreTidyTests: XCTestCase {
             parentId: nil, title: "Act One", kind: .group)
         let scene1 = try await store.addStructureItem(
             parentId: group.id, title: "Scene 1",
-            kind: .document(extension: "md"))
+            kind: .document(.markdown))
         _ = try await store.addStructureItem(
             parentId: group.id, title: "Scene 2",
-            kind: .document(extension: "md"))
+            kind: .document(.markdown))
         try await store.deleteStructureItem(id: scene1.id)
 
         try await store.tidyAllFilenames()

@@ -203,7 +203,7 @@ final class EditionBriefStatementTests: XCTestCase {
     func test_aDocumentTitledLikeAPathTraversalStillLandsInsideTheProject() async throws {
         let (url, store) = try await loadedNovel(named: "IntentPathTraversal")
         let doc = try await store.addStructureItem(
-            parentId: nil, title: "../../evil", kind: .document(extension: "md"))
+            parentId: nil, title: "../../evil", kind: .document(.markdown))
 
         let intent = try await store.createStatement(
             kind: .intent, scope: .document(doc.id))

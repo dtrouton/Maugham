@@ -75,6 +75,13 @@ public struct CompileOrchestrator {
     /// the wire spelling, so it is part of the tool's contract too.
     public static let mintInFlightLogExcerpt = "mint_in_flight: "
 
+    /// **The third**, and the same rule: a format this build cannot produce
+    /// (`PublishConfigValidator.formatError`) is refused at the door by name —
+    /// the writer's move is to pick a format, not to read a log. Compile and
+    /// preview both prefix their excerpt with it, and
+    /// `DepartmentCompileState.settled(after:)` reads it as a refusal.
+    public static let unproducibleFormatLogExcerpt = "unproducible_format: "
+
     public let maughamVersion: String
     public let tectonicVersion: String
 
@@ -117,6 +124,24 @@ public struct CompileOrchestrator {
         // (spec §3).
         let publishDir = projectURL.appendingPathComponent(
             ".maugham/publish", isDirectory: true)
+
+        // Can this build produce the format at all
+        // (`PublishConfigValidator.formatError`)? Asked FIRST, because it
+        // needs nothing — not the config, not the manuscript — and because
+        // every act below is format-dependent: the job registration, the
+        // collision triple, the mint reservation, the EMISSION.md refresh, the
+        // coverage gate and the dry-run verdict. Like the unknown-imprint
+        // refusal below, it registers no job: nothing began.
+        // `validateForCompile` asks the same question again; that answer and
+        // the dispatch switch's `.unknown` arm are unreachable from here.
+        if let refusal = PublishConfigValidator.formatError(format) {
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: refusal.message,
+                contextLines: ["No export, no snapshot, no version bump."])
+            return .failed(errors: [diag],
+                           logExcerpt: Self.unproducibleFormatLogExcerpt + format.rawValue)
+        }
 
         guard let loaded = try await configStore.load() else {
             let jobID = await jobManager.register(phase: .renderingBody)
@@ -742,6 +767,12 @@ public struct CompileOrchestrator {
             warnings = result.warnings
             errors = result.errors
             logExcerpt = ""
+        case .unknown(let raw):
+            // Defence in depth, unreachable from `compile`: its first check
+            // (`PublishConfigValidator.formatError`) refuses every unknown
+            // format. Kept so the switch stays exhaustive with no `default:`;
+            // a throw, never a precondition failure.
+            throw PublishFormatRefusal(raw: raw)
         }
 
         if !errors.isEmpty || outputPath.isEmpty {

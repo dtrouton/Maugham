@@ -120,7 +120,7 @@ enum PublishCentreNotice: Equatable {
 /// research preview and the book cannot come to scroll differently.
 ///
 /// **Opaque and full-frame on purpose.** This is the third layer of
-/// `ProjectWindow.manuscriptEditor`'s `ZStack` — `EditorHost` is still mounted
+/// `CentreColumn.manuscriptEditor`'s `ZStack` — `EditorHost` is still mounted
 /// underneath it (and the altitude view is too, since both are project-level),
 /// and anything translucent would read the corkboard through the page.
 ///
@@ -371,7 +371,8 @@ struct PublishNoticeLine: View {
 /// (Denver, 2026-08-12: *"a NEW compile snaps the preview back to the
 /// newest"*). The reset is keyed on the NEWEST publication changing rather than
 /// on the refresh happening, so walking out of Publish and back keeps whatever
-/// the writer was looking at — a refresh is not news, a new book is.
+/// the writer was looking at — a refresh is not news, a new book is. The rule
+/// itself is `PublishCentreModel.publishSelection(after:)`; this is what calls it.
 ///
 /// A modifier rather than lines in `ProjectWindow.body`, which has no expression
 /// budget under the Release type-checker. Delete the one line that applies it
@@ -385,32 +386,16 @@ struct PublishPreviewModifier: ViewModifier {
     /// Read, never written: which persona the writer is in is their own choice,
     /// and this only wants to know when they arrive.
     let persona: Persona
-    @Binding var publishPreview: PublishPreviewResolution
-    /// The header picker's window-transient choice, cleared when a new book
-    /// arrives. Never persisted — a relaunch is always the newest.
-    @Binding var selectedPublicationID: String?
-    /// **The design proposal the desk's Show put in this column** (P4 Task 5),
-    /// cleared by any persona change.
-    ///
-    /// Here rather than in a modifier of its own because this is already the one
-    /// place that owns the Publish centre's transient picks, and the body it
-    /// hangs off has no expression budget (the Release type-check ceiling).
-    ///
-    /// **It clears where `selectedPublicationID` deliberately does not**, and
-    /// the asymmetry is the point. The publication pick is a place in a
-    /// *reading* — Denver's ruling keeps it across a walk out of Publish and
-    /// back. The gate is a place in a *decision*: the writer entered it by
-    /// pressing Show and a persona change is them leaving. Coming back to
-    /// Publish should show the book, which is what Publish is for, and pressing
-    /// Show again is one click.
-    @Binding var selectedProposal: DesignProposalStore.Proposal?
-    /// **The translation round the desk's Show put in this column** (translation
-    /// pipeline P4 Task 3), cleared by any persona change for exactly the
-    /// reasons above: a report is a place in a decision, and leaving Publish is
-    /// leaving it. Beside the proposal rather than in a modifier of its own,
-    /// because this is already the one place that owns the Publish centre's
-    /// transient picks.
-    @Binding var selectedRound: TranslationRound?
+    /// **The centre column's state, owned by the window** (foundations plan 4
+    /// Task 2). This modifier is the only writer of its books
+    /// (`publishSelection(after:)`, which carries the new-compile reset), and it
+    /// lets the desk's two decisions go on any persona change
+    /// (`clearDecisions`) while keeping the book's pick — the asymmetry
+    /// `PublishCentreModel.clearDecisions` argues. Here rather than in a
+    /// modifier of its own because this is already the one place that owns the
+    /// Publish centre's transient picks, and the body it hangs off has no
+    /// expression budget (the Release type-check ceiling).
+    let centre: PublishCentreModel
 
     func body(content: Content) -> some View {
         content
@@ -422,8 +407,7 @@ struct PublishPreviewModifier: ViewModifier {
             .onChange(of: persona) { _, next in
                 // Before the arrival guard: leaving Publish is a persona change
                 // too, and it is the one that most needs the gate let go of.
-                selectedProposal = nil
-                selectedRound = nil
+                centre.clearDecisions()
                 guard next.previewsThePublishedBook else { return }
                 Task { await refresh() }
             }
@@ -436,30 +420,10 @@ struct PublishPreviewModifier: ViewModifier {
             // ADR 0021 helper, which drops the post for a closed window.
             .onProjectEvent(.maughamDesignProposalsChanged,
                             url: projectURL, window: window) { _ in
-                rereadSelectedProposal()
+                centre.rereadProposal {
+                    try? DesignProposalStore(projectURL: projectURL).load(id: $0)
+                }
             }
-    }
-
-    /// **The selected proposal as the store now holds it** — or nothing, when
-    /// the store no longer holds it at all.
-    ///
-    /// Re-read BY ID rather than re-derived from the listing: which round the
-    /// writer is looking at is their own choice, and no event may move them to a
-    /// different one. What an event can change is what that round IS —
-    /// `.superseded` and `.rejected` draw `DesignGate.settledNote` and no verbs,
-    /// which is already a pure function of the status, so the whole of "the gate
-    /// stops offering verdicts on a round that is past deciding" is this one
-    /// write.
-    ///
-    /// **An unreadable proposal clears the selection**, which is the honest
-    /// answer rather than a defensive one: the record is gone or unparseable, so
-    /// there is nothing for the gate to describe and the column hands itself
-    /// back to the book. Keeping the stale value would leave four verbs standing
-    /// over a proposal that no longer exists.
-    private func rereadSelectedProposal() {
-        guard let id = selectedProposal?.id else { return }
-        selectedProposal = try? DesignProposalStore(projectURL: projectURL)
-            .load(id: id)
     }
 
     private func refresh() async {
@@ -468,10 +432,6 @@ struct PublishPreviewModifier: ViewModifier {
             projectURL: projectURL)
         let next = await PublishPreviewResolver.readablePDFs(
             store: stores.publicationStore, projectURL: projectURL)
-        if next.publication?.publicationID
-            != publishPreview.publication?.publicationID {
-            selectedPublicationID = nil
-        }
-        publishPreview = next
+        centre.publishSelection(after: next)
     }
 }

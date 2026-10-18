@@ -3,19 +3,6 @@ import MaughamCore
 
 // MARK: - Collection Pieces
 
-/// Mode for a loose Collection piece: prose (.md) or screenplay (.fountain).
-public enum PieceMode {
-    case prose
-    case screenplay
-
-    var fileExtension: String {
-        switch self {
-        case .prose: return "md"
-        case .screenplay: return "fountain"
-        }
-    }
-}
-
 /// One move `promotePieceToProject` made into its staging tree, recorded as it
 /// happened so the failure path can move it **back**.
 ///
@@ -34,12 +21,12 @@ private struct PromotionStagedMove {
 extension ProjectStore {
 
     /// Add a loose piece to a Collection. Creates `pieces/<NN>-<slug>/`
-    /// containing `<slug>.<ext>` (the main doc) plus an empty `research/`
-    /// subfolder. Returns the manifest StructureItem for the new piece.
+    /// containing `<slug>.<format.fileExtension>` (the main doc) plus an empty
+    /// `research/` subfolder. Returns the manifest StructureItem for the new piece.
     public func addLoosePiece(
-        title: String, mode: PieceMode
+        title: String, format: DocumentFormat
     ) async throws -> StructureItem {
-        guard manifest.type == .collection else {
+        guard manifest.type.holdsPieces else {
             throw ProjectStoreError.fileSystemError(
                 "addLoosePiece only valid for Collection projects")
         }
@@ -51,11 +38,13 @@ extension ProjectStore {
         let existingSlugs: Set<String> = Set(manifest.structure.compactMap { piece -> String? in
             guard let path = piece.path else { return nil }
             // path for a loose piece is "pieces/<NN>-<slug>/<docSlug>.<ext>";
-            // pull the doc slug from the basename without extension.
+            // the doc slug is the basename with every ".<fileExtension>" of
+            // each `DocumentFormat` removed, anywhere in it, in `allCases`
+            // order (pinned by `AddLoosePieceTests.test_slugDedup_*`).
             let basename = (path as NSString).lastPathComponent
-            return basename
-                .replacingOccurrences(of: ".md", with: "")
-                .replacingOccurrences(of: ".fountain", with: "")
+            return DocumentFormat.allCases.reduce(basename) { slug, format in
+                slug.replacingOccurrences(of: ".\(format.fileExtension)", with: "")
+            }
         })
         var slug = baseSlug
         var resolvedTitle = baseTitle
@@ -69,7 +58,7 @@ extension ProjectStore {
         // Folder NN prefix — next-available among existing piece folder names.
         let nn = String(format: "%02d", nextPieceNumber())
         let folderName = "\(nn)-\(slug)"
-        let docName = "\(slug).\(mode.fileExtension)"
+        let docName = "\(slug).\(format.fileExtension)"
 
         let piecesURL = url.appendingPathComponent("pieces")
         let folderURL = piecesURL.appendingPathComponent(folderName)
@@ -115,7 +104,7 @@ extension ProjectStore {
     /// seed, generates a security-scoped bookmark, writes .maugham-link.json
     /// inside pieces/<NN>-<slug>/.
     public func addProjectReference(targetURL: URL) async throws -> StructureItem {
-        guard manifest.type == .collection else {
+        guard manifest.type.holdsPieces else {
             throw ProjectStoreError.fileSystemError(
                 "addProjectReference only valid for Collection projects")
         }
@@ -227,7 +216,7 @@ extension ProjectStore {
     func promotePieceToProject(
         pieceId: String, destination: URL, afterStaging: (() -> Void)?
     ) async throws -> URL {
-        guard manifest.type == .collection else {
+        guard manifest.type.holdsPieces else {
             throw ProjectStoreError.fileSystemError(
                 "promotePieceToProject only valid for Collection projects")
         }
@@ -241,8 +230,8 @@ extension ProjectStore {
         let pieceFolderRel = (piecePath as NSString).deletingLastPathComponent
         let pieceFolderURL = url.appendingPathComponent(pieceFolderRel)
         let mainDocName = (piecePath as NSString).lastPathComponent
-        let mainDocExt = (mainDocName as NSString).pathExtension
-        let newType: ProjectType = mainDocExt == "fountain" ? .screenplay : .shortStory
+        let newType = ProjectType.forPromotedPiece(
+            format: DocumentFormat.ofManuscript(path: mainDocName))
         // **The piece's intent travels with it** (M1A Task 8). Before M1A this
         // was a research note under `pieces/<n>-<slug>/research/`, which the
         // prefix rewrite below carried for free; a statement lives at
@@ -696,7 +685,7 @@ extension ProjectStore {
     /// `.piece` move target's research folder through the same validated path.
     func resolveLoosePiece(_ pieceId: String) throws
         -> (piece: StructureItem, pieceFolder: String, researchFolder: String) {
-        guard manifest.type == .collection else {
+        guard manifest.type.holdsPieces else {
             throw ProjectStoreError.fileSystemError(
                 "Operation only valid for Collection projects")
         }
@@ -844,7 +833,7 @@ extension ProjectStore {
     /// research item paths whose prefix changed.
     public func movePiece(pieceId: String, toIndex destIndex: Int) async throws {
         beginStructuralVerb(); defer { endStructuralVerb() }
-        guard manifest.type == .collection else {
+        guard manifest.type.holdsPieces else {
             throw ProjectStoreError.fileSystemError(
                 "movePiece only valid for Collection projects")
         }
@@ -969,7 +958,7 @@ extension ProjectStore {
     /// existing sibling piece folders.
     public func renamePiece(pieceId: String, newTitle: String) async throws {
         beginStructuralVerb(); defer { endStructuralVerb() }
-        guard manifest.type == .collection else {
+        guard manifest.type.holdsPieces else {
             throw ProjectStoreError.fileSystemError(
                 "renamePiece only valid for Collection projects")
         }

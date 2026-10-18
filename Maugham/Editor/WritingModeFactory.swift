@@ -2,22 +2,20 @@ import Foundation
 import MaughamCore
 
 /// Selects the appropriate WritingMode and default TypographySettings
-/// for a given document path based on its file extension.
+/// for a given document path, by its `DocumentFormat.ofManuscript(path:)`.
 public enum WritingModeFactory {
 
     public static func mode(for path: String) -> any WritingMode {
-        let ext = (path as NSString).pathExtension.lowercased()
-        switch ext {
-        case "fountain": return ScreenplayMode()
-        default:         return ProseMode()
+        switch DocumentFormat.ofManuscript(path: path) {
+        case .markdown: return ProseMode()
+        case .fountain: return ScreenplayMode()
         }
     }
 
     public static func defaultTypography(for path: String) -> TypographySettings {
-        let ext = (path as NSString).pathExtension.lowercased()
-        switch ext {
-        case "fountain": return .screenplayDefaults
-        default:         return .defaults
+        switch DocumentFormat.ofManuscript(path: path) {
+        case .markdown: return .defaults
+        case .fountain: return .screenplayDefaults
         }
     }
 }

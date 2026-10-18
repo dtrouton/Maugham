@@ -175,7 +175,7 @@ extension ProjectStore {
         forDocumentId docId: String, structure: [StructureItem],
         research: [ResearchItem], projectType: ProjectType
     ) -> [ResearchItem] {
-        guard projectType == .collection,
+        guard projectType.holdsPieces,
               let piece = structure.first(where: { $0.id == docId }),
               let prefix = Self.pieceResearchPrefix(for: piece) else { return [] }
         return research.filter { $0.path?.hasPrefix(prefix) == true }

@@ -147,7 +147,7 @@ struct IntentStrip: View {
     static func line(
         persona: Persona, isNoChromeOn: Bool, statementText: String?
     ) -> String? {
-        guard persona == .author, !isNoChromeOn else { return nil }
+        guard persona.showsIntentStrip, !isNoChromeOn else { return nil }
         return line(from: statementText)
     }
 
@@ -182,7 +182,7 @@ struct IntentStrip: View {
     static func line(
         store: ProjectStore, docId: String, persona: Persona, isNoChromeOn: Bool
     ) -> String? {
-        guard persona == .author, !isNoChromeOn else { return nil }
+        guard persona.showsIntentStrip, !isNoChromeOn else { return nil }
         guard let statement = store.effectiveIntent(forDocId: docId) else { return nil }
         // **The ESSAY stratum, not the whole statement** (declared-world Task
         // 6). `line(from:)` walks blocks and takes the first paragraph, list

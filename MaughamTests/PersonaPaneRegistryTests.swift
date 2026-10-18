@@ -328,10 +328,27 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// board's own directory**, and the self-check below asserts
     /// `ReviewBoardPane.swift`'s ABSENCE by name so that a future refactor
     /// handing the pane a store fails here as well as at the pane's own census.
+    ///
+    /// The window is keyed by TYPE (`type:ProjectWindow`, foundations plan 2):
+    /// every file declaring `ProjectWindow` answers under that key, so a split
+    /// of the window into extension files moves nothing here.
+    ///
+    /// **Since foundations plan 4 Task 4 the board's host is `CentreColumn`**,
+    /// the window's centre column as a view of its own, keyed by its type for
+    /// the same reason — the same host, moved, not a new writer.
+    ///
+    /// **Since Task 5 the queue's pass-order nudge is `RightColumn`'s**
+    /// (`onSetPassState`, handed to `AnnotationsPane` through
+    /// `DetailPaneToggle`), which the window hosted beside the board all along
+    /// until its right column became a view of its own — again the same host,
+    /// moved. `ProjectWindow` itself is no longer a member, but it stays a TYPE
+    /// KEY in the census (`passStateWriters`), so a write that comes back into
+    /// the window folds under `type:ProjectWindow` and fails the comparison.
     static let passStateWritingFiles: Set<String> = [
         "InspectorView.swift",
         "PieceInspector.swift",
-        "ProjectWindow.swift",
+        "type:CentreColumn",
+        "type:RightColumn",
     ]
 
     /// Where `setPassState` is DECLARED. Excluded from the census because a
@@ -340,31 +357,95 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// rather than pattern-matched so moving the declaration fails loudly here.
     static let passStateWriteDefiner = "ProjectStore+Metadata.swift"
 
-    /// Every production file under `Maugham/` that calls `needle`, by file
-    /// name, ignoring comment-only lines.
+    /// Every line of a production file under `Maugham/` that calls `needle`,
+    /// as a (file name, line number) hit, ignoring comment-only lines.
     ///
-    /// One walker for both censuses below. Comment-only lines are dropped
-    /// first so a doc comment naming a call is never a hit — several of the
-    /// comments in this very milestone name `setPassState` in prose.
-    private func callers(of needle: String, excluding excluded: String? = nil) throws -> Set<String> {
-        let sourceDir = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()          // MaughamTests/
-            .deletingLastPathComponent()          // repo root
-            .appendingPathComponent("Maugham", isDirectory: true)
+    /// Comment-only lines are dropped first so a doc comment naming a call is
+    /// never a hit — several of the comments in this very milestone name
+    /// `setPassState` in prose. Per LINE, because `type:ProjectWindow` claims
+    /// the window's declarations rather than the files holding them.
+    private func callers(of needle: String, excluding excluded: String? = nil,
+                         base: URL = SourceTree.repoRoot) throws -> [SourceTree.Hit] {
+        let sourceDir = base.appendingPathComponent("Maugham", isDirectory: true)
         let fm = FileManager.default
         guard let walker = fm.enumerator(at: sourceDir, includingPropertiesForKeys: nil) else {
             return []
         }
-        var found: Set<String> = []
+        var found: [SourceTree.Hit] = []
         for case let url as URL in walker where url.pathExtension == "swift" {
             if let excluded, url.lastPathComponent == excluded { continue }
             let text = try String(contentsOf: url, encoding: .utf8)
-            let code = text.split(separator: "\n", omittingEmptySubsequences: false)
-                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-                .joined(separator: "\n")
-            if code.contains(needle) { found.insert(url.lastPathComponent) }
+            for (index, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated()
+            where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") && line.contains(needle) {
+                found.append(SourceTree.Hit(file: url.lastPathComponent, line: index + 1))
+            }
         }
         return found
+    }
+
+    /// The pass-state writers, each file a type key claims folded into that key
+    /// (`SourceTree.keyedByType`, which throws when `type:ProjectWindow` names
+    /// no file).
+    private func passStateWriters(base: URL = SourceTree.repoRoot) throws -> Set<String> {
+        try SourceTree.keyedByType(
+            try callers(of: "setPassState(", excluding: Self.passStateWriteDefiner, base: base),
+            typeKeys: Set(Self.passStateWritingFiles.filter { SourceTree.typeName(ofKey: $0) != nil })
+                .union(["type:ProjectWindow"]),
+            in: [base.appendingPathComponent("Maugham", isDirectory: true)])
+    }
+
+    /// **The planted control for the type key** (foundations plan 2): a write
+    /// in an `extension ProjectWindow` file answers as `type:ProjectWindow`, one
+    /// in `CentreColumn` as `type:CentreColumn`, and a write in any other file
+    /// still answers under its own name.
+    func test_thePassStateCensusFoldsTheWindowsFilesIntoItsTypeKey() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": "struct ProjectWindow: View { }",
+            "Maugham/Views/ProjectWindow+Board.swift": """
+            extension ProjectWindow { func f() { store.setPassState(p, s) } }
+            """,
+            "Maugham/Views/CentreColumn.swift": """
+            struct CentreColumn: View { func h() { store.setPassState(p, s) } }
+            """,
+            "Maugham/Views/RightColumn.swift": """
+            struct RightColumn: View { func n() { store.setPassState(p, s) } }
+            """,
+            "Maugham/Views/SomeNewPane.swift": """
+            struct SomeNewPane { func g() { store.setPassState(p, s) } }
+            """,
+        ])
+        let writers = try passStateWriters(base: base)
+        XCTAssertEqual(writers,
+                       ["type:ProjectWindow", "type:CentreColumn", "type:RightColumn",
+                        "SomeNewPane.swift"])
+        XCTAssertFalse(writers.isSubset(of: Self.passStateWritingFiles),
+                       "a write back in the window folds under its key and is "
+                       + "not a member any more")
+    }
+
+    /// **…and only its DECLARATIONS** (plan 2 final review, I1): a write in a
+    /// child view sharing a file with `extension ProjectWindow` answers under
+    /// that FILE, which is not a member — the shape that let a planted
+    /// `setPassState(` in `ResearchSubjectInspector` stay green.
+    func test_thePassStateCensusCatchesAWriteInAChildViewSharingTheWindowsFile() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": "struct ProjectWindow: View { }",
+            "Maugham/Views/CentreColumn.swift": "struct CentreColumn: View { }",
+            "Maugham/Views/RightColumn.swift": "struct RightColumn: View { }",
+            "Maugham/Views/ResearchSubjectColumns.swift": """
+            extension ProjectWindow {
+                func f() { store.setPassState(p, s) }
+            }
+
+            struct ResearchSubjectInspector: View {
+                func g() { store.setPassState(p, s) }
+            }
+            """,
+        ])
+        let writers = try passStateWriters(base: base)
+        XCTAssertEqual(writers, ["type:ProjectWindow", "ResearchSubjectColumns.swift"])
+        XCTAssertFalse(writers.isSubset(of: Self.passStateWritingFiles),
+                       "the child view's write fails the census")
     }
 
     /// Every production file that still passes a `status:` argument to
@@ -446,16 +527,18 @@ final class PersonaPaneRegistryTests: XCTestCase {
             + "StructureItem.passStates, the record Review adjudicates.")
 
         XCTAssertEqual(
-            try callers(of: "setPassState(", excluding: Self.passStateWriteDefiner),
+            try passStateWriters(),
             Self.passStateWritingFiles,
             "The set of files writing a piece's pass states has changed.\n\n"
             + "`Persona.swift`'s `.review` case argues for keeping `.inspector` on "
             + "the grounds that a reviewer READING a chapter has no board on "
             + "screen, so the two Inspector arms — reached via "
             + "`ProjectWindow.inspectorRoute`'s `.segment` and `.collectionPiece` "
-            + "routes — are the only ruling surfaces there. The third member is "
-            + "`ProjectWindow` itself, hosting the Review board's chips at "
-            + "project level (M3 P1 Task 8).\n\n"
+            + "routes — are the only ruling surfaces there. The other members are "
+            + "`CentreColumn`, hosting the Review board's chips at project level "
+            + "(M3 P1 Task 8; moved out of `ProjectWindow` by foundations plan 4 "
+            + "Task 4), and `RightColumn`, hosting the queue's pass-order nudge "
+            + "(moved out of `ProjectWindow` by Task 5).\n\n"
             + "If you have added a writer somewhere else, re-make that argument at "
             + "the `.review` case; do not just add a name to the expectation above.")
     }
@@ -467,7 +550,7 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// matched reads as well as writes would sweep in every view that draws a
     /// pass state and stop being about writing at all.
     func test_thePassStateWriterCensusIsReadingRealCodeAndCanFail() throws {
-        let census = try callers(of: "setPassState(", excluding: Self.passStateWriteDefiner)
+        let census = try passStateWriters()
         XCTAssertFalse(census.isEmpty,
             "The census found no pass-state writers at all — it is reading "
             + "nothing, and the comparison above is vacuous.")

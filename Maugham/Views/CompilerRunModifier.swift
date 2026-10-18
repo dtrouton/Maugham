@@ -16,42 +16,25 @@ import AppKit
 /// started it.
 ///
 /// The fourth moment — the window closing — is `ProjectWindow`'s own
-/// `.onDisappear`, because it also has to drop the orchestrator's hold on the
-/// project's stores (`detach()`), and that scorch already lives there.
+/// `.onDisappear`, because it also has to drop the services' hold on the
+/// project's stores (`roster.detachAll()`), and that scorch already lives there.
 ///
-/// **There are FOUR session owners now** (publish department P2 and P3;
-/// translation pipeline P2): the translator's loop and the designer's each
-/// spawn their own long-lived `claude` and inherit the same contract whole,
-/// and `ColdCall` owns no warm session but can have a spawned reader or
-/// collator process in flight — so every teardown arm below carries three
-/// sibling calls. `TranslatorEnvironmentTests`' census is what keeps
-/// them paired — a run verb for either is P4's, so nothing else here would
-/// notice one's absence.
-///
-/// **And a fifth sibling that owns no session at all** (translation pipeline
-/// P3): `TranslationPipeline` owns the WAITING LEG. A round suspends between
-/// legs on a continuation resumed by the translator's own summary, and the two
-/// arms below shut that translator down — so a pipeline left alone here has a
-/// round parked forever on a summary that will never come, its progress never
-/// recorded. Its `shutdown()` is therefore the FIRST line of each arm, before
-/// the orchestrators resolve their legs: the generation it bumps is what makes
-/// the parked leg answer cancelled rather than believe a late summary.
+/// **The services that die here are the roster's** (foundations plan 3,
+/// Task 1). The compiler, the translator's and the designer's loops each own a
+/// long-lived `claude`; `ColdCall` owns no warm session but can have a reader
+/// or collator process in flight; and `TranslationPipeline` owns the WAITING
+/// LEG — a round suspended on a continuation the translator's own summary
+/// resumes. Every arm below used to spell all five out by name, so a sixth
+/// service had to be remembered into each. Now each arm makes one call,
+/// `roster.shutdownAll()`, and the roster owns the list and the order (the
+/// pipeline first, so a parked leg answers cancelled before the translator it
+/// waits on is gone). `TranslatorEnvironmentTests`' census checks that every
+/// production class holding a session runner is a roster member, and that
+/// both arms here make that call.
 struct CompilerRunModifier: ViewModifier {
-    let orchestrator: CompilerOrchestrator
-    /// The translator's session, torn down beside the compiler's. No run keys
-    /// of its own yet — a translation is started from the desk (P4), not from
-    /// the keyboard.
-    let translator: TranslatorOrchestrator
-    /// The designer's session, torn down beside the other two. Headless for the
-    /// same reason: a design round is started from the desk (P4).
-    let designer: DesignerOrchestrator
-    /// The cold-call runner, torn down beside the three warm sessions. A reader
-    /// or collator mid-read when the window ends is a live, billing process
-    /// otherwise (translation pipeline spec §5, "session owners").
-    let coldCall: ColdCall
-    /// The pipeline sequencing the two above. Owns no session; owns the leg
-    /// that waits — see this type's doc comment for why it goes down first.
-    let pipeline: TranslationPipeline
+    /// The window's `claude` services. The run keys reach the compiler
+    /// through it; the teardown arms reach all of them.
+    let roster: AgentRoster
     /// **The window's persona — the loop the writer is standing in.**
     ///
     /// The one thing here that is not a session or a subject, and it is here
@@ -76,7 +59,7 @@ struct CompilerRunModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onKeyWindowCommand(.maughamRunCompiler, window: window) { _ in
-                orchestrator.runRequested(
+                roster.compiler.runRequested(
                     docId: activeDocId, kind: RunKind.of(persona: persona))
             }
             // The cold read (⌘⇧R). A second arm rather than a branch inside
@@ -84,24 +67,16 @@ struct CompilerRunModifier: ViewModifier {
             // orchestrator is the one place that knows what the difference
             // costs.
             .onKeyWindowCommand(.maughamFreshEyesCompiler, window: window) { _ in
-                orchestrator.runRequested(
+                roster.compiler.runRequested(
                     docId: activeDocId, kind: RunKind.of(persona: persona),
                     freshEyes: true)
             }
             .onGlobalEvent(.maughamAppWillTerminate) { _ in
-                pipeline.shutdown()
-                orchestrator.shutdown()
-                translator.shutdown()
-                designer.shutdown()
-                coldCall.shutdown()
+                roster.shutdownAll()
             }
             .onChange(of: mcpEnabled) { _, enabled in
                 guard !enabled else { return }
-                pipeline.shutdown()
-                orchestrator.shutdown()
-                translator.shutdown()
-                designer.shutdown()
-                coldCall.shutdown()
+                roster.shutdownAll()
             }
     }
 }

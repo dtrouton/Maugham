@@ -775,7 +775,7 @@ final class BinderTreeSectionsTests: XCTestCase {
         let url = try await ProjectFactory.createCollectionProject(
             named: "Collection-\(UUID().uuidString.prefix(6))", in: temp.url)
         let store = try await ProjectStore.load(from: url)
-        for title in pieces { _ = try await store.addLoosePiece(title: title, mode: .prose) }
+        for title in pieces { _ = try await store.addLoosePiece(title: title, format: .markdown) }
         return try await furnish(store, notes: notes, cards: cards)
     }
 

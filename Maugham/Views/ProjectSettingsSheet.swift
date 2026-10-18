@@ -281,9 +281,19 @@ struct ProjectSettingsSheet: View {
     }
 
     private func curatedFonts() -> [TypographySettings.CuratedFont] {
-        store.manifest.type == .screenplay
+        Self.curatedFonts(for: store.manifest.type)
+    }
+
+    /// The font list the sheet offers for a project of `type`.
+    static func curatedFonts(for type: ProjectType) -> [TypographySettings.CuratedFont] {
+        type.primaryFormat.isScreenplay
             ? TypographySettings.curatedScreenplayFonts
             : TypographySettings.curatedFonts
+    }
+
+    /// Whether the sheet shows its Screenplay section for a project of `type`.
+    static func showsScreenplaySection(for type: ProjectType) -> Bool {
+        type.primaryFormat.isScreenplay
     }
 
     private func initializeDraft() {
@@ -316,7 +326,7 @@ struct ProjectSettingsSheet: View {
 
     @ViewBuilder
     private func screenplaySection() -> some View {
-        if store.manifest.type == .screenplay {
+        if Self.showsScreenplaySection(for: store.manifest.type) {
             Section("Screenplay") {
                 Toggle("Show element gutter", isOn: Binding(
                     get: { store.manifest.showElementGutter ?? true },
@@ -1154,13 +1164,14 @@ struct ProjectSettingsSheet: View {
 /// the one folder read behind People & Devices' waiting line, kept out of
 /// `PeopleAndDevicesModel`, which reads no folder.
 ///
-/// **Op-log file presence, not `OpLogStore.unownedPiece`.** The question is
-/// whether ANY opening is on disk, and presence is exactly the test the load
-/// asks before it refuses (`Document.load`'s `needsBootstrap`: no file for the
-/// doc id). `unownedPiece` answers a different question — *has a book author
-/// written this piece's text* — which is `.nobodyHasWrittenItsText` for a
-/// piece whose starter's opening HAS arrived as well as for one with no file
-/// at all, and it classifies every file it finds to say so.
+/// **Op-log file presence, not `LocalWritePermitBuilder.unownedPiece`.** The
+/// question is whether ANY opening is on disk, and presence is exactly the
+/// test the load asks before it refuses (`Document.load`'s `needsBootstrap`:
+/// no file for the doc id). `unownedPiece` answers a different question —
+/// *has a book author written this piece's text* — which is
+/// `.nobodyHasWrittenItsText` for a piece whose starter's opening HAS arrived
+/// as well as for one with no file at all, and it classifies every file it
+/// finds to say so.
 enum StrandedPieces {
     /// The ids, among the pieces that record a starter, with no op-log file
     /// in `.maugham/ops/`. One listing, matched through

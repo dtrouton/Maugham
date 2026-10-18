@@ -293,10 +293,19 @@ public enum RepublishTool: MCPTool {
             mintGate: stores.mintGate,
             maughamVersion: PublishToolchain.maughamVersion,
             tectonicVersion: PublishToolchain.tectonicVersion)
-        let outcome = try await republisher.republish(
-            snapshotID: params.snapshotID,
-            format: params.format ?? .pdf,
-            label: params.label)
+        let outcome: Republisher.Outcome
+        do {
+            outcome = try await republisher.republish(
+                snapshotID: params.snapshotID,
+                format: params.format ?? .pdf,
+                label: params.label)
+        } catch let refusal as RepublishError {
+            // A format this build can't produce is the caller's argument, and
+            // the caller reads its one sentence (`PublishFormatRefusal`), not
+            // the enum's dump through the handler's `internal_error` arm.
+            guard case .unproducibleFormat = refusal else { throw refusal }
+            throw MCPError.invalidArgument(refusal.localizedDescription)
+        }
         return try CompileResponseEncoder.encodeOutcome(outcome)
     }
 }

@@ -1,42 +1,34 @@
 import SwiftUI
 import MaughamCore
 
-enum PieceInspectorKind {
-    case prose
-    case screenplay
-
+/// The inspector's Mac-only strings and ranges for a piece's format —
+/// UI copy, so it stays out of Core. Exhaustive: a new format answers each.
+fileprivate extension DocumentFormat {
     var kindLabel: String {
         switch self {
-        case .prose: return "Prose"
-        case .screenplay: return "Screenplay"
-        }
-    }
-
-    var unavailableSymbol: String {
-        switch self {
-        case .prose: return "doc.text"
-        case .screenplay: return "film"
+        case .markdown: return "Prose"
+        case .fountain: return "Screenplay"
         }
     }
 
     var targetLabel: String {
         switch self {
-        case .prose: return "Word target"
-        case .screenplay: return "Page target"
+        case .markdown: return "Word target"
+        case .fountain: return "Page target"
         }
     }
 
     var targetRange: ClosedRange<Int> {
         switch self {
-        case .prose: return 0...100_000
-        case .screenplay: return 0...500
+        case .markdown: return 0...100_000
+        case .fountain: return 0...500
         }
     }
 
     var targetStep: Int {
         switch self {
-        case .prose: return 100
-        case .screenplay: return 1
+        case .markdown: return 100
+        case .fountain: return 1
         }
     }
 }
@@ -44,7 +36,9 @@ enum PieceInspectorKind {
 struct PieceInspector: View {
     @Bindable var store: ProjectStore
     let pieceId: String
-    let kind: PieceInspectorKind
+    /// The piece's format (`DocumentFormat.ofManuscript(path:)`), which
+    /// picks the label and the word-or-page target.
+    let format: DocumentFormat
     /// **What this Mac may offer for this piece** (P3c Task 6) — the window's
     /// drawing door, asked by the host. Required, `InspectorView.posture`'s
     /// reason.
@@ -60,7 +54,7 @@ struct PieceInspector: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(piece.title).font(.headline)
-                    Text(kind.kindLabel).font(.caption).foregroundStyle(.secondary)
+                    Text(format.kindLabel).font(.caption).foregroundStyle(.secondary)
                     writerSection(piece: piece)
                     synopsisSection(piece: piece)
                     statusSection(piece: piece)
@@ -75,7 +69,7 @@ struct PieceInspector: View {
             }
             .task(id: store.url) { await loadWriters() }
         } else {
-            ContentUnavailableView("Select a piece", systemImage: kind.unavailableSymbol)
+            ContentUnavailableView("Select a piece", systemImage: format.symbolName)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -175,24 +169,24 @@ struct PieceInspector: View {
 
     @ViewBuilder private func targetSection(piece: StructureItem) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(kind.targetLabel).font(.caption).foregroundStyle(.secondary)
-            switch kind {
-            case .prose:
+            Text(format.targetLabel).font(.caption).foregroundStyle(.secondary)
+            switch format {
+            case .markdown:
                 Stepper(value: Binding(
                     get: { piece.wordTarget ?? 0 },
                     set: { newValue in
                         Task { try? await store.updateInspector(id: piece.id, wordTarget: newValue) }
                     }),
-                    in: kind.targetRange, step: kind.targetStep) {
+                    in: format.targetRange, step: format.targetStep) {
                     Text("\(piece.wordTarget ?? 0)")
                 }
-            case .screenplay:
+            case .fountain:
                 Stepper(value: Binding(
                     get: { piece.pageTarget ?? 0 },
                     set: { newValue in
                         Task { try? await store.updateInspector(id: piece.id, pageTarget: newValue) }
                     }),
-                    in: kind.targetRange, step: kind.targetStep) {
+                    in: format.targetRange, step: format.targetStep) {
                     Text("\(piece.pageTarget ?? 0) pages")
                 }
             }

@@ -21,7 +21,7 @@ public enum TestAddDocumentTool: MCPTool {
         let entry = try resolveProject(p.project_id, in: registry)
         try TestWorkspace.require(entry.url)
         let item = try await entry.store.addStructureItem(
-            parentId: nil, title: p.title, kind: .document(extension: "md"))
+            parentId: nil, title: p.title, kind: .document(.markdown))
         return try JSONEncoder().encode(Result(doc_id: item.id, path: item.path ?? ""))
     }
 }

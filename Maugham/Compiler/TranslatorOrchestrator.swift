@@ -422,6 +422,10 @@ final class TranslatorOrchestrator {
         environment?.model = model
     }
 
+    /// The model the next spawn will use, or nil while unwired — the read
+    /// `AgentRosterTests` asserts the depth-menu fan-out through.
+    var configuredModel: String? { environment?.model }
+
     // MARK: - The two entries
 
     /// Run a translation for this document into this language. Returns the

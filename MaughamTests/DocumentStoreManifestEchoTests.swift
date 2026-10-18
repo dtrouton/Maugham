@@ -51,7 +51,7 @@ final class DocumentStoreManifestEchoTests: XCTestCase {
         // observed/echo state to a known whole second.
         _ = try await store.addStructureItem(
             parentId: nil, title: "Chapter Two",
-            kind: .document(extension: "md"))
+            kind: .document(.markdown))
         ds.presenterDidChangeSubitem(at: manifestURL)
         XCTAssertTrue(conflictFiles(in: url).isEmpty, "first own save must not archive")
 
@@ -61,7 +61,7 @@ final class DocumentStoreManifestEchoTests: XCTestCase {
         try await Task.sleep(nanoseconds: 1_100_000_000)
         _ = try await store.addStructureItem(
             parentId: nil, title: "Chapter Three",
-            kind: .document(extension: "md"))
+            kind: .document(.markdown))
 
         // Drive the presenter callback the way production does for the manifest
         // write we just made. The disk content is exactly what we wrote, so the

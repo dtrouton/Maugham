@@ -291,6 +291,7 @@ final class TreeScrollStabilityTests: XCTestCase {
             ProjectWindow(url: url)
                 .environment(UserPreferences())
                 .environment(registry)
+                .environment(ProjectSessionRegistry(mcp: registry))
                 .environment(BackupCoordinator())))
         hosting.sizingOptions = [.minSize]
         hosting.frame = frame
@@ -570,6 +571,7 @@ final class TreeScrollStabilityTests: XCTestCase {
             ProjectWindow(url: store.url)
                 .environment(UserPreferences())
                 .environment(registry)
+                .environment(ProjectSessionRegistry(mcp: registry))
                 .environment(BackupCoordinator())))
         hosting.frame = frame
         let container = NSView(frame: frame)
@@ -709,7 +711,7 @@ final class TreeScrollStabilityTests: XCTestCase {
             _ = try await store.addStructureItem(
                 parentId: nil,
                 title: "Chapter \(store.manifest.structure.count + 1)",
-                kind: .document(extension: "md"))
+                kind: .document(.markdown))
         }
         await store.wordCountPopulationTask?.value
         return store
@@ -745,6 +747,7 @@ final class TreeScrollStabilityTests: XCTestCase {
                 ProjectWindow(url: url)
                     .environment(UserPreferences())
                     .environment(registry)
+                    .environment(ProjectSessionRegistry(mcp: registry))
                     .environment(BackupCoordinator())),
             size: CGSize(width: 1200, height: 500),
             as: SilentTestWindow.self,

@@ -117,7 +117,7 @@ enum ScenePosition: String, Codable, Equatable, Sendable {
         // Neither is a sentence they wrote about this book, so neither earns a
         // strain — both land in `.strongDefault` and get the offer instead.
         let brief = (passBrief ?? "").lowercased()
-        let strongWithoutAClause = projectType == .screenplay
+        let strongWithoutAClause = projectType?.primaryFormat.isScreenplay == true
             || turnClausePhrases.contains(where: { brief.contains($0) })
         return strongWithoutAClause ? .strongDefault : .weak
     }

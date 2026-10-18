@@ -216,8 +216,10 @@ final class CanvasLiveSeamTests: XCTestCase {
     /// The two are counted by ASSIGNMENT rather than by mention, so a later slice
     /// adding a *reader* of `liveCanvas` — which is the whole point of it — does
     /// not have to edit this expectation. An assigner appearing that is not
-    /// `ProjectWindow` is a second opinion about which canvas is live, and that
-    /// is a deliberate edit here.
+    /// `ProjectSession` (which sets it when a window attaches, from the canvas
+    /// model the window hands it, and clears it when that window detaches —
+    /// foundations plan 3, Tasks 2 and 3b) is a second opinion about which
+    /// canvas is live, and that is a deliberate edit here.
     func test_theExternalChangeHookHasAProductionCaller() throws {
         XCTAssertEqual(try assigners(of: "onSceneChangedExternally",
                                      excluding: "CanvasModel.swift"),
@@ -225,8 +227,13 @@ final class CanvasLiveSeamTests: XCTestCase {
                        "if this is empty, the hook is declared, cleared on detach "
                        + "and bound to nothing: Claude's cards land in the scene "
                        + "and draw as empty rectangles until the writer clicks")
-        XCTAssertEqual(try assigners(of: "liveCanvas", excluding: "ProjectStore.swift"),
-                       ["ProjectWindow.swift"],
+        // Keyed by TYPE: every file declaring `ProjectSession` answers as
+        // `type:ProjectSession`, so a split of the session moves nothing here.
+        XCTAssertEqual(try liveCanvasAssignerSites(
+                           in: CanvasSourceCensus.productionFiles(),
+                           root: CanvasSourceCensus.repoRoot.appendingPathComponent("Maugham"),
+                           typeKeys: ["type:ProjectSession"]),
+                       ["type:ProjectSession"],
                        "if this is empty, the store's reference is never set and "
                        + "every tool sees nil — so every write goes to the sidecar "
                        + "behind the writer's back, including while they are "
@@ -336,13 +343,15 @@ final class CanvasLiveSeamTests: XCTestCase {
                                                   with: "// the binding, deleted")),
             "the scan cannot see a binding that is gone, so it proves nothing")
 
-        let window = try CanvasSourceCensus.source(at: "Maugham/Views/ProjectWindow.swift")
-        XCTAssertTrue(assigns("liveCanvas", in: window),
+        let session = try SourceTree.sourceOfType("ProjectSession", under: ["Maugham"])
+        XCTAssertTrue(assigns("liveCanvas", in: session),
                       "control: the real file assigns the store's reference")
+        // Two assignments since Task 3b — the window attaching installs its
+        // canvas, the window detaching clears it — so the deletion takes both.
         XCTAssertFalse(
             assigns("liveCanvas",
-                    in: window.replacingOccurrences(of: "s.liveCanvas =",
-                                                    with: "// the assignment, deleted")),
+                    in: session.replacingOccurrences(of: "projectStore.liveCanvas =",
+                                                     with: "// the assignment, deleted")),
             "the scan cannot see an assignment that is gone")
 
         // **The arms that prove the STRICTNESS**, which the deletions above
@@ -352,8 +361,11 @@ final class CanvasLiveSeamTests: XCTestCase {
         // `liveCanvas` and must not have to edit the expectation above.
         XCTAssertFalse(
             assigns("liveCanvas",
-                    in: window.replacingOccurrences(of: "s.liveCanvas = canvasModel",
-                                                    with: "_ = s.liveCanvas")),
+                    in: session
+                        .replacingOccurrences(of: "projectStore.liveCanvas = canvas",
+                                              with: "_ = projectStore.liveCanvas")
+                        .replacingOccurrences(of: "projectStore.liveCanvas = nil",
+                                              with: "_ = projectStore.liveCanvas")),
             "a file that only reads the property is being counted as the one that "
             + "sets it — so the census would stay green with nothing wired, which "
             + "is exactly the blind shape it exists to avoid")
@@ -407,6 +419,47 @@ final class CanvasLiveSeamTests: XCTestCase {
             .filter { $0.name != definer && assigns(token, in: $0.source) }
             .map(\.name)
             .sorted()
+    }
+
+    /// Who assigns `liveCanvas` in `files` (all under `root`), per LINE and
+    /// keyed by type: an assignment inside a keyed type's declarations (e.g.
+    /// `type:ProjectWindow`) answers as that key; one in a child view sharing
+    /// that type's file is the file's own (plan 2 final review, I1).
+    private func liveCanvasAssignerSites(in files: [(name: String, source: String)],
+                                         root: URL,
+                                         typeKeys: Set<String>) throws -> Set<String> {
+        var hits: [SourceTree.Hit] = []
+        for file in files where file.name != "ProjectStore.swift" {
+            let lines = CanvasSourceCensus.commentsStripped(file.source).components(separatedBy: "\n")
+            for (index, line) in lines.enumerated() where assigns("liveCanvas", in: line) {
+                hits.append(SourceTree.Hit(file: file.name, line: index + 1))
+            }
+        }
+        return try SourceTree.keyedByType(hits, typeKeys: typeKeys, in: [root])
+    }
+
+    /// The control for the type key.
+    func test_aLiveCanvasAssignmentInAChildViewSharingTheWindowsFileIsCaught() throws {
+        let files = [
+            ("ProjectWindow.swift", "struct ProjectWindow {\n    func a() { store.liveCanvas = m }\n}\n"),
+            ("ProjectWindow+Canvas.swift", """
+            /* a block comment
+               spanning lines, so line numbers must survive the strip */
+            extension ProjectWindow {
+                func b() { store.liveCanvas = m }
+            }
+            struct ChildCanvasHost {
+                func c() { store.liveCanvas = other }
+            }
+            """),
+        ]
+        let root = try SourceTree.plantedTree(
+            Dictionary(uniqueKeysWithValues: files.map { ("Maugham/\($0.0)", $0.1) }))
+            .appendingPathComponent("Maugham")
+        XCTAssertEqual(try liveCanvasAssignerSites(in: files.map { (name: $0.0, source: $0.1) },
+                                                   root: root,
+                                                   typeKeys: ["type:ProjectWindow"]),
+                       ["type:ProjectWindow", "ProjectWindow+Canvas.swift"])
     }
 
     /// Whether `source` contains `token = …` — an assignment, not a comparison

@@ -60,7 +60,7 @@ struct CollectionBinderPaneToggle: View {
             // its note, which carries the whole reasoning and is not restated
             // here), so the two toggles cannot come to disagree about when it
             // renders.
-            if persona != .plan && PublishStarter.isInitialized(in: store.url) {
+            if persona.showsExports && PublishStarter.isInitialized(in: store.url) {
                 Divider()
                 ExportsListView(projectURL: store.url)
             }

@@ -143,7 +143,7 @@ final class PieceStyleToolsTests: XCTestCase {
         // Synthetic ids ("ab12", "cd34") now correctly throw; both pieces must exist in the manifest.
         let entry = registry.lookup(id: pid)!
         let piece2 = try await entry.store.addStructureItem(
-            parentId: nil, title: "Chapter 2", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter 2", kind: .document(.markdown))
 
         let s1 = #"{"project_id":"\#(pid!)","piece_id":"\#(realPieceID!)","content":"%shared","filename":"shared.tex"}"#
         _ = try await SetPieceStyleTool.handle(paramsJSON: Data(s1.utf8), registry: registry)

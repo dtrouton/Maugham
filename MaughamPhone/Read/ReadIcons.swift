@@ -6,17 +6,6 @@ import MaughamCore
 /// reused across the projects list, the binder, and research rows.
 enum ReadIcons {
 
-    /// Icon for a project row, keyed by its writing form.
-    static func projectSymbol(_ type: ProjectType) -> String {
-        switch type {
-        case .shortStory: return "doc.text"
-        case .novel: return "book.closed"
-        case .screenplay: return "film"
-        case .collection: return "books.vertical"
-        case .unknown: return "questionmark.folder"   // newer-build project type (ADR 0015)
-        }
-    }
-
     /// Icon for a binder structure node. Groups are folders; documents take an
     /// extension-derived icon (screenplay pages get the film clapper). An
     /// unreadable/path-less document falls back to a generic page.
@@ -26,11 +15,7 @@ enum ReadIcons {
             ? URL(fileURLWithPath: item.path ?? "")
             : nil
         else { return "doc" }
-        switch BinderRouting.kind(of: url) {
-        case .markdown: return "doc.text"
-        case .fountain: return "film"
-        case .other: return "doc"
-        }
+        return DocumentFormat(url: url)?.symbolName ?? "doc"
     }
 
     /// Icon for a research asset, keyed by its declared kind. nil kind → page.

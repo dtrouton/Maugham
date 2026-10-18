@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class EditorStatusFooterTests: XCTestCase {
@@ -56,5 +57,44 @@ final class EditorStatusFooterTests: XCTestCase {
             EditorStatusFooter.centerLabel(
                 paragraphId: nil, elementLabel: nil),
             "")
+    }
+
+    // MARK: - The goal indicator's Collection arm
+
+    private func piece(path: String?) -> StructureItem {
+        StructureItem(id: "p1", title: "Piece", type: .document, path: path,
+                      wordTarget: 1200, pageTarget: 30, pieceKind: .loose)
+    }
+
+    func test_collectionGoalMeasure_fountainPiece_measuresInPages() {
+        let m = GoalIndicatorState.collectionGoalMeasure(for: piece(path: "pieces/scene.fountain"))
+        XCTAssertTrue(m.isScreenplay)
+        XCTAssertNil(m.wordTarget)
+        XCTAssertEqual(m.pageTarget, 30)
+    }
+
+    func test_collectionGoalMeasure_markdownPiece_measuresInWords() {
+        let m = GoalIndicatorState.collectionGoalMeasure(for: piece(path: "pieces/story.md"))
+        XCTAssertFalse(m.isScreenplay)
+        XCTAssertEqual(m.wordTarget, 1200)
+        XCTAssertNil(m.pageTarget)
+    }
+
+    func test_collectionGoalMeasure_noPathOrNoPiece_measuresInWords() {
+        let pathless = GoalIndicatorState.collectionGoalMeasure(for: piece(path: nil))
+        XCTAssertFalse(pathless.isScreenplay)
+        XCTAssertEqual(pathless.wordTarget, 1200)
+        let absent = GoalIndicatorState.collectionGoalMeasure(for: nil)
+        XCTAssertFalse(absent.isScreenplay)
+        XCTAssertNil(absent.wordTarget)
+        XCTAssertNil(absent.pageTarget)
+    }
+
+    /// Exception 1 (plan 7): a hand-imported upper-case `.FOUNTAIN` piece,
+    /// which the op log already parses as Fountain, measures in pages too.
+    func test_collectionGoalMeasure_upperCaseFountainPiece_measuresInPages() {
+        let m = GoalIndicatorState.collectionGoalMeasure(for: piece(path: "pieces/SCENE.FOUNTAIN"))
+        XCTAssertTrue(m.isScreenplay)
+        XCTAssertEqual(m.pageTarget, 30)
     }
 }

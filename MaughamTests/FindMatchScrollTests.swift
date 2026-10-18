@@ -185,7 +185,7 @@ final class FindMatchScrollTests: XCTestCase {
         for i in 0..<extraChapters {
             _ = try await store.addStructureItem(
                 parentId: nil, title: "Chapter \(i + 2)",
-                kind: .document(extension: "md"))
+                kind: .document(.markdown))
         }
         for title in notes {
             _ = try await store.addResearchTextNote(parentId: nil, title: title)

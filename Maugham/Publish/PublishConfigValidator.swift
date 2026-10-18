@@ -219,6 +219,7 @@ public enum PublishConfigValidator {
     ) -> [ValidationError] {
         var errs = validate(cfg, publishDir: publishDir, pieceIDs: pieceIDs,
                             resolvedImprint: resolvedImprint)
+        if let err = formatError(format) { errs.append(err) }
         if format == .pdf, cfg.template == defaultTemplate,
            let err = templateExistenceError(
             cfg.template, field: "template", publishDir: publishDir,
@@ -227,6 +228,25 @@ public enum PublishConfigValidator {
             errs.append(err)
         }
         return errs
+    }
+
+    /// Can this build produce `format`? `nil` for every format in
+    /// `PublishConfig.Format.allCases`; for `.unknown(raw)` — a format a newer
+    /// Maugham named — the refusal, worded by `PublishFormatRefusal.message`.
+    ///
+    /// Asked of the act of compiling, never of the config: an unknown name in
+    /// `outputs.formats_enabled` is not a config error (ADR 0015 §5), because
+    /// the write door validates the merged config and refusing there would
+    /// stop this build from patching any key of a newer build's config. The
+    /// three compile doors (`CompileOrchestrator.compile`,
+    /// `PreviewCompiler.preview`, `Republisher.republish`) ask it first.
+    public static func formatError(_ format: PublishConfig.Format) -> ValidationError? {
+        switch format {
+        case .pdf, .epub:
+            return nil
+        case .unknown(let raw):
+            return .init(field: "format", message: PublishFormatRefusal.message(raw: raw))
+        }
     }
 
     // MARK: - Imprints (spec `2026-08-27-imprints-and-bilingual-editions-design` §3)

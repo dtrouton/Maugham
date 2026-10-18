@@ -227,6 +227,61 @@ final class CompileToolsTests: XCTestCase {
         }
     }
 
+    // MARK: - An output format this build can't produce
+
+    /// `"format":"docx"` — a newer build's format — is refused by name: the
+    /// failed shape, the error naming docx, no file under `Exports/` and no
+    /// catalog row. Before `Format.unknown` the name decoded as `.pdf` and
+    /// this compiled a PDF (pinned red on 635106dc).
+    func testCompile_anUnknownFormatIsRefusedByNameAndCompilesNothing() async throws {
+        let data = try await CompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"docx","wait_seconds":120}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "failed",
+                       "unexpected response: \(resp ?? [:])")
+        let errors = resp?["errors"] as? [[String: Any]]
+        let message = (errors ?? []).compactMap { $0["message"] as? String }.joined()
+        XCTAssertTrue(message.contains("'docx'"), "got: \(message)")
+        XCTAssertTrue(message.contains(PublishFormatRefusal.message(raw: "docx")),
+                      "the one refusal sentence, not a dump: \(message)")
+
+        let exports = (try? FileManager.default.contentsOfDirectory(
+            atPath: projectURL.appendingPathComponent("Exports").path)) ?? []
+        XCTAssertTrue(exports.isEmpty, "nothing compiled: \(exports)")
+        let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectURL)
+        let pubs = try await stores.publicationStore.load()
+        XCTAssertTrue(pubs.isEmpty, "no catalog row: \(pubs)")
+    }
+
+    /// `dry_run` asks "would this compile?" — for docx the answer is no, with
+    /// the refusal sentence, never `dry_run_passed`.
+    func testCompile_dryRunOfAnUnknownFormatIsRefusedNotPassed() async throws {
+        let data = try await CompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"docx","dry_run":true}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "failed",
+                       "unexpected response: \(resp ?? [:])")
+        let errors = resp?["errors"] as? [[String: Any]]
+        let message = (errors ?? []).compactMap { $0["message"] as? String }.joined()
+        XCTAssertTrue(message.contains(PublishFormatRefusal.message(raw: "docx")),
+                      "got: \(message)")
+    }
+
+    func testPreview_anUnknownFormatIsRefusedByName() async throws {
+        let data = try await PreviewCompileTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)","format":"docx"}"#.utf8),
+            registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(resp?["status"] as? String, "failed",
+                       "unexpected response: \(resp ?? [:])")
+        let errors = resp?["errors"] as? [[String: Any]]
+        let message = (errors ?? []).compactMap { $0["message"] as? String }.joined()
+        XCTAssertTrue(message.contains(PublishFormatRefusal.message(raw: "docx")),
+                      "got: \(message)")
+    }
+
     // MARK: - F2: compile dry_run
 
     /// dry_run returns `dry_run_passed` (no tectonic needed — it short-circuits

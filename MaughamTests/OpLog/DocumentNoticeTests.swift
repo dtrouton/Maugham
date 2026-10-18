@@ -292,13 +292,7 @@ final class DocumentNoticeTests: XCTestCase {
     /// post with nobody listening is the same silence this whole suite exists
     /// to end, and it would pass every assertion above.
     func test_theProjectWindowSubscribesToTheNotice() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // OpLog/
-            .deletingLastPathComponent()   // MaughamTests/
-            .deletingLastPathComponent()   // repo root
-        let source = try String(
-            contentsOf: root.appendingPathComponent("Maugham/Views/ProjectWindow.swift"),
-            encoding: .utf8)
+        let source = try SourceTree.windowSource()
         XCTAssertTrue(
             source.contains(".onProjectEvent(.maughamDocumentNotice"),
             "ProjectWindow must receive the notice through the project-scoped "

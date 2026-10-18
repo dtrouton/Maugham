@@ -1130,16 +1130,23 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// in the mount is two places that can disagree about which pass a piece
     /// is in, and the RUN reads only one of them.
     func test_theProductionMountWiresThePickerToTheWindowsOneWriter() throws {
-        let window = try Self.source(of: "Views/ProjectWindow.swift")
-        XCTAssertTrue(window.contains("onSetActivePass:"),
-                      "the window must supply the strip's pass writer")
-        let arm = try XCTUnwrap(
-            window.range(of: "onSetActivePass:"),
-            "the mount must name the closure")
-        let after = String(window[arm.upperBound...].prefix(320))
-        XCTAssertTrue(after.contains("recordActivePass(forPiece:"),
+        // Sliced inside the one window file holding the arm, never across a
+        // file boundary.
+        let after = try XCTUnwrap(
+            SourceTree.windowText(after: "onSetActivePass:", length: 320),
+            "the window must supply the strip's pass writer, and name the closure")
+        // The mount lives in `RightColumn` since foundations plan 4 Task 5, so
+        // the writer is reached one hop out: the arm calls the column's
+        // `recordActivePass` closure, and the window hands the column its one
+        // private writer.
+        XCTAssertTrue(after.contains("recordActivePass("),
                       "\u{2026}and it must be the existing private writer, not a "
                       + "second `updateUIState` in the mount \u{2014} got: \(after)")
+        XCTAssertTrue(
+            try CentreRouteSource.windowArgument("recordActivePass", of: "RightColumn(")?
+                .contains("recordActivePass(forPiece:") == true,
+            "the window must hand the right column its ONE writer, "
+            + "`recordActivePass(forPiece:passId:)`")
 
         let pane = try Self.source(of: "Views/AnnotationsPane.swift")
         XCTAssertFalse(pane.contains("activePassMemory.record("),

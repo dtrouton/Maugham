@@ -921,14 +921,25 @@ final class ReviewBoardPaneTests: XCTestCase {
     /// `CompilerRunCommandTests`; this is what keeps the mount on the far side
     /// of it.
     func test_theProductionMountDefersTheChipsRunUntilThePieceIsOpen() throws {
-        let window = try Self.source(of: "Views/ProjectWindow.swift")
-        let arm = try XCTUnwrap(window.range(of: "onRunRound:"),
-                                "the mount must supply the chip's run closure")
-        let after = String(window[arm.upperBound...].prefix(600))
+        // Sliced inside the one window file holding the arm, never across a
+        // file boundary.
+        let after = try XCTUnwrap(SourceTree.windowText(after: "onRunRound:", length: 600),
+                                  "the mount must supply the chip's run closure")
 
-        XCTAssertTrue(after.contains("recordActivePass(forPiece:"),
+        XCTAssertTrue(after.contains("recordActivePass("),
                       "the round's lane is recorded through the window's one "
                       + "`ActivePassMemory` writer \u{2014} got: \(after)")
+        // One hop out (foundations plan 4 Task 4): the arm lives in
+        // `CentreColumn`, and both verbs it calls are closures the window
+        // hands it. Each must be the window's own.
+        XCTAssertTrue(
+            try CentreRouteSource.windowArgument("recordActivePass")?
+                .contains("recordActivePass(forPiece:") == true,
+            "the window must hand the centre column its one `ActivePassMemory` writer")
+        XCTAssertTrue(
+            try CentreRouteSource.windowArgument("runRoundWhenPieceOpens")?
+                .contains("runRoundWhenPieceOpens(pieceId:") == true,
+            "\u{2026}and its one bounded deferral, the helper read below")
         XCTAssertTrue(after.contains("selectedSubject = .item(pieceId)"),
                       "\u{2026}and the writer travels to the piece being checked")
         XCTAssertTrue(after.contains("runRoundWhenPieceOpens("),
@@ -944,10 +955,11 @@ final class ReviewBoardPaneTests: XCTestCase {
         // simplification, which is exactly the defect the deferral exists to
         // prevent and which no other test in the suite can see. So the census
         // reads the helper too.
-        let helper = try XCTUnwrap(
-            Self.declaration(named: "private func runRoundWhenPieceOpens(", in: window),
-            "the deferral's one production caller must still be a readable "
-            + "declaration for this census to have a subject")
+        // Found by symbol, wherever the window's extensions put it; throws
+        // when the deferral's one production caller is not a readable
+        // declaration, so this census always has a subject.
+        let helper = try SourceTree.declaration(
+            named: "func runRoundWhenPieceOpens(", under: "Maugham")
         XCTAssertTrue(helper.contains("RunWhenDocumentOpens.start("),
                       "the helper must go through the bounded wait rather than "
                       + "run outright. Got:\n\(helper)")
@@ -963,7 +975,7 @@ final class ReviewBoardPaneTests: XCTestCase {
     /// other half of the tripwire-4 census, since the pane's own file cannot
     /// see what is passed to it.
     func test_theProductionMountPassesManifestValues() throws {
-        let code = try Self.codeLines(of: "Views/ProjectWindow.swift")
+        let code = try SourceTree.windowCodeLines()
 
         for expected in ["title: store.manifest.title",
                          "structure: store.manifest.structure",

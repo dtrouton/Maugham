@@ -604,7 +604,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
             named: "Collection-\(UUID().uuidString.prefix(6))", in: temp.url)
         let store = try await ProjectStore.load(from: url)
         let furnished = try await furnish(store, notes: notes)
-        for title in pieces { _ = try await furnished.addLoosePiece(title: title, mode: .prose) }
+        for title in pieces { _ = try await furnished.addLoosePiece(title: title, format: .markdown) }
         return furnished
     }
 

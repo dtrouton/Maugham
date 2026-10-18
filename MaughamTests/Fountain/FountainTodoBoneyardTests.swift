@@ -219,4 +219,26 @@ final class FountainTodoBoneyardTests: XCTestCase {
         XCTAssertNotNil(rawAgain as? MaughamCheckboxMarker,
                         "marker lost after second applyTypography pass")
     }
+    /// The prose sibling: a Markdown `- [ ]` paints a marker of the
+    /// `.markdown` format, so a click flips the bracket rather than the
+    /// Fountain prefix.
+    func test_paintPass_proseCheckbox_stampsAMarkdownMarker() {
+        let mode = ProseMode()
+        let source = "- [ ] paint test\n"
+        let storage = NSTextStorage(string: source)
+        mode.applyTypography(
+            in: storage,
+            theme: .light,
+            typography: .defaults,
+            tokens: mode.tokenize(source))
+
+        guard let marker = storage.attribute(MaughamCheckboxAttr, at: 2,
+                                             effectiveRange: nil) as? MaughamCheckboxMarker else {
+            XCTFail("expected MaughamCheckboxMarker at offset 2")
+            return
+        }
+        XCTAssertEqual(marker.bracketLocation, 2)
+        XCTAssertEqual(marker.kind, .markdown)
+        XCTAssertFalse(marker.checked)
+    }
 }

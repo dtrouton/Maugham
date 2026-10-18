@@ -852,6 +852,66 @@ final class RepublisherTests: XCTestCase {
                       "a thrown republish must not leak its reservation, got: \(held)")
     }
 
+    /// A republish to a format this build can't produce throws
+    /// `.unproducibleFormat` naming it — before the snapshot is read, the mint
+    /// reservation or the staging — and its description is the one refusal
+    /// sentence. No job, no catalog row, no reservation taken or released,
+    /// nothing exported.
+    func test_aRepublishToAnUnknownFormatIsRefusedByName() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Docx", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        let snapStore = PublicationSnapshotStore(projectURL: tmp)
+        let orch = CompileOrchestrator(
+            projectURL: tmp, astSource: RepubSrc(),
+            configStore: configStore,
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: CompileJobManager(),
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        let initial = try await orch.compile(format: .epub, label: nil)
+        guard case .completed(let initialPub, _) = initial else {
+            return XCTFail("initial compile failed: \(initial)")
+        }
+        let exportsBefore = try FileManager.default.contentsOfDirectory(
+            atPath: tmp.appendingPathComponent("Exports").path)
+
+        let gate = PublishMintGate()
+        let jobs = CompileJobManager()
+        var r = Republisher(
+            projectURL: tmp, astSource: RepubSrc(),
+            publicationStore: pubStore, snapshotStore: snapStore,
+            jobManager: jobs, mintGate: gate,
+            maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        r.mintSuffix = { "abcd" }
+        // The key this republish would mint at, already held: a door that
+        // reserved it would be refused as in-flight instead; one that took and
+        // released it would leave the set empty.
+        let wouldBeKey = PublishMintGate.Key(
+            version: "\(initialPub.version)-rabcd", language: nil, format: .unknown("docx"))
+        let reserved = await gate.reserve(wouldBeKey)
+        XCTAssertTrue(reserved, "fixture: the would-be key is held")
+        do {
+            let outcome = try await r.republish(
+                snapshotID: initialPub.snapshotID, format: .unknown("docx"), label: nil)
+            XCTFail("expected a thrown refusal, got \(outcome)")
+        } catch let RepublishError.unproducibleFormat(raw) {
+            XCTAssertEqual(raw, "docx")
+            XCTAssertEqual(RepublishError.unproducibleFormat(raw).errorDescription,
+                           PublishFormatRefusal.message(raw: "docx"))
+        }
+
+        let pubs = try await pubStore.load()
+        XCTAssertEqual(pubs.map(\.publicationID), [initialPub.publicationID],
+                       "no catalog row added")
+        let all = await jobs.all()
+        XCTAssertTrue(all.isEmpty, "no job registered: \(all)")
+        let held = await gate._inFlightForTesting
+        XCTAssertEqual(held, [wouldBeKey], "no reservation taken or released: \(held)")
+        let exportsAfter = try FileManager.default.contentsOfDirectory(
+            atPath: tmp.appendingPathComponent("Exports").path)
+        XCTAssertEqual(exportsAfter.sorted(), exportsBefore.sorted(), "nothing exported")
+    }
+
     /// Repeated republishes each get their own file — no shared clobber path.
     func test_twoRepublishesProduceTwoNewDistinctFiles() async throws {
         struct Src: ProjectASTBuilder.Source {

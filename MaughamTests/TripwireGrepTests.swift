@@ -46,7 +46,8 @@ final class TripwireGrepTests: XCTestCase {
 
     /// Like `grepSwift` but scans only the named files (by `lastPathComponent`)
     /// under `dir`. Used by the user-content-mover tripwire, which targets the
-    /// specific `ProjectStore+*` seams that move user-editable paths.
+    /// specific `ProjectStore+*` seams that move user-editable paths. A named
+    /// file the walk never meets is itself an offender (`missingScope`).
     private func grepSwift(
         in dir: URL,
         files: Set<String>,
@@ -54,12 +55,14 @@ final class TripwireGrepTests: XCTestCase {
         excludeLine: ((String) -> Bool)? = nil
     ) throws -> [String] {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
-            return []
-        }
         var offenders: [String] = []
+        var seen: Set<String> = []
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+            return Self.missingScope(files, seen: seen)
+        }
         for case let url as URL in walker where url.pathExtension == "swift" {
             guard files.contains(url.lastPathComponent) else { continue }
+            seen.insert(url.lastPathComponent)
             let text = try String(contentsOf: url, encoding: .utf8)
             for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
                 let lineStr = String(line)
@@ -69,7 +72,349 @@ final class TripwireGrepTests: XCTestCase {
                 }
             }
         }
+        return offenders + Self.missingScope(files, seen: seen)
+    }
+
+    /// `grepSwift`'s whole-file allow-list over several roots at once.
+    /// `allowed` may hold `type:<TypeName>` keys (`SourceTree.expandingTypeKeys`),
+    /// resolved across ALL the roots before any of them is walked — a type
+    /// declared in Core allows its files wherever the census looks.
+    private func grepSwift(
+        in roots: [URL],
+        patterns: [String],
+        allowed: Set<String>,
+        excludeLine: ((String) -> Bool)?,
+        extraOffender: ((String) -> Bool)?
+    ) throws -> [String] {
+        let (allowance, unresolved) = SourceTree.expandingTypeKeys(allowed, in: roots)
+        var offenders = unresolved
+        for root in roots {
+            // A type key allows its type's DECLARATIONS, not the files holding
+            // them, so its hits are dropped per line rather than per file.
+            offenders += try grepSwift(
+                in: root, patterns: patterns, allowed: Set(allowance.plain.keys),
+                excludeLine: excludeLine, extraOffender: extraOffender)
+                .filter { offender in
+                    guard let hit = SourceTree.Hit(offender: offender) else { return true }
+                    return !allowance.allows(file: hit.file, line: hit.line)
+                }
+        }
         return offenders
+    }
+
+    /// Per-line hits summed per FILE — the view a self-check over a planted
+    /// file compares, where no type key is in play.
+    static func byFile<Value>(_ hits: [(hit: SourceTree.Hit, value: Value)],
+                              combine: (Value, Value) -> Value) -> [String: Value] {
+        var out: [String: Value] = [:]
+        for (hit, value) in hits { out[hit.file] = out[hit.file].map { combine($0, value) } ?? value }
+        return out
+    }
+
+    /// `byFile` for the per-spelling maps.
+    static func byFile(_ hits: [(hit: SourceTree.Hit, value: [String: Int])]) -> [String: [String: Int]] {
+        byFile(hits) { $0.merging($1, uniquingKeysWith: +) }
+    }
+
+    /// One offender per scoped file name the walk never met: a census whose
+    /// file moved or was renamed reads nothing, and must say so rather than pass.
+    static func missingScope(_ scope: Set<String>, seen: Set<String>) -> [String] {
+        scope.subtracting(seen).sorted().map {
+            "MISSING SCOPE: \($0) — the census reads nothing; the file moved or was renamed"
+        }
+    }
+
+    /// `offenders` without the *type key names no file* line for each of
+    /// `keys` — the type keys a planted control DELIBERATELY left unplanted.
+    /// Any other unresolved key still shows.
+    static func dropping(unplanted keys: [String], from offenders: [String]) -> [String] {
+        let expected = Set(keys.map { "type key `\($0)` names no file" })
+        return offenders.filter { !expected.contains($0) }
+    }
+
+    /// Wrap a planted file's text in `extension <type> { … }`, so a `type:`
+    /// key claims its lines — the allowance follows the declaration, not the
+    /// name, and covers only what is INSIDE the declaration.
+    static func declare(_ type: String, in file: URL) throws {
+        let text = try String(contentsOf: file, encoding: .utf8)
+        try ("extension \(type) {\n" + text + "\n}\n")
+            .write(to: file, atomically: true, encoding: .utf8)
+    }
+
+    // MARK: - A scoped census fails when its scope is gone (foundations plan 2, Task 2)
+
+    /// **A census scoped to a named file reads nothing once that file moves.**
+    /// The walk used to skip a name it never met, so a rename or a split
+    /// turned the census off with every assertion still green. Both file-scoped
+    /// overloads now report each name they never saw, and every caller asserts
+    /// its offenders are empty.
+    func test_aFileScopedCensusFailsWhenItsFileIsMissing() throws {
+        let dir = try plantedScopeDir()
+        let offenders = try grepSwift(
+            in: dir, files: ["A.swift", "B.swift"], patterns: ["nothing-matches-this"])
+        XCTAssertEqual(offenders.filter { $0.hasPrefix("MISSING SCOPE: B.swift") }.count, 1,
+            "a scoped file that is not there is an offender: \(offenders)")
+        XCTAssertFalse(offenders.contains { $0.hasPrefix("MISSING SCOPE: A.swift") },
+            "a scoped file that IS there is not: \(offenders)")
+    }
+
+    func test_anOnlyFilesCensusFailsWhenItsFileIsMissing() throws {
+        let dir = try plantedScopeDir()
+        let offenders = try grepSwift(
+            in: [dir], patterns: ["nothing-matches-this"], allowedSpellings: [:],
+            excludeLine: { _ in false }, onlyFiles: ["A.swift", "B.swift"])
+        XCTAssertEqual(offenders.filter { $0.hasPrefix("MISSING SCOPE: B.swift") }.count, 1,
+            "a scoped file that is not there is an offender: \(offenders)")
+        XCTAssertFalse(offenders.contains { $0.hasPrefix("MISSING SCOPE: A.swift") },
+            "a scoped file that IS there is not: \(offenders)")
+    }
+
+    // MARK: - A type key follows the code (foundations plan 2, Task 3)
+
+    /// A planted `Widget` split across two files, and an unrelated third file,
+    /// each carrying one `sanctioned(` call.
+    private func plantedWidgetDir() throws -> URL {
+        let dir = TestTemp.root
+            .appendingPathComponent("type-key-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try "struct Widget {\n    let a = sanctioned(1)\n}\n"
+            .write(to: dir.appendingPathComponent("Widget.swift"), atomically: true, encoding: .utf8)
+        try "extension Widget {\n    func b() { sanctioned(2) }\n}\n"
+            .write(to: dir.appendingPathComponent("Widget+More.swift"), atomically: true, encoding: .utf8)
+        try "struct Other {\n    let c = sanctioned(3)\n}\n"
+            .write(to: dir.appendingPathComponent("Other.swift"), atomically: true, encoding: .utf8)
+        return dir
+    }
+
+    /// **(a) An allow-list keyed `type:Widget` lets the spelling through in
+    /// every file declaring `Widget`, and nowhere else** — in both allow-list
+    /// shapes, file-plus-spelling and a set of whole files.
+    func test_aTypeKeyAllowsEveryFileDeclaringTheType() throws {
+        let dir = try plantedWidgetDir()
+        let spelled = try grepSwift(
+            in: [dir], patterns: ["sanctioned("],
+            allowedSpellings: ["type:Widget": ["sanctioned("]],
+            excludeLine: { _ in false })
+        XCTAssertEqual(spelled.count, 1, "only Other.swift is caught: \(spelled)")
+        XCTAssertTrue(spelled.allSatisfy { $0.hasPrefix("Other.swift:") }, "\(spelled)")
+
+        let whole = try grepSwift(
+            in: [dir], patterns: ["sanctioned("], allowed: ["type:Widget"],
+            excludeLine: nil, extraOffender: nil)
+        XCTAssertEqual(whole.count, 1, "only Other.swift is caught: \(whole)")
+        XCTAssertTrue(whole.allSatisfy { $0.hasPrefix("Other.swift:") }, "\(whole)")
+    }
+
+    /// **(b) In a count map a type key's count is the SUM over its files.**
+    func test_aTypeKeyCountsTheSumOverItsFiles() throws {
+        let dir = try plantedWidgetDir()
+        let expected = ["type:Widget": 2, "Other.swift": 1]
+        let two = try countedListFound(of: "sanctioned(", keyedLike: expected, in: [dir])
+        XCTAssertEqual(two.found, expected, "one site in each Widget file sums to 2")
+        XCTAssertTrue(two.offenders.isEmpty, "\(two.offenders)")
+
+        try "struct Widget {\n    let a = sanctioned(1)\n    let d = sanctioned(4)\n}\n"
+            .write(to: dir.appendingPathComponent("Widget.swift"), atomically: true, encoding: .utf8)
+        let three = try countedListFound(of: "sanctioned(", keyedLike: expected, in: [dir])
+        XCTAssertEqual(three.found["type:Widget"], 3)
+        XCTAssertNotEqual(three.found, expected, "a third site in the type fails the count")
+    }
+
+    /// **(d) A type key never claims a phone file.** The Mac's censuses that
+    /// scan `MaughamPhone/` allow-list Mac and Core types; a phone file
+    /// declaring `extension Widget` is still caught, in every map shape.
+    func test_aTypeKeyNeverClaimsAPhoneFile() throws {
+        let dir = try plantedWidgetDir()
+        let phone = dir.deletingLastPathComponent()
+            .appendingPathComponent("\(dir.lastPathComponent)-phone/MaughamPhone")
+        try FileManager.default.createDirectory(at: phone, withIntermediateDirectories: true)
+        try "extension Widget {\n    func p() { sanctioned(5) }\n}\n"
+            .write(to: phone.appendingPathComponent("Widget+Phone.swift"),
+                   atomically: true, encoding: .utf8)
+        let roots = [dir, phone]
+
+        let spelled = try grepSwift(
+            in: roots, patterns: ["sanctioned("],
+            allowedSpellings: ["type:Widget": ["sanctioned("]],
+            excludeLine: { _ in false })
+        XCTAssertTrue(spelled.contains { $0.hasPrefix("Widget+Phone.swift:") },
+            "the phone extension is caught: \(spelled)")
+        XCTAssertEqual(spelled.count, 2, "Other.swift and the phone file: \(spelled)")
+
+        let whole = try grepSwift(
+            in: roots, patterns: ["sanctioned("], allowed: ["type:Widget"],
+            excludeLine: nil, extraOffender: nil)
+        XCTAssertTrue(whole.contains { $0.hasPrefix("Widget+Phone.swift:") }, "\(whole)")
+
+        let counted = try countedListFound(
+            of: "sanctioned(", keyedLike: ["type:Widget": 2, "Other.swift": 1], in: roots)
+        XCTAssertEqual(counted.found, ["type:Widget": 2, "Other.swift": 1, "Widget+Phone.swift": 1],
+            "the phone file is counted under its own name, not the type's")
+    }
+
+    /// **(e) A plain key naming a file a type key also claims is an offender**
+    /// — one rule for allow-lists and count maps alike.
+    func test_aPlainKeyBesideATypeKeyThatClaimsItIsAnOffender() throws {
+        let dir = try plantedWidgetDir()
+        let message = "Widget+More.swift is named by itself and by `type:Widget`"
+        let spelled = try grepSwift(
+            in: [dir], patterns: ["no-such-spelling"],
+            allowedSpellings: ["type:Widget": ["x"], "Widget+More.swift": ["y"]],
+            excludeLine: { _ in false })
+        XCTAssertEqual(spelled, [message])
+        let whole = try grepSwift(
+            in: [dir], patterns: ["no-such-spelling"],
+            allowed: ["type:Widget", "Widget+More.swift"],
+            excludeLine: nil, extraOffender: nil)
+        XCTAssertEqual(whole, [message])
+        let counted = try countedListFound(
+            of: "sanctioned(", keyedLike: ["type:Widget": 2, "Widget+More.swift": 1], in: [dir])
+        XCTAssertEqual(counted.offenders, [message])
+    }
+
+    /// **(f) A type key claims DECLARATIONS, not files** (plan 2 final
+    /// review, I1). A file holding `extension Widget` and a child view: a hit
+    /// inside the extension is the type's, a hit in the child view is the
+    /// file's own — not allowed by `type:Widget`, and counted under its name —
+    /// in every map shape.
+    func test_aTypeKeyClaimsTheDeclarationNotTheFileHoldingIt() throws {
+        let dir = try plantedWidgetDir()
+        try """
+        extension Widget {
+            func b() { sanctioned(2) }
+        }
+
+        struct ChildView {
+            func c() { sanctioned(9) }
+        }
+        """.write(to: dir.appendingPathComponent("Widget+More.swift"), atomically: true, encoding: .utf8)
+
+        // (a) the child view's hit is NOT allowed by the type key…
+        let spelled = try grepSwift(
+            in: [dir], patterns: ["sanctioned("],
+            allowedSpellings: ["type:Widget": ["sanctioned("]],
+            excludeLine: { _ in false })
+        XCTAssertEqual(Set(spelled), ["Widget+More.swift:6: func c() { sanctioned(9) }",
+                                      "Other.swift:2: let c = sanctioned(3)"],
+                       "the child view is caught; the extension is not: \(spelled)")
+        let whole = try grepSwift(
+            in: [dir], patterns: ["sanctioned("], allowed: ["type:Widget"],
+            excludeLine: nil, extraOffender: nil)
+        XCTAssertEqual(Set(whole), Set(spelled), "the whole-file shape agrees: \(whole)")
+
+        // (b) …and the hit inside the extension IS: drop the child, and only
+        // Other.swift is left.
+        try "extension Widget {\n    func b() { sanctioned(2) }\n}\n"
+            .write(to: dir.appendingPathComponent("Widget+More.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try grepSwift(
+            in: [dir], patterns: ["sanctioned("],
+            allowedSpellings: ["type:Widget": ["sanctioned("]],
+            excludeLine: { _ in false }), ["Other.swift:2: let c = sanctioned(3)"])
+
+        // The count shape: the child view is counted under its file.
+        try "extension Widget {\n    func b() { sanctioned(2) }\n}\nstruct Child { let d = sanctioned(8) }\n"
+            .write(to: dir.appendingPathComponent("Widget+More.swift"), atomically: true, encoding: .utf8)
+        let counted = try countedListFound(
+            of: "sanctioned(", keyedLike: ["type:Widget": 2, "Other.swift": 1], in: [dir])
+        XCTAssertEqual(counted.found, ["type:Widget": 2, "Other.swift": 1, "Widget+More.swift": 1])
+        XCTAssertTrue(counted.offenders.isEmpty, "\(counted.offenders)")
+    }
+
+    /// **Two type keys may share a file, but never a declaration.** A file
+    /// holding `enum Ruling` and `extension Widget` answers to both keys,
+    /// each for its own lines; a declaration nested inside another type key's
+    /// is an offender.
+    func test_twoTypeKeysShareAFileButNotADeclaration() throws {
+        let dir = try plantedWidgetDir()
+        try """
+        enum Ruling {
+            static func r() { sanctioned(5) }
+        }
+        extension Widget {
+            func b() { sanctioned(2) }
+        }
+        """.write(to: dir.appendingPathComponent("Widget+More.swift"), atomically: true, encoding: .utf8)
+        let shared = try countedListFound(
+            of: "sanctioned(", keyedLike: ["type:Widget": 2, "type:Ruling": 1, "Other.swift": 1],
+            in: [dir])
+        XCTAssertEqual(shared.found, ["type:Widget": 2, "type:Ruling": 1, "Other.swift": 1])
+        XCTAssertTrue(shared.offenders.isEmpty, "\(shared.offenders)")
+
+        try "extension Widget {\n    enum Ruling { static func r() { sanctioned(5) } }\n}\n"
+            .write(to: dir.appendingPathComponent("Widget+More.swift"), atomically: true, encoding: .utf8)
+        let nested = try countedListFound(
+            of: "sanctioned(", keyedLike: ["type:Widget": 2, "type:Ruling": 1], in: [dir])
+        XCTAssertEqual(nested.offenders,
+                       ["Widget+More.swift:1 is claimed by two type keys, `type:Ruling` and `type:Widget`"])
+    }
+
+    /// **(c) A type key that resolves to no file fails the census**, in every
+    /// shape a key can take.
+    func test_aTypeKeyNamingNoFileFailsTheCensus() throws {
+        let dir = try plantedWidgetDir()
+        let message = "type key `type:Nothing` names no file"
+        let spelled = try grepSwift(
+            in: [dir], patterns: ["no-such-spelling"],
+            allowedSpellings: ["type:Nothing": ["x"]],
+            excludeLine: { _ in false })
+        XCTAssertEqual(spelled, [message])
+        let whole = try grepSwift(
+            in: [dir], patterns: ["no-such-spelling"], allowed: ["type:Nothing"],
+            excludeLine: nil, extraOffender: nil)
+        XCTAssertEqual(whole, [message])
+        let counted = try countedListFound(
+            of: "sanctioned(", keyedLike: ["type:Nothing": 1], in: [dir])
+        XCTAssertEqual(counted.offenders, [message])
+    }
+
+    /// **Every production source root, and who scans it.** Keyed by
+    /// repo-relative root, exactly as `SourceTree.productionRoots` names them;
+    /// the value names the censuses that read it. A root missing here is code
+    /// no census was ever pointed at — the moment to decide which must scan it.
+    static let knownSourceRoots: [String: String] = [
+        "Maugham": "sourceDir censuses + admissionRoots/deviceIdentityRoots/postureAskRoots",
+        "MaughamPhone": "TripwirePhoneGrepTest + admissionRoots/deviceIdentityRoots/postureAskRoots",
+        "Packages/MaughamCore/Sources/MaughamCore":
+            "admissionRoots/deviceIdentityRoots + the Packages/MaughamCore/Sources censuses",
+    ]
+
+    /// The roots `productionRoots` names that `knownSourceRoots` does not, and
+    /// the entries `knownSourceRoots` keeps for roots that are gone.
+    static func unclassifiedRoots(_ roots: [String]) -> (unclassified: [String], stale: [String]) {
+        let known = Set(knownSourceRoots.keys), actual = Set(roots)
+        return (actual.subtracting(known).sorted(), known.subtracting(actual).sorted())
+    }
+
+    func test_everyProductionRootIsClassified() {
+        let (unclassified, stale) = Self.unclassifiedRoots(SourceTree.productionRoots)
+        XCTAssertEqual(Set(Self.knownSourceRoots.keys), Set(SourceTree.productionRoots),
+            "a new source root exists: decide which censuses must scan it, then name it here. "
+            + "Unclassified: \(unclassified); named here but gone: \(stale)")
+    }
+
+    /// The control: a planted `Packages/Fake/Sources/Fake` is a root nobody
+    /// classified, and is reported by name.
+    func test_anUnclassifiedSourceRootIsReported() throws {
+        let base = TestTemp.root.appendingPathComponent("roots-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: base.appendingPathComponent("Packages/Fake/Sources/Fake"),
+            withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: base.appendingPathComponent("Packages/MaughamCore/Sources/MaughamCore"),
+            withIntermediateDirectories: true)
+        let (unclassified, stale) = Self.unclassifiedRoots(SourceTree.productionRoots(base: base))
+        XCTAssertEqual(unclassified, ["Packages/Fake/Sources/Fake"])
+        XCTAssertEqual(stale, [])
+    }
+
+    /// A planted directory holding `A.swift` and nothing else.
+    private func plantedScopeDir() throws -> URL {
+        let dir = TestTemp.root.appendingPathComponent("scope-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try "let a = 1\n".write(
+            to: dir.appendingPathComponent("A.swift"), atomically: true, encoding: .utf8)
+        return dir
     }
 
     // MARK: - Op-log filename parsing tripwire
@@ -721,10 +1066,12 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: tmp.appendingPathComponent("RoundEditor.swift"),
                   atomically: true, encoding: .utf8)
 
+        // The planted tree holds only some of each census's scope, so the
+        // scoped files it lacks are reported missing; this control counts hits.
         let memoryHits = try grepSwift(
             in: tmp, files: Self.checkReaderFiles,
             patterns: ["activePassMemory"],
-            excludeLine: { self.commentLine($0) })
+            excludeLine: { self.commentLine($0) }).filter { !$0.hasPrefix("MISSING SCOPE:") }
         XCTAssertEqual(memoryHits.count, 1,
             "Self-check: the planted read should be the one caught, and not the "
             + "comment. Got:\n" + memoryHits.joined(separator: "\n"))
@@ -733,7 +1080,7 @@ final class TripwireGrepTests: XCTestCase {
         let seatHits = try grepSwift(
             in: tmp, files: Self.roundEditorFiles,
             patterns: ["effectiveCoach"],
-            excludeLine: { self.commentLine($0) })
+            excludeLine: { self.commentLine($0) }).filter { !$0.hasPrefix("MISSING SCOPE:") }
         XCTAssertEqual(seatHits.count, 1,
             "Self-check: the planted seat read should be caught, and not the "
             + "comment. Got:\n" + seatHits.joined(separator: "\n"))
@@ -1696,12 +2043,14 @@ final class TripwireGrepTests: XCTestCase {
         }
         """.write(to: planted, atomically: true, encoding: .utf8)
 
+        // The planted tree holds one of the scoped files, so the rest are
+        // reported missing; this control counts hits.
         let offenders = try grepSwift(
             in: tmp,
             files: userContentMoverFiles,
             patterns: userContentMoverPatterns,
             excludeLine: { [self] in isInternalMoveLine($0) }
-        )
+        ).filter { !$0.hasPrefix("MISSING SCOPE:") }
         // The bare oldURL→newURL move fires; the marked internal move is excluded.
         XCTAssertEqual(offenders.count, 1,
             "Self-check expected exactly the non-staging move to fire. Got:\n"
@@ -6191,32 +6540,78 @@ final class TripwireGrepTests: XCTestCase {
     /// `DetailPaneToggle.swift` are init-parameter captures for a subview
     /// reading the persona it was handed, not a place that moves anything.
     func test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites() throws {
-        let fm = FileManager.default
-        guard let walker = fm.enumerator(at: sourceDir, includingPropertiesForKeys: nil) else {
-            XCTFail("could not enumerate \(sourceDir)"); return
-        }
-        var offendersByFile: [String: [String]] = [:]
-        for case let url as URL in walker where url.pathExtension == "swift" {
-            let name = url.lastPathComponent
-            if name == "UIState.swift" { continue }
-            let text = try String(contentsOf: url, encoding: .utf8)
-            for line in SourceScan.codeLines(of: text) {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard Self.isPersonaStateWrite(trimmed) else { continue }
-                if trimmed == "self.persona = persona" { continue }   // init capture
-                offendersByFile[name, default: []].append(trimmed)
-            }
-        }
+        let (bySite, unresolved, offendersByFile) = try personaDecisionSites(in: sourceDir)
+        XCTAssertTrue(unresolved.isEmpty, "persona decision sites: \(unresolved)")
         XCTAssertEqual(
-            Set(offendersByFile.keys),
-            ["ManuscriptNavigation.swift", "CanvasClaudeArrivalModifier.swift",
-             "ProjectWindow.swift", "TreeTravel.swift"],
+            Set(bySite.keys), Self.personaDecisionSites,
             "a new file writes the window's persona directly — either route it "
             + "through ManuscriptNavigation.go / PersonaModifier, or if it is a "
             + "genuinely new sanctioned decision site, add it here by name "
             + "rather than widening the census silently. Found:\n"
             + offendersByFile.map { "\($0.key): \($0.value.joined(separator: " / "))" }
                 .sorted().joined(separator: "\n"))
+    }
+
+    /// The closed set. A type key claims its type's DECLARATIONS: a write in a
+    /// child view sharing a file with `extension ProjectWindow` answers under
+    /// that file's own name, and fails the census. `PersonaModifier` (the
+    /// `.maughamSetPersona` handler, the one sanctioned direct choice) lives in
+    /// `ProjectWindow.swift` beside the window, so it is named by its own type.
+    static let personaDecisionSites: Set<String> = [
+        "ManuscriptNavigation.swift", "CanvasClaudeArrivalModifier.swift",
+        "type:ProjectWindow", "type:PersonaModifier", "TreeTravel.swift",
+    ]
+
+    /// Every persona write under `dir`, folded into `personaDecisionSites`'
+    /// keys (`bySite`), plus each file's raw writes for the failure message.
+    private func personaDecisionSites(in dir: URL) throws
+        -> (bySite: [String: [String]], unresolved: [String], offendersByFile: [String: [String]]) {
+        let walker = try XCTUnwrap(
+            FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil))
+        var offendersByFile: [String: [String]] = [:]
+        var hits: [(hit: SourceTree.Hit, value: [String])] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let name = url.lastPathComponent
+            if name == "UIState.swift" { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for line in SourceScan.numberedCodeLines(of: text) {
+                let trimmed = line.text.trimmingCharacters(in: .whitespaces)
+                guard Self.isPersonaStateWrite(trimmed) else { continue }
+                if trimmed == "self.persona = persona" { continue }   // init capture
+                offendersByFile[name, default: []].append(trimmed)
+                hits.append((SourceTree.Hit(file: name, line: line.number), [trimmed]))
+            }
+        }
+        let (bySite, unresolved) = SourceTree.foldingIntoTypeKeys(
+            hits, keyedLike: Self.personaDecisionSites, in: [dir], combine: +)
+        return (bySite, unresolved, offendersByFile)
+    }
+
+    /// **The type key claims the window's declarations, not its files**
+    /// (plan 2 final review, I1). A persona write inside `extension
+    /// ProjectWindow` answers as `type:ProjectWindow`; one in a child view
+    /// that shares the file answers under the FILE, which is not a site.
+    func test_personaDecisionCensusCatchesAWriteInAChildViewSharingTheWindowsFile() throws {
+        let dir = try SourceTree.plantedTree([
+            "Views/ProjectWindow.swift": "struct ProjectWindow {\n    func a() { persona = .plan }\n}\n",
+            "Views/ProjectWindow+Columns.swift": """
+            extension ProjectWindow {
+                func b() { persona = .author }
+            }
+
+            struct ChildInspector {
+                func c() { persona = .review }
+            }
+            """,
+        ]).appendingPathComponent("Views")
+        let inside = try personaDecisionSites(in: dir)
+        XCTAssertEqual(Set(inside.bySite["type:ProjectWindow"] ?? []),
+                       ["func a() { persona = .plan }", "func b() { persona = .author }"],
+                       "both writes inside the window's declarations fold into the key")
+        XCTAssertEqual(inside.bySite["ProjectWindow+Columns.swift"], ["func c() { persona = .review }"],
+                       "the child view's write is the file's own, not the window's")
+        XCTAssertFalse(Set(inside.bySite.keys).isSubset(of: Self.personaDecisionSites),
+                       "so the census fails on it")
     }
 
     /// A line writes the persona state if it assigns through one of the three
@@ -6298,6 +6693,148 @@ final class TripwireGrepTests: XCTestCase {
             ["static func go() { persona.wrappedValue = .author }"],
             "the sanctioned file still reports its own write — the closed-set "
             + "test is what allows it, not this census")
+    }
+
+    // MARK: - A view asks a persona predicate, never a persona name (foundations plan 4 Task 6)
+
+    /// One allowance: a FILE and the exact SPELLING that may compare a persona
+    /// there, with the reason it is not a gate a predicate should answer.
+    struct PersonaComparisonAllowance {
+        let file: String
+        let spelling: String
+        let reason: String
+    }
+
+    /// **File plus spelling, an array with a reason each — count the array,
+    /// never a prose number about it.** Every other persona comparison in
+    /// `Maugham/Views` is a gate, and a gate asks a named `Persona` predicate
+    /// (`centresTheCanvas`, `showsPaletteWall`, `showsIntentStrip`,
+    /// `showsExports`, …), because a name compared at four sites reads the same
+    /// at all four and drifts at the fifth.
+    static let personaComparisonAllowed: [PersonaComparisonAllowance] = [
+        PersonaComparisonAllowance(
+            file: "AssistantColumn.swift",
+            spelling: "old.persona == new.persona",
+            reason: "compares two SNAPSHOTS of the window's persona to tell a "
+                + "pane change from a persona switch (`paneChangeEndsTheStudy`); "
+                + "it names no persona, so there is no predicate it could ask"),
+    ]
+
+    /// `persona ==`, `persona != .x` / `persona != Persona.x`, and the same two
+    /// through a binding (`persona.wrappedValue ==` / `!=`) — the shapes a
+    /// name-gate takes. `persona != nil` is not a gate and is not matched.
+    /// **Known limits**: `candidate == persona` (the picker's own selection
+    /// test) and a persona compared from the other side (`.plan == persona`)
+    /// are not matched, nor are `switch persona` / `case .plan` and
+    /// `[…].contains(persona)` — a gate spelled any of those escapes.
+    static let personaComparisonPattern = try! NSRegularExpression(
+        pattern: #"\bpersona\s*==|\bpersona\s*!=\s*(\.|Persona\.)|\bpersona\.wrappedValue\s*(==|!=)"#)
+
+    /// Every persona comparison under `root`'s `Maugham/Views` that no
+    /// allowance admits, as `"<path>: <line>"`, plus every allowance that
+    /// admitted nothing (a stale entry is a hole someone can walk through).
+    /// Read through the source mask, so a comment or a string naming
+    /// `persona == .plan` is not a hit.
+    static func personaComparisonOffenders(
+        base: URL = SourceTree.repoRoot,
+        allowed: [PersonaComparisonAllowance] = personaComparisonAllowed
+    ) throws -> (offenders: [String], unused: [String]) {
+        var used = Set<Int>()
+        var offenders: [String] = []
+        for file in try SourceTree.maskedSources(under: "Maugham/Views", base: base) {
+            let name = (file.path as NSString).lastPathComponent
+            let masked = String(decoding: file.masked, as: UTF8.self)
+                .split(separator: "\n", omittingEmptySubsequences: false)
+            let raw = file.text.split(separator: "\n", omittingEmptySubsequences: false)
+            for index in masked.indices {
+                let line = String(masked[index])
+                let range = NSRange(line.startIndex..., in: line)
+                guard personaComparisonPattern.firstMatch(in: line, range: range) != nil
+                else { continue }
+                let rawLine = raw[index].trimmingCharacters(in: .whitespaces)
+                if let hit = allowed.indices.first(where: {
+                    allowed[$0].file == name && rawLine.contains(allowed[$0].spelling)
+                }) {
+                    used.insert(hit)
+                    continue
+                }
+                offenders.append("\(file.path): \(rawLine)")
+            }
+        }
+        let unused = allowed.indices.filter { !used.contains($0) }
+            .map { "\(allowed[$0].file): \(allowed[$0].spelling)" }
+        return (offenders, unused)
+    }
+
+    /// **No view gates on a persona's NAME.** Before this census the window
+    /// asked `persona != .plan` for the palette wall, `IntentStrip` asked
+    /// `persona == .author` twice and both binder toggles asked `persona !=
+    /// .plan` for the Exports footer; each is a named predicate now
+    /// (`Persona.showsPaletteWall`, `.showsIntentStrip`, `.showsExports`).
+    func test_noViewComparesAPersonaByName() throws {
+        let result = try Self.personaComparisonOffenders()
+        XCTAssertTrue(result.offenders.isEmpty,
+            "A view compares the persona by name. Ask a named `Persona` predicate "
+            + "(an exhaustive switch in `Persona.swift`) instead, or — if the "
+            + "comparison is not a gate — add a FILE plus SPELLING allowance "
+            + "with its reason. Offenders:\n" + result.offenders.joined(separator: "\n"))
+        XCTAssertTrue(result.unused.isEmpty,
+            "An allowance admits nothing any more — remove it: \(result.unused)")
+        for allowance in Self.personaComparisonAllowed {
+            XCTAssertFalse(allowance.reason.isEmpty, "\(allowance.file) carries no reason")
+        }
+    }
+
+    /// The control: planted name-gates of both shapes fire; a comment, a
+    /// string, the picker's `candidate == persona` and a predicate do not; the
+    /// allowed spelling passes in its own FILE and fires under any other name;
+    /// and an allowance whose spelling is gone is reported as unused.
+    func test_thePersonaComparisonCensusFiresOnPlantedOffenders() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/RogueStrip.swift": """
+            struct RogueStrip {
+                // persona == .author would be the old gate, in prose.
+                let label = "persona != .plan"
+                func a(persona: Persona) -> Bool { persona == .author }
+                func b(persona: Persona) -> Bool { persona != .plan }
+                func c(box: Box) -> Bool { box.persona==.review }
+                func d(candidate: Persona, persona: Persona) -> Bool { candidate == persona }
+                func e(persona: Persona) -> Bool { persona.showsExports }
+                func g(persona: Persona) -> Bool { persona != Persona.review }
+                func h(persona: Binding<Persona>) -> Bool { persona.wrappedValue == .plan }
+                func i(persona: Binding<Persona>) -> Bool { persona.wrappedValue != .plan }
+                func j(persona: Persona?) -> Bool { persona != nil }
+            }
+            """,
+            "Maugham/Views/AssistantColumn.swift": """
+            struct AssistantColumn {
+                static func f(old: S, new: S) -> Bool { old.persona == new.persona }
+            }
+            """,
+            "Maugham/Views/Elsewhere/NotTheAssistant.swift": """
+            struct NotTheAssistant {
+                static func f(old: S, new: S) -> Bool { old.persona == new.persona }
+            }
+            """,
+        ])
+        let planted = try Self.personaComparisonOffenders(base: base)
+        XCTAssertEqual(planted.offenders.sorted(), [
+            "Maugham/Views/Elsewhere/NotTheAssistant.swift: static func f(old: S, new: S) -> Bool { old.persona == new.persona }",
+            "Maugham/Views/RogueStrip.swift: func a(persona: Persona) -> Bool { persona == .author }",
+            "Maugham/Views/RogueStrip.swift: func b(persona: Persona) -> Bool { persona != .plan }",
+            "Maugham/Views/RogueStrip.swift: func c(box: Box) -> Bool { box.persona==.review }",
+            "Maugham/Views/RogueStrip.swift: func g(persona: Persona) -> Bool { persona != Persona.review }",
+            "Maugham/Views/RogueStrip.swift: func h(persona: Binding<Persona>) -> Bool { persona.wrappedValue == .plan }",
+            "Maugham/Views/RogueStrip.swift: func i(persona: Binding<Persona>) -> Bool { persona.wrappedValue != .plan }",
+        ].sorted(), "every shape fires, nothing else does, and the allowance is by FILE")
+        XCTAssertEqual(planted.unused, [], "the planted AssistantColumn used its allowance")
+
+        let stale = try Self.personaComparisonOffenders(
+            base: base,
+            allowed: Self.personaComparisonAllowed + [PersonaComparisonAllowance(
+                file: "RogueStrip.swift", spelling: "persona == .gone", reason: "planted")])
+        XCTAssertEqual(stale.unused, ["RogueStrip.swift: persona == .gone"],
+                       "an allowance that admits nothing is reported")
     }
 
     // MARK: - Canvas zoom rendering guard (tripwire 25, ADR 0026)
@@ -7199,18 +7736,24 @@ final class TripwireGrepTests: XCTestCase {
     /// Comments are stripped first (`SourceScan.codeLines`), so a doc comment
     /// naming the call is not the call.
     func test_theTranslationRevealIsPostedByTheReportArmAndHandledByTheWindow() throws {
-        let source = try String(
-            contentsOf: sourceDir.appendingPathComponent("Views/ProjectWindow.swift"),
-            encoding: .utf8)
+        // By type and by symbol (foundations plan 2): the arm is read from
+        // every file declaring `ProjectWindow`, and the modifier — a struct of
+        // its own beside the window — from its one declaration, wherever a
+        // split puts it. Both lookups throw when they find nothing.
+        // The arm is scoped file by file, so its case-to-case slice never
+        // runs from one window file into the next.
+        let sources = try SourceTree.windowSources()
+        let modifier = try SourceTree.declaration(
+            named: "struct TranslationReviewModifier", under: "Maugham")
 
-        XCTAssertTrue(Self.reportArmPostsTheReveal(in: source),
+        XCTAssertTrue(sources.contains(where: Self.reportArmPostsTheReveal(in:)),
             "the round report's `onReveal` must call TranslationReveal.post — "
             + "without it the report's reveal rows are the Task 3 stub "
             + "(`onReveal: { _ in }`) and a click does nothing at all. It "
             + "belongs in the `case .translationRound(let round):` arm of "
             + "publishCentre's switch in ProjectWindow.body.")
 
-        XCTAssertTrue(Self.translationReviewModifierHandlesTheReveal(in: source),
+        XCTAssertTrue(Self.translationReviewModifierHandlesTheReveal(in: modifier),
             "TranslationReviewModifier must handle .maughamRevealTranslation — "
             + "it is the only thing in the window that knows which chapter is "
             + "open, so it is where the reveal's plan (.now vs .afterSelecting) "
@@ -7231,7 +7774,7 @@ final class TripwireGrepTests: XCTestCase {
                     // A comment naming TranslationReveal.post( is not the call.
                     TranslationRoundReportHost(
                         round: round, store: store,
-                        onClose: { publishSelectedRound = nil },
+                        onClose: { publishCentre.clearRound() },
                         onReveal: { _ in })
                 case .designProposal(let proposal):
                     DesignGateView(proposal: proposal, onReveal: {
@@ -7698,16 +8241,17 @@ final class TripwireGrepTests: XCTestCase {
     /// reader that hands a seal line to an element decoder reports a healthy
     /// file as damaged. The claim was true when the milestone landed, which is
     /// exactly when a census is cheap.
+    /// The one recogniser's home, by type: it follows `OpLogChain` into any
+    /// file the type is split across.
+    static let sealLineAllowed: Set<String> = ["type:OpLogChain"]
+
     func test_sealLinesAreRecognisedInOpLogChainOnly() throws {
-        var offenders: [String] = []
-        for root in deviceIdentityRoots {
-            offenders += try grepSwift(
-                in: root,
-                patterns: [],
-                allowed: ["OpLogChain.swift"],
-                excludeLine: Self.sealKeyExcludeLine,
-                extraOffender: Self.isSealKeyLine)
-        }
+        let offenders = try grepSwift(
+            in: deviceIdentityRoots,
+            patterns: [],
+            allowed: Self.sealLineAllowed,
+            excludeLine: Self.sealKeyExcludeLine,
+            extraOffender: Self.isSealKeyLine)
         XCTAssertTrue(offenders.isEmpty,
             "A production file outside OpLogChain.swift spells the seal line's "
             + "wire key. `OpLogChain.isSealLine` is the ONE recogniser and "
@@ -7748,12 +8292,14 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(offenders.contains(where: { $0.contains("let escaped") }))
         XCTAssertTrue(offenders.contains(where: { $0.contains("let raw") }))
 
+        // The allowance is the TYPE's: the planted file must declare it.
         try fm.moveItem(at: tmp.appendingPathComponent("SecondSealReader.swift"),
                         to: tmp.appendingPathComponent("OpLogChain.swift"))
+        try Self.declare("OpLogChain", in: tmp.appendingPathComponent("OpLogChain.swift"))
         let allowed = try grepSwift(
-            in: tmp,
+            in: [tmp],
             patterns: [],
-            allowed: ["OpLogChain.swift"],
+            allowed: Self.sealLineAllowed,
             excludeLine: Self.sealKeyExcludeLine,
             extraOffender: Self.isSealKeyLine)
         XCTAssertTrue(allowed.isEmpty,
@@ -8005,11 +8551,13 @@ final class TripwireGrepTests: XCTestCase {
     /// The KEYLESS sites, by file and by spelling. Each holds no key to judge
     /// by, or must not widen past this device's own hand:
     ///
-    /// - `OpLogStore.swift` — `trusted: { _ in false }` three times, each the
-    ///   no-table arm: the keyless reader (`ProjectIntegrity.check`, which
-    ///   passes no table, in `classifyTail`), the fallback walk of an
-    ///   unsettled segment's inner seals (`classifySegment`), and the mark
-    ///   sweep over a sidecar or manifest (`verificationForPositions`). All
+    /// - `type:OpLogClassifier` (today `OpLogClassifier.swift`) — `trusted: { _ in false }`
+    ///   once: `OpLogClassifier.walk`'s no-table arm, the ONE verify walk
+    ///   (foundations plan 6, Task 4). Three callers reach it: the keyless
+    ///   reader of a live tail (`ProjectIntegrity.check`, which passes no
+    ///   table), the fallback walk of an unsettled segment's inner seals, and
+    ///   `StreamPositions.verificationForPositions` — the mark sweep's walk of
+    ///   a translation sidecar or inbox manifest when no table is held. All
     ///   judge nobody, which is what P1 did for every caller.
     /// - `JSONLAppendStore.swift` — `trusted: { chain.trust($0) == .mine }`:
     ///   the chained WRITE, whose rewrite assumes a prefix. ADR 0012 gives the
@@ -8017,10 +8565,10 @@ final class TripwireGrepTests: XCTestCase {
     ///   never a hold, and the write path must not widen past `.mine`.
     ///
     /// A spelling rather than a bare filename, so a NEW `trusted:` closure in
-    /// either file fires. A reflow that splits one of these across two lines
+    /// any allow-listed file fires. A reflow that splits one of these across two lines
     /// fires too — which is the moment to re-read the rule, not route around it.
     static let trustClosureAllowedSpellings: [String: Set<String>] = [
-        "OpLogStore.swift": ["trusted: { _ in false }"],
+        "type:OpLogClassifier": ["trusted: { _ in false }"],
         "JSONLAppendStore.swift": ["trusted: { chain.trust($0) == .mine }"],
     ]
 
@@ -8034,6 +8582,13 @@ final class TripwireGrepTests: XCTestCase {
     /// census whose whole subject is ONE file's discipline
     /// (`test_theSilentAdmissionNarrowsNobody`, P3b Task 10), where the
     /// patterns are ordinary Swift that every other file uses legitimately.
+    /// A name in `onlyFiles` that no root holds is itself an offender
+    /// (`missingScope`).
+    ///
+    /// A key of `allowedSpellings` may be `type:<TypeName>` — every file
+    /// declaring that type, resolved across all of `roots` before the walk
+    /// (`SourceTree.expandingTypeKeys`); one that resolves to no file is an
+    /// offender.
     private func grepSwift(
         in roots: [URL],
         patterns: [String],
@@ -8041,32 +8596,43 @@ final class TripwireGrepTests: XCTestCase {
         excludeLine: @escaping (String) -> Bool,
         onlyFiles: Set<String>? = nil
     ) throws -> [String] {
-        var offenders: [String] = []
+        let (allowance, unresolved) = SourceTree.expandingTypeKeys(allowedSpellings, in: roots)
+        var offenders = unresolved
+        var seen: Set<String> = []
         for root in roots {
+            if let onlyFiles {
+                if let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) {
+                    for case let url as URL in walker
+                    where url.pathExtension == "swift" && onlyFiles.contains(url.lastPathComponent) {
+                        seen.insert(url.lastPathComponent)
+                    }
+                }
+            }
             offenders += try grepSwift(
                 in: root,
                 patterns: [],
                 excludeLine: excludeLine,
                 extraOffender: nil,
-                perFile: { name, line in
+                perFile: { name, number, line in
                     if let onlyFiles, !onlyFiles.contains(name) { return false }
                     guard patterns.contains(where: { line.contains($0) }) else { return false }
-                    let allowed = allowedSpellings[name] ?? []
+                    let allowed = allowance.spellings(file: name, line: number)
                     return !allowed.contains(where: { line.contains($0) })
                 })
         }
+        if let onlyFiles { offenders += Self.missingScope(onlyFiles, seen: seen) }
         return offenders
     }
 
-    /// `grepSwift` with a predicate that sees the FILE NAME as well as the
-    /// line. The existing overloads cannot: their allow-list is whole-file and
+    /// `grepSwift` with a predicate that sees the FILE NAME and the 1-based
+    /// LINE NUMBER as well as the line. The existing overloads cannot: their allow-list is whole-file and
     /// their `extraOffender` sees a line with no idea where it came from.
     private func grepSwift(
         in dir: URL,
         patterns: [String],
         excludeLine: ((String) -> Bool)?,
         extraOffender: ((String) -> Bool)?,
-        perFile: (String, String) -> Bool
+        perFile: (String, Int, String) -> Bool
     ) throws -> [String] {
         let fm = FileManager.default
         guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
@@ -8081,7 +8647,7 @@ final class TripwireGrepTests: XCTestCase {
                 if let exclude = excludeLine, exclude(lineStr) { continue }
                 var hit = patterns.contains { lineStr.contains($0) }
                 if !hit, let extra = extraOffender { hit = extra(lineStr) }
-                if !hit { hit = perFile(name, lineStr) }
+                if !hit { hit = perFile(name, i + 1, lineStr) }
                 if hit {
                     offenders.append("\(name):\(i + 1): "
                         + lineStr.trimmingCharacters(in: .whitespaces))
@@ -8108,9 +8674,9 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(offenders.isEmpty,
             "A production file decides trust without a `TrustTable`. The walk "
             + "takes a `TrustVerdict`; the Bool `trusted:` overload is P1's "
-            + "shape and survives at three keyless sites only (two in "
-            + "OpLogStore.swift, one in JSONLAppendStore.swift), each named in "
-            + "`trustClosureAllowedSpellings` with the reason. "
+            + "shape and survives only at the keyless sites named in "
+            + "`trustClosureAllowedSpellings` with the reason (counted by "
+            + "`typeAllowanceBounds`). "
             + "`ChainPolicy.trustedFingerprints` is gone. Offenders:\n"
             + offenders.joined(separator: "\n"))
     }
@@ -8209,7 +8775,7 @@ final class TripwireGrepTests: XCTestCase {
     /// `RegistryWriter.swift` and `RegistryWriter+Restore.swift` are the verbs'
     /// own files and are not callers.
     static let registryWriterCallers: Set<String> = [
-        "RegistryPresence.swift", "RegistryAdmission.swift", "RegistryCache.swift",
+        "RegistryPresence.swift", "type:RegistryAdmission", "RegistryCache.swift",
         "RegistryWriter.swift", "RegistryWriter+Restore.swift",
     ]
 
@@ -8224,14 +8790,12 @@ final class TripwireGrepTests: XCTestCase {
     /// reaching the rule, and what it produces is a perfectly valid record
     /// nobody was entitled to write.
     func test_theRegistrysWritersAreThreeFiles() throws {
-        var offenders: [String] = []
-        for root in admissionRoots {
-            offenders += try grepSwift(
-                in: root,
-                patterns: Self.registryWriterVerbs,
-                allowed: Self.registryWriterCallers,
-                excludeLine: Self.admissionExcludeLine)
-        }
+        let offenders = try grepSwift(
+            in: admissionRoots,
+            patterns: Self.registryWriterVerbs,
+            allowed: Self.registryWriterCallers,
+            excludeLine: Self.admissionExcludeLine,
+            extraOffender: nil)
         XCTAssertTrue(offenders.isEmpty,
             "A production file outside RegistryPresence.swift, "
             + "RegistryAdmission.swift and RegistryCache.swift writes a "
@@ -8301,11 +8865,13 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: tmp.appendingPathComponent("SecondTrustOpinion.swift"),
                   atomically: true, encoding: .utf8)
 
-        let trust = try grepSwift(
+        // No planted file declares `OpLogClassifier` yet, so its type key is
+        // (correctly) unresolved here; the control is about the four decisions.
+        let trust = Self.dropping(unplanted: ["type:OpLogClassifier"], from: try grepSwift(
             in: [tmp],
             patterns: Self.trustClosurePatterns,
             allowedSpellings: Self.trustClosureAllowedSpellings,
-            excludeLine: Self.admissionExcludeLine)
+            excludeLine: Self.admissionExcludeLine))
         XCTAssertEqual(trust.count, 4,
             "Self-check: the four planted decisions should be caught, and "
             + "neither the comment nor the table-built walk. Caught:\n"
@@ -8315,13 +8881,22 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(trust.contains(where: { $0.contains("let member") }))
         XCTAssertTrue(trust.contains(where: { $0.contains("let test") }))
 
-        // The allow-list is a FILE plus a SPELLING: the two keyless sites pass
-        // under their own names, a fourth one in the same file does not.
+        // The allow-list is a TYPE plus a SPELLING: the keyless walk passes
+        // inside the keyed type's declaration, a new closure there does not,
+        // and a LOOKALIKE-named type is not the keyed one — its keyless line
+        // fires, because the key claims `OpLogClassifier`'s declarations and
+        // nothing whose name merely starts the same way.
         try """
         let keyless = chain.verify(bytes: data, trusted: { _ in false })
         let widened = chain.verify(bytes: data, trusted: { _ in true })
-        """.write(to: tmp.appendingPathComponent("OpLogStore.swift"),
+        """.write(to: tmp.appendingPathComponent("OpLogClassifier.swift"),
                   atomically: true, encoding: .utf8)
+        try Self.declare("OpLogClassifier", in: tmp.appendingPathComponent("OpLogClassifier.swift"))
+        try """
+        let lookalike = chain.verify(bytes: data, trusted: { _ in false })
+        """.write(to: tmp.appendingPathComponent("OpLogClassifierShadow.swift"),
+                  atomically: true, encoding: .utf8)
+        try Self.declare("OpLogClassifierShadow", in: tmp.appendingPathComponent("OpLogClassifierShadow.swift"))
         try """
         let write = chain.verify(bytes: data, trusted: { chain.trust($0) == .mine })
         """.write(to: tmp.appendingPathComponent("JSONLAppendStore.swift"),
@@ -8332,11 +8907,14 @@ final class TripwireGrepTests: XCTestCase {
             patterns: Self.trustClosurePatterns,
             allowedSpellings: Self.trustClosureAllowedSpellings,
             excludeLine: Self.admissionExcludeLine)
-        XCTAssertEqual(allowed.filter { $0.hasPrefix("OpLogStore.swift") }.count, 1,
+        XCTAssertEqual(allowed.filter { $0.hasPrefix("OpLogClassifier.swift") }.count, 1,
             "Self-check: the keyless spelling passes and a NEW closure in the "
-            + "same file does not. Caught:\n" + allowed.joined(separator: "\n"))
+            + "same type does not. Caught:\n" + allowed.joined(separator: "\n"))
         XCTAssertTrue(allowed.contains(where: { $0.contains("let widened") }))
         XCTAssertFalse(allowed.contains(where: { $0.contains("let keyless") }))
+        XCTAssertTrue(allowed.contains(where: { $0.contains("let lookalike") }),
+            "Self-check: a lookalike-named type's keyless line is NOT allowed. "
+            + "Caught:\n" + allowed.joined(separator: "\n"))
         XCTAssertFalse(allowed.contains(where: { $0.contains("let write") }))
 
         // The registry census, over its own planted file.
@@ -8410,11 +8988,14 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: tmp.appendingPathComponent("FourthRegistryWriter.swift"),
                   atomically: true, encoding: .utf8)
 
-        let writers = try grepSwift(
-            in: tmp,
+        // Nothing planted declares `RegistryAdmission` yet: its type key is
+        // (correctly) unresolved, and the control is about the four verbs.
+        let writers = Self.dropping(unplanted: ["type:RegistryAdmission"], from: try grepSwift(
+            in: [tmp],
             patterns: Self.registryWriterVerbs,
             allowed: Self.registryWriterCallers,
-            excludeLine: Self.admissionExcludeLine)
+            excludeLine: Self.admissionExcludeLine,
+            extraOffender: nil))
         XCTAssertEqual(writers.count, 4,
             "Self-check: all four write verbs should be caught, and neither the "
             + "comment nor the `directoryURL` read. Caught:\n"
@@ -8424,11 +9005,14 @@ final class TripwireGrepTests: XCTestCase {
 
         try fm.moveItem(at: tmp.appendingPathComponent("FourthRegistryWriter.swift"),
                         to: tmp.appendingPathComponent("RegistryAdmission.swift"))
+        try Self.declare("RegistryAdmission",
+                         in: tmp.appendingPathComponent("RegistryAdmission.swift"))
         let allowedWriters = try grepSwift(
-            in: tmp,
+            in: [tmp],
             patterns: Self.registryWriterVerbs,
             allowed: Self.registryWriterCallers,
-            excludeLine: Self.admissionExcludeLine)
+            excludeLine: Self.admissionExcludeLine,
+            extraOffender: nil)
         XCTAssertTrue(allowedWriters.isEmpty,
             "Self-check: an allow-listed caller is skipped whole. Caught:\n"
             + allowedWriters.joined(separator: "\n"))
@@ -8516,11 +9100,11 @@ final class TripwireGrepTests: XCTestCase {
     /// of every reader in the trust layer — `TrustTable.timeline(forPerson:)`
     /// is built from `Registry.events`, never from `PersonRecord.role`.
     static let permitFieldAllowedFiles: [String: Set<String>] = [
-        "RegistryAdmission.swift": ["standing.role", "standing.scope",
-                                    "standing.pieces", "record.role",
-                                    "record.scope", "record.pieces",
-                                    "person?.role", "person?.scope",
-                                    "person?.pieces"],
+        "type:RegistryAdmission": ["standing.role", "standing.scope",
+                                   "standing.pieces", "record.role",
+                                   "record.scope", "record.pieces",
+                                   "person?.role", "person?.scope",
+                                   "person?.pieces"],
         // The one PARSE reads an EVENT's three strings — and, since P3b Task
         // 5, a person RECORD's, which is `Permit.permit(recordedIn:)`: the
         // current-state convenience, spelled here so a surface drawing a row
@@ -8628,7 +9212,7 @@ final class TripwireGrepTests: XCTestCase {
     static let permitTableAllowed: [String: Set<String>] = [
         "Permit.swift": ["WrittenGroup", "-> Allowed", "Permit.parse(", "Permit(event:"],
         "LocalWritePermit.swift": ["-> Allowed"],
-        "RegistryAdmission.swift": ["Permit.parse(", "Permit(event:"],
+        "type:RegistryAdmission": ["Permit.parse(", "Permit(event:"],
         "PermitTimeline.swift": ["Permit(event:"],
         "TrustEvents.swift": ["Permit(event:"],
     ]
@@ -8660,9 +9244,11 @@ final class TripwireGrepTests: XCTestCase {
     /// count** — the array, never a number in prose (memory: *prose counts are
     /// unmaintainable*).
     ///
-    /// - `OpLogStore.swift` × 2. One is `partitioningByPermit`, the ops door,
+    /// - `type:OpLogClassifier` × 1, summed over the type's files (in
+    ///   `OpLogClassifier.swift` today): `partitioningByPermit`, the ops door,
     ///   itself reached from three sites (the live tail, a settled segment, the
-    ///   fallback walk); one is `verificationForPositions`, the SWEEP that
+    ///   fallback walk).
+    /// - `type:StreamPositions` × 1 — `verificationForPositions`, the SWEEP that
     ///   computes a mark, which has to judge a file exactly as the load judges
     ///   it or the two would cut it in different places.
     /// - `TranslationStore.swift` × 1 — `loadMerged`, every translation
@@ -8675,14 +9261,16 @@ final class TripwireGrepTests: XCTestCase {
     /// opinion about where the permit is judged, and the two would disagree the
     /// first time one of them was changed.
     static let partitionCallSites: [String: Int] = [
-        "OpLogStore.swift": 2,
+        "type:OpLogClassifier": 1,
+        "type:StreamPositions": 1,
         "TranslationStore.swift": 1,
         "JSONLAppendStore.swift": 1,
     ]
 
-    /// `PermitPartition.partition(` per file under `roots`, comments excluded.
-    private func partitionCallCounts(in roots: [URL]) throws -> [String: Int] {
-        var counts: [String: Int] = [:]
+    /// Every `PermitPartition.partition(` under `roots`, comments excluded,
+    /// one per line, for `SourceTree.foldingIntoTypeKeys`.
+    private func partitionCallCounts(in roots: [URL]) throws -> [(hit: SourceTree.Hit, value: Int)] {
+        var counts: [(hit: SourceTree.Hit, value: Int)] = []
         for root in roots {
             let hits = try grepSwift(
                 in: root,
@@ -8690,14 +9278,17 @@ final class TripwireGrepTests: XCTestCase {
                 allowed: [],
                 excludeLine: Self.admissionExcludeLine)
             for hit in hits {
-                counts[String(hit.prefix(while: { $0 != ":" })), default: 0] += 1
+                counts.append((try XCTUnwrap(SourceTree.Hit(offender: hit)), 1))
             }
         }
         return counts
     }
 
     func test_thePartitionsCallSitesAreExactlyTheNamedList() throws {
-        let found = try partitionCallCounts(in: admissionRoots)
+        let (found, unresolved) = SourceTree.foldingIntoTypeKeys(
+            try partitionCallCounts(in: admissionRoots),
+            keyedLike: Self.partitionCallSites.keys, in: admissionRoots, combine: +)
+        XCTAssertTrue(unresolved.isEmpty, "partitionCallSites: \(unresolved)")
         XCTAssertEqual(found, Self.partitionCallSites,
             "The places a line is judged by permit moved. Every read path that "
             + "applies somebody else's lines runs the partition before the "
@@ -8782,13 +9373,30 @@ final class TripwireGrepTests: XCTestCase {
     /// comes in. Fabricating a `LocalWritePermit` anywhere else is answering
     /// that question by hand — and the shape it takes is
     /// `LocalWritePermit(permit: .bookAuthor, …)`, which never refuses.
-    static let localWritePermitPatterns = ["LocalWritePermit(", "func localWritePermit("]
+    ///
+    /// The builder's two entries are counted too (foundations plan 6): they
+    /// take the table as an ARGUMENT, so a Core caller passing `table: nil`
+    /// gets `.bookAuthor` without `registerTable`'s remembered fallback — a
+    /// second route to a permit round the door.
+    static let localWritePermitPatterns = [
+        "LocalWritePermit(", "func localWritePermit(",
+        "LocalWritePermitBuilder.permit(", "LocalWritePermitBuilder.annotationAmendments(",
+    ]
 
-    /// `OpLogStore.swift` mints it (the one function); `LocalWritePermit.swift`
-    /// is its own file and holds the `.unrestricted` value every keyless reader
-    /// and every P1/P2-era test path gets.
+    /// `OpLogStore` declares the one function (the door, never throwing and
+    /// never suspending); `LocalWritePermitBuilder` mints the value behind it
+    /// and declares no door of its own (foundations plan 6 moved the
+    /// construction out of the store, so the store is no longer allowed to
+    /// spell one); `LocalWritePermit.swift` is its own file and holds the
+    /// `.unrestricted` value every keyless reader and every P1/P2-era test
+    /// path gets. Only the store's forwarders call the builder, each passing
+    /// `registerTable()`.
     static let localWritePermitAllowed: [String: Set<String>] = [
-        "OpLogStore.swift": ["LocalWritePermit(", "func localWritePermit("],
+        "type:OpLogStore": [
+            "func localWritePermit(",
+            "LocalWritePermitBuilder.permit(", "LocalWritePermitBuilder.annotationAmendments(",
+        ],
+        "type:LocalWritePermitBuilder": ["LocalWritePermit("],
         "LocalWritePermit.swift": ["LocalWritePermit("],
     ]
 
@@ -8806,6 +9414,155 @@ final class TripwireGrepTests: XCTestCase {
             + "remembered register rather than forgetting it is a reviewer. A "
             + "hand-built one is `.unrestricted` by another name. Offenders:\n"
             + offenders.joined(separator: "\n"))
+    }
+
+    /// **The whole-type allowances (over `OpLogClassifier`,
+    /// `LocalWritePermitBuilder` and the door on `OpLogStore`), bounded by
+    /// count.**
+    ///
+    /// `trustClosureAllowedSpellings` and `localWritePermitAllowed` key the
+    /// classifier and the permit builder by TYPE, so the allowance reaches
+    /// every file declaring it — an `extension LocalWritePermitBuilder` in a
+    /// testing seam compiled into production Core would be the natural home
+    /// for a "testing" hand-built `LocalWritePermit(`. The allow-list cannot tell a
+    /// sanctioned site moved within the type from a NEW one; the count can. A
+    /// site added anywhere in the type fails here, and only a move passes.
+    ///
+    /// - `trusted: { _ in false }` — in `OpLogClassifier`, once:
+    ///   `OpLogClassifier.walk`'s no-table arm, the one verify walk the live
+    ///   tail, the unsettled segment and `verificationForPositions` share
+    ///   (tripwire 39's doc on the allow-list).
+    /// - `LocalWritePermit(` — the five construction sites of
+    ///   `LocalWritePermitBuilder.permit`, the body behind
+    ///   `OpLogStore.localWritePermit(as:documentClass:)` (foundations plan 6
+    ///   moved all five out of the store), plus `LocalWritePermit.swift`'s own
+    ///   `.unrestricted` value.
+    /// - `func localWritePermit(` — the door's two overloads on `OpLogStore`
+    ///   (`as:placement:` and `as:documentClass:startedBy:`). A third is a
+    ///   second door.
+    /// - `LocalWritePermitBuilder.permit(` — those two forwarders, each
+    ///   passing `registerTable()`; the builder's own placement overload calls
+    ///   `permit(` unqualified and is not counted.
+    /// - `LocalWritePermitBuilder.annotationAmendments(` — the store's one
+    ///   `annotationAmendments` forwarder.
+    static let typeAllowanceBounds: [String: [String: Int]] = [
+        "trusted: { _ in false }": ["type:OpLogClassifier": 1],
+        "LocalWritePermit(": ["type:LocalWritePermitBuilder": 5, "LocalWritePermit.swift": 1],
+        "func localWritePermit(": ["type:OpLogStore": 2],
+        "LocalWritePermitBuilder.permit(": ["type:OpLogStore": 2],
+        "LocalWritePermitBuilder.annotationAmendments(": ["type:OpLogStore": 1],
+    ]
+
+    func test_theTypeKeyedOpLogStoreAllowancesAreBoundedByCount() throws {
+        for (pattern, expected) in Self.typeAllowanceBounds {
+            let (found, unresolved) = try countedListFound(
+                of: pattern, keyedLike: expected, in: admissionRoots)
+            XCTAssertTrue(unresolved.isEmpty, "typeAllowanceBounds[\(pattern)]: \(unresolved)")
+            XCTAssertEqual(found, expected,
+                "The sites spelling “\(pattern)” moved. The type-keyed allow-list "
+                + "lets the spelling anywhere in the keyed type's files; this count is "
+                + "what keeps that to the sites already reviewed. A new one is a new "
+                + "keyless decision or a hand-built permit — gate it, or update "
+                + "`typeAllowanceBounds` with its reason. Found: "
+                + "\(found.sorted(by: { $0.key < $1.key }))")
+        }
+    }
+
+    // MARK: - The verify walk's callers are a named list (tripwire 39's decisions)
+
+    /// **Every production call of `OpLogClassifier.walk`, by type and by
+    /// count.** Tripwire 39 counts the keyless SPELLING, and since foundations
+    /// plan 6 that spelling lives once, inside `walk`'s no-table arm — so the
+    /// keyless DECISIONS are the walk's callers. **Each caller is a keyless
+    /// decision wherever it can pass a nil table**, and a new one would take
+    /// the keyless arm without tripwire 39 seeing it.
+    ///
+    /// Counted by the spelling `walk(bytes:`, which every caller writes on one
+    /// line; the declaration breaks it across lines, so it is not counted.
+    ///
+    /// - `type:OpLogClassifier` × 2 — `classifyTail` (the live tail; keyless
+    ///   for `ProjectIntegrity.check`, which passes no table) and
+    ///   `classifySegment`'s fallback walk of an unsettled segment.
+    /// - `type:StreamPositions` × 1 — `verificationForPositions`, the mark
+    ///   sweep's walk of a translation sidecar or inbox manifest.
+    ///
+    /// A MISSING caller is a reader that walks its own way. A NEW one is a
+    /// keyless decision nobody reviewed: name it here with its reason.
+    static let walkCallSites: [String: Int] = [
+        "type:OpLogClassifier": 2,
+        "type:StreamPositions": 1,
+    ]
+
+    static let walkCallPattern = "walk(bytes:"
+
+    func test_theVerifyWalksCallersAreExactlyTheNamedList() throws {
+        let (found, unresolved) = try countedListFound(
+            of: Self.walkCallPattern, keyedLike: Self.walkCallSites, in: admissionRoots)
+        XCTAssertTrue(unresolved.isEmpty, "walkCallSites: \(unresolved)")
+        XCTAssertEqual(found, Self.walkCallSites,
+            "The callers of `OpLogClassifier.walk` moved. Each one is a keyless "
+            + "decision wherever it can pass a nil table — tripwire 39 counts the "
+            + "keyless spelling inside `walk`, so this list is where its callers "
+            + "are reviewed. Update `walkCallSites` with the reason in the same "
+            + "commit, or route the read through an existing caller. Found: "
+            + "\(found.sorted(by: { $0.key < $1.key }))")
+    }
+
+    /// CONTROL: an extra call in a listed type, and a call in an unlisted
+    /// type, each move the count; the declaration and a comment do not.
+    func test_theVerifyWalkCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-walk-selfcheck-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may name walk(bytes: freely.
+        static func walk(
+            bytes: Data, trust: TrustTable?, rememberedHead: String?, url: URL
+        ) -> Verification { fatalError() }
+        func tail() { _ = walk(bytes: b, trust: t, rememberedHead: h, url: u) }
+        func segment() { _ = walk(bytes: b, trust: t, rememberedHead: nil, url: u) }
+        """.write(to: tmp.appendingPathComponent("OpLogClassifier.swift"),
+                  atomically: true, encoding: .utf8)
+        try Self.declare("OpLogClassifier", in: tmp.appendingPathComponent("OpLogClassifier.swift"))
+        try """
+        func sweep() { _ = OpLogClassifier.walk(bytes: b, trust: t, rememberedHead: nil, url: u) }
+        """.write(to: tmp.appendingPathComponent("StreamPositions.swift"),
+                  atomically: true, encoding: .utf8)
+        try Self.declare("StreamPositions", in: tmp.appendingPathComponent("StreamPositions.swift"))
+
+        let (clean, unresolved) = try countedListFound(
+            of: Self.walkCallPattern, keyedLike: Self.walkCallSites, in: [tmp])
+        XCTAssertTrue(unresolved.isEmpty, "\(unresolved)")
+        XCTAssertEqual(clean, Self.walkCallSites,
+            "Self-check: the named callers match, and neither the declaration "
+            + "nor the comment is counted. Found: \(clean)")
+
+        // An unlisted type's call is a new keyless decision.
+        try """
+        func stranger() { _ = OpLogClassifier.walk(bytes: b, trust: nil, rememberedHead: nil, url: u) }
+        """.write(to: tmp.appendingPathComponent("Stranger.swift"),
+                  atomically: true, encoding: .utf8)
+        try Self.declare("Stranger", in: tmp.appendingPathComponent("Stranger.swift"))
+        let (withStranger, _) = try countedListFound(
+            of: Self.walkCallPattern, keyedLike: Self.walkCallSites, in: [tmp])
+        XCTAssertEqual(withStranger["Stranger.swift"], 1, "\(withStranger)")
+        XCTAssertNotEqual(withStranger, Self.walkCallSites)
+        try fm.removeItem(at: tmp.appendingPathComponent("Stranger.swift"))
+
+        // An extra call inside a listed type moves that type's count.
+        try """
+        func third() { _ = walk(bytes: b, trust: nil, rememberedHead: nil, url: u) }
+        """.write(to: tmp.appendingPathComponent("OpLogClassifier+Extra.swift"),
+                  atomically: true, encoding: .utf8)
+        try Self.declare("OpLogClassifier", in: tmp.appendingPathComponent("OpLogClassifier+Extra.swift"))
+        let (withExtra, _) = try countedListFound(
+            of: Self.walkCallPattern, keyedLike: Self.walkCallSites, in: [tmp])
+        XCTAssertEqual(withExtra["type:OpLogClassifier"], 3, "\(withExtra)")
+        XCTAssertNotEqual(withExtra, Self.walkCallSites)
     }
 
     /// A permit compared to a literal rung. Unlike a bare `.reviewer` — also
@@ -9005,11 +9762,14 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: fields.appendingPathComponent("SecondRoleCheck.swift"),
                   atomically: true, encoding: .utf8)
 
-        let fieldHits = try grepSwift(
+        // Each planted tree holds only part of an allow-list's scope, so the
+        // `type:` keys it declares nothing for are (correctly) unresolved —
+        // these controls are about the spellings, and drop exactly those lines.
+        let fieldHits = Self.dropping(unplanted: ["type:RegistryAdmission"], from: try grepSwift(
             in: [fields],
             patterns: Self.permitFieldPatterns,
             allowedSpellings: Self.permitFieldAllowedFiles,
-            excludeLine: Self.admissionExcludeLine)
+            excludeLine: Self.admissionExcludeLine))
         XCTAssertEqual(fieldHits.count, 3,
             "Self-check: the three field reads should be caught and neither the "
             + "comment nor the unrelated `existingItem.role`. Caught:\n"
@@ -9020,11 +9780,11 @@ final class TripwireGrepTests: XCTestCase {
 
         try fm.moveItem(at: fields.appendingPathComponent("SecondRoleCheck.swift"),
                         to: fields.appendingPathComponent("RegistryReader.swift"))
-        let partlyAllowed = try grepSwift(
+        let partlyAllowed = Self.dropping(unplanted: ["type:RegistryAdmission"], from: try grepSwift(
             in: [fields],
             patterns: Self.permitFieldPatterns,
             allowedSpellings: Self.permitFieldAllowedFiles,
-            excludeLine: Self.admissionExcludeLine)
+            excludeLine: Self.admissionExcludeLine))
         XCTAssertEqual(partlyAllowed.count, 2,
             "Self-check: the allow-list is FILE PLUS SPELLING — "
             + "RegistryReader.swift may read `record.role` and is still caught "
@@ -9077,22 +9837,22 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: table.appendingPathComponent("SecondTable.swift"),
                   atomically: true, encoding: .utf8)
 
-        let tableHits = try grepSwift(
+        let tableHits = Self.dropping(unplanted: ["type:RegistryAdmission"], from: try grepSwift(
             in: [table],
             patterns: Self.permitTablePatterns,
             allowedSpellings: Self.permitTableAllowed,
-            excludeLine: Self.admissionExcludeLine)
+            excludeLine: Self.admissionExcludeLine))
         XCTAssertEqual(tableHits.count, 4,
             "Self-check: all four restatement spellings should be caught and "
             + "not the comment. Caught:\n" + tableHits.joined(separator: "\n"))
 
         try fm.moveItem(at: table.appendingPathComponent("SecondTable.swift"),
                         to: table.appendingPathComponent("PermitTimeline.swift"))
-        let timelineAllowed = try grepSwift(
+        let timelineAllowed = Self.dropping(unplanted: ["type:RegistryAdmission"], from: try grepSwift(
             in: [table],
             patterns: Self.permitTablePatterns,
             allowedSpellings: Self.permitTableAllowed,
-            excludeLine: Self.admissionExcludeLine)
+            excludeLine: Self.admissionExcludeLine))
         XCTAssertEqual(timelineAllowed.count, 3,
             "Self-check: PermitTimeline.swift may say `Permit(event:` and is "
             + "still caught declaring a group, an answer or a parse. Caught:\n"
@@ -9126,7 +9886,7 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: sites.appendingPathComponent("AFifthPartitionSite.swift"),
                   atomically: true, encoding: .utf8)
 
-        let plantedSites = try partitionCallCounts(in: [sites])
+        let plantedSites = Self.byFile(try partitionCallCounts(in: [sites]), combine: +)
         XCTAssertEqual(plantedSites, ["AFifthPartitionSite.swift": 2],
             "Self-check: both partition calls are counted, the comment is not, "
             + "and `couldJudge` — which judges nothing — is not. Counted: "
@@ -9147,15 +9907,109 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: write.appendingPathComponent("AHandBuiltPermit.swift"),
                   atomically: true, encoding: .utf8)
 
-        let writeHits = try grepSwift(
-            in: [write],
-            patterns: Self.localWritePermitPatterns,
-            allowedSpellings: Self.localWritePermitAllowed,
-            excludeLine: Self.admissionExcludeLine)
+        let writeHits = Self.dropping(
+            unplanted: ["type:OpLogStore", "type:LocalWritePermitBuilder"],
+            from: try grepSwift(
+                in: [write],
+                patterns: Self.localWritePermitPatterns,
+                allowedSpellings: Self.localWritePermitAllowed,
+                excludeLine: Self.admissionExcludeLine))
         XCTAssertEqual(writeHits.count, 1,
             "Self-check: the fabricated permit is caught and the ASK of the one "
             + "function is not. Caught:\n" + writeHits.joined(separator: "\n"))
         XCTAssertTrue(writeHits.contains(where: { $0.contains("let permit") }))
+
+        // -- 4b. The type keys are per declaration and per spelling
+        // (foundations plan 6): the builder may mint and may not open a second
+        // door; the store may declare the door and may no longer mint; a
+        // lookalike type is admitted nothing.
+        let keyed = tmp.appendingPathComponent("write-keyed")
+        try fm.createDirectory(at: keyed, withIntermediateDirectories: true)
+        let builderFile = keyed.appendingPathComponent("LocalWritePermitBuilder.swift")
+        try """
+        static func permit() -> LocalWritePermit { LocalWritePermit(permit: p, actor: a, documentClass: nil) }
+        public func localWritePermit(as actor: DeviceActor) -> LocalWritePermit { fatalError() }
+        """.write(to: builderFile, atomically: true, encoding: .utf8)
+        try Self.declare("LocalWritePermitBuilder", in: builderFile)
+        let storeFile = keyed.appendingPathComponent("OpLogStore.swift")
+        try """
+        public func localWritePermit(as actor: DeviceActor) -> LocalWritePermit { door() }
+        func minted() -> LocalWritePermit { LocalWritePermit(permit: p, actor: a, documentClass: nil) }
+        """.write(to: storeFile, atomically: true, encoding: .utf8)
+        try Self.declare("OpLogStore", in: storeFile)
+        // A Core file that reaches the builder round the door, either entry.
+        let roundTheDoor = keyed.appendingPathComponent("PostureDoor.swift")
+        try """
+        let p = LocalWritePermitBuilder.permit(as: .author, documentClass: { c }, startedBy: nil, table: nil, in: url)
+        let a = LocalWritePermitBuilder.annotationAmendments(table: nil, from: nil, documentClass: { c })
+        """.write(to: roundTheDoor, atomically: true, encoding: .utf8)
+        let shadowFile = keyed.appendingPathComponent("LocalWritePermitBuilderShadow.swift")
+        try """
+        func shadow() -> LocalWritePermit { LocalWritePermit(permit: p, actor: a, documentClass: nil) }
+        """.write(to: shadowFile, atomically: true, encoding: .utf8)
+        try Self.declare("LocalWritePermitBuilderShadow", in: shadowFile)
+        let keyedHits = try grepSwift(
+            in: [keyed],
+            patterns: Self.localWritePermitPatterns,
+            allowedSpellings: Self.localWritePermitAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(keyedHits.count, 5,
+            "Self-check: the builder's second door, the store's own mint, the "
+            + "lookalike's mint and both calls round the door are caught; the "
+            + "builder's mint and the store's door are not. Caught:\n"
+            + keyedHits.joined(separator: "\n"))
+        XCTAssertTrue(keyedHits.contains(where: {
+            $0.contains("PostureDoor.swift") && $0.contains("LocalWritePermitBuilder.permit(") }))
+        XCTAssertTrue(keyedHits.contains(where: {
+            $0.contains("PostureDoor.swift")
+                && $0.contains("LocalWritePermitBuilder.annotationAmendments(") }))
+        XCTAssertTrue(keyedHits.contains(where: {
+            $0.contains("LocalWritePermitBuilder.swift") && $0.contains("func localWritePermit(") }))
+        XCTAssertTrue(keyedHits.contains(where: {
+            $0.contains("OpLogStore.swift") && $0.contains("func minted") }))
+        XCTAssertTrue(keyedHits.contains(where: {
+            $0.contains("LocalWritePermitBuilderShadow.swift") }))
+
+        // -- 4c. The door and the builder's entries are bounded by count: the
+        // sanctioned shape matches `typeAllowanceBounds`, and a third overload
+        // or a third call round the forwarders moves the count.
+        let bounded = tmp.appendingPathComponent("write-bounded")
+        try fm.createDirectory(at: bounded, withIntermediateDirectories: true)
+        let boundedStore = bounded.appendingPathComponent("OpLogStore.swift")
+        let sanctioned = """
+        // A comment may name func localWritePermit( and LocalWritePermitBuilder.permit(.
+        public func localWritePermit(as a: DeviceActor, placement: ManifestPlacement) -> LocalWritePermit {
+            LocalWritePermitBuilder.permit(as: a, placement: placement, table: registerTable(), in: url) }
+        public func localWritePermit(as a: DeviceActor, documentClass: () -> DocumentClass) -> LocalWritePermit {
+            LocalWritePermitBuilder.permit(as: a, documentClass: documentClass, startedBy: nil, table: registerTable(), in: url) }
+        public func annotationAmendments() -> AnnotationAmendments {
+            LocalWritePermitBuilder.annotationAmendments(table: registerTable(), from: nil, documentClass: { c }) }
+        """
+        try sanctioned.write(to: boundedStore, atomically: true, encoding: .utf8)
+        try Self.declare("OpLogStore", in: boundedStore)
+        let doorBounds = ["func localWritePermit(", "LocalWritePermitBuilder.permit(",
+                          "LocalWritePermitBuilder.annotationAmendments("]
+        for pattern in doorBounds {
+            let expected = try XCTUnwrap(Self.typeAllowanceBounds[pattern])
+            let (found, unresolved) = try countedListFound(
+                of: pattern, keyedLike: expected, in: [bounded])
+            XCTAssertTrue(unresolved.isEmpty, "\(unresolved)")
+            XCTAssertEqual(found, expected,
+                "Self-check: the sanctioned shape matches the bound for “\(pattern)”")
+        }
+        try (sanctioned + """
+
+        public func localWritePermit(as a: DeviceActor) -> LocalWritePermit {
+            LocalWritePermitBuilder.permit(as: a, documentClass: { c }, startedBy: nil, table: nil, in: url) }
+        """).write(to: boundedStore, atomically: true, encoding: .utf8)
+        try Self.declare("OpLogStore", in: boundedStore)
+        for pattern in ["func localWritePermit(", "LocalWritePermitBuilder.permit("] {
+            let expected = try XCTUnwrap(Self.typeAllowanceBounds[pattern])
+            let (found, _) = try countedListFound(of: pattern, keyedLike: expected, in: [bounded])
+            XCTAssertEqual(found["type:OpLogStore"], 3,
+                "Self-check: a third overload / call round the door moves “\(pattern)”: \(found)")
+            XCTAssertNotEqual(found, expected)
+        }
 
         let rungHits = try grepSwift(
             in: [write],
@@ -9317,13 +10171,19 @@ final class TripwireGrepTests: XCTestCase {
         // The one resolution: the table carries the governing snapshot.
         "TrustTable.swift": ["UnsignedSnapshot"],
         // The write side: only a NARROWING event carries a photograph.
-        "RegistryAdmission.swift": ["PermitTimeline.narrows("],
+        "type:RegistryAdmission": ["PermitTimeline.narrows("],
         // The carrier and its readers name the per-LINE fact, never the type.
         "AnnotationOwnership.swift": ["insideTheUnsignedSnapshot"],
-        "OpLogPermitContext.swift": [
+        // The permit builder reads the carrier's resolved set
+        // (`LocalWritePermitBuilder.annotationAmendments`, moved out of the
+        // store by foundations plan 6)…
+        "type:LocalWritePermitBuilder": [
             "insideTheUnsignedSnapshot", "InsideTheUnsignedSnapshot",
         ],
-        "OpLogStore.swift": [
+        // …and the carrier itself, `AmendmentPermits`, records and resolves
+        // it. It shares `OpLogPermitContext.swift` with an `extension
+        // OpLogStore`, and a type key claims DECLARATIONS, so it is named.
+        "type:AmendmentPermits": [
             "insideTheUnsignedSnapshot", "InsideTheUnsignedSnapshot",
         ],
         "PermitPartition.swift": ["InsideTheUnsignedSnapshot"],
@@ -9331,8 +10191,7 @@ final class TripwireGrepTests: XCTestCase {
             "insideTheUnsignedSnapshot", "InsideTheUnsignedSnapshot",
         ],
         // The Mac's two doors name the SWEEP that takes one, not the type.
-        "DocumentStore+Registry.swift": ["sweptUnsignedSnapshot"],
-        "DocumentStore.swift": ["sweptUnsignedSnapshot"],
+        "type:DocumentStore": ["sweptUnsignedSnapshot"],
     ]
 
     func test_theNarrowingPredicateAndTheSnapshotAreInThePermitLayerOnly() throws {
@@ -9367,7 +10226,7 @@ final class TripwireGrepTests: XCTestCase {
         let offenders = try grepSwift(
             in: admissionRoots,
             patterns: [Self.unattributableDecisionPattern],
-            allowedSpellings: ["OpLogChain.swift": [Self.unattributableDecisionPattern]],
+            allowedSpellings: ["type:OpLogChain": [Self.unattributableDecisionPattern]],
             excludeLine: Self.admissionExcludeLine)
         XCTAssertTrue(offenders.isEmpty,
             "A production file outside `OpLogChain` decides whether a file is "
@@ -9462,13 +10321,20 @@ final class TripwireGrepTests: XCTestCase {
     /// convenience field on a book author, which is what an unasked admission
     /// writes; they are allowed by spelling, so `role: "reviewer"` — or any
     /// `scope:` or `pieces:` — fires.
+    ///
+    /// The scope is every file DECLARING `RegistryPresence` (foundations plan
+    /// 2, Task 2), not a file name: split the type into an extension file and
+    /// the census reads the new file too, with the same allowed spelling,
+    /// rather than going quietly blind to it.
     func test_theSilentAdmissionNarrowsNobody() throws {
+        let scope = try Self.silentAdmissionScope(
+            under: SourceTree.productionRoots, base: SourceTree.repoRoot)
         let offenders = try grepSwift(
             in: admissionRoots,
             patterns: ["role:", "scope:", "pieces:"],
-            allowedSpellings: Self.silentAdmissionAllowed,
+            allowedSpellings: scope.allowed,
             excludeLine: Self.admissionExcludeLine,
-            onlyFiles: ["RegistryPresence.swift"])
+            onlyFiles: scope.files)
         XCTAssertTrue(offenders.isEmpty,
             "`RegistryPresence` names a rung. The silent admission is the one "
             + "that shows no sheet, so the only permit it may install is the "
@@ -9477,9 +10343,24 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
-    static let silentAdmissionAllowed: [String: Set<String>] = [
-        "RegistryPresence.swift": [#"role: "author""#],
-    ]
+    /// The one spelling the silent admission may carry, in EVERY file that
+    /// declares `RegistryPresence`: the person record's convenience field on
+    /// a book author.
+    static let silentAdmissionAllowedSpellings: Set<String> = [#"role: "author""#]
+
+    /// The silent-admission census's scope: the basenames of every file under
+    /// `roots` declaring `RegistryPresence` (throws if none does), each
+    /// allowed `silentAdmissionAllowedSpellings`.
+    static func silentAdmissionScope(
+        under roots: [String], base: URL
+    ) throws -> (files: Set<String>, allowed: [String: Set<String>]) {
+        let names = try SourceTree.filesDeclaring("RegistryPresence", under: roots, base: base)
+            .map { ($0 as NSString).lastPathComponent }
+        let files = Set(names)
+        return (files, Dictionary(uniqueKeysWithValues: files.map {
+            ($0, silentAdmissionAllowedSpellings)
+        }))
+    }
 
     /// **The counted lists.** Each is an ARRAY with a count per file, never a
     /// number in prose (memory: *prose counts are unmaintainable*), and each
@@ -9492,12 +10373,13 @@ final class TripwireGrepTests: XCTestCase {
     ///   acknowledgement, so a loss the writer has already put down refuses a
     ///   marking verb for ever.
     /// - `acknowledgedLosses` — the memory that escape is kept in.
-    ///   `OpLogDeviceState` owns it and clears it; `OpLogStore.lostHistory`
+    ///   `OpLogDeviceState` owns it and clears it; `StreamCensus.lostHistory`
     ///   and the pane's count read it. A fourth reader is a second opinion
     ///   about what the writer has been shown.
     /// - `absentStreams` — the *remembered but no file at all* half of the
     ///   loss drawer, which is the commonest thing a marking verb refuses
-    ///   over. One caller, `lostHistory`, plus its own definition.
+    ///   over. One caller, `StreamCensus.lostHistory`, plus its own
+    ///   definition.
     /// - `gateOldBuildsOut` — the schema gate (P3b Task 3). One function,
     ///   reached from every narrowing verb: `changePermit`, the label-wide
     ///   `changePermit(everyRecordOf:)` and the sheet's `admit`. A verb that
@@ -9512,41 +10394,56 @@ final class TripwireGrepTests: XCTestCase {
     ///   together.
     static let countedLists: [String: [String: Int]] = [
         "expectedStreams(": [
-            "DocumentStore+Registry.swift": 5, "OpLogDeviceState.swift": 1,
+            "type:DocumentStore": 5, "OpLogDeviceState.swift": 1,
         ],
         "acknowledgedLosses": [
-            "OpLogDeviceState.swift": 12, "OpLogStore.swift": 1,
-            "DocumentStore+Registry.swift": 1,
+            "OpLogDeviceState.swift": 12, "type:StreamCensus": 1,
+            "type:DocumentStore": 1,
         ],
-        "absentStreams": ["OpLogStore.swift": 2],
+        "absentStreams": ["type:StreamCensus": 2],
         "gateOldBuildsOut": [
-            "DocumentStore+Registry.swift": 3, "DocumentStore.swift": 1,
+            "type:DocumentStore": 4,
         ],
         "schemaVersion = ProjectManifest.currentSchemaVersion": [
-            "DocumentStore+Registry.swift": 2,
+            "type:DocumentStore": 2,
             "ProjectStore+StatementAdoption.swift": 1,
         ],
         "documentStore.sendHeldWordsToInbox(": ["HistoryPane.swift": 1],
     ]
 
-    /// Occurrences of `pattern` per file under `roots`, comments excluded.
+    /// Every line naming `pattern` under `roots`, comments excluded.
     private func occurrences(
         of pattern: String, in roots: [URL]
-    ) throws -> [String: Int] {
-        var counts: [String: Int] = [:]
+    ) throws -> [(hit: SourceTree.Hit, value: Int)] {
+        var counts: [(hit: SourceTree.Hit, value: Int)] = []
         for root in roots {
             for hit in try grepSwift(
                 in: root, patterns: [pattern], allowed: [],
                 excludeLine: Self.admissionExcludeLine) {
-                counts[String(hit.prefix(while: { $0 != ":" })), default: 0] += 1
+                counts.append((try XCTUnwrap(SourceTree.Hit(offender: hit)), 1))
             }
         }
         return counts
     }
 
+    /// Occurrences of `pattern` under `roots`, keyed the way `expected` is:
+    /// a file a `type:` key claims is counted under that key, so the key's
+    /// count is the sum over its files. `offenders` holds every type key that
+    /// resolved to no file.
+    private func countedListFound(
+        of pattern: String, keyedLike expected: [String: Int], in roots: [URL]
+    ) throws -> (found: [String: Int], offenders: [String]) {
+        let (folded, offenders) = SourceTree.foldingIntoTypeKeys(
+            try occurrences(of: pattern, in: roots), keyedLike: expected.keys,
+            in: roots, combine: +)
+        return (folded, offenders)
+    }
+
     func test_theP3bCountedListsAreExactlyTheNamedArrays() throws {
         for (pattern, expected) in Self.countedLists {
-            let found = try occurrences(of: pattern, in: admissionRoots)
+            let (found, unresolved) = try countedListFound(
+                of: pattern, keyedLike: expected, in: admissionRoots)
+            XCTAssertTrue(unresolved.isEmpty, "countedLists[\(pattern)]: \(unresolved)")
             XCTAssertEqual(found, expected,
                 "The production sites naming “\(pattern)” moved. Update "
                 + "`countedLists` with the reason in the same commit, or put "
@@ -9581,11 +10478,13 @@ final class TripwireGrepTests: XCTestCase {
             to: dir.appendingPathComponent("TrustTable.swift"),
             atomically: true, encoding: .utf8)
 
+        // The planted tree declares none of the allow-list's `type:` keys, so
+        // they are (correctly) unresolved; this control is about the spellings.
         XCTAssertEqual(
-            try grepSwift(
+            Self.dropping(unplanted: ["type:RegistryAdmission", "type:LocalWritePermitBuilder", "type:AmendmentPermits", "type:DocumentStore"], from: try grepSwift(
                 in: [dir], patterns: Self.narrowingPatterns,
                 allowedSpellings: Self.narrowingAllowed,
-                excludeLine: Self.admissionExcludeLine).count, 1,
+                excludeLine: Self.admissionExcludeLine)).count, 1,
             "the narrowing predicate fires even in a file allowed the snapshot, "
             + "and the comment is let through")
         XCTAssertEqual(
@@ -9609,23 +10508,42 @@ final class TripwireGrepTests: XCTestCase {
                 allowedSpellings: [:],
                 excludeLine: Self.admissionExcludeLine).count, 1)
 
-        // The silent-admission census, planted under its own filename, with
-        // the one allowed spelling beside a banned one.
+        // The silent-admission census, scoped by TYPE: the type's own file
+        // and an extension of it in a second file, each with the one allowed
+        // spelling beside a banned one. A scope by file name would read the
+        // first and never the second.
         let presence = """
-            let record = PersonRecord(person: p, role: "author")
-            let narrowed = PersonRecord(person: p, role: "reviewer", scope: "pieces")
+            public enum RegistryPresence {
+                let record = PersonRecord(person: p, role: "author")
+                let narrowed = PersonRecord(person: p, role: "reviewer", scope: "pieces")
+            }
             """
         try presence.write(
             to: dir.appendingPathComponent("RegistryPresence.swift"),
             atomically: true, encoding: .utf8)
+        let split = """
+            extension RegistryPresence {
+                let record = PersonRecord(person: p, role: "author")
+                let narrowed = PersonRecord(person: p, role: "reviewer")
+            }
+            """
+        try split.write(
+            to: dir.appendingPathComponent("RegistryPresence+Silent.swift"),
+            atomically: true, encoding: .utf8)
+        let scope = try Self.silentAdmissionScope(
+            under: [dir.lastPathComponent], base: dir.deletingLastPathComponent())
+        XCTAssertEqual(scope.files, ["RegistryPresence.swift", "RegistryPresence+Silent.swift"],
+            "the scope is every file declaring the type, and only those")
         let rungs = try grepSwift(
             in: [dir], patterns: ["role:", "scope:", "pieces:"],
-            allowedSpellings: Self.silentAdmissionAllowed,
+            allowedSpellings: scope.allowed,
             excludeLine: Self.admissionExcludeLine,
-            onlyFiles: ["RegistryPresence.swift"])
-        XCTAssertEqual(rungs.count, 1,
+            onlyFiles: scope.files)
+        XCTAssertEqual(rungs.count, 2,
             "the book author's own field is allowed by SPELLING and the "
-            + "narrowed one is not: \(rungs)")
+            + "narrowed one is not, in the extension file as in the type's own: \(rungs)")
+        XCTAssertTrue(rungs.contains { $0.hasPrefix("RegistryPresence+Silent.swift:") },
+            "the extension's `role: \"reviewer\"` is caught: \(rungs)")
 
         // And the counted lists: a planted extra call really does move a count.
         let extra = "let more = state.expectedStreams(inRoot: url, writtenBy: nil)"
@@ -9633,7 +10551,7 @@ final class TripwireGrepTests: XCTestCase {
             to: dir.appendingPathComponent("OpLogDeviceState.swift"),
             atomically: true, encoding: .utf8)
         XCTAssertEqual(
-            try occurrences(of: "expectedStreams(", in: [dir]),
+            Self.byFile(try occurrences(of: "expectedStreams(", in: [dir]), combine: +),
             ["OpLogDeviceState.swift": 1],
             "the counter sees the planted call")
     }
@@ -9665,6 +10583,10 @@ final class TripwireGrepTests: XCTestCase {
     /// `writePermit`, so it carries `.allows(.op(` as well; every other line
     /// there is admitted by `localWritePermit` on the same line.
     static let postureAskAllowed: [String: Set<String>] = [
+        // file-scoped: the posture door is THIS file, not the DocumentStore
+        // type. Keyed by type it would admit every spelling in every
+        // `extension DocumentStore` — `RulingPerformer.swift`'s among them,
+        // which below is admitted none.
         "DocumentStore+Posture.swift": Set(postureAskPatterns),
         "Document.swift": ["localWritePermit"],
         "Document+Load.swift": ["localWritePermit", ".allows(.op("],
@@ -9959,7 +10881,8 @@ final class TripwireGrepTests: XCTestCase {
         "Document+Tasks.swift": ["applyRestore(": 1, "deleteParagraph(": 1, "setParagraph(": 1],
         "OpUndoRegistrar.swift": ["setParagraph(": 2],
         "RecoveredHistorySheet.swift": ["insertParagraph(": 1],
-        "ProjectWindow.swift": ["restoreToOpUndoable(": 1],
+        // History's undoable Rewind, inside the window's `RewindModifier`.
+        "type:RewindModifier": ["restoreToOpUndoable(": 1],
         "PartialRestorePicker.swift": ["buildRestoreOp(": 1],
         "TestEditTool.swift": ["setFullText(": 1],
     ]
@@ -9971,8 +10894,10 @@ final class TripwireGrepTests: XCTestCase {
 
     /// Call sites under `roots`, per file and per SPELLING — every spelling a
     /// line carries is counted (no production line carries two today).
-    private func manuscriptWriterCallCounts(in roots: [URL]) throws -> [String: [String: Int]] {
-        var counts: [String: [String: Int]] = [:]
+    private func manuscriptWriterCallCounts(
+        in roots: [URL]
+    ) throws -> [(hit: SourceTree.Hit, value: [String: Int])] {
+        var counts: [(hit: SourceTree.Hit, value: [String: Int])] = []
         for root in roots {
             let hits = try grepSwift(
                 in: root,
@@ -9980,17 +10905,22 @@ final class TripwireGrepTests: XCTestCase {
                 allowed: [],
                 excludeLine: Self.manuscriptWriterExcludeLine)
             for hit in hits {
-                let file = String(hit.prefix(while: { $0 != ":" }))
+                var spellings: [String: Int] = [:]
                 for spelling in Self.manuscriptWriterPatterns where hit.contains(spelling) {
-                    counts[file, default: [:]][spelling, default: 0] += 1
+                    spellings[spelling, default: 0] += 1
                 }
+                counts.append((try XCTUnwrap(SourceTree.Hit(offender: hit)), spellings))
             }
         }
         return counts
     }
 
     func test_everyManuscriptWriterOutsideTheEditorIsANamedSite() throws {
-        let found = try manuscriptWriterCallCounts(in: admissionRoots)
+        let (found, unresolved) = SourceTree.foldingIntoTypeKeys(
+            try manuscriptWriterCallCounts(in: admissionRoots),
+            keyedLike: Self.manuscriptWriterCallSites.keys, in: admissionRoots,
+            combine: { $0.merging($1, uniquingKeysWith: +) })
+        XCTAssertTrue(unresolved.isEmpty, "manuscriptWriterCallSites: \(unresolved)")
         XCTAssertEqual(found, Self.manuscriptWriterCallSites,
             "A path that writes a document's text from outside the editor moved. "
             + "Every such site asks the posture (or the Document's stamp) before "
@@ -10121,7 +11051,7 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: tmp.appendingPathComponent("ASixthWayToWriteText.swift"),
                   atomically: true, encoding: .utf8)
 
-        let planted = try manuscriptWriterCallCounts(in: [tmp])
+        let planted = Self.byFile(try manuscriptWriterCallCounts(in: [tmp]))
         XCTAssertEqual(planted, ["ASixthWayToWriteText.swift": Dictionary(
                 uniqueKeysWithValues: Self.manuscriptWriterPatterns.map { ($0, 1) })],
             "Self-check: each spelling is counted once, under its own name, the "
@@ -10146,7 +11076,7 @@ final class TripwireGrepTests: XCTestCase {
         let outcome = try await store.replaceAll(in: r, with: replacement)
         """.write(to: tmp.appendingPathComponent("ProjectSearchView.swift"),
                   atomically: true, encoding: .utf8)
-        let listed = try manuscriptWriterCallCounts(in: [tmp])
+        let listed = Self.byFile(try manuscriptWriterCallCounts(in: [tmp]))
         XCTAssertEqual(listed["ProjectSearchView.swift"],
                        Self.manuscriptWriterCallSites["ProjectSearchView.swift"],
                        "precondition: the listed shape reads as listed")
@@ -10158,7 +11088,7 @@ final class TripwireGrepTests: XCTestCase {
         doc.setFullText(rewritten)
         """.write(to: tmp.appendingPathComponent("ProjectSearchView.swift"),
                   atomically: true, encoding: .utf8)
-        let swapped = try manuscriptWriterCallCounts(in: [tmp])
+        let swapped = Self.byFile(try manuscriptWriterCallCounts(in: [tmp]))
         XCTAssertEqual(swapped["ProjectSearchView.swift"]?.values.reduce(0, +), 2,
                        "precondition: the same number of calls")
         XCTAssertNotEqual(swapped["ProjectSearchView.swift"],
@@ -10684,5 +11614,170 @@ extension TripwireGrepTests {
             ].map { try String(contentsOf: repoRoot.appendingPathComponent($0 + name), encoding: .utf8) }
             XCTAssertEqual(Set(copies).count, 1, "the three \(name) copies have drifted")
         }
+    }
+
+    // MARK: - The fountain literal has one home (foundations plan 7, Task 7)
+
+    /// The quoted spellings of the Fountain format: the bare extension, any
+    /// literal ENDING in the extension (so `"\(slug).fountain"` is caught as
+    /// well as `".fountain"`), and any literal STARTING `fountain-` (the help
+    /// resource, and whatever `"fountain-syntax-v2"` follows it). None matches
+    /// `"fountain_boneyard"`, a persisted task-kind raw value.
+    static let fountainLiteralPatterns = [#""fountain""#, #".fountain""#, #""fountain-"#]
+
+    /// Where a fountain literal may be spelled, and why.
+    static let fountainLiteralAllowed: [String: String] = [
+        "type:DocumentFormat": "the one home: extension, help resource and every format decision",
+        "type:ReadDocumentTool": "`read_document.mode`'s MCP wire value, pinned by DocumentToolsTests",
+    ]
+
+    private func fountainLiteralOffenders(in roots: [URL], allowed: Set<String>) throws -> [String] {
+        try grepSwift(
+            in: roots, patterns: Self.fountainLiteralPatterns, allowed: allowed,
+            excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") },
+            extraOffender: nil)
+    }
+
+    /// **The Fountain extension is spelled in `DocumentFormat` only.** A site
+    /// that compares an extension or a suffix to `"fountain"` itself is a second
+    /// answer to "is this Fountain?" — and five such sites had drifted to
+    /// case-sensitive while the op log read `X.FOUNTAIN` as Fountain. Mac,
+    /// phone and Core are all scanned.
+    func test_theFountainExtensionIsSpelledInDocumentFormatOnly() throws {
+        let offenders = try fountainLiteralOffenders(
+            in: SourceTree.productionRootURLs, allowed: Set(Self.fountainLiteralAllowed.keys))
+        XCTAssertEqual(offenders, [],
+            "a fountain literal outside DocumentFormat — ask `DocumentFormat` "
+            + "(`ofManuscript(path:)`, `fileExtension`, `helpResourceName`) instead:\n"
+            + offenders.joined(separator: "\n"))
+    }
+
+    /// The control: each code spelling is caught — the bare extension, a
+    /// suffix, an interpolated filename, the help resource — while a comment
+    /// and `"fountain_boneyard"` are not; inside `DocumentFormat` they pass,
+    /// and a lookalike (a file NAMED `DocumentFormat.swift` declaring another
+    /// type) is still caught.
+    func test_theFountainLiteralCensusFiresOnPlantedOffenders() throws {
+        let dir = TestTemp.root
+            .appendingPathComponent("fountain-literal-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let planted = dir.appendingPathComponent("Planted.swift")
+        try #"""
+        let a = url.pathExtension.lowercased() == "fountain"
+        let b = path.hasSuffix(".fountain")
+        let c = Bundle.main.url(forResource: "fountain-syntax", withExtension: "md")
+        let d = "\(slug).fountain"
+        // "fountain"
+        case fountainBoneyard = "fountain_boneyard"
+        let g = Bundle.main.url(forResource: "fountain-syntax-v2", withExtension: "md")
+        """#.write(to: planted, atomically: true, encoding: .utf8)
+        try #"struct DocumentFormatter { let e = "fountain" }"#
+            .write(to: dir.appendingPathComponent("DocumentFormat.swift"), atomically: true, encoding: .utf8)
+
+        let bare = try fountainLiteralOffenders(in: [dir], allowed: [])
+        let byFile = Dictionary(grouping: bare) { String($0.prefix { $0 != ":" }) }
+        XCTAssertEqual(byFile["Planted.swift"]?.map { SourceTree.Hit(offender: $0)?.line },
+                       [1, 2, 3, 4, 7],
+                       "the five code spellings, not the comment or the boneyard:\n"
+                       + bare.joined(separator: "\n"))
+        XCTAssertEqual(byFile["DocumentFormat.swift"]?.count, 1, bare.joined(separator: "\n"))
+
+        try Self.declare("DocumentFormat", in: planted)
+        let allowed = Self.dropping(unplanted: ["type:ReadDocumentTool"], from: try fountainLiteralOffenders(
+            in: [dir], allowed: Set(Self.fountainLiteralAllowed.keys)))
+        XCTAssertEqual(allowed.count, 1, "only the lookalike is caught:\n" + allowed.joined(separator: "\n"))
+        XCTAssertTrue(allowed.first?.hasPrefix("DocumentFormat.swift:1:") == true,
+                      "a file NAMED DocumentFormat.swift earns nothing: \(allowed)")
+    }
+
+    // MARK: - Kind and format are asked by capability (foundations plan 7, Task 8)
+
+    /// Equality (or a `case … =` match) against a `ProjectType` or
+    /// `DocumentFormat` case name, in each spelling a second answer takes:
+    /// leading-dot or qualified (`ProjectType.screenplay`), on either side of
+    /// the operator, an optional pattern (`case .collection? =`), an extension
+    /// compared to a format's `fileExtension` (the case-sensitive re-derivation
+    /// `DocumentFormat(fileExtension:)` exists to replace), and a kind's raw
+    /// value compared to its string. Word-bounded, so `.fountainBoneyard` and
+    /// `.collectionPiece` are not caught; and NOT a bare `.fileExtension ==`,
+    /// which is `DocumentFormat`'s own lookup and every `OpLogSegment` filename.
+    static let kindEqualityPattern: NSRegularExpression = {
+        let cases = "(screenplay|collection|novel|shortStory|fountain|markdown)"
+        let qualifier = "(?:ProjectType|DocumentFormat)?"
+        return try! NSRegularExpression(pattern: [
+            #"(==|!=)\s*"# + qualifier + #"\."# + cases + #"\b"#,
+            qualifier + #"\."# + cases + #"\s*(==|!=)"#,
+            #"case\s+"# + qualifier + #"\."# + cases + #"\??\s*="#,
+            #"(==|!=)\s*(?:DocumentFormat)?\.(fountain|markdown)\.fileExtension\b"#,
+            #"DocumentFormat\.(fountain|markdown)\.fileExtension\s*(==|!=)"#,
+            #"rawValue\s*(==|!=)\s*"(screenplay|collection|novel|short_story)""#,
+        ].joined(separator: "|"))
+    }()
+
+    /// Where equality on kind or format is allowed, and why. Empty. A key is
+    /// `type:<Type>` only, and it exempts that type's whole declaration — so a
+    /// real exception should prefer an exhaustive `switch`, which needs no key.
+    static let kindEqualityAllowed: [String: String] = [:]
+
+    private func kindEqualityOffenders(in roots: [URL], allowed: Set<String>) throws -> [String] {
+        try grepSwift(
+            in: roots, patterns: [], allowed: allowed,
+            excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") },
+            extraOffender: { line in
+                Self.kindEqualityPattern.firstMatch(
+                    in: line, range: NSRange(line.startIndex..., in: line)) != nil
+            })
+    }
+
+    /// **A project's kind and a document's format are asked by capability,
+    /// never by equality.** `type == .collection` is `holdsPieces`;
+    /// `type == .screenplay` is `primaryFormat.isScreenplay`; a format decision
+    /// is an exhaustive `switch` or a `DocumentFormat` property. An equality is
+    /// a second answer that a new case (`.unknown` today, a new kind tomorrow)
+    /// silently falls through. Mac, phone and Core are all scanned.
+    func test_projectKindAndFormatAreAskedByCapabilityNotByEquality() throws {
+        let offenders = try kindEqualityOffenders(
+            in: SourceTree.productionRootURLs, allowed: Set(Self.kindEqualityAllowed.keys))
+        XCTAssertEqual(offenders, [],
+            "equality on a ProjectType or DocumentFormat case — ask `holdsPieces`, "
+            + "`primaryFormat.isScreenplay` or a `DocumentFormat` property, or switch "
+            + "exhaustively:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// The control: every code spelling is caught — leading-dot, qualified,
+    /// reversed, an optional pattern, an extension against a format's
+    /// `fileExtension` either way round, a kind's raw value — while a
+    /// word-bounded lookalike (`.fountainBoneyard`, `.collectionPiece`), a
+    /// comment and a bare `.fileExtension ==` (an op-log segment's) are not.
+    func test_theKindEqualityCensusFiresOnPlantedOffenders() throws {
+        let dir = TestTemp.root
+            .appendingPathComponent("kind-equality-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try """
+        let a = store.manifest.type == .collection
+        let b = projectType != .screenplay
+        if case .novel = type {}
+        let d = format == .fountain
+        let e = task.kind == .fountainBoneyard
+        // type == .screenplay
+        let g = type == ProjectType.screenplay
+        let h = format != DocumentFormat.fountain
+        let i = .screenplay == store.manifest.type
+        let j = DocumentFormat.markdown != format
+        if case .collection? = maybeType {}
+        let k = url.pathExtension == DocumentFormat.fountain.fileExtension
+        let l = DocumentFormat.fountain.fileExtension == ext
+        let m = type.rawValue == "screenplay"
+        let n = segment.fileExtension == ext
+        let o = item.collectionPiece == other
+        """.write(to: dir.appendingPathComponent("Planted.swift"), atomically: true, encoding: .utf8)
+
+        let offenders = try kindEqualityOffenders(
+            in: [dir], allowed: Set(Self.kindEqualityAllowed.keys))
+        XCTAssertEqual(offenders.map { SourceTree.Hit(offender: $0)?.line },
+                       [1, 2, 3, 4, 7, 8, 9, 10, 11, 12, 13, 14],
+                       "exactly the twelve code spellings:\n" + offenders.joined(separator: "\n"))
     }
 }

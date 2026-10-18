@@ -259,7 +259,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `setParagraph` keeps the mutation on the standard `.typingBurst`
     /// path and out of the cloud-conflict-only `applyExternalText` channel
     /// (see tripwire #7 / area #2).
-    var checkboxToggleHandler: ((String, Int, MaughamCheckboxKind) -> Void)?
+    var checkboxToggleHandler: ((String, Int, DocumentFormat) -> Void)?
 
     /// Maps a doc-wide UTF-16 location into the containing paragraph's id and
     /// its UTF-16 NSRange in `displayText`. Wired by EditorHost from

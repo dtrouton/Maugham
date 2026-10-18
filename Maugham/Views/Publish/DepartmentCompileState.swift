@@ -105,7 +105,7 @@ struct DepartmentCompileState: Equatable {
 
         case .failed(let errors, let logExcerpt):
             let message = errors.first?.message ?? Self.failedWithoutADiagnostic
-            // The orchestrator's own markers, read rather than re-typed. Two
+            // The orchestrator's own markers, read rather than re-typed. Three
             // of its `.failed` outcomes are refusals wearing the failure shape
             // — the shape is the channel every caller already reads, and the
             // excerpt is what tells them apart:
@@ -113,14 +113,17 @@ struct DepartmentCompileState: Equatable {
             //   • an unknown imprint is a name this project does not define,
             //     refused before a job registers and before a word is read;
             //   • a mint already in flight is the gate turning away a duplicate
-            //     of a compile that is running right now (issue #25).
+            //     of a compile that is running right now (issue #25);
+            //   • an unproducible format is one this build cannot make,
+            //     refused by name before a job registers (ADR 0015).
             //
-            // Neither is a fault, nothing is broken, and the writer's move in
-            // both cases is to change something and press again rather than to
-            // read a log. A red line over either sends them hunting a bug that
+            // None is a fault, nothing is broken, and the writer's move in
+            // each case is to change something and press again rather than to
+            // read a log. A red line over any sends them hunting a bug that
             // is not there.
             let refusals = [CompileOrchestrator.unknownImprintLogExcerpt,
-                            CompileOrchestrator.mintInFlightLogExcerpt]
+                            CompileOrchestrator.mintInFlightLogExcerpt,
+                            CompileOrchestrator.unproducibleFormatLogExcerpt]
             if refusals.contains(where: logExcerpt.hasPrefix) {
                 return DepartmentCompileState(phase: .refused(message), isRunning: false)
             }

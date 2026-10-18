@@ -196,7 +196,7 @@ final class CollectionProjectRowTests: XCTestCase {
             named: "\(name)-\(UUID().uuidString.prefix(6))", in: temp.url)
         let store = try await ProjectStore.load(from: url)
         for title in pieces {
-            _ = try await store.addLoosePiece(title: title, mode: .prose)
+            _ = try await store.addLoosePiece(title: title, format: .markdown)
         }
         await store.wordCountPopulationTask?.value
         return store

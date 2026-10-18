@@ -117,15 +117,17 @@ struct PieceRow: View {
         }
     }
 
-    private var iconName: String {
+    private var iconName: String { Self.iconName(for: piece) }
+
+    /// A reference shows a link; a loose piece shows its format's icon
+    /// (`DocumentFormat.ofManuscript(path:).symbolName`), and a path-less
+    /// loose piece is a prose page.
+    static func iconName(for piece: StructureItem) -> String {
         switch piece.pieceKind {
         case .reference:
             return "link"
         case .loose, .none:
-            if let path = piece.path, path.hasSuffix(".fountain") {
-                return "film"
-            }
-            return "doc.text"
+            return DocumentFormat.ofManuscript(path: piece.path).symbolName
         }
     }
 

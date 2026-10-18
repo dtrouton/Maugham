@@ -13,7 +13,7 @@ import MaughamCore
 ///
 /// **It takes values, never the store** (tripwire 4). The pane's whole input is
 /// a title, a structure array and a pass list, all read off `manifest` at the
-/// one mount site in `ProjectWindow.manuscriptEditor`. Nothing on the body path
+/// one mount site in `CentreColumn.manuscriptEditor`. Nothing on the body path
 /// can reach a `Document`, the disk, or a word-count cache, so a board of two
 /// hundred rows costs two hundred dictionary lookups and no I/O — and the whole
 /// surface is mountable in a test with no project on disk at all, which is what
@@ -38,7 +38,7 @@ import MaughamCore
 /// **Both are closures, and neither of them decides anything.** The pane still
 /// holds no store (tripwire 4, and `ReviewBoardPaneTests`' census): what a
 /// navigation MEANS — which subject the window takes, which pass it remembers —
-/// belongs to the mount in `ProjectWindow.manuscriptEditor`, and so does the
+/// belongs to the mount in `CentreColumn.manuscriptEditor`, and so does the
 /// `ProjectStore.setPassState` call. What the board knows is which cell was
 /// pressed. In particular nothing here writes the window's PERSONA: the board is
 /// a surface Review shows, never a thing that decides Review is showing
@@ -105,7 +105,7 @@ struct ReviewBoardPane: View {
     /// Like every other closure here it decides nothing. What a round MEANS —
     /// recording the lane, taking the writer to the piece, and waiting for it
     /// to be open before the orchestrator is asked — belongs to the mount in
-    /// `ProjectWindow.manuscriptEditor`, which is the only place that holds a
+    /// `CentreColumn.manuscriptEditor`, which is the only place that holds a
     /// `DocumentStore` and a `CompilerOrchestrator`.
     let onRunRound: (String, String) -> Void
     /// **What this Mac may offer on each piece** (P3c Task 6), asked per ROW

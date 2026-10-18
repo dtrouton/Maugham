@@ -238,7 +238,7 @@ final class OpLogChainCostTests: XCTestCase {
             let segURL = OpLogStore.segmentFileURL(
                 forDocId: docId, deviceSlug: identity.slug, index: segment, in: projectURL)
             try OpLogSegment.encode(jsonl: jsonl).write(to: segURL)
-            try OpLogStore.writeSegmentSignature(
+            try SegmentSealer.writeSegmentSignature(
                 for: segURL, jsonl: jsonl, identity: identity)
         }
         let tail = try chainedRun(count: totalLines - perSegment * segments)

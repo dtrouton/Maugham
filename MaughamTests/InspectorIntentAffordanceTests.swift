@@ -235,7 +235,7 @@ final class InspectorIntentAffordanceTests: XCTestCase {
         let documentStore = try await DocumentStore.open(url: url)
         store.documentStore = documentStore
         defer { Task { await documentStore.close() } }
-        let piece = try await store.addLoosePiece(title: "Story A", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Story A", format: .markdown)
 
         XCTAssertEqual(
             StatementPane.effectiveScope(
@@ -246,7 +246,7 @@ final class InspectorIntentAffordanceTests: XCTestCase {
             + "sat under this piece's heading")
 
         let window = mount(AnyView(PieceInspector(
-            store: store, pieceId: piece.id, kind: .prose, posture: .author)))
+            store: store, pieceId: piece.id, format: .markdown, posture: .author)))
 
         assertAsksForTheIntentPane(
             await notesPosted(pressing: try button(labelled: IntentAffordanceRow.openTitle, in: window)))

@@ -77,16 +77,17 @@ struct BinderPaneToggle: View {
             // a persona that publishes, and nowhere else — it's a
             // publishing-pipeline surface, not part of arranging structure.
             //
-            // **A persona NAME here, where nearly every other gate in this
-            // milestone refuses one.** The reason is that the question this gate
-            // asks has no derived answer left: the Exports list is about the
+            // **A predicate of its own (`Persona.showsExports`), not derived
+            // from another one.** It was the persona's NAME here until
+            // foundations plan 4 Task 6 named it. The reason it stands alone
+            // is that the question this gate asks has no derived answer left: the Exports list is about the
             // LEFT column, and since Task 7 all four personas have the same left
             // column, so nothing about the tree can tell them apart. What is
             // left is what the writer is *doing* — a compile-output list is not
-            // part of planning — and that is what the persona names. Deriving it
+            // part of planning — and that is what the predicate names. Deriving it
             // from `centresTheCanvas` would say the Exports list is a fact about
             // the centre column, which it is not.
-            if persona != .plan && PublishStarter.isInitialized(in: store.url) {
+            if persona.showsExports && PublishStarter.isInitialized(in: store.url) {
                 Divider()
                 ExportsListView(projectURL: store.url)
             }

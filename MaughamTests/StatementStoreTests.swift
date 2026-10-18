@@ -572,7 +572,7 @@ final class StatementStoreTests: XCTestCase {
         let (_, store) = try await loadedNovel(named: "TwinTitles")
         let first = try XCTUnwrap(store.manifest.structure.first)
         let twin = try await store.addStructureItem(
-            parentId: nil, title: first.title, kind: .document(extension: "md"))
+            parentId: nil, title: first.title, kind: .document(.markdown))
 
         let a = try await store.createStatement(kind: .intent, scope: .document(first.id))
         let b = try await store.createStatement(kind: .intent, scope: .document(twin.id))

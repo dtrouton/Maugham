@@ -1346,13 +1346,14 @@ final class DiagnosticsPaneTests: XCTestCase {
                       "\u{2026}and the define item reaches the window's sheet. "
                       + "Got:\n\(arm)")
 
-        let window = try Self.source(of: "Views/ProjectWindow.swift")
+        let window = try SourceTree.windowSource()
         XCTAssertTrue(
             window.contains("onOpenProjectSettings: openProjectSettings"),
             "the window opens the sheet the define item asks for")
         XCTAssertEqual(
-            window.components(separatedBy: "activeSheet = .projectSettings").count - 1, 1,
-            "Project Settings is opened from exactly one place")
+            try Self.projectSettingsOpeners(), 1,
+            "Project Settings is opened from exactly one place — counted across "
+            + "every view, so a second opener in a sibling is caught")
     }
 
     // MARK: - The Describe… hand-off (fix round 1)
@@ -1390,20 +1391,16 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// other half: without it the flag survives with no sheet on screen and
     /// the guard above only narrows which dismissal it fires at.
     func test_everySheetPresentationClearsAStaleHandoff() throws {
-        let window = try Self.source(of: "Views/ProjectWindow.swift")
-        let change = try XCTUnwrap(
-            Self.declaration(named: "onChange(of: activeSheet) { _, presented in",
-                             in: window),
-            "the window must watch its own sheet presentations")
+        let change = try SourceTree.declaration(
+            named: "onChange(of: activeSheet) { _, presented in", under: "Maugham")
         XCTAssertTrue(change.contains("describeFirstReaderRequested = false"),
                       "a presentation clears the pending hand-off. Got:\n\(change)")
         XCTAssertTrue(change.contains("presentedSheet = presented"),
                       "\u{2026}and records what is up, since `onDismiss` is told "
                       + "nothing. Got:\n\(change)")
 
-        let dismiss = try XCTUnwrap(
-            Self.declaration(named: "private func openFirstReaderIfRequested() {",
-                             in: window))
+        let dismiss = try SourceTree.declaration(
+            named: "func openFirstReaderIfRequested() {", under: "Maugham")
         XCTAssertTrue(dismiss.contains("Self.opensFirstReader("),
                       "the dismissal asks the one decision. Got:\n\(dismiss)")
     }
@@ -5085,6 +5082,46 @@ final class DiagnosticsPaneTests: XCTestCase {
     }
 
     // MARK: - Source census helpers (two loops P2 Task 6)
+
+    /// `activeSheet = .projectSettings` as code across every file under
+    /// `Maugham/Views`.
+    private static func projectSettingsOpeners(base: URL = SourceTree.repoRoot) throws -> Int {
+        try SourceTree.codeOccurrences(of: "activeSheet = .projectSettings", base: base)
+            .values.reduce(0, +)
+    }
+
+    /// **The planted control for the window reads** (foundations plan 2): the
+    /// sheet watcher is found in an `extension ProjectWindow`, and the opener
+    /// count sees a second opener in a sibling view while a comment naming one
+    /// is not counted.
+    func test_theWatcherIsFoundAcrossAnExtensionAndTheCountReachesSiblingViews() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": """
+            struct ProjectWindow: View {
+                // activeSheet = .projectSettings in a comment
+                func openProjectSettings() { activeSheet = .projectSettings }
+            }
+            """,
+            "Maugham/Views/ProjectWindow+Sheets.swift": """
+            extension ProjectWindow {
+                var watched: some View {
+                    content.onChange(of: activeSheet) { _, presented in
+                        presentedSheet = presented
+                    }
+                }
+            }
+            """,
+            "Maugham/Views/SomeSiblingView.swift": """
+            struct SomeSiblingView { func g() { activeSheet = .projectSettings } }
+            """,
+        ])
+        let change = try SourceTree.declaration(
+            named: "onChange(of: activeSheet) { _, presented in", under: "Maugham", base: base)
+        XCTAssertTrue(change.contains("presentedSheet = presented"),
+                      "the watcher is found in the extension")
+        XCTAssertEqual(try Self.projectSettingsOpeners(base: base), 2,
+                       "the window's opener and the sibling's")
+    }
 
     private static func source(of relativePath: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)

@@ -280,15 +280,17 @@ final class ClaimDecisionTests: XCTestCase {
 
     /// The census, fed a planted offender under a name it would otherwise
     /// accept nothing from — a window presenting the sheet at open, which is
-    /// exactly the shape F3 removed.
+    /// exactly the shape F3 removed. Planted under a window EXTENSION's name:
+    /// the census walks every file and names whichever one builds the sheet, so
+    /// a split of the window cannot carry the offender out of its sight.
     func test_theClaimSheetCensusCatchesAPlantedOffender() {
         let files = [
             ("ProjectSettingsSheet.swift", ".sheet(item: $claiming) { ClaimSheet(offer: $0) }"),
-            ("ProjectWindow.swift", ".sheet(item: $offer) { ClaimSheet(offer: $0) }"),
+            ("ProjectWindow+Open.swift", ".sheet(item: $offer) { ClaimSheet(offer: $0) }"),
             ("ClaimSheet.swift", "struct ClaimSheet: View { init() { _ = ClaimSheet(" ),
         ]
         XCTAssertEqual(Self.claimSheetBuilders(in: files),
-                       ["ProjectSettingsSheet.swift", "ProjectWindow.swift"])
+                       ["ProjectSettingsSheet.swift", "ProjectWindow+Open.swift"])
     }
 
     /// Every production file that builds the claim's sheet, sorted — the

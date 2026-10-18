@@ -63,7 +63,7 @@ final class PostureMissCostTests: XCTestCase {
         var ids = book.pieceIDs
         while ids.count < most {
             let item = try await book.store.addStructureItem(
-                parentId: nil, title: "Row \(ids.count)", kind: .document(extension: "md"))
+                parentId: nil, title: "Row \(ids.count)", kind: .document(.markdown))
             ids.append(item.id)
         }
         let documentStore = book.documentStore

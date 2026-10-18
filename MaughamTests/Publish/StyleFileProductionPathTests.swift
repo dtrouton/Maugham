@@ -100,7 +100,7 @@ final class StyleFileProductionPathTests: XCTestCase {
         colRegistry.register(url: colURL, store: colStore)
         let colPid = ProjectIdentifier.id(for: colURL)
 
-        let piece = try await colStore.addLoosePiece(title: "Salute", mode: .prose)
+        let piece = try await colStore.addLoosePiece(title: "Salute", format: .markdown)
         try "Loose piece body.".write(
             to: colURL.appendingPathComponent(piece.path!),
             atomically: true, encoding: .utf8)

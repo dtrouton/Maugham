@@ -8,7 +8,11 @@ struct MaughamApp: App {
     @State private var backupCoordinator = BackupCoordinator()
     @State private var recents = RecentsStore()
     @State private var mcpRouter = MCPRouter()
-    @State private var mcpRegistry = ProjectRegistry()
+    @State private var mcpRegistry: ProjectRegistry
+    /// One `ProjectSession` per open project, borrowed by every window on it
+    /// (foundations plan 3, Task 3). It announces a project to MCP while a
+    /// window is open on it (Task 3b), so it is built on the same registry.
+    @State private var projectSessions: ProjectSessionRegistry
     @State private var mcpServer: MCPServer?
     @State private var onboarding = OnboardingModel()
 
@@ -20,6 +24,11 @@ struct MaughamApp: App {
     }
 
     init() {
+        let mcp = ProjectRegistry()
+        _mcpRegistry = State(initialValue: mcp)
+        let sessions = ProjectSessionRegistry(mcp: mcp)
+        _projectSessions = State(initialValue: sessions)
+
         // Fail-fast guardrail: if the compile flag and bundle id drift apart
         // (e.g. CI config error), this fires immediately in Debug.
         #if MAUGHAM_DEV_BUILD
@@ -42,6 +51,14 @@ struct MaughamApp: App {
             object: nil, queue: nil
         ) { _ in
             MaughamEvent.post(.maughamAppWillTerminate, to: .allWindows)
+            // Every open project's warm `claude` sessions end here, not only
+            // those a mounted window's quit arm reaches: a project a reader
+            // (the Statistics window) or a leaked borrow kept open has a
+            // roster too, and a session merely released is a live, billing
+            // process. willTerminate runs on the main thread.
+            MainActor.assumeIsolated {
+                sessions.shutdownAll()
+            }
             // Synchronously remove the MCP socket file. The async server stop()
             // (via .maughamAppWillTerminate → WelcomeHost) often does NOT run
             // before macOS kills the process on quit, which leaves a stale
@@ -221,14 +238,13 @@ struct MaughamApp: App {
             // NavigationSplitView is in use) rather than creating a second one
             // via CommandMenu("View").
             CommandGroup(after: .toolbar) {
-                Button("Plan") { postPersona(.plan) }
-                    .keyboardShortcut("1", modifiers: .command)
-                Button("Author") { postPersona(.author) }
-                    .keyboardShortcut("2", modifiers: .command)
-                Button("Review") { postPersona(.review) }
-                    .keyboardShortcut("3", modifiers: .command)
-                Button("Publish") { postPersona(.publish) }
-                    .keyboardShortcut("4", modifiers: .command)
+                // ⌘1–⌘4, one item per persona in stage order, the key read off
+                // `Persona.shortcutKey` — the same key the persona bar's tooltip
+                // and accessibility label say, so the three cannot disagree.
+                ForEach(Persona.allCases, id: \.self) { persona in
+                    Button(persona.displayName) { postPersona(persona) }
+                        .keyboardShortcut(KeyEquivalent(persona.shortcutKey), modifiers: .command)
+                }
 
                 Divider()
                 Button("Toggle Focus Mode") {
@@ -390,7 +406,7 @@ struct MaughamApp: App {
                     .environment(userPreferences)
                     .environment(backupCoordinator)
                     .environment(recents)
-                    .environment(mcpRegistry)
+                    .environment(projectSessions)
             } else {
                 Text("No project URL").foregroundStyle(.secondary)
             }
@@ -400,6 +416,7 @@ struct MaughamApp: App {
         WindowGroup("Project Statistics", id: "project-stats", for: URL.self) { $url in
             if let url {
                 ProjectStatisticsWindow(projectURL: url)
+                    .environment(projectSessions)
             }
         }
 

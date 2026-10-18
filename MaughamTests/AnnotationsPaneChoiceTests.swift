@@ -113,7 +113,7 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
         _ fx: Harness, titled title: String = "Chapter 2"
     ) async throws -> Document {
         let item = try await fx.store.addStructureItem(
-            parentId: nil, title: title, kind: .document(extension: "md"))
+            parentId: nil, title: title, kind: .document(.markdown))
         let path = try XCTUnwrap(item.path)
         try "She counted the bells and lost the number twice.\n".write(
             to: fx.url.appendingPathComponent(path), atomically: true,

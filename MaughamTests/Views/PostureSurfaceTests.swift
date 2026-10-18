@@ -785,7 +785,7 @@ final class PostureSurfaceTests: XCTestCase {
                 store: store, selectedItemId: "doc-a", metrics: metrics,
                 onOpenProjectSettings: {}, posture: posture)
             let piece = PieceInspector(
-                store: store, pieceId: "doc-a", kind: .prose, posture: posture)
+                store: store, pieceId: "doc-a", format: .markdown, posture: posture)
             XCTAssertEqual(document.passLadderWrite(on: "doc-a") != nil, offered,
                            "InspectorView, \(why)")
             XCTAssertEqual(piece.passLadderWrite(on: "doc-a") != nil, offered,

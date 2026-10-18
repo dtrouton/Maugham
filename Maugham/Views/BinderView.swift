@@ -89,9 +89,11 @@ struct BinderView: View {
                 // **Starting a piece is the book author's** (P3c Task 8,
                 // ruling R3): hidden, never greyed, where the posture refuses.
                 if mayStartAPiece {
-                    let ext = store.manifest.type == .screenplay ? "fountain" : "md"
                     Button("New Document") {
-                        Task { await addItem(parent: nil, kind: .document(extension: ext)) }
+                        Task {
+                            await addItem(
+                                parent: nil, kind: .document(store.manifest.type.primaryFormat))
+                        }
                     }
                     Button("New Group") {
                         Task { await addItem(parent: nil, kind: .group) }
@@ -297,8 +299,10 @@ struct BinderView: View {
             let verbs = structureVerbs(for: item)
             if verbs.newInside {
                 Button("New Document") {
-                    let ext = store.manifest.type == .screenplay ? "fountain" : "md"
-                    Task { await addItem(parent: item, kind: .document(extension: ext)) }
+                    Task {
+                        await addItem(
+                            parent: item, kind: .document(store.manifest.type.primaryFormat))
+                    }
                 }
                 Button("New Group") {
                     Task { await addItem(parent: item, kind: .group) }
@@ -423,19 +427,18 @@ struct BinderView: View {
             Text("No documents yet")
                 .font(.headline)
             Text(
-                store.manifest.type == .screenplay
+                store.manifest.type.primaryFormat.isScreenplay
                 ? "Add your first screenplay."
                 : "Add your first chapter or scene.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            let ext = store.manifest.type == .screenplay ? "fountain" : "md"
             if mayStartAPiece {
                 HStack(spacing: 8) {
                     Button {
                         Task {
                             await addItem(
-                                parent: nil, kind: .document(extension: ext))
+                                parent: nil, kind: .document(store.manifest.type.primaryFormat))
                         }
                     } label: {
                         Label("New Document", systemImage: "doc.badge.plus")

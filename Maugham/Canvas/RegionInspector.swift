@@ -46,8 +46,9 @@ struct RegionInspectorPane: View {
     /// contain item nodes, and a row is a title rather than a card.
     ///
     /// Defaulted for the same reason `CanvasView`'s is, and censused in the same
-    /// place: `ProjectWindow` is the one production caller and it names
-    /// `Self.canvasItemIndex(in: store)` for both.
+    /// place: the production callers are `RightColumn` (this pane) and
+    /// `CentreColumn` (the canvas), and both pass the index built by
+    /// `ProjectWindow.canvasItemIndex`.
     var itemIndex: CanvasItemIndex = .empty
 
     var body: some View {

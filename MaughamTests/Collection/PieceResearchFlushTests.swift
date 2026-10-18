@@ -68,8 +68,8 @@ final class PieceResearchFlushTests: XCTestCase {
         defer { Task { await ds.close() } }
 
         // Add two pieces so movePiece actually renumbers folders.
-        let p1 = try await store.addLoosePiece(title: "Alpha", mode: .prose)
-        _ = try await store.addLoosePiece(title: "Beta", mode: .prose)
+        let p1 = try await store.addLoosePiece(title: "Alpha", format: .markdown)
+        _ = try await store.addLoosePiece(title: "Beta", format: .markdown)
 
         // Add a research note to p1.
         let note = try await store.addPieceResearchNote(
@@ -137,7 +137,7 @@ final class PieceResearchFlushTests: XCTestCase {
         defer { Task { await ds.close() } }
 
         // Add a piece and a research note.
-        let piece = try await store.addLoosePiece(title: "Lighthouse", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Lighthouse", format: .markdown)
         let note = try await store.addPieceResearchNote(
             pieceId: piece.id, title: "Sarah Notes")
         let oldNotePath = note.path!

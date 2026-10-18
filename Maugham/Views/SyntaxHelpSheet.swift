@@ -1,11 +1,6 @@
 import SwiftUI
 import MaughamCore
 
-public enum SyntaxHelpMode {
-    case prose
-    case screenplay
-}
-
 // MARK: - Block model
 
 enum HelpBlock {
@@ -21,7 +16,8 @@ enum HelpBlock {
 // MARK: - Main view
 
 struct SyntaxHelpSheet: View {
-    let mode: SyntaxHelpMode
+    /// The format whose help opens first.
+    let format: DocumentFormat
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedTab: Tab
@@ -30,21 +26,21 @@ struct SyntaxHelpSheet: View {
         case markdown, fountain, keyboard
     }
 
-    init(mode: SyntaxHelpMode) {
-        self.mode = mode
-        switch mode {
-        case .prose:      self._selectedTab = State(initialValue: .markdown)
-        case .screenplay: self._selectedTab = State(initialValue: .fountain)
+    init(format: DocumentFormat) {
+        self.format = format
+        switch format {
+        case .markdown: self._selectedTab = State(initialValue: .markdown)
+        case .fountain: self._selectedTab = State(initialValue: .fountain)
         }
     }
 
     var body: some View {
         NavigationStack {
             TabView(selection: $selectedTab) {
-                SyntaxHelpBlocksView(mode: .prose)
+                SyntaxHelpBlocksView(format: .markdown)
                     .tabItem { Text("Markdown") }
                     .tag(Tab.markdown)
-                SyntaxHelpBlocksView(mode: .screenplay)
+                SyntaxHelpBlocksView(format: .fountain)
                     .tabItem { Text("Fountain") }
                     .tag(Tab.fountain)
                 KeyboardCheatsheetView()
@@ -65,14 +61,10 @@ struct SyntaxHelpSheet: View {
 
     // MARK: - Content loading
 
-    static func loadContent(mode: SyntaxHelpMode) -> [HelpBlock] {
-        let resourceName: String
-        switch mode {
-        case .prose:        resourceName = "markdown-syntax"
-        case .screenplay:   resourceName = "fountain-syntax"
-        }
+    /// The bundled help for `format`, read from `format.helpResourceName`.
+    static func loadContent(format: DocumentFormat) -> [HelpBlock] {
         guard let url = Bundle.main.url(
-                forResource: resourceName, withExtension: "md"),
+                forResource: format.helpResourceName, withExtension: "md"),
               let raw = try? String(contentsOf: url, encoding: .utf8) else {  // adr-0018-ok: bundled syntax-help doc read, not manuscript
             return [.paragraph(text: AttributedString("Help content unavailable."))]
         }
@@ -155,11 +147,11 @@ struct SyntaxHelpSheet: View {
     }
 }
 
-// MARK: - Per-mode blocks view
+// MARK: - Per-format blocks view
 
-/// Renders a single help mode's blocks. Used inside each tab of SyntaxHelpSheet.
+/// Renders a single format's help blocks. Used inside each tab of SyntaxHelpSheet.
 private struct SyntaxHelpBlocksView: View {
-    let mode: SyntaxHelpMode
+    let format: DocumentFormat
     @State private var blocks: [HelpBlock] = []
 
     var body: some View {
@@ -173,8 +165,8 @@ private struct SyntaxHelpBlocksView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .textSelection(.enabled)
         }
-        .task(id: mode) {
-            blocks = SyntaxHelpSheet.loadContent(mode: mode)
+        .task(id: format) {
+            blocks = SyntaxHelpSheet.loadContent(format: format)
         }
     }
 

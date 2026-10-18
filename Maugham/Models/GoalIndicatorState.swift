@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Snapshot of everything the goal indicator capsule renders.
 public struct GoalIndicatorState: Equatable, Sendable {
@@ -35,4 +36,16 @@ public struct GoalIndicatorState: Equatable, Sendable {
     }
 
     public static let empty = GoalIndicatorState()
+
+    /// The goal indicator's Collection arm: the active piece's
+    /// `DocumentFormat.ofManuscript(path:).isScreenplay` — a page target for a
+    /// screenplay piece, a word target otherwise (a path-less or absent piece
+    /// measures in words).
+    static func collectionGoalMeasure(for piece: StructureItem?)
+        -> (isScreenplay: Bool, wordTarget: Int?, pageTarget: Int?) {
+        if DocumentFormat.ofManuscript(path: piece?.path).isScreenplay {
+            return (true, nil, piece?.pageTarget)
+        }
+        return (false, piece?.wordTarget, nil)
+    }
 }

@@ -26,7 +26,7 @@ final class ProjectStoreMutationTests: XCTestCase {
         let item = try await store.addStructureItem(
             parentId: nil,
             title: "Chapter 2",
-            kind: .document(extension: "md"))
+            kind: .document(.markdown))
 
         XCTAssertEqual(store.manifest.structure.count, initialCount + 1)
         XCTAssertEqual(item.title, "Chapter 2")
@@ -65,7 +65,7 @@ final class ProjectStoreMutationTests: XCTestCase {
         let scene = try await store.addStructureItem(
             parentId: group.id,
             title: "Opening Scene",
-            kind: .document(extension: "md"))
+            kind: .document(.markdown))
 
         // Group's children should contain the new scene
         let updatedGroup = store.manifest.structure
@@ -88,7 +88,7 @@ final class ProjectStoreMutationTests: XCTestCase {
             _ = try await store.addStructureItem(
                 parentId: "does-not-exist",
                 title: "X",
-                kind: .document(extension: "md"))
+                kind: .document(.markdown))
             XCTFail("expected throw")
         } catch ProjectStoreError.parentNotFound(let id) {
             XCTAssertEqual(id, "does-not-exist")
@@ -101,7 +101,7 @@ final class ProjectStoreMutationTests: XCTestCase {
         let store = try await ProjectStore.load(from: url)
         _ = try await store.addStructureItem(
             parentId: nil, title: "Chapter 2",
-            kind: .document(extension: "md"))
+            kind: .document(.markdown))
 
         let reloaded = try await ProjectStore.load(from: url)
         XCTAssertTrue(reloaded.manifest.structure
@@ -116,7 +116,7 @@ final class ProjectStoreMutationTests: XCTestCase {
         let store = try await ProjectStore.load(from: url)
         let item = try await store.addStructureItem(
             parentId: nil, title: "Chapter 2",
-            kind: .document(extension: "md"))
+            kind: .document(.markdown))
         let oldPath = item.path!
         let oldFullURL = url.appendingPathComponent(oldPath)
 
@@ -148,7 +148,7 @@ final class ProjectStoreMutationTests: XCTestCase {
             parentId: nil, title: "Act One", kind: .group)
         let scene = try await store.addStructureItem(
             parentId: group.id, title: "Opening",
-            kind: .document(extension: "md"))
+            kind: .document(.markdown))
 
         try await store.renameStructureItem(id: group.id, newTitle: "Prologue")
 
@@ -194,7 +194,7 @@ final class ProjectStoreMutationTests: XCTestCase {
         let store = try await ProjectStore.load(from: url)
         let item = try await store.addStructureItem(
             parentId: nil, title: "Doomed",
-            kind: .document(extension: "md"))
+            kind: .document(.markdown))
         let path = item.path!
         let fullURL = url.appendingPathComponent(path)
         XCTAssertTrue(FileManager.default.fileExists(atPath: fullURL.path))
@@ -216,7 +216,7 @@ final class ProjectStoreMutationTests: XCTestCase {
             parentId: nil, title: "Doomed Act", kind: .group)
         _ = try await store.addStructureItem(
             parentId: group.id, title: "Inside",
-            kind: .document(extension: "md"))
+            kind: .document(.markdown))
 
         try await store.deleteStructureItem(id: group.id)
 

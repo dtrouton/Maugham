@@ -319,7 +319,7 @@ final class DiagnosticsPaneColumnHeightTests: XCTestCase {
             named: "Cold-\(UUID().uuidString.prefix(6))", in: temp.url)
         let store = try await ProjectStore.load(from: url)
         for i in 1...pieces {
-            _ = try await store.addLoosePiece(title: "Piece \(i)", mode: .prose)
+            _ = try await store.addLoosePiece(title: "Piece \(i)", format: .markdown)
         }
         await store.wordCountPopulationTask?.value
         return store

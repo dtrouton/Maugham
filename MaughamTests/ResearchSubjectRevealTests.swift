@@ -252,11 +252,11 @@ final class ResearchSubjectRevealTests: XCTestCase {
     /// probe re-spells their three writes — and a mirror is worth exactly as much
     /// as the census that says production still looks like it.
     func test_theWindowsTwoForcedEntriesBothOpenTheTree() throws {
-        let source = try Self.windowSource()
         for entry in ["private func openResearchItem(_ itemId: String) {",
                       "private func handleShowLatestMCPNote() {"] {
-            let body = try XCTUnwrap(Self.declaration(named: entry, in: source),
-                                     "\(entry) must still exist")
+            // By symbol, wherever the window's extensions put it; throws when
+            // the entry is gone (or spelled twice).
+            let body = try SourceTree.declaration(named: entry, under: "Maugham")
             // The bound, checked: an unterminated scan reads the rest of the
             // file and every assertion below it passes for free.
             XCTAssertFalse(body.contains("private func load() async {"),
@@ -349,21 +349,6 @@ final class ResearchSubjectRevealTests: XCTestCase {
         .deletingLastPathComponent()   // MaughamTests/
         .deletingLastPathComponent()   // repo root
         .appendingPathComponent("Maugham", isDirectory: true)
-
-    private static func windowSource() throws -> String {
-        try String(contentsOf: appSource.appendingPathComponent("Views/ProjectWindow.swift"),
-                   encoding: .utf8)
-    }
-
-    /// A method body, from its opening line to the closing brace at member
-    /// indentation — bounded, or a scan over it is a scan over the rest of the
-    /// file.
-    private static func declaration(named header: String, in source: String) -> String? {
-        guard let start = source.range(of: header) else { return nil }
-        let rest = source[start.lowerBound...]
-        guard let end = rest.range(of: "\n    }\n") else { return String(rest) }
-        return String(rest[..<end.upperBound])
-    }
 
     // MARK: - Fixtures
 

@@ -166,16 +166,17 @@ final class IntentStripTests: XCTestCase {
         XCTAssertTrue(strip.contains("statementText(of:"),
                       "the resolver stopped reading the statement's own text")
 
-        let constructions = try productionSwiftFiles()
-            .filter { $0.lastPathComponent != "IntentStrip.swift" }
-            .map { (try code(of: $0), $0.lastPathComponent) }
-            .filter { $0.0.contains("IntentStrip(") }
+        // Keyed by TYPE: a construction inside `ProjectWindow`'s declarations
+        // answers as `type:ProjectWindow`, so a split of the window moves
+        // nothing here — and one in a child view sharing a window file answers
+        // under that file (plan 2 final review, I1).
         XCTAssertEqual(
-            constructions.map(\.1), ["ProjectWindow.swift"],
+            try Self.stripConstructionSites(in: sourceDir),
+            ["type:ProjectWindow"],
             "the strip is constructed somewhere new; that site must feed it "
             + "statement text too")
         XCTAssertTrue(
-            try XCTUnwrap(constructions.first).0.contains("IntentStrip.line("),
+            try SourceTree.windowCodeLines().contains { $0.contains("IntentStrip.line(") },
             "ProjectWindow builds the strip's line some other way than the one "
             + "resolver, so the statement-text path is no longer structural")
     }
@@ -592,8 +593,7 @@ final class IntentStripTests: XCTestCase {
     /// three files; delete the middle one and every assertion above still
     /// passes while no writer ever sees the mark.
     func test_theMarkIsWiredFromTheDecisionToTheOneMountingSite() throws {
-        let window = try code(
-            of: sourceDir.appendingPathComponent("Views/ProjectWindow.swift"))
+        let window = try SourceTree.windowCodeLines().joined(separator: "\n")
         XCTAssertTrue(
             window.contains("IntentDrift.mayTrailDraft("),
             "the window must ask the one decision rather than write a condition "
@@ -682,11 +682,42 @@ final class IntentStripTests: XCTestCase {
             .appendingPathComponent("Maugham", isDirectory: true)
     }
 
-    private func productionSwiftFiles() throws -> [URL] {
-        let fm = FileManager.default
-        guard let walker = fm.enumerator(at: sourceDir, includingPropertiesForKeys: nil)
-        else { return [] }
-        return walker.compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
+    /// Where `IntentStrip(` is constructed under `dir`, per line, keyed by
+    /// type: inside `ProjectWindow`'s declarations it is `type:ProjectWindow`,
+    /// elsewhere the file's own name. Comment-only lines are not sites.
+    static func stripConstructionSites(in dir: URL) throws -> Set<String> {
+        let walker = try XCTUnwrap(
+            FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil))
+        var hits: [SourceTree.Hit] = []
+        for case let url as URL in walker
+        where url.pathExtension == "swift" && url.lastPathComponent != "IntentStrip.swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for (index, line) in text.components(separatedBy: "\n").enumerated()
+            where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+                && line.contains("IntentStrip(") {
+                hits.append(SourceTree.Hit(file: url.lastPathComponent, line: index + 1))
+            }
+        }
+        return try SourceTree.keyedByType(hits, typeKeys: ["type:ProjectWindow"], in: [dir])
+    }
+
+    /// The control for the type key: a construction inside `extension
+    /// ProjectWindow` folds into the key; one in a child view sharing that
+    /// file does not.
+    func test_aStripConstructedInAChildViewSharingTheWindowsFileIsCaught() throws {
+        let dir = try SourceTree.plantedTree([
+            "Views/ProjectWindow.swift": "struct ProjectWindow {\n    let s = IntentStrip(line: l)\n}\n",
+            "Views/ProjectWindow+Columns.swift": """
+            extension ProjectWindow {
+                var t: some View { IntentStrip(line: l) }
+            }
+            struct ChildColumn {
+                var u: some View { IntentStrip(line: summary) }
+            }
+            """,
+        ]).appendingPathComponent("Views")
+        XCTAssertEqual(try Self.stripConstructionSites(in: dir),
+                       ["type:ProjectWindow", "ProjectWindow+Columns.swift"])
     }
 
     // MARK: - Hosting (mirrors `InspectorIntentAffordanceTests`)

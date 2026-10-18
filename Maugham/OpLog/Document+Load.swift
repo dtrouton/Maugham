@@ -333,12 +333,15 @@ extension Document {
         try OpLogStore.verifyOpsDirectoryListable(in: projectURL)
         let logExists = !OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL).isEmpty
         let storedBytes = (try? String(contentsOf: url, encoding: .utf8)) ?? ""  // adr-0018-ok: sanctioned manuscript site — stored bytes as bootstrap-import / divergence reference; op log is authoritative
-        // Fountain docs preserve the two-space "held blank" dialogue pause inside
-        // the paragraph (E1); prose keeps whitespace-only = blank. The `.md` vs
-        // `.fountain` extension decides — consistent with Bootstrap + setFullText.
-        let isFountain = url.pathExtension.lowercased() == "fountain"
+        // The held-blank rule (E1) is the format's: `DocumentFormat
+        // .preservesHeldBlankLines`, the same question Bootstrap and
+        // `setFullText` ask. This parse only gates emptiness (`!parsed.isEmpty`
+        // below) and the parser holds a blank only inside a non-empty
+        // paragraph, so here the flag is for one spelling at all three sites,
+        // not for behaviour; the split itself is Bootstrap's.
         let parsed = ParagraphParser.parse(
-            storedBytes, preservesHeldBlankLines: isFountain)
+            storedBytes,
+            preservesHeldBlankLines: DocumentFormat.ofManuscript(url: url).preservesHeldBlankLines)
         // ADR 0019: the .md is clean (no anchors), so "the .md has no anchors"
         // no longer signals "needs bootstrap" — that would re-bootstrap every
         // clean file now that clean-`.md` output has shipped. An existing op log

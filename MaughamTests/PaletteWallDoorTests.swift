@@ -60,25 +60,25 @@ final class PaletteWallDoorTests: XCTestCase {
 
     func test_applyPaletteWallChange_opensStashesAndHidesTheInspector() {
         var showInspector = true
-        var stash: Bool?
+        var wall = PaletteWallState()
         var card: String? = "card-1"
-        ProjectWindow.applyPaletteWallChange(
+        wall.applyPaletteWallChange(
             from: false, to: true, showInspector: &showInspector,
-            stash: &stash, selectedPaletteCardId: &card)
+            selectedPaletteCardId: &card)
         XCTAssertFalse(showInspector)
-        XCTAssertEqual(stash, true)
+        XCTAssertEqual(wall.inspectorWasVisibleBefore, true)
         XCTAssertEqual(card, "card-1", "opening does not disturb a card already selected")
     }
 
     func test_applyPaletteWallChange_closesRestoresAndForgetsTheCard() {
         var showInspector = false
-        var stash: Bool? = true
+        var wall = PaletteWallState(inspectorWasVisibleBefore: true)
         var card: String? = "card-1"
-        ProjectWindow.applyPaletteWallChange(
+        wall.applyPaletteWallChange(
             from: true, to: false, showInspector: &showInspector,
-            stash: &stash, selectedPaletteCardId: &card)
+            selectedPaletteCardId: &card)
         XCTAssertTrue(showInspector)
-        XCTAssertNil(stash)
+        XCTAssertNil(wall.inspectorWasVisibleBefore)
         XCTAssertNil(card, "the wall forgets which card it had open")
     }
 
@@ -87,26 +87,26 @@ final class PaletteWallDoorTests: XCTestCase {
     /// restore" — see `applyPaletteWallChange`'s own doc comment.
     func test_applyPaletteWallChange_aTakenOverStashIsNotResurrected() {
         var showInspector = false
-        var stash: Bool?   // already taken over
+        var wall = PaletteWallState()   // the stash already taken over
         var card: String? = "card-1"
-        ProjectWindow.applyPaletteWallChange(
+        wall.applyPaletteWallChange(
             from: true, to: false, showInspector: &showInspector,
-            stash: &stash, selectedPaletteCardId: &card)
+            selectedPaletteCardId: &card)
         XCTAssertFalse(showInspector, "nothing restores over a takeover")
-        XCTAssertNil(stash)
+        XCTAssertNil(wall.inspectorWasVisibleBefore)
         XCTAssertNil(card)
     }
 
     func test_applyPaletteWallChange_isANoOpWhenNothingChanged() {
         for value in [true, false] {
             var showInspector = true
-            var stash: Bool?
+            var wall = PaletteWallState()
             var card: String? = "card-1"
-            ProjectWindow.applyPaletteWallChange(
+            wall.applyPaletteWallChange(
                 from: value, to: value, showInspector: &showInspector,
-                stash: &stash, selectedPaletteCardId: &card)
+                selectedPaletteCardId: &card)
             XCTAssertTrue(showInspector, "\(value)")
-            XCTAssertNil(stash, "\(value)")
+            XCTAssertNil(wall.inspectorWasVisibleBefore, "\(value)")
             XCTAssertEqual(card, "card-1", "\(value)")
         }
     }
@@ -141,17 +141,15 @@ final class PaletteWallDoorTests: XCTestCase {
     func test_pressPaletteWallDoor_inPlanArmsTheTravelAndOpensNothingYet() {
         var persona = Persona.plan
         var segment = DetailSegment.inspector
-        var shows = false
-        var pending = false
+        var wall = PaletteWallState()
 
         let change = ProjectWindow.pressPaletteWallDoor(
-            persona: &persona, detailSegment: &segment,
-            showsPaletteWall: &shows, wallTravelPending: &pending,
+            persona: &persona, detailSegment: &segment, paletteWall: &wall,
             memory: .empty)
 
         XCTAssertEqual(persona, .author, "the door travels to Author")
-        XCTAssertTrue(pending, "the wall's arrival is a token, not an open flag")
-        XCTAssertFalse(shows,
+        XCTAssertTrue(wall.travelPending, "the wall's arrival is a token, not an open flag")
+        XCTAssertFalse(wall.showsWall,
                        "the wall must not be opened before the switch — the "
                        + "persona observer would close it again on the way")
         XCTAssertEqual(change?.persona, .author,
@@ -162,17 +160,15 @@ final class PaletteWallDoorTests: XCTestCase {
         for persona in Persona.allCases where !persona.centresTheCanvas {
             var current = persona
             var segment = DetailSegment.inspector
-            var shows = false
-            var pending = false
+            var wall = PaletteWallState()
 
             let change = ProjectWindow.pressPaletteWallDoor(
-                persona: &current, detailSegment: &segment,
-                showsPaletteWall: &shows, wallTravelPending: &pending,
+                persona: &current, detailSegment: &segment, paletteWall: &wall,
                 memory: .empty)
 
             XCTAssertEqual(current, persona, "\(persona): nobody travels from here")
-            XCTAssertTrue(shows, "\(persona): the wall opens where the writer is")
-            XCTAssertFalse(pending, "\(persona): no token, nothing to consume")
+            XCTAssertTrue(wall.showsWall, "\(persona): the wall opens where the writer is")
+            XCTAssertFalse(wall.travelPending, "\(persona): no token, nothing to consume")
             XCTAssertNil(change, "\(persona): no persona change to persist")
         }
     }
@@ -180,23 +176,19 @@ final class PaletteWallDoorTests: XCTestCase {
     // MARK: - applyWallTravelOnPersonaChange: the token's consumption
 
     func test_applyWallTravelOnPersonaChange_opensTheWallAndConsumesTheToken() {
-        var pending = true
-        var shows = false
-        ProjectWindow.applyWallTravelOnPersonaChange(pending: &pending,
-                                                     showsPaletteWall: &shows)
-        XCTAssertTrue(shows, "the travelled-to wall opens once the switch landed")
-        XCTAssertFalse(pending, "consumed exactly once — a token, not a mode")
+        var wall = PaletteWallState(travelPending: true)
+        wall.applyWallTravelOnPersonaChange()
+        XCTAssertTrue(wall.showsWall, "the travelled-to wall opens once the switch landed")
+        XCTAssertFalse(wall.travelPending, "consumed exactly once — a token, not a mode")
     }
 
     func test_applyWallTravelOnPersonaChange_isANoOpWithNoToken() {
         for open in [true, false] {
-            var pending = false
-            var shows = open
-            ProjectWindow.applyWallTravelOnPersonaChange(pending: &pending,
-                                                         showsPaletteWall: &shows)
-            XCTAssertEqual(shows, open,
+            var wall = PaletteWallState(showsWall: open)
+            wall.applyWallTravelOnPersonaChange()
+            XCTAssertEqual(wall.showsWall, open,
                            "an ordinary persona change must not open the wall")
-            XCTAssertFalse(pending)
+            XCTAssertFalse(wall.travelPending)
         }
     }
 
@@ -271,14 +263,11 @@ final class PaletteWallDoorTests: XCTestCase {
     /// The OLD wall mechanism compared segments against `.palette` directly
     /// (`applyPaletteSegmentChange`, `clearsPaletteStash`); both are re-keyed
     /// off `showsPaletteWall`/`Persona` now, so no such comparison should
-    /// survive in the window.
+    /// survive in the window — nor, since foundations plan 2, in any view: the
+    /// ban reads every file under `Maugham/Views`, so a split of the window
+    /// cannot carry a comparison out of its sight.
     func test_noComparisonAgainstDotPaletteSurvivesInProjectWindow() throws {
-        let text = try source("Maugham/Views/ProjectWindow.swift")
-        let hits = text.split(separator: "\n").filter {
-            let trimmed = $0.trimmingCharacters(in: .whitespaces)
-            return !trimmed.hasPrefix("//") && !trimmed.hasPrefix("///")
-                && ($0.contains("== .palette") || $0.contains("!= .palette"))
-        }
+        let hits = try Self.dotPaletteComparisons(under: "Maugham/Views")
         XCTAssertTrue(hits.isEmpty,
                       "something still compares a segment against `.palette` — "
                       + "\(hits). `showsPaletteWall` replaced every one of these.")
@@ -291,10 +280,11 @@ final class PaletteWallDoorTests: XCTestCase {
     /// race had no direct mounted test, only the pure-function halves and this
     /// suite's `PromotionCommandTests` sibling's token census).
     func test_theWallModifierClosesOnASubjectChange() throws {
-        let text = try source("Maugham/Views/ProjectWindow.swift")
+        let text = try SourceTree.declaration(
+            named: "struct PaletteWallModifier: ViewModifier {", under: "Maugham")
         XCTAssertTrue(
             text.contains(".onChange(of: selectedSubject) { _, _ in")
-            && text.contains("if showsPaletteWall { showsPaletteWall = false }"),
+            && text.contains("if paletteWall.showsWall { paletteWall.showsWall = false }"),
             "PaletteWallModifier must close the wall on any subject change — "
             + "the door's own contract")
     }
@@ -305,23 +295,19 @@ final class PaletteWallDoorTests: XCTestCase {
     /// keeps the exit arm from fighting `PersonaModifier`'s `showInspector =
     /// true` a pass later — see `closePaletteWallOnPersonaChange`'s doc comment.
     func test_closePaletteWallOnPersonaChange_closesAndDropsTheStash() {
-        var open = true
-        var stash: Bool? = false
-        ProjectWindow.closePaletteWallOnPersonaChange(showsPaletteWall: &open,
-                                                      stash: &stash)
-        XCTAssertFalse(open)
-        XCTAssertNil(stash,
+        var wall = PaletteWallState(showsWall: true, inspectorWasVisibleBefore: false)
+        wall.closePaletteWallOnPersonaChange()
+        XCTAssertFalse(wall.showsWall)
+        XCTAssertNil(wall.inspectorWasVisibleBefore,
                      "a live stash would restore the pre-wall visibility over "
                      + "the switch's own force-open, one pass later")
     }
 
     func test_closePaletteWallOnPersonaChange_isANoOpWhenTheWallIsShut() {
-        var open = false
-        var stash: Bool? = true
-        ProjectWindow.closePaletteWallOnPersonaChange(showsPaletteWall: &open,
-                                                      stash: &stash)
-        XCTAssertFalse(open)
-        XCTAssertEqual(stash, true,
+        var wall = PaletteWallState(showsWall: false, inspectorWasVisibleBefore: true)
+        wall.closePaletteWallOnPersonaChange()
+        XCTAssertFalse(wall.showsWall)
+        XCTAssertEqual(wall.inspectorWasVisibleBefore, true,
                        "a closed wall's memory belongs to whoever armed it — "
                        + "this rule only ever cleans up after itself")
     }
@@ -459,10 +445,7 @@ final class PaletteWallDoorTests: XCTestCase {
     /// either one leaves every test above green and the door in Plan silently
     /// opening a wall that `showsPaletteWallCentre` refuses to draw.
     func test_bothTreeShellsReachTheDoorRatherThanTheFlag() throws {
-        let text = Self.codeOnly(try source("Maugham/Views/ProjectWindow.swift"))
-        let presses = text.split(separator: "\n").filter {
-            $0.contains("onOpenPaletteWall:")
-        }
+        let presses = try Self.openPaletteWallPresses()
         XCTAssertEqual(presses.count, 2,
                        "the two tree shells (standard + Collection) are the "
                        + "door's only mount sites — found \(presses)")
@@ -545,10 +528,74 @@ final class PaletteWallDoorTests: XCTestCase {
         // Comment-stripped, because the replaced predicate is NAMED in the
         // comment that records its removal — a census over prose would fail on
         // its own explanation.
-        let window = Self.codeOnly(try source("Maugham/Views/ProjectWindow.swift"))
-        XCTAssertFalse(window.contains("clearsPaletteWallStash"),
+        XCTAssertEqual(try SourceTree.codeLines(containing: "clearsPaletteWallStash"), [],
                        "the Plan-only predicate is back in the persona handler, "
                        + "which two of the three persona writers never reach")
+    }
+
+    /// Every `== .palette`/`!= .palette` code line under `root`, as "path: line",
+    /// file by file. Comment lines are skipped — the shape this census always had.
+    private static func dotPaletteComparisons(
+        under root: String, base: URL = SourceTree.repoRoot
+    ) throws -> [String] {
+        try SourceTree.sources(under: root, base: base).flatMap { file in
+            file.text.split(separator: "\n").filter {
+                let trimmed = $0.trimmingCharacters(in: .whitespaces)
+                return !trimmed.hasPrefix("//") && !trimmed.hasPrefix("///")
+                    && ($0.contains("== .palette") || $0.contains("!= .palette"))
+            }.map { "\(file.path): \($0.trimmingCharacters(in: .whitespaces))" }
+        }
+    }
+
+    /// The window's `onOpenPaletteWall:` code lines, read by TYPE — every file
+    /// under `Maugham/` declaring `ProjectWindow`.
+    private static func openPaletteWallPresses(base: URL = SourceTree.repoRoot) throws -> [Substring] {
+        codeOnly(try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"], base: base))
+            .split(separator: "\n")
+            .filter { $0.contains("onOpenPaletteWall:") }
+    }
+
+    /// **The planted control for the reads above** (foundations plan 2): a
+    /// `ProjectWindow` struct in one file and an `extension ProjectWindow` in
+    /// another. The wall modifier is found by symbol in the extension, the
+    /// press count reads both files, and both widened bans catch an offender
+    /// in a sibling view outside the window.
+    func test_theReadsFollowTheTypeAndTheBansReachSiblingViews() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": """
+            struct ProjectWindow: View {
+                var body: some View { Tree(onOpenPaletteWall: { openPaletteWall() }) }
+            }
+            """,
+            "Maugham/Views/ProjectWindow+Wall.swift": """
+            extension ProjectWindow {
+                struct PaletteWallModifier: ViewModifier {
+                    func body(content: Content) -> some View {
+                        content.onChange(of: selectedSubject) { _, _ in
+                            if paletteWall.showsWall { paletteWall.showsWall = false }
+                        }
+                    }
+                }
+                var other: some View { CollectionTree(onOpenPaletteWall: { openPaletteWall() }) }
+            }
+            """,
+            "Maugham/Views/SomeSiblingView.swift": """
+            struct SomeSiblingView {
+                func f() -> Bool { segment == .palette }
+                func g() { clearsPaletteWallStash() }
+            }
+            """,
+        ])
+        let modifier = try SourceTree.declaration(
+            named: "struct PaletteWallModifier: ViewModifier {", under: "Maugham", base: base)
+        XCTAssertTrue(modifier.contains("if paletteWall.showsWall { paletteWall.showsWall = false }"))
+        XCTAssertFalse(modifier.contains("CollectionTree("), "the modifier is bounded to itself")
+        XCTAssertEqual(try Self.openPaletteWallPresses(base: base).count, 2,
+                       "the press count reads both of the window's files")
+        XCTAssertEqual(try Self.dotPaletteComparisons(under: "Maugham/Views", base: base),
+                       ["Maugham/Views/SomeSiblingView.swift: func f() -> Bool { segment == .palette }"])
+        XCTAssertEqual(try SourceTree.codeLines(containing: "clearsPaletteWallStash", base: base),
+                       ["Maugham/Views/SomeSiblingView.swift: func g() { clearsPaletteWallStash() }"])
     }
 
     /// Source with `//` and `///` lines dropped — the shape
@@ -738,23 +785,17 @@ private struct TravelProbeView: View {
                 _ = ProjectWindow.pressPaletteWallDoor(
                     persona: &box.persona,
                     detailSegment: &box.detailSegment,
-                    showsPaletteWall: &box.showsPaletteWall,
-                    wallTravelPending: &box.wallTravelPending,
+                    paletteWall: &box.wall,
                     memory: .empty)
             })
         .modifier(ProjectWindow.PaletteWallModifier(
-            showsPaletteWall: Binding(get: { box.showsPaletteWall },
-                                      set: { box.showsPaletteWall = $0 }),
+            paletteWall: Binding(get: { box.wall }, set: { box.wall = $0 }),
             showInspector: Binding(get: { box.showInspector },
                                    set: { box.showInspector = $0 }),
-            inspectorWasVisibleBeforePalette: Binding(get: { box.stash },
-                                                      set: { box.stash = $0 }),
             selectedPaletteCardId: Binding(get: { box.selectedCardId },
                                            set: { box.selectedCardId = $0 }),
             selectedSubject: Binding(get: { box.subject },
                                      set: { box.subject = $0 }),
-            wallTravelPending: Binding(get: { box.wallTravelPending },
-                                       set: { box.wallTravelPending = $0 }),
             persona: box.persona))
     }
 }
@@ -788,12 +829,25 @@ private struct BothOpenProbeView: View {
 final class WallPersonaBox {
     var persona: Persona = .author
     var detailSegment: DetailSegment = .inspector
-    var showsPaletteWall = false
+    /// The window's `PaletteWallState`, whole — what `PaletteWallModifier`
+    /// binds to. The three accessors below read and write its fields, so the
+    /// tests can say what they are about.
+    var wall = PaletteWallState()
+    var showsPaletteWall: Bool {
+        get { wall.showsWall }
+        set { wall.showsWall = newValue }
+    }
     /// The travel token (Task 4): armed by the door pressed in Plan, consumed
     /// by `PaletteWallModifier`'s persona observer once the switch has landed.
-    var wallTravelPending = false
+    var wallTravelPending: Bool {
+        get { wall.travelPending }
+        set { wall.travelPending = newValue }
+    }
+    var stash: Bool? {
+        get { wall.inspectorWasVisibleBefore }
+        set { wall.inspectorWasVisibleBefore = newValue }
+    }
     var showInspector = true
-    var stash: Bool?
     var selectedCardId: String?
     var subject: BinderSubject?
     init() {}
@@ -809,18 +863,13 @@ private struct WallPersonaProbeView: View {
     var body: some View {
         Color.clear
             .modifier(ProjectWindow.PaletteWallModifier(
-                showsPaletteWall: Binding(get: { box.showsPaletteWall },
-                                          set: { box.showsPaletteWall = $0 }),
+                paletteWall: Binding(get: { box.wall }, set: { box.wall = $0 }),
                 showInspector: Binding(get: { box.showInspector },
                                        set: { box.showInspector = $0 }),
-                inspectorWasVisibleBeforePalette: Binding(get: { box.stash },
-                                                          set: { box.stash = $0 }),
                 selectedPaletteCardId: Binding(get: { box.selectedCardId },
                                                set: { box.selectedCardId = $0 }),
                 selectedSubject: Binding(get: { box.subject },
                                          set: { box.subject = $0 }),
-                wallTravelPending: Binding(get: { box.wallTravelPending },
-                                           set: { box.wallTravelPending = $0 }),
                 persona: box.persona))
     }
 }

@@ -210,14 +210,76 @@ final class PromotionCommandTests: XCTestCase {
 
     // MARK: - The wiring census
 
-    private static var repoRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // Canvas
-            .deletingLastPathComponent()   // MaughamTests
-            .deletingLastPathComponent()   // repo root
+    /// **The item index reaches both canvas mounts, each told apart by the call
+    /// that encloses it** — never by a trailing comma or `))`, which a reflow
+    /// swaps without changing what is handed where. `CanvasView.itemIndex` and
+    /// `RegionInspectorPane.itemIndex` both default to `.empty`, a real state, so
+    /// dropping either argument compiles, runs and is invisible to every other
+    /// test. Planted control: `test_theItemIndexAnchorFiresOnPlantedOffenders`.
+    func test_theItemIndexIsHandedToBothCanvasMounts() throws {
+        let code = SourceScan.codeLines(of: try SourceTree.windowSource())
+        for call in ["CanvasView(", "RegionInspectorPane("] {
+            let bodies = Self.callBodies(of: call, in: code)
+            XCTAssertEqual(bodies.count, 1,
+                           "the window family mounts exactly one `\(call)`")
+            XCTAssertTrue(
+                bodies.contains { $0.contains(Self.itemIndexArgument) },
+                "`\(call)` must be handed `\(Self.itemIndexArgument)`")
+        }
     }
 
-    /// Which of `required` are absent from the **code** of the file at `path`.
+    func test_theItemIndexAnchorFiresOnPlantedOffenders() {
+        let planted = SourceScan.codeLines(of: """
+        func a() {
+            CanvasView(model: m,
+                       itemIndex: ProjectWindow.canvasItemIndex(in: store),
+                       other: 1)
+            RegionInspectorPane(
+                model: m)
+            // RegionInspectorPane(itemIndex: ProjectWindow.canvasItemIndex(in: store))
+            ReviewCanvasView(itemIndex: ProjectWindow.canvasItemIndex(in: store))
+        }
+        """)
+        let canvas = Self.callBodies(of: "CanvasView(", in: planted)
+        XCTAssertEqual(canvas.count, 1, "`ReviewCanvasView(` is not `CanvasView(`")
+        XCTAssertTrue(canvas.allSatisfy { $0.contains(Self.itemIndexArgument) })
+        let inspector = Self.callBodies(of: "RegionInspectorPane(", in: planted)
+        XCTAssertEqual(inspector.count, 1, "a comment naming the call is not a mount")
+        XCTAssertFalse(inspector.contains { $0.contains(Self.itemIndexArgument) },
+                       "the argument sitting on ANOTHER call does not satisfy this one")
+    }
+
+    private static let itemIndexArgument = "itemIndex: ProjectWindow.canvasItemIndex(in: store)"
+
+    /// The text between a call's own parentheses, for every occurrence of
+    /// `call` in `code` that is not the tail of a longer name.
+    private static func callBodies(of call: String, in code: [String]) -> [String] {
+        var bodies: [String] = []
+        for (index, line) in code.enumerated() {
+            guard let range = line.range(of: call) else { continue }
+            if let before = line[..<range.lowerBound].last,
+               before.isLetter || before.isNumber || before == "_" { continue }
+            var depth = 0
+            var body = ""
+            var text = String(line[range.lowerBound...])
+            var next = index + 1
+            scan: while true {
+                for character in text {
+                    if character == "(" { depth += 1 }
+                    if character == ")" { depth -= 1 }
+                    body.append(character)
+                    if character == ")", depth == 0 { break scan }
+                }
+                body.append("\n")
+                guard next < code.count else { break }
+                text = code[next]; next += 1
+            }
+            bodies.append(body)
+        }
+        return bodies
+    }
+
+    /// Which of `required` are absent from the **code** at `location`.
     /// Shared by the census and by its planted-offender companion, so there is
     /// exactly one implementation to get wrong.
     ///
@@ -233,10 +295,31 @@ final class PromotionCommandTests: XCTestCase {
     /// window — which is the single failure this census exists to catch.
     /// Measured on the old implementation: block-commenting the `assetIngest:`
     /// argument out left the census green; deleting it turns it red.
-    private func missingTokens(in path: String, required: [String]) throws -> [String] {
-        let url = Self.repoRoot.appendingPathComponent(path)
-        let text = try String(contentsOf: url, encoding: .utf8)
+    ///
+    /// `location` is a repo-relative path, or a `type:` key (`Self.window`) —
+    /// every file under `Maugham/` declaring that type (for `ProjectWindow`,
+    /// also its free-standing modifiers and its centre column,
+    /// `SourceTree.windowFamilyTypes`), so
+    /// the window's tokens are found wherever a split moves them, and a
+    /// type nothing declares throws rather than reporting every token missing
+    /// from an empty string. `base` is the seam the planted control uses.
+    private func missingTokens(in location: String, required: [String],
+                               base: URL = SourceTree.repoRoot) throws -> [String] {
+        let text = try Self.text(of: location, base: base)
         return required.filter { !SourceScan.namesInCode($0, in: text) }
+    }
+
+    /// The window's code, by type: `ProjectWindow` and its extensions.
+    private static let window = "type:ProjectWindow"
+
+    private static func text(of location: String, base: URL = SourceTree.repoRoot) throws -> String {
+        if let type = SourceTree.typeName(ofKey: location) {
+            // The window's modifiers moved to files of their own (plan 4): the
+            // window's code is the family, by type.
+            if type == "ProjectWindow" { return try SourceTree.windowSource(base: base) }
+            return try SourceTree.sourceOfType(type, under: ["Maugham"], base: base)
+        }
+        return try SourceTree.read(location, base: base)
     }
 
     /// The inspector buttons post the SAME command the menu posts, so a writer
@@ -339,24 +422,23 @@ final class PromotionCommandTests: XCTestCase {
              + "TheItemDecision` pins on purpose. The drag is the route with no "
              + "runtime coverage available to it, so this is the only instrument "
              + "that holds it"),
-            ("Maugham/Views/ProjectWindow.swift",
+            (Self.window,
              [".onKeyWindowCommand(.maughamPromoteCanvasSelection",
               ".modifier(CanvasPromotionModifier(",
               "result.confirmation(for: plan)",
               "PromotionPiece.resolve(",
               "items: ProjectWindow.canvasItemIndex(in: store)",
               ".modifier(CanvasClaudeArrivalModifier(",
-              "itemIndex: Self.canvasItemIndex(in: store)",
               "subject: CanvasSubject.resolve(",
-              "pieceTitles: Self.canvasPieceTitles(in: store)",
+              "pieceTitles: ProjectWindow.canvasPieceTitles(in: store)",
               "selectTheProjectRow: { selectedSubject = .project }",
               "assetIngest: CanvasAssetIngest(",
               "captureDrop: CanvasCaptureDrop(",
               ".modifier(CanvasCollapseModifier(",
               "NavigationSplitView(columnVisibility: $columnVisibility)",
               "Self.releasesCanvasCollapse(",
-              "ProjectWindow.closePaletteWallOnPersonaChange(",
-              "ProjectWindow.applyPaletteWallChange("],
+              "paletteWall.closePaletteWallOnPersonaChange(",
+              "paletteWall.applyPaletteWallChange("],
              // **Numbered by what each token IS, never by its position in the
              // array above** (1C-d Task 12a, review Important 1). This read
              // "The FIFTH is…", "The SIXTH is…" and so on; Task 12a inserted a
@@ -398,8 +480,14 @@ final class PromotionCommandTests: XCTestCase {
              + "modifier is a whole file of its own, so every token in it stays "
              + "present and its own census stays green while the writer is never "
              + "told that Claude added anything. "
-             + "`itemIndex: Self.canvasItemIndex(in: store)` is 1C-d's item "
-             + "index on the CANVAS, and it is the first token here that guards "
+             + "`itemIndex: ProjectWindow.canvasItemIndex(in: store)` is 1C-d's item "
+             + "index on the CANVAS and on the REGION INSPECTOR. It is NOT a token "
+             + "in this array: the two spellings were told apart by their trailing "
+             + "punctuation, which a reflow would swap, so "
+             + "`test_theItemIndexIsHandedToBothCanvasMounts` anchors each by its "
+             + "enclosing call (`CanvasView(` in `CentreColumn`, "
+             + "`RegionInspectorPane(` in `RightColumn`). It is the first thing "
+             + "here that guards "
              + "a DEFAULT rather than a call: `CanvasView.itemIndex` and "
              + "`RegionInspectorPane.itemIndex` both default to `.empty`, which "
              + "is a real state and therefore compiles and runs — so deleting "
@@ -428,7 +516,7 @@ final class PromotionCommandTests: XCTestCase {
              + "on the canvas. It is also the only place the manifest reaches "
              + "the resolution: the canvas cannot tell a chapter from a group "
              + "without it, and a group resolved as a chapter lights nothing. "
-             + "`pieceTitles: Self.canvasPieceTitles(in: store)` is §4.2's "
+             + "`pieceTitles: ProjectWindow.canvasPieceTitles(in: store)` is §4.2's "
              + "borrowed name (2026-08-04), and it is the defaulted-argument "
              + "shape a fifth time: `CanvasView.pieceTitles` defaults to "
              + "`.empty`, which is a real state — a canvas hosted without a "
@@ -479,7 +567,7 @@ final class PromotionCommandTests: XCTestCase {
              + "`CanvasCollapseTests` assertion stays green while a writer who "
              + "closed the inspector before collapsing lands in the next "
              + "persona with it closed, which is the exact defect the predicate "
-             + "exists to prevent. **`ProjectWindow.closePaletteWallOnPersonaChange(` "
+             + "exists to prevent. **`paletteWall.closePaletteWallOnPersonaChange(` "
              + "is the same hazard on the WALL, and it had the identical gap "
              + "until the 1C-d whole-branch review (M3)** — Task 13 measured "
              + "the hazard on the collapse's predicate and censused that one, "
@@ -496,7 +584,7 @@ final class PromotionCommandTests: XCTestCase {
              + "visibility over the switch's unconditional `showInspector = "
              + "true` — and, one surface further, carries the wall itself into "
              + "the persona they never opened it in. "
-             + "`ProjectWindow.applyPaletteWallChange(` is the wall's own "
+             + "`paletteWall.applyPaletteWallChange(` is the wall's own "
              + "fold, and it is that shape one surface over: the fold is a "
              + "static with its own tests, so deleting the single line that "
              + "calls it from `PaletteWallModifier` compiles, warns nothing, "
@@ -545,7 +633,7 @@ final class PromotionCommandTests: XCTestCase {
     /// exist.
     func test_theCensusFailsWhenPointedAtWiringThatIsNotThere() throws {
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+            try missingTokens(in: Self.window,
                               required: [".onKeyWindowCommand(.maughamNotARealCommand"]).count, 1,
             "the census reports a token that is genuinely absent")
         XCTAssertEqual(
@@ -565,7 +653,7 @@ final class PromotionCommandTests: XCTestCase {
         // file, so a census that named only that token would stay green while
         // `Promote…` is unreachable from the real window.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+            try missingTokens(in: Self.window,
                               required: [".onKeyWindowCommand(.maughamPromoteCanvasSelection",
                                          ".modifier(CanvasNotAPromotionModifier("]),
             [".modifier(CanvasNotAPromotionModifier("],
@@ -575,26 +663,16 @@ final class PromotionCommandTests: XCTestCase {
         // And the result token, falsified the same way. `_ = try await …perform(plan)`
         // compiles, passes every performer test, and tells the writer nothing.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+            try missingTokens(in: Self.window,
                               required: ["result.confirmation(for: plan)",
                                          "result.notARealConfirmation(for: plan)"]),
             ["result.notARealConfirmation(for: plan)"],
             "the census reports the ABSENT result token and not the present one")
-        // And 1C-d's item index, falsified with a builder that cannot exist. This
-        // is the plant that matters most of the set, because the token it guards
-        // protects a DEFAULT: dropping `itemIndex:` at either call site compiles,
-        // runs, and is invisible to every other test.
-        XCTAssertEqual(
-            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
-                              required: ["itemIndex: Self.canvasItemIndex(in: store)",
-                                         "itemIndex: Self.canvasNotAnItemIndex(in: store)"]),
-            ["itemIndex: Self.canvasNotAnItemIndex(in: store)"],
-            "the census reports the ABSENT item-index token and not the present one")
         // And the piece token. `piece: .none` at the call site compiles and every
         // performer test still passes, while the sheet's whole destination half
         // is back to what shipped before §6.2.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+            try missingTokens(in: Self.window,
                               required: ["PromotionPiece.resolve(",
                                          "PromotionPiece.notARealResolver("]),
             ["PromotionPiece.notARealResolver("],
@@ -605,7 +683,7 @@ final class PromotionCommandTests: XCTestCase {
         // referenced picture in a promoted region would then be uncopied while
         // every owned one still worked.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+            try missingTokens(in: Self.window,
                               required: ["items: ProjectWindow.canvasItemIndex(in: store)",
                                          "items: ProjectWindow.canvasNotAnIndex(in: store)"]),
             ["items: ProjectWindow.canvasNotAnIndex(in: store)"],
@@ -615,7 +693,7 @@ final class PromotionCommandTests: XCTestCase {
         // `assetIngest` defaults to `.unavailable`, so dropping the argument
         // compiles, runs, and refuses every photograph the writer drags in.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+            try missingTokens(in: Self.window,
                               required: ["assetIngest: CanvasAssetIngest(",
                                          "assetIngest: CanvasNotAnAssetIngest("]),
             ["assetIngest: CanvasNotAnAssetIngest("],
@@ -648,7 +726,7 @@ final class PromotionCommandTests: XCTestCase {
         // can be reached from at all, and both are pure wiring over a store verb
         // that is exhaustively tested without them.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+            try missingTokens(in: Self.window,
                               required: ["captureDrop: CanvasCaptureDrop(",
                                          "captureDrop: CanvasNotACaptureDrop("]),
             ["captureDrop: CanvasNotACaptureDrop("],
@@ -668,7 +746,7 @@ final class PromotionCommandTests: XCTestCase {
         // guarantees it can never appear in production CODE — so this can only
         // ever be answered by the comment filter.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+            try missingTokens(in: Self.window,
                               required: ["canvas_assets/"]),
             ["canvas_assets/"],
             "a token present only in a comment satisfied the census. The house "
@@ -676,10 +754,8 @@ final class PromotionCommandTests: XCTestCase {
             + "is how the instrument goes quiet: one comment naming a token "
             + "while the real call goes away")
         XCTAssertTrue(
-            try String(contentsOf: Self.repoRoot
-                .appendingPathComponent("Maugham/Views/ProjectWindow.swift"),
-                       encoding: .utf8).contains("canvas_assets/"),
-            "control: the probe token really IS in that file — otherwise the "
+            try Self.text(of: Self.window).contains("canvas_assets/"),
+            "control: the probe token really IS in the window's source — otherwise the "
             + "assertion above is satisfied by a string that appears nowhere at "
             + "all, and proves nothing about comments")
         // 1C-c3's arrival-banner mount line, falsified the same way. The
@@ -687,7 +763,7 @@ final class PromotionCommandTests: XCTestCase {
         // `CanvasClaudeArrivalModifier.swift`, so its own census stays green with
         // this line deleted and the writer is simply never told.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+            try missingTokens(in: Self.window,
                               required: [".modifier(CanvasClaudeArrivalModifier(",
                                          ".modifier(CanvasNotAnArrivalModifier("]),
             [".modifier(CanvasNotAnArrivalModifier("],
@@ -696,7 +772,7 @@ final class PromotionCommandTests: XCTestCase {
         // it reaches is a pure function on `ProjectWindow`, so its whole suite
         // stays green with this line deleted and ⌘\ on the canvas moves nothing.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+            try missingTokens(in: Self.window,
                               required: [".modifier(CanvasCollapseModifier(",
                                          ".modifier(CanvasNotACollapseModifier("]),
             [".modifier(CanvasNotACollapseModifier("],
@@ -705,7 +781,7 @@ final class PromotionCommandTests: XCTestCase {
         // turns a `@State` the modifier writes into a column that actually
         // moves. Falsified with a binding name that cannot exist.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+            try missingTokens(in: Self.window,
                               required: ["NavigationSplitView(columnVisibility: $columnVisibility)",
                                          "NavigationSplitView(columnVisibility: $notARealVisibility)"]),
             ["NavigationSplitView(columnVisibility: $notARealVisibility)"],
@@ -717,7 +793,7 @@ final class PromotionCommandTests: XCTestCase {
         // no other instrument at all: the predicate is pure and its sequence
         // test hand-drives it, and nothing in the tree posts `.maughamSetPersona`.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
+            try missingTokens(in: Self.window,
                               required: ["Self.releasesCanvasCollapse(",
                                          "Self.releasesNotARealCollapse("]),
             ["Self.releasesNotARealCollapse("],
@@ -728,19 +804,19 @@ final class PromotionCommandTests: XCTestCase {
         // 2b's final review (I3) — one observer of the persona covers every
         // writer of it — so the token names the observer's call.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
-                              required: ["ProjectWindow.closePaletteWallOnPersonaChange(",
-                                         "ProjectWindow.closesNothingReal("]),
-            ["ProjectWindow.closesNothingReal("],
+            try missingTokens(in: Self.window,
+                              required: ["paletteWall.closePaletteWallOnPersonaChange(",
+                                         "paletteWall.closesNothingReal("]),
+            ["paletteWall.closesNothingReal("],
             "the census reports the ABSENT palette-stash-call-site token and not "
             + "the present one")
         // And the wall's fold, the same shape one surface over: a static with
         // its own tests, called from exactly one line.
         XCTAssertEqual(
-            try missingTokens(in: "Maugham/Views/ProjectWindow.swift",
-                              required: ["ProjectWindow.applyPaletteWallChange(",
-                                         "ProjectWindow.applyNotARealSegmentChange("]),
-            ["ProjectWindow.applyNotARealSegmentChange("],
+            try missingTokens(in: Self.window,
+                              required: ["paletteWall.applyPaletteWallChange(",
+                                         "paletteWall.applyNotARealSegmentChange("]),
+            ["paletteWall.applyNotARealSegmentChange("],
             "the census reports the ABSENT palette-fold token and not the present one")
         // And 1C-c3's provenance line in the card arm: `Origin` and its sentences
         // are fully testable with nothing in `body` reading them.
@@ -773,6 +849,43 @@ final class PromotionCommandTests: XCTestCase {
                                          ".dropDestination(for: NotARealPayload.self)"]),
             [".dropDestination(for: NotARealPayload.self)"],
             "the census reports the ABSENT drop-mount token and not the present one")
+    }
+
+    /// **The window's census reads by TYPE, and still fires.** A planted
+    /// `ProjectWindow` struct and an `extension ProjectWindow` in a second file:
+    /// a token living only in the extension is found (a split moves no token
+    /// out of sight), one present only in a comment and one absent everywhere
+    /// are both reported, and a token in an unrelated view counts for nothing.
+    func test_theWindowCensusReadsTheTypeAcrossItsExtensions() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": """
+            struct ProjectWindow: View {
+                var body: some View { EmptyView().modifier(CanvasPromotionModifier()) }
+            }
+            """,
+            "Maugham/Views/ProjectWindow+Canvas.swift": """
+            extension ProjectWindow {
+                // assetIngest: CanvasAssetIngest(
+                func canvas() { CanvasView(captureDrop: CanvasCaptureDrop()) }
+            }
+            """,
+            "Maugham/Views/Elsewhere.swift": """
+            struct Elsewhere { let x = PromotionPiece.resolve() }
+            """,
+        ])
+        XCTAssertEqual(
+            try missingTokens(in: Self.window,
+                              required: [".modifier(CanvasPromotionModifier(",
+                                         "captureDrop: CanvasCaptureDrop(",
+                                         "assetIngest: CanvasAssetIngest(",
+                                         "PromotionPiece.resolve("],
+                              base: base),
+            ["assetIngest: CanvasAssetIngest(", "PromotionPiece.resolve("],
+            "the extension's token is the window's; a commented one and one in "
+            + "another type are not")
+        XCTAssertThrowsError(
+            try missingTokens(in: "type:NotAWindow", required: ["x"], base: base),
+            "a type nothing declares must throw, never report from an empty string")
     }
 
     /// The name must not collide with the collection-piece promotion that

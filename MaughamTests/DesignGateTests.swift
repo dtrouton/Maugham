@@ -603,19 +603,101 @@ final class DesignGateTests: XCTestCase {
     /// ViewBuilder branches are two view identities, and `EditorHost.onDisappear`
     /// is `doc.close()` + `unregister(path:)` + `loads.abandon()`. A gate on its
     /// own arm would tear the host down on every Show and every Back.
+    ///
+    /// The mount is asked of the window by TYPE; the arm is read inside
+    /// `manuscriptEditor`'s own body, found by symbol (foundations plan 2), and
+    /// since foundations plan 4 Task 3 it is the `.designGate` arm of the ONE
+    /// switch over `CentreRoute`'s cover — whose precedence (the gate over
+    /// the book, the round over the gate) `CentreRouteTests` pins as values.
     func test_theGateIsAFourthLayerOfTheSameStackAndNotANewArm() throws {
-        let source = try Self.source(of: "Views/ProjectWindow.swift")
-        let code = SourceScan.codeLines(of: source)
-
-        XCTAssertTrue(code.contains { $0.contains("DesignGateView(") },
+        XCTAssertTrue(try SourceTree.windowCodeLines().contains { $0.contains("DesignGateView(") },
                       "production must mount the gate somewhere")
-        let switchLine = try XCTUnwrap(
-            code.firstIndex { $0.contains("Self.publishCentre(") },
-            "the centre's one switch must still be there")
-        let gateLine = try XCTUnwrap(code.firstIndex { $0.contains("DesignGateView(") })
-        XCTAssertTrue(gateLine > switchLine && gateLine - switchLine < 40,
-                      "the gate is an arm of the publishCentre switch inside "
-                      + "manuscriptEditor's ZStack, beside the book's")
+        XCTAssertTrue(Self.gateIsAnArmOfTheCentreSwitch(try Self.manuscriptEditorSource()),
+                      "the gate is the `.designGate` arm of the cover switch "
+                      + "inside manuscriptEditor's ZStack, beside the book's")
+    }
+
+    /// `manuscriptEditor`'s own body, found by symbol.
+    private static func manuscriptEditorSource(base: URL = SourceTree.repoRoot) throws -> String {
+        try SourceTree.declaration(named: "func manuscriptEditor(", under: "Maugham", base: base)
+    }
+
+    /// Whether `source` mounts `DesignGateView(` in the `.designGate` arm of its
+    /// `switch cover`, after the host — false when either is gone.
+    private static func gateIsAnArmOfTheCentreSwitch(_ source: String) -> Bool {
+        guard let overlay = CentreRouteSource.switchArms(in: source, over: "switch cover")
+        else { return false }
+        return overlay.arm("designGate").contains("DesignGateView(")
+            && !overlay.outside.contains { $0.contains("DesignGateView(") }
+    }
+
+    /// Every file under `root` whose code calls `designer.requestChanges(`.
+    private static func requestChangesCallers(
+        under root: String, base: URL = SourceTree.repoRoot
+    ) throws -> [String] {
+        try SourceTree.sources(under: root, base: base)
+            .filter { SourceScan.namesInCode("designer.requestChanges(", in: $0.text) }
+            .map(\.path)
+    }
+
+    /// **The planted control for the window reads** (foundations plan 2): a
+    /// `ProjectWindow` struct in one file and `manuscriptEditor` in an
+    /// `extension ProjectWindow` in another. The arm is found across the
+    /// extension (so the arm check reads the real switch), the wiring reads
+    /// both files, and the widened caller census catches a second caller in a
+    /// sibling view outside the window.
+    func test_theWindowReadsFollowTheTypeAndTheCallerCensusReachesSiblingViews() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": """
+            struct ProjectWindow: View {
+                var body: some View { EmptyView() }
+                func actions() { DepartmentDesignRow.sendChanges(words, to: designer) }
+            }
+            """,
+            "Maugham/Views/ProjectWindow+Centre.swift": """
+            extension ProjectWindow {
+                private func manuscriptEditor(store: ProjectStore) -> some View {
+                    ZStack {
+                        EditorHost()
+                        switch cover {
+                        case .designGate(let proposal):
+                            DesignGateView(proposal: proposal)
+                        default: EmptyView()
+                        }
+                    }
+                }
+            }
+            """,
+            "Maugham/Views/Publish/DepartmentDesignRow.swift": """
+            enum DepartmentDesignRow { static func sendChanges() { designer.requestChanges(words) } }
+            """,
+            "Maugham/Views/SomeSiblingView.swift": """
+            struct SomeSiblingView { func f() { _ = designer.requestChanges(words) } }
+            """,
+        ])
+        XCTAssertTrue(Self.gateIsAnArmOfTheCentreSwitch(
+            try Self.manuscriptEditorSource(base: base)),
+            "the arm is found in the extension, switch and gate both")
+        XCTAssertFalse(Self.gateIsAnArmOfTheCentreSwitch("switch cover {\n}"),
+                       "a switch with no gate is not compliant")
+        XCTAssertFalse(Self.gateIsAnArmOfTheCentreSwitch("""
+            if showsGate { DesignGateView() }
+            switch cover {
+            case .designGate(let proposal): EmptyView()
+            }
+            """), "a gate layered beside the switch, decided by z-order, is not compliant")
+        XCTAssertFalse(Self.gateIsAnArmOfTheCentreSwitch("""
+            switch cover {
+            case .books(let publications): DesignGateView()
+            }
+            """), "nor is a gate in another surface's arm")
+        XCTAssertTrue(try SourceTree.windowCodeLines(base: base)
+            .contains { $0.contains("DepartmentDesignRow.sendChanges") },
+            "the wiring reads the window's files")
+        XCTAssertEqual(try Self.requestChangesCallers(under: "Maugham/Views", base: base),
+                       ["Maugham/Views/Publish/DepartmentDesignRow.swift",
+                        "Maugham/Views/SomeSiblingView.swift"],
+                       "the widened census sees a second caller outside the window")
     }
 
     /// **The desk still reads no store** (tripwire 4). The Show affordance is a
@@ -1145,26 +1227,24 @@ final class DesignGateTests: XCTestCase {
     /// answers to "why did that not go" — free to drift the moment
     /// `DesignerOrchestrator.requestChanges` grows a fifth guard, which is
     /// exactly what `unknownRefusal` exists against.
+    ///
+    /// The caller census reads every file under `Maugham/Views` (foundations
+    /// plan 2) rather than five named ones, so a split of the window cannot
+    /// put a second caller where it does not look.
     func test_requestChangesHasOneSpellingAndBothSurfacesReachIt() throws {
-        let orchestratorCallers = try ["Views/Publish/DepartmentDesignRow.swift",
-                                       "Views/Publish/DepartmentPaneHost.swift",
-                                       "Views/Publish/DesignGateView.swift",
-                                       "Views/Publish/DesignGateVerbs.swift",
-                                       "Views/ProjectWindow.swift"]
-            .filter { path in
-                SourceScan.codeLines(of: try Self.source(of: path))
-                    .contains { $0.contains("designer.requestChanges(") }
-            }
-        XCTAssertEqual(orchestratorCallers,
-                       ["Views/Publish/DepartmentDesignRow.swift"],
+        XCTAssertEqual(try Self.requestChangesCallers(under: "Maugham/Views"),
+                       ["Maugham/Views/Publish/DepartmentDesignRow.swift"],
                        "the orchestrator's verb is called from `sendChanges` and "
                        + "nowhere else in this department")
 
-        for surface in ["Views/Publish/DepartmentPaneHost.swift",
-                        "Views/ProjectWindow.swift"] {
+        let surfaces = [
+            ("Views/Publish/DepartmentPaneHost.swift",
+             SourceScan.codeLines(of: try Self.source(of: "Views/Publish/DepartmentPaneHost.swift"))),
+            ("the window (type ProjectWindow)", try SourceTree.windowCodeLines()),
+        ]
+        for (surface, code) in surfaces {
             XCTAssertTrue(
-                SourceScan.codeLines(of: try Self.source(of: surface))
-                    .contains { $0.contains("DepartmentDesignRow.sendChanges") },
+                code.contains { $0.contains("DepartmentDesignRow.sendChanges") },
                 "\(surface) must reach the one spelling rather than compose its own")
         }
     }
@@ -1199,7 +1279,7 @@ final class DesignGateTests: XCTestCase {
     /// seam's spelling to production's — without it every mounted test above
     /// passes over a surface nothing wires up.
     func test_theWindowWiresTheVerbsAndTakesTheirResultBack() throws {
-        let code = SourceScan.codeLines(of: try Self.source(of: "Views/ProjectWindow.swift"))
+        let code = try SourceTree.windowCodeLines()
 
         XCTAssertTrue(code.contains { $0.contains("actions:") && $0.contains("designGateActions") }
                       || code.contains { $0.contains("designGateActions(") },

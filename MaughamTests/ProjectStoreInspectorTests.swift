@@ -50,7 +50,7 @@ final class ProjectStoreInspectorTests: XCTestCase {
         let chapter1 = store.manifest.structure[0]
         let chapter2 = try await store.addStructureItem(
             parentId: nil, title: "Chapter 2",
-            kind: .document(extension: "md"))
+            kind: .document(.markdown))
         try await store.updateInspector(id: chapter1.id, links: [chapter2.id])
         XCTAssertEqual(store.manifest.structure[0].links, [chapter2.id])
         await ds.close()
@@ -192,7 +192,7 @@ final class ProjectStoreInspectorTests: XCTestCase {
         let chapter1 = store.manifest.structure[0]
         let chapter2 = try await store.addStructureItem(
             parentId: nil, title: "Chapter 2",
-            kind: .document(extension: "md"))
+            kind: .document(.markdown))
         // Seed chapter 2 with a body that references chapter 1 by title.
         let chapter2Body = "Margaret revisits [[Chapter 1]] and reflects."
         try chapter2Body.write(

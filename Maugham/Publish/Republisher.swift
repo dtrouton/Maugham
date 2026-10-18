@@ -15,11 +15,17 @@ public enum RepublishError: Error, LocalizedError {
     /// rather than guessed: the silent fallback would republish the Spanish
     /// edition as the English book under the Spanish name.
     case unreadableSnapshotConfig(String)
+    /// The format asked for is one this build can't produce
+    /// (`PublishConfig.Format.unknown`), carrying its name verbatim. Thrown
+    /// at `republish`'s door, before the snapshot is read; its description is
+    /// `PublishFormatRefusal.message(raw:)`, the one refusal sentence.
+    case unproducibleFormat(String)
 
     public var errorDescription: String? {
         switch self {
         case .invalidSnapshotConfig(let msg): return msg
         case .unreadableSnapshotConfig(let msg): return msg
+        case .unproducibleFormat(let raw): return PublishFormatRefusal.message(raw: raw)
         }
     }
 }
@@ -71,6 +77,13 @@ public struct Republisher {
         format: PublishConfig.Format,
         label: String?
     ) async throws -> Outcome {
+        // Can this build produce the format at all
+        // (`PublishConfigValidator.formatError`)? Asked before the snapshot is
+        // read, the mint reservation and the staging: nothing has begun.
+        if PublishConfigValidator.formatError(format) != nil {
+            throw RepublishError.unproducibleFormat(format.rawValue)
+        }
+
         let snap = try snapshotStore.load(id: snapshotID)
 
         // Traversal guard (finding 1.5): the snapshot's config is validated
@@ -420,6 +433,12 @@ public struct Republisher {
             warnings = r.warnings
             errors = r.errors
             logExcerpt = ""
+        case .unknown(let raw):
+            // Defence in depth, unreachable from `republish`: its first check
+            // (`PublishConfigValidator.formatError`) refuses every unknown
+            // format. Kept so the switch stays exhaustive with no `default:`;
+            // a throw, never a precondition failure.
+            throw PublishFormatRefusal(raw: raw)
         }
 
         if !errors.isEmpty || outputPath.isEmpty {

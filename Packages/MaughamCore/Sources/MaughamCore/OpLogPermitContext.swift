@@ -3,7 +3,7 @@ import Foundation
 /// **What a reader has to know before it can ask the permit table anything**
 /// (P3a Task 5, spec §4.1 and §4.5).
 ///
-/// `OpLogStore.classify` works per FILE and holds no project: it has a URL, the
+/// `OpLogClassifier.classify` works per FILE and holds no project: it has a URL, the
 /// bytes, this device's remembered head and the trust table. Two of the
 /// partition's four questions are about the DOCUMENT rather than the file —
 /// *where does this stream sit* and *has a book author written this piece's
@@ -432,17 +432,12 @@ extension OpLogStore {
     }
 
     /// **Who started a piece, from the manifest on disk** (P3c plan 2, Option
-    /// A) — `StructureItem.startedBy` for the item whose id is `docId`, the
-    /// one door a reader holding only a project URL reads it through.
-    ///
-    /// Nil where the manifest will not read, where no item has that id, and
-    /// where the item records no starter — all three are *today's rule*, which
-    /// is the direction that changes nothing: a line §4.5 holds stays held,
-    /// and a Mac that may write the piece's text still mints its opening.
+    /// A). Forwards to `LocalWritePermitBuilder.startedBy(ofPiece:in:)`, which
+    /// carries the rule.
     nonisolated public static func startedBy(
         ofPiece docId: String, in projectURL: URL
     ) -> String? {
-        decodedManifest(in: projectURL)?.startedBy(ofPiece: docId)
+        LocalWritePermitBuilder.startedBy(ofPiece: docId, in: projectURL)
     }
 
     /// Test-only counting seam: called once per manifest READ this path makes.
@@ -458,75 +453,6 @@ extension OpLogStore {
     /// cleared on one thread; production never assigns it.
     nonisolated(unsafe) public static var manifestReadObserverForTesting:
         (@Sendable () -> Void)?
-
-    /// **§4.5's pass 1, over every file of one document**: has any key holding
-    /// an author-of-the-whole-book permit applied a manuscript-text line here?
-    /// A book author's opening of a piece somebody ELSE started is not one
-    /// (ruling G): the rule is `PermitPartition.bookAuthorWroteManuscriptText`'s,
-    /// asked per file. Since Option A the WRITE side asks this too
-    /// (`localWritePermit`, for an author of some pieces in a piece she
-    /// started). The answer is a fact about the document's LINES, so a stamp
-    /// taken from it goes stale when lines arrive: the Mac re-stamps a
-    /// Document carrying `writesAsItsStarter` on every external re-read
-    /// (ruling H, `Document.handleExternalLogChange`), which is when her read
-    /// sets her lines aside — so her editor locks at that same re-read.
-    ///
-    /// Classified with **no permit context of its own**, which is what stops
-    /// this recursing, and with `state: nil`, so it adopts no head, remembers
-    /// no digest and writes no record — it is a question, not a load.
-    ///
-    /// **It is asked at most once per file that reaches §4.5**, not memoised
-    /// across a document's files: memoising wants shared mutable state inside a
-    /// `@Sendable` closure, and the condition that reaches here — a scoped
-    /// author's own hand, in a piece outside her scope, in a book that has
-    /// permit events — is rare enough that a handful of repeats is the cheaper
-    /// of the two risks.
-    nonisolated public static func unownedPiece(
-        forDocId docId: String, in projectURL: URL, trust: TrustTable?
-    ) -> PermitPartition.UnownedPiece {
-        guard let trust else { return .nobodyHasWrittenItsText }
-        return unownedPiece(
-            forDocId: docId, in: projectURL, trust: trust,
-            startedBy: startedBy(ofPiece: docId, in: projectURL))
-    }
-
-    /// The same question, for a caller that already holds the piece's
-    /// recorded starter (ruling G: a book author's `bootstrap` claims the
-    /// piece unless somebody else started it).
-    nonisolated public static func unownedPiece(
-        forDocId docId: String, in projectURL: URL, trust: TrustTable,
-        startedBy: String?
-    ) -> PermitPartition.UnownedPiece {
-        for url in opLogFileURLs(forDocId: docId, in: projectURL) {
-            guard let bytes = (try? readCoordinated(url: url, presenter: nil)) ?? nil,
-                  let stream = PermitMark.stream(of: url)
-            else { continue }
-            let classified = classify(
-                url: url, bytes: bytes, state: nil, trust: trust)
-            guard let verification = classified.verification else {
-                // A settled segment was never walked, so there is no
-                // `Verification` to read — but its lines ARE this document's
-                // history, so the question has to reach them. The lines are the
-                // decompressed JSONL, every one of them applied, under the key
-                // that settled the container.
-                guard let settled = settledSegmentVerification(
-                    at: url, bytes: bytes) else { continue }
-                if PermitPartition.bookAuthorWroteManuscriptText(
-                    in: settled.verification, streamKey: stream.key,
-                    deviceSlug: stream.deviceSlug,
-                    fileSegmentDigest: settled.digest, trust: trust,
-                    settledByKey: settled.key,
-                    startedBy: startedBy) { return .aBookAuthorHasWrittenItsText }
-                continue
-            }
-            if PermitPartition.bookAuthorWroteManuscriptText(
-                in: verification, streamKey: stream.key,
-                deviceSlug: stream.deviceSlug,
-                fileSegmentDigest: classified.verifiedSegmentDigest,
-                trust: trust, startedBy: startedBy) { return .aBookAuthorHasWrittenItsText }
-        }
-        return .nobodyHasWrittenItsText
-    }
 
     /// **A settled segment, as the partition needs to see it.**
     ///
@@ -605,7 +531,7 @@ extension OpLogStore {
             unowned: {
                 unownedMemo {
                     guard let trust else { return .nobodyHasWrittenItsText }
-                    return unownedPiece(
+                    return LocalWritePermitBuilder.unownedPiece(
                         forDocId: docId, in: projectURL, trust: trust,
                         startedBy: placement.startedBy(ofPiece: docId))
                 }

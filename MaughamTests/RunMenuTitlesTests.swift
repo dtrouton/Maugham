@@ -115,21 +115,65 @@ final class RunMenuTitlesTests: XCTestCase {
     /// published to the same scene and coupled the File menu's wording to
     /// canvas plumbing for no reason.)
     func test_theWindowPublishesItsPersonaFromThePersonaModifierAlone() throws {
-        let source = try String(contentsOf: repoFile("Maugham/Views/ProjectWindow.swift"), encoding: .utf8)
-        let publish = ".focusedSceneValue(\\.persona, persona)"
-        XCTAssertEqual(source.components(separatedBy: publish).count - 1, 1,
-                       "The persona must be published to the scene exactly once.")
-        let modifier = try XCTUnwrap(source.range(of: "struct PersonaModifier: ViewModifier {"))
-        let rest = source[modifier.upperBound...]
-        let end = try XCTUnwrap(rest.range(of: "\n}\n"))
-        let declaration = rest[..<end.lowerBound]
+        XCTAssertEqual(try Self.personaPublishes(), 1,
+                       "The persona must be published to the scene exactly once — "
+                       + "anywhere in the app, so a second publish in some other "
+                       + "view is caught.")
+        let declaration = try Self.personaModifier()
         XCTAssertTrue(declaration.contains(".onKeyWindowCommand(.maughamSetPersona"),
                       "The slice this scans must be PersonaModifier's own declaration.")
-        XCTAssertTrue(declaration.contains(publish),
+        XCTAssertTrue(declaration.contains(Self.personaPublish),
                       "PersonaModifier — which owns the persona binding — is where the publish belongs.")
     }
 
+    /// **The planted control for the two reads above** (foundations plan 2):
+    /// `PersonaModifier` is found by symbol in a file that is not the window's,
+    /// bounded to itself, and the publish count sees a second publish in a
+    /// sibling view while a comment naming one is not counted.
+    func test_theModifierIsFoundBySymbolAndTheCountReachesEveryFile() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": """
+            struct ProjectWindow: View {
+                // .focusedSceneValue(\\.persona, persona) in a comment
+                var body: some View { EmptyView() }
+            }
+            """,
+            "Maugham/Views/PersonaModifier.swift": """
+            struct PersonaModifier: ViewModifier {
+                func body(content: Content) -> some View {
+                    content
+                        .onKeyWindowCommand(.maughamSetPersona, window: window) { _ in }
+                        .focusedSceneValue(\\.persona, persona)
+                }
+            }
+            struct NextModifier: ViewModifier { }
+            """,
+            "Maugham/Models/SomewhereElse.swift": """
+            struct SomewhereElse { var v: some View { x.focusedSceneValue(\\.persona, persona) } }
+            """,
+        ])
+        let declaration = try Self.personaModifier(base: base)
+        XCTAssertTrue(declaration.contains(Self.personaPublish), "the modifier is found by symbol")
+        XCTAssertFalse(declaration.contains("NextModifier"), "…and bounded to itself")
+        XCTAssertEqual(try Self.personaPublishes(base: base), 2,
+                       "the modifier's publish and the stray one outside Views")
+    }
+
     // MARK: - Helpers
+
+    private static let personaPublish = ".focusedSceneValue(\\.persona, persona)"
+
+    /// The persona's scene publishes, as code, across every file under `Maugham/`.
+    private static func personaPublishes(base: URL = SourceTree.repoRoot) throws -> Int {
+        try SourceTree.codeOccurrences(of: personaPublish, under: "Maugham", base: base)
+            .values.reduce(0, +)
+    }
+
+    /// `PersonaModifier`'s own brace-matched declaration, found by symbol.
+    private static func personaModifier(base: URL = SourceTree.repoRoot) throws -> String {
+        try SourceTree.declaration(named: "struct PersonaModifier: ViewModifier {",
+                                   under: "Maugham", base: base)
+    }
 
     private func menuSource() throws -> String {
         try String(contentsOf: repoFile("Maugham/MaughamApp.swift"), encoding: .utf8)

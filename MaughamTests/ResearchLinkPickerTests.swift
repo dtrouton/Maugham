@@ -74,7 +74,7 @@ final class ResearchLinkPickerTests: XCTestCase {
 
     func test_aCollectionPieceRowOffersNoVerb() async throws {
         let store = try await collection()
-        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
         let view = BinderView(store: store, selectedSubject: .constant(nil),
                               treeState: BinderTreeSectionsState())
 

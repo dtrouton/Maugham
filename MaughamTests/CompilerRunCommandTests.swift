@@ -642,8 +642,11 @@ final class CompilerRunCommandTests: XCTestCase {
                       "…and carry ⌘R, which was verified unbound at implementation time")
 
         let modifier = try source(at: "Maugham/Views/CompilerRunModifier.swift")
+        // Read from masked code, as `windowCode` is below, so a comment
+        // naming a token does not count.
+        let modifierCode = String(decoding: SourceTree.mask(modifier), as: UTF8.self)
         for token in [".onKeyWindowCommand(.maughamRunCompiler",
-                      "orchestrator.runRequested(",
+                      "roster.compiler.runRequested(",
                       // **The kind is MINTED here, not chosen here** (two
                       // loops P1). A literal `.check` in this arm would leave
                       // every assertion in this file green over a ⌘R pressed
@@ -651,17 +654,24 @@ final class CompilerRunCommandTests: XCTestCase {
                       // is the input, and this is the only site that has one.
                       "kind: RunKind.of(persona: persona)",
                       ".onGlobalEvent(.maughamAppWillTerminate)",
-                      "orchestrator.shutdown()"] {
-            XCTAssertTrue(modifier.contains(token),
+                      "roster.shutdownAll()"] {
+            XCTAssertTrue(modifierCode.contains(token),
                           "CompilerRunModifier is missing \(token)")
         }
-        XCTAssertFalse(modifier.contains(".onKeyWindowCommand(.maughamNotARealEvent"),
+        XCTAssertFalse(modifierCode.contains(".onKeyWindowCommand(.maughamNotARealEvent"),
                        "the scan reads the file rather than always answering true")
 
-        let window = try source(at: "Maugham/Views/ProjectWindow.swift")
-        for token in ["CompilerRunModifier(", "compiler.detach()",
-                      "SaveFlashOverlay(isShowing: $showingCompilerFlash"] {
-            XCTAssertTrue(window.contains(token),
+        let window = try SourceTree.windowSource()
+        // The second token is the window's borrow going back on close
+        // (foundations plan 3, Task 3b): the registry detaches the window's
+        // services and closes the session on its last borrow — the chain
+        // `TranslatorEnvironmentTests.test_everyWindowEndingPathShutsEverySessionDown`
+        // follows to `roster.detachAll()`. Read from masked code, so a
+        // comment naming it does not count.
+        let windowCode = String(decoding: SourceTree.mask(window), as: UTF8.self)
+        for token in ["CompilerRunModifier(", "Task { await sessions.release(lease) }",
+                      "SaveFlashOverlay(isShowing: $flashes.showingCompiler"] {
+            XCTAssertTrue(windowCode.contains(token),
                           "ProjectWindow is missing \(token) — without the first the "
                           + "modifier is never mounted, without the second a closed "
                           + "window keeps its session and its stores alive, and without "
@@ -3935,21 +3945,12 @@ final class CompilerRunCommandTests: XCTestCase {
     /// the sentence, because a deferral that expires into an empty closure
     /// would satisfy every other assertion in this file.
     func test_theProductionMountFlashesTheDroppedRound() throws {
-        let window = try String(
-            contentsOf: URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()      // MaughamTests/
-                .deletingLastPathComponent()      // repo root
-                .appendingPathComponent("Maugham/Views/ProjectWindow.swift"),
-            encoding: .utf8)
-        let helper = try XCTUnwrap(
-            window.range(of: "private func runRoundWhenPieceOpens("),
-            "the deferral's one production caller must still be readable here")
-        // Generous, and deliberately so: the window has to cover the whole
-        // `start(…)` call INCLUDING its comments, and a prefix sized to
-        // today's body silently stops asserting the moment someone explains
-        // themselves at length above the line under test. (It did exactly
-        // that once, in this branch's own fix wave.)
-        let body = String(window[helper.upperBound...].prefix(1_600))
+        // The helper's whole brace-matched body, found by symbol wherever the
+        // window's extensions put it — no character budget, which silently
+        // stopped asserting once when a comment above the call grew (this
+        // branch's own fix wave). Throws when the declaration is gone.
+        let body = try SourceTree.declaration(
+            named: "func runRoundWhenPieceOpens(", under: "Maugham")
         XCTAssertTrue(body.contains("onTimedOut:"),
                       "the mount must supply the expiry's sentence. Got:\n\(body)")
         XCTAssertTrue(body.contains(".show(.pieceWouldNotOpen)"),

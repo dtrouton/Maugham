@@ -482,7 +482,7 @@ extension ReferenceToolsTests {
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(named: "C", in: tmp)
         let store = try await ProjectStore.load(from: url)
-        let piece = try await store.addLoosePiece(title: "Story A", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Story A", format: .markdown)
         let owned = try await store.addPieceResearchNote(
             pieceId: piece.id, title: "Owned Note")
         let reg = ProjectRegistry()

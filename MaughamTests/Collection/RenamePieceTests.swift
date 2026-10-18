@@ -15,7 +15,7 @@ final class RenamePieceTests: XCTestCase {
 
     func test_renamePiece_loose_renamesFolderAndDoc() async throws {
         let (url, store) = try await makeCollection()
-        let piece = try await store.addLoosePiece(title: "Lighthouse", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Lighthouse", format: .markdown)
 
         try await store.renamePiece(pieceId: piece.id, newTitle: "The Beacon")
 
@@ -34,7 +34,7 @@ final class RenamePieceTests: XCTestCase {
 
     func test_renamePiece_rewritesPerPieceResearchPaths() async throws {
         let (url, store) = try await makeCollection()
-        let piece = try await store.addLoosePiece(title: "Lighthouse", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Lighthouse", format: .markdown)
         let note = try await store.addPieceResearchNote(
             pieceId: piece.id, title: "Sarah Notes")
         XCTAssertTrue(note.path?.contains("lighthouse") == true)

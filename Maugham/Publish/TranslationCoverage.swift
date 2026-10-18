@@ -109,8 +109,8 @@ enum TranslationCoverage {
             // fountain piece: with no source-text fallbacks the two texts differ
             // ONLY by translation, so an element flip is a real screenplay-
             // structure regression the translator should see.
-            let isFountain = path.lowercased().hasSuffix(".fountain")
-            if isFountain, stale.isEmpty, missing.isEmpty,
+            if DocumentFormat.ofManuscript(path: path).isScreenplay,
+               stale.isEmpty, missing.isEmpty,
                let warning = fountainDrift(title: item.title, entries: derived.entries) {
                 driftWarnings.append(warning)
             }

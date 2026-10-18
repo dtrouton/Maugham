@@ -176,7 +176,7 @@ struct TranslationAuthorVerbs: Equatable {
 
 /// **The nine verbs, wired to a window** (translation pipeline P4 Task 4).
 ///
-/// `ProjectWindow.designGateActions`' shape one surface over: closures rather
+/// `CentreColumn.designGateActions`' shape one surface over: closures rather
 /// than stores handed down, because `TranslationRoundReportView` reads no store
 /// and reaches no disk on a body path (tripwire 4), and every one of these
 /// reaches something that belongs to the window.

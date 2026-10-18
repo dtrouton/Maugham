@@ -81,9 +81,11 @@ enum PublishPreviewResolution: Equatable {
 /// - The file must EXIST. `ExportsListView`'s Delete removes the file and never
 ///   the JSONL, so a row outliving its file is the ordinary state of a working
 ///   writer's catalog, not a corruption case.
-/// - It must OPEN as a PDF. `format` is a decoded field and an unknown format
-///   decodes to `.pdf` (ADR 0015 forward-tolerance, `PublishConfig.Format`), so
-///   a newer build's third output format arrives here claiming to be a PDF.
+/// - It must OPEN as a PDF. `format == .pdf` is what the row CLAIMS (a newer
+///   build's format arrives as `.unknown` and is filtered out by that claim,
+///   `PublishConfig.Format`), but the claim says nothing about the bytes at
+///   `outputPath` — a file replaced or damaged since the compile is still
+///   claimed as a PDF.
 ///
 /// Either failure walks PAST the row to the next-newest, rather than giving up:
 /// the writer who deleted yesterday's export still has the day before's.

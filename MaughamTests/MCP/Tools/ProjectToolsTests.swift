@@ -296,8 +296,8 @@ extension ProjectToolsTests {
         let url = try await ProjectFactory.createCollectionProject(
             named: "C", in: tmp)
         let store = try await ProjectStore.load(from: url)
-        _ = try await store.addLoosePiece(title: "Story A", mode: .prose)
-        _ = try await store.addLoosePiece(title: "Story B", mode: .screenplay)
+        _ = try await store.addLoosePiece(title: "Story A", format: .markdown)
+        _ = try await store.addLoosePiece(title: "Story B", format: .fountain)
         let reg = ProjectRegistry()
         reg.register(url: url, store: store)
 

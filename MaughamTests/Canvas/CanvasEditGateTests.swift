@@ -139,7 +139,11 @@ final class CanvasEditGateTests: XCTestCase {
     /// The command's enablement and its `begin()` both pass the model's fact —
     /// a `false` literal there compiles and greys nothing.
     func test_thePromoteCommandPassesTheModelsFact() throws {
-        let code = try Self.code(of: "Maugham/Views/ProjectWindow.swift")
+        // By type, not by file: foundations plan 4 moved the modifier out of
+        // `ProjectWindow.swift` into its own file.
+        let code = SourceScan.codeLines(
+            of: try SourceTree.sourceOfType("CanvasPromotionModifier", under: ["Maugham"]))
+            .joined(separator: "\n")
         XCTAssertEqual(code.components(separatedBy: "isReadOnly: model.isReadOnly)").count - 1, 2)
         let performer = try Self.code(of: "Maugham/Canvas/PromotionPerformer.swift")
         XCTAssertEqual(Self.gate("PromotionFailure.canvasIsReadOnly(", runsBefore: "try validate(plan)",

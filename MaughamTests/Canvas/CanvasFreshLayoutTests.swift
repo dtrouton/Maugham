@@ -84,8 +84,9 @@ final class CanvasFreshLayoutTests: XCTestCase {
     /// wires the button to the model's verb. (Textual: SwiftUI's inset has no
     /// windowless seam.)
     func test_theCanvasCentreMountsTheNoticeOffTheModel() throws {
-        let code = SourceScan.codeLines(
-            of: try CanvasSourceCensus.source(at: "Maugham/Views/ProjectWindow.swift"))
+        // The window's whole family, by type: the canvas centre lives in
+        // `CentreColumn` since foundations plan 4, wherever its file is.
+        let code = SourceScan.codeLines(of: try SourceTree.windowSource())
             .joined(separator: "\n")
         XCTAssertEqual(code.components(separatedBy: "CanvasReadOnlyNotice(refusal:").count - 1, 1)
         XCTAssertTrue(code.contains("if let refusal = canvasModel.sidecarRefusal"))

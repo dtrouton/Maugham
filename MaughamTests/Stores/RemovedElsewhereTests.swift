@@ -226,7 +226,7 @@ final class RemovedElsewhereTests: XCTestCase {
     func test_aPieceAnotherMacDroppedIsListedAndRestored() async throws {
         let (url, store, ds) = try await openWindow()
         let second = try await store.addStructureItem(
-            parentId: nil, title: "Chapter 2", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter 2", kind: .document(.markdown))
         let path = try XCTUnwrap(second.path)
         try await write("The words that must come back.", at: path, in: url)
         try anotherMacDrops(second.id, url: url, store: store, ds: ds)
@@ -264,7 +264,7 @@ final class RemovedElsewhereTests: XCTestCase {
     func test_anotherMacsLetGoArrivingTakesThePieceOffTheList() async throws {
         let (url, store, ds) = try await openWindow()
         let second = try await store.addStructureItem(
-            parentId: nil, title: "Chapter 2", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter 2", kind: .document(.markdown))
         try await write("Words another Mac let go of.", at: try XCTUnwrap(second.path), in: url)
         try anotherMacDrops(second.id, url: url, store: store, ds: ds)
         await store.refreshRemovedElsewhere()
@@ -285,7 +285,7 @@ final class RemovedElsewhereTests: XCTestCase {
     func test_aStaleFileAtThePathIsReplacedByTheRender() async throws {
         let (url, store, ds) = try await openWindow()
         let second = try await store.addStructureItem(
-            parentId: nil, title: "Chapter 2", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter 2", kind: .document(.markdown))
         let path = try XCTUnwrap(second.path)
         try await write("Op-log truth.", at: path, in: url)
         try anotherMacDrops(second.id, url: url, store: store, ds: ds)
@@ -307,7 +307,7 @@ final class RemovedElsewhereTests: XCTestCase {
         let (url, store, ds) = try await openWindow()
         let part = try await store.addStructureItem(parentId: nil, title: "Part One", kind: .group)
         let inner = try await store.addStructureItem(
-            parentId: part.id, title: "Inside", kind: .document(extension: "md"))
+            parentId: part.id, title: "Inside", kind: .document(.markdown))
         try await write("Inside words.", at: try XCTUnwrap(inner.path), in: url)
         try anotherMacDrops(part.id, url: url, store: store, ds: ds)
 
@@ -325,7 +325,7 @@ final class RemovedElsewhereTests: XCTestCase {
     func test_aClaimedPathIsNotTakenOver() async throws {
         let (url, store, ds) = try await openWindow()
         let second = try await store.addStructureItem(
-            parentId: nil, title: "Chapter 2", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter 2", kind: .document(.markdown))
         let path = try XCTUnwrap(second.path)
         try await write("Mine.", at: path, in: url)
         try anotherMacDrops(second.id, url: url, store: store, ds: ds)
@@ -348,7 +348,7 @@ final class RemovedElsewhereTests: XCTestCase {
     func test_aTrashedPieceIsNotListed() async throws {
         let (url, store, ds) = try await openWindow()
         let second = try await store.addStructureItem(
-            parentId: nil, title: "Chapter 2", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter 2", kind: .document(.markdown))
         try await write("Trashed words.", at: try XCTUnwrap(second.path), in: url)
         // An archive holds it — as it would after any adoption while it lived.
         let conflicts = url.appendingPathComponent(".maugham/conflicts")
@@ -368,7 +368,7 @@ final class RemovedElsewhereTests: XCTestCase {
     func test_anEmptiedTrashIsNotOfferedBack() async throws {
         let (url, store, ds) = try await openWindow()
         let second = try await store.addStructureItem(
-            parentId: nil, title: "Chapter 2", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter 2", kind: .document(.markdown))
         try await write("Let go of.", at: try XCTUnwrap(second.path), in: url)
         try await store.deleteStructureItem(id: second.id)
         try await store.emptyTrash()
@@ -395,7 +395,7 @@ final class RemovedElsewhereTests: XCTestCase {
     private func trashedChapter() async throws -> (URL, ProjectStore, DocumentStore, StructureItem) {
         let (url, store, ds) = try await openWindow()
         let piece = try await store.addStructureItem(
-            parentId: nil, title: "Chapter 2", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter 2", kind: .document(.markdown))
         try await write("Let go of.", at: try XCTUnwrap(piece.path), in: url)
         try archiveHolding(store, url: url)
         try await store.deleteStructureItem(id: piece.id)
@@ -455,7 +455,7 @@ final class RemovedElsewhereTests: XCTestCase {
         let (url, store, ds) = try await openWindow()
         let part = try await store.addStructureItem(parentId: nil, title: "Part", kind: .group)
         let inner = try await store.addStructureItem(
-            parentId: part.id, title: "Inside", kind: .document(extension: "md"))
+            parentId: part.id, title: "Inside", kind: .document(.markdown))
         try await write("Inside.", at: try XCTUnwrap(inner.path), in: url)
         try archiveHolding(store, url: url)
         try await store.deleteStructureItem(id: part.id)
@@ -472,7 +472,7 @@ final class RemovedElsewhereTests: XCTestCase {
     func test_aPieceAnotherDeviceLetGoOfIsNotListed() async throws {
         let (url, store, ds) = try await openWindow()
         let second = try await store.addStructureItem(
-            parentId: nil, title: "Chapter 2", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter 2", kind: .document(.markdown))
         try await write("Theirs to let go.", at: try XCTUnwrap(second.path), in: url)
         try anotherMacDrops(second.id, url: url, store: store, ds: ds)
         await store.refreshRemovedElsewhere()

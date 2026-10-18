@@ -170,7 +170,7 @@ enum DesignGate {
 /// and that is a `.task` keyed on the path rather than anything on a body path.
 ///
 /// **Opaque and full-frame on purpose**, `PublishPreviewCentre`'s rule: this is
-/// a layer of `ProjectWindow.manuscriptEditor`'s `ZStack` with `EditorHost` and
+/// a layer of `CentreColumn.manuscriptEditor`'s `ZStack` with `EditorHost` and
 /// the altitude view still mounted underneath it, and anything translucent would
 /// read the corkboard through the page.
 ///

@@ -6,7 +6,7 @@ import MaughamCore
 ///
 /// `ProjectWindow.lastParsedScript` had exactly one producer: a mounted
 /// `EditorCoordinator`, which exists only inside `EditorHost`, which
-/// `ProjectWindow.editorPane` mounts only when the centre column is a document.
+/// `CentreColumn.editorPane` mounts only when the centre column is a document.
 /// Plan centres the canvas, so a screenplay's `SceneNavigatorPane` in Plan got
 /// `script: nil` and drew *"No scenes yet — Open the script, then type INT. or
 /// EXT."* over a script with ninety scenes. One visit to Author populated the

@@ -204,9 +204,8 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// source; the loop under it is the behavioural half, so this is a bridge to
     /// a property rather than the property itself.
     func test_theRuleComposesTheWindowsOwnDocumentQuestion() throws {
-        let source = try Self.source(of: "Views/ProjectWindow.swift")
-        let rule = try XCTUnwrap(
-            Self.declaration(named: "static func reviewCentreShowsBoard(", in: source))
+        let rule = try SourceTree.declaration(
+            named: "static func reviewCentreShowsBoard(", under: "Maugham")
 
         XCTAssertTrue(rule.contains("subjectShowsAltitude("),
                       "the project-level question is asked of the function that "
@@ -239,15 +238,16 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// `Persona.swift` is deliberately outside the scan: its `case .review:` is
     /// the predicate's own definition, which is the one place the persona is
     /// allowed to be spelled out.
+    ///
+    /// The ban reads every file under `Maugham/Views` (foundations plan 2):
+    /// it named the window's file and the board's, and the day the window is
+    /// split a name-gate in `ProjectWindow+Centre.swift` would sit in neither.
     func test_theBoardsFilesAskThePredicateRatherThanNamingThePersona() throws {
-        for file in ["Views/ProjectWindow.swift", "Views/Review/ReviewBoardPane.swift"] {
-            let source = try Self.source(of: file)
-            XCTAssertTrue(
-                Self.reviewNameGates(in: source).isEmpty,
-                "\(file) compares the persona by name: "
-                + "\(Self.reviewNameGates(in: source)). The one spelling is "
-                + "`Persona.showsTheReviewBoard`")
-        }
+        let offenders = try Self.reviewNameGateOffenders(under: "Maugham/Views")
+        XCTAssertTrue(
+            offenders.isEmpty,
+            "these views compare the persona by name: \(offenders). The one "
+            + "spelling is `Persona.showsTheReviewBoard`")
         // The control: the scanner sees the offender it is asserting the absence
         // of, or the line above is green over any file at all.
         XCTAssertFalse(
@@ -256,11 +256,20 @@ final class ReviewBoardRoutingTests: XCTestCase {
             + "says nothing")
 
         XCTAssertTrue(
-            try Self.source(of: "Views/ProjectWindow.swift")
+            try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"])
                 .contains("showsTheReviewBoard"),
             "the window decides something about Review's centre and must ASK "
             + "the predicate — a file that neither names the persona nor asks "
             + "the question has stopped deciding")
+    }
+
+    /// Every review-name gate under `root`, file by file (`reviewNameGates`).
+    private static func reviewNameGateOffenders(
+        under root: String, base: URL = SourceTree.repoRoot
+    ) throws -> [String] {
+        try SourceTree.sources(under: root, base: base).flatMap { file in
+            reviewNameGates(in: file.text).map { "\(file.path): \($0)" }
+        }
     }
 
     /// **Comments stripped, and the case name read WHOLE.**
@@ -690,55 +699,101 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// own statics, but the SHAPE of the last arm is the probe's own and a probe
     /// cannot vouch for it. This reads the real `manuscriptEditor`.
     func test_theBoardIsALayerOfTheSameZStackAndNotAnArmOfItsOwn() throws {
-        let source = try Self.source(of: "Views/ProjectWindow.swift")
-        let arm = try XCTUnwrap(
-            Self.declaration(named: "private func manuscriptEditor(", in: source),
-            "the editor arm must still be a member of its own")
+        let arm = try SourceTree.declaration(
+            named: "func manuscriptEditor(", under: "Maugham")
 
-        XCTAssertTrue(arm.contains("ZStack"), "still one stack, not a choice")
-        XCTAssertTrue(arm.contains("EditorHost("),
-                      "…with the host mounted unconditionally underneath")
-        XCTAssertTrue(arm.contains("ProjectAltitudePane("), "…altitude over it")
-        XCTAssertTrue(arm.contains("ReviewBoardPane("),
-                      "…and Review's board over that")
-        XCTAssertTrue(arm.contains("Self.reviewCentreShowsBoard("),
-                      "gated on the ONE named rule rather than on a second "
-                      + "spelling written out here — and a second gate is how a "
-                      + "board ends up over the chapter a reviewer is reading")
+        // Still one stack with the host mounted unconditionally underneath,
+        // altitude over it, and the board in the cover switch's `.reviewBoard` arm — gated on the
+        // route rather than on a second spelling written out here (a second
+        // gate is how a board ends up over the chapter a reviewer is reading).
+        // `CentreRouteTests.test_theShapeCensusesFireOnPlantedOffenders` plants
+        // the board as a free layer beside the switch and sees it caught.
+        XCTAssertEqual(CentreRouteSource.stackFaults(in: arm), [])
+        let route = try CentreRouteSource.rule()
+        XCTAssertTrue(route.contains("reviewCentreShowsBoard("),
+                      "the route asks the ONE named rule for the board")
 
-        let altitudeAt = try XCTUnwrap(arm.range(of: "ProjectAltitudePane("))
-        let boardAt = try XCTUnwrap(arm.range(of: "ReviewBoardPane("))
-        let bookAt = try XCTUnwrap(arm.range(of: "PublishPreviewCentre("))
-        XCTAssertTrue(altitudeAt.lowerBound < boardAt.lowerBound,
-                      "the board must be OVER altitude — a corkboard drawn over "
-                      + "the board is the truth table read upside down")
-        XCTAssertTrue(boardAt.lowerBound < bookAt.lowerBound,
-                      "…and the book must stay the LAST layer of the stack, "
-                      + "which is what `PublishPreviewCentreTests` pins")
-
+        // **Which surface wins**, which the stack's text order used to say: the
+        // board over altitude (premise: altitude was offered too), and never
+        // both the board and the book (`CentreRouteTests` over the product).
+        XCTAssertTrue(ProjectWindow.subjectShowsAltitude(
+            persona: .review, subject: .project,
+            structure: ProjectAltitudeCentreTests.structure),
+            "premise: altitude is offered at Review's project level")
         XCTAssertEqual(
-            Self.occurrences(of: "ReviewBoardPane(", in: source), 1,
-            "one mount for the board, in the centre column's overlay. A second "
+            ProjectWindow.centreRoute(
+                persona: .review, subject: .project, projectType: .novel,
+                structure: ProjectAltitudeCentreTests.structure,
+                showsPaletteWall: false, preview: .nothingCompiled),
+            .editor(altitude: true, cover: .reviewBoard),
+            "the board must WIN over altitude — a corkboard over the board is "
+            + "the truth table read upside down")
+
+        // Counted as CODE across every view (foundations plan 4 Task 4): the
+        // centre lives in `CentreColumn` now, and a count over one type's text
+        // would have gone to zero there or passed over a sibling's mount.
+        XCTAssertEqual(
+            try SourceTree.viewMounts(of: "ReviewBoardPane("), 1,
+            "one mount for the board, in the centre column's cover. A second "
             + "is a surface nobody decided to add")
         XCTAssertEqual(
-            Self.occurrences(of: "manuscriptEditor(", in: source), 2,
-            "the declaration and exactly ONE call — `editorPane`'s last arm, "
-            + "unchanged by this task")
+            try SourceTree.viewMounts(of: "manuscriptEditor("), 2,
+            "the declaration and exactly ONE call — `editorPane`'s `.editor` arm")
     }
 
     /// The control for the scan above: `declaration(named:)` must BOUND the text
     /// it reads to the one member, or every assertion in it is really about the
-    /// whole file and cannot fail. `CanvasView(` is mounted in this same file,
-    /// one member down, and must not be visible from inside the editor arm.
+    /// whole file and cannot fail. `CanvasView(` is mounted in this same type
+    /// (`CentreColumn`), one member down, and must not be visible from inside
+    /// the editor arm.
     func test_theArmScanReadsTheArmAndNotTheWholeFile() throws {
-        let source = try Self.source(of: "Views/ProjectWindow.swift")
-        let arm = try XCTUnwrap(
-            Self.declaration(named: "private func manuscriptEditor(", in: source))
+        let source = try SourceTree.sourceOfType("CentreColumn", under: ["Maugham"])
+        let arm = try SourceTree.declaration(
+            named: "func manuscriptEditor(", under: "Maugham")
         XCTAssertTrue(source.contains("CanvasView("),
                       "premise: the file really does mount the canvas")
         XCTAssertFalse(arm.contains("CanvasView("),
                        "…and the scan above cannot see it, so what it asserts "
                        + "is about the editor arm rather than about the file")
+    }
+
+    /// **The planted control for the lookups above** (foundations plan 2): a
+    /// `ProjectWindow` struct in one file and the editor arm in an
+    /// `extension ProjectWindow` in another. The arm is found by symbol across
+    /// the extension and bounded to itself, and the name-gate ban — widened to
+    /// every view — catches an offender planted in a sibling view that is no
+    /// part of the window at all.
+    func test_theLookupsFindTheArmAcrossAnExtensionAndTheBanReachesSiblingViews() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": """
+            struct ProjectWindow: View {
+                var body: some View { CanvasView() }
+            }
+            """,
+            "Maugham/Views/ProjectWindow+Editor.swift": """
+            extension ProjectWindow {
+                private func manuscriptEditor(store: ProjectStore) -> some View {
+                    ZStack { EditorHost(); ReviewBoardPane() }
+                }
+                private func canvasArm() -> some View { CanvasView() }
+            }
+            """,
+            "Maugham/Views/Review/SomeSiblingView.swift": """
+            struct SomeSiblingView {
+                func f(persona: Persona) -> Bool { persona == .review }
+            }
+            """,
+        ])
+        let arm = try SourceTree.declaration(
+            named: "func manuscriptEditor(", under: "Maugham", base: base)
+        XCTAssertTrue(arm.contains("ReviewBoardPane("), "the arm is found in the extension")
+        XCTAssertFalse(arm.contains("CanvasView("), "…and bounded to itself")
+
+        XCTAssertEqual(
+            try Self.reviewNameGateOffenders(under: "Maugham/Views", base: base),
+            ["Maugham/Views/Review/SomeSiblingView.swift: "
+             + "func f(persona: Persona) -> Bool { persona == .review }"],
+            "the widened ban sees a name-gate in a view outside the window")
     }
 
     /// **The ejection trap: nothing this task added moves the window's
@@ -769,9 +824,8 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// along. `test_theBoardsOwnFileWritesNoPersona` covers the pane's file;
     /// this covers the closures the pane is handed, which live here.
     func test_theBoardsChipsAreWiredToTheWindowsSubjectAndTheStore() throws {
-        let source = try Self.source(of: "Views/ProjectWindow.swift")
-        let arm = try XCTUnwrap(
-            Self.declaration(named: "private func manuscriptEditor(", in: source))
+        let arm = try SourceTree.declaration(
+            named: "func manuscriptEditor(", under: "Maugham")
         let call = try XCTUnwrap(Self.argumentList(after: "ReviewBoardPane(", in: arm),
                                  "the board's mount must still be a call with "
                                  + "arguments this scan can read")
@@ -782,11 +836,19 @@ final class ReviewBoardRoutingTests: XCTestCase {
         let code = SourceScan.codeLines(of: call).joined(separator: "\n")
 
         for expected in ["onNavigate:", "selectedSubject = .item(",
-                         "recordActivePass(forPiece:", "onSetState:",
+                         "recordActivePass(", "onSetState:",
                          "store.setPassState("] {
             XCTAssertTrue(code.contains(expected),
                           "the board's mount does not pass `\(expected)`")
         }
+        // One hop out (foundations plan 4 Task 4): the mount lives in
+        // `CentreColumn`, whose `recordActivePass` is a closure the window
+        // hands it — and the window must hand it its ONE writer.
+        XCTAssertTrue(
+            try CentreRouteSource.windowArgument("recordActivePass")?
+                .contains("recordActivePass(forPiece:") == true,
+            "the window must hand the centre column its one `ActivePassMemory` "
+            + "writer, `recordActivePass(forPiece:passId:)`")
         XCTAssertFalse(
             code.contains("persona"),
             "the board's own closures move the window's PERSONA. The board is a "
@@ -808,9 +870,8 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// So the closure writes three things (the pane's visibility, the segment,
     /// the scope) and neither the subject nor the persona.
     func test_theCountIsWiredToTheQueueAndMovesNeitherSubjectNorPersona() throws {
-        let source = try Self.source(of: "Views/ProjectWindow.swift")
-        let arm = try XCTUnwrap(
-            Self.declaration(named: "private func manuscriptEditor(", in: source))
+        let arm = try SourceTree.declaration(
+            named: "func manuscriptEditor(", under: "Maugham")
         let call = try XCTUnwrap(Self.argumentList(after: "ReviewBoardPane(", in: arm))
         let code = SourceScan.codeLines(of: call).joined(separator: "\n")
         let closure = try XCTUnwrap(
@@ -860,9 +921,8 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// `.task` and `.maughamAnnotationsChanged` — the second being what makes a
     /// closed piece's synced-in note reach the number on screen.
     func test_theCountsAreRecomputedOffTheBodyPathAndOnTheEvent() throws {
-        let source = try Self.source(of: "Views/ProjectWindow.swift")
-        let arm = try XCTUnwrap(
-            Self.declaration(named: "private func manuscriptEditor(", in: source))
+        let arm = try SourceTree.declaration(
+            named: "func manuscriptEditor(", under: "Maugham")
 
         XCTAssertTrue(arm.contains(".task { refreshOpenNotes(store: store) }"),
                       "the board must recount when it appears")
@@ -871,9 +931,8 @@ final class ReviewBoardRoutingTests: XCTestCase {
                       + "the receive helper that owns the scope filter and the "
                       + "closed-window liveness guard (ADR 0021)")
 
-        let refresh = try XCTUnwrap(
-            Self.declaration(named: "private func refreshOpenNotes(", in: source),
-            "`refreshOpenNotes` is gone or renamed — this census is stale")
+        let refresh = try SourceTree.declaration(
+            named: "func refreshOpenNotes(", under: "Maugham")
         XCTAssertEqual(
             Self.occurrences(of: "listAnnotationsAcrossProject()", in: refresh), 1,
             "ONE walk per refresh: the aggregation is cached, but its cache key "
@@ -898,9 +957,8 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// arm, one layer up, and its arguments must not be visible from inside the
     /// board's — or the scan is really reading the arm again and cannot fail.
     func test_theBoardsArgumentScanStopsAtItsOwnCall() throws {
-        let source = try Self.source(of: "Views/ProjectWindow.swift")
-        let arm = try XCTUnwrap(
-            Self.declaration(named: "private func manuscriptEditor(", in: source))
+        let arm = try SourceTree.declaration(
+            named: "func manuscriptEditor(", under: "Maugham")
         let call = try XCTUnwrap(Self.argumentList(after: "ReviewBoardPane(", in: arm))
 
         XCTAssertTrue(arm.contains("ProjectAltitudePane("),
@@ -1125,7 +1183,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
             named: "Board-\(UUID().uuidString.prefix(6))", in: temp.url)
         let store = try await ProjectStore.load(from: url)
         _ = try await store.addStructureItem(
-            parentId: nil, title: "Chapter Two", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter Two", kind: .document(.markdown))
         for item in TreeWalk.collect(in: store.manifest.structure,
                                      where: { $0.type == .document }) {
             guard let path = item.path else { continue }
@@ -1218,11 +1276,10 @@ final class ReviewCentreProbeBox {
     }
 }
 
-/// **The centre column, wired the way `editorPane` wires it** — the research
-/// placement, the canvas route, the Collection reference arm, then the editor
-/// arm — with every decision taken from production's own statics rather than
-/// re-spelled here. A probe that decided for itself which arm applies would be
-/// testing the probe.
+/// **The centre column, wired the way `editorPane` wires it** — one switch over
+/// production's own `ProjectWindow.centreRoute`, in its case order, rather than
+/// decisions re-spelled here. A probe that decided for itself which arm applies
+/// would be testing the probe.
 ///
 /// What it spells for itself is the SHAPE of the last arm, which is the thing
 /// under test and cannot be reached from outside `ProjectWindow`
@@ -1251,49 +1308,50 @@ struct ReviewCentreProbeView: View {
         Binding(get: { box.subject }, set: { box.subject = $0 })
     }
 
-    private var referencePiece: StructureItem? {
-        guard let id = box.subject?.itemID,
-              let piece = store.manifest.structure.first(where: { $0.id == id }),
-              piece.pieceKind == .reference
-        else { return nil }
-        return piece
-    }
-
     var body: some View {
         centre.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// The route is production's own (`ProjectWindow.centreRoute`), switched
+    /// over in production's case order. The wall is never open here; Publish
+    /// is reached only by a persona hop, with nothing compiled, so it shows
+    /// altitude and the probe models no publish cover.
     @ViewBuilder
     private var centre: some View {
-        let route = ProjectWindow.editorRoute(
-            persona: box.persona, projectType: store.manifest.type,
-            selectedPieceIsReference: referencePiece != nil)
-        if let id = ProjectWindow.researchSubjectPlacement(
-            persona: box.persona, subject: box.subject).centreItemID {
+        switch ProjectWindow.centreRoute(
+            persona: box.persona, subject: box.subject,
+            projectType: store.manifest.type, structure: store.manifest.structure,
+            showsPaletteWall: false, preview: .nothingCompiled) {
+        case .paletteWall:
+            EmptyView()
+        case .research(let id):
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: false,
                                   readOnly: !box.persona.editsResearchInTheCentre)
-        } else if route == .canvas {
+        case .canvas:
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { [] })
-        } else if route == .collectionReference, let piece = referencePiece {
+        case .reference(let piece):
             ReferencePlaceholderCard(piece: piece, onOpen: {})
-        } else {
-            manuscriptCentre
+        case .editor(let showsAltitude, let cover):
+            manuscriptCentre(showsAltitude: showsAltitude, cover: cover)
         }
     }
 
     @ViewBuilder
-    private var manuscriptCentre: some View {
+    private func manuscriptCentre(showsAltitude: Bool, cover: CentreCover?) -> some View {
         switch shape {
         case .layered:
             ZStack {
                 editor
                 if showsAltitude { altitude }
-                if showsBoard { board }
+                switch cover {
+                case .reviewBoard: board
+                default: EmptyView()
+                }
             }
         case .ownArm:
-            if showsBoard {
+            if case .reviewBoard = cover {
                 board
             } else if showsAltitude {
                 altitude
@@ -1301,18 +1359,6 @@ struct ReviewCentreProbeView: View {
                 editor
             }
         }
-    }
-
-    private var showsAltitude: Bool {
-        ProjectWindow.subjectShowsAltitude(persona: box.persona,
-                                           subject: box.subject,
-                                           structure: store.manifest.structure)
-    }
-
-    private var showsBoard: Bool {
-        ProjectWindow.reviewCentreShowsBoard(persona: box.persona,
-                                             subject: box.subject,
-                                             structure: store.manifest.structure)
     }
 
     private var editor: some View {

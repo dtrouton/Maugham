@@ -197,8 +197,7 @@ final class TranslatorsNoteTests: XCTestCase {
     /// suite mounts `ProjectWindow` to exercise it live. Without this pin the
     /// arm can be deleted and the branch stays green while ⌘⌥C goes dead.
     func test_theWindowArmWiresTheCommandToTheSheet() throws {
-        let window = try String(
-            contentsOf: repoFile("Maugham/Views/ProjectWindow.swift"), encoding: .utf8)
+        let window = try SourceTree.windowSource()
         XCTAssertTrue(
             window.contains(".onKeyWindowCommand(.maughamTranslatorsNote, window: window)"),
             "without this the ⌘⌥C command reaches no handler in ProjectWindow")
