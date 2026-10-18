@@ -172,7 +172,7 @@ public enum SegmentSealer {
         let existing = OpLogStore.opLogFileURLs(forDocId: docId, in: projectURL)
             .compactMap {
                 OpLogStore.segmentIndex(fromFilename: $0.lastPathComponent,
-                                  docId: docId, deviceSlug: deviceSlug)
+                                        docId: docId, deviceSlug: deviceSlug)
             }
         let index = (existing.max() ?? 0) + 1
         let segURL = OpLogStore.segmentFileURL(

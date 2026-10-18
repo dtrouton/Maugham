@@ -554,9 +554,16 @@ public enum OpLogClassifier {
 
     /// Load + parse ONE op-log file — plain `.jsonl` tail or sealed `.mzseg`
     /// segment — into ops + diagnostics. The single per-file read shared by
-    /// `OpLogStore.loadDiagnosed(docId:)` and `ProjectIntegrity.check`, so opIds inside
-    /// segments stay visible to the dangling-pointer check exactly as tail
-    /// opIds are (growth spec §5.4).
+    /// `OpLogStore.loadDiagnosed(docId:)` and `ProjectIntegrity.check`, so
+    /// opIds inside segments stay visible to the dangling-pointer check
+    /// exactly as tail opIds are (growth spec §5.4).
+    ///
+    /// **`@MainActor`, as it was on `OpLogStore`.** It must stay atomic with
+    /// the store's appends and seals, which run on the main actor (see the
+    /// NOTE on `SegmentSealer.sealTail`): nonisolated, every per-file call
+    /// would hop off main and let a seal delete a tail, or an append move the
+    /// remembered head, between two reads of one load. Pinned by
+    /// `OpLogClassifierIsolationTests`.
     ///
     /// Segment verification failure (bad magic / decompress / checksum) is a
     /// data condition, not an error: surfaced as a `ParseDiagnostics.skipped`
@@ -576,12 +583,14 @@ public enum OpLogClassifier {
     /// carried as a collector rather than returned, because the decision is
     /// about a STREAM and this function sees one FILE of one — the caller
     /// settles it once every file of the document has been observed.
+    @MainActor
     public static func loadFileDiagnosed(
         url: URL, presenter: NSFilePresenter?,
         identities: LocalIdentities? = nil, state: OpLogDeviceState? = nil,
         trust: TrustTable? = nil, permit: PermitContext? = nil,
         foreign: ForeignStreamWatch? = nil
     ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: FileProvenance) {
+        loadFileObserverForTesting?()
         guard let bytes = try OpLogStore.readCoordinated(url: url, presenter: presenter) else {
             return ([], ParseDiagnostics(),
                     FileProvenance(name: url.lastPathComponent,
@@ -705,11 +714,18 @@ public enum OpLogClassifier {
     }
 
     /// **Where the held-line walk actually ran** — a test's own variable, so
-    /// `OpLogStore.heldLines`' off-actor claim is a measurement rather than a paragraph (fix round 2,
-    /// I3). `PermitPartition.walkObserverForTesting`'s shape and its reason:
-    /// `nonisolated(unsafe)` because a test sets and clears it on one thread,
-    /// and production never assigns it.
+    /// `OpLogStore.heldLines`' off-actor claim is a measurement rather than a
+    /// paragraph (fix round 2, I3). `PermitPartition.walkObserverForTesting`'s
+    /// shape and its reason: `nonisolated(unsafe)` because a test sets and
+    /// clears it on one thread, and production never assigns it.
     nonisolated(unsafe) public static var heldLinesWalkObserverForTesting:
+        (@Sendable () -> Void)?
+
+    /// **Where the per-file load actually ran** — the mirror of
+    /// `heldLinesWalkObserverForTesting`, pinning the opposite claim:
+    /// `loadFileDiagnosed` runs on the main actor
+    /// (`OpLogClassifierIsolationTests`). Same shape, same reason.
+    nonisolated(unsafe) public static var loadFileObserverForTesting:
         (@Sendable () -> Void)?
 
     /// The walk half of `OpLogStore.heldLines`, `nonisolated` so the store can

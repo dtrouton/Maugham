@@ -963,7 +963,8 @@ public final class OpLogStore {
     /// the scope rules (tripwire 17), the two callers and the crash contract.
     @discardableResult
     public func sealTailIfNeeded(
-        docId: String, deviceSlug: DeviceSlug, threshold: Int = OpLogStore.segmentSealThreshold
+        docId: String, deviceSlug: DeviceSlug,
+        threshold: Int = OpLogStore.segmentSealThreshold
     ) async throws -> URL? { try SegmentSealer.sealTail(
         docId: docId, deviceSlug: deviceSlug, threshold: threshold,
         projectURL: projectURL, presenter: presenter, identities: identities) }
