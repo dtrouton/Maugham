@@ -360,10 +360,17 @@ enum SourceTree {
 /// is still caught. Plain file keys keep their old meaning.
 ///
 /// The keys are resolved against the roots the census itself walks — so a
-/// planted tree resolves against its own declarations, never the repo's. A
-/// type key that resolves to no file is an OFFENDER (*type key `type:X` names
-/// no file*): a key that matches nothing would otherwise allow nothing and
-/// count nothing, and say neither.
+/// planted tree resolves against its own declarations, never the repo's —
+/// EXCEPT a root named `MaughamPhone`: a type key never claims a phone file.
+/// The Mac's censuses that scan the phone allow-list the Mac's and Core's
+/// types, and a phone file declaring `extension OpLogStore` must not inherit
+/// `type:OpLogStore`'s allowances (most of those censuses have no phone twin).
+/// A type key that resolves to no file is an OFFENDER (*type key `type:X`
+/// names no file*): a key that matches nothing would otherwise allow nothing
+/// and count nothing, and say neither. So is a plain key naming a file a type
+/// key in the same map also claims — one rule for every map shape: in a count
+/// map the file would be counted twice over or not at all, and in an
+/// allow-list two entries would silently merge.
 ///
 /// - An allow-list (`[file: spellings]` or a `Set` of files) EXPANDS: each
 ///   declaring file's basename gets the type key's spellings, merged with any
@@ -373,6 +380,9 @@ enum SourceTree {
 extension SourceTree {
 
     static let typeKeyPrefix = "type:"
+
+    /// The root a type key never resolves into (see above).
+    static let phoneRootName = "MaughamPhone"
 
     /// The type a `type:` key names, or nil for a plain file key.
     static func typeName(ofKey key: String) -> String? {
@@ -385,7 +395,8 @@ extension SourceTree {
         var keyForFile: [String: String] = [:]
         /// Type key → the basenames that declare its type.
         var filesForKey: [String: Set<String>] = [:]
-        /// Unresolved keys, and basenames two type keys both claim.
+        /// Unresolved keys, basenames two type keys both claim, and plain keys
+        /// naming a file a type key claims.
         var offenders: [String] = []
 
         /// The key a found file is counted under: its type key, else itself.
@@ -393,15 +404,18 @@ extension SourceTree {
     }
 
     /// Resolve every `type:` key in `keys` against the Swift files under
-    /// `roots` (absolute directories, as a census walks them).
+    /// `roots` (absolute directories, as a census walks them), skipping any
+    /// root named `MaughamPhone`.
     static func resolveTypeKeys<Keys: Sequence>(
         _ keys: Keys, in roots: [URL]
     ) -> TypeKeyResolution where Keys.Element == String {
         var resolution = TypeKeyResolution()
-        for key in Set(keys).sorted() {
+        let allKeys = Set(keys).sorted()
+        let typeRoots = roots.filter { $0.lastPathComponent != phoneRootName }
+        for key in allKeys {
             guard let type = typeName(ofKey: key) else { continue }
             var files: Set<String> = []
-            for root in roots {
+            for root in typeRoots {
                 files.formUnion(basenamesDeclaring(type, in: root))
             }
             guard !files.isEmpty else {
@@ -416,6 +430,11 @@ extension SourceTree {
                 } else {
                     resolution.keyForFile[file] = key
                 }
+            }
+        }
+        for key in allKeys where typeName(ofKey: key) == nil {
+            if let claimer = resolution.keyForFile[key] {
+                resolution.offenders.append("\(key) is named by itself and by `\(claimer)`")
             }
         }
         return resolution
@@ -449,27 +468,19 @@ extension SourceTree {
     }
 
     /// `found` (per basename) re-keyed the way `expectedKeys` is: a file a
-    /// type key claims is folded into that key with `combine`. A plain
-    /// expected key naming a file a type key also claims is an offender —
-    /// the file would be counted twice over, or not at all.
+    /// type key claims is folded into that key with `combine`.
     static func foldingIntoTypeKeys<Value, Keys: Sequence>(
         _ found: [String: Value], keyedLike expectedKeys: Keys, in roots: [URL],
         combine: (Value, Value) -> Value
     ) -> (folded: [String: Value], offenders: [String]) where Keys.Element == String {
         let keys = Set(expectedKeys)
         let resolution = resolveTypeKeys(keys, in: roots)
-        var offenders = resolution.offenders
-        for key in keys.sorted() where typeName(ofKey: key) == nil {
-            if let claimer = resolution.keyForFile[key] {
-                offenders.append("\(key) is named by itself and by `\(claimer)`")
-            }
-        }
         var folded: [String: Value] = [:]
         for (file, value) in found {
             let key = resolution.key(for: file)
             folded[key] = folded[key].map { combine($0, value) } ?? value
         }
-        return (folded, offenders)
+        return (folded, resolution.offenders)
     }
 
     /// Basenames of the files under `root` declaring `type`; empty when none

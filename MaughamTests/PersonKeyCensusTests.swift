@@ -358,7 +358,7 @@ final class PersonKeyCensusTests: XCTestCase {
 
     /// A root with this last component is the phone's: its files are keyed
     /// `MaughamPhone/<file>`, never by the bare name a Mac entry uses.
-    static let phoneRootName = "MaughamPhone"
+    static let phoneRootName = SourceTree.phoneRootName
 
     /// Occurrences of each site's pattern per file under `roots`, counted over
     /// comment-stripped code lines. Keyed by pattern; a pattern found nowhere
@@ -396,20 +396,19 @@ final class PersonKeyCensusTests: XCTestCase {
 
     /// `counts`, each site's map re-keyed the way its `expected` is: a Mac or
     /// Core file a `type:` key claims is counted under that key (the sum over
-    /// the type's files). Types are resolved over the non-phone roots only, so
-    /// a phone file is never claimed. `offenders` lists every type key that
+    /// the type's files). `SourceTree` never resolves a type into a
+    /// `MaughamPhone` root, so a phone file is never claimed. `offenders` lists every type key that
     /// resolved to no file.
     static func foldedCounts(
         of sites: [Site], in roots: [URL]
     ) throws -> (counts: [String: [String: Int]], offenders: [String]) {
         let raw = try counts(of: sites, in: roots)
-        let typeRoots = roots.filter { $0.lastPathComponent != phoneRootName }
         var folded: [String: [String: Int]] = [:]
         var offenders: [String] = []
         for site in sites {
             let (byKey, unresolved) = SourceTree.foldingIntoTypeKeys(
                 raw[site.pattern] ?? [:], keyedLike: site.expected.keys,
-                in: typeRoots, combine: +)
+                in: roots, combine: +)
             folded[site.pattern] = byKey
             offenders += unresolved
         }

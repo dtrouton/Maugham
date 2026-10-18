@@ -104,11 +104,12 @@ final class TripwireGrepTests: XCTestCase {
         }
     }
 
-    /// `offenders` without the *type key names no file* lines — for a planted
-    /// control that plants only part of an allow-list's scope, where every
-    /// type key it did not plant is (correctly) reported unresolved.
-    static func droppingUnresolvedTypeKeys(_ offenders: [String]) -> [String] {
-        offenders.filter { !($0.hasPrefix("type key `") && $0.hasSuffix("` names no file")) }
+    /// `offenders` without the *type key names no file* line for each of
+    /// `keys` — the type keys a planted control DELIBERATELY left unplanted.
+    /// Any other unresolved key still shows.
+    static func dropping(unplanted keys: [String], from offenders: [String]) -> [String] {
+        let expected = Set(keys.map { "type key `\($0)` names no file" })
+        return offenders.filter { !expected.contains($0) }
     }
 
     /// Prepend `extension <type> {}` to a planted file, so a `type:` key
@@ -196,6 +197,58 @@ final class TripwireGrepTests: XCTestCase {
         let three = try countedListFound(of: "sanctioned(", keyedLike: expected, in: [dir])
         XCTAssertEqual(three.found["type:Widget"], 3)
         XCTAssertNotEqual(three.found, expected, "a third site in the type fails the count")
+    }
+
+    /// **(d) A type key never claims a phone file.** The Mac's censuses that
+    /// scan `MaughamPhone/` allow-list Mac and Core types; a phone file
+    /// declaring `extension Widget` is still caught, in every map shape.
+    func test_aTypeKeyNeverClaimsAPhoneFile() throws {
+        let dir = try plantedWidgetDir()
+        let phone = dir.deletingLastPathComponent()
+            .appendingPathComponent("\(dir.lastPathComponent)-phone/MaughamPhone")
+        try FileManager.default.createDirectory(at: phone, withIntermediateDirectories: true)
+        try "extension Widget {\n    func p() { sanctioned(5) }\n}\n"
+            .write(to: phone.appendingPathComponent("Widget+Phone.swift"),
+                   atomically: true, encoding: .utf8)
+        let roots = [dir, phone]
+
+        let spelled = try grepSwift(
+            in: roots, patterns: ["sanctioned("],
+            allowedSpellings: ["type:Widget": ["sanctioned("]],
+            excludeLine: { _ in false })
+        XCTAssertTrue(spelled.contains { $0.hasPrefix("Widget+Phone.swift:") },
+            "the phone extension is caught: \(spelled)")
+        XCTAssertEqual(spelled.count, 2, "Other.swift and the phone file: \(spelled)")
+
+        let whole = try grepSwift(
+            in: roots, patterns: ["sanctioned("], allowed: ["type:Widget"],
+            excludeLine: nil, extraOffender: nil)
+        XCTAssertTrue(whole.contains { $0.hasPrefix("Widget+Phone.swift:") }, "\(whole)")
+
+        let counted = try countedListFound(
+            of: "sanctioned(", keyedLike: ["type:Widget": 2, "Other.swift": 1], in: roots)
+        XCTAssertEqual(counted.found, ["type:Widget": 2, "Other.swift": 1, "Widget+Phone.swift": 1],
+            "the phone file is counted under its own name, not the type's")
+    }
+
+    /// **(e) A plain key naming a file a type key also claims is an offender**
+    /// — one rule for allow-lists and count maps alike.
+    func test_aPlainKeyBesideATypeKeyThatClaimsItIsAnOffender() throws {
+        let dir = try plantedWidgetDir()
+        let message = "Widget+More.swift is named by itself and by `type:Widget`"
+        let spelled = try grepSwift(
+            in: [dir], patterns: ["no-such-spelling"],
+            allowedSpellings: ["type:Widget": ["x"], "Widget+More.swift": ["y"]],
+            excludeLine: { _ in false })
+        XCTAssertEqual(spelled, [message])
+        let whole = try grepSwift(
+            in: [dir], patterns: ["no-such-spelling"],
+            allowed: ["type:Widget", "Widget+More.swift"],
+            excludeLine: nil, extraOffender: nil)
+        XCTAssertEqual(whole, [message])
+        let counted = try countedListFound(
+            of: "sanctioned(", keyedLike: ["type:Widget": 2, "Widget+More.swift": 1], in: [dir])
+        XCTAssertEqual(counted.offenders, [message])
     }
 
     /// **(c) A type key that resolves to no file fails the census**, in every
@@ -8520,7 +8573,7 @@ final class TripwireGrepTests: XCTestCase {
 
         // No planted file declares `OpLogStore` yet, so its type key is
         // (correctly) unresolved here; the control is about the four decisions.
-        let trust = Self.droppingUnresolvedTypeKeys(try grepSwift(
+        let trust = Self.dropping(unplanted: ["type:OpLogStore"], from: try grepSwift(
             in: [tmp],
             patterns: Self.trustClosurePatterns,
             allowedSpellings: Self.trustClosureAllowedSpellings,
@@ -8632,7 +8685,7 @@ final class TripwireGrepTests: XCTestCase {
 
         // Nothing planted declares `RegistryAdmission` yet: its type key is
         // (correctly) unresolved, and the control is about the four verbs.
-        let writers = Self.droppingUnresolvedTypeKeys(try grepSwift(
+        let writers = Self.dropping(unplanted: ["type:RegistryAdmission"], from: try grepSwift(
             in: [tmp],
             patterns: Self.registryWriterVerbs,
             allowed: Self.registryWriterCallers,
@@ -9038,6 +9091,41 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
+    /// **The two whole-type allowances over `OpLogStore`, bounded by count.**
+    ///
+    /// `trustClosureAllowedSpellings` and `localWritePermitAllowed` key the
+    /// store by TYPE, so the allowance reaches every file declaring it —
+    /// `OpLogPermitContext.swift` and, notably, `OpLogStore+Testing.swift`, a
+    /// testing seam compiled into production Core and the natural home for a
+    /// "testing" hand-built `LocalWritePermit(`. The allow-list cannot tell a
+    /// sanctioned site moved within the type from a NEW one; the count can. A
+    /// site added anywhere in the type fails here, and only a move passes.
+    ///
+    /// - `trusted: { _ in false }` — the keyless reader and the unsettled
+    ///   segment's no-table arm (tripwire 39's doc on the allow-list).
+    /// - `LocalWritePermit(` — `localWritePermit(as:documentClass:)`'s
+    ///   construction sites inside the store, plus `LocalWritePermit.swift`'s
+    ///   own `.unrestricted` value.
+    static let typeAllowanceBounds: [String: [String: Int]] = [
+        "trusted: { _ in false }": ["type:OpLogStore": 3],
+        "LocalWritePermit(": ["type:OpLogStore": 5, "LocalWritePermit.swift": 1],
+    ]
+
+    func test_theTypeKeyedOpLogStoreAllowancesAreBoundedByCount() throws {
+        for (pattern, expected) in Self.typeAllowanceBounds {
+            let (found, unresolved) = try countedListFound(
+                of: pattern, keyedLike: expected, in: admissionRoots)
+            XCTAssertTrue(unresolved.isEmpty, "typeAllowanceBounds[\(pattern)]: \(unresolved)")
+            XCTAssertEqual(found, expected,
+                "The sites spelling “\(pattern)” moved. The type-keyed allow-list "
+                + "lets the spelling anywhere in `OpLogStore`'s files; this count is "
+                + "what keeps that to the sites already reviewed. A new one is a new "
+                + "keyless decision or a hand-built permit — gate it, or update "
+                + "`typeAllowanceBounds` with its reason. Found: "
+                + "\(found.sorted(by: { $0.key < $1.key }))")
+        }
+    }
+
     /// A permit compared to a literal rung. Unlike a bare `.reviewer` — also
     /// `Posture.Reason.reviewer` and `PostureStandingLine`'s own kind, the
     /// display values surfaces are MEANT to switch on — these three spellings
@@ -9237,8 +9325,8 @@ final class TripwireGrepTests: XCTestCase {
 
         // Each planted tree holds only part of an allow-list's scope, so the
         // `type:` keys it declares nothing for are (correctly) unresolved —
-        // these controls are about the spellings, and drop those lines.
-        let fieldHits = Self.droppingUnresolvedTypeKeys(try grepSwift(
+        // these controls are about the spellings, and drop exactly those lines.
+        let fieldHits = Self.dropping(unplanted: ["type:RegistryAdmission"], from: try grepSwift(
             in: [fields],
             patterns: Self.permitFieldPatterns,
             allowedSpellings: Self.permitFieldAllowedFiles,
@@ -9253,7 +9341,7 @@ final class TripwireGrepTests: XCTestCase {
 
         try fm.moveItem(at: fields.appendingPathComponent("SecondRoleCheck.swift"),
                         to: fields.appendingPathComponent("RegistryReader.swift"))
-        let partlyAllowed = Self.droppingUnresolvedTypeKeys(try grepSwift(
+        let partlyAllowed = Self.dropping(unplanted: ["type:RegistryAdmission"], from: try grepSwift(
             in: [fields],
             patterns: Self.permitFieldPatterns,
             allowedSpellings: Self.permitFieldAllowedFiles,
@@ -9310,7 +9398,7 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: table.appendingPathComponent("SecondTable.swift"),
                   atomically: true, encoding: .utf8)
 
-        let tableHits = Self.droppingUnresolvedTypeKeys(try grepSwift(
+        let tableHits = Self.dropping(unplanted: ["type:RegistryAdmission"], from: try grepSwift(
             in: [table],
             patterns: Self.permitTablePatterns,
             allowedSpellings: Self.permitTableAllowed,
@@ -9321,7 +9409,7 @@ final class TripwireGrepTests: XCTestCase {
 
         try fm.moveItem(at: table.appendingPathComponent("SecondTable.swift"),
                         to: table.appendingPathComponent("PermitTimeline.swift"))
-        let timelineAllowed = Self.droppingUnresolvedTypeKeys(try grepSwift(
+        let timelineAllowed = Self.dropping(unplanted: ["type:RegistryAdmission"], from: try grepSwift(
             in: [table],
             patterns: Self.permitTablePatterns,
             allowedSpellings: Self.permitTableAllowed,
@@ -9380,7 +9468,7 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: write.appendingPathComponent("AHandBuiltPermit.swift"),
                   atomically: true, encoding: .utf8)
 
-        let writeHits = Self.droppingUnresolvedTypeKeys(try grepSwift(
+        let writeHits = Self.dropping(unplanted: ["type:OpLogStore"], from: try grepSwift(
             in: [write],
             patterns: Self.localWritePermitPatterns,
             allowedSpellings: Self.localWritePermitAllowed,
@@ -9553,9 +9641,8 @@ final class TripwireGrepTests: XCTestCase {
         "type:RegistryAdmission": ["PermitTimeline.narrows("],
         // The carrier and its readers name the per-LINE fact, never the type.
         "AnnotationOwnership.swift": ["insideTheUnsignedSnapshot"],
-        "OpLogPermitContext.swift": [
-            "insideTheUnsignedSnapshot", "InsideTheUnsignedSnapshot",
-        ],
+        // `type:OpLogStore` claims `OpLogPermitContext.swift` (an
+        // `extension OpLogStore`) as well as the store's own file.
         "type:OpLogStore": [
             "insideTheUnsignedSnapshot", "InsideTheUnsignedSnapshot",
         ],
@@ -9853,7 +9940,7 @@ final class TripwireGrepTests: XCTestCase {
         // The planted tree declares none of the allow-list's `type:` keys, so
         // they are (correctly) unresolved; this control is about the spellings.
         XCTAssertEqual(
-            Self.droppingUnresolvedTypeKeys(try grepSwift(
+            Self.dropping(unplanted: ["type:RegistryAdmission", "type:OpLogStore", "type:DocumentStore"], from: try grepSwift(
                 in: [dir], patterns: Self.narrowingPatterns,
                 allowedSpellings: Self.narrowingAllowed,
                 excludeLine: Self.admissionExcludeLine)).count, 1,
