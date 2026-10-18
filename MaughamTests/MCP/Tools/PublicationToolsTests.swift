@@ -180,6 +180,66 @@ final class PublicationToolsTests: XCTestCase {
         }
     }
 
+    // MARK: - A newer build's format
+
+    /// A catalog row a newer build wrote as `docx`: written as that build
+    /// would write it, a known row with its format renamed on disk.
+    private func seedDocxPublication() async throws {
+        let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectURL)
+        try await stores.publicationStore.append(Publication(
+            publicationID: "pub-docx", version: "1.0", label: nil, format: .pdf,
+            outputPath: "Exports/T-v1.0.docx", snapshotID: "snap-docx",
+            checkpointID: "", republishedFrom: nil, compiledAt: Date(),
+            maughamVersion: "9.9.9", tectonicVersion: "0.15.0"))
+        let file = PublicationStore.fileURL(
+            deviceSlug: DeviceIdentity.author.slug, in: projectURL)
+        let raw = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(raw.contains(#""format":"pdf""#), raw)
+        try raw.replacingOccurrences(of: #""format":"pdf""#, with: #""format":"docx""#)
+            .write(to: file, atomically: true, encoding: .utf8)
+        PublishingStores._resetForTesting()
+    }
+
+    func testList_aDocxRowSurfacesItsFormatVerbatim() async throws {
+        try await seedDocxPublication()
+        let data = try await ListPublicationsTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(pid!)"}"#.utf8), registry: registry)
+        let resp = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let pubs = resp?["publications"] as? [[String: Any]] ?? []
+        XCTAssertEqual(pubs.compactMap { $0["format"] as? String }, ["docx"])
+    }
+
+    /// `read_publication_page` on a docx row refuses by its real name rather
+    /// than trying to rasterize a non-PDF it took for a PDF.
+    func testReadPage_aDocxRowIsRefusedNamingDocx() async throws {
+        try await seedDocxPublication()
+        do {
+            _ = try await ReadPublicationPageTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","publication_id":"pub-docx","page_number":1}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw")
+        } catch let MCPError.invalidArgument(msg) {
+            XCTAssertTrue(msg.contains("format=docx"), msg)
+        }
+    }
+
+    /// `republish` with `"format":"docx"` refuses through the tool's error
+    /// path with the one refusal sentence — never the error's dump.
+    func testRepublish_anUnknownFormatIsRefusedWithTheSentence() async throws {
+        do {
+            _ = try await RepublishTool.handle(
+                paramsJSON: Data(#"{"project_id":"\#(pid!)","snapshot_id":"snap-x","format":"docx"}"#.utf8),
+                registry: registry)
+            XCTFail("expected throw")
+        } catch {
+            let payload = MCPToolsCallHandler.toolErrorPayload(for: error)
+            XCTAssertEqual(payload.message, PublishFormatRefusal.message(raw: "docx"))
+        }
+        let stores = PublishingStores.sharedFor(projectID: pid, projectURL: projectURL)
+        let pubs = try await stores.publicationStore.load()
+        XCTAssertTrue(pubs.isEmpty, "no catalog row: \(pubs)")
+    }
+
     // MARK: - republish
 
     func testRepublish_unknownProject_throws() async throws {

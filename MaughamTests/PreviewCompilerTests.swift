@@ -76,6 +76,43 @@ final class PreviewCompilerTests: XCTestCase {
         XCTAssertTrue(job.isEmpty, "the job is terminal either way")
     }
 
+    // MARK: - An output format this build can't produce
+
+    /// A `docx` preview is refused at the door, ahead of the job registration:
+    /// the Result carries the one refusal sentence, no job is registered, no
+    /// output file is written and EMISSION.md is untouched.
+    func testPreview_anUnknownFormatIsRefusedByNameAndWritesNothing() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Docx", author: "T")))
+        let emission = tmp.appendingPathComponent(".maugham/publish/EMISSION.md")
+        let sentinel = "sentinel — a refused format may not rewrite this"
+        try sentinel.write(to: emission, atomically: true, encoding: .utf8)
+        struct Src: ProjectASTBuilder.Source {
+            func orderedPieces() -> [ProjectASTBuilder.PieceRef] {
+                [.init(pieceID: "p1", title: "C1", mode: .prose, displayText: "A.")]
+            }
+        }
+        let jobs = CompileJobManager()
+        let preview = PreviewCompiler(
+            projectURL: tmp, astSource: Src(), configStore: configStore,
+            jobManager: jobs, maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+
+        let result = try await preview.preview(
+            format: .unknown("docx"), sectionIDs: nil, maxPages: nil)
+
+        XCTAssertEqual(result.outputPath, "")
+        let messages = result.errors.map(\.message)
+        XCTAssertTrue(
+            messages.contains { $0.contains(PublishFormatRefusal.message(raw: "docx")) },
+            "the errors carry the one refusal sentence: \(messages)")
+        let all = await jobs.all()
+        XCTAssertTrue(all.isEmpty, "no job registered: \(all)")
+        let previews = (try? FileManager.default.contentsOfDirectory(
+            atPath: tmp.appendingPathComponent(PreviewCompiler.previewSubpath).path)) ?? []
+        XCTAssertTrue(previews.isEmpty, "no output file: \(previews)")
+        XCTAssertEqual(try String(contentsOf: emission, encoding: .utf8), sentinel)
+    }
+
     // MARK: - F5: EMISSION.md auto-refresh (previews are where iteration lives)
 
     /// A stale EMISSION.md seeded before a preview is refreshed to the

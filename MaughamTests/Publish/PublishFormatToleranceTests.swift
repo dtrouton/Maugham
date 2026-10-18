@@ -89,6 +89,38 @@ final class PublishFormatToleranceTests: XCTestCase {
                        PublishFormatRefusal.message(raw: "docx"))
     }
 
+    // MARK: - The compile door's question
+
+    func test_formatErrorIsNilForWhatThisBuildProduces() {
+        for format in PublishConfig.Format.allCases {
+            XCTAssertNil(PublishConfigValidator.formatError(format), "\(format)")
+        }
+    }
+
+    func test_formatErrorNamesAnUnknownFormatWithTheOneSentence() {
+        let err = PublishConfigValidator.formatError(.unknown("docx"))
+        XCTAssertEqual(err?.field, "format")
+        XCTAssertEqual(err?.message, PublishFormatRefusal.message(raw: "docx"))
+    }
+
+    /// Compiling an unknown format is refused; NAMING one in
+    /// `outputs.formats_enabled` is not a config error — neither at the write
+    /// door nor, for a known format, at the compile door.
+    func test_anUnknownNameInFormatsEnabledIsNotAConfigError() throws {
+        var cfg = PublishConfig(metadata: .init(title: "T", author: "A"))
+        cfg.outputs.formatsEnabled = [.pdf, .unknown("docx")]
+        XCTAssertEqual(PublishConfigValidator.validate(cfg), [])
+
+        let publishDir = try makeProjectDir()
+        let epub = PublishConfigValidator.validateForCompile(
+            cfg, publishDir: publishDir, pieceIDs: [], format: .epub)
+        XCTAssertEqual(epub, [])
+        let docx = PublishConfigValidator.validateForCompile(
+            cfg, publishDir: publishDir, pieceIDs: [], format: .unknown("docx"))
+        XCTAssertEqual(docx.map(\.field), ["format"])
+        XCTAssertEqual(docx.map(\.message), [PublishFormatRefusal.message(raw: "docx")])
+    }
+
     // MARK: - config.json through PublishConfigStore
 
     func test_configJSONRoundTripThroughTheStoreKeepsDocx() async throws {

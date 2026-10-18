@@ -120,6 +120,107 @@ final class CompileOrchestratorTests: XCTestCase {
         XCTAssertEqual(pubs.first?.publicationID, "pub-pre-existing")
     }
 
+    /// **Edition identity across a newer build's format.** A catalog row a
+    /// newer Maugham wrote as `docx` at v1.0 is a different publication from a
+    /// `pdf` at v1.0, so it must not block one. Before `Format.unknown` the
+    /// row decoded as `.pdf` and the collision guard refused with a false
+    /// "Publication v1.0 (…, pdf) already exists" (pinned red on 635106dc).
+    func testCompile_aNewerBuildsDocxRowDoesNotCollideWithAPdfAtTheSameVersion() async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        var cfg = PublishConfig(metadata: .init(title: "Docx", author: "T"))
+        cfg.nextVersion = "1.0"
+        try await configStore.save(cfg)
+
+        // Written as a newer build would write it: a known row with its format
+        // renamed on disk, so the fixture does not lean on the encoder.
+        let pubStore = PublicationStore(projectURL: tmp)
+        try await seedSourcePublication(pubStore, version: "1.0", format: .pdf)
+        let file = PublicationStore.fileURL(
+            deviceSlug: DeviceIdentity.author.slug, in: tmp)
+        let raw = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(raw.contains(#""format":"pdf""#), raw)
+        try raw.replacingOccurrences(of: #""format":"pdf""#, with: #""format":"docx""#)
+            .write(to: file, atomically: true, encoding: .utf8)
+
+        let outcome = try await makeOrch(configStore, pubStore)
+            .compile(format: .pdf, label: nil, dryRun: true)
+        guard case .dryRunPassed = outcome else {
+            return XCTFail("a docx row at v1.0 must not block a pdf at v1.0: \(outcome)")
+        }
+    }
+
+    // MARK: - The compile door refuses an output format this build can't produce
+
+    /// **Nothing happens before the refusal.** The door stands ahead of the
+    /// job registration, the collision guard, the mint reservation, the
+    /// EMISSION.md refresh, the coverage gate and the dry-run short-circuit,
+    /// so a `docx` compile registers no job, takes no reservation (the key it
+    /// would take is pre-reserved here: a compile that reached the gate would
+    /// come back `mint_in_flight` instead), rewrites nothing, and the caller
+    /// reads the one refusal sentence rather than an error struct's dump.
+    func test_anUnknownFormatIsRefusedAtTheDoorAndNothingHappens() async throws {
+        try await assertTheDoorRefusesDocx(dryRun: false)
+    }
+
+    /// The same with `dry_run: true`: the question "would this compile?" is
+    /// answered no — before the door, it reached `.dryRunPassed`.
+    func test_aDryRunOfAnUnknownFormatIsRefusedNotPassed() async throws {
+        try await assertTheDoorRefusesDocx(dryRun: true)
+    }
+
+    private func assertTheDoorRefusesDocx(
+        dryRun: Bool, file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        let configStore = PublishConfigStore(projectURL: tmp)
+        try await configStore.save(PublishConfig(metadata: .init(title: "Docx", author: "T")))
+        let pubStore = PublicationStore(projectURL: tmp)
+        let jobs = CompileJobManager()
+        let gate = PublishMintGate()
+        let wouldBeKey = PublishMintGate.Key(
+            version: "0.1", language: nil, format: .unknown("docx"))
+        let reserved = await gate.reserve(wouldBeKey)
+        XCTAssertTrue(reserved, file: file, line: line)
+        let emission = tmp.appendingPathComponent(".maugham/publish/EMISSION.md")
+        let sentinel = "sentinel — a refused format may not rewrite this"
+        try sentinel.write(to: emission, atomically: true, encoding: .utf8)
+        let snapshots = PublicationSnapshotStore(projectURL: tmp).snapshotsDir
+        let announced = IDBox()
+
+        let outcome = try await makeOrch(configStore, pubStore, gate, jobManager: jobs)
+            .compile(format: .unknown("docx"), label: nil, dryRun: dryRun,
+                     onJobRegistered: { announced.append($0) })
+
+        guard case .failed(let errors, let excerpt) = outcome else {
+            return XCTFail("expected the door's refusal, got \(outcome)", file: file, line: line)
+        }
+        let messages = errors.map(\.message)
+        XCTAssertTrue(
+            messages.contains { $0.contains(PublishFormatRefusal.message(raw: "docx")) },
+            "the caller reads the one refusal sentence: \(messages)", file: file, line: line)
+        XCTAssertFalse(messages.contains { $0.contains("PublishFormatRefusal(") },
+                       "never the error's dump: \(messages)", file: file, line: line)
+        XCTAssertFalse(excerpt.hasPrefix(CompileOrchestrator.mintInFlightLogExcerpt),
+                       "the gate was never asked: \(excerpt)", file: file, line: line)
+
+        let all = await jobs.all()
+        XCTAssertTrue(all.isEmpty, "no job registered: \(all)", file: file, line: line)
+        XCTAssertEqual(announced.values, [], file: file, line: line)
+        let held = await gate._inFlightForTesting
+        XCTAssertEqual(held, [wouldBeKey], "no reservation taken or released",
+                       file: file, line: line)
+        XCTAssertEqual(try String(contentsOf: emission, encoding: .utf8), sentinel,
+                       "EMISSION.md untouched", file: file, line: line)
+        let pubs = try await pubStore.load()
+        XCTAssertTrue(pubs.isEmpty, "no catalog row: \(pubs)", file: file, line: line)
+        let snaps = (try? FileManager.default.contentsOfDirectory(atPath: snapshots.path)) ?? []
+        XCTAssertTrue(snaps.isEmpty, "no snapshot: \(snaps)", file: file, line: line)
+        let reloaded = try await configStore.load()
+        XCTAssertEqual(reloaded?.nextVersion, "0.1", "no version bump", file: file, line: line)
+        let exports = (try? FileManager.default.contentsOfDirectory(
+            atPath: tmp.appendingPathComponent("Exports").path)) ?? []
+        XCTAssertTrue(exports.isEmpty, "nothing exported: \(exports)", file: file, line: line)
+    }
+
     // MARK: - F1: per-section include flag drops excluded pieces from output
 
     /// Three pieces, the middle one excluded. The EPUB compile path writes

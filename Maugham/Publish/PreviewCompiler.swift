@@ -83,6 +83,18 @@ public struct PreviewCompiler {
         maxPages: Int?,
         imprint: String? = nil
     ) async throws -> Result {
+        // Can this build produce the format at all
+        // (`PublishConfigValidator.formatError`)? Asked before the job
+        // registers — nothing has begun — and before the EMISSION.md refresh
+        // and every format-dependent step in `run`.
+        if let refusal = PublishConfigValidator.formatError(format) {
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: refusal.message,
+                contextLines: ["Nothing was previewed — no output file."])
+            return Result(outputPath: "", warnings: [], errors: [diag],
+                          logExcerpt: "unproducible_format: \(format.rawValue)")
+        }
         let jobID = await jobManager.register(phase: .renderingBody)
         do {
             return try await run(
@@ -343,8 +355,10 @@ public struct PreviewCompiler {
                                       warnings: warnings, errors: r.errors)
             return Result(outputPath: r.outputPath, warnings: warnings, errors: r.errors)
         case .unknown(let raw):
-            // Defence in depth behind the compile door: unreachable once the
-            // door refuses an unknown format, never a precondition failure.
+            // Defence in depth, unreachable from `preview`: its first check
+            // (`PublishConfigValidator.formatError`) refuses every unknown
+            // format. Kept so the switch stays exhaustive with no `default:`;
+            // a throw, never a precondition failure.
             throw PublishFormatRefusal(raw: raw)
         }
     }

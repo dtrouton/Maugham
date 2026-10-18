@@ -118,6 +118,26 @@ public struct CompileOrchestrator {
         let publishDir = projectURL.appendingPathComponent(
             ".maugham/publish", isDirectory: true)
 
+        // Can this build produce the format at all
+        // (`PublishConfigValidator.formatError`)? Asked FIRST, because it
+        // needs nothing — not the config, not the manuscript — and because
+        // every act below is format-dependent: the job registration, the
+        // collision triple, the mint reservation, the EMISSION.md refresh, the
+        // coverage gate and the dry-run verdict. Like the unknown-imprint
+        // refusal below, it registers no job: nothing began.
+        // `validateForCompile` asks the same question again; that answer and
+        // the dispatch switch's `.unknown` arm are unreachable from here.
+        if let refusal = PublishConfigValidator.formatError(format) {
+            let diag = TectonicLogParser.Diagnostic(
+                level: .error, file: nil, line: nil,
+                message: refusal.message,
+                contextLines: [
+                    "Nothing was compiled — no export, no snapshot, no version bump."
+                ])
+            return .failed(errors: [diag],
+                           logExcerpt: "unproducible_format: \(format.rawValue)")
+        }
+
         guard let loaded = try await configStore.load() else {
             let jobID = await jobManager.register(phase: .renderingBody)
             await jobManager.fail(jobID: jobID, errors: [], logExcerpt: "no config")
@@ -743,8 +763,10 @@ public struct CompileOrchestrator {
             errors = result.errors
             logExcerpt = ""
         case .unknown(let raw):
-            // Defence in depth behind the compile door: unreachable once the
-            // door refuses an unknown format, never a precondition failure.
+            // Defence in depth, unreachable from `compile`: its first check
+            // (`PublishConfigValidator.formatError`) refuses every unknown
+            // format. Kept so the switch stays exhaustive with no `default:`;
+            // a throw, never a precondition failure.
             throw PublishFormatRefusal(raw: raw)
         }
 
