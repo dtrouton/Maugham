@@ -33,7 +33,7 @@ Each directory with an `AREA.md` asks you to read it before editing anything the
 
 - [`Packages/MaughamCore/Sources/MaughamCore/AREA.md`](../Packages/MaughamCore/Sources/MaughamCore/AREA.md) — the shared package both apps build on: a map of every file, its rules, and recipes.
 - [`Maugham/OpLog/AREA.md`](../Maugham/OpLog/AREA.md) — the op log, the signed chain, the register and permits.
-- [`Maugham/Stores/AREA.md`](../Maugham/Stores/AREA.md) — project and document stores, the typed mover, the `.maugham/` layout.
+- [`Maugham/Stores/AREA.md`](../Maugham/Stores/AREA.md) — project and document stores, the project session that owns them, the typed mover, the `.maugham/` layout.
 - [`Maugham/Editor/AREA.md`](../Maugham/Editor/AREA.md) — the editor coordinator and its fragile binding contract.
 - [`Maugham/Publish/AREA.md`](../Maugham/Publish/AREA.md) — PDF and EPUB publishing, the department desk, imprints and editions.
 - [`Maugham/Canvas/AREA.md`](../Maugham/Canvas/AREA.md) — the Plan persona's canvas.

@@ -68,7 +68,7 @@ See `docs/RELEASING.md` for the full recipe (cut-release.sh, signing/notarizatio
 
 ## Architectural tripwires
 
-One line each; the why, the history and the full enforcement are in docs/tripwires.md. If your change rhymes with a row, read that row there first.
+One line each; the why, the history and the full enforcement are in docs/tripwires.md. If your change rhymes with a row, read that row there first. Census lists key by type (`type:<Name>`), so splitting a file never weakens them.
 
 | # | Rule | Enforced by |
 |---|---|---|
@@ -88,7 +88,7 @@ One line each; the why, the history and the full enforcement are in docs/tripwir
 | 14 | Move or delete user-editable content only through the typed `DocumentStore` mover | `TripwireGrepTests.test_noRawMoveOfUserContentOutsideTypedMover` |
 | 15 | `ContentUnavailableView` chains a full-size `.frame`, and the pane's outer `VStack` takes `alignment: .top` | `TripwireGrepTests.test_contentUnavailableViewAlwaysChainsFullFrame` |
 | 16 | Inline rename focus defers `Task.sleep(30ms)` and fires from both `.onAppear` and `.onChange(of: renamingItemId)` | prose only |
-| 17 | No single JSONL file shared across devices through iCloud Drive; never seal the legacy file or another device's | `OpLogStoreSegmentTests.test_legacyFile_neverSealed` |
+| 17 | No single JSONL file shared across devices through iCloud Drive; never seal (`SegmentSealer`) the legacy file or another device's | `OpLogStoreSegmentTests.test_legacyFile_neverSealed` |
 | 18 | On iOS: don't assume eviction; `startAccessing==false` is not a denial; don't `d_`-prefix a docId twice | prose only |
 | 19 | Anything both Mac and phone touch goes through one shared MaughamCore implementation | `TripwirePhoneGrepTest` +1 |
 | 20 | No raw manuscript `.md`/`.fountain` read as truth; derive from the op log | `TripwireGrepTests` +1 |
@@ -110,14 +110,14 @@ One line each; the why, the history and the full enforcement are in docs/tripwir
 | 36 | No software private key in production; the person key (`PersonKey.swift`) is the one named exception | `TripwireGrepTests.test_noSoftwarePrivateKeyInProduction` |
 | 37 | A seal line is recognised in `OpLogChain` only (`isSealLine`, whose one caller is `JSONLAppendStore.parse`) | `TripwireGrepTests.test_sealLinesAreRecognisedInOpLogChainOnly` +2 |
 | 38 | No `device:` string at a production `Document.load`; pass a `DeviceActor`, and the load's own emissions are the author's | `TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad` +1 |
-| 39 | Every trust closure is built from a `TrustTable` and takes a `TrustVerdict`, never a Bool | `TripwireGrepTests.test_everyTrustClosureIsBuiltFromTheTrustTable` +3 |
+| 39 | Every trust closure is built from a `TrustTable` and takes a `TrustVerdict`, never a Bool; the one keyless walk is `OpLogClassifier.walk`, its callers counted | `TripwireGrepTests.test_everyTrustClosureIsBuiltFromTheTrustTable` +5 |
 | 40 | Registry records are written through `RegistryWriter` only, and each registry directory is spelled in one function | `TripwireGrepTests.test_registryRecordsAreWrittenThroughRegistryWriterOnly` |
 | 41 | The registry's writers are three files (`RegistryPresence`, `RegistryAdmission`, `RegistryCache`); the phone writes none | `TripwireGrepTests.test_theRegistrysWritersAreThreeFiles` +2 |
 | 42 | `RegistryCanonical` alone decides what a signature covers | `RegistryCanonicalCensusTests` |
 | 43 | The role check reads the permit timeline, never `PersonRecord.role`/`.scope`/`.pieces` | `TripwireGrepTests.test_theRoleCheckReadsTheTimelineAndNotTheRecordsField` +1 |
 | 44 | `Permit.allows` is the one permission table and `Deriver.appliesToManuscript` the one manuscript classifier, with named callers | `TripwireGrepTests.test_thePermissionTableIsSpelledInThePermitLayerOnly` +1 |
 | 45 | `PermitPartition.partition`'s production call sites are a named array with a count per file | `TripwireGrepTests.test_thePartitionsCallSitesAreExactlyTheNamedList` |
-| 46 | `OpLogStore.localWritePermit(as:documentClass:)` is the one write-permit question; no production file builds a `LocalWritePermit` | `TripwireGrepTests.test_theWriteSidePermitQuestionHasOneFunction` |
+| 46 | `OpLogStore.localWritePermit(as:documentClass:)` is the one write-permit question; only `LocalWritePermitBuilder` builds a `LocalWritePermit` | `TripwireGrepTests.test_theWriteSidePermitQuestionHasOneFunction` |
 | 47 | A permit rung is compared only inside the permit layer; ask `Permit.allows` what may be written | `TripwireGrepTests.test_aPermitRungIsComparedOnlyInThePermitLayer` |
 | 48 | Which lines the load emitted is decided once, in `Permit.swift` (`isALoadEmission`, `actorJudging`) | `TripwireGrepTests.test_theLoadEmissionRuleIsSpelledInThePermitLayerOnly` +1 |
 | 49 | Each unsigned-door decision (narrowing, snapshot, unattributable, holders, held-key standing, permit offering) has one home | `TripwireGrepTests.test_theNarrowingPredicateAndTheSnapshotAreInThePermitLayerOnly` +6 |
@@ -125,6 +125,9 @@ One line each; the why, the history and the full enforcement are in docs/tripwir
 | 51 | What a Mac may offer is asked of `Posture` through one door; no other file builds a posture or asks the permit | `TripwireGrepTests.test_postureIsAskedOfThePermitInOnePlace` +1 |
 | 52 | Every manuscript writer outside the editor asks its posture first; the writer population is derived from the code and counted | `TripwireGrepTests.test_everyGuardedDocumentMutatorIsClassified` +5 |
 | 53 | The person key's doors (store, verifier, recogniser, link/forget, find, sign, store choice) are counted per file | `PersonKeyCensusTests` +2 |
+| 54 | The Fountain extension is spelled in `DocumentFormat` only; ask it, never a `"fountain"` literal | `TripwireGrepTests.test_theFountainExtensionIsSpelledInDocumentFormatOnly` +1 |
+| 55 | Ask a project's kind or a document's format by capability or an exhaustive `switch`, never by equality | `TripwireGrepTests.test_projectKindAndFormatAreAskedByCapabilityNotByEquality` +1 |
+| 56 | An `async` function in the `OpLogStore` split's files says `@MainActor` | `OpLogClassifierIsolationTests` |
 
 ## Default workflow
 
@@ -155,7 +158,7 @@ Before editing a path, read the area guide its row names. If a path matches seve
 | `Maugham/Views/**` | `Maugham/Views/AREA.md` | Ask `Posture` what to offer; never compare a permit rung (tripwires 47, 51). |
 | `Maugham/Editor/**` | `Maugham/Editor/AREA.md` | The `EditorHost` binding is fragile (tripwires 2, 3, 6, 7). |
 | `Maugham/Canvas/**` | `Maugham/Canvas/AREA.md` | Membership never changes on a move or resize (tripwire 31). |
-| `Maugham/Compiler/**` | `Maugham/Compiler/AREA.md` | The compiler reads and never writes; Maugham writes at ingest. |
+| `Maugham/Compiler/**` | `Maugham/Compiler/AREA.md` | The compiler reads and never writes; Maugham writes at ingest. A new `claude` service joins `AgentRoster`, the one teardown. |
 | `Maugham/MCP/**` | `Maugham/MCP/AREA.md` | One catalogue, `MCPToolCatalog.all`; MCP never writes manuscript text. |
 | `Maugham/Publish/**` | `Maugham/Publish/AREA.md`; the emission contract is `Maugham/Resources/PublishStarter/EMISSION.md` (generated) | Edit `EmissionContract.swift`, never `EMISSION.md`; keep `style_file` inside its `\begingroup`. |
 | `Maugham/Updates/**` | `Maugham/Updates/AREA.md` | — |

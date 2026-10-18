@@ -10,21 +10,21 @@ final class DocBudgetTests: XCTestCase {
 
     /// Repo-relative path → the most words it may hold.
     static let wordCeilings: [String: Int] = [
-        "CLAUDE.md": 2_939,  // ratchet: actual size; the hard cap is 4,000 words (foundations plan 1) — raise only with a reason. +19: the Maugham/Models row names its two real guides (final fix wave)
-        "docs/tripwires.md": 6_306,  // ratchet: actual size
+        "CLAUDE.md": 3_031,  // ratchet: actual size; the hard cap is 4,000 words (foundations plan 1) — raise only with a reason. +19: the Maugham/Models row names its two real guides (final fix wave); +92 at the foundations merge: tripwire rows 54–56 (plans 6/7's censuses), the type-keyed census line, AgentRoster in the Compiler row
+        "docs/tripwires.md": 6_791,  // ratchet: actual size; +485 at the foundations merge: rows 54–56, the census-key paragraph, rows 17/24/39/46 name the OpLogStore split's homes
         "docs/testing/TROUBLESHOOTING.md": 4_406,  // ratchet: actual size; +28 over 4,378 for the line naming the old CLAUDE.md phrases comments still cite
-        "docs/INDEX.md": 394,  // ratchet: actual size (Core and Publish guides and the recipes line added)
-        "Maugham/Canvas/AREA.md": 48_005,
-        "Maugham/OpLog/AREA.md": 30_088,  // + residue and the two invariant bullets from CLAUDE.md, 2026-10-17; +15: tripwire 10 names all three keyless OpLogStore sites
-        "Maugham/Views/AREA.md": 27_717,  // + residue from CLAUDE.md; PersonaMemory claim corrected, 2026-10-17
-        "Maugham/Compiler/AREA.md": 23_386,  // + residue from CLAUDE.md, 2026-10-17
-        "Maugham/Stores/AREA.md": 16_114,  // + residue from CLAUDE.md; ProjectStore size claim replaced by an ls, 2026-10-17
-        "Maugham/MCP/AREA.md": 8_592,  // + residue from CLAUDE.md, 2026-10-17; +16: the bump-the-catalogue-heading step
+        "docs/INDEX.md": 400,  // ratchet: actual size (Core and Publish guides and the recipes line added); +6: Stores line names the project session
+        "Maugham/Canvas/AREA.md": 47_971,  // ratchet: main's #44 rewrote the refused-layout paragraphs shorter
+        "Maugham/OpLog/AREA.md": 30_405,  // + residue and the two invariant bullets from CLAUDE.md, 2026-10-17; +15: tripwire 10 names all three keyless OpLogStore sites; +317 at the foundations merge: main's #51 Reopen sentence, the OpLogStore-split map bullet, tripwire 10's walk callers
+        "Maugham/Views/AREA.md": 28_289,  // + residue from CLAUDE.md; PersonaMemory claim corrected, 2026-10-17; +572 at the foundations merge: the window family, CentreColumn/CentreRoute/RightColumn/PaletteWallState/PublishCentreModel rows, the session pointer
+        "Maugham/Compiler/AREA.md": 23_782,  // + residue from CLAUDE.md, 2026-10-17; +396 at the foundations merge: main's additions since the plans branched and the AgentRoster paragraph
+        "Maugham/Stores/AREA.md": 16_389,  // + residue from CLAUDE.md; ProjectStore size claim replaced by an ls, 2026-10-17; +275 at the foundations merge: main's additions since the plans branched and the Project sessions row
+        "Maugham/MCP/AREA.md": 8_687,  // + residue from CLAUDE.md, 2026-10-17; +16: the bump-the-catalogue-heading step; +95: main's #44 refused-layout text, merged at the foundations integration
         "MaughamPhone/AREA.md": 5_007,
         "Maugham/Editor/AREA.md": 3_673,
-        "Maugham/Updates/AREA.md": 1_622,
-        "Maugham/Publish/AREA.md": 977,  // new: the Publish cell of CLAUDE.md's area table, 2026-10-17; +38: the pointer to Core's block-kind recipe
-        "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 2_879,  // +28: Statement.Kind recipe gains the Persona.panes and one-writer-census steps
+        "Maugham/Updates/AREA.md": 4_089,  // +2,467: main's updater hardening (#67, #87), merged at the foundations integration
+        "Maugham/Publish/AREA.md": 1_073,  // new: the Publish cell of CLAUDE.md's area table, 2026-10-17; +38: the pointer to Core's block-kind recipe; +96: the unproducible-format door (foundations plan 7)
+        "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 3_085,  // +28: Statement.Kind recipe gains the Persona.panes and one-writer-census steps; +206: the OpLogStore split's six files, DocumentFormat, ProjectType+Capabilities, the ProjectType recipe rewritten for capabilities
     ]
 
     /// Repo-relative path → the longest line it may hold, in characters.

@@ -2,6 +2,8 @@
 
 PDF and EPUB publishing through the bundled tectonic. What the body emitter produces is `Maugham/Resources/PublishStarter/EMISSION.md`, generated from `EmissionContract.swift`. This guide began as the text CLAUDE.md's area table carried for this directory.
 
+**A format this build cannot produce is refused at the door.** `PublishConfig.Format` decodes a name a newer build wrote as `.unknown(raw)`, kept verbatim so the config re-encodes unchanged (ADR 0015); `allCases` is only what this build produces, so `.unknown` never reaches a picker. Compiling, previewing or republishing one is refused before anything format-dependent runs — no job, no collision check, no version mint, no `EMISSION.md` refresh, no dry-run verdict: `CompileOrchestrator.compile` and `PreviewCompiler.preview` return `.failed` with `PublishConfigValidator.formatError`'s sentence (log excerpt `unproducible_format: <raw>`), and `Republisher` throws `RepublishError.unproducibleFormat`, which MCP reports as an invalid argument. The words are `PublishFormatRefusal`'s.
+
 Adding a block kind to publish? Start at the Core guide's recipe "Add a block kind to the text model" (`Packages/MaughamCore/Sources/MaughamCore/AREA.md`): it covers `MarkdownBlockParser`, `ElementCensus`, the phone reader and ADR 0022's ruling step, none of which live here.
 
 ## From CLAUDE.md's area table (2026-10-17)

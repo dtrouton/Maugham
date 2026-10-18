@@ -19,7 +19,13 @@ Every `.swift` file in this folder and in `Inbox/` appears once. `DocBudgetTests
 - `PartitionedJSONLFile.swift` — `<stem>.<deviceSlug>.jsonl` naming for project-scope per-device sidecars (ADR 0012).
 - `ParseDiagnostics.swift` — what a JSONL load skipped, as reportable data instead of a silent drop.
 - `DeviceSlug.swift` — the filename-safe device slug; private init, built only by `make(from:)` (tripwire 24).
-- `OpLogStore.swift` — the per-document op-log store: append, sign, seal, rotate, classify and merge every device's file.
+- `OpLogStore.swift` — the per-document op-log store and its door: append, sign, chain-seal, the write-permit question (tripwire 46), the loads that need its trust cache, and one-line forwarders to the six files below.
+- `OpLogFiles.swift` — op-log file names and globs: doc id + `DeviceSlug` → filename and back (tripwire 24).
+- `OpLogClassifier.swift` — load and classify one op-log file; `walk`, the one verify walk, holds the keyless arm (tripwire 39).
+- `StreamPositions.swift` — revocation marks, permit applied/seen positions, the unsigned snapshot's positions and the placeholder refusal.
+- `StreamCensus.swift` — truncated and absent streams and the lost-history derivation.
+- `LocalWritePermitBuilder.swift` — builds `LocalWritePermit` behind `OpLogStore.localWritePermit`; `startedBy`, `unownedPiece` (tripwire 46).
+- `SegmentSealer.swift` — rotates a device's own live tail into a signed `.mzseg`, and `SegmentSignature` (tripwire 17).
 - `OpLogStore+Testing.swift` — the single-identity convenience init kept for suites that predate actors.
 - `OpLogChain.swift` — the chained wire format and its pure verifier; the one recogniser of seal lines (tripwire 37).
 - `OpLogSegment.swift` — the sealed, compressed, checksummed `.mzseg` container for a closed segment (ADR 0016).
@@ -116,6 +122,8 @@ Every `.swift` file in this folder and in `Inbox/` appears once. `DocBudgetTests
 ### Project model
 - `ProjectManifest.swift` — `project.maugham.json`: structure, research, statements, passes, roles; `currentSchemaVersion` and its gate.
 - `ProjectType.swift` — the four project forms plus decode-only `.unknown`.
+- `ProjectType+Capabilities.swift` — what callers ask of a kind (`primaryFormat`, `holdsPieces`, `symbolName`, `forPromotedPiece`), answered once for Mac and phone (tripwire 55).
+- `DocumentFormat.swift` — a manuscript's format from its extension: the extension, held blank lines, screenplay family, help resource, icon (tripwires 54, 55).
 - `ProjectTargets.swift` — optional word, deadline and page targets.
 - `StructureItem.swift` — a binder node (group or document), including `startedBy` and pass states.
 - `TreeNode.swift` — the id-keyed tree protocol and the generic `TreeWalk` walkers.
@@ -176,7 +184,7 @@ Every `.swift` file in this folder and in `Inbox/` appears once. `DocBudgetTests
 - Adding a `ProjectType` case bumps `ProjectManifest.currentSchemaVersion`.
 - `ProjectType` is polymorphic; Collection references are Mac-local.
 - Manifest `modified` must round-trip through ISO8601 with whole-second rounding.
-- Switches over `OpKind`, `ReviewStatus` and `ProjectType` carry no `default:`, so a new case is a compile error.
+- Switches over `OpKind`, `ReviewStatus`, `ProjectType` and `DocumentFormat` carry no `default:`, so a new case is a compile error. Ask kind and format by capability, never by `==` (tripwire 55); the Fountain extension is spelled only in `DocumentFormat` (tripwire 54).
 - Mint paragraph ids with `mintUnique(excluding:)`; test literals use the id alphabet (tripwires 23, 8).
 - `SynthesisSource` is a typed enum; adding a cause adds a case (tripwire 12).
 - Variant names and socket paths live only in `BuildVariant` (tripwire 13).
@@ -185,6 +193,7 @@ Every `.swift` file in this folder and in `Inbox/` appears once. `DocBudgetTests
 - Device ids come from `DeviceIdentity`/`LocalIdentities`; no host names (tripwire 35).
 - No software private key outside `PersonKey.swift` and `DeviceIdentity+Testing.swift` (tripwire 36).
 - Seal lines are recognised in `OpLogChain` only (tripwire 37).
+- An `async` function in the `OpLogStore` split's six files says `@MainActor`: isolation does not move with the text (tripwire 56).
 - A load names a `DeviceActor`, and the load's own emissions are the author's (tripwires 38, 48).
 - Trust closures are built from `TrustTable` verdicts, never a Bool (tripwire 39).
 - Registry records are written through `RegistryWriter`, by three caller files only, over `RegistryCanonical`'s bytes (tripwires 40, 41, 42).
@@ -219,16 +228,15 @@ Checks: the compiler, `StatementTests` and `StatementLookupTests` round-trips, `
 
 ### Add a ProjectType case
 1. `ProjectType.swift` — add the case and its snake_case raw value, add it to `allCases`, and bump `ProjectManifest.currentSchemaVersion` (ADR 0015).
-2. The exhaustive switches the compiler flags:
+2. `ProjectType+Capabilities.swift` — answer every capability for the new case (`primaryFormat`, `holdsPieces`, `symbolName`, `forPromotedPiece`). Each is an exhaustive switch, so the compiler flags them; the phone's icons read `symbolName` and need no change of their own.
+3. The other exhaustive switches the compiler flags:
    - `Maugham/Stores/ResearchScope.swift` — `researchRouting` and `derivedResearchItems(forDocumentId:)`;
    - `Maugham/Models/TreePane.swift` — `init(for:)`;
-   - `Maugham/Views/NewProjectSheet.swift` — `label(for:)`, `help(for:)` and `create()`;
-   - `MaughamPhone/Read/ReadIcons.swift` — `projectSymbol`;
-   - `MaughamPhone/Capture/ProjectPickerSheet.swift` — `symbolName`.
-3. A factory in `Maugham/Stores/ProjectFactory.swift` for `create()` to call.
-4. Then the `type ==` sites. Run `grep -rn '\.screenplay\b' Maugham MaughamPhone`: most are in `Maugham/Views/PieceInspector.swift`, `Maugham/Views/ProjectWindow.swift` and `Maugham/Views/BinderView.swift`, with `BinderShell.shell(for:)` among them. These default silently: the compiler cannot find a site that should treat the new type like a screenplay or a collection, so read every one.
+   - `Maugham/Views/NewProjectSheet.swift` — `label(for:)`, `help(for:)` and `create()`.
+4. A factory in `Maugham/Stores/ProjectFactory.swift` for `create()` to call.
+5. If the new kind needs a question no capability answers, add a capability (or an exhaustive switch at the site); never an `==` on the case, which `TripwireGrepTests.test_projectKindAndFormatAreAskedByCapabilityNotByEquality` refuses (tripwire 55).
 
-Checks: the compiler for step 2, `SchemaEvolutionToleranceTests`, and reading every grep hit for step 4.
+Checks: the compiler for steps 2 and 3, `SchemaEvolutionToleranceTests`, and the kind-equality census.
 
 ## Pointers
 - The op log's behaviour and history: `Maugham/OpLog/AREA.md`

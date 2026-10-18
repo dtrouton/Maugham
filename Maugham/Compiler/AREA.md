@@ -734,8 +734,20 @@ defend itself.** `ClaudeCLISession.deinit` is nonisolated and cannot touch
 main-actor state, and deallocating a `Process` neither signals nor reaps its
 child — so a session merely *released* leaves a live, billing, API-calling
 `claude` running for as long as it survives its closed stdin. Every teardown
-path has to reach `shutdown()` explicitly. If you add a fifth way for a window
-or persona to go away, it owns a call.
+path has to reach `shutdown()` explicitly.
+
+**Today the services live in one place: `AgentRoster`** (`AgentRoster.swift`).
+It holds the compiler, the translator, the designer, `ColdCall`, the
+pipeline and the translation-run log, and spells the teardown order once:
+`shutdownAll()` (app quit, the AI toggle going off; pipeline first) and
+`detachAll()` (the last window on a project going away). The roster belongs
+to the project's `ProjectSession`, not to a window, so two windows on one
+project share it (`Maugham/Stores/AREA.md`). A new service joins the roster;
+`TranslatorEnvironmentTests.test_everyWindowEndingPathShutsEverySessionDown`
+and its controls check that every production class holding a session runner
+is a member and that every ending path reaches the roster. The paragraphs
+below that name `ProjectWindow`'s `.onDisappear` or a paired call per
+service are history: those arms are now `roster.shutdownAll()`/`detachAll()`.
 
 `shutdown()` and `detach()` are not interchangeable: `shutdown()` ends the
 session and leaves the orchestrator usable, because a writer who turns Claude
@@ -1212,7 +1224,7 @@ surface. **The verb's result is written back into the caller's proposal, not
 carried from the request**: `approve` marks the store `approved` as its LAST
 step, so `DesignGatePromotion` re-reads the proposal after every verb and
 hands the CALLER that, never the value it was given — `onProposalChanged`
-then rewrites the window's `publishSelectedProposal`, which is what makes the
+then hands it to `PublishCentreModel.adoptVerbAnswer(_:)`, which is what makes the
 footer that drew Approve draw Revert/Finalize on the very next frame with no
 stale snapshot in between. A successful verb also posts
 `.maughamDesignProposalsChanged` (ADR 0021, no payload) so the OTHER column —
@@ -1265,9 +1277,9 @@ blindness.
   spelled in production nowhere but `ColdCall.swift` and the session type.
 - **One call at a time** (`runInFlight` refusal); no queue — leg order is the
   pipeline's (Plan 3).
-- **Teardown: the census's fourth sibling.** `ProjectWindow` owns a `ColdCall`
-  beside the three orchestrators; `CompilerRunModifier`'s two arms and
-  `.onDisappear` carry `coldCall.shutdown()`/`coldCall.detach()`;
+- **Teardown: the census's fourth sibling.** `AgentRoster` holds the `ColdCall`
+  beside the three orchestrators, and its `shutdownAll()`/`detachAll()` reach
+  `coldCall.shutdown()`/`coldCall.detach()`;
   `TranslatorEnvironmentTests.test_everyWindowEndingPathShutsEverySessionDown`
   counts it.
 - **The two spot-checks are `SpotCheck.swift`** (P4 Task 6), the other tempo
@@ -1460,10 +1472,10 @@ pipeline first and falls back to the orchestrator's own state only when no
 pipeline round is up — a bare `runTranslation` reached some other way, or a
 probe that mounts with no pipeline at all.
 
-**The teardown census's fifth sibling.** `ProjectWindow` owns the pipeline
-beside the compiler, the translator, the designer and `ColdCall`;
-`CompilerRunModifier`'s two arms and `.onDisappear` all carry
-`pipeline.shutdown()`/`pipeline.detach()` paired with the other four, and
+**The teardown census's fifth sibling.** `AgentRoster` holds the pipeline
+beside the compiler, the translator, the designer and `ColdCall`; its
+`shutdownAll()`/`detachAll()` reach `pipeline.shutdown()`/`pipeline.detach()`
+FIRST, before the other four, and
 `TranslatorEnvironmentTests.test_everyWindowEndingPathShutsEverySessionDown`
 counts it — not for a process, the pipeline holds none, but for a leg
 awaiting a translator summary that a shut-down orchestrator will never send:
