@@ -656,6 +656,10 @@ final class CompilerOrchestrator {
         environment?.model = model
     }
 
+    /// The model the next spawn will use, or nil while unwired — the read
+    /// `AgentRosterTests` asserts the depth-menu fan-out through.
+    var configuredModel: String? { environment?.model }
+
     // MARK: - The one entry
 
     /// The run key. Builds the delta, assembles the prompt, sends it, ingests

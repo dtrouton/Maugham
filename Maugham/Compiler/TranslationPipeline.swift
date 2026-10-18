@@ -190,6 +190,10 @@ final class TranslationPipeline {
 
     func updateModel(_ model: String) { environment?.model = model }
 
+    /// The model the next spawn will use, or nil while unwired — the read
+    /// `AgentRosterTests` asserts the depth-menu fan-out through.
+    var configuredModel: String? { environment?.model }
+
     // MARK: - Entry
 
     /// One round on one pair. `false` when refused: nothing wired, or a round

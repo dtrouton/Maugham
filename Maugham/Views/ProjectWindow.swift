@@ -252,41 +252,23 @@ struct ProjectWindow: View {
     /// draws — and region labels do not live in the manifest, so a `ProjectStore`
     /// could not carry them.
     @State private var canvasModel = CanvasModel()
-    /// The compiler's run state and its warm `claude` session (M2). Owned here
-    /// for the canvas model's reason: the Diagnostics pane in the right-hand
-    /// column reads the run the centre column's ⌘R started. Wired in `load()`,
-    /// where the stores exist; torn down in `.onDisappear`.
-    @State private var compiler = CompilerOrchestrator()
-    /// The translator's run state and its warm `claude` session (publish
-    /// department P2), owned beside the compiler for the compiler's reason: a
-    /// run is started from one column and read in another. Wired in `load()`;
-    /// torn down wherever the compiler is — `.onDisappear` here, app quit and
-    /// the AI toggle in `CompilerRunModifier`. A session merely released is a
-    /// live, billing process (`TranslatorOrchestrator`'s own contract).
-    @State private var translator = TranslatorOrchestrator()
-    /// What finished translation rounds left behind, for the department desk to
-    /// report (P4 Task 3). Owned here rather than by the pane because
-    /// `onRunEnded` is wired in `load()`, long before anybody opens the desk — a
-    /// record the pane held would only survive being looked at.
-    @State private var translationRuns = TranslationRunLog()
-    /// The designer's run state and its warm `claude` session (publish
-    /// department P3), owned beside the other two for their reason. Wired in
-    /// `load()`; torn down wherever they are — `.onDisappear` here, app quit and
-    /// the AI toggle in `CompilerRunModifier`. A session merely released is a
-    /// live, billing process (`DesignerOrchestrator`'s own contract).
-    @State private var designer = DesignerOrchestrator()
-    /// The cold-call runner (translation pipeline P2): reader, collator, gloss
-    /// and Ask-the-collator will spawn through it (Plans 3–4). Owned here so
-    /// its teardown sits beside the three orchestrators'.
-    @State private var coldCall = ColdCall()
-    /// **The seven-leg round** (translation pipeline P3), sequencing the
-    /// translator above and the cold-call runner beside it. Owned here for
-    /// their reason and one of its own: it owns no `claude` session, but it
-    /// owns the LEG that waits — a round suspended on a continuation that only
-    /// the translator's summary resumes. Wired in `load()`; torn down wherever
-    /// the orchestrators are, and FIRST, so a parked leg is resolved before the
-    /// session it is waiting on stops existing.
-    @State private var pipeline = TranslationPipeline()
+    /// **The window's `claude` services, in one owner** (foundations plan 3,
+    /// Task 1): the compiler (M2), the translator (publish department P2), the
+    /// designer (P3), the cold-call runner and the seven-leg pipeline
+    /// (translation pipeline P2/P3), and the translation run log the desk
+    /// reports from. Owned here for the canvas model's reason — a run is
+    /// started from one column and read in another. Wired in `load()`, where
+    /// the stores exist; torn down by `roster.detachAll()` in `.onDisappear`
+    /// and `roster.shutdownAll()` in `CompilerRunModifier`, each in the
+    /// roster's one order (pipeline first). A session merely released is a
+    /// live, billing process — `AgentRoster`'s own contract.
+    @State private var roster = AgentRoster()
+    private var compiler: CompilerOrchestrator { roster.compiler }
+    private var translator: TranslatorOrchestrator { roster.translator }
+    private var translationRuns: TranslationRunLog { roster.translationRuns }
+    private var designer: DesignerOrchestrator { roster.designer }
+    private var coldCall: ColdCall { roster.coldCall }
+    private var pipeline: TranslationPipeline { roster.pipeline }
     /// The Intent pane's two lower strata (declared-world Task 6): Claude's
     /// bible of what the manuscript has established, and the per-scope cache of
     /// its readings of the writer's statements.
@@ -492,24 +474,16 @@ struct ProjectWindow: View {
                 // closures over both of them, so a session left configured here
                 // would keep the whole project graph alive in the husk — and
                 // its `claude` subprocess alive with it.
-                // The pipeline first, for `CompilerRunModifier`'s reason: a leg
-                // parked on a translator summary has to be resolved before the
-                // translator that owed it is torn down.
-                pipeline.detach()
-                compiler.detach()
-                translator.detach()
-                designer.detach()
-                coldCall.detach()
+                // The roster detaches the pipeline first: a leg parked on a
+                // translator summary has to be resolved before the translator
+                // that owed it is torn down.
+                roster.detachAll()
                 store = nil
                 documentStore = nil
                 lastParsedScript = nil
             }
         }
-        .modifier(CompilerRunModifier(orchestrator: compiler,
-                                      translator: translator,
-                                      designer: designer,
-                                      coldCall: coldCall,
-                                      pipeline: pipeline,
+        .modifier(CompilerRunModifier(roster: roster,
                                       persona: persona,
                                       window: window,
                                       activeDocId: activeDocId,
@@ -3233,15 +3207,10 @@ struct ProjectWindow: View {
             compilerModel: compilerModel,
             onCompilerModelChange: { newValue in
                 compilerModel = newValue
-                compiler.updateModel(newValue.claudeModel)
-                // The translator and the designer run on the compiler's model —
-                // one setting, three spawners. Lazily retired, so a change made
+                // Every service that spawns a session runs on this one setting;
+                // the roster names them. Lazily retired, so a change made
                 // mid-round never kills the round in flight.
-                translator.updateModel(newValue.claudeModel)
-                designer.updateModel(newValue.claudeModel)
-                // …and the pipeline, whose cold legs spawn their own readers on
-                // it rather than through either orchestrator above.
-                pipeline.updateModel(newValue.claudeModel)
+                roster.updateModel(newValue)
                 documentStore.updateUIState { $0.compilerModel = newValue }
             },
             assistant: assistant,

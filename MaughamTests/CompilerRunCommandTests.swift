@@ -620,7 +620,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
         let modifier = try source(at: "Maugham/Views/CompilerRunModifier.swift")
         for token in [".onKeyWindowCommand(.maughamRunCompiler",
-                      "orchestrator.runRequested(",
+                      "roster.compiler.runRequested(",
                       // **The kind is MINTED here, not chosen here** (two
                       // loops P1). A literal `.check` in this arm would leave
                       // every assertion in this file green over a ⌘R pressed
@@ -628,7 +628,7 @@ final class CompilerRunCommandTests: XCTestCase {
                       // is the input, and this is the only site that has one.
                       "kind: RunKind.of(persona: persona)",
                       ".onGlobalEvent(.maughamAppWillTerminate)",
-                      "orchestrator.shutdown()"] {
+                      "roster.shutdownAll()"] {
             XCTAssertTrue(modifier.contains(token),
                           "CompilerRunModifier is missing \(token)")
         }
@@ -636,7 +636,7 @@ final class CompilerRunCommandTests: XCTestCase {
                        "the scan reads the file rather than always answering true")
 
         let window = try SourceTree.windowSource()
-        for token in ["CompilerRunModifier(", "compiler.detach()",
+        for token in ["CompilerRunModifier(", "roster.detachAll()",
                       "SaveFlashOverlay(isShowing: $showingCompilerFlash"] {
             XCTAssertTrue(window.contains(token),
                           "ProjectWindow is missing \(token) — without the first the "

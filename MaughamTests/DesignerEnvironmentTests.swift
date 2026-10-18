@@ -421,9 +421,13 @@ final class DesignerEnvironmentTests: XCTestCase {
     /// gives it a run verb.
     func test_theWindowOwnsWiresAndReleasesTheDesigner() throws {
         let window = try SourceTree.windowSource()
-        for token in ["DesignerOrchestrator()", "designer.detach()",
+        // Owned, released and re-modelled through the roster (foundations
+        // plan 3): `AgentRosterTests` pins what `detachAll`/`updateModel` do
+        // to the designer, and `TranslatorEnvironmentTests`' census that the
+        // window calls them.
+        for token in ["AgentRoster()", "roster.detachAll()",
                       "designer.configure(", "designer: designer",
-                      "designer.updateModel("] {
+                      "roster.updateModel("] {
             XCTAssertTrue(window.contains(token),
                           "ProjectWindow is missing \(token) — without it the "
                           + "designer is unwired, unmounted, or outlives the "

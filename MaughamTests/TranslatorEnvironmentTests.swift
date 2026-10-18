@@ -784,82 +784,243 @@ final class TranslatorEnvironmentTests: XCTestCase {
 
     // MARK: - The teardown census
 
-    /// **The wiring census** — `CompilerRunCommandTests`' own, in this
-    /// currency. An orchestrator merely released keeps a live, billing `claude`
-    /// running (its `deinit` is nonisolated and cannot reap its own child), so
-    /// every path that ends a window owes each of them a call. Delete any one
-    /// of them and every other assertion in this file still passes.
+    /// **The teardown census — a POPULATION census** (foundations plan 3,
+    /// Task 1). A service merely released keeps a live, billing `claude`
+    /// running (`ClaudeCLISession`'s `deinit` is nonisolated and cannot reap
+    /// its own child), so every path that ends a window owes each service a
+    /// call. Those calls now live in ONE place, `AgentRoster`, and this test
+    /// checks the two things that make that enough:
     ///
-    /// **Three counts, not two, since P3**: the designer's loop is the third
-    /// session owner and is headless like the translator's, so nothing else in
-    /// the app would notice a missing teardown. The shape is deliberately one
-    /// test rather than one per orchestrator — what is being asserted is that
-    /// the arms stay PAIRED, which is a claim about the set.
+    /// - every window-ending arm hands the roster its teardown —
+    ///   `CompilerRunModifier`'s two arms (app quit, the AI toggle) each call
+    ///   `roster.shutdownAll()`, and the window's `.onDisappear` calls
+    ///   `roster.detachAll()`;
+    /// - every production class that HOLDS a session runner is a roster
+    ///   member — derived from the code, never a list of names, so a sixth
+    ///   orchestrator that spawns its own `claude` and is not in the roster
+    ///   is red here rather than leaking on every window close.
+    ///
+    /// What the roster DOES with its members — the order, the fan-out — is
+    /// `AgentRosterTests`'.
     func test_everyWindowEndingPathShutsEverySessionDown() throws {
-        let modifier = try source(at: "Maugham/Views/CompilerRunModifier.swift")
-        // The compiler's own two teardown arms, each with its siblings.
-        XCTAssertTrue(modifier.contains(".onGlobalEvent(.maughamAppWillTerminate)"))
-        XCTAssertTrue(modifier.contains(".onChange(of: mcpEnabled)"))
-        let compilerShutdowns =
-            modifier.components(separatedBy: "orchestrator.shutdown()").count - 1
-        XCTAssertEqual(
-            compilerShutdowns,
-            modifier.components(separatedBy: "translator.shutdown()").count - 1,
-            "every compiler shutdown in the modifier needs its translator sibling")
-        XCTAssertEqual(
-            compilerShutdowns,
-            modifier.components(separatedBy: "designer.shutdown()").count - 1,
-            "every compiler shutdown in the modifier needs its designer sibling")
-        XCTAssertGreaterThanOrEqual(
-            compilerShutdowns, 2,
-            "app-quit and the AI toggle are both window-ending paths")
-        XCTAssertEqual(
-            compilerShutdowns,
-            modifier.components(separatedBy: "coldCall.shutdown()").count - 1,
-            "every compiler shutdown in the modifier needs its cold-call sibling — "
-            + "a cold read in flight when the window closes is a billing process "
-            + "otherwise (translation pipeline spec §5)")
-        XCTAssertEqual(
-            compilerShutdowns,
-            modifier.components(separatedBy: "pipeline.shutdown()").count - 1,
-            "every compiler shutdown in the modifier needs its pipeline sibling — "
-            + "a leg awaiting a translator summary is otherwise never resumed once "
-            + "the orchestrator is shut down (translation pipeline spec §5)")
-
-        // The designer's own five tokens are `DesignerEnvironmentTests`' —
-        // each file owns the wiring of the loop it is about; the paired counts
-        // above are what has to be asserted together.
-        let window = try SourceTree.windowSource()
-        for token in ["TranslatorOrchestrator()", "translator.detach()",
-                      "translator.configure(", "translator: translator",
-                      "translator.updateModel("] {
-            XCTAssertTrue(window.contains(token),
-                          "ProjectWindow is missing \(token) — without it the "
-                          + "translator is unwired, unmounted, or outlives the "
-                          + "window that started it")
-        }
-        XCTAssertFalse(window.contains("translator.notARealVerb("),
-                       "the scan reads the file rather than always answering true")
-
-        for token in ["ColdCall()", "coldCall.detach()", "coldCall.configure(",
-                      "coldCall: coldCall"] {
-            XCTAssertTrue(window.contains(token),
-                          "ProjectWindow is missing \(token) — without it the cold-call "
-                          + "runner is unwired, unmounted, or outlives the window")
+        // (a) Both of the modifier's window-ending arms hand the roster its teardown.
+        let modifier = try SourceTree.sourceOfType("CompilerRunModifier", under: ["Maugham"])
+        for arm in [".onGlobalEvent(.maughamAppWillTerminate)", ".onChange(of: mcpEnabled)"] {
+            let body = try XCTUnwrap(Self.closureBody(after: arm, in: modifier),
+                                     "CompilerRunModifier has no \(arm) arm")
+            XCTAssertTrue(body.contains("roster.shutdownAll()"),
+                          "\(arm) must end every session through the roster — a "
+                          + "service it misses is a billing process outliving the window")
         }
 
-        // The last two are spelled `pipeline?.` rather than `pipeline.`: they
-        // live inside the translator environment's `onRunEnded`/`onRunAbandoned`
-        // closures, which capture the pipeline weakly — a strong capture there
-        // is a window's whole project graph held alive by an orchestrator
-        // closure, which is the thing `.onDisappear`'s scorch exists to prevent.
-        for token in ["TranslationPipeline()", "pipeline.detach()", "pipeline.configure(",
-                      "pipeline: pipeline", "pipeline.updateModel(",
-                      "pipeline?.translatorRunEnded(", "pipeline?.translatorRunAbandoned("] {
-            XCTAssertTrue(window.contains(token),
-                          "ProjectWindow is missing \(token) — without it the pipeline is "
-                          + "unwired, unmounted, deaf to the translator, or outlives the window")
+        // (b) The window closing detaches every service.
+        let onDisappears = try SourceTree.windowSources().flatMap { text in
+            Self.closureBodies(after: ".onDisappear", in: text)
         }
+        XCTAssertTrue(onDisappears.contains { $0.contains("roster.detachAll()") },
+                      "ProjectWindow's .onDisappear must detach the roster — otherwise "
+                      + "a closed window keeps its sessions and its stores alive")
+
+        // (c) Every holder of a session runner is a roster member.
+        let report = try Self.rosterMembershipReport(base: SourceTree.repoRoot)
+        XCTAssertTrue(report.isEmpty, report.joined(separator: "\n"))
+    }
+
+    /// CONTROL for (c): a planted sixth orchestrator holding a runner, and not
+    /// in the roster, is reported — and a runner held as a LOCAL inside a
+    /// function, a computed property returning one, a closure that makes one,
+    /// or one named in a comment, is not a holder. A class declared with its
+    /// property on ONE line (`CompilerOrchestrator` below) still counts.
+    func test_theSessionHolderCensusFiresOnAPlantedSixthOrchestrator() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Compiler/AgentRoster.swift": """
+                @MainActor @Observable
+                final class AgentRoster {
+                    let compiler: CompilerOrchestrator
+                    let translator: TranslatorOrchestrator
+                    let designer: DesignerOrchestrator
+                    let coldCall: ColdCall
+                    let pipeline: TranslationPipeline
+                    let translationRuns: TranslationRunLog
+                    func shutdownAll() {
+                        let probe: CompilerRunner? = nil
+                    }
+                }
+                """,
+            "Maugham/Compiler/Holders.swift": """
+                final class CompilerOrchestrator { private var runner: CompilerRunner? }
+                final class TranslatorOrchestrator {
+                    @ObservationIgnored private var runner: CompilerRunner?
+                }
+                final class DesignerOrchestrator {
+                    private var runner: CompilerRunner?
+                }
+                struct ReadsARunner {
+                    var current: CompilerRunner? { nil }
+                }
+                final class ColdCall {
+                    // private var live: ClaudeCLISession? — a comment, not a holder
+                    private var live: CompilerRunner?
+                }
+                """,
+            "Maugham/Compiler/SixthOrchestrator.swift": """
+                @MainActor
+                final class SixthOrchestrator {
+                    struct Environment {
+                        var makeRunner: (URL, String) -> CompilerRunner
+                    }
+                    private var session: ClaudeCLISession?
+                    func run() {
+                        let local: CompilerRunner? = nil
+                    }
+                }
+                """,
+        ])
+        let report = try Self.rosterMembershipReport(base: base)
+        XCTAssertEqual(report.count, 1, "Self-check: exactly the planted holder. Got:\n"
+                       + report.joined(separator: "\n"))
+        XCTAssertTrue(report.first?.contains("SixthOrchestrator") == true,
+                      report.joined(separator: "\n"))
+    }
+
+    /// The types a session runner is held as. `CompilerRunner` is the seam;
+    /// `ClaudeCLISession` is its production implementation, and a class
+    /// holding one directly is as much a holder as one holding the seam.
+    private static let runnerTypes: Set<String> = ["CompilerRunner", "ClaudeCLISession"]
+
+    /// Roster members that hold no runner, each with why it is a member.
+    private static let nonHoldingMembers: [String: String] = [
+        "TranslationPipeline": "owns no session but owns the LEG that waits on the "
+            + "translator's summary; its shutdown must run first, so it is torn down "
+            + "with the services rather than beside them",
+        "TranslationRunLog": "holds summaries only; it is wired with the services "
+            + "(`onRunEnded`) and lives exactly as long as they do",
+    ]
+
+    /// Holders of a runner that are NOT roster members, each with why. Empty:
+    /// `ClaudeCLISession` is the runner itself rather than a holder of one —
+    /// it declares no runner property, so the scan never names it.
+    private static let exemptHolders: [String: String] = [:]
+
+    /// Every way the roster and the population of session holders disagree,
+    /// one sentence each; empty when they agree.
+    private static func rosterMembershipReport(base: URL) throws -> [String] {
+        // Only a file whose raw text names a runner type or the roster can
+        // declare a holder or a member; the rest are skipped before the mask.
+        let names = runnerTypes.union(["AgentRoster"])
+        let properties = try SourceTree.swiftFiles(under: "Maugham", base: base)
+            .flatMap { file -> [(owner: String, name: String, type: String)] in
+                let text = try SourceTree.read(file, base: base)
+                guard names.contains(where: text.contains) else { return [] }
+                let masked = try SourceTree.checkedMask(text, path: file)
+                return storedProperties(in: String(decoding: masked, as: UTF8.self))
+            }
+        let holders = Set(properties.filter { runnerTypes.contains($0.type) }.map(\.owner))
+        let members = Set(properties.filter { $0.owner == "AgentRoster" }.map(\.type))
+        guard !members.isEmpty else { return ["AgentRoster declares no stored member"] }
+
+        var report: [String] = []
+        for holder in holders.subtracting(members).subtracting(exemptHolders.keys).sorted() {
+            report.append("\(holder) holds a session runner and is not an AgentRoster member "
+                          + "— no window-ending path would ever shut it down")
+        }
+        for member in members.subtracting(holders).subtracting(nonHoldingMembers.keys).sorted() {
+            report.append("AgentRoster member \(member) holds no runner and has no "
+                          + "nonHoldingMembers entry saying why it is a member")
+        }
+        for stale in Set(nonHoldingMembers.keys).subtracting(members.subtracting(holders)).sorted() {
+            report.append("nonHoldingMembers names \(stale), which is not a runner-less roster member")
+        }
+        for stale in Set(exemptHolders.keys).subtracting(holders).sorted() {
+            report.append("exemptHolders names \(stale), which holds no runner")
+        }
+        return report
+    }
+
+    /// Every stored property declared DIRECTLY in a class, struct, actor or
+    /// enum body of one masked file, with its owner and its bare type (`?`/`!`
+    /// and `any` stripped). A local inside a function is at a deeper brace and
+    /// is not one; a computed property (`{` after the type) is not one; a
+    /// closure-typed property is not one (its type does not match). Known
+    /// limit: a stored property with `didSet`/`willSet` observers reads as
+    /// computed, and an annotation reflowed across lines is not read.
+    private static func storedProperties(in masked: String)
+        -> [(owner: String, name: String, type: String)] {
+        let typeHeader = try! NSRegularExpression(pattern:
+            #"^\s*(?:@\w+(?:\([^)]*\))?\s+)*"#
+            + #"(?:(?:public|private|fileprivate|internal|package|open|final|indirect|nonisolated)\s+)*"#
+            + #"(?:class|struct|actor|enum)\s+([A-Za-z_][A-Za-z0-9_]*)"#)
+        let property = try! NSRegularExpression(pattern:
+            #"^\s*(?:@\w+(?:\([^)]*\))?\s+)*"#
+            + #"(?:(?:public|private|fileprivate|internal|package|open|final|static|weak|unowned|lazy|nonisolated|override)(?:\([^)]*\))?\s+)*"#
+            + #"(?:var|let)\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?:any\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[?!]?\s*(=.*)?$"#)
+        let notTypeNames: Set<String> = ["func", "var", "let", "subscript", "init", "protocol"]
+
+        var found: [(owner: String, name: String, type: String)] = []
+        // One entry per open brace: the type name it opened, or nil.
+        var stack: [String?] = []
+        var pendingType: String?
+        // Read in SEGMENTS between braces, so `final class X { var r: CompilerRunner? }`
+        // on one line is read as the header, then the property inside it.
+        for line in masked.components(separatedBy: "\n") {
+            var segment = ""
+            func read(_ segment: String, opensABody: Bool) {
+                let range = NSRange(segment.startIndex..., in: segment)
+                if let owner = stack.last ?? nil,
+                   let match = property.firstMatch(in: segment, range: range),
+                   let name = Range(match.range(at: 1), in: segment),
+                   let type = Range(match.range(at: 2), in: segment),
+                   // `var r: CompilerRunner? {` is computed: it holds nothing.
+                   !(opensABody && match.range(at: 3).location == NSNotFound) {
+                    found.append((owner, String(segment[name]), String(segment[type])))
+                }
+                if let match = typeHeader.firstMatch(in: segment, range: range),
+                   let name = Range(match.range(at: 1), in: segment),
+                   !notTypeNames.contains(String(segment[name])) {
+                    pendingType = String(segment[name])
+                }
+            }
+            for character in line {
+                guard character == "{" || character == "}" else {
+                    segment.append(character)
+                    continue
+                }
+                read(segment, opensABody: character == "{")
+                segment = ""
+                if character == "{" {
+                    stack.append(pendingType)
+                    pendingType = nil
+                } else if !stack.isEmpty {
+                    stack.removeLast()
+                }
+            }
+            read(segment, opensABody: false)
+        }
+        return found
+    }
+
+    /// The text of the closure body opening after `token`, or nil when the
+    /// token is absent. Read through `SourceTree.mask`, so a brace in a string
+    /// or comment never closes the body early.
+    private static func closureBody(after token: String, in text: String) -> String? {
+        closureBodies(after: token, in: text).first
+    }
+
+    /// The closure body after every occurrence of `token` in `text`.
+    private static func closureBodies(after token: String, in text: String) -> [String] {
+        let masked = SourceTree.mask(text)
+        let maskedText = String(decoding: masked, as: UTF8.self)
+        let raw = Array(text.utf8)
+        var bodies: [String] = []
+        var searchFrom = maskedText.startIndex
+        while let hit = maskedText.range(of: token, range: searchFrom..<maskedText.endIndex) {
+            let start = maskedText.utf8.distance(from: maskedText.startIndex, to: hit.upperBound)
+            if let end = SourceTree.bodyEnd(in: masked, from: start) {
+                bodies.append(String(decoding: raw[start...end], as: UTF8.self))
+            }
+            searchFrom = hit.upperBound
+        }
+        return bodies
     }
 
     // MARK: - The fix gather (Plan 3)
