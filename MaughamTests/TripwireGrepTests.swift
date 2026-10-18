@@ -10128,12 +10128,13 @@ final class TripwireGrepTests: XCTestCase {
     ///   acknowledgement, so a loss the writer has already put down refuses a
     ///   marking verb for ever.
     /// - `acknowledgedLosses` — the memory that escape is kept in.
-    ///   `OpLogDeviceState` owns it and clears it; `OpLogStore.lostHistory`
+    ///   `OpLogDeviceState` owns it and clears it; `StreamCensus.lostHistory`
     ///   and the pane's count read it. A fourth reader is a second opinion
     ///   about what the writer has been shown.
     /// - `absentStreams` — the *remembered but no file at all* half of the
     ///   loss drawer, which is the commonest thing a marking verb refuses
-    ///   over. One caller, `lostHistory`, plus its own definition.
+    ///   over. One caller, `StreamCensus.lostHistory`, plus its own definition and
+    ///   `OpLogStore`'s one-line forwarder.
     /// - `gateOldBuildsOut` — the schema gate (P3b Task 3). One function,
     ///   reached from every narrowing verb: `changePermit`, the label-wide
     ///   `changePermit(everyRecordOf:)` and the sheet's `admit`. A verb that
@@ -10151,10 +10152,10 @@ final class TripwireGrepTests: XCTestCase {
             "type:DocumentStore": 5, "OpLogDeviceState.swift": 1,
         ],
         "acknowledgedLosses": [
-            "OpLogDeviceState.swift": 12, "type:OpLogStore": 1,
+            "OpLogDeviceState.swift": 12, "type:StreamCensus": 1,
             "type:DocumentStore": 1,
         ],
-        "absentStreams": ["type:OpLogStore": 2],
+        "absentStreams": ["type:StreamCensus": 2, "type:OpLogStore": 1],
         "gateOldBuildsOut": [
             "type:DocumentStore": 4,
         ],
