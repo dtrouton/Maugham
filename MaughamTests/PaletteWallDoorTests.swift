@@ -271,14 +271,11 @@ final class PaletteWallDoorTests: XCTestCase {
     /// The OLD wall mechanism compared segments against `.palette` directly
     /// (`applyPaletteSegmentChange`, `clearsPaletteStash`); both are re-keyed
     /// off `showsPaletteWall`/`Persona` now, so no such comparison should
-    /// survive in the window.
+    /// survive in the window — nor, since foundations plan 2, in any view: the
+    /// ban reads every file under `Maugham/Views`, so a split of the window
+    /// cannot carry a comparison out of its sight.
     func test_noComparisonAgainstDotPaletteSurvivesInProjectWindow() throws {
-        let text = try source("Maugham/Views/ProjectWindow.swift")
-        let hits = text.split(separator: "\n").filter {
-            let trimmed = $0.trimmingCharacters(in: .whitespaces)
-            return !trimmed.hasPrefix("//") && !trimmed.hasPrefix("///")
-                && ($0.contains("== .palette") || $0.contains("!= .palette"))
-        }
+        let hits = try Self.dotPaletteComparisons(under: "Maugham/Views")
         XCTAssertTrue(hits.isEmpty,
                       "something still compares a segment against `.palette` — "
                       + "\(hits). `showsPaletteWall` replaced every one of these.")
@@ -291,7 +288,8 @@ final class PaletteWallDoorTests: XCTestCase {
     /// race had no direct mounted test, only the pure-function halves and this
     /// suite's `PromotionCommandTests` sibling's token census).
     func test_theWallModifierClosesOnASubjectChange() throws {
-        let text = try source("Maugham/Views/ProjectWindow.swift")
+        let text = try SourceTree.declaration(
+            named: "struct PaletteWallModifier: ViewModifier {", under: "Maugham")
         XCTAssertTrue(
             text.contains(".onChange(of: selectedSubject) { _, _ in")
             && text.contains("if showsPaletteWall { showsPaletteWall = false }"),
@@ -459,10 +457,7 @@ final class PaletteWallDoorTests: XCTestCase {
     /// either one leaves every test above green and the door in Plan silently
     /// opening a wall that `showsPaletteWallCentre` refuses to draw.
     func test_bothTreeShellsReachTheDoorRatherThanTheFlag() throws {
-        let text = Self.codeOnly(try source("Maugham/Views/ProjectWindow.swift"))
-        let presses = text.split(separator: "\n").filter {
-            $0.contains("onOpenPaletteWall:")
-        }
+        let presses = try Self.openPaletteWallPresses()
         XCTAssertEqual(presses.count, 2,
                        "the two tree shells (standard + Collection) are the "
                        + "door's only mount sites — found \(presses)")
@@ -545,10 +540,84 @@ final class PaletteWallDoorTests: XCTestCase {
         // Comment-stripped, because the replaced predicate is NAMED in the
         // comment that records its removal — a census over prose would fail on
         // its own explanation.
-        let window = Self.codeOnly(try source("Maugham/Views/ProjectWindow.swift"))
-        XCTAssertFalse(window.contains("clearsPaletteWallStash"),
+        XCTAssertEqual(try Self.viewLines(containing: "clearsPaletteWallStash"), [],
                        "the Plan-only predicate is back in the persona handler, "
                        + "which two of the three persona writers never reach")
+    }
+
+    /// Every `== .palette`/`!= .palette` code line under `root`, as "path: line",
+    /// file by file. Comment lines are skipped — the shape this census always had.
+    private static func dotPaletteComparisons(
+        under root: String, base: URL = SourceTree.repoRoot
+    ) throws -> [String] {
+        try SourceTree.sources(under: root, base: base).flatMap { file in
+            file.text.split(separator: "\n").filter {
+                let trimmed = $0.trimmingCharacters(in: .whitespaces)
+                return !trimmed.hasPrefix("//") && !trimmed.hasPrefix("///")
+                    && ($0.contains("== .palette") || $0.contains("!= .palette"))
+            }.map { "\(file.path): \($0.trimmingCharacters(in: .whitespaces))" }
+        }
+    }
+
+    /// The window's `onOpenPaletteWall:` code lines, read by TYPE — every file
+    /// under `Maugham/` declaring `ProjectWindow`.
+    private static func openPaletteWallPresses(base: URL = SourceTree.repoRoot) throws -> [Substring] {
+        codeOnly(try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"], base: base))
+            .split(separator: "\n")
+            .filter { $0.contains("onOpenPaletteWall:") }
+    }
+
+    /// Every code line under `Maugham/Views` naming `token`, as "path: line".
+    private static func viewLines(containing token: String,
+                                  base: URL = SourceTree.repoRoot) throws -> [String] {
+        try SourceTree.sources(under: "Maugham/Views", base: base).flatMap { file in
+            codeOnly(file.text).split(separator: "\n")
+                .filter { $0.contains(token) }
+                .map { "\(file.path): \($0.trimmingCharacters(in: .whitespaces))" }
+        }
+    }
+
+    /// **The planted control for the reads above** (foundations plan 2): a
+    /// `ProjectWindow` struct in one file and an `extension ProjectWindow` in
+    /// another. The wall modifier is found by symbol in the extension, the
+    /// press count reads both files, and both widened bans catch an offender
+    /// in a sibling view outside the window.
+    func test_theReadsFollowTheTypeAndTheBansReachSiblingViews() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": """
+            struct ProjectWindow: View {
+                var body: some View { Tree(onOpenPaletteWall: { openPaletteWall() }) }
+            }
+            """,
+            "Maugham/Views/ProjectWindow+Wall.swift": """
+            extension ProjectWindow {
+                struct PaletteWallModifier: ViewModifier {
+                    func body(content: Content) -> some View {
+                        content.onChange(of: selectedSubject) { _, _ in
+                            if showsPaletteWall { showsPaletteWall = false }
+                        }
+                    }
+                }
+                var other: some View { CollectionTree(onOpenPaletteWall: { openPaletteWall() }) }
+            }
+            """,
+            "Maugham/Views/SomeSiblingView.swift": """
+            struct SomeSiblingView {
+                func f() -> Bool { segment == .palette }
+                func g() { clearsPaletteWallStash() }
+            }
+            """,
+        ])
+        let modifier = try SourceTree.declaration(
+            named: "struct PaletteWallModifier: ViewModifier {", under: "Maugham", base: base)
+        XCTAssertTrue(modifier.contains("if showsPaletteWall { showsPaletteWall = false }"))
+        XCTAssertFalse(modifier.contains("CollectionTree("), "the modifier is bounded to itself")
+        XCTAssertEqual(try Self.openPaletteWallPresses(base: base).count, 2,
+                       "the press count reads both of the window's files")
+        XCTAssertEqual(try Self.dotPaletteComparisons(under: "Maugham/Views", base: base),
+                       ["Maugham/Views/SomeSiblingView.swift: func f() -> Bool { segment == .palette }"])
+        XCTAssertEqual(try Self.viewLines(containing: "clearsPaletteWallStash", base: base),
+                       ["Maugham/Views/SomeSiblingView.swift: func g() { clearsPaletteWallStash() }"])
     }
 
     /// Source with `//` and `///` lines dropped — the shape

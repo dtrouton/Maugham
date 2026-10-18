@@ -43,6 +43,31 @@ final class ManuscriptForceCensusTests: XCTestCase {
                    encoding: .utf8)
     }
 
+    /// The window's code, by type: every file under `Maugham/` declaring
+    /// `ProjectWindow`, so the receivers are found wherever a split of
+    /// `ProjectWindow.swift` moves them (foundations plan 2). Throws when
+    /// nothing declares it.
+    private static let window = "type:ProjectWindow"
+
+    /// `location` is a repo-relative path or a `type:` key.
+    private func text(of location: String, base: URL = SourceTree.repoRoot) throws -> String {
+        if let type = SourceTree.typeName(ofKey: location) {
+            return try SourceTree.sourceOfType(type, under: ["Maugham"], base: base)
+        }
+        return try SourceTree.read(location, base: base)
+    }
+
+    /// The 25 lines from `receiver`'s RECEIVE site in `text`, or nil when
+    /// there is none. See the loop below for why `window:` picks the receive
+    /// site out from a post.
+    private static func receiverBody(_ receiver: String, in text: String) -> String? {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        guard let start = lines.firstIndex(where: {
+            $0.contains("(\(receiver),") && $0.contains("window:")
+        }) else { return nil }
+        return lines[start..<min(start + 25, lines.count)].joined(separator: "\n")
+    }
+
     /// **Deleting the Exports condition outright leaves no wrong spelling
     /// behind** — the list simply renders under every left column, including
     /// Plan's. Both toggles are named rather than counted.
@@ -102,21 +127,20 @@ final class ManuscriptForceCensusTests: XCTestCase {
         }
         let expectations = [
             Expectation(receiver: ".maughamNavigateToDocument",
-                       file: "Maugham/Views/ProjectWindow.swift",
+                       file: Self.window,
                        call: "ManuscriptNavigation.go("),
             Expectation(receiver: ".maughamNavigateToParagraph",
-                       file: "Maugham/Views/ProjectWindow.swift",
+                       file: Self.window,
                        call: "ManuscriptNavigation.go("),
             Expectation(receiver: ".maughamNavigateToScene",
-                       file: "Maugham/Views/ProjectWindow.swift",
+                       file: Self.window,
                        call: "ManuscriptNavigation.go("),
             Expectation(receiver: ".maughamTreeTravel",
                        file: "Maugham/Views/TreeTravel.swift",
                        call: "PersonaModifier.applyPersonaChange("),
         ]
         for expectation in expectations {
-            let text = try source(expectation.file)
-            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            let fileText = try text(of: expectation.file)
             // The RECEIVE site, not any POST site in the same file — every
             // `.onKeyWindowCommand`/`.onProjectEvent`/`.onDocumentEvent`
             // registration takes a `window:` argument on the same line and a
@@ -126,13 +150,10 @@ final class ManuscriptForceCensusTests: XCTestCase {
             // so the bare `(\(receiver),` substring alone found the post —
             // caught by this test itself failing against its own new entry
             // before this line existed.
-            let start = try XCTUnwrap(
-                lines.firstIndex(where: {
-                    $0.contains("(\(expectation.receiver),") && $0.contains("window:")
-                }),
+            let body = try XCTUnwrap(
+                Self.receiverBody(expectation.receiver, in: fileText),
                 "\(expectation.receiver): no receiver for it at all in "
                 + "\(expectation.file)")
-            let body = lines[start..<min(start + 25, lines.count)].joined(separator: "\n")
             XCTAssertTrue(body.contains(expectation.call),
                           "\(expectation.receiver) no longer routes through "
                           + "\(expectation.call), so it moves the window "
@@ -148,9 +169,41 @@ final class ManuscriptForceCensusTests: XCTestCase {
     func test_theCensusIsReadingRealFiles() throws {
         for path in ["Maugham/Views/BinderPaneToggle.swift",
                      "Maugham/Views/CollectionBinderPaneToggle.swift",
-                     "Maugham/Views/ProjectWindow.swift",
+                     Self.window,
                      "Maugham/Views/TreeTravel.swift"] {
-            XCTAssertFalse(try source(path).isEmpty, "\(path): read nothing")
+            XCTAssertFalse(try text(of: path).isEmpty, "\(path): read nothing")
         }
+    }
+
+    /// **The planted control for the window's receivers** (foundations plan 2):
+    /// a `ProjectWindow` struct in one file and a receiver in an
+    /// `extension ProjectWindow` in another. The receiver is found across the
+    /// extension, a POST of the same name (no `window:`) is not taken for it,
+    /// and a type nothing declares throws rather than reading an empty string.
+    func test_theReceiverCensusReadsTheTypeAcrossItsExtensions() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": """
+            struct ProjectWindow: View {
+                var body: some View { EmptyView() }
+                func post() { MaughamEvent.post(.maughamNavigateToScene, to: .keyWindow) }
+            }
+            """,
+            "Maugham/Views/ProjectWindow+Navigation.swift": """
+            extension ProjectWindow {
+                func receivers(_ v: some View) -> some View {
+                    v.onKeyWindowCommand(.maughamNavigateToDocument, window: window) { _ in
+                        ManuscriptNavigation.go(to: destination)
+                    }
+                }
+            }
+            """,
+        ])
+        let windowText = try text(of: Self.window, base: base)
+        let body = try XCTUnwrap(Self.receiverBody(".maughamNavigateToDocument", in: windowText),
+                                 "the receiver in the extension is the window's")
+        XCTAssertTrue(body.contains("ManuscriptNavigation.go("))
+        XCTAssertNil(Self.receiverBody(".maughamNavigateToScene", in: windowText),
+                     "a post is not a receiver")
+        XCTAssertThrowsError(try self.text(of: "type:NotAWindow", base: base))
     }
 }

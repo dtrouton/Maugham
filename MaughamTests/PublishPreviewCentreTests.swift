@@ -1432,7 +1432,7 @@ final class PublishPreviewCentreTests: XCTestCase {
     /// nothing obeys.
     func test_theWindowsWriteBackGoesThroughTheSelectionRule() throws {
         let code = SourceScan.codeLines(
-            of: try Self.source(of: "Views/ProjectWindow.swift"))
+            of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
         XCTAssertTrue(
             code.contains { $0.contains("publishSelection(") },
             "`onProposalChanged` must adopt through `publishSelection`, or a "
@@ -1447,10 +1447,9 @@ final class PublishPreviewCentreTests: XCTestCase {
     /// production's statics, but the SHAPE of the last arm is the probe's own and
     /// a probe cannot vouch for it. This reads the real `manuscriptEditor`.
     func test_theBookIsAThirdLayerOfTheSameZStackAndNotAFourthArm() throws {
-        let source = try Self.source(of: "Views/ProjectWindow.swift")
-        let arm = try XCTUnwrap(
-            Self.declaration(named: "private func manuscriptEditor(", in: source),
-            "the editor arm must still be a member of its own")
+        let source = try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"])
+        let arm = try SourceTree.declaration(
+            named: "private func manuscriptEditor(", under: "Maugham")
 
         XCTAssertTrue(arm.contains("ZStack"), "still one stack, not a choice")
         XCTAssertTrue(arm.contains("EditorHost("),
@@ -1506,9 +1505,8 @@ final class PublishPreviewCentreTests: XCTestCase {
     /// the chapter a writer is fixing as the visible cost. The rule composes it
     /// instead, and this is the census that says so.
     func test_theRuleComposesTheWindowsOwnDocumentQuestion() throws {
-        let source = try Self.source(of: "Views/ProjectWindow.swift")
-        let rule = try XCTUnwrap(
-            Self.declaration(named: "static func publishCentre(", in: source))
+        let rule = try SourceTree.declaration(
+            named: "static func publishCentre(", under: "Maugham")
 
         XCTAssertTrue(rule.contains("subjectShowsAltitude("),
                       "the project-level question is asked of the function that "
@@ -1544,18 +1542,17 @@ final class PublishPreviewCentreTests: XCTestCase {
     /// (`BinderPaneToggle`'s `persona != .plan`), which is about exporting
     /// rather than about what the centre column draws — and it lives in neither
     /// file scanned here, which is why this census can be absolute.
+    ///
+    /// The ban reads every file under `Maugham/Views` and `Maugham/Publish`
+    /// (foundations plan 2) — it named four files, and the day the window is
+    /// split a name-gate in `ProjectWindow+Centre.swift` would be in none of
+    /// them. The asking half reads the two deciding functions by symbol.
     func test_theCentreRulesFilesAskThePredicateRatherThanNamingThePersona() throws {
-        let files = ["Views/ProjectWindow.swift", "Views/ResearchSubjectColumns.swift",
-                     "Views/Publish/PublishPreviewCentre.swift",
-                     "Publish/PublishPreviewResolver.swift"]
-        for file in files {
-            let source = try Self.source(of: file)
-            XCTAssertTrue(
-                Self.nameGates(in: source).isEmpty,
-                "\(file) compares the persona by name: "
-                + "\(Self.nameGates(in: source)). The one spelling is "
-                + "`Persona.previewsThePublishedBook`")
-        }
+        let offenders = try Self.nameGateOffenders(under: ["Maugham/Views", "Maugham/Publish"])
+        XCTAssertTrue(
+            offenders.isEmpty,
+            "these files compare the persona by name: \(offenders). The one "
+            + "spelling is `Persona.previewsThePublishedBook`")
         // The control: the scanner sees the offender it is asserting the absence
         // of, or every line above is green over any file at all.
         XCTAssertFalse(
@@ -1563,13 +1560,23 @@ final class PublishPreviewCentreTests: XCTestCase {
             "the scanner cannot see a planted name-gate, so its silence above "
             + "says nothing")
 
-        for file in ["Views/ProjectWindow.swift", "Views/ResearchSubjectColumns.swift"] {
-            let source = try Self.source(of: file)
+        for decider in ["static func publishCentre(", "static func researchSubjectPlacement("] {
+            let source = try SourceTree.declaration(named: decider, under: "Maugham")
             XCTAssertTrue(
                 source.contains("previewsThePublishedBook"),
-                "\(file) decides something about Publish's centre and must ASK "
+                "`\(decider)` decides something about Publish's centre and must ASK "
                 + "the predicate — a file that neither names the persona nor "
                 + "asks the question has stopped deciding")
+        }
+    }
+
+    private static func nameGateOffenders(
+        under roots: [String], base: URL = SourceTree.repoRoot
+    ) throws -> [String] {
+        try roots.flatMap { root in
+            try SourceTree.sources(under: root, base: base).flatMap { file in
+                nameGates(in: file.text).map { "\(file.path): \($0)" }
+            }
         }
     }
 
@@ -1578,6 +1585,55 @@ final class PublishPreviewCentreTests: XCTestCase {
             .components(separatedBy: .newlines)
             .filter { $0.contains("== .publish") || $0.contains("!= .publish") }
             .map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// **The planted control for the reads above** (foundations plan 2): a
+    /// `ProjectWindow` struct in one file and the centre's rule plus the editor
+    /// arm in an `extension ProjectWindow` in another. Both are found by symbol
+    /// across the extension, the mount count reads both files, and the widened
+    /// ban catches a name-gate in a sibling view outside the window.
+    func test_theLookupsFollowTheTypeAndTheBanReachesSiblingViews() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": """
+            struct ProjectWindow: View {
+                var body: some View { PublishPreviewCentre() }
+            }
+            """,
+            "Maugham/Views/ProjectWindow+Centre.swift": """
+            extension ProjectWindow {
+                static func publishCentre(persona: Persona) -> PublishCentre? {
+                    guard persona.previewsThePublishedBook else { return nil }
+                    return nil
+                }
+                private func manuscriptEditor(store: ProjectStore) -> some View {
+                    ZStack { EditorHost(); PublishPreviewCentre() }
+                }
+            }
+            """,
+            "Maugham/Views/Publish/SomeSiblingView.swift": """
+            struct SomeSiblingView {
+                func f(persona: Persona) -> Bool { persona == .publish }
+            }
+            """,
+            "Maugham/Publish/Empty.swift": "enum Empty {}\n",
+        ])
+        let rule = try SourceTree.declaration(
+            named: "static func publishCentre(", under: "Maugham", base: base)
+        XCTAssertTrue(rule.contains("previewsThePublishedBook"))
+        XCTAssertFalse(rule.contains("EditorHost("), "the rule is bounded to itself")
+        let arm = try SourceTree.declaration(
+            named: "private func manuscriptEditor(", under: "Maugham", base: base)
+        XCTAssertTrue(arm.contains("PublishPreviewCentre("), "the arm is found in the extension")
+        XCTAssertEqual(
+            Self.occurrences(
+                of: "PublishPreviewCentre(",
+                in: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"], base: base)),
+            2, "the mount count reads both of the window's files")
+        XCTAssertEqual(
+            try Self.nameGateOffenders(under: ["Maugham/Views", "Maugham/Publish"], base: base),
+            ["Maugham/Views/Publish/SomeSiblingView.swift: "
+             + "func f(persona: Persona) -> Bool { persona == .publish }"],
+            "the widened ban sees a name-gate in a view outside the window")
     }
 
     // MARK: - Hosting
@@ -1854,22 +1910,6 @@ final class PublishPreviewCentreTests: XCTestCase {
     ]
 
     // MARK: - Reading the source
-
-    private static func source(of relativePath: String) throws -> String {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // MaughamTests/
-            .deletingLastPathComponent()   // repo root
-            .appendingPathComponent("Maugham", isDirectory: true)
-        return try String(contentsOf: root.appendingPathComponent(relativePath),
-                          encoding: .utf8)
-    }
-
-    private static func declaration(named header: String, in source: String) -> String? {
-        guard let start = source.range(of: header) else { return nil }
-        let rest = source[start.lowerBound...]
-        guard let end = rest.range(of: "\n    }\n") else { return String(rest) }
-        return String(rest[..<end.upperBound])
-    }
 
     private static func occurrences(of needle: String, in haystack: String) -> Int {
         haystack.components(separatedBy: needle).count - 1

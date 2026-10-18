@@ -502,3 +502,37 @@ extension SourceTree {
 
     private static let typeKeyMemo = OSAllocatedUnfairLock<[String: Set<String>]>(initialState: [:])
 }
+
+// MARK: - Planted trees and per-file reads (foundations plan 2, Task 4)
+
+extension SourceTree {
+
+    /// Writes `files` (base-relative path → text) into a fresh directory under
+    /// `TestTemp.root` and returns that directory, for use as a `base:`. The
+    /// controls that prove a migrated census still fires plant a `ProjectWindow`
+    /// struct and an `extension ProjectWindow` in two files through this.
+    static func plantedTree(_ files: [String: String]) throws -> URL {
+        let base = TestTemp.root.appendingPathComponent(
+            "PlantedTree-\(UUID().uuidString)", isDirectory: true)
+        for (relative, text) in files {
+            let url = base.appendingPathComponent(relative)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try text.write(to: url, atomically: true, encoding: .utf8)
+        }
+        return base
+    }
+
+    /// Every .swift file under `root`, each with its own text — never joined,
+    /// so an ABSENCE ban scans file by file and one file's unclosed `/*` (see
+    /// `SourceScan`) cannot hide an offender in the next. Throws, like
+    /// `swiftFiles(under:)`, when `root` is not a directory, and when it holds
+    /// no Swift file at all: a ban over nothing passes over anything.
+    static func sources(under root: String, base: URL = repoRoot) throws -> [(path: String, text: String)] {
+        let files = try swiftFiles(under: root, base: base)
+        guard !files.isEmpty else {
+            throw LookupError(description: "SourceTree: root '\(root)' holds no .swift file.")
+        }
+        return try files.map { ($0, try read($0, base: base)) }
+    }
+}
