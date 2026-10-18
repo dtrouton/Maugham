@@ -105,7 +105,8 @@ private final class DetailSegmentProbe {
 /// anything about panes. `RecoveryBanner` is measured the same way, by
 /// `test_theRecoveryBannerDoesNotGrowTheColumnsEither`.
 ///
-/// **Runner parity applies** (CLAUDE.md): these mount real AppKit views, so a
+/// **Runner parity applies** (docs/testing/TROUBLESHOOTING.md, "A mounted-view
+/// test is red on CI only"): these mount real AppKit views, so a
 /// green run here says nothing about a runner on a different macOS major.
 /// Measured on macOS 26.5, 2026-08-08.
 @MainActor
@@ -137,7 +138,8 @@ final class DetailPaneColumnHeightCensusTests: XCTestCase {
     /// **The premise rides in the same loop as the measurement, deliberately.**
     /// It began as a test of its own and was folded back in: it walks all
     /// fifteen segments through a real settle, so as a separate test it doubled
-    /// this file's mounted wall clock — and CLAUDE.md records that overlapping
+    /// this file's mounted wall clock — and docs/testing/TROUBLESHOOTING.md ("A
+    /// test fails in the parallel suite but passes alone") records that overlapping
     /// mounted suites are what starvation-shaped flakes feed on. One loop
     /// carries both, and either assertion failing says which.
     ///

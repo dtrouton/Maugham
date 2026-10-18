@@ -12,7 +12,7 @@ The persistence and coordination layer: project structure, documents, recents, s
 
 ## Layout
 
-- `ProjectStore.swift` itself is small (~170 lines, holds the core types and the main `ProjectStore` class declaration). The seams are in **peer files** (one file per seam — emulate this pattern when you add a new one):
+- `ProjectStore` is a façade plus peer extension files (`ls Maugham/Stores/ProjectStore*.swift`): `ProjectStore.swift` holds the core types and the main `ProjectStore` class declaration. The seams are in **peer files** (one file per seam — emulate this pattern when you add a new one):
   - `ProjectStore+Structure.swift` — Structure CRUD
   - `ProjectStore+Trash.swift` — Trash + undo
   - `ProjectStore+Metadata.swift` — Inspector metadata
@@ -401,7 +401,7 @@ The canvas half is `Maugham/Canvas/CanvasCapture.swift` — read `Maugham/Canvas
 
 2. **`wait*` helpers in `DocumentStore` are test-only living in production code.** Don't call them from production paths; don't add new ones without marking them `#if DEBUG` or moving them to a test helper.
 
-3. **Don't model a new store after `ProjectStore`.** The `ProjectStore` + eight peer extension files together are large because the project is the central polymorphic aggregate; that complexity is justified there and not elsewhere. Model after `RecentsStore` / `TrashStore` / `SessionLog` — small, focused, one responsibility.
+3. **Don't model a new store after `ProjectStore`.** The `ProjectStore` façade plus its peer extension files (`ls Maugham/Stores/ProjectStore*.swift`) together are large because the project is the central polymorphic aggregate; that complexity is justified there and not elsewhere. Model after `RecentsStore` / `TrashStore` / `SessionLog` — small, focused, one responsibility.
 
 4. **Don't double-prefix IDs.** ID prefixes are canonical after ADR 0008. If you see `scene-scene-…` or `doc-doc-…`, that's a bug. The prefix is applied once, by the generator.
 
@@ -486,3 +486,9 @@ four things to know before editing in here:
 - UI for any of these (binder views, conflict diff sheet, trash UI) — `Maugham/Views/`.
 - MCP tool handlers that read store state — `Maugham/MCP/Tools/`.
 - Model types (ProjectType, Manifest, ItemRole, etc.) — `Maugham/Models/`.
+
+## From CLAUDE.md's area table (2026-10-17)
+
+From its "Inbox + transcription" section (iPhone-companion Mac side):
+
+- `InboxStore` owns `.maugham/inbox/` (per-device `inbox.<slug>.jsonl`, monotonic `writtenAt`). `InboxPane` is ⌘⌥B. `InboxTranscriptionWorker` runs an injected `Transcriber`; production is `WhisperKitTranscriber` (Apple-Silicon only). MCP's scope over the inbox is read and promote only (CLAUDE.md).

@@ -19,6 +19,8 @@ let package = Package(
     targets: [
         .target(
             name: "MaughamCore",
+            // The area guide is documentation for agents, not a resource.
+            exclude: ["AREA.md"],
             // BuildVariant.current keys on this flag. The app target sets it in its
             // Debug config (SWIFT_ACTIVE_COMPILATION_CONDITIONS); mirror it here so
             // the variant stays .dev in Debug/test builds and .stable in Release —

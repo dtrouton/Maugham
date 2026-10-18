@@ -1796,7 +1796,8 @@ final class DepartmentRunTests: XCTestCase {
     /// chain** — setting `stringValue` and posting the notification its
     /// delegate listens for, which is what a real keystroke does once it
     /// reaches the field, without needing this test host to be the active
-    /// app (CLAUDE.md's synthetic-click premise, in this surface's currency).
+    /// app (the synthetic-click premise, docs/testing/TROUBLESHOOTING.md "A
+    /// mounted click test sees selectedRow == -1", in this surface's currency).
     private func type(_ text: String, into field: NSTextField) {
         field.stringValue = text
         NotificationCenter.default.post( // adr-0021-ok: Apple's own textDidChange, not a maugham.* event

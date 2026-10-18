@@ -259,7 +259,8 @@ Adding a new tool:
 2. Add the type to `MCPToolCatalog.all` in `MCPTool.swift`. That's the only registration step — `MCPToolsListHandler` and `MaughamApp.registerTools` derive from this list.
 3. If it returns images, use the crop-on-demand parameters (`max_dimension`, `quality`, `region`).
 4. If it could return >1MB: the `MCPResponseBudget` central backstop already fails such a response loudly, but a `payload_too_large` error is a poor experience — add pagination, filtering, or summarization so it fits. For a single unbounded file read, call `MCPResponseBudget.enforce` directly with a hint naming a section-scoped alternative (mirror `read_document`).
-5. Test from Claude Desktop with the configure-flow (Settings → Help → "Set up Claude Desktop…").
+5. Add the tool under `## Tool catalogue (N)` above and bump N (`DocSyncTests` checks it).
+6. Test from Claude Desktop with the configure-flow (Settings → Help → "Set up Claude Desktop…").
 
 `MCPCatalogConsistencyTests` will catch a missing catalog entry, a malformed schema, or any drift between advertisement and dispatch at test time.
 
@@ -287,3 +288,9 @@ End-to-end-through-the-bridge coverage lives in `MaughamTests/MCP/MCPBinaryInteg
 - The "Set up Claude Desktop…" flow — `Maugham/Views/` (Help menu wiring; also hosts the Claude Code section, `HelpClaudeDesktopSheet.swift`).
 - Skill content loading — `Maugham/Help/SkillIndex.swift` (mirrors `HelpTopicIndex`'s pattern but lives in `Help/`, not `MCP/`, since it's also consumed by `get_help`; this area only implements the SEP-2640 protocol surface and the Claude Code installer on top of it).
 - The standalone `maugham-mcp` CLI source — `../maugham-mcp/` (separate Swift package, ships bundled inside `Maugham.app/Contents/MacOS/`).
+
+## From CLAUDE.md's area table (2026-10-17)
+
+- **⌘⌥F still does not reach a statement** and that is a stop rather than an omission — see the roadmap's 1A entry for why (`search_text` is unaffected: it filters to `.manuscript`).
+- `get_help`, which serves the bundled `docs/guide/` topic files — the SAME single docs source shown in-app via **Help → Maugham Help** (`HelpWindow`) and rendered on GitHub. `HelpTopicIndex` is the shared loader; edit docs in `docs/guide/`, don't add a second copy.
+- Tools fail loudly on unknown ids.

@@ -9,7 +9,8 @@ import XCTest
 /// **Why the tree rather than a click.** A synthetic `mouseDown` needs this
 /// test host to be the ACTIVE app: with the screen locked, or another app
 /// refusing to yield activation, AppKit drops the event before any view sees it
-/// (CLAUDE.md's synthetic-click premise). `accessibilityPerformPress` is the
+/// (docs/testing/TROUBLESHOOTING.md, "A mounted click test sees selectedRow
+/// == -1"). `accessibilityPerformPress` is the
 /// action the click ultimately performs and needs none of that, so an overnight
 /// gate does not go red for a reason that has nothing to do with the code.
 ///

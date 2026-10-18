@@ -8005,10 +8005,12 @@ final class TripwireGrepTests: XCTestCase {
     /// The KEYLESS sites, by file and by spelling. Each holds no key to judge
     /// by, or must not widen past this device's own hand:
     ///
-    /// - `OpLogStore.swift` — `trusted: { _ in false }` twice: the keyless
-    ///   reader (`ProjectIntegrity.check`, which passes no table) and the
-    ///   fallback walk of an unsettled segment's inner seals. Both judge
-    ///   nobody, which is what P1 did for every caller.
+    /// - `OpLogStore.swift` — `trusted: { _ in false }` three times, each the
+    ///   no-table arm: the keyless reader (`ProjectIntegrity.check`, which
+    ///   passes no table, in `classifyTail`), the fallback walk of an
+    ///   unsettled segment's inner seals (`classifySegment`), and the mark
+    ///   sweep over a sidecar or manifest (`verificationForPositions`). All
+    ///   judge nobody, which is what P1 did for every caller.
     /// - `JSONLAppendStore.swift` — `trusted: { chain.trust($0) == .mine }`:
     ///   the chained WRITE, whose rewrite assumes a prefix. ADR 0012 gives the
     ///   file one writer, so a stranger's line in MY file is a quarantine and

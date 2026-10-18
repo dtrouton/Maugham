@@ -22,7 +22,8 @@
 # the lock and can still kill it — re-run before believing a red Core test
 # that matches that signature.
 #
-# fast skips exactly one thing, documented in CLAUDE.md's build-flow notes:
+# fast skips exactly one thing, documented in docs/testing/TROUBLESHOOTING.md
+# ("The suite is slow while iterating"):
 #   - the CanvasViewMounting* family (Surface/Editing/Region — three subclasses
 #     of CanvasViewMountingCase): ~70 s of per-test window mounts; NOT optional
 #     before merge/tag, which is why full includes it. Skipping the base class
@@ -33,7 +34,8 @@
 # single-process serial suite, and per-class parallel workers removed the
 # trigger — burn-in evidence in docs/superpowers/notes/2026-07-29-mcp-clock-
 # dependent-tests.md's resolution section. If they ever flake again, check for
-# OTHER sessions' xcodebuild first (CLAUDE.md's third confounder).
+# OTHER sessions' xcodebuild first (docs/testing/TROUBLESHOOTING.md, "A test
+# fails in the parallel suite but passes alone").
 #
 # The Mac scheme runs its test classes in parallel worker processes
 # (parallelizable: true in project.yml, 2026-08-08): full suite 7.6 min →
@@ -68,7 +70,8 @@ fi
 # ---- cross-session gate lock -------------------------------------------------
 # Several Claude sessions share this Mac, and two overlapping full gates host
 # 14+ app processes: starvation-shaped failures land on a DIFFERENT victim each
-# run (measured 2026-08-08 — CLAUDE.md's third confounder). Queueing gates
+# run (measured 2026-08-08 — docs/testing/TROUBLESHOOTING.md, "A test fails in
+# the parallel suite but passes alone"). Queueing gates
 # behind a machine-global lock turns that documented hazard into a non-event.
 # mkdir is atomic and macOS ships no flock(1); the pid file lets a crashed
 # holder's lock be reclaimed instead of wedging every later run.

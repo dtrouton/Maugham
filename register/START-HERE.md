@@ -264,6 +264,14 @@ filings before "fixing" the test: a defect fix must flip its claim + filing in t
 
 For a full-suite check, `./scripts/test.sh full` (only the documented MCP skip).
 
+## From CLAUDE.md (2026-10-17)
+
+CLAUDE.md keeps the two rules in one line; these are its sentences in full.
+
+- **Before changing behaviour in a module that has a claims file, read its filings.** A `VIOLATES` row is a known defect with a ruling behind it; a `COMPLIES` row is behaviour a ruling protects — do not "fix" it away.
+- **Fixing a filed defect means closing the loop in the same branch**: the fix plus a pinned production test, then update the claim and flip its filing `VIOLATES→COMPLIES` citing the fix commit. First exercised on M4-RW-002 ("Rewind to before this…" now lands before the op).
+- **Rulings are the operational refinement of `docs/constitution.md`** — scoped, falsifiable case-settling decisions under its principles; the precedence rule is in `RECONCILE.md`.
+
 ## One thing worth fixing
 
 Until this commit, none of this was in git — no history, no diff, no recovery. Given that RULING-24

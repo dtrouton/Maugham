@@ -23,11 +23,11 @@ final class DocSyncTests: XCTestCase {
         return try String(contentsOf: url, encoding: .utf8)
     }
 
-    // MARK: - Test 1: MCP tool-count sync (CLAUDE.md + AREA.md vs MCPToolCatalog.all)
+    // MARK: - Test 1: MCP tool-count sync (AREA.md vs MCPToolCatalog.all; CLAUDE.md states none)
 
-    /// Extracts the `NN` from CLAUDE.md's `**NN tools**` MCP-row claim.
-    /// `nil` means the doc's phrasing changed shape — callers must fail
-    /// loudly rather than silently skip the check.
+    /// Extracts the `NN` from a `**NN tools**` claim. CLAUDE.md used to carry
+    /// one in its MCP row; now `nil` is the expected answer for CLAUDE.md, and
+    /// the planted self-check below proves a returning count would be found.
     static func extractToolCountFromCLAUDEmd(_ text: String) -> Int? {
         guard let regex = try? NSRegularExpression(pattern: #"\*\*(\d+) tools\*\*"#) else { return nil }
         let ns = text as NSString
@@ -48,35 +48,35 @@ final class DocSyncTests: XCTestCase {
     }
 
     func test_toolCountSyncedAcrossDocsAndCatalog() throws {
-        let claudeMd = try readFile("CLAUDE.md")
         let areaMd = try readFile("Maugham/MCP/AREA.md")
-
-        guard let claudeCount = Self.extractToolCountFromCLAUDEmd(claudeMd) else {
-            XCTFail("Could not find \"**NN tools**\" in CLAUDE.md's MCP row — doc structure changed?")
-            return
-        }
         guard let areaCount = Self.extractToolCountFromAREAmd(areaMd) else {
             XCTFail("Could not find \"Tool catalogue (NN)\" heading in Maugham/MCP/AREA.md — doc structure changed?")
             return
         }
-
         let actual = MCPToolCatalog.all.count
-        XCTAssertEqual(claudeCount, actual,
-            "CLAUDE.md claims \(claudeCount) MCP tools but MCPToolCatalog.all has \(actual). "
-            + "Update the \"**\(actual) tools**\" phrase in CLAUDE.md's MCP row.")
         XCTAssertEqual(areaCount, actual,
             "Maugham/MCP/AREA.md claims \(areaCount) MCP tools but MCPToolCatalog.all has \(actual). "
             + "Update the \"## Tool catalogue (\(actual))\" heading.")
+
+        // CLAUDE.md left this census in the 2026-10-17 docs diet: it states
+        // no count, so the number cannot drift back into it.
+        let claudeMd = try readFile("CLAUDE.md")
+        XCTAssertNil(Self.extractToolCountFromCLAUDEmd(claudeMd),
+            "CLAUDE.md states an MCP tool count again. Count MCPToolCatalog.all instead; "
+            + "the count lives in Maugham/MCP/AREA.md's catalogue heading only.")
     }
 
-    /// Self-check: a doctored CLAUDE.md/AREA.md claiming counts one/two more
-    /// than the real catalog size parses to those planted numbers, which
-    /// would NOT equal the real catalog count — proving the assertion above
-    /// would go red on drift, not silently pass. The planted numbers are
-    /// derived from the live catalog count (not hardcoded) so this check
-    /// keeps working as the catalog grows — a hardcoded literal collided
-    /// with reality the moment the real count caught up to it (Task 10,
-    /// move_research_item: catalog hit 48, the same number this self-check
+    /// Self-check, two halves. AREA.md: a doctored heading claiming two more
+    /// than the real catalog size parses to that planted number, which would
+    /// NOT equal the real catalog count — proving the AREA assertion above
+    /// would go red on drift, not silently pass. CLAUDE.md: a doctored
+    /// `**NN tools**` claim parses to its number — proving only that the
+    /// parser would FIND a count if one came back, so the `XCTAssertNil`
+    /// above cannot pass merely because the parser is blind. The planted
+    /// numbers are derived from the live catalog count (not hardcoded) so
+    /// this check keeps working as the catalog grows — a hardcoded literal
+    /// collided with reality the moment the real count caught up to it
+    /// (move_research_item: catalog hit 48, the same number this self-check
     /// used to plant).
     func test_toolCountCheckWouldFireOnPlantedOffender() {
         let actual = MCPToolCatalog.all.count
@@ -92,10 +92,9 @@ final class DocSyncTests: XCTestCase {
             return XCTFail("Self-check: parser should extract a count from the doctored AREA.md text.")
         }
 
-        XCTAssertEqual(claudeCount, plantedClaude)
+        XCTAssertEqual(claudeCount, plantedClaude,
+            "Self-check: the parser must find a returning CLAUDE.md count, or the XCTAssertNil above proves nothing.")
         XCTAssertEqual(areaCount, plantedArea)
-        XCTAssertNotEqual(claudeCount, actual,
-            "Self-check expected the planted \(plantedClaude) to disagree with the real catalog count.")
         XCTAssertNotEqual(areaCount, actual,
             "Self-check expected the planted \(plantedArea) to disagree with the real catalog count.")
     }
@@ -577,8 +576,9 @@ final class DocSyncTests: XCTestCase {
     /// states the ring's memory must leave the list — the check fires on
     /// silence, so keeping it here would demand the guide say a number it has
     /// no business saying.
+    ///
+    /// CLAUDE.md left this census in the 2026-10-17 docs diet; the figure lives in Maugham/Compiler/AREA.md.
     static let roundRingDocs: [String] = [
-        "CLAUDE.md",
         "Maugham/Compiler/AREA.md",
         "docs/guide/review-passes.md",
         "docs/roadmap.md",
@@ -623,13 +623,14 @@ final class DocSyncTests: XCTestCase {
     ///
     /// Correct means `doc` names `remembered` (e.g. "six") immediately next
     /// to "finished checks" or "later checks" — case-insensitive, because
-    /// CLAUDE.md capitalises SIX — and carries none of `stale`'s three stale
+    /// a doc may capitalise it (CLAUDE.md once wrote SIX) — and carries none of `stale`'s three stale
     /// shapes: `stale` + "finished checks", `stale` + "later checks", or the
     /// bare digit form "N-deep ring of finished checks" (`Maugham/Compiler/
     /// AREA.md`'s pre-fix wording — naming the RING as the memory, rather
     /// than the ring plus the standing run).
     ///
-    /// CLAUDE.md's "5-deep `rounds` ring PLUS the standing run" does **not**
+    /// A phrase like "5-deep `rounds` ring PLUS the standing run" (CLAUDE.md's
+    /// wording before the 2026-10-17 docs diet) does **not**
     /// match the bare pattern — "ring" there is followed by "PLUS", not "of
     /// finished checks" — so the calibration-notation form (`roundHistoryDepth
     /// (5)`, which correctly names the ring's own depth) stays legal

@@ -88,7 +88,8 @@ private struct UnbreakableSentencePane: View {
 /// the bottom, I can't scroll up, and the centre piece isn't rendered."*
 ///
 /// **Three symptoms, one mechanism, measured before anything was changed**
-/// (macOS 26.5, 2026-08-08 — CLAUDE.md's runner-parity rule applies: these mount
+/// (macOS 26.5, 2026-08-08 — the runner-parity rule applies, docs/testing/
+/// TROUBLESHOOTING.md "A mounted-view test is red on CI only": these mount
 /// real AppKit views, so a green run here says nothing about a runner on a
 /// different major). `Text.fixedSize(horizontal: false, vertical: true)` does
 /// not merely let a sentence wrap; it makes the wrapped height an **unbreakable
