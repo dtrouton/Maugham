@@ -33,8 +33,12 @@ child, which macOS lets update itself) would have laundered it into `/Applicatio
 helper re-checks: after the app has exited it copies the staged bundle to `<installed>.inflight`
 (same volume as the install location), runs the codesign requirement check and `spctl` on that
 copy, and only then swaps. On a refusal it removes `.inflight`, writes `refused <version>` to
-`Updates/install-status`, and exits — the installed app is untouched and nothing relaunches. The
-gap left is `verify → renamex_np` on `.inflight`, milliseconds, inside the install folder.
+`Updates/install-status`, and exits — the installed app is untouched, and after "Restart &
+Update" (`RELAUNCH=1`) that OLD app is reopened, so the writer is never left with no Maugham
+running. **The residual exposure** is a same-user race of a few milliseconds between the
+verify and `renamex_np`: `installMode` requires the install folder to be writable by this user,
+so a process running as this user could in principle swap `.inflight` in that window. Anything
+that can do that can already write the install folder directly.
 There is deliberately **no second verifier in-process**: in `willTerminate` spctl could hang the
 quit on the network with nothing on screen; in the helper the app is already gone. **Stated
 limit:** spctl can fail offline, so a quit-time install offline is refused (and recorded), and
@@ -48,7 +52,7 @@ pid, both bundle paths, the team, the relaunch flag, the version and the Updates
 ten of `A-Z0-9`, version digits and dots, paths absolute, the installed path ending `.app`) and
 exits 2 before touching anything if one is wrong. A bundle path containing `"`, `$(…)` or a
 backtick is data. The only interpolated values are `HelperTools`' constant tool paths
-(`codesign`, `spctl`, `ditto`), which a precondition restricts to `^[A-Za-z0-9/._-]+$` and which
+(`codesign`, `spctl`, `ditto`, `open`), which a precondition restricts to `^[A-Za-z0-9/._-]+$` and which
 tests replace with stubs.
 
 Other protections:
@@ -140,9 +144,12 @@ The app cannot replace its own running bundle. The proven pattern:
    `Process` without waiting).
 2. **App terminates.** The child process reparents to launchd (it survives the parent's
    exit because it has no controlling TTY and launchd adopts orphans).
-3. **Bash helper** (`set -e`; every failure path below is an explicit `if !`, so it records):
+3. **Bash helper** (`set -e`; every failure path below is an explicit `if !`, so it records,
+   and every one after the guard ends `reopen`: with `$RELAUNCH` `1` it runs `open "$INSTALLED"` —
+   the untouched old app — before `exit 1`, `|| true` so it cannot trip `set -e`):
    - validates its seven arguments (exit 2, nothing touched, nothing recorded)
-   - `command -v python3`, before the wait — missing: records `failed <v> python3`, exits
+   - `command -v python3`, before the wait — missing: records `failed <v> python3`; with
+     `$RELAUNCH` `1` waits for the app to exit and reopens it; exits
    - polls `kill -0 "$PID"` until the app is fully gone
    - `rm -rf .inflight && ditto staged .inflight` — failure: removes `.inflight`, records
      `failed <v> ditto`
@@ -151,7 +158,7 @@ The app cannot replace its own running bundle. The proven pattern:
    - Python `renamex_np(RENAME_SWAP)` — atomic exchange; it then removes `.inflight` (the old
      bundle). Failure (including making or writing its source file): records `failed <v> swap`, and leaves
      `.inflight`, which on the fallback path may hold the only copy of the new app
-   - (if `$RELAUNCH` is `1`) `open "$INSTALLED"`
+   - `reopen` — (if `$RELAUNCH` is `1`) `open "$INSTALLED"`, now the new app
 
 **The status file.** `Updates/install-status` holds ONE line, overwritten (written to
 `install-status.tmp`, then `mv`): `refused <version>` or `failed <version> <step>`, the step one
@@ -185,7 +192,7 @@ pre-auto-update behavior. **Worst case == status quo, never worse.**
 | No helper without a well-formed team or version | Yes | `PendingUpdateRevealTests.test_launchSwapHelper_returnsFalse_*` |
 | Helper script shape: argv order, fixed text carrying no argument, re-check between the wait and the swap, python3 guard first | Yes (string inspection) | `test_helperArguments_*`, `test_helperScript_*`, `test_helperToolPaths_*` |
 | No rm+mv on installed bundle (brick-prevention assertion) | Yes | `test_helperScript_usesAtomicSwap_notRmMv` |
-| **The helper end to end**: accept swaps in (no `.inflight`, no status); a codesign or spctl refusal leaves the installed bundle byte-identical, no `.inflight`, `refused <v>`; a failed copy records `failed <v> ditto` over an older line; a malformed team stops it before codesign; directory names carrying `"`, `$(touch PWNED)` and a backtick install and run nothing | Yes (real `/bin/bash`, `ditto`, `python3`; stub `codesign`/`spctl` under `TestTemp.root`; an exited pid; skipped without python3) | `UpdateSwapHelperEndToEndTests` |
+| **The helper end to end**: accept swaps in (no `.inflight`, no status); a codesign or spctl refusal leaves the installed bundle byte-identical, no `.inflight`, `refused <v>`, and with relaunch reopens the old app (stub `open` receives exactly the installed path) and without it opens nothing; a failed copy records `failed <v> ditto` over an older line and reopens; a malformed team stops it before codesign; directory names carrying `"`, `$(touch PWNED)` and a backtick install, reach `open` as one argument, and run nothing; a run that outlives 10 s is terminated and fails rather than hanging | Yes (real `/bin/bash`, `ditto`, `python3`; stub `codesign`/`spctl`/`open` under `TestTemp.root`; an exited pid; skipped without python3) | `UpdateSwapHelperEndToEndTests` |
 | Python swap source is flush-left (no IndentationError) | Yes | `test_pyAtomicSwapSource_noLeadingSpacesOnTopLevelLines` |
 | `atomicSwap` same-volume: destination never absent, content swapped | Yes (temp dirs) | `test_atomicSwap_sameVolume_*` |
 | `atomicSwap` missing staged path → `.sourceNotFound` | Yes | `test_atomicSwap_throwsSourceNotFound_*` |

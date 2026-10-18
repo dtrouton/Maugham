@@ -77,10 +77,12 @@ public enum UpdateInstaller {
         let codesign: String
         let spctl: String
         let ditto: String
+        let open: String
 
         static let system = HelperTools(codesign: "/usr/bin/codesign",
                                         spctl: "/usr/sbin/spctl",
-                                        ditto: "/usr/bin/ditto")
+                                        ditto: "/usr/bin/ditto",
+                                        open: "/usr/bin/open")
 
         /// Absolute, and nothing but letters, digits, `/`, `.`, `_` and `-`.
         static func isSafePath(_ path: String) -> Bool {
@@ -143,7 +145,8 @@ public enum UpdateInstaller {
     static func helperScript(tools: HelperTools = .system) -> String {
         precondition(HelperTools.isSafePath(tools.codesign)
                      && HelperTools.isSafePath(tools.spctl)
-                     && HelperTools.isSafePath(tools.ditto),
+                     && HelperTools.isSafePath(tools.ditto)
+                     && HelperTools.isSafePath(tools.open),
                      "helper tool paths are constants and must be plain absolute paths")
         // Built line by line — NOT a Swift multi-line literal — so every line
         // lands at column 0 (the PYEOF limit string and the Python source need it).
@@ -177,6 +180,11 @@ public enum UpdateInstaller {
             // One line, overwritten (never appended), via a temp file and mv
             // so a reader never sees half of it. Its own failure changes nothing.
             #"record() { printf '%s\n' "$1" > "$STATUS.tmp" && mv -f "$STATUS.tmp" "$STATUS"; }"#,
+            // "Restart & Update" quit the app expecting it back: reopen
+            // whatever is at the install location — the new app after a swap,
+            // the untouched old one after any failure — so the writer is never
+            // left with no Maugham running. Its own failure changes nothing.
+            #"reopen() { if [ "$RELAUNCH" = 1 ]; then "\#(tools.open)" "$INSTALLED" || true; fi; }"#,
             #"PY_TMP="""#,
             #"trap 'rm -f "$PY_TMP"' EXIT"#,
             // python3 guard (audit N2): the swap runs via python3 (ctypes →
@@ -188,6 +196,9 @@ public enum UpdateInstaller {
             "if ! command -v python3 >/dev/null 2>&1; then",
             #"  echo "maugham-update: python3 not found; aborting in-place swap (app left untouched)" >&2"#,
             #"  record "failed $VERSION \#(HelperFailureStep.python3.rawValue)" || true"#,
+            // The app is quitting: let it go before reopening it.
+            #"  while [ "$RELAUNCH" = 1 ] && kill -0 "$PID" 2>/dev/null; do sleep 0.2; done"#,
+            "  reopen",
             "  exit 1",
             "fi",
             "# Wait for the running Maugham to fully exit.",
@@ -196,6 +207,7 @@ public enum UpdateInstaller {
             #"if ! { rm -rf "$INFLIGHT" && "\#(tools.ditto)" "$STAGED" "$INFLIGHT"; }; then"#,
             #"  rm -rf "$INFLIGHT" || true"#,
             #"  record "failed $VERSION \#(HelperFailureStep.ditto.rawValue)" || true"#,
+            "  reopen",
             "  exit 1",
             "fi",
             "# Re-check the exact bytes about to be swapped in: signed by our team",
@@ -204,6 +216,7 @@ public enum UpdateInstaller {
             #"  || ! "\#(tools.spctl)" -a -t exec "$INFLIGHT"; then"#,
             #"  rm -rf "$INFLIGHT" || true"#,
             #"  record "refused $VERSION" || true"#,
+            "  reopen",
             "  exit 1",
             "fi",
             "# Atomically exchange .inflight <-> installed so the install location is",
@@ -211,6 +224,7 @@ public enum UpdateInstaller {
             "# A failed swap leaves .inflight: it may hold the only copy of the new app.",
             #"if ! PY_TMP="$(mktemp /tmp/maugham-swap-XXXXXX.py)"; then"#,
             #"  record "failed $VERSION \#(HelperFailureStep.swap.rawValue)" || true"#,
+            "  reopen",
             "  exit 1",
             "fi",
             #"if ! cat > "$PY_TMP" << 'PYEOF'"#,
@@ -221,15 +235,15 @@ public enum UpdateInstaller {
             "PYEOF",
             "then",
             #"  record "failed $VERSION \#(HelperFailureStep.swap.rawValue)" || true"#,
+            "  reopen",
             "  exit 1",
             "fi",
             #"if ! python3 "$PY_TMP" "$INFLIGHT" "$INSTALLED"; then"#,
             #"  record "failed $VERSION \#(HelperFailureStep.swap.rawValue)" || true"#,
+            "  reopen",
             "  exit 1",
             "fi",
-            #"if [ "$RELAUNCH" = 1 ]; then"#,
-            #"  open "$INSTALLED""#,
-            "fi",
+            "reopen",
         ]
         s += lines.joined(separator: "\n") + "\n"
         return s

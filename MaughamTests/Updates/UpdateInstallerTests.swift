@@ -70,8 +70,14 @@ final class UpdateInstallerTests: XCTestCase {
         let script = UpdateInstaller.helperScript()
         XCTAssertTrue(script.contains("while kill -0 \"$PID\""))
         XCTAssertTrue(script.contains("\"/usr/bin/ditto\" \"$STAGED\" \"$INFLIGHT\""))
-        XCTAssertTrue(script.contains("if [ \"$RELAUNCH\" = 1 ]; then\n  open \"$INSTALLED\"\nfi\n"))
-        XCTAssertEqual(script.components(separatedBy: "open \"").count, 2, "exactly one open")
+        XCTAssertTrue(script.contains(
+            "reopen() { if [ \"$RELAUNCH\" = 1 ]; then \"/usr/bin/open\" \"$INSTALLED\" || true; fi; }\n"))
+        XCTAssertEqual(script.components(separatedBy: "open\" ").count, 2, "exactly one open, in reopen")
+        XCTAssertTrue(script.hasSuffix("\nreopen\n"), "success ends by reopening")
+        // Every failure after the guard reopens before it exits.
+        let exits = script.components(separatedBy: "\n  exit 1\n").dropLast()
+        XCTAssertEqual(exits.count, 6)
+        for block in exits { XCTAssertTrue(block.hasSuffix("\n  reopen"), String(block.suffix(80))) }
     }
 
     /// Ensure the script uses the atomic swap mechanism, not the bricking rm+mv pattern.
@@ -113,7 +119,7 @@ final class UpdateInstallerTests: XCTestCase {
     /// The tool paths are the only interpolated values; they must be inert.
     func test_helperToolPaths_arePlainAbsolutePaths() {
         let system = UpdateInstaller.HelperTools.system
-        for path in [system.codesign, system.spctl, system.ditto] {
+        for path in [system.codesign, system.spctl, system.ditto, system.open] {
             XCTAssertTrue(UpdateInstaller.HelperTools.isSafePath(path), path)
         }
         for bad in ["usr/bin/x", "/a b", "/a\"b", "/a$(b)", "/a`b`", "/a;b", ""] {

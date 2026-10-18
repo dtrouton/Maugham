@@ -17,9 +17,15 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         let installed: URL
         let updates: URL
         let codesignLog: URL
+        let openLog: URL
         let tools: UpdateInstaller.HelperTools
         var status: URL { updates.appendingPathComponent(UpdateInstaller.installStatusFileName) }
         var inflight: URL { URL(fileURLWithPath: installed.path + ".inflight") }
+        /// Each `open` call's arguments, one per line; nil if `open` never ran.
+        var opened: [String]? {
+            (try? String(contentsOf: openLog, encoding: .utf8))?
+                .split(separator: "\n", omittingEmptySubsequences: false).dropLast().map(String.init)
+        }
     }
 
     private let version = "0.43.0"
@@ -53,12 +59,17 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         let codesignLog = toolsDir.appendingPathComponent("codesign.log")
         let codesign = toolsDir.appendingPathComponent("codesign")
         let spctl = toolsDir.appendingPathComponent("spctl")
+        let openLog = toolsDir.appendingPathComponent("open.log")
+        let open = toolsDir.appendingPathComponent("open")
+        try write("#!/bin/bash\nprintf '%s\\n' \"$@\" >> \"\(openLog.path)\"\n",
+                  to: open, executable: true)
         try write("#!/bin/bash\nprintf '%s\\n' \"$@\" > \"\(codesignLog.path)\"\nexit \(codesignExit)\n",
                   to: codesign, executable: true)
         try write("#!/bin/bash\nexit \(spctlExit)\n", to: spctl, executable: true)
         return Fixture(root: root, staged: staged, installed: installed, updates: updates,
-                       codesignLog: codesignLog,
-                       tools: .init(codesign: codesign.path, spctl: spctl.path, ditto: "/usr/bin/ditto"))
+                       codesignLog: codesignLog, openLog: openLog,
+                       tools: .init(codesign: codesign.path, spctl: spctl.path, ditto: "/usr/bin/ditto",
+                                    open: open.path))
     }
 
     private func exitedPid() throws -> Int32 {
@@ -85,7 +96,14 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
         try p.run()
-        p.waitUntilExit()
+        // A reused pid would park the quit-wait; never hang the gate on it.
+        let deadline = Date().addingTimeInterval(10)
+        while p.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
+        if p.isRunning {
+            p.terminate()
+            p.waitUntilExit()
+            XCTFail("the helper did not finish within 10 s (was the exited pid reused?)")
+        }
         return p.terminationStatus
     }
 
@@ -99,6 +117,7 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         let f = try makeFixture(codesignExit: 0, spctlExit: 0)
         XCTAssertEqual(try runHelper(f), 0)
         XCTAssertEqual(marker(f.installed), "new")
+        XCTAssertNil(f.opened, "relaunch 0 opens nothing")
         XCTAssertFalse(exists(f.inflight), "the old bundle left at .inflight is removed")
         XCTAssertFalse(exists(f.status), "success writes no status")
         XCTAssertEqual(marker(f.staged), "new", "the staged copy is copied, never moved")
@@ -118,12 +137,22 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: f.installed.path), ["Contents"])
         XCTAssertFalse(exists(f.inflight), "a refused copy is removed")
         XCTAssertEqual(try String(contentsOf: f.status, encoding: .utf8), "refused \(version)\n")
+        // "Restart & Update" quit the app: the OLD app is reopened, by its path alone.
+        XCTAssertEqual(f.opened, [f.installed.path])
+    }
+
+    func test_anAcceptedCopyWithRelaunch_opensTheInstalledPath() throws {
+        let f = try makeFixture(codesignExit: 0, spctlExit: 0)
+        XCTAssertEqual(try runHelper(f, relaunch: true), 0)
+        XCTAssertEqual(marker(f.installed), "new")
+        XCTAssertEqual(f.opened, [f.installed.path])
     }
 
     func test_aCopySpctlRefuses_isNeverSwappedIn_andTheRefusalIsRecorded() throws {
         let f = try makeFixture(codesignExit: 0, spctlExit: 1)
         XCTAssertEqual(try runHelper(f), 1)
         XCTAssertEqual(marker(f.installed), "old")
+        XCTAssertNil(f.opened, "an ordinary quit is not reopened, refused or not")
         XCTAssertFalse(exists(f.inflight))
         XCTAssertEqual(try String(contentsOf: f.status, encoding: .utf8), "refused \(version)\n")
     }
@@ -132,8 +161,9 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         let f = try makeFixture(codesignExit: 0, spctlExit: 0)
         try write("refused 0.42.0\nstale second line\n", to: f.status)
         try FileManager.default.removeItem(at: f.staged)  // nothing to copy
-        XCTAssertEqual(try runHelper(f), 1)
+        XCTAssertEqual(try runHelper(f, relaunch: true), 1)
         XCTAssertEqual(marker(f.installed), "old")
+        XCTAssertEqual(f.opened, [f.installed.path], "the old app comes back")
         XCTAssertFalse(exists(f.inflight))
         XCTAssertEqual(try String(contentsOf: f.status, encoding: .utf8), "failed \(version) ditto\n")
         XCTAssertFalse(exists(f.updates.appendingPathComponent("install-status.tmp")))
@@ -149,6 +179,7 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
             XCTAssertFalse(exists(f.inflight))
             XCTAssertFalse(exists(f.status))
             XCTAssertFalse(exists(f.codesignLog), "codesign never ran")
+            XCTAssertNil(f.opened)
         }
     }
 
@@ -158,8 +189,9 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         let f = try makeFixture(stagedParent: "Mau\"g$(touch PWNED)ham `touch PWNED`",
                                 installedParent: "App \"$(touch PWNED)\" `touch PWNED` x",
                                 codesignExit: 0, spctlExit: 0)
-        XCTAssertEqual(try runHelper(f), 0)
+        XCTAssertEqual(try runHelper(f, relaunch: true), 0)
         XCTAssertEqual(marker(f.installed), "new")
+        XCTAssertEqual(f.opened, [f.installed.path], "the hostile path reaches open as ONE argument")
         XCTAssertFalse(exists(f.inflight))
         XCTAssertFalse(exists(f.status))
         let all = FileManager.default.enumerator(atPath: TestTemp.root.path)?
