@@ -28,7 +28,8 @@ public struct UpdateBannerView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            if let notice = Self.notice(for: checker.installNotice) {
+            if let notice = Self.notice(for: checker.installNotice,
+                                       waitsForManualCheck: checker.installNoticeWaitsForManualCheck) {
                 // The last launch's install did not complete (#67 Task 5): one
                 // sentence, held apart from the check's state so no check replaces
                 // it — it stays until the writer dismisses it. A "ready" row may
@@ -91,7 +92,8 @@ public struct UpdateBannerView: View {
     /// Pure decision for the install notice: the sentence to draw, or nil.
     /// Shown iff the checker holds a notice — Dismiss clears it, so no
     /// dismissed-set is needed.
-    public static func notice(for installNotice: InstallStatus?) -> String? {
-        installNotice?.sentence
+    public static func notice(for installNotice: InstallStatus?,
+                              waitsForManualCheck: Bool = false) -> String? {
+        installNotice?.sentence(waitsForManualCheck: waitsForManualCheck)
     }
 }

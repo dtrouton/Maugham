@@ -144,6 +144,23 @@ final class InstallStatusTests: XCTestCase {
                        "The update to Maugham 0.43.0 didn't pass its safety check and wasn't installed. Maugham will download it again.")
     }
 
+    func test_aSecondRefusalSaysToCheckByHand_becauseTheBackgroundPollWillNotRetry() throws {
+        _ = try writeStatus("refused 0.43.0\n")
+        let first = makeChecker()
+        first.reportInstallStatus(in: TestTemp.root)
+        XCTAssertFalse(first.installNoticeWaitsForManualCheck)
+
+        _ = try writeStatus("refused 0.43.0\n")
+        let second = makeChecker()
+        second.reportInstallStatus(in: TestTemp.root)
+        XCTAssertTrue(second.installNoticeWaitsForManualCheck)
+        XCTAssertEqual(UpdateBannerView.notice(for: second.installNotice,
+                                               waitsForManualCheck: second.installNoticeWaitsForManualCheck),
+                       "The update to Maugham 0.43.0 didn't pass its safety check again and wasn't installed. Choose Check for Updates… to try once more.")
+        second.dismissInstallNotice()
+        XCTAssertFalse(second.installNoticeWaitsForManualCheck)
+    }
+
     func test_failed_keepsTheStagedFiles_andShowsTheSentence() throws {
         let fm = FileManager.default
         let artifacts = try makeArtifacts(version: "0.43.0")

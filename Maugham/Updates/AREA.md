@@ -204,9 +204,10 @@ has been refused **twice** (`backgroundLimit`), the background poll stays quietl
 no download, no stage, no banner — because each retry is a full re-download refused again on the
 next quit. A manual Check for Updates still downloads and stages it. The memory is forgotten when
 a check is offered any other version, or when the running app has reached it (up to date). A
-`failed` line is not counted: those staged files are kept and retried. The refused sentence still says *"Maugham will
-download it again"*; after the second refusal that happens only from Check for Updates… (a
-wording question for Denver, not changed here).
+`failed` line is not counted: those staged files are kept and retried. From the second refusal on, the notice
+says so instead of promising a download: *"The update to Maugham <v> didn't pass its safety check
+again and wasn't installed. Choose Check for Updates… to try once more."*
+(`UpdateChecker.installNoticeWaitsForManualCheck` → `InstallStatus.sentence(waitsForManualCheck:)`).
 
 **A pending version is not re-staged.** While `pendingQuitInstall` names version V and its
 `staged-<V>` bundle exists, a later check offered V (background or manual) neither downloads nor

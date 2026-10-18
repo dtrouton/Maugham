@@ -20,6 +20,10 @@ public final class UpdateChecker: ObservableObject {
     /// (`dismissInstallNotice`). Not persisted — the file is already gone, and
     /// one launch is enough.
     @Published public private(set) var installNotice: InstallStatus?
+    /// True when `installNotice` is a refusal that reached
+    /// `InstallRefusalMemory.backgroundLimit`: the background poll will not
+    /// download that version again, so the banner says to check by hand.
+    @Published public private(set) var installNoticeWaitsForManualCheck = false
 
     public static let shared: UpdateChecker = UpdateChecker(
         currentVersionString: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0-dev",
@@ -258,12 +262,20 @@ public final class UpdateChecker: ObservableObject {
               let current = SemanticVersion(currentVersionString),
               reported > current else { return nil }
         installNotice = status
+        if case .refused(let version) = status {
+            installNoticeWaitsForManualCheck =
+                InstallRefusalMemory.refusals(for: version, defaults: refusalDefaults)
+                    >= InstallRefusalMemory.backgroundLimit
+        } else {
+            installNoticeWaitsForManualCheck = false
+        }
         return status
     }
 
     /// The banner's Dismiss for the install notice. Touches no check state.
     public func dismissInstallNotice() {
         installNotice = nil
+        installNoticeWaitsForManualCheck = false
     }
 
     /// Set when a verified .app update is staged but the user dismissed the

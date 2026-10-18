@@ -41,7 +41,19 @@ public enum InstallStatus: Equatable {
     }
 
     /// The one sentence the banner draws (Denver's ruling for `refused`).
-    public var sentence: String {
+    public var sentence: String { sentence(waitsForManualCheck: false) }
+
+    /// After the install-time check has refused the same version twice the
+    /// background poll stops re-downloading it (`InstallRefusalMemory`), so
+    /// the refused sentence must not promise a download that won't happen.
+    public func sentence(waitsForManualCheck: Bool) -> String {
+        if case .refused(let v) = self, waitsForManualCheck {
+            return "The update to Maugham \(v) didn't pass its safety check again and wasn't installed. Choose Check for Updates… to try once more."
+        }
+        return plainSentence
+    }
+
+    private var plainSentence: String {
         switch self {
         case .refused(let v):
             return "The update to Maugham \(v) didn't pass its safety check and wasn't installed. Maugham will download it again."
