@@ -9436,6 +9436,103 @@ final class TripwireGrepTests: XCTestCase {
         }
     }
 
+    // MARK: - The verify walk's callers are a named list (tripwire 39's decisions)
+
+    /// **Every production call of `OpLogClassifier.walk`, by type and by
+    /// count.** Tripwire 39 counts the keyless SPELLING, and since foundations
+    /// plan 6 that spelling lives once, inside `walk`'s no-table arm — so the
+    /// keyless DECISIONS are the walk's callers. **Each caller is a keyless
+    /// decision wherever it can pass a nil table**, and a new one would take
+    /// the keyless arm without tripwire 39 seeing it.
+    ///
+    /// Counted by the spelling `walk(bytes:`, which every caller writes on one
+    /// line; the declaration breaks it across lines, so it is not counted.
+    ///
+    /// - `type:OpLogClassifier` × 2 — `classifyTail` (the live tail; keyless
+    ///   for `ProjectIntegrity.check`, which passes no table) and
+    ///   `classifySegment`'s fallback walk of an unsettled segment.
+    /// - `type:StreamPositions` × 1 — `verificationForPositions`, the mark
+    ///   sweep's walk of a translation sidecar or inbox manifest.
+    ///
+    /// A MISSING caller is a reader that walks its own way. A NEW one is a
+    /// keyless decision nobody reviewed: name it here with its reason.
+    static let walkCallSites: [String: Int] = [
+        "type:OpLogClassifier": 2,
+        "type:StreamPositions": 1,
+    ]
+
+    static let walkCallPattern = "walk(bytes:"
+
+    func test_theVerifyWalksCallersAreExactlyTheNamedList() throws {
+        let (found, unresolved) = try countedListFound(
+            of: Self.walkCallPattern, keyedLike: Self.walkCallSites, in: admissionRoots)
+        XCTAssertTrue(unresolved.isEmpty, "walkCallSites: \(unresolved)")
+        XCTAssertEqual(found, Self.walkCallSites,
+            "The callers of `OpLogClassifier.walk` moved. Each one is a keyless "
+            + "decision wherever it can pass a nil table — tripwire 39 counts the "
+            + "keyless spelling inside `walk`, so this list is where its callers "
+            + "are reviewed. Update `walkCallSites` with the reason in the same "
+            + "commit, or route the read through an existing caller. Found: "
+            + "\(found.sorted(by: { $0.key < $1.key }))")
+    }
+
+    /// CONTROL: an extra call in a listed type, and a call in an unlisted
+    /// type, each move the count; the declaration and a comment do not.
+    func test_theVerifyWalkCensusFiresOnPlantedOffenders() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-walk-selfcheck-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        try """
+        // A comment may name walk(bytes: freely.
+        static func walk(
+            bytes: Data, trust: TrustTable?, rememberedHead: String?, url: URL
+        ) -> Verification { fatalError() }
+        func tail() { _ = walk(bytes: b, trust: t, rememberedHead: h, url: u) }
+        func segment() { _ = walk(bytes: b, trust: t, rememberedHead: nil, url: u) }
+        """.write(to: tmp.appendingPathComponent("OpLogClassifier.swift"),
+                  atomically: true, encoding: .utf8)
+        try Self.declare("OpLogClassifier", in: tmp.appendingPathComponent("OpLogClassifier.swift"))
+        try """
+        func sweep() { _ = OpLogClassifier.walk(bytes: b, trust: t, rememberedHead: nil, url: u) }
+        """.write(to: tmp.appendingPathComponent("StreamPositions.swift"),
+                  atomically: true, encoding: .utf8)
+        try Self.declare("StreamPositions", in: tmp.appendingPathComponent("StreamPositions.swift"))
+
+        let (clean, unresolved) = try countedListFound(
+            of: Self.walkCallPattern, keyedLike: Self.walkCallSites, in: [tmp])
+        XCTAssertTrue(unresolved.isEmpty, "\(unresolved)")
+        XCTAssertEqual(clean, Self.walkCallSites,
+            "Self-check: the named callers match, and neither the declaration "
+            + "nor the comment is counted. Found: \(clean)")
+
+        // An unlisted type's call is a new keyless decision.
+        try """
+        func stranger() { _ = OpLogClassifier.walk(bytes: b, trust: nil, rememberedHead: nil, url: u) }
+        """.write(to: tmp.appendingPathComponent("Stranger.swift"),
+                  atomically: true, encoding: .utf8)
+        try Self.declare("Stranger", in: tmp.appendingPathComponent("Stranger.swift"))
+        let (withStranger, _) = try countedListFound(
+            of: Self.walkCallPattern, keyedLike: Self.walkCallSites, in: [tmp])
+        XCTAssertEqual(withStranger["Stranger.swift"], 1, "\(withStranger)")
+        XCTAssertNotEqual(withStranger, Self.walkCallSites)
+        try fm.removeItem(at: tmp.appendingPathComponent("Stranger.swift"))
+
+        // An extra call inside a listed type moves that type's count.
+        try """
+        func third() { _ = walk(bytes: b, trust: nil, rememberedHead: nil, url: u) }
+        """.write(to: tmp.appendingPathComponent("OpLogClassifier+Extra.swift"),
+                  atomically: true, encoding: .utf8)
+        try Self.declare("OpLogClassifier", in: tmp.appendingPathComponent("OpLogClassifier+Extra.swift"))
+        let (withExtra, _) = try countedListFound(
+            of: Self.walkCallPattern, keyedLike: Self.walkCallSites, in: [tmp])
+        XCTAssertEqual(withExtra["type:OpLogClassifier"], 3, "\(withExtra)")
+        XCTAssertNotEqual(withExtra, Self.walkCallSites)
+    }
+
     /// A permit compared to a literal rung. Unlike a bare `.reviewer` — also
     /// `Posture.Reason.reviewer` and `PostureStandingLine`'s own kind, the
     /// display values surfaces are MEANT to switch on — these three spellings

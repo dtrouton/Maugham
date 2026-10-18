@@ -710,8 +710,8 @@ public enum StreamPositions {
         // bytes and not with what this Mac happens to remember, which
         // is the whole of spec §3.3 and the reason the remembered head
         // is skipped just above.
-        let walked = OpLogClassifier.walk(
-            bytes: bytes, trust: trust, rememberedHead: nil, url: url)
+        let walked = OpLogClassifier.walk(bytes: bytes, trust: trust,
+                                          rememberedHead: nil, url: url)
         let (resolved, _) = OpLogChain.resolveAbsentHead(
             walked, rememberedHead: nil, previousHead: nil)
         guard let trust else { return resolved }

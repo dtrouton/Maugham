@@ -1327,7 +1327,7 @@ extension OpLogChain {
     /// writer their manuscript to catch nobody. Such a file is left exactly as
     /// the walk found it (ADR 0032 §3).
     ///
-    /// Called by BOTH the read (`OpLogStore.classifyTail`) and the write
+    /// Called by BOTH the read (`OpLogClassifier.classifyTail`) and the write
     /// (`JSONLAppendStore.chainedAppend`), because they have to agree: a load
     /// that holds lines back while the next append chains onto them would leave
     /// the writer's own new ops stranded on the far side of a break forever.

@@ -91,7 +91,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     /// chain means.
     ///
     /// It writes NOTHING to this device's memory. Adopting a head is the op
-    /// log's own decision (`OpLogStore.classifyTail`'s adopt rule), made where
+    /// log's own decision (`OpLogClassifier.classifyTail`'s adopt rule), made where
     /// the provenance that justifies it is in hand.
     ///
     /// **`pendingByDevice` is the third answer, and it is not a diagnostic.**

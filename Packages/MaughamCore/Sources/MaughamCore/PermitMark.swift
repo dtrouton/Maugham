@@ -21,7 +21,7 @@ import Foundation
 /// **So it is chain positions, and the format follows from three facts about
 /// how these files are stored** (verified against the code 2026-09-19):
 ///
-/// 1. `OpLogStore.classify` yields one `OpLogChain.Verification` per FILE —
+/// 1. `OpLogClassifier.classify` yields one `OpLogChain.Verification` per FILE —
 ///    **each file is its own chain**.
 /// 2. `sealTailIfNeeded` copies the whole tail into a `.mzseg` segment and
 ///    deletes the tail; the next append starts from `OpLogChain.genesis`. So a

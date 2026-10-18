@@ -6,7 +6,8 @@ import Foundation
 /// bytes plus the reads the doc comments name; the instance loads that need
 /// the store's trust cache stay on `OpLogStore` and call in here with the
 /// table they resolve. Split out of `OpLogStore` (foundations plan 6);
-/// `OpLogStore` keeps forwarders so callers are unchanged.
+/// `OpLogStore` keeps one-line forwarders for its public and Mac-facing entry
+/// points.
 public enum OpLogClassifier {
     // MARK: - Classification (the one rule both readers obey)
 
@@ -127,6 +128,12 @@ public enum OpLogClassifier {
     ///
     /// `rememberedHead` is the caller's: the tail passes this device's
     /// remembered head, a segment and the mark sweep pass nil.
+    ///
+    /// **Every caller is a keyless decision wherever it can pass a nil
+    /// table**, so the callers are counted (`TripwireGrepTests.walkCallSites`,
+    /// beside tripwire 39). Spell a call `walk(bytes:` on one line — the
+    /// census counts that spelling, and the declaration below breaks it
+    /// across lines on purpose so it is not counted.
     nonisolated static func walk(
         bytes: Data, trust: TrustTable?, rememberedHead: String?, url: URL
     ) -> OpLogChain.Verification {
@@ -166,9 +173,8 @@ public enum OpLogClassifier {
         // With no identities there is no table to build: that reader holds no
         // key, judges nobody, and every seal it meets is unsigned history.
         // Arm 2 of *the file's key* included; see `walk`.
-        let walked = walk(
-            bytes: bytes, trust: trust,
-            rememberedHead: state?.head(for: fileKey), url: url)
+        let walked = walk(bytes: bytes, trust: trust,
+                          rememberedHead: state?.head(for: fileKey), url: url)
 
         // The adopt rule (spec §4.2's crash window) and its converse, both in
         // `OpLogChain.resolveAbsentHead` — the one place that decides what a
@@ -435,8 +441,7 @@ public enum OpLogClassifier {
         // arm 2 included: rotation is maintenance a device performs on
         // itself and must pardon nothing (P2b Task 10's rule, one rule
         // along). Same `walk`, no remembered head.
-        let walked = walk(
-            bytes: jsonl, trust: trust, rememberedHead: nil, url: url)
+        let walked = walk(bytes: jsonl, trust: trust, rememberedHead: nil, url: url)
         let readmitted = readmittingWhatWasAlreadyApplied(
             walked, url: url, trust: trust, fileSegmentDigest: digest)
         let verification = partitioningByPermit(

@@ -3,7 +3,7 @@ import Foundation
 /// **What a reader has to know before it can ask the permit table anything**
 /// (P3a Task 5, spec §4.1 and §4.5).
 ///
-/// `OpLogStore.classify` works per FILE and holds no project: it has a URL, the
+/// `OpLogClassifier.classify` works per FILE and holds no project: it has a URL, the
 /// bytes, this device's remembered head and the trust table. Two of the
 /// partition's four questions are about the DOCUMENT rather than the file —
 /// *where does this stream sit* and *has a book author written this piece's
