@@ -65,7 +65,7 @@ final class ProjectStoreDuplicateTests: XCTestCase {
             parentId: nil, title: "Act One", kind: .group)
         let inner1 = try await store.addStructureItem(
             parentId: group.id, title: "Scene 1",
-            kind: .document(extension: "md"))
+            kind: .document(.markdown))
         try "scene 1 text".write(
             to: url.appendingPathComponent(inner1.path!),
             atomically: true, encoding: .utf8)
@@ -105,15 +105,15 @@ final class ProjectStoreDuplicateTests: XCTestCase {
     /// render the SOURCE's own first open writes, since the copy is its words.
     func test_aCopysBytesAreWhatItsFirstOpenWouldHaveWritten() async throws {
         let (url, store, ds) = try await makeNovel()
-        let cases: [(ext: String, body: String)] = [
-            ("fountain", "INT. HOUSE - DAY\n\nShe walks in.\n\nANNA\nHello.\n"),
-            ("md", "One.\n\nTwo.\n\n\n\n"),
-            ("md", "One.\r\n\r\nTwo.\r\n"),
+        let cases: [(format: DocumentFormat, body: String)] = [
+            (.fountain, "INT. HOUSE - DAY\n\nShe walks in.\n\nANNA\nHello.\n"),
+            (.markdown, "One.\n\nTwo.\n\n\n\n"),
+            (.markdown, "One.\r\n\r\nTwo.\r\n"),
         ]
         for (index, shape) in cases.enumerated() {
             let source = try await store.addStructureItem(
                 parentId: nil, title: "Source \(index)",
-                kind: .document(extension: shape.ext))
+                kind: .document(shape.format))
             let sourceURL = url.appendingPathComponent(source.path!)
             try Data(shape.body.utf8).write(to: sourceURL)
 

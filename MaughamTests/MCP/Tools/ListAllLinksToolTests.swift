@@ -171,7 +171,7 @@ final class ListAllLinksToolTests: XCTestCase {
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(named: "C", in: tmp)
         let store = try await ProjectStore.load(from: url)
-        let piece = try await store.addLoosePiece(title: "Story A", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Story A", format: .markdown)
         let owned = try await store.addPieceResearchNote(
             pieceId: piece.id, title: "Owned Note")
         _ = try await store.addResearchTextNote(parentId: nil, title: "Shared Note")
@@ -220,7 +220,7 @@ final class ListAllLinksToolTests: XCTestCase {
         let store = try await ProjectStore.load(from: url)
         let ds = try await DocumentStore.open(url: url)
         store.documentStore = ds
-        let piece = try await store.addLoosePiece(title: "Story A", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Story A", format: .markdown)
         let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")
         // Hand-add a manual link, THEN move the note into the piece so
         // containment now covers the same association (link goes dormant).

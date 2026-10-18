@@ -383,7 +383,7 @@ final class TreeTrashDisclosureTests: XCTestCase {
         let url = try await ProjectFactory.createCollectionProject(
             named: "Collection-\(UUID().uuidString.prefix(6))", in: root)
         let store = try await ProjectStore.load(from: url)
-        _ = try await store.addLoosePiece(title: "Piece", mode: .prose)
+        _ = try await store.addLoosePiece(title: "Piece", format: .markdown)
         return store
     }
 

@@ -213,7 +213,7 @@ final class InspectorViewTests: XCTestCase {
         let book = try await PieceWriterFixture.narrowed(
             named: "Split", in: temp.url, scopedTo: { [$0.pieceIDs[0]] })
         _ = try await book.store.addStructureItem(
-            parentId: nil, title: "Chapter 2", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter 2", kind: .document(.markdown))
         let other = try XCTUnwrap(
             TreeWalk.collect(in: book.store.manifest.structure,
                              where: { $0.type == .document })

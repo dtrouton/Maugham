@@ -322,7 +322,7 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
         let url = try await ProjectFactory.createCollectionProject(
             named: "Collection-\(UUID().uuidString.prefix(6))", in: temp.url)
         let store = try await furnish(try await ProjectStore.load(from: url), notes: notes)
-        for title in pieces { _ = try await store.addLoosePiece(title: title, mode: .prose) }
+        for title in pieces { _ = try await store.addLoosePiece(title: title, format: .markdown) }
         return store
     }
 

@@ -48,7 +48,7 @@ final class ResearchScopeTests: XCTestCase {
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(named: "T", in: tmp)
         let store = try await ProjectStore.load(from: url)
-        let piece = try await store.addLoosePiece(title: "Story A", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Story A", format: .markdown)
         return (url, store, piece)
     }
 
@@ -205,7 +205,7 @@ final class ResearchScopeTests: XCTestCase {
 
     func test_linkable_leadsWithSharedItems() async throws {
         let (_, store, pieceA) = try await makeCollection()
-        let pieceB = try await store.addLoosePiece(title: "Story B", mode: .prose)
+        let pieceB = try await store.addLoosePiece(title: "Story B", format: .markdown)
         let aNote = try await store.addPieceResearchNote(pieceId: pieceA.id, title: "A's Note")
         let bNote = try await store.addPieceResearchNote(pieceId: pieceB.id, title: "B's Note")
         let shared = try await store.addResearchTextNote(parentId: nil, title: "Shared Note")

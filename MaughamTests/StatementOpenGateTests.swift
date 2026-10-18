@@ -186,7 +186,7 @@ final class StatementOpenGateTests: XCTestCase {
         let collection = try await ProjectFactory.createCollectionProject(
             named: "GatedPromote", in: temp.url)
         let store = try await ProjectStore.load(from: collection)
-        let piece = try await store.addLoosePiece(title: "Story A", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Story A", format: .markdown)
         let statement = try await store.createStatement(
             kind: .intent, scope: .document(piece.id))
         let intentURL = collection.appendingPathComponent(statement.path)

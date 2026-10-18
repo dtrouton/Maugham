@@ -30,7 +30,7 @@ final class ProjectStoreReorderTests: XCTestCase {
                 _ = try await store.addStructureItem(
                     parentId: nil,
                     title: "Chapter \(i)",
-                    kind: .document(extension: "md"))
+                    kind: .document(.markdown))
             }
         }
         return (url, store, ds)
@@ -87,7 +87,7 @@ final class ProjectStoreReorderTests: XCTestCase {
             parentId: nil, title: "Act Two", kind: .group)
         let chapInAct2 = try await store.addStructureItem(
             parentId: act2.id, title: "Inner",
-            kind: .document(extension: "md"))
+            kind: .document(.markdown))
 
         try await store.moveStructureItem(
             id: act2.id, toParentId: act1.id, atIndex: 0)

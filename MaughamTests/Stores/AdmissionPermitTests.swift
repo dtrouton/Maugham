@@ -683,7 +683,7 @@ final class AdmissionPermitTests: XCTestCase {
         be(her)
         let herProject = try await ProjectStore.load(from: projectURL)
         let x = try await herProject.addStructureItem(
-            parentId: nil, title: "The Orchard", kind: .document(extension: "md"))
+            parentId: nil, title: "The Orchard", kind: .document(.markdown))
         XCTAssertEqual(x.startedBy, her.identities.author.deviceId)
         XCTAssertEqual(
             OpLogStore.startedBy(ofPiece: x.id, in: projectURL),
@@ -777,7 +777,7 @@ final class AdmissionPermitTests: XCTestCase {
         be(her)
         let herProject = try await ProjectStore.load(from: projectURL)
         let x = try await herProject.addStructureItem(
-            parentId: nil, title: "The Orchard", kind: .document(extension: "md"))
+            parentId: nil, title: "The Orchard", kind: .document(.markdown))
         let xURL = projectURL.appendingPathComponent(try XCTUnwrap(x.path))
         let typing = try await load(xURL, session: "her")
         typing.setFullText(words)
@@ -983,7 +983,7 @@ final class AdmissionPermitTests: XCTestCase {
         be(her)
         let herProject = try await ProjectStore.load(from: projectURL)
         let x = try await herProject.addStructureItem(
-            parentId: nil, title: "The Orchard", kind: .document(extension: "md"))
+            parentId: nil, title: "The Orchard", kind: .document(.markdown))
         let xURL = projectURL.appendingPathComponent(try XCTUnwrap(x.path))
         try? FileManager.default.removeItem(at: xURL)  // the `.md` has not synced
 
@@ -1012,7 +1012,7 @@ final class AdmissionPermitTests: XCTestCase {
         let group = try await project.addStructureItem(
             parentId: nil, title: "Part", kind: .group)
         let child = try await project.addStructureItem(
-            parentId: group.id, title: "Scene", kind: .document(extension: "md"))
+            parentId: group.id, title: "Scene", kind: .document(.markdown))
         try Data("The scene's words.\n".utf8)
             .write(to: projectURL.appendingPathComponent(try XCTUnwrap(child.path)))
 
@@ -1044,7 +1044,7 @@ final class AdmissionPermitTests: XCTestCase {
         be(her)
         let herProject = try await ProjectStore.load(from: projectURL)
         let x = try await herProject.addStructureItem(
-            parentId: nil, title: "Blank", kind: .document(extension: "md"))
+            parentId: nil, title: "Blank", kind: .document(.markdown))
         let xURL = projectURL.appendingPathComponent(try XCTUnwrap(x.path))
 
         be(root)
@@ -1072,7 +1072,7 @@ final class AdmissionPermitTests: XCTestCase {
         func aPiece(startedBy deviceId: String) async throws -> (id: String, url: URL) {
             be(root)
             let item = try await project.addStructureItem(
-                parentId: nil, title: "P", kind: .document(extension: "md"))
+                parentId: nil, title: "P", kind: .document(.markdown))
             let url = projectURL.appendingPathComponent(try XCTUnwrap(item.path))
             try Data("Somebody's words.\n".utf8).write(to: url)
             project.manifest.structure = TreeWalk.mutate(
@@ -1175,7 +1175,7 @@ final class AdmissionPermitTests: XCTestCase {
         let project = try await ProjectStore.load(from: projectURL)
         project.documentStore = rootStore
         let item = try await project.addStructureItem(
-            parentId: nil, title: "Kit's", kind: .document(extension: "md"))
+            parentId: nil, title: "Kit's", kind: .document(.markdown))
         project.manifest.structure = TreeWalk.mutate(
             id: item.id, in: project.manifest.structure
         ) { var node = $0; node.startedBy = kit.author.deviceId; return node }
@@ -1206,13 +1206,13 @@ final class AdmissionPermitTests: XCTestCase {
         let project = try await ProjectStore.load(from: projectURL)
         project.documentStore = rootStore
         let target = try await project.addStructureItem(
-            parentId: nil, title: "Old", kind: .document(extension: "md"))
+            parentId: nil, title: "Old", kind: .document(.markdown))
         project.documentStore = nil
 
         be(her)
         let herProject = try await ProjectStore.load(from: projectURL)
         let x = try await herProject.addStructureItem(
-            parentId: nil, title: "The Orchard", kind: .document(extension: "md"))
+            parentId: nil, title: "The Orchard", kind: .document(.markdown))
         // Her words' render has arrived; their ops have not.
         try Data("See [[Old]].\n".utf8)
             .write(to: projectURL.appendingPathComponent(try XCTUnwrap(x.path)))
@@ -1238,7 +1238,7 @@ final class AdmissionPermitTests: XCTestCase {
         let herProject = try await ProjectStore.load(from: projectURL)
         herProject.documentStore = herStore
         let x = try await herProject.addStructureItem(
-            parentId: nil, title: "The Orchard", kind: .document(extension: "md"))
+            parentId: nil, title: "The Orchard", kind: .document(.markdown))
         let typing = try await load(
             projectURL.appendingPathComponent(try XCTUnwrap(x.path)), session: "her")
         typing.setFullText("Her words to copy.")
@@ -1272,13 +1272,13 @@ final class AdmissionPermitTests: XCTestCase {
         project.documentStore = documentStore
 
         let doc = try await project.addStructureItem(
-            parentId: nil, title: "New", kind: .document(extension: "md"))
+            parentId: nil, title: "New", kind: .document(.markdown))
         XCTAssertEqual(doc.startedBy, me)
         let group = try await project.addStructureItem(
             parentId: nil, title: "Part", kind: .group)
         XCTAssertNil(group.startedBy, "a group holds no text; nothing asks")
         let inside = try await project.addStructureItem(
-            parentId: group.id, title: "Inside", kind: .document(extension: "md"))
+            parentId: group.id, title: "Inside", kind: .document(.markdown))
         XCTAssertEqual(inside.startedBy, me)
 
         // Somebody else started the original; the copy is this Mac's.
@@ -1334,7 +1334,7 @@ final class AdmissionPermitTests: XCTestCase {
         let collection = try await ProjectFactory.createCollectionProject(
             named: "Collection", in: parent)
         let store = try await ProjectStore.load(from: collection)
-        let piece = try await store.addLoosePiece(title: "A Piece", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "A Piece", format: .markdown)
         XCTAssertEqual(piece.startedBy, me)
         let onDisk = try ProjectManifest.makeDecoder().decode(
             ProjectManifest.self,

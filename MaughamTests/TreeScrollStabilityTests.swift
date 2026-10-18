@@ -711,7 +711,7 @@ final class TreeScrollStabilityTests: XCTestCase {
             _ = try await store.addStructureItem(
                 parentId: nil,
                 title: "Chapter \(store.manifest.structure.count + 1)",
-                kind: .document(extension: "md"))
+                kind: .document(.markdown))
         }
         await store.wordCountPopulationTask?.value
         return store

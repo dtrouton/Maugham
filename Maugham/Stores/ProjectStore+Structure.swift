@@ -36,9 +36,9 @@ extension ProjectStore {
         let siblingNames = (try? fm.contentsOfDirectory(atPath: parentURL.path)) ?? []
         let filename: String
         switch kind {
-        case .document(let ext):
+        case .document(let format):
             filename = FileNaming.nextDocumentFilename(
-                title: title, extension: ext, siblingFilenames: siblingNames)
+                title: title, extension: format.fileExtension, siblingFilenames: siblingNames)
         case .group:
             filename = FileNaming.nextGroupFolderName(
                 title: title, siblingFilenames: siblingNames)

@@ -235,7 +235,7 @@ final class InspectorIntentAffordanceTests: XCTestCase {
         let documentStore = try await DocumentStore.open(url: url)
         store.documentStore = documentStore
         defer { Task { await documentStore.close() } }
-        let piece = try await store.addLoosePiece(title: "Story A", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Story A", format: .markdown)
 
         XCTAssertEqual(
             StatementPane.effectiveScope(

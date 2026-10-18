@@ -523,7 +523,7 @@ final class StatementAdoptionTests: XCTestCase {
         ]) { store, notes in
             let first = try XCTUnwrap(store.manifest.structure.first)
             second = try await store.addStructureItem(
-                parentId: nil, title: "Chapter 2", kind: .document(extension: "md"))
+                parentId: nil, title: "Chapter 2", kind: .document(.markdown))
             try await store.linkResearch(researchId: notes[0].id, toDocumentId: first.id)
             try await store.linkResearch(
                 researchId: notes[0].id, toDocumentId: try XCTUnwrap(second).id)
@@ -601,7 +601,7 @@ final class StatementAdoptionTests: XCTestCase {
             named: "PieceIntent", in: temp.url)
         let setup = try await ProjectStore.load(from: url)
         await setup.wordCountPopulationTask?.value
-        let piece = try await setup.addLoosePiece(title: "The Fall", mode: .prose)
+        let piece = try await setup.addLoosePiece(title: "The Fall", format: .markdown)
 
         let pieceNote = try await setup.addPieceResearchNote(
             pieceId: piece.id, title: PaletteConvention.craftIntentTitle)

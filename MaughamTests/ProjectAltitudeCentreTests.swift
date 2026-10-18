@@ -849,7 +849,7 @@ final class ProjectAltitudeCentreTests: XCTestCase {
             named: "Altitude-\(UUID().uuidString.prefix(6))", in: temp.url)
         let store = try await ProjectStore.load(from: url)
         _ = try await store.addStructureItem(
-            parentId: nil, title: "Chapter Two", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter Two", kind: .document(.markdown))
         try Self.seedOneSentencePerDocument(in: store)
         await store.wordCountPopulationTask?.value
         return store

@@ -394,7 +394,7 @@ final class TreeTravelRowMountingTests: XCTestCase {
 
     func test_thePieceRowStillMountsItsDragMachinery() async throws {
         let store = try await collection(named: "PieceDrag")
-        _ = try await store.addLoosePiece(title: "Drag Piece", mode: .prose)
+        _ = try await store.addLoosePiece(title: "Drag Piece", format: .markdown)
         let (_, _, table) = try await hostCollectionPieces(store: store)
         // `CollectionPiecesPane` carries the same Research/Palette sections
         // BinderView does: project, the piece, Research header, Research's

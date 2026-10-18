@@ -84,7 +84,7 @@ public enum ProjectFactory {
             in: parent,
             type: .novel,
             initialDocumentTitle: "Chapter 1",
-            initialDocumentExtension: "md",
+            initialDocumentFormat: .markdown,
             startedBy: await thisMacAsAStarter())
     }
 
@@ -98,7 +98,7 @@ public enum ProjectFactory {
             in: parent,
             type: .screenplay,
             initialDocumentTitle: "Scene 1",
-            initialDocumentExtension: "fountain",
+            initialDocumentFormat: .fountain,
             startedBy: await thisMacAsAStarter())
     }
 
@@ -165,7 +165,7 @@ public enum ProjectFactory {
         in parent: URL,
         type: ProjectType,
         initialDocumentTitle: String,
-        initialDocumentExtension: String,
+        initialDocumentFormat: DocumentFormat,
         startedBy starter: String
     ) async throws -> URL {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -189,7 +189,7 @@ public enum ProjectFactory {
 
             let filename = FileNaming.nextDocumentFilename(
                 title: initialDocumentTitle,
-                extension: initialDocumentExtension,
+                extension: initialDocumentFormat.fileExtension,
                 siblingFilenames: [])
             let docURL = projectURL.appendingPathComponent("manuscript/\(filename)")
             try Data().write(to: docURL)

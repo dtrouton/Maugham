@@ -1183,7 +1183,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
             named: "Board-\(UUID().uuidString.prefix(6))", in: temp.url)
         let store = try await ProjectStore.load(from: url)
         _ = try await store.addStructureItem(
-            parentId: nil, title: "Chapter Two", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter Two", kind: .document(.markdown))
         for item in TreeWalk.collect(in: store.manifest.structure,
                                      where: { $0.type == .document }) {
             guard let path = item.path else { continue }

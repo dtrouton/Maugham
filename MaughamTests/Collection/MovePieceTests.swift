@@ -10,9 +10,9 @@ final class MovePieceTests: XCTestCase {
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(named: "T", in: tmp)
         let store = try await ProjectStore.load(from: url)
-        let p1 = try await store.addLoosePiece(title: "Alpha", mode: .prose)
-        let p2 = try await store.addLoosePiece(title: "Beta", mode: .prose)
-        let p3 = try await store.addLoosePiece(title: "Gamma", mode: .prose)
+        let p1 = try await store.addLoosePiece(title: "Alpha", format: .markdown)
+        let p2 = try await store.addLoosePiece(title: "Beta", format: .markdown)
+        let p3 = try await store.addLoosePiece(title: "Gamma", format: .markdown)
         return (url, store, [p1, p2, p3])
     }
 

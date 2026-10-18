@@ -370,7 +370,7 @@ final class SubjectValidationTests: XCTestCase {
         let group = try await store.addStructureItem(
             parentId: nil, title: "Part One", kind: .group)
         let child = try await store.addStructureItem(
-            parentId: group.id, title: "Chapter A", kind: .document(extension: "md"))
+            parentId: group.id, title: "Chapter A", kind: .document(.markdown))
         let harness = SubjectValidationHarness(store: store, subject: .item(child.id))
         try await host(harness)
 
@@ -391,7 +391,7 @@ final class SubjectValidationTests: XCTestCase {
         let url = try await ProjectFactory.createCollectionProject(
             named: "Coll-\(UUID().uuidString.prefix(6))", in: temp.url)
         let store = try await ProjectStore.load(from: url)
-        let piece = try await store.addLoosePiece(title: "A Piece", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "A Piece", format: .markdown)
         let harness = SubjectValidationHarness(store: store, subject: .item(piece.id))
         try await host(harness)
 

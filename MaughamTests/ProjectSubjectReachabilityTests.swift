@@ -237,7 +237,7 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
     /// 2026-07-02 bug shipped.
     func test_aCollectionsTreeIsItsPiecesPane() async throws {
         let store = try await project(of: .collection)
-        _ = try await store.addLoosePiece(title: "Piece One", mode: .prose)
+        _ = try await store.addLoosePiece(title: "Piece One", format: .markdown)
         let (window, probe) = try await host(store: store, script: nil,
                                              persona: .plan)
         let table = try XCTUnwrap(firstTableView(in: window))

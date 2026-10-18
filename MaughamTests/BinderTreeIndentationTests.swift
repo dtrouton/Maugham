@@ -81,7 +81,7 @@ final class BinderTreeIndentationTests: XCTestCase {
     /// belong to the piece above them and have to look like it.
     func test_aCollectionPiecesFoldChildSitsRightOfThePieceRow() async throws {
         let store = try await collection()
-        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
         let note = try await store.addPieceResearchNote(
             pieceId: piece.id, title: "Alpha's Note")
 
@@ -129,7 +129,7 @@ final class BinderTreeIndentationTests: XCTestCase {
     /// the tree may flatten on the way down.
     func test_aGroupInsideAPiecesFoldStepsRightAgain() async throws {
         let store = try await collection()
-        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
         let group = try await store.addResearchItem(
             parentId: nil, title: "Sources", kind: nil)
         let child = try await store.addResearchTextNote(
@@ -164,9 +164,9 @@ final class BinderTreeIndentationTests: XCTestCase {
     /// that have no triangle, which would break exactly this.
     func test_aPieceWithAFoldAndOneWithoutStartAtTheSameX() async throws {
         let store = try await collection()
-        let alpha = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let alpha = try await store.addLoosePiece(title: "Alpha", format: .markdown)
         _ = try await store.addPieceResearchNote(pieceId: alpha.id, title: "Alpha's Note")
-        let bravo = try await store.addLoosePiece(title: "Bravo", mode: .prose)
+        let bravo = try await store.addLoosePiece(title: "Bravo", format: .markdown)
 
         let (window, probe) = try await hostCollection(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
@@ -200,7 +200,7 @@ final class BinderTreeIndentationTests: XCTestCase {
         let store = try await novel()
         let linked = try XCTUnwrap(store.manifest.structure.first)
         let plain = try await store.addStructureItem(
-            parentId: nil, title: "Chapter Two", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter Two", kind: .document(.markdown))
         let note = try await store.addResearchTextNote(parentId: nil, title: "Tides")
         try await store.linkResearch(researchId: note.id, toDocumentId: linked.id)
 
@@ -234,7 +234,7 @@ final class BinderTreeIndentationTests: XCTestCase {
         let inner = try await store.addStructureItem(
             parentId: outer.id, title: "Inner", kind: .group)
         let leaf = try await store.addStructureItem(
-            parentId: inner.id, title: "Deep Chapter", kind: .document(extension: "md"))
+            parentId: inner.id, title: "Deep Chapter", kind: .document(.markdown))
 
         let (window, probe) = try await hostBinder(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))
@@ -266,7 +266,7 @@ final class BinderTreeIndentationTests: XCTestCase {
     /// tests above would all pass with the inset deleted outright.
     func test_theTopLevelIsInsetUnderTheProjectRow() async throws {
         let store = try await collection()
-        let piece = try await store.addLoosePiece(title: "Alpha", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
 
         let (window, probe) = try await hostCollection(store: store)
         let outline = try XCTUnwrap(outlineView(in: window))

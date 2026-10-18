@@ -23,7 +23,7 @@ final class MoveResearchItemToolTests: XCTestCase {
         let store = try await ProjectStore.load(from: url)
         let ds = try await DocumentStore.open(url: url)
         store.documentStore = ds
-        let piece = try await store.addLoosePiece(title: "Story A", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Story A", format: .markdown)
         let registry = ProjectRegistry()
         registry.register(url: url, store: store)
         let projectId = ProjectIdentifier.id(for: url)

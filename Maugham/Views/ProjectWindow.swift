@@ -994,7 +994,7 @@ struct ProjectWindow: View {
                     Task {
                         guard await StartAPieceDoor.admits(store: store) else { return }
                         let piece = try? await store.addLoosePiece(
-                            title: "Untitled Piece", mode: .prose)
+                            title: "Untitled Piece", format: .markdown)
                         if let piece {
                             selectedSubject = .item(piece.id)
                             pendingPieceRenameId = piece.id
@@ -1006,7 +1006,7 @@ struct ProjectWindow: View {
                     Task {
                         guard await StartAPieceDoor.admits(store: store) else { return }
                         let piece = try? await store.addLoosePiece(
-                            title: "Untitled Screenplay", mode: .screenplay)
+                            title: "Untitled Screenplay", format: .fountain)
                         if let piece {
                             selectedSubject = .item(piece.id)
                             pendingPieceRenameId = piece.id

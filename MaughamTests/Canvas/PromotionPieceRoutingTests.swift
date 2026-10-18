@@ -85,7 +85,7 @@ final class PromotionPieceRoutingTests: XCTestCase {
         let ds = try await DocumentStore.open(url: url)
         store.documentStore = ds
         documentStores.append(ds)
-        let piece = try await store.addLoosePiece(title: "Story A", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Story A", format: .markdown)
         return (url, store, piece)
     }
 

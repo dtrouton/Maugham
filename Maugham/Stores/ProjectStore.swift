@@ -13,7 +13,7 @@ internal let projectStoreLog = Logger(
     category: "ProjectStore")
 
 public enum StructureItemKind: Equatable, Sendable {
-    case document(extension: String)  // "md" or "fountain"
+    case document(DocumentFormat)
     case group
 }
 

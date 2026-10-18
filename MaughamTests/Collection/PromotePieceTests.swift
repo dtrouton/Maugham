@@ -5,7 +5,7 @@ import MaughamCore
 @MainActor
 final class PromotePieceTests: XCTestCase {
     private func makeCollectionWithPiece(
-        mode: PieceMode
+        format: DocumentFormat
     ) async throws -> (collection: URL, store: ProjectStore, piece: StructureItem) {
         let tmp = TestTemp.root
             .appendingPathComponent("PP-\(UUID())")
@@ -13,12 +13,12 @@ final class PromotePieceTests: XCTestCase {
         let collectionURL = try await ProjectFactory.createCollectionProject(
             named: "Anthology", in: tmp)
         let store = try await ProjectStore.load(from: collectionURL)
-        let piece = try await store.addLoosePiece(title: "Story A", mode: mode)
+        let piece = try await store.addLoosePiece(title: "Story A", format: format)
         return (collectionURL, store, piece)
     }
 
     func test_promote_prose_createsShortStoryProject() async throws {
-        let (collection, store, piece) = try await makeCollectionWithPiece(mode: .prose)
+        let (collection, store, piece) = try await makeCollectionWithPiece(format: .markdown)
         let destination = collection.deletingLastPathComponent()
             .appendingPathComponent("Promoted Story A")
 
@@ -39,7 +39,7 @@ final class PromotePieceTests: XCTestCase {
     }
 
     func test_promote_screenplay_createsScreenplayProject() async throws {
-        let (collection, store, piece) = try await makeCollectionWithPiece(mode: .screenplay)
+        let (collection, store, piece) = try await makeCollectionWithPiece(format: .fountain)
         let destination = collection.deletingLastPathComponent()
             .appendingPathComponent("Promoted Screenplay")
 
@@ -50,8 +50,33 @@ final class PromotePieceTests: XCTestCase {
         XCTAssertEqual(newStore.manifest.type, .screenplay)
     }
 
+    /// **A hand-imported `Piece.FOUNTAIN` promotes to a screenplay** (plan 7,
+    /// declared exception 1). The op log already parses an upper-case
+    /// `.FOUNTAIN` as Fountain; the promotion asks the same
+    /// `DocumentFormat.ofManuscript(path:)` question, so the case of the
+    /// extension no longer decides the promoted kind.
+    func test_promote_upperCaseFountainMainDoc_createsScreenplayProject() async throws {
+        let (collection, store, piece) = try await makeCollectionWithPiece(format: .markdown)
+        let oldPath = try XCTUnwrap(piece.path)
+        let newPath = ((oldPath as NSString).deletingLastPathComponent as NSString)
+            .appendingPathComponent("Piece.FOUNTAIN")
+        try FileManager.default.moveItem(
+            at: collection.appendingPathComponent(oldPath),
+            to: collection.appendingPathComponent(newPath))
+        let index = try XCTUnwrap(store.manifest.structure.firstIndex { $0.id == piece.id })
+        store.manifest.structure[index].path = newPath
+
+        let destination = collection.deletingLastPathComponent()
+            .appendingPathComponent("Promoted Upper Fountain")
+        let newProjectURL = try await store.promotePieceToProject(
+            pieceId: piece.id, destination: destination)
+
+        let newStore = try await ProjectStore.load(from: newProjectURL)
+        XCTAssertEqual(newStore.manifest.type, .screenplay)
+    }
+
     func test_promote_referenceFails() async throws {
-        let (collection, store, _) = try await makeCollectionWithPiece(mode: .prose)
+        let (collection, store, _) = try await makeCollectionWithPiece(format: .markdown)
         // Make a reference to test against
         let tmp = collection.deletingLastPathComponent()
         let other = try await ProjectFactory.createShortStoryProject(
@@ -78,7 +103,7 @@ final class PromotePieceTests: XCTestCase {
     /// stays behind in a project whose piece is now a reference, reachable from
     /// nothing.
     func test_aPromotedPieceCarriesItsIntent() async throws {
-        let (collection, store, piece) = try await makeCollectionWithPiece(mode: .prose)
+        let (collection, store, piece) = try await makeCollectionWithPiece(format: .markdown)
         let statement = try await store.createStatement(
             kind: .intent, scope: .document(piece.id))
         let intentDocument = try await Document.load(
@@ -133,7 +158,7 @@ final class PromotePieceTests: XCTestCase {
     /// The control for the test above: a piece with no intent promotes to a
     /// project with no statements, and nothing is invented on the way.
     func test_aPromotedPieceWithNoIntentGetsNone() async throws {
-        let (collection, store, piece) = try await makeCollectionWithPiece(mode: .prose)
+        let (collection, store, piece) = try await makeCollectionWithPiece(format: .markdown)
         let destination = collection.deletingLastPathComponent()
             .appendingPathComponent("Promoted Without Intent")
 
@@ -167,7 +192,7 @@ final class PromotePieceTests: XCTestCase {
     }
 
     private func makeWorldWorthLosing() async throws -> PromotableWorld {
-        let (collection, store, piece) = try await makeCollectionWithPiece(mode: .prose)
+        let (collection, store, piece) = try await makeCollectionWithPiece(format: .markdown)
 
         // The manuscript itself.
         let docPath = try XCTUnwrap(piece.path)
@@ -457,7 +482,7 @@ final class PromotePieceTests: XCTestCase {
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         let url = try await ProjectFactory.createCollectionProject(named: "C", in: parent)
         let store = try await ProjectStore.load(from: url)
-        let piece = try await store.addLoosePiece(title: "Story A", mode: .prose)
+        let piece = try await store.addLoosePiece(title: "Story A", format: .markdown)
         let note = try await store.addPieceResearchNote(pieceId: piece.id, title: "Carried")
 
         let dest = parent.appendingPathComponent("StoryA")
@@ -484,7 +509,7 @@ final class PromotePieceTests: XCTestCase {
     /// but dropped which passes they had finished would be a silent loss of
     /// exactly the record the Review board is about.
     func test_aPromotedPieceCarriesItsStatusAndItsPassStates() async throws {
-        let (collection, store, piece) = try await makeCollectionWithPiece(mode: .prose)
+        let (collection, store, piece) = try await makeCollectionWithPiece(format: .markdown)
         // `status` is legacy-read-only as of M3 P1 Task 4 (no store verb
         // writes it any more), so the fixture seeds it directly — the CARRY is
         // what this test is about, and a project written by an older build
@@ -516,7 +541,7 @@ final class PromotePieceTests: XCTestCase {
     /// the board would draw a stale finished-Structural cell against a project
     /// whose real state lives in its own manifest.
     func test_convertingToAReferenceClearsPassStatesBesideStatus() async throws {
-        let (collection, store, piece) = try await makeCollectionWithPiece(mode: .prose)
+        let (collection, store, piece) = try await makeCollectionWithPiece(format: .markdown)
         // `status` is legacy-read-only as of M3 P1 Task 4 (no store verb
         // writes it any more), so the fixture seeds it directly — the CARRY is
         // what this test is about, and a project written by an older build

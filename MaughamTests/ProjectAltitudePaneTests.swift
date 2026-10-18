@@ -100,9 +100,9 @@ final class ProjectAltitudePaneTests: XCTestCase {
         let group = try await store.addStructureItem(
             parentId: nil, title: "Part One", kind: .group)
         _ = try await store.addStructureItem(
-            parentId: group.id, title: "Chapter 2", kind: .document(extension: "md"))
+            parentId: group.id, title: "Chapter 2", kind: .document(.markdown))
         _ = try await store.addStructureItem(
-            parentId: nil, title: "Chapter 3", kind: .document(extension: "md"))
+            parentId: nil, title: "Chapter 3", kind: .document(.markdown))
 
         let window = try await hostPane(store: store, layout: .table, title: "Derivation")
         let table = try await pumpUntilTableFound(in: window, expectingAtLeast: 3)
@@ -127,7 +127,7 @@ final class ProjectAltitudePaneTests: XCTestCase {
         let store = try await novel(named: "Corkboard")
         for title in ["Chapter 2", "Chapter 3", "Chapter 4"] {
             _ = try await store.addStructureItem(
-                parentId: nil, title: title, kind: .document(extension: "md"))
+                parentId: nil, title: title, kind: .document(.markdown))
         }
         let documentCount = TreeWalk.collect(
             in: store.manifest.structure, where: { $0.type == .document }).count

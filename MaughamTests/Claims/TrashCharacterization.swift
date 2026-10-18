@@ -1098,7 +1098,7 @@ final class TrashCharacterization: XCTestCase {
         // The writer replaces it: same title, same freed filename.
         try write("a fresh start", at: "manuscript/01-act-one/01-chapter-1.md", in: url)
         _ = try await store.addStructureItem(
-            parentId: "grp-act1", title: "Chapter 1", kind: .document(extension: "md"))
+            parentId: "grp-act1", title: "Chapter 1", kind: .document(.markdown))
 
         let report = try await store.restoreLastDeletion()
 
