@@ -464,6 +464,16 @@ What this is not:
   locks nothing by itself — what somebody may write is the permission you gave
   them here.
 
+**Sharing the book with someone.** To give another person the project folder,
+choose **File → Share Project via iCloud…**. The project has to be in iCloud
+Drive for this; if it isn't, Maugham tells you so: *"To share it, this project
+needs to be in iCloud Drive. Move the project folder to iCloud Drive, then use
+Share → Collaborate. What each person may change is set in People & Devices."*
+Once it's shared, a small **Shared** mark appears in the window — *Shared by
+<name>* on the other person's Mac. Sharing only hands over the folder, read-only
+or read-write as you choose in the share sheet. What they may *write* in the
+book is decided here, when their Mac first asks to be let in.
+
 ## Starting a piece of your own
 
 An **author of some pieces** can add a piece to the book — **New Document**,

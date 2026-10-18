@@ -25,7 +25,7 @@ The ones you'll use most:
 | `⌘⌥A` | Show Annotations pane |
 | `⌘⌥C` | Translator's Note… — a directive on the paragraph under the caret, into the piece's craft intent (every edition) or one edition's brief |
 | `⌘⌥Z` | Restore last deletion |
-| `⌘\\` | Toggle focus mode (on the canvas, also collapses both side columns) |
+| `⌘\` | Toggle focus mode (on the canvas, also collapses both side columns) |
 | `⌘⇧F` | Toggle full-screen focus (turns focus mode on, so the canvas collapses too) |
 | `⌘1` | Plan persona |
 | `⌘2` | Author persona |
@@ -50,6 +50,7 @@ The ones you'll use most:
 | `⌘⌥0` | Toggle inspector column |
 | `⌘⇧P` | Toggle Research preview |
 | `⌘/` | Syntax + keyboard reference |
+| `⌘?` | Maugham Help — this guide |
 
 **Two different things are called "review", and only the shortcut tells them apart.** `⌘3` is the **Review persona** — a window layout that leads with the Annotations pane. `⌘⌥⇧R` is **Toggle Review Mode** — a posture of the *editor* that makes your manuscript read-only and puts you in the reviewer's seat. They're independent: you can turn Review Mode on in any persona, and the Review persona doesn't turn it on for you.
 

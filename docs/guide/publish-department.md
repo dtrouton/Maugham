@@ -25,7 +25,9 @@ If Maugham can't read one of your chapters — a history file that's there
 but won't open, an iCloud download that hasn't finished — the Languages
 section names that chapter above the rows and says why, and the rest of
 the book's editions still show. What's missing is that chapter's share of
-the counts, not the whole desk.
+the counts, not the whole desk. If the book has no editions yet, that line
+is all the section says — not *No translations yet.*, which Maugham can't
+know while a chapter is unread.
 
 ### Which book the desk is about
 
@@ -331,6 +333,10 @@ typographic conventions for that language. The first click creates it; every
 click after opens the same one. Like the others, it carries its own
 **Rulings** section — dated, itemized decisions the translator is expected
 to honor exactly as written, not treat as a suggestion.
+
+Claude can read this brief too. When you ask it to translate from Claude
+Desktop, it can look up what you've already decided here, so a decision made
+once doesn't have to be made again.
 
 A **Proposed** mark on a language row means Claude has drafted a brief for
 that edition (through the `edition-brief` skill); open Edition Brief to see
