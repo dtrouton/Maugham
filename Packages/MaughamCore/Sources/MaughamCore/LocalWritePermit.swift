@@ -70,9 +70,9 @@ public struct LocalWritePermit: Equatable, Sendable {
     /// the starter's own permit does not author the piece (`TrustTable
     /// .starterAuthors` — false until *Theirs*, and for a starter this register
     /// cannot name yet), and no book author has written its text
-    /// (`OpLogStore.unownedPiece`). One keystroke there would set the
-    /// starter's words aside on every Mac (§4.5), so the Mac's posture door
-    /// YIELDS to the starter cooperatively — the root's *Edit Anyway*
+    /// (`LocalWritePermitBuilder.unownedPiece`). One keystroke there would
+    /// set the starter's words aside on every Mac (§4.5), so the Mac's
+    /// posture door YIELDS to the starter cooperatively — the root's *Edit Anyway*
     /// (plan 1's) is how a book author who means it claims the piece. It is a
     /// fact about the piece, and it is true whether or not this Mac has any
     /// of its ops — the manifest can sync before the `.md` and the op log.

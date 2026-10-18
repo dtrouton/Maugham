@@ -260,21 +260,15 @@ public final class OpLogStore {
         return (try? await trust()) != nil
     }
 
-    /// **The same builder, asked through ONE manifest read** (P3 plan 3 Task
-    /// 6) — the class and the starter both from `placement`, so a narrowed
-    /// book decodes its manifest once per ask rather than once per question,
-    /// and a book that never needs either decodes nothing. Every caller that
-    /// resolves both off a manifest comes here; a caller that CONSTRUCTS its
-    /// class (the translation pipeline's `.translation(piece:)`) keeps the
-    /// closure form below.
+    /// The same question through ONE manifest read — the class and the
+    /// starter both from `placement` (P3 plan 3 Task 6). Forwards to
+    /// `LocalWritePermitBuilder.permit(as:placement:table:in:)`, which carries
+    /// the rule.
     public func localWritePermit(
         as actor: DeviceActor = .author,
         placement: ManifestPlacement
     ) -> LocalWritePermit {
-        localWritePermit(
-            as: actor,
-            documentClass: { placement.documentClass },
-            startedBy: { placement.startedBy(ofPiece: $0) })
+        LocalWritePermitBuilder.permit(as: actor, placement: placement, table: registerTable(), in: projectURL)
     }
 
     /// **May this device's own hand write here, and what?** — the ONE question
@@ -294,98 +288,19 @@ public final class OpLogStore {
     /// no events, so the answer is *yes* — and the caller that goes on to READ
     /// will meet the same refusal through its own door with its own sentence.
     ///
-    /// `documentClass` is a CLOSURE because resolving one means decoding a
-    /// manifest, and the neutral case never needs it: a permit that covers the
-    /// whole book answers `.yes` in the hardest class there is, so the closure
-    /// is not called at all. `PermitPartition`'s `unowned` is the same shape
-    /// for the same reason.
-    ///
-    /// **And who started the piece** (P3c plan 2, Option A). In a book in
-    /// which somebody is narrowed, a piece's recorded starter decides two
-    /// things: which Mac mints its opening (`LocalWritePermit.startedHere`,
-    /// OA-1/OA-2), and whether an author of some pieces may write it before
-    /// the root has said whose it is (`writesAsItsStarter`, OA-3). `startedBy`
-    /// answers the starter for a piece id; nil reads it off the manifest on
-    /// disk, and a caller holding a live manifest passes its own. It is asked
-    /// only in a narrowed book and only for a piece, so a book that has
-    /// narrowed nobody — every book on disk before P3 — pays for none of it
-    /// and answers exactly as before.
+    /// **Synchronous, and that is load-bearing**: the table is resolved here,
+    /// on this actor (`registerTable` → `trustOnThisActor`), because a
+    /// suspension point added to `Document.load` is a behaviour change on
+    /// every open. The permit itself — the class closure, the starter rule
+    /// (Option A) and `startedBy`'s default disk read — is
+    /// `LocalWritePermitBuilder.permit`'s; this forwards to it (CLAUDE.md
+    /// tripwire 46).
     public func localWritePermit(
         as actor: DeviceActor = .author,
         documentClass: () -> DocumentClass,
         startedBy: ((String) -> String?)? = nil
     ) -> LocalWritePermit {
-        // **A project that has never had a register pays nothing at all** — not
-        // a folder read, not a verify, not a question. The test is
-        // `verifiedRegistry`'s own first one, asked through its own spelling:
-        // the FOLDER or this device's MEMORY of one, because a register deleted
-        // wholesale is restored from that memory and treating its absence as
-        // *no register* would make deleting one an escape from a demotion.
-        let table = registerTable()
-        let permit = table.map(\.myTimeline.current) ?? .bookAuthor
-        guard let table, table.hasNarrowingPermits else {
-            if LocalWritePermit.answersWithoutTheClass(permit, as: actor) {
-                return LocalWritePermit(permit: permit, actor: actor, documentClass: nil)
-            }
-            return LocalWritePermit(
-                permit: permit, actor: actor, documentClass: documentClass())
-        }
-        // **A narrowed book: the starter rule binds** — the root's Mac too
-        // (OA-2), which is why the class is resolved here even under a permit
-        // that could otherwise skip it: the piece id is what the starter is
-        // recorded against.
-        let cls = documentClass()
-        guard let piece = cls.piece, case .piece = cls,
-              let starterId = (startedBy ?? { [projectURL] in
-                  OpLogStore.startedBy(ofPiece: $0, in: projectURL)
-              })(piece)
-        else {
-            return LocalWritePermit(permit: permit, actor: actor, documentClass: cls)
-        }
-        // **A starter that is GONE binds nothing** (Rulings L (b), M, N): a
-        // device the register shows revoked or retired will never mint this
-        // piece's opening, so today's rule applies and the piece is not left
-        // unopenable. Every other starter — unknown, a stranger, another
-        // root's member, a Mac on no chain — binds: this Mac waits.
-        guard table.starterStanding(starterId) != .gone else {
-            return LocalWritePermit(permit: permit, actor: actor, documentClass: cls)
-        }
-        let starter = table.starter(ofPieceStartedBy: starterId)
-        // **Option A's arm** — the same three facts the partition's own arm
-        // asks (`PermitPartition.appliesOnItsWritersOwnMac`), on the write
-        // side: her own device started it, it was not taken from her, and no
-        // book author has written a word of it. `unownedPiece` classifies the
-        // document's files, so it is asked last and only where the permit
-        // layer's §4.5 shape already holds for her words.
-        let mine = starter != .somebodyElse
-            && permit.startsAPieceNobodyHasClaimed(
-                .op(.typingBurst), in: cls, actor: actor)
-            && !table.myTimeline.wasTakenFromThem(piece: piece)
-            && OpLogStore.unownedPiece(
-                forDocId: piece, in: projectURL, trust: table, startedBy: starterId)
-                == .nobodyHasWrittenItsText
-        // **The same fact from the other side** (fix wave, Ruling U): a book
-        // author's hand in a piece somebody else started and nobody has
-        // claimed. Her arm and this one cannot both hold (hers needs a starter
-        // that is not somebody else), and the cheap questions come first:
-        // `unownedPiece` classifies the document's files and is asked last.
-        let unsettled: LocalWritePermit.UnsettledStarter?
-        if starter == .somebodyElse,
-           permit.claimsAPieceByWritingItsText(actor: actor),
-           !table.starterAuthors(starterId, cls),
-           OpLogStore.unownedPiece(
-               forDocId: piece, in: projectURL, trust: table, startedBy: starterId)
-               == .nobodyHasWrittenItsText {
-            unsettled = .init(
-                deviceId: starterId,
-                name: table.label(forDeviceSlug: DeviceSlug.make(from: starterId).raw))
-        } else {
-            unsettled = nil
-        }
-        return LocalWritePermit(
-            permit: permit, actor: actor, documentClass: cls,
-            startedHere: starter == .thisDevice, writesAsItsStarter: mine,
-            unsettledStarter: unsettled)
+        LocalWritePermitBuilder.permit(as: actor, documentClass: documentClass, startedBy: startedBy, table: registerTable(), in: projectURL)
     }
 
     /// **The verified table, or nil where this project has never had a
@@ -428,31 +343,13 @@ public final class OpLogStore {
     /// annotation-cache rebuild would be a folder read and a P256 verify per
     /// record on a keystroke-adjacent path.
     ///
-    /// A project with no register answers `honourEverything`, which is the
-    /// pre-P3a behaviour exactly.
-    /// `permits` is what the LOAD collected — the permit each amendment line
-    /// was judged under, as of that line (`AmendmentPermits`). Empty is the
-    /// honest answer for a book with no events and for a caller that did not
-    /// ask, and an amendment with no entry falls back to the signer's current
-    /// permit, which is what those cases mean.
-    ///
-    /// **It takes the CARRIER, not one of its products** (P3b Task 2). The
-    /// partition fills two maps now — the permit each amendment line was
-    /// written under, and which lines the unsigned door found inside the
-    /// book's photograph — and a door that took one of them by value is a door
-    /// the next product has to be remembered at. `AmendmentPermits` is what
-    /// travels through `PermitContext`; this reads it whole.
+    /// Built by `LocalWritePermitBuilder.annotationAmendments`, which carries
+    /// the rule; `registerTable` is the table, as for `localWritePermit`.
     public func annotationAmendments(
         from amendments: AmendmentPermits? = nil,
         documentClass: @escaping @Sendable () -> DocumentClass
     ) -> AnnotationAmendments {
-        guard let table = registerTable() else { return .honourEverything }
-        return .judged(
-            by: table,
-            permits: amendments?.resolved ?? [:],
-            insideTheUnsignedSnapshot:
-                amendments?.resolvedInsideTheUnsignedSnapshot ?? [],
-            class: documentClass)
+        LocalWritePermitBuilder.annotationAmendments(table: registerTable(), from: amendments, documentClass: documentClass)
     }
 
     /// Lines this device has appended to each file since that file's last seal.
@@ -883,9 +780,10 @@ public final class OpLogStore {
     /// The coordinated read of one op-log file's exact bytes. Nil when the file
     /// is not there (which is not a failure); a throw when it is there and
     /// cannot be read (RULING-54: unreadable-yet-present is never empty).
-    // `internal` rather than `private` since P3a Task 5: `unownedPiece`'s
-    // second pass reads the document's other files through the same door, so
-    // the coordination policy stays one decision.
+    // `internal` rather than `private` since P3a Task 5:
+    // `LocalWritePermitBuilder.unownedPiece`'s second pass reads the
+    // document's other files through the same door, so the coordination
+    // policy stays one decision.
     nonisolated static func readCoordinated(
         url: URL, presenter: NSFilePresenter?
     ) throws -> Data? {

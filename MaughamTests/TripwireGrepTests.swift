@@ -9374,11 +9374,16 @@ final class TripwireGrepTests: XCTestCase {
     /// `LocalWritePermit(permit: .bookAuthor, …)`, which never refuses.
     static let localWritePermitPatterns = ["LocalWritePermit(", "func localWritePermit("]
 
-    /// `OpLogStore.swift` mints it (the one function); `LocalWritePermit.swift`
-    /// is its own file and holds the `.unrestricted` value every keyless reader
-    /// and every P1/P2-era test path gets.
+    /// `OpLogStore` declares the one function (the door, never throwing and
+    /// never suspending); `LocalWritePermitBuilder` mints the value behind it
+    /// and declares no door of its own (foundations plan 6 moved the
+    /// construction out of the store, so the store is no longer allowed to
+    /// spell one); `LocalWritePermit.swift` is its own file and holds the
+    /// `.unrestricted` value every keyless reader and every P1/P2-era test
+    /// path gets.
     static let localWritePermitAllowed: [String: Set<String>] = [
-        "type:OpLogStore": ["LocalWritePermit(", "func localWritePermit("],
+        "type:OpLogStore": ["func localWritePermit("],
+        "type:LocalWritePermitBuilder": ["LocalWritePermit("],
         "LocalWritePermit.swift": ["LocalWritePermit("],
     ]
 
@@ -9399,13 +9404,13 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     /// **The two whole-type allowances (over `OpLogClassifier` and
-    /// `OpLogStore`), bounded by count.**
+    /// `LocalWritePermitBuilder`), bounded by count.**
     ///
     /// `trustClosureAllowedSpellings` and `localWritePermitAllowed` key the
-    /// classifier and the store by TYPE, so the allowance reaches every file declaring it —
-    /// `OpLogPermitContext.swift` and, notably, `OpLogStore+Testing.swift`, a
-    /// testing seam compiled into production Core and the natural home for a
-    /// "testing" hand-built `LocalWritePermit(`. The allow-list cannot tell a
+    /// classifier and the permit builder by TYPE, so the allowance reaches
+    /// every file declaring it — an `extension LocalWritePermitBuilder` in a
+    /// testing seam compiled into production Core would be the natural home
+    /// for a "testing" hand-built `LocalWritePermit(`. The allow-list cannot tell a
     /// sanctioned site moved within the type from a NEW one; the count can. A
     /// site added anywhere in the type fails here, and only a move passes.
     ///
@@ -9413,12 +9418,14 @@ final class TripwireGrepTests: XCTestCase {
     ///   `OpLogClassifier.walk`'s no-table arm, the one verify walk the live
     ///   tail, the unsettled segment and `verificationForPositions` share
     ///   (tripwire 39's doc on the allow-list).
-    /// - `LocalWritePermit(` — `localWritePermit(as:documentClass:)`'s
-    ///   construction sites inside the store, plus `LocalWritePermit.swift`'s
-    ///   own `.unrestricted` value.
+    /// - `LocalWritePermit(` — the five construction sites of
+    ///   `LocalWritePermitBuilder.permit`, the body behind
+    ///   `OpLogStore.localWritePermit(as:documentClass:)` (foundations plan 6
+    ///   moved all five out of the store), plus `LocalWritePermit.swift`'s own
+    ///   `.unrestricted` value.
     static let typeAllowanceBounds: [String: [String: Int]] = [
         "trusted: { _ in false }": ["type:OpLogClassifier": 1],
-        "LocalWritePermit(": ["type:OpLogStore": 5, "LocalWritePermit.swift": 1],
+        "LocalWritePermit(": ["type:LocalWritePermitBuilder": 5, "LocalWritePermit.swift": 1],
     ]
 
     func test_theTypeKeyedOpLogStoreAllowancesAreBoundedByCount() throws {
@@ -9875,15 +9882,56 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: write.appendingPathComponent("AHandBuiltPermit.swift"),
                   atomically: true, encoding: .utf8)
 
-        let writeHits = Self.dropping(unplanted: ["type:OpLogStore"], from: try grepSwift(
-            in: [write],
-            patterns: Self.localWritePermitPatterns,
-            allowedSpellings: Self.localWritePermitAllowed,
-            excludeLine: Self.admissionExcludeLine))
+        let writeHits = Self.dropping(
+            unplanted: ["type:OpLogStore", "type:LocalWritePermitBuilder"],
+            from: try grepSwift(
+                in: [write],
+                patterns: Self.localWritePermitPatterns,
+                allowedSpellings: Self.localWritePermitAllowed,
+                excludeLine: Self.admissionExcludeLine))
         XCTAssertEqual(writeHits.count, 1,
             "Self-check: the fabricated permit is caught and the ASK of the one "
             + "function is not. Caught:\n" + writeHits.joined(separator: "\n"))
         XCTAssertTrue(writeHits.contains(where: { $0.contains("let permit") }))
+
+        // -- 4b. The type keys are per declaration and per spelling
+        // (foundations plan 6): the builder may mint and may not open a second
+        // door; the store may declare the door and may no longer mint; a
+        // lookalike type is admitted nothing.
+        let keyed = tmp.appendingPathComponent("write-keyed")
+        try fm.createDirectory(at: keyed, withIntermediateDirectories: true)
+        let builderFile = keyed.appendingPathComponent("LocalWritePermitBuilder.swift")
+        try """
+        static func permit() -> LocalWritePermit { LocalWritePermit(permit: p, actor: a, documentClass: nil) }
+        public func localWritePermit(as actor: DeviceActor) -> LocalWritePermit { fatalError() }
+        """.write(to: builderFile, atomically: true, encoding: .utf8)
+        try Self.declare("LocalWritePermitBuilder", in: builderFile)
+        let storeFile = keyed.appendingPathComponent("OpLogStore.swift")
+        try """
+        public func localWritePermit(as actor: DeviceActor) -> LocalWritePermit { door() }
+        func minted() -> LocalWritePermit { LocalWritePermit(permit: p, actor: a, documentClass: nil) }
+        """.write(to: storeFile, atomically: true, encoding: .utf8)
+        try Self.declare("OpLogStore", in: storeFile)
+        let shadowFile = keyed.appendingPathComponent("LocalWritePermitBuilderShadow.swift")
+        try """
+        func shadow() -> LocalWritePermit { LocalWritePermit(permit: p, actor: a, documentClass: nil) }
+        """.write(to: shadowFile, atomically: true, encoding: .utf8)
+        try Self.declare("LocalWritePermitBuilderShadow", in: shadowFile)
+        let keyedHits = try grepSwift(
+            in: [keyed],
+            patterns: Self.localWritePermitPatterns,
+            allowedSpellings: Self.localWritePermitAllowed,
+            excludeLine: Self.admissionExcludeLine)
+        XCTAssertEqual(keyedHits.count, 3,
+            "Self-check: the builder's second door, the store's own mint and the "
+            + "lookalike's mint are caught; the builder's mint and the store's "
+            + "door are not. Caught:\n" + keyedHits.joined(separator: "\n"))
+        XCTAssertTrue(keyedHits.contains(where: {
+            $0.contains("LocalWritePermitBuilder.swift") && $0.contains("func localWritePermit(") }))
+        XCTAssertTrue(keyedHits.contains(where: {
+            $0.contains("OpLogStore.swift") && $0.contains("func minted") }))
+        XCTAssertTrue(keyedHits.contains(where: {
+            $0.contains("LocalWritePermitBuilderShadow.swift") }))
 
         let rungHits = try grepSwift(
             in: [write],
@@ -10048,8 +10096,10 @@ final class TripwireGrepTests: XCTestCase {
         "type:RegistryAdmission": ["PermitTimeline.narrows("],
         // The carrier and its readers name the per-LINE fact, never the type.
         "AnnotationOwnership.swift": ["insideTheUnsignedSnapshot"],
-        // The store reads the carrier's resolved set (`OpLogStore.swift`)…
-        "type:OpLogStore": [
+        // The permit builder reads the carrier's resolved set
+        // (`LocalWritePermitBuilder.annotationAmendments`, moved out of the
+        // store by foundations plan 6)…
+        "type:LocalWritePermitBuilder": [
             "insideTheUnsignedSnapshot", "InsideTheUnsignedSnapshot",
         ],
         // …and the carrier itself, `AmendmentPermits`, records and resolves
@@ -10353,7 +10403,7 @@ final class TripwireGrepTests: XCTestCase {
         // The planted tree declares none of the allow-list's `type:` keys, so
         // they are (correctly) unresolved; this control is about the spellings.
         XCTAssertEqual(
-            Self.dropping(unplanted: ["type:RegistryAdmission", "type:OpLogStore", "type:AmendmentPermits", "type:DocumentStore"], from: try grepSwift(
+            Self.dropping(unplanted: ["type:RegistryAdmission", "type:LocalWritePermitBuilder", "type:AmendmentPermits", "type:DocumentStore"], from: try grepSwift(
                 in: [dir], patterns: Self.narrowingPatterns,
                 allowedSpellings: Self.narrowingAllowed,
                 excludeLine: Self.admissionExcludeLine)).count, 1,

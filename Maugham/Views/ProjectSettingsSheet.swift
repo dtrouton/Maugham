@@ -1154,11 +1154,11 @@ struct ProjectSettingsSheet: View {
 /// the one folder read behind People & Devices' waiting line, kept out of
 /// `PeopleAndDevicesModel`, which reads no folder.
 ///
-/// **Op-log file presence, not `OpLogStore.unownedPiece`.** The question is
-/// whether ANY opening is on disk, and presence is exactly the test the load
-/// asks before it refuses (`Document.load`'s `needsBootstrap`: no file for the
-/// doc id). `unownedPiece` answers a different question — *has a book author
-/// written this piece's text* — which is `.nobodyHasWrittenItsText` for a
+/// **Op-log file presence, not `LocalWritePermitBuilder.unownedPiece`.** The
+/// question is whether ANY opening is on disk, and presence is exactly the
+/// test the load asks before it refuses (`Document.load`'s `needsBootstrap`:
+/// no file for the doc id). `unownedPiece` answers a different question —
+/// *has a book author written this piece's text* — which is `.nobodyHasWrittenItsText` for a
 /// piece whose starter's opening HAS arrived as well as for one with no file
 /// at all, and it classifies every file it finds to say so.
 enum StrandedPieces {
