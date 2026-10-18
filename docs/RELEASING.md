@@ -166,7 +166,7 @@ release pipelines build identically and can't drift between releases:
     as a formula *name* and errors ("No available formula"). A direct
     checksum-verified download is the least-moving-parts way to freeze the version.
 
-**Action pins are verified at cut time.** Every `uses: owner/repo@<sha> # vX`
+**Action pins are verified on every CI run and again at cut time.** Every `uses: owner/repo@<sha> # vX`
 across `.github/workflows/*.yml` is SHA-pinned (supply-chain hygiene), but a SHA
 is opaque — nothing structurally guarantees it's the commit its `# vX` comment
 claims. `cut-release.sh` (and `cut-phone-release.sh`) now dereference each tag via
@@ -174,6 +174,10 @@ the GitHub API and abort the cut on any mismatch or any unpinned action. This is
 the fabricated-SHA guard (PR #1 history). Logic lives in
 `scripts/lib/verify-action-pins.sh`; unit-tested offline with a stubbed `gh` in
 `scripts/tests/verify-action-pins.test.sh` (`bash scripts/tests/verify-action-pins.test.sh`).
+CI's `action-pins` job (`.github/workflows/ci.yml`) runs the same unit test and
+`scan_and_verify_pins` on every push and PR, alongside the other jobs (#67 F15), so a
+bad pin turns a PR red before release. It gates a merge only if branch protection marks
+it required, and a PR that edits `ci.yml` can remove it, so review the workflow diff.
 Use `--skip-pin-check` only for an offline cut where you already trust the pins.
 
 > **The dry run IS the integration test for all of the above.** The pinned Xcode
