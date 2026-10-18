@@ -229,6 +229,60 @@ final class SourceTreeTests: XCTestCase {
             ["App/A.swift", "App/B.swift", "App/C.swift"])
     }
 
+    // Task 5's helpers: the window by type, bans and counts by directory, folds.
+    func test_windowSourceReadsEveryFileDeclaringTheWindow() throws {
+        try plant("Maugham/Views/ProjectWindow.swift", "struct ProjectWindow: View { let a = 1 }\n")
+        try plant("Maugham/Views/ProjectWindow+X.swift", "extension ProjectWindow {\n    // gone\n    func b() {}\n}\n")
+        try plant("Maugham/Views/Other.swift", "struct Other { func c() {} }\n")
+        let lines = try SourceTree.windowCodeLines(base: base)
+        XCTAssertTrue(lines.contains { $0.contains("let a = 1") })
+        XCTAssertTrue(lines.contains { $0.contains("func b()") })
+        XCTAssertFalse(lines.contains { $0.contains("gone") }, "comments are out")
+        XCTAssertFalse(lines.contains { $0.contains("func c()") }, "only the window's files")
+    }
+
+    func test_codeLinesContainingScansEachFileAndSkipsCommentsAndStrings() throws {
+        // An unclosed block opener in a string in one file must not hide the
+        // next file's offender: the scan is per file and masks strings.
+        try plant("Maugham/Views/A.swift", "let p = \".maugham/x/*\"\nlet s = \"banned()\" // banned()\n")
+        try plant("Maugham/Views/B.swift", "func f() { banned() }\n")
+        XCTAssertEqual(try SourceTree.codeLines(containing: "banned(", base: base),
+                       ["Maugham/Views/B.swift: func f() { banned() }"])
+        XCTAssertThrowsError(try SourceTree.codeLines(containing: "banned(", under: "Nowhere", base: base),
+                             "a ban over a missing root must fail, never pass empty")
+    }
+
+    func test_codeOccurrencesCountsCodeAtAWordBoundary() throws {
+        try plant("Maugham/Views/A.swift", """
+        // EditorHost( in a comment
+        let s = "EditorHost("
+        var a: some View { EditorHost(); StatementEditorHost(); EditorHost() }
+        var b: some View { content.focusedSceneValue(x) }
+        """)
+        try plant("Maugham/Views/B.swift", "var c: some View { EditorHost() }\n")
+        XCTAssertEqual(try SourceTree.codeOccurrences(of: "EditorHost(", base: base),
+                       ["Maugham/Views/A.swift": 2, "Maugham/Views/B.swift": 1])
+        XCTAssertEqual(try SourceTree.codeOccurrences(of: ".focusedSceneValue(", base: base),
+                       ["Maugham/Views/A.swift": 1],
+                       "a token opening with punctuation needs no boundary")
+        let empty = base.appendingPathComponent("Maugham/Empty", isDirectory: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        XCTAssertThrowsError(try SourceTree.codeOccurrences(of: "x", under: "Maugham/Empty", base: base),
+                             "a count over a Swift-less root must fail, never read zero")
+    }
+
+    func test_keyedByTypeFoldsTheTypesFilesAndThrowsOnAnUnresolvedKey() throws {
+        try plant("Maugham/Views/ProjectWindow.swift", "struct ProjectWindow {}\n")
+        try plant("Maugham/Views/ProjectWindow+X.swift", "extension ProjectWindow {}\n")
+        let roots = [base.appendingPathComponent("Maugham", isDirectory: true)]
+        XCTAssertEqual(
+            try SourceTree.keyedByType(["ProjectWindow+X.swift", "Other.swift"],
+                                       typeKeys: ["type:ProjectWindow"], in: roots),
+            ["type:ProjectWindow", "Other.swift"])
+        XCTAssertThrowsError(try SourceTree.keyedByType(["Other.swift"],
+                                                        typeKeys: ["type:NoSuchType"], in: roots))
+    }
+
     // (g)
     func test_findsProjectWindowInTheRealTree() throws {
         let files = try SourceTree.filesDeclaring("ProjectWindow", under: ["Maugham"])

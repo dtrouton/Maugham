@@ -238,7 +238,7 @@ final class TreeTrashDisclosureTests: XCTestCase {
                           "\(path): the disclosure must be handed the window's "
                           + "reporter, or a shortfall has nowhere to go")
         }
-        let window = try source("Maugham/Views/ProjectWindow.swift")
+        let window = try SourceTree.windowSource()
         XCTAssertEqual(
             window.components(separatedBy: "onRestoreOutcome: { restoreOutcome = $0 }")
                 .count - 1, 2,

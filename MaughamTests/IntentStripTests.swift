@@ -166,16 +166,20 @@ final class IntentStripTests: XCTestCase {
         XCTAssertTrue(strip.contains("statementText(of:"),
                       "the resolver stopped reading the statement's own text")
 
+        // Keyed by TYPE: every file declaring `ProjectWindow` answers as
+        // `type:ProjectWindow`, so a split of the window moves nothing here.
         let constructions = try productionSwiftFiles()
             .filter { $0.lastPathComponent != "IntentStrip.swift" }
-            .map { (try code(of: $0), $0.lastPathComponent) }
-            .filter { $0.0.contains("IntentStrip(") }
+            .filter { try code(of: $0).contains("IntentStrip(") }
+            .map(\.lastPathComponent)
         XCTAssertEqual(
-            constructions.map(\.1), ["ProjectWindow.swift"],
+            try SourceTree.keyedByType(constructions, typeKeys: ["type:ProjectWindow"],
+                                       in: [sourceDir]),
+            ["type:ProjectWindow"],
             "the strip is constructed somewhere new; that site must feed it "
             + "statement text too")
         XCTAssertTrue(
-            try XCTUnwrap(constructions.first).0.contains("IntentStrip.line("),
+            try SourceTree.windowCodeLines().contains { $0.contains("IntentStrip.line(") },
             "ProjectWindow builds the strip's line some other way than the one "
             + "resolver, so the statement-text path is no longer structural")
     }
@@ -592,8 +596,7 @@ final class IntentStripTests: XCTestCase {
     /// three files; delete the middle one and every assertion above still
     /// passes while no writer ever sees the mark.
     func test_theMarkIsWiredFromTheDecisionToTheOneMountingSite() throws {
-        let window = try code(
-            of: sourceDir.appendingPathComponent("Views/ProjectWindow.swift"))
+        let window = try SourceTree.windowCodeLines().joined(separator: "\n")
         XCTAssertTrue(
             window.contains("IntentDrift.mayTrailDraft("),
             "the window must ask the one decision rather than write a condition "

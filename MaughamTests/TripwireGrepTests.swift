@@ -7452,9 +7452,13 @@ final class TripwireGrepTests: XCTestCase {
     /// Comments are stripped first (`SourceScan.codeLines`), so a doc comment
     /// naming the call is not the call.
     func test_theTranslationRevealIsPostedByTheReportArmAndHandledByTheWindow() throws {
-        let source = try String(
-            contentsOf: sourceDir.appendingPathComponent("Views/ProjectWindow.swift"),
-            encoding: .utf8)
+        // By type and by symbol (foundations plan 2): the arm is read from
+        // every file declaring `ProjectWindow`, and the modifier — a struct of
+        // its own beside the window — from its one declaration, wherever a
+        // split puts it. Both lookups throw when they find nothing.
+        let source = try SourceTree.windowSource()
+        let modifier = try SourceTree.declaration(
+            named: "struct TranslationReviewModifier", under: "Maugham")
 
         XCTAssertTrue(Self.reportArmPostsTheReveal(in: source),
             "the round report's `onReveal` must call TranslationReveal.post — "
@@ -7463,7 +7467,7 @@ final class TripwireGrepTests: XCTestCase {
             + "belongs in the `case .translationRound(let round):` arm of "
             + "publishCentre's switch in ProjectWindow.body.")
 
-        XCTAssertTrue(Self.translationReviewModifierHandlesTheReveal(in: source),
+        XCTAssertTrue(Self.translationReviewModifierHandlesTheReveal(in: modifier),
             "TranslationReviewModifier must handle .maughamRevealTranslation — "
             + "it is the only thing in the window that knows which chapter is "
             + "open, so it is where the reveal's plan (.now vs .afterSelecting) "

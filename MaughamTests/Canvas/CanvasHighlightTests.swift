@@ -639,7 +639,7 @@ final class CanvasHighlightTests: XCTestCase {
                       + "whichever of the two moved, they have to move together")
 
         let window = CanvasSourceCensus.commentsStripped(
-            try CanvasSourceCensus.source(at: "Maugham/Views/ProjectWindow.swift"))
+            try SourceTree.windowSource())
         XCTAssertTrue(window.contains("selectTheProjectRow: { selectedSubject = .project }"),
                       "the canvas's way out of the dim does not write "
                       + "`.project` into the window's subject. §4.1: Escape IS the "

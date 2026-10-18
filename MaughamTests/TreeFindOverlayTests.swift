@@ -344,7 +344,7 @@ final class TreeFindOverlayTests: XCTestCase {
     /// — *does opening find move anything but find?* — and it is asked of the
     /// handler's own body rather than of a spelling.
     func test_theFindCommandsHandlerWritesNothingButTheOverlayFlag() throws {
-        let text = try source("Maugham/Views/ProjectWindow.swift")
+        let text = try SourceTree.windowSource()
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         let start = try XCTUnwrap(
             lines.firstIndex(where: { $0.contains("(.maughamFindInProject,") }),
@@ -365,7 +365,7 @@ final class TreeFindOverlayTests: XCTestCase {
     /// wrong spelling for any census to find — `⌘⌥F` would simply stop doing
     /// anything.
     func test_theCommandsHandlerOpensTheOverlay() throws {
-        let text = try source("Maugham/Views/ProjectWindow.swift")
+        let text = try SourceTree.windowSource()
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         let start = try XCTUnwrap(
             lines.firstIndex(where: { $0.contains("(.maughamFindInProject,") }),

@@ -439,7 +439,7 @@ final class CanvasBoundPieceTests: XCTestCase {
     /// the same table or they can disagree about whether a chapter still exists.
     func test_theInspectorsTitleLookupReadsTheSameTable() throws {
         let src = CanvasSourceCensus.commentsStripped(
-            try CanvasSourceCensus.source(at: "Maugham/Views/ProjectWindow.swift"))
+            try SourceTree.windowSource())
         XCTAssertTrue(src.contains("pieceTitle: { Self.canvasPieceTitles(in: store).title(of: $0) }"),
                       "the region inspector walks the structure on its own, so the "
                       + "canvas and the pane hold two answers to \"does this piece "

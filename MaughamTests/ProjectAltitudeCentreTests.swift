@@ -937,10 +937,7 @@ final class ProjectAltitudeCentreTests: XCTestCase {
     /// the host stays mounted in the placeholder branch it was already showing
     /// and altitude covers it.
     func test_theMountIsAZStackInsideTheEditorArmAndNotASixthArm() throws {
-        let source = try Self.source(of: "Views/ProjectWindow.swift")
-        let arm = try XCTUnwrap(
-            Self.declaration(named: "private func manuscriptEditor(", in: source),
-            "the editor arm must still be a member of its own")
+        let arm = try Self.editorArm()
 
         XCTAssertTrue(arm.contains("ZStack"),
                       "the two are layered, not chosen between")
@@ -974,10 +971,11 @@ final class ProjectAltitudeCentreTests: XCTestCase {
                       "…and the compiled book stays the LAST layer of the stack")
 
         XCTAssertEqual(
-            Self.occurrences(of: "manuscriptEditor(", in: source), 2,
+            try Self.editorBuildSites(), 2,
             "the declaration and exactly ONE call — `editorPane`'s last arm. A "
             + "third occurrence is a second place the editor is built, which is "
-            + "the identity split this shape exists to avoid")
+            + "the identity split this shape exists to avoid — counted across "
+            + "every view, not just the window's files")
     }
 
     /// The control for the scan above: `declaration(named:)` must BOUND the text
@@ -985,9 +983,8 @@ final class ProjectAltitudeCentreTests: XCTestCase {
     /// whole file and cannot fail. `CanvasView(` is mounted in this same file,
     /// one member down, and must not be visible from inside the editor arm.
     func test_theArmScanReadsTheArmAndNotTheWholeFile() throws {
-        let source = try Self.source(of: "Views/ProjectWindow.swift")
-        let arm = try XCTUnwrap(
-            Self.declaration(named: "private func manuscriptEditor(", in: source))
+        let source = try SourceTree.windowSource()
+        let arm = try Self.editorArm()
         XCTAssertTrue(source.contains("CanvasView("),
                       "premise: the file really does mount the canvas")
         XCTAssertFalse(arm.contains("CanvasView("),
@@ -1024,30 +1021,53 @@ final class ProjectAltitudeCentreTests: XCTestCase {
 
     // MARK: - Reading the source
 
-    /// This file sits in `MaughamTests/`, so it resolves the app's source
-    /// directory itself rather than reaching for `CanvasSourceCensus`, whose own
-    /// doc comment reserves it for suites beside it in `MaughamTests/Canvas/`.
-    private static func source(of relativePath: String) throws -> String {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // MaughamTests/
-            .deletingLastPathComponent()   // repo root
-            .appendingPathComponent("Maugham", isDirectory: true)
-        return try String(contentsOf: root.appendingPathComponent(relativePath),
-                          encoding: .utf8)
+    /// The editor arm, brace-matched and found by symbol wherever the window's
+    /// extensions put it — bounded, or a scan over it is really a scan over the
+    /// rest of the file (see the control above). Throws when it is gone.
+    private static func editorArm(base: URL = SourceTree.repoRoot) throws -> String {
+        try SourceTree.declaration(named: "private func manuscriptEditor(",
+                                   under: "Maugham", base: base)
     }
 
-    /// A member declaration, from its opening line to the closing brace at member
-    /// indentation — bounded, or a scan over it is really a scan over the rest of
-    /// the file (see the control above).
-    private static func declaration(named header: String, in source: String) -> String? {
-        guard let start = source.range(of: header) else { return nil }
-        let rest = source[start.lowerBound...]
-        guard let end = rest.range(of: "\n    }\n") else { return String(rest) }
-        return String(rest[..<end.upperBound])
+    /// `manuscriptEditor(` as code across every file under `Maugham/Views` —
+    /// the declaration plus each call, wherever a second one would land.
+    private static func editorBuildSites(base: URL = SourceTree.repoRoot) throws -> Int {
+        try SourceTree.codeOccurrences(of: "manuscriptEditor(", base: base).values.reduce(0, +)
     }
 
-    private static func occurrences(of needle: String, in haystack: String) -> Int {
-        haystack.components(separatedBy: needle).count - 1
+    /// **The planted control for the reads above** (foundations plan 2): the
+    /// arm is found in an `extension ProjectWindow`, bounded to itself, and the
+    /// build-site count sees a second call in a sibling view, while a comment
+    /// and a string naming the call are not counted.
+    func test_theArmIsFoundAcrossAnExtensionAndTheCountReachesSiblingViews() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": """
+            struct ProjectWindow: View {
+                // manuscriptEditor( named in a comment
+                var body: some View { manuscriptEditor(store: store) }
+                private func canvasCentre() -> some View { CanvasView() }
+            }
+            """,
+            "Maugham/Views/ProjectWindow+Editor.swift": """
+            extension ProjectWindow {
+                private func manuscriptEditor(store: ProjectStore) -> some View {
+                    ZStack { EditorHost() }
+                }
+            }
+            """,
+            "Maugham/Views/SomeSiblingView.swift": """
+            struct SomeSiblingView {
+                let label = "manuscriptEditor("
+                var body: some View { manuscriptEditor(store: store) }
+            }
+            """,
+        ])
+        let arm = try Self.editorArm(base: base)
+        XCTAssertTrue(arm.contains("EditorHost("), "the arm is found in the extension")
+        XCTAssertFalse(arm.contains("CanvasView("), "…and bounded to itself")
+        XCTAssertEqual(try Self.editorBuildSites(base: base), 3,
+                       "the declaration, the window's call and the sibling's — "
+                       + "a third is caught wherever it lands")
     }
 }
 

@@ -1043,7 +1043,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// in the mount is two places that can disagree about which pass a piece
     /// is in, and the RUN reads only one of them.
     func test_theProductionMountWiresThePickerToTheWindowsOneWriter() throws {
-        let window = try Self.source(of: "Views/ProjectWindow.swift")
+        let window = try SourceTree.windowSource()
         XCTAssertTrue(window.contains("onSetActivePass:"),
                       "the window must supply the strip's pass writer")
         let arm = try XCTUnwrap(

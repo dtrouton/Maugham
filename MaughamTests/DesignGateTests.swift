@@ -607,18 +607,11 @@ final class DesignGateTests: XCTestCase {
     /// The mount is asked of the window by TYPE; the order is read inside
     /// `manuscriptEditor`'s own body, found by symbol (foundations plan 2).
     func test_theGateIsAFourthLayerOfTheSameStackAndNotANewArm() throws {
-        XCTAssertTrue(try Self.windowCodeLines().contains { $0.contains("DesignGateView(") },
+        XCTAssertTrue(try SourceTree.windowCodeLines().contains { $0.contains("DesignGateView(") },
                       "production must mount the gate somewhere")
         XCTAssertTrue(Self.gateIsAnArmOfTheCentreSwitch(try Self.manuscriptEditorCodeLines()),
                       "the gate is an arm of the publishCentre switch inside "
                       + "manuscriptEditor's ZStack, beside the book's")
-    }
-
-    /// The window's code lines, by type: every file under `Maugham/` declaring
-    /// `ProjectWindow`.
-    private static func windowCodeLines(base: URL = SourceTree.repoRoot) throws -> [String] {
-        SourceScan.codeLines(
-            of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"], base: base))
     }
 
     /// `manuscriptEditor`'s own code lines, found by symbol.
@@ -684,7 +677,7 @@ final class DesignGateTests: XCTestCase {
             "the arm is found in the extension, switch and gate both")
         XCTAssertFalse(Self.gateIsAnArmOfTheCentreSwitch(["Self.publishCentre("]),
                        "a switch with no gate is not compliant")
-        XCTAssertTrue(try Self.windowCodeLines(base: base)
+        XCTAssertTrue(try SourceTree.windowCodeLines(base: base)
             .contains { $0.contains("DepartmentDesignRow.sendChanges") },
             "the wiring reads the window's files")
         XCTAssertEqual(try Self.requestChangesCallers(under: "Maugham/Views", base: base),
@@ -1233,7 +1226,7 @@ final class DesignGateTests: XCTestCase {
         let surfaces = [
             ("Views/Publish/DepartmentPaneHost.swift",
              SourceScan.codeLines(of: try Self.source(of: "Views/Publish/DepartmentPaneHost.swift"))),
-            ("the window (type ProjectWindow)", try Self.windowCodeLines()),
+            ("the window (type ProjectWindow)", try SourceTree.windowCodeLines()),
         ]
         for (surface, code) in surfaces {
             XCTAssertTrue(
@@ -1272,7 +1265,7 @@ final class DesignGateTests: XCTestCase {
     /// seam's spelling to production's — without it every mounted test above
     /// passes over a surface nothing wires up.
     func test_theWindowWiresTheVerbsAndTakesTheirResultBack() throws {
-        let code = try Self.windowCodeLines()
+        let code = try SourceTree.windowCodeLines()
 
         XCTAssertTrue(code.contains { $0.contains("actions:") && $0.contains("designGateActions") }
                       || code.contains { $0.contains("designGateActions(") },

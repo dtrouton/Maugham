@@ -635,7 +635,7 @@ final class CompilerRunCommandTests: XCTestCase {
         XCTAssertFalse(modifier.contains(".onKeyWindowCommand(.maughamNotARealEvent"),
                        "the scan reads the file rather than always answering true")
 
-        let window = try source(at: "Maugham/Views/ProjectWindow.swift")
+        let window = try SourceTree.windowSource()
         for token in ["CompilerRunModifier(", "compiler.detach()",
                       "SaveFlashOverlay(isShowing: $showingCompilerFlash"] {
             XCTAssertTrue(window.contains(token),
@@ -3820,21 +3820,12 @@ final class CompilerRunCommandTests: XCTestCase {
     /// the sentence, because a deferral that expires into an empty closure
     /// would satisfy every other assertion in this file.
     func test_theProductionMountFlashesTheDroppedRound() throws {
-        let window = try String(
-            contentsOf: URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()      // MaughamTests/
-                .deletingLastPathComponent()      // repo root
-                .appendingPathComponent("Maugham/Views/ProjectWindow.swift"),
-            encoding: .utf8)
-        let helper = try XCTUnwrap(
-            window.range(of: "private func runRoundWhenPieceOpens("),
-            "the deferral's one production caller must still be readable here")
-        // Generous, and deliberately so: the window has to cover the whole
-        // `start(…)` call INCLUDING its comments, and a prefix sized to
-        // today's body silently stops asserting the moment someone explains
-        // themselves at length above the line under test. (It did exactly
-        // that once, in this branch's own fix wave.)
-        let body = String(window[helper.upperBound...].prefix(1_600))
+        // The helper's whole brace-matched body, found by symbol wherever the
+        // window's extensions put it — no character budget, which silently
+        // stopped asserting once when a comment above the call grew (this
+        // branch's own fix wave). Throws when the declaration is gone.
+        let body = try SourceTree.declaration(
+            named: "private func runRoundWhenPieceOpens(", under: "Maugham")
         XCTAssertTrue(body.contains("onTimedOut:"),
                       "the mount must supply the expiry's sentence. Got:\n\(body)")
         XCTAssertTrue(body.contains(".show(.pieceWouldNotOpen)"),

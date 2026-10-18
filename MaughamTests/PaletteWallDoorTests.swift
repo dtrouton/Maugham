@@ -540,7 +540,7 @@ final class PaletteWallDoorTests: XCTestCase {
         // Comment-stripped, because the replaced predicate is NAMED in the
         // comment that records its removal — a census over prose would fail on
         // its own explanation.
-        XCTAssertEqual(try Self.viewLines(containing: "clearsPaletteWallStash"), [],
+        XCTAssertEqual(try SourceTree.codeLines(containing: "clearsPaletteWallStash"), [],
                        "the Plan-only predicate is back in the persona handler, "
                        + "which two of the three persona writers never reach")
     }
@@ -565,16 +565,6 @@ final class PaletteWallDoorTests: XCTestCase {
         codeOnly(try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"], base: base))
             .split(separator: "\n")
             .filter { $0.contains("onOpenPaletteWall:") }
-    }
-
-    /// Every code line under `Maugham/Views` naming `token`, as "path: line".
-    private static func viewLines(containing token: String,
-                                  base: URL = SourceTree.repoRoot) throws -> [String] {
-        try SourceTree.sources(under: "Maugham/Views", base: base).flatMap { file in
-            codeOnly(file.text).split(separator: "\n")
-                .filter { $0.contains(token) }
-                .map { "\(file.path): \($0.trimmingCharacters(in: .whitespaces))" }
-        }
     }
 
     /// **The planted control for the reads above** (foundations plan 2): a
@@ -616,7 +606,7 @@ final class PaletteWallDoorTests: XCTestCase {
                        "the press count reads both of the window's files")
         XCTAssertEqual(try Self.dotPaletteComparisons(under: "Maugham/Views", base: base),
                        ["Maugham/Views/SomeSiblingView.swift: func f() -> Bool { segment == .palette }"])
-        XCTAssertEqual(try Self.viewLines(containing: "clearsPaletteWallStash", base: base),
+        XCTAssertEqual(try SourceTree.codeLines(containing: "clearsPaletteWallStash", base: base),
                        ["Maugham/Views/SomeSiblingView.swift: func g() { clearsPaletteWallStash() }"])
     }
 

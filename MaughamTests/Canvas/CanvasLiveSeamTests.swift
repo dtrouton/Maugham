@@ -225,8 +225,13 @@ final class CanvasLiveSeamTests: XCTestCase {
                        "if this is empty, the hook is declared, cleared on detach "
                        + "and bound to nothing: Claude's cards land in the scene "
                        + "and draw as empty rectangles until the writer clicks")
-        XCTAssertEqual(try assigners(of: "liveCanvas", excluding: "ProjectStore.swift"),
-                       ["ProjectWindow.swift"],
+        // Keyed by TYPE: every file declaring `ProjectWindow` answers as
+        // `type:ProjectWindow`, so a split of the window moves nothing here.
+        XCTAssertEqual(try SourceTree.keyedByType(
+                           try assigners(of: "liveCanvas", excluding: "ProjectStore.swift"),
+                           typeKeys: ["type:ProjectWindow"],
+                           in: [CanvasSourceCensus.repoRoot.appendingPathComponent("Maugham")]),
+                       ["type:ProjectWindow"],
                        "if this is empty, the store's reference is never set and "
                        + "every tool sees nil — so every write goes to the sidecar "
                        + "behind the writer's back, including while they are "
@@ -336,7 +341,7 @@ final class CanvasLiveSeamTests: XCTestCase {
                                                   with: "// the binding, deleted")),
             "the scan cannot see a binding that is gone, so it proves nothing")
 
-        let window = try CanvasSourceCensus.source(at: "Maugham/Views/ProjectWindow.swift")
+        let window = try SourceTree.windowSource()
         XCTAssertTrue(assigns("liveCanvas", in: window),
                       "control: the real file assigns the store's reference")
         XCTAssertFalse(

@@ -445,7 +445,7 @@ final class AnnotationPassStampTests: XCTestCase {
         let text = try source("Maugham/Views/EditorHost.swift")
         XCTAssertTrue(text.contains("reviewPassId: activeReviewPassId("),
                       "EditorHost's createAnnotationHandler must stamp the pass")
-        let window = try source("Maugham/Views/ProjectWindow.swift")
+        let window = try SourceTree.windowSource()
         XCTAssertTrue(window.contains("activeReviewPassId:"),
                       "ProjectWindow must thread the resolver into EditorHost")
     }

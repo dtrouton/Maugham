@@ -1092,11 +1092,10 @@ final class AssistantColumnTests: XCTestCase {
                        + "the handler")
     }
 
+    /// The window's code by TYPE — every file declaring `ProjectWindow` — so a
+    /// split of the window moves the handler out of nobody's sight.
     private static func projectWindowSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Maugham/Views/ProjectWindow.swift")
-        return try String(contentsOf: url, encoding: .utf8)
+        try SourceTree.windowSource()
     }
 
     /// Does the `.maughamSetDetailSegment` handler dismiss? Read in two hops

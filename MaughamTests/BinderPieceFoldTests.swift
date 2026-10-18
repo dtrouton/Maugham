@@ -633,7 +633,7 @@ final class BinderPieceFoldTests: XCTestCase {
             navigator.components(separatedBy: "BinderTreeSectionsState()").count - 1, 0)
         XCTAssertTrue(navigator.contains("let treeState: BinderTreeSectionsState"))
         // And the window owns exactly one, for all three of them.
-        let window = try source(of: "Maugham/Views/ProjectWindow.swift")
+        let window = try SourceTree.windowSource()
         XCTAssertEqual(
             window.components(separatedBy: "BinderTreeSectionsState()").count - 1, 1,
             "one window, one tree, one state")

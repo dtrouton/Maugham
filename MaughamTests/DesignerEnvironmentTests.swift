@@ -420,7 +420,7 @@ final class DesignerEnvironmentTests: XCTestCase {
     /// nothing else in the app would miss, since the loop is headless until P4
     /// gives it a run verb.
     func test_theWindowOwnsWiresAndReleasesTheDesigner() throws {
-        let window = try source(at: "Maugham/Views/ProjectWindow.swift")
+        let window = try SourceTree.windowSource()
         for token in ["DesignerOrchestrator()", "designer.detach()",
                       "designer.configure(", "designer: designer",
                       "designer.updateModel("] {

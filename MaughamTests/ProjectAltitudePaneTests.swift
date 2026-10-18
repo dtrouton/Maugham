@@ -82,7 +82,7 @@ final class ProjectAltitudePaneTests: XCTestCase {
     /// right-pane `.outline` arm this test used to read instead — pinned so a
     /// future edit cannot quietly go back to a fixed string.
     func test_theCentreMountPassesTheProjectsOwnTitle() throws {
-        let code = try Self.codeLines(of: "Views/ProjectWindow.swift")
+        let code = try SourceTree.windowCodeLines()
 
         XCTAssertTrue(
             code.contains { $0.contains("title: store.manifest.title") },

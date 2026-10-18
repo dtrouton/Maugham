@@ -1240,7 +1240,7 @@ final class DetailColumnWidthTests: XCTestCase {
     /// every view (foundations plan 2), because a raw width or a range handed
     /// to a column anywhere in `Maugham/Views` is the same regression.
     func test_theRightColumnAsksForAWidthAndNotARange() throws {
-        let code = try Self.windowCodeLines()
+        let code = try SourceTree.windowCodeLines()
 
         XCTAssertEqual(
             code.filter {
@@ -1249,13 +1249,13 @@ final class DetailColumnWidthTests: XCTestCase {
             1,
             "the detail column is pinned to one width, in exactly one place")
         XCTAssertEqual(
-            try Self.viewLines(containing: "navigationSplitViewColumnWidth(detailColumnWidth)"), [],
+            try SourceTree.codeLines(containing: "navigationSplitViewColumnWidth(detailColumnWidth)"), [],
             "and it is the EFFECTIVE width, never the stored one handed over "
             + "raw: a stored width the window cannot afford does not squeeze a "
             + "column, it grows the window — which is this task's own complaint "
             + "moved to the window edge (see the narrow-window tests above)")
         XCTAssertEqual(
-            try Self.viewLines(containing: "navigationSplitViewColumnWidth(min: 240"), [],
+            try SourceTree.codeLines(containing: "navigationSplitViewColumnWidth(min: 240"), [],
             "and it must not go back to declaring a range — a range is what "
             + "moved under the writer on every mode change (see this file's "
             + "planted offender for the two ways it does)")
@@ -1290,7 +1290,7 @@ final class DetailColumnWidthTests: XCTestCase {
     /// `test_theRightColumnAsksForAWidthAndNotARange` at one, and is the honest
     /// shape regardless: two calls are two chances to pass different arguments.
     func test_theRightColumnFramesItsContentToTheWidthItDeclares() throws {
-        let code = try Self.windowCodeLines()
+        let code = try SourceTree.windowCodeLines()
         XCTAssertTrue(
             Self.framesItsContentToItsDeclaredWidth(code),
             "`ProjectWindow.detailColumn` must bind the effective width once "
@@ -1361,7 +1361,7 @@ final class DetailColumnWidthTests: XCTestCase {
     /// The order is read inside the handle's own body, found by symbol; the
     /// call count reads the whole window by type.
     func test_theResizeGestureLandsThroughTheOneFunction() throws {
-        let code = try Self.windowCodeLines()
+        let code = try SourceTree.windowCodeLines()
 
         XCTAssertTrue(
             Self.resizeGestureOnChanged(calls: "Self.draggedDetailColumnWidth(",
@@ -1469,12 +1469,12 @@ final class DetailColumnWidthTests: XCTestCase {
                                         in: try Self.resizeHandleCodeLines(base: base)),
             "the handle's body is found in the extension, gesture and all")
         XCTAssertEqual(
-            try Self.windowCodeLines(base: base).filter {
+            try SourceTree.windowCodeLines(base: base).filter {
                 $0.contains("Self.effectiveDetailColumnWidth(persisted: detailColumnWidth,")
             }.count, 2,
             "the count reads both of the window's files")
         XCTAssertEqual(
-            try Self.viewLines(containing: "navigationSplitViewColumnWidth(min: 240", base: base),
+            try SourceTree.codeLines(containing: "navigationSplitViewColumnWidth(min: 240", base: base),
             ["Maugham/Views/SomeSiblingView.swift: var body: some View { "
              + "EmptyView().navigationSplitViewColumnWidth(min: 240, ideal: 300) }"],
             "the widened ban sees a range in a view outside the window")
@@ -1569,29 +1569,11 @@ final class DetailColumnWidthTests: XCTestCase {
             && code.contains { $0.contains(".navigationSplitViewColumnWidth(\(name))") }
     }
 
-    /// The window's code lines: every file under `Maugham/` declaring
-    /// `ProjectWindow`, so a split moves nothing out of the census's sight.
-    private static func windowCodeLines(base: URL = SourceTree.repoRoot) throws -> [String] {
-        SourceScan.codeLines(
-            of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"], base: base))
-    }
-
     /// The resize handle's own body, found by symbol — the scope the gesture's
     /// ORDER check reads, wherever the handle lives.
     private static func resizeHandleCodeLines(base: URL = SourceTree.repoRoot) throws -> [String] {
         SourceScan.codeLines(of: try SourceTree.declaration(
             named: "private func detailResizeHandle(", under: "Maugham", base: base))
-    }
-
-    /// Every code line under `Maugham/Views` naming `token`, as "path: line",
-    /// scanned file by file.
-    private static func viewLines(containing token: String,
-                                  base: URL = SourceTree.repoRoot) throws -> [String] {
-        try SourceTree.sources(under: "Maugham/Views", base: base).flatMap { file in
-            SourceScan.codeLines(of: file.text)
-                .filter { $0.contains(token) }
-                .map { "\(file.path): \($0.trimmingCharacters(in: .whitespaces))" }
-        }
     }
 
     /// `plus` runs synthetic sources through the identical predicate, so the

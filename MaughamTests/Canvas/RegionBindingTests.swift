@@ -1010,22 +1010,22 @@ final class RegionBindingTests: XCTestCase {
     /// camera at pan (−680, −420) / zoom 1.5 back at the origin at zoom 1, with a
     /// different `CanvasEventNSView` and `load()` having run twice.
     func test_theCanvasIsBuiltInExactlyOnePlacePerColumn() throws {
-        let source = try projectWindowSource()
-
-        XCTAssertEqual(occurrences(of: "CanvasView(", in: source), 1,
+        // Counted across every file under `Maugham/Views`, not the window's
+        // file alone: a second mount is a second identity wherever it lands.
+        XCTAssertEqual(try viewSites(of: "CanvasView("), 1,
                        "one mount for the canvas, in `canvasCentre`. A second is "
                        + "a second view identity, and the writer pays for it in "
                        + "camera, layouts and thumbnails")
-        XCTAssertEqual(occurrences(of: "canvasCentre(", in: source), 2,
+        XCTAssertEqual(try viewSites(of: "canvasCentre("), 2,
                        "the declaration and exactly ONE call — `editorPane`'s "
                        + "`.canvas` route, taken above everything that could "
                        + "give the board a second branch. A THIRD occurrence is "
                        + "a real second mount point.")
 
-        XCTAssertEqual(occurrences(of: "RegionInspectorPane(", in: source), 1,
+        XCTAssertEqual(try viewSites(of: "RegionInspectorPane("), 1,
                        "one mount point each; a second would not be gated on the "
                        + "route above")
-        XCTAssertEqual(occurrences(of: "canvasInspector(", in: source), 2,
+        XCTAssertEqual(try viewSites(of: "canvasInspector("), 2,
                        "the declaration and exactly ONE call — `researchOrSubject`'s "
                        + "`.canvas` route, taken ABOVE the project-type split so a "
                        + "Collection reaches it (smoke, 2026-07-28). Which route "
@@ -1049,19 +1049,20 @@ final class RegionBindingTests: XCTestCase {
     ///
     /// Both files, because a second mount could land in either.
     func test_theEditorAndTheAltitudeViewAreEachBuiltWhereTheyBelong() throws {
-        let source = try projectWindowSource() + (try detailPaneToggleSource())
+        // Every view, which takes in both files a second mount could land in
+        // (the window's and `DetailPaneToggle`'s) and every other.
 
-        XCTAssertEqual(occurrences(of: "EditorHost(", in: source), 1,
+        XCTAssertEqual(try viewSites(of: "EditorHost("), 1,
                        "one mount for the manuscript editor, inside "
                        + "`manuscriptEditor`. A second is a second identity and "
                        + "therefore a second `Document.close()` on every flip "
                        + "between them")
-        XCTAssertEqual(occurrences(of: "ProjectAltitudePane(", in: source), 1,
+        XCTAssertEqual(try viewSites(of: "ProjectAltitudePane("), 1,
                        "one, in the centre column's overlay. The right pane's "
                        + "`.outline` arm that used to hold the second mount was "
                        + "deleted whole in stage 3a Task 6 — a second occurrence "
                        + "anywhere is a mount nobody decided to add")
-        XCTAssertEqual(occurrences(of: "ReviewBoardPane(", in: source), 1,
+        XCTAssertEqual(try viewSites(of: "ReviewBoardPane("), 1,
                        "and one for Review's passes board (M3 P1 Task 6), the "
                        + "third surface of the same stack — a second mount is a "
                        + "second board with its own scroll position and, once "
@@ -1075,7 +1076,7 @@ final class RegionBindingTests: XCTestCase {
     /// Task 1) and cannot appear in either — which is also what says the
     /// rename did not leave a caller behind.
     func test_theAltitudeViewIsMountedOnlyInTheWindowNotTheToggle() throws {
-        let window = try projectWindowSource()
+        let window = try SourceTree.windowSource()
         let toggle = try detailPaneToggleSource()
 
         XCTAssertTrue(window.contains("ProjectAltitudePane("),
@@ -1084,12 +1085,10 @@ final class RegionBindingTests: XCTestCase {
         XCTAssertFalse(toggle.contains("ProjectAltitudePane("),
                        "DetailPaneToggle must not name the altitude pane — its "
                        + "`.outline` arm was deleted whole in stage 3a Task 6")
-        for (name, source) in [("ProjectWindow", window), ("DetailPaneToggle", toggle)] {
-            XCTAssertEqual(occurrences(of: "OutlinePane(", in: source), 0,
-                           "\(name) still constructs the pane under its old "
-                           + "name — and this is what proves the scan reads the "
-                           + "file rather than always answering true")
-        }
+        XCTAssertEqual(try SourceTree.codeOccurrences(of: "OutlinePane("), [:],
+                       "a view still constructs the pane under its old name — "
+                       + "read across every file under `Maugham/Views`, the "
+                       + "window's and the toggle's included")
     }
 
     /// Tripwire 30's rule, one column over: `CanvasModel` is `@Observable` and
@@ -1097,9 +1096,8 @@ final class RegionBindingTests: XCTestCase {
     /// reading it from `ProjectWindow.body` puts the largest body in the app on
     /// the drag loop.
     func test_theCanvasInspectorArmReadsNothingOffTheModel() throws {
-        let source = try projectWindowSource()
-        let arm = try XCTUnwrap(declaration(named: "private func canvasInspector(",
-                                            in: source))
+        let arm = try SourceTree.declaration(named: "private func canvasInspector(",
+                                             under: "Maugham")
         XCTAssertTrue(arm.contains("RegionInspectorPane("))
         XCTAssertFalse(arm.contains("canvasModel."),
                        "resolving the selection here re-evaluates ProjectWindow.body "
@@ -1370,8 +1368,48 @@ final class RegionBindingTests: XCTestCase {
 
     // MARK: - Source helpers
 
-    private func projectWindowSource() throws -> String {
-        try CanvasSourceCensus.source(at: "Maugham/Views/ProjectWindow.swift")
+    /// `token` as code across every file under `Maugham/Views` — a mount
+    /// count that also means *and nowhere else*.
+    private func viewSites(of token: String, base: URL = SourceTree.repoRoot) throws -> Int {
+        try SourceTree.codeOccurrences(of: token, base: base).values.reduce(0, +)
+    }
+
+    /// **The planted control for the window reads** (foundations plan 2): the
+    /// inspector arm is found in an `extension ProjectWindow`, bounded to
+    /// itself, and a mount count sees a second mount in a sibling view — while
+    /// a comment, a string, and a longer name ending in the token are not
+    /// counted.
+    func test_theArmIsFoundAcrossAnExtensionAndTheCountsReachSiblingViews() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": """
+            struct ProjectWindow: View {
+                // CanvasView( in a comment
+                var body: some View { canvasCentre() }
+                private func canvasCentre() -> some View { CanvasView(model: m) }
+            }
+            """,
+            "Maugham/Views/ProjectWindow+Inspector.swift": """
+            extension ProjectWindow {
+                private func canvasInspector(store: ProjectStore) -> some View {
+                    RegionInspectorPane(model: canvasModel)
+                }
+                private func next() -> some View { canvasModel.scene }
+            }
+            """,
+            "Maugham/Views/SomeSiblingView.swift": """
+            struct SomeSiblingView {
+                let label = "CanvasView("
+                var body: some View { CanvasView(model: m); ScrapCanvasView(model: m) }
+            }
+            """,
+        ])
+        let arm = try SourceTree.declaration(named: "private func canvasInspector(",
+                                             under: "Maugham", base: base)
+        XCTAssertTrue(arm.contains("RegionInspectorPane("), "the arm is found in the extension")
+        XCTAssertFalse(arm.contains("canvasModel.scene"), "…and bounded to itself")
+        XCTAssertEqual(try viewSites(of: "CanvasView(", base: base), 2,
+                       "the window's mount and the sibling's — not the comment, "
+                       + "the string, or `ScrapCanvasView(`")
     }
 
     private func detailPaneToggleSource() throws -> String {
@@ -1432,10 +1470,6 @@ final class RegionBindingTests: XCTestCase {
             index = source.index(after: index)
         }
         return String(source[..<start.lowerBound])
-    }
-
-    private func occurrences(of needle: String, in haystack: String) -> Int {
-        haystack.components(separatedBy: needle).count - 1
     }
 
     /// A member declaration, from its opening line to the closing brace at

@@ -586,7 +586,9 @@ final class SubjectValidationTests: XCTestCase {
     /// project on disk, an MCP registry and a load, and none of that is what is
     /// in doubt — whether one line is present is.
     func test_theWindowAttachesTheSweep() throws {
-        let source = try String(contentsOf: projectWindowSource, encoding: .utf8)
+        // The window's code by type, comments out: a doc comment naming the
+        // attachment is not the attachment.
+        let source = try SourceTree.windowCodeLines().joined(separator: "\n")
         XCTAssertTrue(source.contains("SubjectValidationModifier(store: store,"),
                       "ProjectWindow does not attach the sweep, so nothing in "
                       + "production validates the subject on a structure change")
@@ -598,13 +600,6 @@ final class SubjectValidationTests: XCTestCase {
             of: "SubjectValidationModifier(store: store,", with: "// removed")
         XCTAssertFalse(planted.contains("SubjectValidationModifier(store: store,"),
                        "the planted offender did not fire")
-    }
-
-    private var projectWindowSource: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // MaughamTests
-            .deletingLastPathComponent()   // repo root
-            .appendingPathComponent("Maugham/Views/ProjectWindow.swift")
     }
 
     // MARK: - Fixtures

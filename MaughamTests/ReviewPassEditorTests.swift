@@ -466,13 +466,12 @@ final class ReviewPassEditorTests: XCTestCase {
                       + "Got:\n\(describe)")
         XCTAssertTrue(describe.contains("dismiss()"), "Got:\n\(describe)")
 
-        let window = try Self.source(of: "Views/ProjectWindow.swift")
+        let window = try SourceTree.windowSource()
         XCTAssertTrue(
             window.contains("onDismiss: openFirstReaderIfRequested"),
             "the presenter acts from the sheet's own dismissal hook")
-        let handoff = try XCTUnwrap(
-            Self.declaration(named: "private func openFirstReaderIfRequested() {",
-                             in: window))
+        let handoff = try SourceTree.declaration(
+            named: "private func openFirstReaderIfRequested() {", under: "Maugham")
         XCTAssertFalse(handoff.contains("postDetailSegment"),
                        "a key-window post is dropped while the sheet's window "
                        + "still holds key. Got:\n\(handoff)")
@@ -489,22 +488,21 @@ final class ReviewPassEditorTests: XCTestCase {
     ///
     /// Non-vacuity: the helper is read, and both callers are named.
     func test_thePaneSelectionActHasOneSpelling() throws {
-        let window = try Self.source(of: "Views/ProjectWindow.swift")
-        let act = try XCTUnwrap(
-            Self.declaration(named: "static func selectDetailSegment(", in: window),
-            "the shared act must exist")
+        let act = try SourceTree.declaration(
+            named: "static func selectDetailSegment(", under: "Maugham")
         XCTAssertTrue(act.contains("showInspector.wrappedValue = true"), "Got:\n\(act)")
         XCTAssertTrue(act.contains("assistant.dismiss()"), "Got:\n\(act)")
         XCTAssertTrue(act.contains("detailSegment.wrappedValue = seg"), "Got:\n\(act)")
 
-        let callers = window.components(separatedBy: "selectDetailSegment(").count - 1
+        let callers = try Self.selectDetailSegmentSites()
         XCTAssertEqual(callers, 3,
                        "the declaration plus its two callers — the key-window "
-                       + "receiver and the Describe\u{2026} hand-off")
+                       + "receiver and the Describe\u{2026} hand-off — counted "
+                       + "across every view, so a copy in a sibling is a fourth")
 
-        let receiver = try XCTUnwrap(
-            Self.declaration(named: "onKeyWindowCommand(.maughamSetDetailSegment, window: window) { note in",
-                             in: window))
+        let receiver = try SourceTree.declaration(
+            named: "onKeyWindowCommand(.maughamSetDetailSegment, window: window) { note in",
+            under: "Maugham")
         XCTAssertTrue(receiver.contains("ProjectWindow.selectDetailSegment("),
                       "the receiver calls the shared act. Got:\n\(receiver)")
         XCTAssertFalse(receiver.contains("assistant.dismiss()"),
@@ -585,6 +583,40 @@ final class ReviewPassEditorTests: XCTestCase {
     }
 
     // MARK: - Census helpers
+
+    /// `selectDetailSegment(` as code across every file under `Maugham/Views`.
+    private static func selectDetailSegmentSites(base: URL = SourceTree.repoRoot) throws -> Int {
+        try SourceTree.codeOccurrences(of: "selectDetailSegment(", base: base).values.reduce(0, +)
+    }
+
+    /// **The planted control for the window reads** (foundations plan 2): the
+    /// act is found in an `extension ProjectWindow`, and the site count sees a
+    /// call in a sibling view while a comment naming it is not counted.
+    func test_theActIsFoundAcrossAnExtensionAndTheCountReachesSiblingViews() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": """
+            struct ProjectWindow: View {
+                // selectDetailSegment( in a comment
+                func f() { ProjectWindow.selectDetailSegment(seg) }
+            }
+            """,
+            "Maugham/Views/ProjectWindow+Panes.swift": """
+            extension ProjectWindow {
+                static func selectDetailSegment(_ seg: DetailSegment) {
+                    assistant.dismiss()
+                }
+            }
+            """,
+            "Maugham/Views/SomeSiblingView.swift": """
+            struct SomeSiblingView { func g() { ProjectWindow.selectDetailSegment(seg) } }
+            """,
+        ])
+        let act = try SourceTree.declaration(
+            named: "static func selectDetailSegment(", under: "Maugham", base: base)
+        XCTAssertTrue(act.contains("assistant.dismiss()"), "the act is found in the extension")
+        XCTAssertEqual(try Self.selectDetailSegmentSites(base: base), 3,
+                       "the declaration, the window's call and the sibling's")
+    }
 
     private static func source(of relativePath: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)

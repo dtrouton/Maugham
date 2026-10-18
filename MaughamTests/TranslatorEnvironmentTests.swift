@@ -829,7 +829,7 @@ final class TranslatorEnvironmentTests: XCTestCase {
         // The designer's own five tokens are `DesignerEnvironmentTests`' —
         // each file owns the wiring of the loop it is about; the paired counts
         // above are what has to be asserted together.
-        let window = try source(at: "Maugham/Views/ProjectWindow.swift")
+        let window = try SourceTree.windowSource()
         for token in ["TranslatorOrchestrator()", "translator.detach()",
                       "translator.configure(", "translator: translator",
                       "translator.updateModel("] {

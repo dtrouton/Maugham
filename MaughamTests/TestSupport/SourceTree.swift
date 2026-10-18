@@ -536,3 +536,83 @@ extension SourceTree {
         return try files.map { ($0, try read($0, base: base)) }
     }
 }
+
+// MARK: - The window and the views, by type and by directory (foundations plan 2, Task 5)
+
+extension SourceTree {
+
+    /// Every file under `Maugham/` that declares `ProjectWindow`, joined — the
+    /// window's code wherever its extensions live. Throws when nothing declares it.
+    static func windowSource(base: URL = repoRoot) throws -> String {
+        try sourceOfType("ProjectWindow", under: ["Maugham"], base: base)
+    }
+
+    /// `windowSource`'s code lines, comments stripped (`SourceScan.codeLines`).
+    static func windowCodeLines(base: URL = repoRoot) throws -> [String] {
+        SourceScan.codeLines(of: try windowSource(base: base))
+    }
+
+    /// Every code line containing `token` in any .swift file under `root`, as
+    /// `"<path>: <line>"`, read file by file through `mask` — so a comment or a
+    /// string literal naming the token is not a hit, and one file's unclosed
+    /// `/*` cannot hide an offender in the next. The instrument of an ABSENCE
+    /// ban: it throws, like `sources(under:)`, on a missing or Swift-less root.
+    static func codeLines(containing token: String, under root: String = "Maugham/Views",
+                          base: URL = repoRoot) throws -> [String] {
+        try sources(under: root, base: base).flatMap { file -> [String] in
+            let masked = String(decoding: mask(file.text), as: UTF8.self)
+                .split(separator: "\n", omittingEmptySubsequences: false)
+            let raw = file.text.split(separator: "\n", omittingEmptySubsequences: false)
+            return masked.indices
+                .filter { masked[$0].contains(token) }
+                .map { "\(file.path): \(raw[$0].trimmingCharacters(in: .whitespaces))" }
+        }
+    }
+
+    /// How many times `token` occurs as CODE in each .swift file under `root`
+    /// (files with none are left out). Comments and string contents are masked,
+    /// and a token that starts with an identifier character is not counted
+    /// where one precedes it — `EditorHost(` is not found inside
+    /// `StatementEditorHost(`. The instrument
+    /// of a COUNT that also means *nowhere else*. Throws on a missing or
+    /// Swift-less root.
+    static func codeOccurrences(of token: String, under root: String = "Maugham/Views",
+                                base: URL = repoRoot) throws -> [String: Int] {
+        let needle = Array(token.utf8)
+        let checksBoundary = needle.first.map(isIdentifierByte) ?? false
+        var counts: [String: Int] = [:]
+        for file in try sources(under: root, base: base) where file.text.contains(token) {
+            let masked = mask(file.text)
+            var count = 0
+            var from = 0
+            while let hit = firstIndex(of: needle, in: masked, from: from, to: masked.count) {
+                if !checksBoundary || hit == 0 || !isIdentifierByte(masked[hit - 1]) { count += 1 }
+                from = hit + 1
+            }
+            if count > 0 { counts[file.path] = count }
+        }
+        return counts
+    }
+
+    /// `basenames` with every file a type key claims replaced by that key, the
+    /// rest left as they are — how a file-SET census keyed `"type:ProjectWindow"`
+    /// compares what it found. Throws on any offender `resolveTypeKeys` reports
+    /// (a type key naming no file, above all), so a fold can never pass empty.
+    static func keyedByType<Names: Sequence>(
+        _ basenames: Names, typeKeys: Set<String>, in roots: [URL]
+    ) throws -> Set<String> where Names.Element == String {
+        let resolution = resolveTypeKeys(typeKeys, in: roots)
+        guard resolution.offenders.isEmpty else {
+            throw LookupError(description:
+                "SourceTree: type keys \(typeKeys.sorted()) did not resolve: \(resolution.offenders)")
+        }
+        return Set(basenames.map(resolution.key(for:)))
+    }
+
+    private static func isIdentifierByte(_ byte: UInt8) -> Bool {
+        (byte >= UInt8(ascii: "a") && byte <= UInt8(ascii: "z"))
+            || (byte >= UInt8(ascii: "A") && byte <= UInt8(ascii: "Z"))
+            || (byte >= UInt8(ascii: "0") && byte <= UInt8(ascii: "9"))
+            || byte == UInt8(ascii: "_")
+    }
+}
