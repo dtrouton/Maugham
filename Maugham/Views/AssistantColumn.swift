@@ -152,7 +152,7 @@ struct AssistantColumn: View {
     ///
     /// **`showInspector` is the fourth veto, and it is C1 arriving one input
     /// later** (2026-08-25, superseding spec §3.2's "three inputs unchanged").
-    /// The column lives in `ProjectWindow.detailColumn`'s first arm, which is
+    /// The column lives in `RightColumn`'s first arm, which is
     /// behind `showInspector` — so ⌘⌥I with a pin studied takes the column off
     /// screen without touching what is studied, exactly as ⌘\ does, and a
     /// predicate blind to the flag left an invisible column holding the window's
@@ -304,7 +304,7 @@ final class AssistantColumnEscape {
     private var persona: Persona = .default
 
     /// The window's right-column flag, refreshed by every `sync` and read at
-    /// event time beside the other three: the column is `detailColumn`'s first
+    /// event time beside the other three: the column is `RightColumn`'s first
     /// arm and ⌘⌥I takes that whole column away, which is C1's hazard one input
     /// later.
     private var showInspector = true
@@ -417,12 +417,12 @@ final class AssistantColumnEscape {
 ///
 /// **It inserts no view at all** (spec §3.2, 2026-08-25). It used to wrap the
 /// centre column in an `HStack` and put `AssistantColumn` beside the prose at a
-/// width of its own; the column now lives in `ProjectWindow.detailColumn`'s own
+/// width of its own; the column now lives in `RightColumn`'s own
 /// first arm, and what is left here is the chain of `.onChange`es that arm is a
 /// function of. The census that used to be spelled here — *delete the one line
 /// that applies this and every token in this file is still present, every test
 /// still green, and clicking a pin does nothing visible* — moved with the view,
-/// to `ProjectWindow.detailColumn`.
+/// to `RightColumn`.
 ///
 /// **Still a `ViewModifier` rather than seven `.onChange`es in the window's
 /// body**, for that body's own reason: it has no expression budget left under
@@ -486,7 +486,7 @@ struct AssistantColumnModifier: ViewModifier {
             .onChange(of: window) { _, _ in syncEscape() }
             .onChange(of: isNoChromeOn) { _, _ in syncEscape() }
             // **⌘⌥I, the fourth input** (2026-08-25). The column is
-            // `ProjectWindow.detailColumn`'s first arm and this flag is what
+            // `RightColumn`'s first arm and this flag is what
             // mounts that arm at all, so hiding the right column takes the
             // study column off screen with the pin still studied — C1's
             // invisible Escape claim, one key later. Watched, never stashed:

@@ -50,7 +50,7 @@ final class AssistantColumnTests: XCTestCase {
 
     // MARK: - Contract: the column exists only while something is studied
     //
-    // The predicate below is what `ProjectWindow.detailColumn`'s FIRST arm asks
+    // The predicate below is what `RightColumn`'s FIRST arm asks
     // (spec §3.2) — it used to be what `AssistantColumnModifier`'s `HStack`
     // asked, and the rule did not change when the column moved. What these
     // pin is the decision; `StudyColumnMountTests` is what pins that the arm
@@ -72,7 +72,7 @@ final class AssistantColumnTests: XCTestCase {
     /// takes the chrome, and a studied reference is chrome — the writer asked
     /// for their prose and nothing else. With the column in the RIGHT column
     /// this is what hands the pane picker back rather than what removes a
-    /// fourth column: `detailColumn`'s arm falls through to `inspectorPane`.
+    /// fourth column: `RightColumn`'s arm falls through to `inspectorPane`.
     func test_theColumnGoesWithTheChrome() {
         XCTAssertFalse(AssistantColumn.isPresented(studied: aPin(), persona: .author,
                                                    isNoChromeOn: true,
@@ -103,7 +103,7 @@ final class AssistantColumnTests: XCTestCase {
     /// the rule is a conjunction and all FOUR inputs must be able to veto.
     ///
     /// `showInspector` is the fourth (2026-08-25). The column is
-    /// `ProjectWindow.detailColumn`'s first arm, which is behind that flag, so
+    /// `RightColumn`'s first arm, which is behind that flag, so
     /// ⌘⌥I is a way of taking the column off screen that the predicate could
     /// not see — see `test_aColumnHiddenByTheRightColumnHoldsNoClaimOnEscape`
     /// for what an unseeing predicate cost.

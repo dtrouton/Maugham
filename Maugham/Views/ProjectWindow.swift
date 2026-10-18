@@ -1412,7 +1412,6 @@ struct ProjectWindow: View {
         switch preview {
         case .ready(let publications):
             // `.ready` is non-empty by construction (the resolver answers
-            // `.ready` is non-empty by construction (the resolver answers
             // `.nothingCompiled` when it finds nothing readable); the ternary makes
             // this switch total without an unreachable arm. `PublishPreviewCentreTests`
             // pins the resolver's half of that invariant.
@@ -1759,11 +1758,11 @@ struct ProjectWindow: View {
     /// **It does NOT open the wall on the travelling arm**, and it writes no
     /// subject: a persona change and a subject change each close the wall, so
     /// either would undo the press. What crosses the switch is the token.
-    @discardableResult
     ///
     /// **A `ProjectWindow` static rather than a `PaletteWallState` method**: it
     /// also writes the PERSONA, and the window is one of the closed set of
     /// persona decision sites (`TripwireGrepTests.personaDecisionSites`).
+    @discardableResult
     static func pressPaletteWallDoor(
         persona: inout Persona,
         detailSegment: inout DetailSegment,
@@ -2083,7 +2082,6 @@ struct ProjectWindow: View {
         return store.manifest.statements.first { $0.id == itemID }
             .flatMap { try? store.statementText(of: $0) }
     }
-
 
     // MARK: - The subject boundary
 
