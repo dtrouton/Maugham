@@ -817,6 +817,12 @@ final class TranslatorEnvironmentTests: XCTestCase {
                           "\(arm) must end every session through the roster — a "
                           + "service it misses is a billing process outliving the window")
         }
+        // …and app quit reaches EVERY open project's roster, not only those a
+        // mounted window holds: `MaughamApp`'s willTerminate observer calls
+        // `ProjectSessionRegistry.shutdownAll()`, which shuts every entry's
+        // roster down (final review M2).
+        let appQuit = try Self.appQuitReport(base: SourceTree.repoRoot)
+        XCTAssertTrue(appQuit.isEmpty, appQuit.joined(separator: "\n"))
 
         // (b) The window closing gives its session back (foundations plan 3,
         // Task 2, borrowed since Task 3) — code, not a comment naming it…
@@ -994,6 +1000,67 @@ final class TranslatorEnvironmentTests: XCTestCase {
         XCTAssertEqual(report.count, 1, report.joined(separator: "\n"))
         XCTAssertTrue(report.contains { $0.contains("never detaches a window") },
                       report.joined(separator: "\n"))
+    }
+
+    /// Whether app quit ends every open project's warm sessions: the
+    /// willTerminate observer in `MaughamApp` calls the registry's
+    /// `shutdownAll()`, and that runs `roster.shutdownAll()` over every
+    /// entry. One sentence per missing link; empty when both hold. Read
+    /// from masked code, so a comment naming a call does not count.
+    private static func appQuitReport(base: URL) throws -> [String] {
+        var report: [String] = []
+        let app = try SourceTree.sourceOfType("MaughamApp", under: ["Maugham"], base: base)
+        let observer = closureBody(after: "NSApplication.willTerminateNotification", in: app)
+            .map { String(decoding: SourceTree.mask($0), as: UTF8.self) } ?? ""
+        if !observer.contains("sessions.shutdownAll()") {
+            report.append("MaughamApp's willTerminate observer never calls the session "
+                          + "registry's shutdownAll() — a project only a reader holds keeps "
+                          + "its claude sessions billing past the app's quit")
+        }
+        let registry = try SourceTree.sourceOfType("ProjectSessionRegistry", under: ["Maugham"],
+                                                   base: base)
+        let body = closureBody(after: "func shutdownAll()", in: registry)
+            .map { String(decoding: SourceTree.mask($0), as: UTF8.self) } ?? ""
+        if !body.contains("roster.shutdownAll()") {
+            report.append("ProjectSessionRegistry.shutdownAll() never shuts a session's roster "
+                          + "down — app quit would leave every open project's claude billing")
+        }
+        return report
+    }
+
+    /// CONTROL for the app-quit link: an observer that only names the call
+    /// in a comment, over a registry whose `shutdownAll()` forgets the
+    /// roster, is reported twice.
+    func test_theAppQuitCensusFiresOnAPlantedForgottenShutdown() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/MaughamApp.swift": """
+                @main
+                struct MaughamApp: App {
+                    init() {
+                        NotificationCenter.default.addObserver(
+                            forName: NSApplication.willTerminateNotification,
+                            object: nil, queue: nil
+                        ) { _ in
+                            // sessions.shutdownAll()
+                            unlink(path)
+                        }
+                    }
+                }
+                """,
+            "Maugham/Stores/ProjectSessionRegistry.swift": """
+                @MainActor @Observable
+                final class ProjectSessionRegistry {
+                    func shutdownAll() {
+                        for entry in entries.values {
+                            // entry.session.roster.shutdownAll()
+                            _ = entry
+                        }
+                    }
+                }
+                """,
+        ])
+        let report = try Self.appQuitReport(base: base)
+        XCTAssertEqual(report.count, 2, report.joined(separator: "\n"))
     }
 
     /// Whether `ProjectSessionRegistry.release` closes the session it gives

@@ -44,6 +44,41 @@ final class ProjectSessionRegistryTests: XCTestCase {
     private final class FakeWindow {
         let canvas = CanvasModel()
         var flashes: [CompilerOrchestrator.Acknowledgment] = []
+        /// What the borrow's liveness probe answers — `false` is a window
+        /// that closed without its release ever being made (a leaked borrow).
+        var isOpen = true
+    }
+
+    /// A session runner that holds its one turn open until it is ended, and
+    /// counts how many times it was.
+    @MainActor
+    private final class HeldRunner: CompilerRunner {
+        private(set) var sends = 0
+        private(set) var shutdowns = 0
+        var isRunning = false
+        var sessionEpoch = 1
+        private var held: CheckedContinuation<CompilerRunEvent, Never>?
+
+        func send(message: String, systemPreamble: String?) async -> CompilerRunEvent {
+            sends += 1
+            isRunning = true
+            return await withCheckedContinuation { held = $0 }
+        }
+
+        private func release() {
+            isRunning = false
+            let continuation = held
+            held = nil
+            continuation?.resume(returning: .failed(.sessionDied(
+                detail: CompilerRunFailure.Detail.sessionShutDown)))
+        }
+
+        func cancelCurrentRun() { release() }
+
+        func shutdown() {
+            shutdowns += 1
+            release()
+        }
     }
 
     private struct PlannedFailure: Error {}
@@ -76,7 +111,7 @@ final class ProjectSessionRegistryTests: XCTestCase {
             session.attachWindow(canvas: window.canvas,
                                  flash: { window.flashes.append($0) },
                                  preferences: preferences)
-        })
+        }, isLive: { window.isOpen })
     }
 
     /// Opens the project's first chapter in the session's `DocumentStore`, so
@@ -404,6 +439,131 @@ final class ProjectSessionRegistryTests: XCTestCase {
         XCTAssertEqual(newer.flashes, [])
 
         await registry.release(leaseOld)
+    }
+
+    /// **A leaked borrow never revives a closed window** (final review M1).
+    /// Three windows; the middle one closed without giving its borrow back.
+    /// When the newest goes, the attachment skips the dead borrow for the
+    /// newest window still live — and the dead borrow is dropped, so when
+    /// that last live window goes the services detach and MCP forgets the
+    /// project, and the leaked lease given back late changes nothing.
+    func test_aDeadOlderBorrowIsSkippedAndDropped() async throws {
+        let url = try await makeProject()
+        let mcp = ProjectRegistry()
+        let registry = ProjectSessionRegistry(mcp: mcp)
+        let opens = Opens()
+        let id = ProjectIdentifier.id(for: url)
+        let oldest = FakeWindow()
+        let leaked = FakeWindow()
+        let newest = FakeWindow()
+
+        let leaseOldest = try await registry.acquire(url, as: try windowBorrow(oldest),
+                                                     open: opener(url, counting: opens))
+        let leaseLeaked = try await registry.acquire(url, as: try windowBorrow(leaked),
+                                                     open: opener(url, counting: opens))
+        let leaseNewest = try await registry.acquire(url, as: try windowBorrow(newest),
+                                                     open: opener(url, counting: opens))
+        let session = leaseOldest.session
+        let roster = session.roster
+        let documentStore = session.documentStore
+        leaked.isOpen = false
+
+        await registry.release(leaseNewest)
+        XCTAssertTrue(session.projectStore.liveCanvas === oldest.canvas,
+                      "the attachment went to a closed window's canvas instead of the "
+                      + "newest window still open")
+        assertWired(roster, "a live window is still open")
+        let docId = try await openFirstChapter(in: session)
+        pressRound(session, docId: docId)
+        XCTAssertEqual(oldest.flashes, [.noEditor], "the flash must reach the live window")
+        XCTAssertEqual(leaked.flashes, [], "…and never the closed one")
+
+        await registry.release(leaseOldest)
+        await assertUnwired(roster, "the last LIVE window going must end every service — "
+                            + "a leaked borrow must not keep them warm")
+        XCTAssertNil(session.projectStore.liveCanvas)
+        XCTAssertNil(mcp.lookup(id: id), "the dead borrow kept the project announced")
+        XCTAssertEqual(registry.openCount, 0, "the dead borrow kept the stores open")
+        XCTAssertNil(documentStore.presenter)
+
+        await registry.release(leaseLeaked)
+        XCTAssertEqual(registry.openCount, 0, "the leaked lease's late release must do nothing")
+    }
+
+    /// …and with ONLY dead borrows left, the attached window going detaches
+    /// the services exactly as the last window would — while a reader keeps
+    /// the stores.
+    func test_withOnlyDeadBorrowsLeftTheServicesDetach() async throws {
+        let url = try await makeProject()
+        let mcp = ProjectRegistry()
+        let registry = ProjectSessionRegistry(mcp: mcp)
+        let opens = Opens()
+        let id = ProjectIdentifier.id(for: url)
+        let dead = FakeWindow()
+        let attached = FakeWindow()
+
+        let reader = try await registry.acquire(url, as: .reader, open: opener(url, counting: opens))
+        let leaseDead = try await registry.acquire(url, as: try windowBorrow(dead),
+                                                   open: opener(url, counting: opens))
+        let leaseAttached = try await registry.acquire(url, as: try windowBorrow(attached),
+                                                       open: opener(url, counting: opens))
+        let session = reader.session
+        dead.isOpen = false
+
+        await registry.release(leaseAttached)
+        await assertUnwired(session.roster, "no live window is left — every service must detach")
+        XCTAssertNil(session.projectStore.liveCanvas,
+                     "a closed window's canvas was made the live one")
+        XCTAssertNil(mcp.lookup(id: id), "no live window is left — MCP must forget the project")
+        XCTAssertNotNil(session.documentStore.presenter, "the reader still holds the stores")
+        XCTAssertEqual(registry.openCount, 1)
+
+        await registry.release(leaseDead)
+        XCTAssertEqual(registry.openCount, 1, "the dropped borrow's late release closed the reader's session")
+        await registry.release(reader)
+        XCTAssertEqual(registry.openCount, 0)
+    }
+
+    /// **App quit reaches every open project's roster** (final review M2),
+    /// not only the ones a mounted window holds: a session a reader kept
+    /// open has warm sessions too.
+    func test_shutdownAllEndsEveryOpenSessionsWarmClaude() async throws {
+        let one = try await makeProject()
+        let two = try await makeProject()
+        let registry = ProjectSessionRegistry()
+        let opens = Opens()
+        let first = try await registry.acquire(one, as: .reader, open: opener(one, counting: opens))
+        let second = try await registry.acquire(two, as: try windowBorrow(FakeWindow()),
+                                                open: opener(two, counting: opens))
+
+        var runners: [HeldRunner] = []
+        var calls: [Task<CompilerRunEvent, Never>] = []
+        for session in [first.session, second.session] {
+            let runner = HeldRunner()
+            runners.append(runner)
+            session.roster.coldCall.configure(makeRunner: { _ in runner })
+            let coldCall = session.roster.coldCall
+            calls.append(Task { await coldCall.call(message: "read", preamble: nil, model: "m") })
+        }
+        for _ in 0..<300 where runners.contains(where: { $0.sends == 0 }) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(runners.map(\.sends), [1, 1], "premise: a warm call is out on each project")
+
+        registry.shutdownAll()
+
+        XCTAssertEqual(runners.map(\.shutdowns), [1, 1],
+                       "app quit must end every open project's warm session — a missed one "
+                       + "is a billing process outliving the app")
+        // A session shutdownAll missed is ended here, so a regression fails on
+        // the assertion above rather than hanging on a turn nobody releases.
+        first.session.roster.coldCall.shutdown()
+        second.session.roster.coldCall.shutdown()
+        for call in calls { _ = await call.value }
+
+        await registry.release(first)
+        await registry.release(second)
+        XCTAssertEqual(registry.openCount, 0)
     }
 
     /// (f) MCP follows the WINDOW borrows: announced while one is out, and

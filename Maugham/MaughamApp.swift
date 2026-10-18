@@ -26,7 +26,8 @@ struct MaughamApp: App {
     init() {
         let mcp = ProjectRegistry()
         _mcpRegistry = State(initialValue: mcp)
-        _projectSessions = State(initialValue: ProjectSessionRegistry(mcp: mcp))
+        let sessions = ProjectSessionRegistry(mcp: mcp)
+        _projectSessions = State(initialValue: sessions)
 
         // Fail-fast guardrail: if the compile flag and bundle id drift apart
         // (e.g. CI config error), this fires immediately in Debug.
@@ -50,6 +51,14 @@ struct MaughamApp: App {
             object: nil, queue: nil
         ) { _ in
             MaughamEvent.post(.maughamAppWillTerminate, to: .allWindows)
+            // Every open project's warm `claude` sessions end here, not only
+            // those a mounted window's quit arm reaches: a project a reader
+            // (the Statistics window) or a leaked borrow kept open has a
+            // roster too, and a session merely released is a live, billing
+            // process. willTerminate runs on the main thread.
+            MainActor.assumeIsolated {
+                sessions.shutdownAll()
+            }
             // Synchronously remove the MCP socket file. The async server stop()
             // (via .maughamAppWillTerminate → WelcomeHost) often does NOT run
             // before macOS kills the process on quit, which leaves a stale

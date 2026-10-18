@@ -4101,6 +4101,11 @@ struct ProjectWindow: View {
                     canvas: canvasModel,
                     flash: { showCompilerFlash($0) },
                     preferences: userPreferences)
+            }, isLive: {
+                // Read at the registry's reattach, from the window's state as
+                // it is THEN. No window in hand yet counts as live: a window
+                // still appearing must not be dropped.
+                window.map { MaughamEvent.isLive($0) } ?? true
             })) {
                 try await ProjectSession.open(url: url)
             }

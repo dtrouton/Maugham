@@ -148,6 +148,10 @@ final class ProjectSessionTests: XCTestCase {
                       "load() must borrow as a window")
         XCTAssertTrue(load.contains("session.attachWindow("),
                       "load()'s window borrow must attach the window to the session")
+        // …and carries the window's liveness, so a leaked borrow of a closed
+        // window is never handed the attachment back (final review M1).
+        XCTAssertTrue(load.contains("isLive:") && load.contains("MaughamEvent.isLive("),
+                      "load()'s window borrow must answer its window's liveness")
         let open = try XCTUnwrap(load.range(of: "ProjectSession.open("),
                                  "load() must open through ProjectSession")
         XCTAssertTrue(ask.lowerBound < giveBackPrevious.lowerBound

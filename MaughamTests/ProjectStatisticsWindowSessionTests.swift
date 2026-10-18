@@ -40,7 +40,7 @@ final class ProjectStatisticsWindowSessionTests: XCTestCase {
         let canvas = CanvasModel()
         return .window(attach: { session in
             session.attachWindow(canvas: canvas, flash: { _ in }, preferences: preferences)
-        })
+        }, isLive: { true })
     }
 
     private func openWindow(_ url: URL, in registry: ProjectSessionRegistry) async throws

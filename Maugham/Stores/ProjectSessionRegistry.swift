@@ -43,8 +43,14 @@ final class ProjectSessionRegistry {
         /// production, `ProjectSession.attachWindow` with the window's canvas
         /// and flash) and answers the attachment. Kept for the life of the
         /// borrow, because when a newer window goes back first the attachment
-        /// returns to this one.
-        case window(attach: @MainActor (ProjectSession) -> ProjectSession.WindowAttachment)
+        /// returns to this one. `isLive` answers whether the window is still
+        /// open: a borrow that leaked (its window gone, its release never
+        /// made) must never be handed the attachment back — that would make
+        /// a closed window's canvas the live one and keep the services warm
+        /// for nobody. A window not yet known (no `NSWindow` in hand) answers
+        /// live, so a window still appearing is never dropped.
+        case window(attach: @MainActor (ProjectSession) -> ProjectSession.WindowAttachment,
+                    isLive: @MainActor () -> Bool)
         /// Anything that only reads the stores (the Statistics window).
         case reader
     }
@@ -59,6 +65,7 @@ final class ProjectSessionRegistry {
     private struct WindowBorrow {
         let serial: Int
         let attach: @MainActor (ProjectSession) -> ProjectSession.WindowAttachment
+        let isLive: @MainActor () -> Bool
         var attachment: ProjectSession.WindowAttachment
     }
 
@@ -120,12 +127,13 @@ final class ProjectSessionRegistry {
                 switch borrow {
                 case .reader:
                     entry.readers.insert(serial)
-                case .window(let attach):
+                case .window(let attach, let isLive):
                     if entry.windows.isEmpty {
                         mcp?.register(url: entry.session.url, store: entry.session.projectStore)
                     }
                     entry.windows.append(WindowBorrow(
-                        serial: serial, attach: attach, attachment: attach(entry.session)))
+                        serial: serial, attach: attach, isLive: isLive,
+                        attachment: attach(entry.session)))
                 }
                 entries[key] = entry
                 return Lease(session: entry.session, key: key, serial: serial)
@@ -155,10 +163,13 @@ final class ProjectSessionRegistry {
     }
 
     /// Gives one borrow back. A window's release detaches it
-    /// (`ProjectSession.detachWindow`): if it was the attached window and an
-    /// older one is still open, that one is attached again first, so the
-    /// detach finds a newer attachment and changes nothing; if it was the
-    /// last window, every service detaches and MCP forgets the project. The
+    /// (`ProjectSession.detachWindow`): if it was the attached window, the
+    /// NEWEST older borrow whose window is still live is attached again
+    /// first, so the detach finds a newer attachment and changes nothing —
+    /// and every newer borrow whose window is gone is dropped on the way,
+    /// never reattached (a leaked borrow must not revive a closed window).
+    /// If no live window is left, every service detaches and MCP forgets the
+    /// project. The
     /// last release of ANY kind closes the session (`ProjectSession.close()`
     /// — the roster detaches, then the DocumentStore drains) and returns once
     /// that close has finished. A lease already given back does nothing.
@@ -168,9 +179,17 @@ final class ProjectSessionRegistry {
         let session = entry.session
         if let index = entry.windows.firstIndex(where: { $0.serial == lease.serial }) {
             let leaving = entry.windows.remove(at: index)
-            if session.attachment == leaving.attachment, var newest = entry.windows.popLast() {
-                newest.attachment = newest.attach(session)
-                entry.windows.append(newest)
+            if session.attachment == leaving.attachment {
+                // Newest first; a dead borrow is dropped. Its attachment is
+                // already stale (the leaving window's was the live one), so
+                // nothing needs detaching for it, and its own late release,
+                // if it ever comes, finds no borrow and does nothing.
+                while var newest = entry.windows.popLast() {
+                    guard newest.isLive() else { continue }
+                    newest.attachment = newest.attach(session)
+                    entry.windows.append(newest)
+                    break
+                }
             }
             session.detachWindow(leaving.attachment)
             if entry.windows.isEmpty {
@@ -188,5 +207,18 @@ final class ProjectSessionRegistry {
         closing[key] = close
         await close.value
         if closing[key] == close { closing[key] = nil }
+    }
+
+    /// App quit: ends every warm `claude` session of every open project —
+    /// `AgentRoster.shutdownAll()` on each session's roster — whether or not
+    /// a live window still holds it. The windows' own quit arms reach only
+    /// the rosters a mounted window holds; a session a reader (or a leaked
+    /// borrow) kept open would otherwise outlive the app as a billing
+    /// process. Synchronous, because `willTerminate` gives nothing time to
+    /// await. Borrows and stores are left alone: the process is ending.
+    func shutdownAll() {
+        for entry in entries.values {
+            entry.session.roster.shutdownAll()
+        }
     }
 }
