@@ -10,9 +10,9 @@ import MaughamCore
 ///   refuses the text — a reviewer's Mac opens in review mode, so the
 ///   selection toolbar offers annotation.
 ///
-/// Keyed on `allows(.writeText)`, never on `isRestricted`: an author of
-/// some pieces inside her own piece is restricted (she may not start a
-/// piece) and may type every word of it. `Posture.settling` refuses
+/// Keyed on `allows(.writeText)`, never on `isRestricted` (controller ruling
+/// E): an author of some pieces inside her own piece is restricted (she may
+/// not start a piece) and may type every word of it. `Posture.settling` refuses
 /// `.writeText`, so it LOCKS: a verb appearing a frame late is fine, one
 /// appearing that must not is not. `nil` is no manuscript document in the
 /// editor: nothing to lock.

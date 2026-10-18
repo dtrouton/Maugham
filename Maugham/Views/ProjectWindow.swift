@@ -67,11 +67,13 @@ struct ProjectWindow: View {
     /// through `selectDetailSegment`; it does not post it** — `onDismiss` runs
     /// before key status returns, so a `.keyWindow` post would be dropped.
     ///
-    /// **Guarded twice**: every presentation clears it (`activeSheet`'s
-    /// `onChange`, which also mirrors what is up into `presentedSheet`), and the
-    /// dismissal that acts on it must be Project Settings' own
-    /// (`opensFirstReader`) — otherwise closing any other sheet would jump the
-    /// right column to her statement.
+    /// **Guarded twice**: `describeFirstReader`'s two awaits leave a window in
+    /// which the writer can Escape before the request is recorded, and the
+    /// request then stands over a sheet that is already gone — so every
+    /// presentation clears it (`activeSheet`'s `onChange`, which also mirrors
+    /// what is up into `presentedSheet`), and the dismissal that acts on it
+    /// must be Project Settings' own (`opensFirstReader`) — otherwise closing
+    /// any other sheet would jump the right column to her statement.
     @State private var describeFirstReaderRequested = false
     /// **Which sheet is up** — `onDismiss` is told nothing about what closed,
     /// and the decision above turns on it. Mirrored from `activeSheet` rather
@@ -608,8 +610,8 @@ struct ProjectWindow: View {
         return id
     }
 
-    /// **The editor's membrane, asked of the posture.** The DRAWING accessor:
-    /// reading it observes `postureEpoch`, so a demotion or a promotion
+    /// **The editor's membrane, asked of the posture.** The DRAWING accessor
+    /// (controller ruling I): reading it observes `postureEpoch`, so a demotion or a promotion
     /// arriving mid-session re-mirrors with no reopen. The rule itself is
     /// `EditorControlMirror.membrane`, pinned without a window.
     private var editorMembrane: EditorControlMirror.Membrane {

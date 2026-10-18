@@ -13,7 +13,8 @@ import AppKit
 /// WRITES arrives as a `Binding` (tripwire 2: a copy would be a second value
 /// that drifts from the first), each value it only READS arrives as a value,
 /// and each of the window's verbs arrives as a closure — so the one writer of
-/// `ActivePassMemory` and the one round deferral stay `ProjectWindow`'s.
+/// `ActivePassMemory` and the one round deferral stay `ProjectWindow`'s. The
+/// persona, the column visibility and the subject stay owned by the window.
 ///
 /// **Mounted ONCE**, as the content column's root (`ProjectWindow
 /// .contentColumn`), so `EditorHost` and the canvas keep their identities

@@ -110,7 +110,9 @@ struct TranslationReviewModifier: ViewModifier {
                 // Mutate directly — do NOT post .keyWindow events from these buttons.
                 // The dialog's own window holds key status while its action runs, so
                 // a synchronous .keyWindow post is dropped by shouldDeliver's
-                // isWindowKey check (the v0.24.0 enter-does-nothing bug).
+                // isWindowKey check (the v0.24.0 enter-does-nothing bug). The
+                // onKeyWindowCommand receivers above remain for genuine
+                // out-of-window posters.
                 ForEach(pickerLanguages, id: \.self) { tag in
                     Button(TranslationReviewIndicator.displayLabel(forLanguageTag: tag)) {
                         translationLanguage = tag

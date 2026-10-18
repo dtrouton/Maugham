@@ -329,11 +329,14 @@ struct RightColumn: View {
 
     /// The canvas's inspector arm — the selected region, or an empty state.
     ///
-    /// **One expression, and it reads NOTHING off `canvasModel`.** `CanvasModel`
-    /// is `@Observable` with the whole scene in one stored property that every
-    /// drag and coast frame writes, so resolving `selectedRegion` *here* would
-    /// make this column's body a dependency of the drag loop, re-evaluated at
-    /// 60–120 Hz. `RegionInspectorPane` does the resolving, one leaf down.
+    /// **One expression, and it reads NOTHING off `canvasModel`.** Both halves
+    /// matter. `ProjectWindow.body` has a zero expression budget (the Release
+    /// type-check ceiling), so the arm that mounts this is a call and not an
+    /// inline body. And `CanvasModel` is `@Observable` with the whole scene in
+    /// one stored property that every drag and coast frame writes, so resolving
+    /// `selectedRegion` *here* would make this column's body a dependency of the
+    /// drag loop, re-evaluated at 60–120 Hz. `RegionInspectorPane` does the
+    /// resolving, one leaf down.
     private func canvasInspector(store: ProjectStore) -> some View {
         RegionInspectorPane(
             model: canvasModel,
