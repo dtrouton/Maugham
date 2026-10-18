@@ -107,7 +107,7 @@ The on-disk filenames have a numeric prefix (`01-chapter-1.md`) so manuscripts s
 
 **A document won't open.** Maugham names what's wrong and offers a way forward — wait for iCloud, open it read-only, set the unreadable file aside, or restore from a backup. See [Getting Started → Troubleshooting: a document that won't open](getting-started.md#troubleshooting-a-document-that-wont-open).
 
-**My project won't open.** The window says *Couldn't open project* and gives the reason. Fix what it names if you can — often a permissions problem or a file iCloud hasn't downloaded yet — and open the project again. If you can't, **File → Restore from Backup…** still works from that window and restores a copy of the project beside the original. See [Backups & History → Restoring from a backup](backups-and-history.md#restoring-from-a-backup).
+**My project won't open.** The window says *Couldn't open project* and gives the reason. If it says the project was made by a newer version of Maugham, update Maugham (**Maugham → Check for Updates…**). Otherwise fix what it names if you can and open the project again. **File → Restore from Backup…** works from that window, though when the project's manifest is the problem it may not find this project's backups. See [Backups & History → Restoring from a backup](backups-and-history.md#restoring-from-a-backup).
 
 **How do I get an older version back?** For a chapter, open the History pane (⌘⌥H) and use **Revert here…** on a checkpoint, or **Rewind** to any moment. For the whole project, restore a copy from a backup. Both are explained in [Backups & History](backups-and-history.md).
 

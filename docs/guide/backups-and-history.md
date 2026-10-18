@@ -24,7 +24,7 @@ The History pane shows the history of the document you have open, newest first: 
 - **Checkpoints** — just the checkpoints.
 - **Edits** — your writing, grouped into bursts. A new burst appears about every 30 seconds while you work.
 - **Annotations** — every note and suggestion, and every answer you gave one.
-- **External** — entries that record a change arriving from outside the editor. Edits made to the `.md` file outside Maugham aren't kept, so in most projects this one is empty.
+- **External** — entries that record a change arriving from outside the editor. Edits made to the `.md` file outside Maugham aren't kept, so this list stays empty.
 
 Each filter has its own empty state, such as *No checkpoints* or *No edits*, so an empty list never leaves you guessing which one you're looking at.
 
@@ -34,7 +34,7 @@ Each filter has its own empty state, such as *No checkpoints* or *No edits*, so 
 
 Every checkpoint row has **Revert here…**. It opens a sheet titled *Revert to “<the checkpoint's name>”* and asks how much to put back, under **Scope**:
 
-- **Whole project** — every document goes back to how it was at that checkpoint.
+- **Whole project** — every document goes back to how it was at that checkpoint (offered only when you may change every document).
 - **Document: <title>** — only that one document goes back.
 
 When the checkpoint was made inside a document, that document is chosen for you. When it wasn't, nothing is chosen and **Revert** stays off until you pick one. That way pressing Return can never revert more than you meant.
@@ -43,7 +43,7 @@ Reverting adds to the history rather than erasing it. Everything you wrote after
 
 ### Rewinding one document
 
-To look back at any moment, not just a checkpoint, use **Rewind**. That's the clock button beside the filter chips. You can also use **Rewind to before this…** on an edit row, which opens Rewind at the moment just before that edit.
+To look back at any moment, not just a checkpoint, use **Rewind**. That's the clock button beside the filter chips. You can also press the back-arrow button on an edit row (*Rewind to before this point…*), which opens Rewind at the moment just before that edit.
 
 The Rewind window is headed **REWINDING**. Drag the scrubber to go back through the document, and switch between **Doc** (the text as it was then) and **Diff** (what restoring it would change, compared with the document now). The buttons at the bottom are:
 
@@ -53,7 +53,7 @@ The Rewind window is headed **REWINDING**. Drag the scrubber to go back through 
 
 Press ⌘Z straight after a restore and the whole thing is undone, including any suggestions it reopened. See [Annotations & Suggestions → Rewinding with suggestions](annotations-and-suggestions.md#rewinding-with-suggestions).
 
-**Revert here…**, **Rewind to before this…**, **Snapshot here…** and **Restore here…** only appear where this Mac may change the piece's text. In a piece you're reviewing, History is something to read.
+**Revert here…**, the back-arrow button, **Snapshot here…** and **Restore here…** only appear where this Mac may change the piece's text. In a piece you're reviewing, History is something to read.
 
 ### Other things History tells you
 
@@ -66,7 +66,7 @@ History also says who wrote what, and holds work that's waiting for you: changes
 
 Backups are off until you choose where they go. Open **Settings (⌘,) → Backups** and press **Add destination…**. Pick a folder outside iCloud: a local folder, an external drive, or a folder Dropbox or Google Drive syncs. If you have none, the tab says so: *"No destinations. Add a folder outside iCloud (a local folder, external drive, or a Dropbox/Drive-synced folder) to keep verified copies of your projects."*
 
-Each destination shows its name, where it is, and how many backups it keeps — **Keep 10** to begin with. Use the arrows to choose anywhere from 1 to 50, and the bin button to remove the destination. Removing a destination doesn't delete the backups already in it.
+Each destination shows its name, where it is, and how many backups it keeps — **Keep 10** to begin with. Use the arrows to choose anywhere from 1 to 50, and the trash button to remove the destination. Removing a destination doesn't delete the backups already in it.
 
 The tab's own advice is worth following:
 
@@ -77,7 +77,7 @@ The tab's own advice is worth following:
 *"Backups run automatically when you save (⌘S). A copy is verified, then written to each destination; a corrupt project is detected and skipped rather than backed up."* In more detail:
 
 - **The whole project folder is copied** — manuscript, research, the canvas, your project's history, everything in it. Several projects can share one destination, because each gets its own folder there.
-- **The copy is checked before it counts.** It's written under a temporary name, checked, and only then given its place as a numbered backup. A copy that was cut short never looks like a finished one.
+- **The copy is checked before it counts.** It's written under a temporary name, checked, and only then joins your backups. A copy that was cut short never looks like a finished one.
 - **Nothing is written if nothing has changed.** Pressing ⌘S ten times without writing a word makes one backup, not ten. Things like which document you had selected or which persona you were in don't count as changes.
 - **Old backups are cleared down to the destination's Keep number** each time a new one is made, oldest first. A backup that checks out is kept ahead of a damaged one.
 
@@ -99,7 +99,7 @@ Before every backup, Maugham checks that the project's history is whole. If it i
 
 If there aren't any yet, the window says **No backups found**: *"No backup generations exist for this project yet."*
 
-Choose a backup and press **Restore a Copy…**. Maugham asks *"Choose where to restore a copy of this project."* It suggests the name *<project> (restored)*, next to your original, and shows you the copy in Finder when it's done. **A restore never replaces your project in place.** Your current project stays exactly as it is, and you open the restored copy alongside it to take what you need. If you choose a name that's already taken, Maugham restores nothing and says so: *"Something named “<name>” is already there, so nothing was restored. Choose a new name — a restore never replaces anything."*
+Choose a backup and press **Restore a Copy…**. Maugham asks *"Choose where to restore a copy of this project."* It suggests the name *<project> (restored)*, next to your original, and shows you the copy in Finder when it's done. **A restore never replaces your project in place.** Your current project stays exactly as it is, and you open the restored copy alongside it to take what you need. If you choose a name that's already taken, Maugham restores nothing — even if you pressed **Replace**, the window says *Restore failed:* and explains: *"Something named “<name>” is already there, so nothing was restored. Choose a new name — a restore never replaces anything."*
 
 If the restore goes wrong, the window says *Restore failed:* and gives the reason.
 

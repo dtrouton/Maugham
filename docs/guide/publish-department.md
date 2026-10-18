@@ -26,7 +26,7 @@ but won't open, an iCloud download that hasn't finished — the Languages
 section names that chapter above the rows and says why, and the rest of
 the book's editions still show. What's missing is that chapter's share of
 the counts, not the whole desk. If the book has no editions yet, that line
-is all the section says — not *No translations yet.*, which Maugham can't
+is all the section says besides **Add Language…** — not *No translations yet.*, which Maugham can't
 know while a chapter is unread.
 
 ### Which book the desk is about
