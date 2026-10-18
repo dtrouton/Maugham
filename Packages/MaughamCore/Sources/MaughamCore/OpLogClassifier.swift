@@ -552,6 +552,18 @@ public enum OpLogClassifier {
             isSealedSegment: isSealedSegment, segmentVerified: segmentVerified)
     }
 
+    /// Load + parse ONE op-log file — plain `.jsonl` tail or sealed `.mzseg`
+    /// segment — into ops + diagnostics. The single per-file read shared by
+    /// `OpLogStore.loadDiagnosed(docId:)` and `ProjectIntegrity.check`, so opIds inside
+    /// segments stay visible to the dangling-pointer check exactly as tail
+    /// opIds are (growth spec §5.4).
+    ///
+    /// Segment verification failure (bad magic / decompress / checksum) is a
+    /// data condition, not an error: surfaced as a `ParseDiagnostics.skipped`
+    /// entry (so `ProjectIntegrity.check` marks the doc unhealthy and the
+    /// load path quarantines it) while any salvageable decompressed lines
+    /// still parse — best-effort, never silent (spec §5.3).
+    ///
     /// `trust` is who this device judges the file's seals by. Nil is the
     /// KEYLESS reader — `ProjectIntegrity.check`, and anything else that
     /// inspects a project without opening it — which holds no key and judges
@@ -693,14 +705,38 @@ public enum OpLogClassifier {
     }
 
     /// **Where the held-line walk actually ran** — a test's own variable, so
-    /// the claim above is a measurement rather than a paragraph (fix round 2,
+    /// `OpLogStore.heldLines`' off-actor claim is a measurement rather than a paragraph (fix round 2,
     /// I3). `PermitPartition.walkObserverForTesting`'s shape and its reason:
     /// `nonisolated(unsafe)` because a test sets and clears it on one thread,
     /// and production never assigns it.
     nonisolated(unsafe) public static var heldLinesWalkObserverForTesting:
         (@Sendable () -> Void)?
 
-    /// The walk half, `nonisolated` so a caller can run it off the main actor.
+    /// The walk half of `OpLogStore.heldLines`, `nonisolated` so the store can
+    /// run it off the main actor.
+    ///
+    /// **One classifier, and this is not a second one.** `classify` is the
+    /// same function both `classifyTail` and `classifySegment` are reached
+    /// through. Nothing here re-derives which span is inside the unsigned
+    /// photograph, whether a segment verified, or which lines a permit
+    /// refused: those are the walk's, and a copy of any of them would answer
+    /// differently the first time either changed.
+    ///
+    /// **It reads and never writes.** `classify` only asks the device state
+    /// what it remembers; the three writes a LOAD makes — the adopted head,
+    /// the verified segment digest and the forensic record — are
+    /// `loadFileDiagnosed`'s and are not made here. The remembered head IS
+    /// passed, because leaving it out would give a weaker picture than the
+    /// load's and could offer a line the load had set aside.
+    ///
+    /// **It throws rather than coming back short.** A file present and
+    /// unreadable is `readCoordinated`'s to raise (RULING-54): a silent short
+    /// answer here would offer the writer some of a held span and tell them it
+    /// was all of it.
+    ///
+    /// Answers the raw LINE BYTES, in file order, per file in listing order —
+    /// what they MEAN is the caller's (`OpLogQuarantine.recoverableWords`),
+    /// which is the same decode the record door uses.
     nonisolated static func heldLines(
         in urls: [URL], heldBy holder: String, presenter: NSFilePresenter?,
         state: OpLogDeviceState?, trust: TrustTable?, permit: PermitContext?
@@ -723,7 +759,7 @@ public enum OpLogClassifier {
 
     /// Synchronous globbed read+merge, bypassing `NSFileCoordinator`. For the
     /// local-only / heuristic readers that deliberately avoid async
-    /// coordination; the async `load(docId:)` is the coordinated path and is
+    /// coordination; the async `OpLogStore.load(docId:)` is the coordinated path and is
     /// preferred where the call site can await. Same opId dedupe + sort.
     /// The synchronous reader classifies exactly as the coordinated one does —
     /// same `classify`, same applied set — and writes NOTHING: no quarantine

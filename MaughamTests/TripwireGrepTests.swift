@@ -10377,8 +10377,8 @@ final class TripwireGrepTests: XCTestCase {
     ///   about what the writer has been shown.
     /// - `absentStreams` — the *remembered but no file at all* half of the
     ///   loss drawer, which is the commonest thing a marking verb refuses
-    ///   over. One caller, `StreamCensus.lostHistory`, plus its own definition and
-    ///   `OpLogStore`'s one-line forwarder.
+    ///   over. One caller, `StreamCensus.lostHistory`, plus its own
+    ///   definition.
     /// - `gateOldBuildsOut` — the schema gate (P3b Task 3). One function,
     ///   reached from every narrowing verb: `changePermit`, the label-wide
     ///   `changePermit(everyRecordOf:)` and the sheet's `admit`. A verb that
@@ -10399,7 +10399,7 @@ final class TripwireGrepTests: XCTestCase {
             "OpLogDeviceState.swift": 12, "type:StreamCensus": 1,
             "type:DocumentStore": 1,
         ],
-        "absentStreams": ["type:StreamCensus": 2, "type:OpLogStore": 1],
+        "absentStreams": ["type:StreamCensus": 2],
         "gateOldBuildsOut": [
             "type:DocumentStore": 4,
         ],

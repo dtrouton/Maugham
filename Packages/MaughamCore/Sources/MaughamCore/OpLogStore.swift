@@ -1,88 +1,16 @@
 // Maugham/OpLog/OpLogStore.swift  (now in MaughamCore)
-import CryptoKit
 import Foundation
 import os
 
 /// Diagnostic channel for the two things a LOAD can fail at without failing:
-/// recording the lines it set aside, and signing a segment it just minted.
-/// Neither may cost the writer their manuscript, so neither throws — and a
-/// silent best-effort is only honest if it says so somewhere.
-/// `internal` since P3a Task 5's fix round 1: `OpLogPermitContext` reports a
-/// manifest it could not read through the same channel the load already uses.
+/// recording the lines it set aside, and signing a segment it just minted
+/// (`SegmentSealer`). Neither may cost the writer their manuscript, so neither
+/// throws — and a silent best-effort is only honest if it says so somewhere.
+/// `internal` because the op log's other files (`OpLogPermitContext`'s
+/// unreadable manifest among them) report through the same channel.
 let opLogLoadLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.core",
     category: "OpLogStore")
-
-/// One device's signature over a sealed segment's digest, written beside the
-/// segment as `<name>.mzseg.sig`.
-///
-/// **Why beside rather than inside.** A `.mzseg` is immutable bytes whose
-/// checksum is part of its own header; signing it in place would mean rewriting
-/// it, and a segment that can be rewritten is not sealed. The signature is
-/// therefore a sidecar, and losing it costs exactly what losing any derived
-/// file costs: the segment reads as unsigned history, which is honest.
-///
-/// **Why over the digest.** The segment already commits to every one of its
-/// bytes through the SHA-256 in its header, so signing those 32 bytes signs the
-/// whole segment — one signature per segment instead of one per line, and the
-/// verification is a single P256 check however long the history is. It is the
-/// same three fields a seal line carries (`OpLogChain.Seal`) over a different
-/// digest, and it goes through the same credential helpers so the two shapes
-/// cannot drift apart.
-public struct SegmentSignature: Codable, Equatable, Sendable {
-    /// The segment's own uncompressed-content digest, 64 hex characters.
-    public let digest: String
-    /// The signing key's fingerprint (`DeviceIdentity.fingerprint(of:)`).
-    public let key: String
-    /// Base64 of the public key's X9.63 representation.
-    public let pub: String
-    /// Base64 of the 64-byte raw P256 signature over the digest's 32 bytes.
-    public let sig: String
-    public let at: Date
-
-    public init(digest: String, key: String, pub: String, sig: String, at: Date) {
-        self.digest = digest
-        self.key = key
-        self.pub = pub
-        self.sig = sig
-        self.at = at
-    }
-
-    /// Sign `digest` with `identity`. Throws `DeviceIdentityError.unsigned` on a
-    /// device with no key — a condition, not a failure.
-    public static func make(
-        digest: String, identity: DeviceIdentity, at: Date = Date()
-    ) throws -> SegmentSignature {
-        let credentials = try OpLogChain.credentials(signing: digest, identity: identity)
-        return SegmentSignature(
-            digest: digest, key: credentials.key,
-            pub: credentials.pub, sig: credentials.sig, at: at)
-    }
-
-    /// Does this signature hold together over the digest it names? Says nothing
-    /// about whether the key is TRUSTED — that is the reader's question.
-    public func verifies() -> Bool {
-        OpLogChain.credentialsVerify(
-            .init(key: key, pub: pub, sig: sig), over: digest)
-    }
-
-    /// The signature beside a segment, or nil when there is none to read. A
-    /// missing or unreadable sidecar is never an error: it means the segment is
-    /// unsigned history.
-    public static func read(at url: URL) -> SegmentSignature? {
-        guard let bytes = try? Data(contentsOf: url) else { return nil }  // adr-0018-ok: derived signature sidecar, never manuscript text
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = JSONLAppendStore<SegmentSignature>.dateDecoding
-        return try? decoder.decode(SegmentSignature.self, from: bytes)
-    }
-
-    func encoded() throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        encoder.dateEncodingStrategy = JSONLAppendStore<SegmentSignature>.dateEncoding
-        return try encoder.encode(self)
-    }
-}
 
 /// Per-document append-only JSONL op log, **partitioned per device** (ADR 0012,
 /// spec §3.12). Each device writes only to its own file
@@ -100,6 +28,16 @@ public struct SegmentSignature: Codable, Equatable, Sendable {
 /// The write target is derived from `op.device` itself — an op self-describes the
 /// device that created it, which is exactly the file it belongs in — so no caller
 /// has to thread a device slug through.
+///
+/// **What lives here** (since foundations plan 6): the per-store trust cache
+/// and the write-permit door (tripwire 46); the document loads, which take the
+/// table and the permit context here and hand each file to `OpLogClassifier`;
+/// the append and its chain seal (`sealChain`, signing lines in place); and a
+/// forwarding surface for the rules that moved out — file names
+/// (`OpLogFiles`), classification (`OpLogClassifier`), marks
+/// (`StreamPositions`), the missing-history census (`StreamCensus`), permit
+/// construction (`LocalWritePermitBuilder`) and the segment seal
+/// (`SegmentSealer`).
 @MainActor
 public final class OpLogStore {
     public let projectURL: URL
@@ -131,6 +69,8 @@ public final class OpLogStore {
         self.deviceState = state
         self.registryCache = cache
     }
+
+    // MARK: - Trust cache and the write-permit door
 
     /// The registry memory this store reconciles against — `nil` means the
     /// process-wide one, resolved only if a registry folder actually exists, so
@@ -282,13 +222,9 @@ public final class OpLogStore {
     /// this is where the verified table already is — resolving a second one per
     /// document would be a folder read and a P256 verify per record, per open.
     ///
-    /// **It never throws, and that is the point.** `trust()` refuses on a
-    /// registry record that is present and unreadable (RULING-54), and a load
-    /// that asks this question must not start refusing over one where it did
-    /// not before (constitution must #1). The fallback is the keyless table,
-    /// which is P1's behaviour exactly — this device's own keys, nobody else's,
-    /// no events, so the answer is *yes* — and the caller that goes on to READ
-    /// will meet the same refusal through its own door with its own sentence.
+    /// **It never throws, and that is the point**: a load that asks this
+    /// question must not start refusing where it did not before (constitution
+    /// must #1). `registerTable` carries the fallback and its reasoning.
     ///
     /// **Synchronous, and that is load-bearing**: the table is resolved here,
     /// on this actor (`registerTable` → `trustOnThisActor`), because a
@@ -358,6 +294,8 @@ public final class OpLogStore {
             documentClass: documentClass)
     }
 
+    // MARK: - Append state
+
     /// Lines this device has appended to each file since that file's last seal.
     /// In memory and per store instance on purpose: it is a cadence, not a
     /// fact — losing it costs at most one late seal, and the seal itself is
@@ -379,8 +317,9 @@ public final class OpLogStore {
     var appendFailureForTesting: Error?
 
     /// Test-only: when non-nil, every seal that goes through
-    /// `sealChain(docId:by:)` (all seal paths share it) throws this, so a test can prove a failed seal never fails the append
-    /// whose op had already landed (#75). Default nil.
+    /// `sealChain(docId:by:)` (all seal paths share it) throws this, so a test
+    /// can prove a failed seal never fails the append whose op had already
+    /// landed (#75). Default nil.
     var sealFailureForTesting: Error?
 
     /// Test-only observation seam: called in `append` after the actor's key is
@@ -435,14 +374,11 @@ public final class OpLogStore {
         }
     }
 
-    private var opsDir: URL { projectURL.appendingPathComponent(".maugham/ops") }
+    // MARK: - Loads
 
     /// Glob every file for `docId` (legacy `<docId>.jsonl` + per-device
-    /// `<docId>.<slug>.jsonl`), load each (coordinated), and merge: dedupe by
-    /// opId, sort by opId. docIds contain no dots (delimiter between id and device
-    /// slug), so the `<docId>.` boundary is unambiguous and can't prefix-collide
-    /// with another doc. Format is `doc-<hex>` / `scene-<hex>` (ADR 0008) or the
-    /// synthetic `__project__`.
+    /// `<docId>.<slug>.jsonl`; `OpLogFiles.opLogFileURLs` owns the glob), load
+    /// each (coordinated), and merge: dedupe by opId, sort by opId.
     public func load(docId: String) async throws -> [Op] {
         try await loadDiagnosed(docId: docId).ops
     }
@@ -508,24 +444,10 @@ public final class OpLogStore {
     /// anything of its own.
     ///
     /// **One classifier, and this is not a second one.** The trust table is
-    /// this store's, the permit context is built exactly as `loadDiagnosed`
-    /// builds it, and `classify` is the same function both `classifyTail` and
-    /// `classifySegment` are reached through. Nothing here re-derives which
-    /// span is inside the unsigned photograph, whether a segment verified, or
-    /// which lines a permit refused: those are the walk's, and a copy of any
-    /// of them would answer differently the first time either changed.
-    ///
-    /// **It reads and never writes.** `classify` only asks the device state
-    /// what it remembers; the three writes a LOAD makes — the adopted head,
-    /// the verified segment digest and the forensic record — are
-    /// `loadFileDiagnosed`'s and are not made here. The remembered head IS
-    /// passed, because leaving it out would give a weaker picture than the
-    /// load's and could offer a line the load had set aside.
-    ///
-    /// **It throws rather than coming back short.** A file present and
-    /// unreadable is `readCoordinated`'s to raise (RULING-54): a silent short
-    /// answer here would offer the writer some of a held span and tell them it
-    /// was all of it.
+    /// this store's and the permit context is built exactly as `loadDiagnosed`
+    /// builds it; the walk is `OpLogClassifier.heldLines`, which carries what
+    /// it may decide (nothing of its own), that it never writes, and that it
+    /// throws rather than coming back short (RULING-54).
     ///
     /// **The walk itself runs OFF this actor** (fix round 2, I3). This class is
     /// `@MainActor`, and the walk is a coordinated read plus a P256
@@ -537,9 +459,8 @@ public final class OpLogStore {
     /// `loadFileDiagnosed`, so the coordinated read still declines to bounce
     /// this process's own writes back at it.
     ///
-    /// Answers the raw LINE BYTES, in file order, per file in listing order —
-    /// what they MEAN is the caller's (`OpLogQuarantine.recoverableWords`),
-    /// which is the same decode the record door uses.
+    /// Answers the raw LINE BYTES, in file order, per file in listing order;
+    /// what they MEAN is the caller's (`OpLogQuarantine.recoverableWords`).
     public func heldLines(
         forDocId docId: String, heldBy holder: String
     ) async throws -> [Data] {
@@ -556,8 +477,6 @@ public final class OpLogStore {
                 state: state, trust: table, permit: permit)
         }.value
     }
-
-    public nonisolated static func provenance(forDocId docId: String, in projectURL: URL, trust: TrustTable, state: OpLogDeviceState?) throws -> OpLogProvenance { try OpLogClassifier.provenance(forDocId: docId, in: projectURL, trust: trust, state: state) }
 
     /// The result of `loadDiagnosedPartial` — the recovery spec §4's read.
     public struct PartialOpLogLoad {
@@ -630,17 +549,8 @@ public final class OpLogStore {
                 files: files, ownStreams: ForeignStreamWatch.slugs(of: identities)))
     }
 
-    /// Load + parse ONE op-log file — plain `.jsonl` tail or sealed `.mzseg`
-    /// segment — into ops + diagnostics. The single per-file read shared by
-    /// `loadDiagnosed(docId:)` and `ProjectIntegrity.check`, so opIds inside
-    /// segments stay visible to the dangling-pointer check exactly as tail
-    /// opIds are (growth spec §5.4).
-    ///
-    /// Segment verification failure (bad magic / decompress / checksum) is a
-    /// data condition, not an error: surfaced as a `ParseDiagnostics.skipped`
-    /// entry (so `ProjectIntegrity.check` marks the doc unhealthy and the
-    /// load path quarantines it) while any salvageable decompressed lines
-    /// still parse — best-effort, never silent (spec §5.3).
+    // MARK: - Read errors, and the doors that raise them
+
     /// RULING-54: a reader of a durable store treats an unreadable-yet-present
     /// file as an ERROR to surface, never as empty. The op log is the surface
     /// this ruling named FIRST: an unreadable device file used to contribute
@@ -786,10 +696,10 @@ public final class OpLogStore {
     /// The coordinated read of one op-log file's exact bytes. Nil when the file
     /// is not there (which is not a failure); a throw when it is there and
     /// cannot be read (RULING-54: unreadable-yet-present is never empty).
-    // `internal` rather than `private` since P3a Task 5:
-    // `LocalWritePermitBuilder.unownedPiece`'s second pass reads the
-    // document's other files through the same door, so the coordination
-    // policy stays one decision.
+    // `internal` rather than `private`: the op log's other readers
+    // (`OpLogClassifier`, `StreamPositions`, `LocalWritePermitBuilder`'s
+    // `unownedPiece`) read through the same door, so the coordination policy
+    // stays one decision.
     nonisolated static func readCoordinated(
         url: URL, presenter: NSFilePresenter?
     ) throws -> Data? {
@@ -812,30 +722,6 @@ public final class OpLogStore {
         }
         return bytes ?? Data()
     }
-
-    public static func loadFileDiagnosed(url: URL, presenter: NSFilePresenter?, identities: LocalIdentities? = nil, state: OpLogDeviceState? = nil, trust: TrustTable? = nil, permit: PermitContext? = nil, foreign: ForeignStreamWatch? = nil) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: FileProvenance) { try await OpLogClassifier.loadFileDiagnosed(url: url, presenter: presenter, identities: identities, state: state, trust: trust, permit: permit, foreign: foreign) }
-
-    nonisolated public static func highestAppliedOpId(ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?) throws -> String? { try StreamPositions.highestAppliedOpId(ofDeviceIds: ids, in: projectURL, trust: trust) }
-
-    nonisolated public static func appliedPositions(ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?, expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:]) throws -> PermitMark { try StreamPositions.appliedPositions(ofDeviceIds: ids, in: projectURL, trust: trust, expecting: expecting) }
-
-    nonisolated public static func seenPositions(ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?, expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:]) throws -> PermitMark { try StreamPositions.seenPositions(ofDeviceIds: ids, in: projectURL, trust: trust, expecting: expecting) }
-
-    nonisolated public static func unattributablePositions(in projectURL: URL, trust: TrustTable, expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:]) throws -> PermitMark { try StreamPositions.unattributablePositions(in: projectURL, trust: trust, expecting: expecting) }
-
-    nonisolated static func nameBehindICloudPlaceholder(_ filename: String) -> String? { StreamPositions.nameBehindICloudPlaceholder(filename) }
-
-    public typealias TruncatedStream = StreamCensus.TruncatedStream
-    public typealias LostHistory = StreamCensus.LostHistory
-
-    nonisolated public static func truncatedStreams(in projectURL: URL, state: OpLogDeviceState, trust: TrustTable? = nil) -> [TruncatedStream] { StreamCensus.truncatedStreams(in: projectURL, state: state, trust: trust) }
-
-    nonisolated public static func lostHistory(in projectURL: URL, state: OpLogDeviceState, trust: TrustTable? = nil) -> [LostHistory] { StreamCensus.lostHistory(in: projectURL, state: state, trust: trust) }
-
-    nonisolated public static func absentStreams(in projectURL: URL, remembering expecting: [String: OpLogDeviceState.ForeignStreamMemory]) -> [String] { StreamCensus.absentStreams(in: projectURL, remembering: expecting) }
-
-    nonisolated public static func unreadableName(_ error: Error) -> String { StreamCensus.unreadableName(error) }
-
 
     /// **Every name in a directory — or nothing, where the directory is not
     /// there** (P3a Task 7, fix round 1).
@@ -860,6 +746,8 @@ public final class OpLogStore {
                 name: name, underlying: error.localizedDescription)
         }
     }
+
+    // MARK: - Append and chain seal
 
     /// Append to the writer's own per-device file, keyed by `op.device`.
     ///
@@ -942,7 +830,7 @@ public final class OpLogStore {
     /// signing cost against how much of the tail is merely chained (tamper-
     /// EVIDENT) rather than sealed (tamper-evident and signed).
     ///
-    /// `nonisolated` for `segmentSealThreshold`'s reason: an immutable
+    /// `nonisolated` for `segmentSealThreshold`'s reason (below): an immutable
     /// `Sendable` `Int` that touches no actor state.
     public nonisolated static let chainSealInterval = 100
 
@@ -960,6 +848,7 @@ public final class OpLogStore {
     /// project's task log is signed history like every other tail AND bounded
     /// like every other tail — the seal is what `ProjectStore._projectOpLogStore`
     /// exists to make possible, the rotation is `DocumentStore.open`'s.
+    ///
     /// **One seal per local actor THIS STORE has written to since that file's
     /// last seal** (P1b, narrowed by the whole-branch review's I1). A device is
     /// four writers with four files, and a seal signs a run of lines in ONE of
@@ -1053,11 +942,9 @@ public final class OpLogStore {
             })
     }
 
-    // MARK: - Seal (tail → immutable segment)
+    // MARK: - Segment seal (tail → immutable segment)
 
-    /// Tail size above which a device's live per-doc file is sealed into an
-    /// immutable compressed segment (ADR 0016 / growth spec §5.2). Default
-    /// confirmed against the M0 baseline (spec §9.1).
+    /// `SegmentSealer.threshold`, under the name its callers use.
     ///
     /// `nonisolated`: unlike the class it lives on, this constant has no
     /// isolation requirement of its own — it's an immutable `Sendable` `Int`
@@ -1069,200 +956,129 @@ public final class OpLogStore {
     /// warnings) — so referencing a `@MainActor`-isolated static from there
     /// warns. `nonisolated` states the true fact about the constant rather
     /// than routing around the default-argument quirk.
-    public nonisolated static let segmentSealThreshold = 512 * 1024
+    public nonisolated static let segmentSealThreshold = SegmentSealer.threshold
 
-    /// Seal THIS device's live tail for `docId` into the next-numbered
-    /// `.mzseg` segment, iff the tail exceeds `threshold` bytes. Returns the
-    /// segment URL, or nil when nothing was sealed (missing/small/torn tail).
-    ///
-    /// Scope rules (enforced by tests T13/T14): only ever a tail belonging to
-    /// one of THIS device's own actors — sealing is a rewrite of a
-    /// single-writer file, the exact case ADR 0012 makes conflict-twin-free.
-    /// NEVER the legacy unsuffixed `<docId>.jsonl` (no unambiguous owner;
-    /// frozen since ADR 0012), and never another device's file. The synthetic
-    /// `__project__` stream is not an exception: it rotates at this same
-    /// threshold (Denver, 2026-09-09 — one constant, not two).
-    ///
-    /// **Its two callers, and why each is inside that rule** (the whole-branch
-    /// review's I3). `Document.close()` rotates the tail of the actor that
-    /// Document was LOADED as, and no other: an MCP call is a Document loaded
-    /// as the assistant, and a close that swept all four would delete the file
-    /// the writer's own open Document is appending to. The project-open sweep
-    /// in `DocumentStore.open` is the one place every local actor rotates, and
-    /// it is safe there for two reasons that do not hold at close — all four
-    /// slugs name this device's own actors, and the sweep is awaited before the
-    /// first `Document.load`, so no live appender exists to race the
-    /// read→delete gap the note below reasons about. That sweep is also the
-    /// project stream's ONLY boundary: `__project__` has no close to rotate at,
-    /// so open is its moment.
-    ///
-    /// Crash safety is by construction, not by care: dying between the
-    /// segment write and the tail delete leaves the same ops in both files —
-    /// `mergeSortedDedup` collapses them by opId, and the next seal converges
-    /// (the still-oversized tail becomes the next segment). A half-written
-    /// temp file is ignored forever (wrong extension, never renamed).
-    ///
-    /// Coordinator policy: a fresh `NSFileCoordinator` for the read and another
-    /// for the delete, matching `JSONLAppendStore` (one coordinator per file
-    /// operation, never reused across operations). The unprotected gap between
-    /// them is exactly the crash window the dedupe/converge contract already
-    /// covers, so a single long-held coordinator would buy nothing.
-    ///
-    /// NOTE the dedupe/converge contract covers the CRASH case (same ops in
-    /// both files). A concurrent APPEND into this same tail landing inside the
-    /// read→delete gap would be deleted without being in the segment — that
-    /// case is excluded by ADR 0012's single-writer-per-(device, project)
-    /// guarantee: only this device's editor process writes this tail, and the
-    /// seal runs on the same MainActor as every append, so the interleaving
-    /// requires two same-variant app instances on one Mac, which the app's
-    /// single-instance model rules out. If that model ever changes, this gap
-    /// needs a single coordinated read+rewrite instead.
+    /// Seal THIS device's live tail for `docId` into the next segment, iff it
+    /// exceeds `threshold` bytes. See `SegmentSealer.sealTail`, which carries
+    /// the scope rules (tripwire 17), the two callers and the crash contract.
     @discardableResult
     public func sealTailIfNeeded(
-        docId: String, deviceSlug: DeviceSlug,
-        threshold: Int = OpLogStore.segmentSealThreshold
-    ) async throws -> URL? {
-        let fm = FileManager.default
-        let tailURL = Self.opLogFileURL(
-            forDocId: docId, deviceSlug: deviceSlug, in: projectURL)
-        let size = ((try? fm.attributesOfItem(atPath: tailURL.path))?[.size] as? Int) ?? 0
-        guard size > threshold else { return nil }
+        docId: String, deviceSlug: DeviceSlug, threshold: Int = OpLogStore.segmentSealThreshold
+    ) async throws -> URL? { try SegmentSealer.sealTail(
+        docId: docId, deviceSlug: deviceSlug, threshold: threshold,
+        projectURL: projectURL, presenter: presenter, identities: identities) }
 
-        // 1. Coordinated read of the tail's exact bytes; abort on any torn
-        //    line — never bake unparseable bytes into a checksummed segment
-        //    (the existing quarantine path owns torn tails).
-        let coord = NSFileCoordinator(filePresenter: presenter)
-        var coordErr: NSError?
-        var tailBytes: Data?
-        coord.coordinate(readingItemAt: tailURL, options: [], error: &coordErr) { ru in
-            tailBytes = try? Data(contentsOf: ru)  // adr-0018-ok: op-log segment tail bytes — the op log IS the source of truth (ADR 0018)
-        }
-        if let coordErr { throw coordErr }
-        // RULING-54 lenient, reason recorded: an unreadable tail SKIPS the
-        // seal rather than surfacing. Sealing is maintenance, not truth — the
-        // ops stay in the tail, the skip is retried on every autosave/close,
-        // and a tail that is genuinely unreadable meets the strict refusal at
-        // the next document load (M9-OL-001), so the state cannot persist
-        // silently across sessions. The torn-line skip below is likewise
-        // deliberate: the quarantine path owns torn tails, and a checksummed
-        // segment must never bake in unparseable bytes.
-        guard let bytes = tailBytes, !bytes.isEmpty else { return nil }
-        let parsed = JSONLAppendStore<Op>.parse(bytes: bytes)
-        guard parsed.diagnostics.skipped.isEmpty else { return nil }
+    // MARK: - Forwarders
+    // One statement each, calling the type that owns the rule and documents
+    // its contract. Kept so callers are unchanged; nothing here decides.
 
-        // 2. Next index = max existing + 1 for this (docId, slug); write the
-        //    container to a temp name, then atomic-rename. Never overwrite.
-        let existing = Self.opLogFileURLs(forDocId: docId, in: projectURL)
-            .compactMap {
-                Self.segmentIndex(fromFilename: $0.lastPathComponent,
-                                  docId: docId, deviceSlug: deviceSlug)
-            }
-        let index = (existing.max() ?? 0) + 1
-        let segURL = Self.segmentFileURL(
-            forDocId: docId, deviceSlug: deviceSlug, index: index, in: projectURL)
-        guard !fm.fileExists(atPath: segURL.path) else { return nil }
-        let container = try OpLogSegment.encode(jsonl: bytes)
-        let tmpURL = segURL.deletingLastPathComponent()
-            .appendingPathComponent(".seal-tmp-\(UUID().uuidString)")
-        try container.write(to: tmpURL, options: .atomic)
-        try fm.moveItem(at: tmpURL, to: segURL)
+    // File names and globs — `OpLogFiles`.
 
-        // 2b. Sign the segment's digest, beside the segment. Best-effort for
-        //     the same reason the seal itself is maintenance rather than truth:
-        //     a device with no key signs nothing, a failed write leaves a
-        //     segment that reads as unsigned history, and neither may cost the
-        //     writer the rotation their tail needs.
-        // The sidecar carries the key of the actor whose slug this segment
-        // is named for — the same key that sealed the lines inside it. A slug
-        // naming no local actor gets no signature at all: nothing on this
-        // device may vouch for another device's bytes.
-        if let signer = identities.all.first(where: { $0.slug == deviceSlug }),
-           signer.canSign {
-            do { try Self.writeSegmentSignature(
-                    for: segURL, jsonl: bytes, identity: signer) }
-            catch {
-                opLogLoadLog.error("""
-                    Could not sign segment \
-                    \(segURL.lastPathComponent, privacy: .public): \
-                    \(String(describing: error), privacy: .public). \
-                    It will read as unsigned history.
-                    """)
-            }
-        }
-
-        // 3. Coordinated delete of the tail; the next append recreates it via
-        //    JSONLAppendStore.append's create branch.
-        let delCoord = NSFileCoordinator(filePresenter: presenter)
-        var delErr: NSError?
-        var removeErr: Error?
-        delCoord.coordinate(writingItemAt: tailURL, options: .forDeleting,
-                            error: &delErr) { wu in
-            do { try fm.removeItem(at: wu) } catch { removeErr = error }
-        }
-        if let delErr { throw delErr }
-        if let removeErr { throw removeErr }
-        return segURL
-    }
-
-
-    // MARK: - Glob helpers (shared with synchronous readers)
-    // The file-name functions live in `OpLogFiles`; these forward to them.
-
-    /// Forwards to `OpLogFiles.opLogFileURL`.
     public nonisolated static func opLogFileURL(
         forDocId docId: String, deviceSlug: DeviceSlug, in projectURL: URL
     ) -> URL { OpLogFiles.opLogFileURL(forDocId: docId, deviceSlug: deviceSlug, in: projectURL) }
 
-    /// Forwards to `OpLogFiles.docId(fromOpLogFilename:)`.
-    public nonisolated static func docId(fromOpLogFilename name: String) -> String? {
-        OpLogFiles.docId(fromOpLogFilename: name)
-    }
+    public nonisolated static func docId(
+        fromOpLogFilename name: String
+    ) -> String? { OpLogFiles.docId(fromOpLogFilename: name) }
 
-    /// Forwards to `OpLogFiles.docIds(inOpsDirectoryFilenames:)`.
-    public nonisolated static func docIds(inOpsDirectoryFilenames filenames: [String]) -> Set<String> {
-        OpLogFiles.docIds(inOpsDirectoryFilenames: filenames)
-    }
+    public nonisolated static func docIds(
+        inOpsDirectoryFilenames filenames: [String]
+    ) -> Set<String> { OpLogFiles.docIds(inOpsDirectoryFilenames: filenames) }
 
-    /// Forwards to `OpLogFiles.opLogFileURLs`.
     public nonisolated static func opLogFileURLs(
         forDocId docId: String, in projectURL: URL
     ) -> [URL] { OpLogFiles.opLogFileURLs(forDocId: docId, in: projectURL) }
 
-    /// Forwards to `OpLogFiles.segmentFileURL`.
     public nonisolated static func segmentFileURL(
         forDocId docId: String, deviceSlug: DeviceSlug, index: Int, in projectURL: URL
-    ) -> URL {
-        OpLogFiles.segmentFileURL(forDocId: docId, deviceSlug: deviceSlug, index: index, in: projectURL)
-    }
+    ) -> URL { OpLogFiles.segmentFileURL(
+        forDocId: docId, deviceSlug: deviceSlug, index: index, in: projectURL) }
 
-    /// Forwards to `OpLogFiles.segmentSignatureURL`.
-    public nonisolated static func segmentSignatureURL(for segmentURL: URL) -> URL {
-        OpLogFiles.segmentSignatureURL(for: segmentURL)
-    }
+    public nonisolated static func segmentSignatureURL(
+        for segmentURL: URL
+    ) -> URL { OpLogFiles.segmentSignatureURL(for: segmentURL) }
 
-    /// Sign a freshly minted segment's digest and write the sidecar beside it.
-    ///
-    /// Throws on a device with no key and on a failed write. Both are conditions
-    /// the SEAL is required to survive — the caller logs and carries on, and a
-    /// segment with no signature is unsigned history rather than a refusal.
-    @discardableResult
-    nonisolated static func writeSegmentSignature(
-        for segmentURL: URL, jsonl: Data, identity: DeviceIdentity, at: Date = Date()
-    ) throws -> URL {
-        let digest = OpLogSegment.hex(Data(SHA256.hash(data: jsonl)))
-        let signature = try SegmentSignature.make(
-            digest: digest, identity: identity, at: at)
-        let url = segmentSignatureURL(for: segmentURL)
-        try signature.encoded().write(to: url, options: .atomic)
-        return url
-    }
-
-    /// Forwards to `OpLogFiles.segmentIndex`.
     nonisolated static func segmentIndex(
         fromFilename name: String, docId: String, deviceSlug: DeviceSlug
     ) -> Int? { OpLogFiles.segmentIndex(fromFilename: name, docId: docId, deviceSlug: deviceSlug) }
 
-    public nonisolated static func loadSyncMerged(forDocId docId: String, in projectURL: URL, identities: LocalIdentities? = .current, state: OpLogDeviceState? = .shared, trust: TrustTable? = nil, statements: [Statement]? = nil, amendmentPermits: AmendmentPermits? = nil) throws -> [Op] { try OpLogClassifier.loadSyncMerged(forDocId: docId, in: projectURL, identities: identities, state: state, trust: trust, statements: statements, amendmentPermits: amendmentPermits) }
+    // The per-file read and the merge — `OpLogClassifier`.
 
-    nonisolated static func mergeSortedDedup(_ ops: [Op]) -> [Op] { OpLogClassifier.mergeSortedDedup(ops) }
+    public static func loadFileDiagnosed(
+        url: URL, presenter: NSFilePresenter?,
+        identities: LocalIdentities? = nil, state: OpLogDeviceState? = nil,
+        trust: TrustTable? = nil, permit: PermitContext? = nil,
+        foreign: ForeignStreamWatch? = nil
+    ) async throws -> (ops: [Op], diagnostics: ParseDiagnostics, provenance: FileProvenance) {
+        try await OpLogClassifier.loadFileDiagnosed(
+            url: url, presenter: presenter, identities: identities, state: state,
+            trust: trust, permit: permit, foreign: foreign)
+    }
+
+    public nonisolated static func provenance(
+        forDocId docId: String, in projectURL: URL,
+        trust: TrustTable, state: OpLogDeviceState?
+    ) throws -> OpLogProvenance { try OpLogClassifier.provenance(
+        forDocId: docId, in: projectURL, trust: trust, state: state) }
+
+    public nonisolated static func loadSyncMerged(
+        forDocId docId: String, in projectURL: URL,
+        identities: LocalIdentities? = .current, state: OpLogDeviceState? = .shared,
+        trust: TrustTable? = nil, statements: [Statement]? = nil,
+        amendmentPermits: AmendmentPermits? = nil
+    ) throws -> [Op] { try OpLogClassifier.loadSyncMerged(
+        forDocId: docId, in: projectURL, identities: identities, state: state,
+        trust: trust, statements: statements, amendmentPermits: amendmentPermits) }
+
+    nonisolated static func mergeSortedDedup(
+        _ ops: [Op]
+    ) -> [Op] { OpLogClassifier.mergeSortedDedup(ops) }
+
+    // Marks and positions — `StreamPositions`.
+
+    public nonisolated static func highestAppliedOpId(
+        ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?
+    ) throws -> String? { try StreamPositions.highestAppliedOpId(
+        ofDeviceIds: ids, in: projectURL, trust: trust) }
+
+    public nonisolated static func appliedPositions(
+        ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
+        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:]
+    ) throws -> PermitMark { try StreamPositions.appliedPositions(
+        ofDeviceIds: ids, in: projectURL, trust: trust, expecting: expecting) }
+
+    public nonisolated static func seenPositions(
+        ofDeviceIds ids: Set<String>, in projectURL: URL, trust: TrustTable?,
+        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:]
+    ) throws -> PermitMark { try StreamPositions.seenPositions(
+        ofDeviceIds: ids, in: projectURL, trust: trust, expecting: expecting) }
+
+    public nonisolated static func unattributablePositions(
+        in projectURL: URL, trust: TrustTable,
+        expecting: [String: OpLogDeviceState.ForeignStreamMemory] = [:]
+    ) throws -> PermitMark { try StreamPositions.unattributablePositions(
+        in: projectURL, trust: trust, expecting: expecting) }
+
+    nonisolated static func nameBehindICloudPlaceholder(
+        _ filename: String
+    ) -> String? { StreamPositions.nameBehindICloudPlaceholder(filename) }
+
+    // The census of missing history — `StreamCensus`.
+
+    public typealias TruncatedStream = StreamCensus.TruncatedStream
+    public typealias LostHistory = StreamCensus.LostHistory
+
+    public nonisolated static func truncatedStreams(
+        in projectURL: URL, state: OpLogDeviceState, trust: TrustTable? = nil
+    ) -> [TruncatedStream] { StreamCensus.truncatedStreams(
+        in: projectURL, state: state, trust: trust) }
+
+    public nonisolated static func lostHistory(
+        in projectURL: URL, state: OpLogDeviceState, trust: TrustTable? = nil
+    ) -> [LostHistory] { StreamCensus.lostHistory(in: projectURL, state: state, trust: trust) }
+
+    public nonisolated static func unreadableName(
+        _ error: Error
+    ) -> String { StreamCensus.unreadableName(error) }
 }

@@ -58,7 +58,10 @@ public enum OpLogFiles {
     /// no read coordination — for readers that need the file set without the
     /// async coordinated load (mtime-change heuristics; the synchronous
     /// local-log readers in ProjectStore+Tasks). Returns [] if the ops dir or
-    /// matching files don't exist.
+    /// matching files don't exist. docIds contain no dots (delimiter between id
+    /// and device slug), so the `<docId>.` boundary is unambiguous and can't
+    /// prefix-collide with another doc. Format is `doc-<hex>` / `scene-<hex>`
+    /// (ADR 0008) or the synthetic `__project__`.
     public nonisolated static func opLogFileURLs(
         forDocId docId: String, in projectURL: URL
     ) -> [URL] {

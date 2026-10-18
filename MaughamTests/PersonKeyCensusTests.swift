@@ -130,8 +130,8 @@ final class PersonKeyCensusTests: XCTestCase {
         // claim's all go through it. A new caller is a new verifier.
         Site(pattern: #"credentialsVerify\("#,
              sample: "OpLogChain.credentialsVerify(c, over: d)",
-             // `SegmentSignature`'s seal check, in `OpLogStore.swift` beside
-             // (not inside) the store: a type key claims declarations.
+             // `SegmentSignature`'s seal check, in `SegmentSealer.swift`: a
+             // type key claims declarations, wherever the type lives.
              expected: ["type:OpLogChain": 2, "type:SegmentSignature": 1,
                         "RegistryReader.swift": 2]),
     ]
