@@ -11619,9 +11619,10 @@ extension TripwireGrepTests {
 
     /// The quoted spellings of the Fountain format: the bare extension, any
     /// literal ENDING in the extension (so `"\(slug).fountain"` is caught as
-    /// well as `".fountain"`), and the help resource. None matches
+    /// well as `".fountain"`), and any literal STARTING `fountain-` (the help
+    /// resource, and whatever `"fountain-syntax-v2"` follows it). None matches
     /// `"fountain_boneyard"`, a persisted task-kind raw value.
-    static let fountainLiteralPatterns = [#""fountain""#, #".fountain""#, #""fountain-syntax""#]
+    static let fountainLiteralPatterns = [#""fountain""#, #".fountain""#, #""fountain-"#]
 
     /// Where a fountain literal may be spelled, and why.
     static let fountainLiteralAllowed: [String: String] = [
@@ -11668,6 +11669,7 @@ extension TripwireGrepTests {
         let d = "\(slug).fountain"
         // "fountain"
         case fountainBoneyard = "fountain_boneyard"
+        let g = Bundle.main.url(forResource: "fountain-syntax-v2", withExtension: "md")
         """#.write(to: planted, atomically: true, encoding: .utf8)
         try #"struct DocumentFormatter { let e = "fountain" }"#
             .write(to: dir.appendingPathComponent("DocumentFormat.swift"), atomically: true, encoding: .utf8)
@@ -11675,8 +11677,8 @@ extension TripwireGrepTests {
         let bare = try fountainLiteralOffenders(in: [dir], allowed: [])
         let byFile = Dictionary(grouping: bare) { String($0.prefix { $0 != ":" }) }
         XCTAssertEqual(byFile["Planted.swift"]?.map { SourceTree.Hit(offender: $0)?.line },
-                       [1, 2, 3, 4],
-                       "the four code spellings, not the comment or the boneyard:\n"
+                       [1, 2, 3, 4, 7],
+                       "the five code spellings, not the comment or the boneyard:\n"
                        + bare.joined(separator: "\n"))
         XCTAssertEqual(byFile["DocumentFormat.swift"]?.count, 1, bare.joined(separator: "\n"))
 
@@ -11691,14 +11693,30 @@ extension TripwireGrepTests {
     // MARK: - Kind and format are asked by capability (foundations plan 7, Task 8)
 
     /// Equality (or a `case … =` match) against a `ProjectType` or
-    /// `DocumentFormat` case name. Word-bounded, so `.fountainBoneyard` and
-    /// `.collectionPiece` are not caught.
-    static let kindEqualityPattern = try! NSRegularExpression(pattern:
-        #"(==|!=)\s*\.(screenplay|collection|novel|shortStory|fountain|markdown)\b"#
-        + #"|case\s+\.(screenplay|collection|novel|shortStory|fountain|markdown)\s*="#)
+    /// `DocumentFormat` case name, in each spelling a second answer takes:
+    /// leading-dot or qualified (`ProjectType.screenplay`), on either side of
+    /// the operator, an optional pattern (`case .collection? =`), an extension
+    /// compared to a format's `fileExtension` (the case-sensitive re-derivation
+    /// `DocumentFormat(fileExtension:)` exists to replace), and a kind's raw
+    /// value compared to its string. Word-bounded, so `.fountainBoneyard` and
+    /// `.collectionPiece` are not caught; and NOT a bare `.fileExtension ==`,
+    /// which is `DocumentFormat`'s own lookup and every `OpLogSegment` filename.
+    static let kindEqualityPattern: NSRegularExpression = {
+        let cases = "(screenplay|collection|novel|shortStory|fountain|markdown)"
+        let qualifier = "(?:ProjectType|DocumentFormat)?"
+        return try! NSRegularExpression(pattern: [
+            #"(==|!=)\s*"# + qualifier + #"\."# + cases + #"\b"#,
+            qualifier + #"\."# + cases + #"\s*(==|!=)"#,
+            #"case\s+"# + qualifier + #"\."# + cases + #"\??\s*="#,
+            #"(==|!=)\s*(?:DocumentFormat)?\.(fountain|markdown)\.fileExtension\b"#,
+            #"DocumentFormat\.(fountain|markdown)\.fileExtension\s*(==|!=)"#,
+            #"rawValue\s*(==|!=)\s*"(screenplay|collection|novel|short_story)""#,
+        ].joined(separator: "|"))
+    }()
 
-    /// Where equality on kind or format is allowed, and why. Empty: a future
-    /// exception adds a key (`type:<Type>` or a file name) and its reason.
+    /// Where equality on kind or format is allowed, and why. Empty. A key is
+    /// `type:<Type>` only, and it exempts that type's whole declaration — so a
+    /// real exception should prefer an exhaustive `switch`, which needs no key.
     static let kindEqualityAllowed: [String: String] = [:]
 
     private func kindEqualityOffenders(in roots: [URL], allowed: Set<String>) throws -> [String] {
@@ -11726,8 +11744,11 @@ extension TripwireGrepTests {
             + "exhaustively:\n" + offenders.joined(separator: "\n"))
     }
 
-    /// The control: the four code spellings are caught; a word-bounded
-    /// lookalike (`.fountainBoneyard`) and a comment are not.
+    /// The control: every code spelling is caught — leading-dot, qualified,
+    /// reversed, an optional pattern, an extension against a format's
+    /// `fileExtension` either way round, a kind's raw value — while a
+    /// word-bounded lookalike (`.fountainBoneyard`, `.collectionPiece`), a
+    /// comment and a bare `.fileExtension ==` (an op-log segment's) are not.
     func test_theKindEqualityCensusFiresOnPlantedOffenders() throws {
         let dir = TestTemp.root
             .appendingPathComponent("kind-equality-\(UUID().uuidString)")
@@ -11740,11 +11761,22 @@ extension TripwireGrepTests {
         let d = format == .fountain
         let e = task.kind == .fountainBoneyard
         // type == .screenplay
+        let g = type == ProjectType.screenplay
+        let h = format != DocumentFormat.fountain
+        let i = .screenplay == store.manifest.type
+        let j = DocumentFormat.markdown != format
+        if case .collection? = maybeType {}
+        let k = url.pathExtension == DocumentFormat.fountain.fileExtension
+        let l = DocumentFormat.fountain.fileExtension == ext
+        let m = type.rawValue == "screenplay"
+        let n = segment.fileExtension == ext
+        let o = item.collectionPiece == other
         """.write(to: dir.appendingPathComponent("Planted.swift"), atomically: true, encoding: .utf8)
 
         let offenders = try kindEqualityOffenders(
             in: [dir], allowed: Set(Self.kindEqualityAllowed.keys))
-        XCTAssertEqual(offenders.map { SourceTree.Hit(offender: $0)?.line }, [1, 2, 3, 4],
-                       "exactly the four code spellings:\n" + offenders.joined(separator: "\n"))
+        XCTAssertEqual(offenders.map { SourceTree.Hit(offender: $0)?.line },
+                       [1, 2, 3, 4, 7, 8, 9, 10, 11, 12, 13, 14],
+                       "exactly the twelve code spellings:\n" + offenders.joined(separator: "\n"))
     }
 }

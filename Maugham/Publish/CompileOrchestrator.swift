@@ -75,6 +75,13 @@ public struct CompileOrchestrator {
     /// the wire spelling, so it is part of the tool's contract too.
     public static let mintInFlightLogExcerpt = "mint_in_flight: "
 
+    /// **The third**, and the same rule: a format this build cannot produce
+    /// (`PublishConfigValidator.formatError`) is refused at the door by name —
+    /// the writer's move is to pick a format, not to read a log. Compile and
+    /// preview both prefix their excerpt with it, and
+    /// `DepartmentCompileState.settled(after:)` reads it as a refusal.
+    public static let unproducibleFormatLogExcerpt = "unproducible_format: "
+
     public let maughamVersion: String
     public let tectonicVersion: String
 
@@ -131,11 +138,9 @@ public struct CompileOrchestrator {
             let diag = TectonicLogParser.Diagnostic(
                 level: .error, file: nil, line: nil,
                 message: refusal.message,
-                contextLines: [
-                    "Nothing was compiled — no export, no snapshot, no version bump."
-                ])
+                contextLines: ["No export, no snapshot, no version bump."])
             return .failed(errors: [diag],
-                           logExcerpt: "unproducible_format: \(format.rawValue)")
+                           logExcerpt: Self.unproducibleFormatLogExcerpt + format.rawValue)
         }
 
         guard let loaded = try await configStore.load() else {

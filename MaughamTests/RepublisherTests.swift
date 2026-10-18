@@ -855,7 +855,8 @@ final class RepublisherTests: XCTestCase {
     /// A republish to a format this build can't produce throws
     /// `.unproducibleFormat` naming it — before the snapshot is read, the mint
     /// reservation or the staging — and its description is the one refusal
-    /// sentence. No job, no catalog row, no reservation, nothing exported.
+    /// sentence. No job, no catalog row, no reservation taken or released,
+    /// nothing exported.
     func test_aRepublishToAnUnknownFormatIsRefusedByName() async throws {
         let configStore = PublishConfigStore(projectURL: tmp)
         try await configStore.save(PublishConfig(metadata: .init(title: "Docx", author: "T")))
@@ -876,11 +877,19 @@ final class RepublisherTests: XCTestCase {
 
         let gate = PublishMintGate()
         let jobs = CompileJobManager()
-        let r = Republisher(
+        var r = Republisher(
             projectURL: tmp, astSource: RepubSrc(),
             publicationStore: pubStore, snapshotStore: snapStore,
             jobManager: jobs, mintGate: gate,
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
+        r.mintSuffix = { "abcd" }
+        // The key this republish would mint at, already held: a door that
+        // reserved it would be refused as in-flight instead; one that took and
+        // released it would leave the set empty.
+        let wouldBeKey = PublishMintGate.Key(
+            version: "\(initialPub.version)-rabcd", language: nil, format: .unknown("docx"))
+        let reserved = await gate.reserve(wouldBeKey)
+        XCTAssertTrue(reserved, "fixture: the would-be key is held")
         do {
             let outcome = try await r.republish(
                 snapshotID: initialPub.snapshotID, format: .unknown("docx"), label: nil)
@@ -897,7 +906,7 @@ final class RepublisherTests: XCTestCase {
         let all = await jobs.all()
         XCTAssertTrue(all.isEmpty, "no job registered: \(all)")
         let held = await gate._inFlightForTesting
-        XCTAssertTrue(held.isEmpty, "no reservation: \(held)")
+        XCTAssertEqual(held, [wouldBeKey], "no reservation taken or released: \(held)")
         let exportsAfter = try FileManager.default.contentsOfDirectory(
             atPath: tmp.appendingPathComponent("Exports").path)
         XCTAssertEqual(exportsAfter.sorted(), exportsBefore.sorted(), "nothing exported")

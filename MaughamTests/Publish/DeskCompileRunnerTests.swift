@@ -504,6 +504,20 @@ final class DeskCompileRunnerTests: XCTestCase {
         XCTAssertTrue(broken.isFailure)
     }
 
+    /// **A format this build can't produce is a refusal, not a failure.** The
+    /// orchestrator's door refuses it by name before a job registers (ADR
+    /// 0015); the writer's move is to pick a format, not to read a log.
+    func test_anUnproducibleFormatIsARefusalAndNotAFailure() {
+        let message = PublishFormatRefusal.message(raw: "docx")
+        let diag = TectonicLogParser.Diagnostic(
+            level: .error, file: nil, line: nil, message: message, contextLines: [])
+        let refused = DepartmentCompileState.settled(after: .failed(
+            errors: [diag],
+            logExcerpt: CompileOrchestrator.unproducibleFormatLogExcerpt + "docx"))
+        XCTAssertEqual(refused.phase, .refused(message))
+        XCTAssertFalse(refused.isFailure)
+    }
+
     /// A failure with no diagnostics at all still says something — a red desk
     /// with an empty line is the dead control RULING-35 is about.
     func test_aFailureWithNoDiagnosticStillSaysSomething() {

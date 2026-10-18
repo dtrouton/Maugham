@@ -105,6 +105,7 @@ final class PreviewCompilerTests: XCTestCase {
         XCTAssertTrue(
             messages.contains { $0.contains(PublishFormatRefusal.message(raw: "docx")) },
             "the errors carry the one refusal sentence: \(messages)")
+        XCTAssertEqual(result.logExcerpt, CompileOrchestrator.unproducibleFormatLogExcerpt + "docx")
         let all = await jobs.all()
         XCTAssertTrue(all.isEmpty, "no job registered: \(all)")
         let previews = (try? FileManager.default.contentsOfDirectory(

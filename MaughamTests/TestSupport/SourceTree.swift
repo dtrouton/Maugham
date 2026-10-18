@@ -709,8 +709,9 @@ extension SourceTree {
         for (path, ranges) in byPath {
             byName[(path as NSString).lastPathComponent, default: []] += ranges
         }
-        if memoise { typeKeyMemo.withLock { $0[memoKey] = byName } }
-        return byName
+        let resolved = byName
+        if memoise { typeKeyMemo.withLock { $0[memoKey] = resolved } }
+        return resolved
     }
 
     private static let typeKeyMemo =

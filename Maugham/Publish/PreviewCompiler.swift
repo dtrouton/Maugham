@@ -91,9 +91,10 @@ public struct PreviewCompiler {
             let diag = TectonicLogParser.Diagnostic(
                 level: .error, file: nil, line: nil,
                 message: refusal.message,
-                contextLines: ["Nothing was previewed — no output file."])
+                contextLines: ["No preview file was written."])
             return Result(outputPath: "", warnings: [], errors: [diag],
-                          logExcerpt: "unproducible_format: \(format.rawValue)")
+                          logExcerpt: CompileOrchestrator.unproducibleFormatLogExcerpt
+                              + format.rawValue)
         }
         let jobID = await jobManager.register(phase: .renderingBody)
         do {

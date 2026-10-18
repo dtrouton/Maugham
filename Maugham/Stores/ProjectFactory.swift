@@ -35,7 +35,8 @@ public enum ProjectFactory {
             try fm.createDirectory(at: projectURL.appendingPathComponent("notes"),
                                    withIntermediateDirectories: true)
 
-            let storyURL = projectURL.appendingPathComponent("story.md")
+            let storyPath = "story." + DocumentFormat.markdown.fileExtension
+            let storyURL = projectURL.appendingPathComponent(storyPath)
             try Data().write(to: storyURL)
 
             let now = Date()
@@ -50,7 +51,7 @@ public enum ProjectFactory {
                         id: "manuscript",
                         title: name,
                         type: .document,
-                        path: "story.md",
+                        path: storyPath,
                         // The book's first piece is started on this Mac like
                         // any other (P3c plan 2, Option A).
                         startedBy: starter
@@ -84,7 +85,6 @@ public enum ProjectFactory {
             in: parent,
             type: .novel,
             initialDocumentTitle: "Chapter 1",
-            initialDocumentFormat: .markdown,
             startedBy: await thisMacAsAStarter())
     }
 
@@ -98,7 +98,6 @@ public enum ProjectFactory {
             in: parent,
             type: .screenplay,
             initialDocumentTitle: "Scene 1",
-            initialDocumentFormat: .fountain,
             startedBy: await thisMacAsAStarter())
     }
 
@@ -159,13 +158,14 @@ public enum ProjectFactory {
 
     /// Shared logic for Novel + Screenplay (and any future "single-starter
     /// document" project type). Creates manuscript/, research/, notes/ and a
-    /// single document with NN-slug naming under manuscript/.
+    /// single document with NN-slug naming under manuscript/, in
+    /// `type.primaryFormat` — the kind decides the format, so no caller can
+    /// pass two answers that disagree.
     private static func createSingleDocumentProject(
         named rawName: String,
         in parent: URL,
         type: ProjectType,
         initialDocumentTitle: String,
-        initialDocumentFormat: DocumentFormat,
         startedBy starter: String
     ) async throws -> URL {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -189,7 +189,7 @@ public enum ProjectFactory {
 
             let filename = FileNaming.nextDocumentFilename(
                 title: initialDocumentTitle,
-                extension: initialDocumentFormat.fileExtension,
+                extension: type.primaryFormat.fileExtension,
                 siblingFilenames: [])
             let docURL = projectURL.appendingPathComponent("manuscript/\(filename)")
             try Data().write(to: docURL)

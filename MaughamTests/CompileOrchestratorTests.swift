@@ -201,6 +201,10 @@ final class CompileOrchestratorTests: XCTestCase {
                        "never the error's dump: \(messages)", file: file, line: line)
         XCTAssertFalse(excerpt.hasPrefix(CompileOrchestrator.mintInFlightLogExcerpt),
                        "the gate was never asked: \(excerpt)", file: file, line: line)
+        XCTAssertEqual(excerpt, CompileOrchestrator.unproducibleFormatLogExcerpt + "docx",
+                       file: file, line: line)
+        XCTAssertEqual(errors.flatMap(\.contextLines).filter { $0.contains("Nothing was compiled") },
+                       [], "the sentence says it once", file: file, line: line)
 
         let all = await jobs.all()
         XCTAssertTrue(all.isEmpty, "no job registered: \(all)", file: file, line: line)
