@@ -346,8 +346,9 @@ public extension Persona {
             // Task 8 those two arms were the ONLY places a pass could be
             // ruled on anywhere in the app. Now Review's own centre column —
             // the passes board — rules on one too, through its chips (the
-            // census's third member is `ProjectWindow`, the board's host,
-            // for the reason recorded there). But the board is PROJECT-level
+            // census names `CentreColumn`, the board's host since
+            // foundations plan 4 Task 4 moved it out of `ProjectWindow`, for
+            // the reason recorded there). But the board is PROJECT-level
             // only: `ProjectWindow.reviewCentreShowsBoard` composes
             // `subjectShowsAltitude`, so the moment the reviewer opens a
             // chapter — where most of a review is spent — the board is gone

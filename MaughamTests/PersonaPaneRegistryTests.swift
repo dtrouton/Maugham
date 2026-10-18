@@ -331,11 +331,19 @@ final class PersonaPaneRegistryTests: XCTestCase {
     ///
     /// The window is keyed by TYPE (`type:ProjectWindow`, foundations plan 2):
     /// every file declaring `ProjectWindow` answers under that key, so a split
-    /// of the window moves the board's host without moving this census.
+    /// of the window into extension files moves nothing here.
+    ///
+    /// **Since foundations plan 4 Task 4 the board's host is `CentreColumn`**,
+    /// the window's centre column as a view of its own, keyed by its type for
+    /// the same reason — the same host, moved, not a new writer. The window
+    /// stays a member under its own key for the queue's pass-order nudge
+    /// (`onSetPassState`, handed to `AnnotationsPane`), which it hosted beside
+    /// the board all along.
     static let passStateWritingFiles: Set<String> = [
         "InspectorView.swift",
         "PieceInspector.swift",
         "type:ProjectWindow",
+        "type:CentreColumn",
     ]
 
     /// Where `setPassState` is DECLARED. Excluded from the census because a
@@ -381,19 +389,24 @@ final class PersonaPaneRegistryTests: XCTestCase {
     }
 
     /// **The planted control for the type key** (foundations plan 2): a write
-    /// in an `extension ProjectWindow` file answers as `type:ProjectWindow`,
-    /// and a write in any other file still answers under its own name.
+    /// in an `extension ProjectWindow` file answers as `type:ProjectWindow`, one
+    /// in `CentreColumn` as `type:CentreColumn`, and a write in any other file
+    /// still answers under its own name.
     func test_thePassStateCensusFoldsTheWindowsFilesIntoItsTypeKey() throws {
         let base = try SourceTree.plantedTree([
             "Maugham/Views/ProjectWindow.swift": "struct ProjectWindow: View { }",
             "Maugham/Views/ProjectWindow+Board.swift": """
             extension ProjectWindow { func f() { store.setPassState(p, s) } }
             """,
+            "Maugham/Views/CentreColumn.swift": """
+            struct CentreColumn: View { func h() { store.setPassState(p, s) } }
+            """,
             "Maugham/Views/SomeNewPane.swift": """
             struct SomeNewPane { func g() { store.setPassState(p, s) } }
             """,
         ])
-        XCTAssertEqual(try passStateWriters(base: base), ["type:ProjectWindow", "SomeNewPane.swift"])
+        XCTAssertEqual(try passStateWriters(base: base),
+                       ["type:ProjectWindow", "type:CentreColumn", "SomeNewPane.swift"])
     }
 
     /// **…and only its DECLARATIONS** (plan 2 final review, I1): a write in a
@@ -403,6 +416,7 @@ final class PersonaPaneRegistryTests: XCTestCase {
     func test_thePassStateCensusCatchesAWriteInAChildViewSharingTheWindowsFile() throws {
         let base = try SourceTree.plantedTree([
             "Maugham/Views/ProjectWindow.swift": "struct ProjectWindow: View { }",
+            "Maugham/Views/CentreColumn.swift": "struct CentreColumn: View { }",
             "Maugham/Views/ResearchSubjectColumns.swift": """
             extension ProjectWindow {
                 func f() { store.setPassState(p, s) }
@@ -505,9 +519,10 @@ final class PersonaPaneRegistryTests: XCTestCase {
             + "the grounds that a reviewer READING a chapter has no board on "
             + "screen, so the two Inspector arms — reached via "
             + "`ProjectWindow.inspectorRoute`'s `.segment` and `.collectionPiece` "
-            + "routes — are the only ruling surfaces there. The third member is "
-            + "`ProjectWindow` itself, hosting the Review board's chips at "
-            + "project level (M3 P1 Task 8).\n\n"
+            + "routes — are the only ruling surfaces there. The other members are "
+            + "`CentreColumn`, hosting the Review board's chips at project level "
+            + "(M3 P1 Task 8; moved out of `ProjectWindow` by foundations plan 4 "
+            + "Task 4), and `ProjectWindow`, hosting the queue's pass-order nudge.\n\n"
             + "If you have added a writer somewhere else, re-make that argument at "
             + "the `.review` case; do not just add a name to the expectation above.")
     }

@@ -322,8 +322,8 @@ final class CentreRouteTests: XCTestCase {
         // is still read arm by arm.
         let multiLine = """
         private func editorPane() -> some View {
-            switch Self.centreRoute(persona: persona,
-                                    subject: subject) {
+            switch ProjectWindow.centreRoute(persona: persona,
+                                             subject: subject) {
             case .canvas: canvasCentre(store: store)
             case .editor(let altitude, let cover): manuscriptEditor(altitude: altitude, cover: cover)
             }
@@ -331,7 +331,7 @@ final class CentreRouteTests: XCTestCase {
         """
         XCTAssertEqual(CentreRouteSource.paneFaults(in: multiLine), [])
         XCTAssertEqual(CentreRouteSource.switchArms(
-            in: multiLine, over: "switch Self.centreRoute(")?.arms.keys.sorted(),
+            in: multiLine, over: "switch ProjectWindow.centreRoute(")?.arms.keys.sorted(),
                        ["canvas", "editor"])
 
         // The old chain: gates asked inside the pane.
@@ -342,9 +342,24 @@ final class CentreRouteTests: XCTestCase {
         }
         """
         XCTAssertEqual(CentreRouteSource.paneFaults(in: chain),
-                       ["does not ask Self.centreRoute(",
+                       ["does not ask ProjectWindow.centreRoute(",
                         "has no switch over the route",
                         "asks Self.showsPaletteWallCentre( itself"])
+
+        // The same chain from `CentreColumn`, where a rule is spelled through
+        // the window's type rather than `Self.` — still a gate asked in the pane.
+        let chainFromTheColumn = """
+        private func editorPane() -> some View {
+            switch ProjectWindow.centreRoute(persona: p) {
+            case .canvas: canvasCentre(store: store)
+            case .editor(let altitude, let cover):
+                if ProjectWindow.reviewCentreShowsBoard(persona: p) { ReviewBoardPane() }
+                manuscriptEditor(altitude: altitude, cover: cover)
+            }
+        }
+        """
+        XCTAssertEqual(CentreRouteSource.paneFaults(in: chainFromTheColumn),
+                       ["asks ProjectWindow.reviewCentreShowsBoard( itself"])
 
         // The compliant stack, as production spells it: no fault.
         let compliant = """
@@ -437,6 +452,55 @@ final class CentreRouteTests: XCTestCase {
         XCTAssertTrue(CentreRouteSource.stackFaults(in: hostInside)
             .contains("EditorHost( is not mounted before the cover switch"))
     }
+
+    /// **The window hands the centre column the window's own verbs** — read
+    /// off the one `CentreColumn(` call, because the column's closures are
+    /// only as good as what the window passes for them.
+    func test_theWindowHandsTheCentreColumnItsOwnVerbs() throws {
+        XCTAssertTrue(
+            try CentreRouteSource.windowArgument("recordActivePass")?
+                .contains("recordActivePass(forPiece:") == true,
+            "the one `ActivePassMemory` writer")
+        XCTAssertTrue(
+            try CentreRouteSource.windowArgument("runRoundWhenPieceOpens")?
+                .contains("runRoundWhenPieceOpens(pieceId:") == true,
+            "the one bounded round deferral")
+        XCTAssertTrue(
+            try CentreRouteSource.windowArgument("posture")?
+                .contains("postureDrawn(forDocId:") == true,
+            "the drawing door's posture")
+    }
+
+    /// The planted control for `windowArgument`: it finds an argument of the
+    /// window's `CentreColumn(` call, in a file the window's extension lives
+    /// in, and finds nothing that is not inside that call.
+    func test_theWindowArgumentReadIsBoundedToTheMount() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": """
+            struct ProjectWindow: View {
+                var body: some View { Text("x") }
+            }
+            """,
+            "Maugham/Views/ProjectWindow+Columns.swift": """
+            extension ProjectWindow {
+                func contentColumn() -> some View {
+                    CentreColumn(
+                        store: store,
+                        recordActivePass: { recordActivePass(forPiece: $0, passId: $1) })
+                        .frame(maxWidth: .infinity)
+                }
+                func elsewhere() { posture: { postureDrawn(forDocId: $0) } }
+            }
+            """,
+        ])
+        XCTAssertEqual(
+            try CentreRouteSource.windowArgument("recordActivePass", base: base)?
+                .trimmingCharacters(in: .whitespaces),
+            "recordActivePass: { recordActivePass(forPiece: $0, passId: $1) })")
+        XCTAssertNil(try CentreRouteSource.windowArgument("posture", base: base),
+                     "an argument-shaped line after the call closes is not the mount's")
+        XCTAssertNil(try CentreRouteSource.windowArgument("frame", base: base))
+    }
 }
 
 // MARK: - Reading the centre's source
@@ -461,6 +525,25 @@ enum CentreRouteSource {
         try SourceTree.declaration(named: "func manuscriptEditor(", under: "Maugham", base: base)
     }
 
+    /// **What the window hands `CentreColumn` for one argument** (foundations
+    /// plan 4 Task 4): the code line of `label:` inside the window's one
+    /// `CentreColumn(` call, or nil when the window has no such argument. The
+    /// hop a wiring census needs now that the centre's closures call a verb
+    /// the WINDOW owns — `recordActivePass`, the round deferral — through a
+    /// closure the column was handed.
+    static func windowArgument(_ label: String, base: URL = SourceTree.repoRoot) throws -> String? {
+        let code = SourceScan.codeLines(
+            of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"], base: base))
+        guard let mount = code.firstIndex(where: { $0.contains("CentreColumn(") }) else { return nil }
+        var depth = 0
+        for line in code[mount...] {
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("\(label):") { return line }
+            depth += line.filter { $0 == "(" }.count - line.filter { $0 == ")" }.count
+            if depth <= 0 { return nil }
+        }
+        return nil
+    }
+
     /// Each cover case, and the surface its arm must mount.
     static let covers: [(cover: String, view: String)] = [
         ("notice", "PublishCentreNoticeBanner("),
@@ -470,12 +553,16 @@ enum CentreRouteSource {
         ("translationRound", "TranslationRoundReportHost("),
     ]
 
-    /// The routing rules a builder must not ask for itself.
-    static let gates = [
-        "Self.showsPaletteWallCentre(", "Self.researchSubjectPlacement(",
-        "Self.editorRoute(", "Self.publishCentre(", "Self.reviewCentreShowsBoard(",
-        "Self.subjectShowsAltitude(",
-    ]
+    /// The routing rules a builder must not ask for itself — each in both
+    /// spellings, since the builders live in `CentreColumn` (foundations plan
+    /// 4 Task 4), where the rules are `ProjectWindow.`'s rather than `Self.`'s.
+    static let gates: [String] = [
+        "showsPaletteWallCentre(", "researchSubjectPlacement(", "editorRoute(",
+        "publishCentre(", "reviewCentreShowsBoard(", "subjectShowsAltitude(",
+    ].flatMap { ["Self.\($0)", "ProjectWindow.\($0)"] }
+
+    /// How the pane asks the route: from `CentreColumn`, the window's static.
+    static let routeAsk = "ProjectWindow.centreRoute("
 
     /// One `switch` in `code`, split into its arms: each `case .name` with the
     /// code lines until the next case, plus every code line OUTSIDE the switch.
@@ -539,8 +626,8 @@ enum CentreRouteSource {
     static func paneFaults(in pane: String) -> [String] {
         var faults: [String] = []
         let code = SourceScan.codeLines(of: pane).joined(separator: "\n")
-        if !code.contains("Self.centreRoute(") { faults.append("does not ask Self.centreRoute(") }
-        if let route = switchArms(in: pane, over: "switch Self.centreRoute(") {
+        if !code.contains(routeAsk) { faults.append("does not ask \(routeAsk)") }
+        if let route = switchArms(in: pane, over: "switch \(routeAsk)") {
             if !route.arm("canvas").contains("canvasCentre(") {
                 faults.append("the canvas is not mounted in the `.canvas` arm")
             }

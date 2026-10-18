@@ -926,9 +926,20 @@ final class ReviewBoardPaneTests: XCTestCase {
         let after = try XCTUnwrap(SourceTree.windowText(after: "onRunRound:", length: 600),
                                   "the mount must supply the chip's run closure")
 
-        XCTAssertTrue(after.contains("recordActivePass(forPiece:"),
+        XCTAssertTrue(after.contains("recordActivePass("),
                       "the round's lane is recorded through the window's one "
                       + "`ActivePassMemory` writer \u{2014} got: \(after)")
+        // One hop out (foundations plan 4 Task 4): the arm lives in
+        // `CentreColumn`, and both verbs it calls are closures the window
+        // hands it. Each must be the window's own.
+        XCTAssertTrue(
+            try CentreRouteSource.windowArgument("recordActivePass")?
+                .contains("recordActivePass(forPiece:") == true,
+            "the window must hand the centre column its one `ActivePassMemory` writer")
+        XCTAssertTrue(
+            try CentreRouteSource.windowArgument("runRoundWhenPieceOpens")?
+                .contains("runRoundWhenPieceOpens(pieceId:") == true,
+            "\u{2026}and its one bounded deferral, the helper read below")
         XCTAssertTrue(after.contains("selectedSubject = .item(pieceId)"),
                       "\u{2026}and the writer travels to the piece being checked")
         XCTAssertTrue(after.contains("runRoundWhenPieceOpens("),

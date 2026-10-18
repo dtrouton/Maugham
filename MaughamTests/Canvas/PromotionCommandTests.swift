@@ -229,7 +229,8 @@ final class PromotionCommandTests: XCTestCase {
     ///
     /// `location` is a repo-relative path, or a `type:` key (`Self.window`) —
     /// every file under `Maugham/` declaring that type (for `ProjectWindow`,
-    /// also its free-standing modifiers, `SourceTree.windowFamilyTypes`), so
+    /// also its free-standing modifiers and its centre column,
+    /// `SourceTree.windowFamilyTypes`), so
     /// the window's tokens are found wherever a split moves them, and a
     /// type nothing declares throws rather than reporting every token missing
     /// from an empty string. `base` is the seam the planted control uses.
@@ -360,8 +361,9 @@ final class PromotionCommandTests: XCTestCase {
               "items: ProjectWindow.canvasItemIndex(in: store)",
               ".modifier(CanvasClaudeArrivalModifier(",
               "itemIndex: Self.canvasItemIndex(in: store)",
+              "itemIndex: ProjectWindow.canvasItemIndex(in: store)",
               "subject: CanvasSubject.resolve(",
-              "pieceTitles: Self.canvasPieceTitles(in: store)",
+              "pieceTitles: ProjectWindow.canvasPieceTitles(in: store)",
               "selectTheProjectRow: { selectedSubject = .project }",
               "assetIngest: CanvasAssetIngest(",
               "captureDrop: CanvasCaptureDrop(",
@@ -411,8 +413,11 @@ final class PromotionCommandTests: XCTestCase {
              + "modifier is a whole file of its own, so every token in it stays "
              + "present and its own census stays green while the writer is never "
              + "told that Claude added anything. "
-             + "`itemIndex: Self.canvasItemIndex(in: store)` is 1C-d's item "
-             + "index on the CANVAS, and it is the first token here that guards "
+             + "`itemIndex: ProjectWindow.canvasItemIndex(in: store)` is 1C-d's item "
+             + "index on the CANVAS (spelled through the window's type since the "
+             + "canvas mount moved into `CentreColumn`, foundations plan 4 Task 4; "
+             + "the `Self.` spelling beside it is the region inspector's), and it "
+             + "is the first token here that guards "
              + "a DEFAULT rather than a call: `CanvasView.itemIndex` and "
              + "`RegionInspectorPane.itemIndex` both default to `.empty`, which "
              + "is a real state and therefore compiles and runs — so deleting "
@@ -441,7 +446,7 @@ final class PromotionCommandTests: XCTestCase {
              + "on the canvas. It is also the only place the manifest reaches "
              + "the resolution: the canvas cannot tell a chapter from a group "
              + "without it, and a group resolved as a chapter lights nothing. "
-             + "`pieceTitles: Self.canvasPieceTitles(in: store)` is §4.2's "
+             + "`pieceTitles: ProjectWindow.canvasPieceTitles(in: store)` is §4.2's "
              + "borrowed name (2026-08-04), and it is the defaulted-argument "
              + "shape a fifth time: `CanvasView.pieceTitles` defaults to "
              + "`.empty`, which is a real state — a canvas hosted without a "

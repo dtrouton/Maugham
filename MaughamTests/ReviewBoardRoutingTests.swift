@@ -699,7 +699,6 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// own statics, but the SHAPE of the last arm is the probe's own and a probe
     /// cannot vouch for it. This reads the real `manuscriptEditor`.
     func test_theBoardIsALayerOfTheSameZStackAndNotAnArmOfItsOwn() throws {
-        let source = try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"])
         let arm = try SourceTree.declaration(
             named: "func manuscriptEditor(", under: "Maugham")
 
@@ -730,21 +729,25 @@ final class ReviewBoardRoutingTests: XCTestCase {
             "the board must WIN over altitude — a corkboard over the board is "
             + "the truth table read upside down")
 
+        // Counted as CODE across every view (foundations plan 4 Task 4): the
+        // centre lives in `CentreColumn` now, and a count over one type's text
+        // would have gone to zero there or passed over a sibling's mount.
         XCTAssertEqual(
-            Self.occurrences(of: "ReviewBoardPane(", in: source), 1,
+            try Self.viewMounts(of: "ReviewBoardPane("), 1,
             "one mount for the board, in the centre column's cover. A second "
             + "is a surface nobody decided to add")
         XCTAssertEqual(
-            Self.occurrences(of: "manuscriptEditor(", in: source), 2,
+            try Self.viewMounts(of: "manuscriptEditor("), 2,
             "the declaration and exactly ONE call — `editorPane`'s `.editor` arm")
     }
 
     /// The control for the scan above: `declaration(named:)` must BOUND the text
     /// it reads to the one member, or every assertion in it is really about the
-    /// whole file and cannot fail. `CanvasView(` is mounted in this same file,
-    /// one member down, and must not be visible from inside the editor arm.
+    /// whole file and cannot fail. `CanvasView(` is mounted in this same type
+    /// (`CentreColumn`), one member down, and must not be visible from inside
+    /// the editor arm.
     func test_theArmScanReadsTheArmAndNotTheWholeFile() throws {
-        let source = try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"])
+        let source = try SourceTree.sourceOfType("CentreColumn", under: ["Maugham"])
         let arm = try SourceTree.declaration(
             named: "func manuscriptEditor(", under: "Maugham")
         XCTAssertTrue(source.contains("CanvasView("),
@@ -833,11 +836,19 @@ final class ReviewBoardRoutingTests: XCTestCase {
         let code = SourceScan.codeLines(of: call).joined(separator: "\n")
 
         for expected in ["onNavigate:", "selectedSubject = .item(",
-                         "recordActivePass(forPiece:", "onSetState:",
+                         "recordActivePass(", "onSetState:",
                          "store.setPassState("] {
             XCTAssertTrue(code.contains(expected),
                           "the board's mount does not pass `\(expected)`")
         }
+        // One hop out (foundations plan 4 Task 4): the mount lives in
+        // `CentreColumn`, whose `recordActivePass` is a closure the window
+        // hands it — and the window must hand it its ONE writer.
+        XCTAssertTrue(
+            try CentreRouteSource.windowArgument("recordActivePass")?
+                .contains("recordActivePass(forPiece:") == true,
+            "the window must hand the centre column its one `ActivePassMemory` "
+            + "writer, `recordActivePass(forPiece:passId:)`")
         XCTAssertFalse(
             code.contains("persona"),
             "the board's own closures move the window's PERSONA. The board is a "
@@ -1213,6 +1224,12 @@ final class ReviewBoardRoutingTests: XCTestCase {
 
     private static func occurrences(of needle: String, in haystack: String) -> Int {
         haystack.components(separatedBy: needle).count - 1
+    }
+
+    /// `token` as code (comments and strings masked) across every file under
+    /// `Maugham/Views` — the window, `CentreColumn` and every sibling view.
+    private static func viewMounts(of token: String) throws -> Int {
+        try SourceTree.codeOccurrences(of: token).values.reduce(0, +)
     }
 
     /// One call's argument list, from `opener` to its own balanced close paren.

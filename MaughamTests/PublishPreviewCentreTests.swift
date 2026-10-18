@@ -1446,8 +1446,9 @@ final class PublishPreviewCentreTests: XCTestCase {
             + "verb answering after the writer moved on writes the old proposal "
             + "back into the centre column")
 
-        let window = SourceScan.codeLines(
-            of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
+        // The window's code with its family — the gate is mounted in
+        // `CentreColumn` since foundations plan 4 Task 4.
+        let window = try SourceTree.windowCodeLines()
         let changed = try XCTUnwrap(
             window.firstIndex { $0.contains("onProposalChanged:") },
             "the window no longer takes the gate's answer back at all")
@@ -1463,7 +1464,6 @@ final class PublishPreviewCentreTests: XCTestCase {
     /// production's statics, but the SHAPE of the last arm is the probe's own and
     /// a probe cannot vouch for it. This reads the real `manuscriptEditor`.
     func test_theBookIsAThirdLayerOfTheSameZStackAndNotAFourthArm() throws {
-        let source = try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"])
         let arm = try SourceTree.declaration(
             named: "func manuscriptEditor(", under: "Maugham")
 
@@ -1495,15 +1495,19 @@ final class PublishPreviewCentreTests: XCTestCase {
             "the book must WIN over altitude — a corkboard drawn over a "
             + "compiled book is the truth table read upside down")
 
+        // Counted as CODE across every view (foundations plan 4 Task 4), not
+        // over one type's text: the centre moved out of `ProjectWindow` into
+        // `CentreColumn`, and a count that read a single type would have gone
+        // to zero there — or passed over a second mount in a sibling view.
         XCTAssertEqual(
-            Self.occurrences(of: "PublishPreviewCentre(", in: source), 1,
+            try Self.viewMounts(of: "PublishPreviewCentre("), 1,
             "one mount for the book, in the centre column's cover. A second "
             + "is a surface nobody decided to add")
         XCTAssertEqual(
-            Self.occurrences(of: "PublishCentreNoticeBanner(", in: source), 1,
+            try Self.viewMounts(of: "PublishCentreNoticeBanner("), 1,
             "and one for the notice, for the same reason")
         XCTAssertEqual(
-            Self.occurrences(of: "manuscriptEditor(", in: source), 2,
+            try Self.viewMounts(of: "manuscriptEditor("), 2,
             "the declaration and exactly ONE call — `editorPane`'s `.editor` arm")
     }
 
@@ -1598,9 +1602,10 @@ final class PublishPreviewCentreTests: XCTestCase {
     }
 
     /// **The planted control for the reads above** (foundations plan 2): a
-    /// `ProjectWindow` struct in one file and the centre's rule plus the editor
-    /// arm in an `extension ProjectWindow` in another. Both are found by symbol
-    /// across the extension, the mount count reads both files, and the widened
+    /// `ProjectWindow` struct in one file, the centre's rule in an
+    /// `extension ProjectWindow` in another, and the editor arm in a
+    /// `CentreColumn` in a third. Both are found by symbol wherever they live,
+    /// the mount count reads every view file, and the widened
     /// ban catches a name-gate in a sibling view outside the window.
     func test_theLookupsFollowTheTypeAndTheBanReachesSiblingViews() throws {
         let base = try SourceTree.plantedTree([
@@ -1615,6 +1620,10 @@ final class PublishPreviewCentreTests: XCTestCase {
                     guard persona.previewsThePublishedBook else { return nil }
                     return nil
                 }
+            }
+            """,
+            "Maugham/Views/CentreColumn.swift": """
+            struct CentreColumn: View {
                 private func manuscriptEditor(store: ProjectStore) -> some View {
                     ZStack { EditorHost(); PublishPreviewCentre() }
                 }
@@ -1635,10 +1644,8 @@ final class PublishPreviewCentreTests: XCTestCase {
             named: "func manuscriptEditor(", under: "Maugham", base: base)
         XCTAssertTrue(arm.contains("PublishPreviewCentre("), "the arm is found in the extension")
         XCTAssertEqual(
-            Self.occurrences(
-                of: "PublishPreviewCentre(",
-                in: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"], base: base)),
-            2, "the mount count reads both of the window's files")
+            try Self.viewMounts(of: "PublishPreviewCentre(", base: base),
+            2, "the mount count reads the window's file AND the centre column's")
         XCTAssertEqual(
             try Self.nameGateOffenders(under: ["Maugham/Views", "Maugham/Publish"], base: base),
             ["Maugham/Views/Publish/SomeSiblingView.swift: "
@@ -1921,8 +1928,11 @@ final class PublishPreviewCentreTests: XCTestCase {
 
     // MARK: - Reading the source
 
-    private static func occurrences(of needle: String, in haystack: String) -> Int {
-        haystack.components(separatedBy: needle).count - 1
+    /// `token` as code (comments and strings masked) across every file under
+    /// `Maugham/Views` — the window, `CentreColumn` and every sibling view.
+    private static func viewMounts(of token: String,
+                                   base: URL = SourceTree.repoRoot) throws -> Int {
+        try SourceTree.codeOccurrences(of: token, base: base).values.reduce(0, +)
     }
 }
 

@@ -778,13 +778,19 @@ extension SourceTree {
     /// tolerates an absent member, since it plants only what it needs.
     /// Absence checks must still widen to a directory (`sources(under:)`),
     /// never lean on this list.
+    ///
+    /// `CentreColumn` is a member for a different reason from the modifiers:
+    /// it is not a decision lifted out but the window's own centre column,
+    /// whose builders were `ProjectWindow` members until plan 4 Task 4. Its
+    /// wiring — the board's closures, the gate's write-back — is the window's
+    /// wiring, so a census reading "what the window passes" must still see it.
     static let windowFamilyTypes = [
         "ProjectActiveSheet", "CheckpointFlashDecision", "CheckpointModifier",
         "RewindModifier", "FocusPostureModifier", "CanvasCollapseModifier",
         "ContainerWidthReporter", "PersonaModifier", "ParagraphNavModifier",
         "EditorControlMirror", "EditorControlMirrorModifier",
         "TranslationReviewModifier", "CanvasPromotionModifier",
-        "CompilerFlashSink", "NoteOutcomeAlert",
+        "CompilerFlashSink", "NoteOutcomeAlert", "CentreColumn",
     ]
 
     /// Every file declaring `ProjectWindow` or a window-family type, each its
