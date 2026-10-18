@@ -287,7 +287,7 @@ final class WikiLinkRenameOpLogTests: XCTestCase {
     // MARK: - Research notes (S2)
 
     /// The research-note half — pre-existing since 1C-c2, and recorded rather
-    /// than fixed at the time (`Maugham/Canvas/AREA.md`): canvas promotion
+    /// than fixed at the time (`docs/history/canvas.md`): canvas promotion
     /// writes `[[…]]` into a research note and never into a manuscript, so a
     /// rename left exactly the links promotion had just made pointing nowhere.
     ///

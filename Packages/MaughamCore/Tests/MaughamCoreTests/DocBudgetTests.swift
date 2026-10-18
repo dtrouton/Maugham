@@ -14,7 +14,7 @@ final class DocBudgetTests: XCTestCase {
         "docs/tripwires.md": 6_791,  // ratchet: actual size; +485 at the foundations merge: rows 54–56, the census-key paragraph, rows 17/24/39/46 name the OpLogStore split's homes
         "docs/testing/TROUBLESHOOTING.md": 4_406,  // ratchet: actual size; +28 over 4,378 for the line naming the old CLAUDE.md phrases comments still cite
         "docs/INDEX.md": 417,  // ratchet: actual size (Core and Publish guides and the recipes line added); +6: Stores line names the project session; +15: the docs/history line (plan 5)
-        "Maugham/Canvas/AREA.md": 47_971,  // ratchet: main's #44 rewrote the refused-layout paragraphs shorter
+        "Maugham/Canvas/AREA.md": 7_681,  // plan 5: re-templated (47,971 → this); the narrative is in docs/history/canvas.md
         "Maugham/OpLog/AREA.md": 30_412,  // plan 5: +7, the stale split sentence corrected; + residue and the two invariant bullets from CLAUDE.md, 2026-10-17; +15: tripwire 10 names all three keyless OpLogStore sites; +317 at the foundations merge: main's #51 Reopen sentence, the OpLogStore-split map bullet, tripwire 10's walk callers
         "Maugham/Views/AREA.md": 28_289,  // + residue from CLAUDE.md; PersonaMemory claim corrected, 2026-10-17; +572 at the foundations merge: the window family, CentreColumn/CentreRoute/RightColumn/PaletteWallState/PublishCentreModel rows, the session pointer
         "Maugham/Compiler/AREA.md": 23_782,  // + residue from CLAUDE.md, 2026-10-17; +396 at the foundations merge: main's additions since the plans branched and the AgentRoster paragraph
@@ -41,6 +41,7 @@ final class DocBudgetTests: XCTestCase {
         "docs/testing/TROUBLESHOOTING.md",
         "docs/tripwires.md",
         "Packages/MaughamCore/Sources/MaughamCore/AREA.md",
+        "Maugham/Canvas/AREA.md",
     ]
 
     /// Docs that must carry no milestone tag (a rule outlives the milestone
@@ -49,19 +50,20 @@ final class DocBudgetTests: XCTestCase {
         "CLAUDE.md",
         "docs/INDEX.md",
         "Packages/MaughamCore/Sources/MaughamCore/AREA.md",
+        "Maugham/Canvas/AREA.md",
     ]
 
     /// Guides already in the template (Map / Rules / Recipes / Pointers).
     /// Plan 5 adds each area's guide here as it is re-templated.
     static let templatedGuides: [String] = [
         "Packages/MaughamCore/Sources/MaughamCore/AREA.md",
+        "Maugham/Canvas/AREA.md",
     ]
 
     /// Guides still over the hard cap, awaiting their re-template. Shrinks to
     /// empty by the end of plan 5; a member at or under the cap fails the
     /// census so the set cannot go stale.
     static let notYetTemplated: Set<String> = [
-        "Maugham/Canvas/AREA.md",
         "Maugham/OpLog/AREA.md",
         "Maugham/Views/AREA.md",
         "Maugham/Compiler/AREA.md",

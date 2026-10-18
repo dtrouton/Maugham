@@ -1304,7 +1304,7 @@ struct ProjectWindow: View {
     /// `postDetailSegment(.intent)`, and `StatementPane.effectiveScope` never
     /// falls back — so a chapter with no intent shows the *project's* line and
     /// opens the *chapter's* empty editor. Fixing it needs Open-sets-scope
-    /// machinery (the reverted M1A work, `Maugham/Canvas/AREA.md`).
+    /// machinery (the reverted M1A work, `docs/history/canvas.md`).
     /// `IntentStripTests` pins the divergence.
     private var intentStripLine: String? {
         guard let store else { return nil }

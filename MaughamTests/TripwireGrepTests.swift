@@ -6412,7 +6412,7 @@ final class TripwireGrepTests: XCTestCase {
     /// `ProjectSubjectReachabilityTests` now guard the successor of).
     ///
     /// All five are still named in prose across this repo — `Views/AREA.md`,
-    /// `Canvas/AREA.md`, CLAUDE.md, three task reports in this milestone's own
+    /// `docs/history/canvas.md`, CLAUDE.md, three task reports in this milestone's own
     /// `.superpowers/sdd/` directory, and the doc comment two paragraphs up
     /// this file — which is exactly why `SourceScan` and not a raw `contains`
     /// is the reader: it strips comments first, so a citation cannot trip a
