@@ -126,6 +126,8 @@ struct ScrapInspector: View {
                             Text(orphan.label).tag(orphan.id)
                         }
                     }
+                    // Read-only canvas (issue #44): shows, takes no input.
+                    .disabled(!CanvasEditGate.editsValues(isReadOnly: model.isReadOnly))
                 // **The resolved answer, and where it came from.** The Picker
                 // above shows only what this card carries ITSELF, so a card
                 // inheriting from its region shows "None" there while its
@@ -189,17 +191,19 @@ struct ScrapInspector: View {
             PromotedArtifactSection(state: provenance, subject: .card,
                                     onOpen: onOpenResearchItem)
 
-            Section {
-                Button("Promote…") {
-                    // The SAME command the menu item and ⌘⇧↩ post — see
-                    // `RegionInspector` for why a closure of our own would be
-                    // a second path, and why posting is safe from this column.
-                    MaughamEvent.post(.maughamPromoteCanvasSelection, to: .keyWindow)
+            if CanvasEditGate.offersVerbs(isReadOnly: model.isReadOnly) {
+                Section {
+                    Button("Promote…") {
+                        // The SAME command the menu item and ⌘⇧↩ post — see
+                        // `RegionInspector` for why a closure of our own would be
+                        // a second path, and why posting is safe from this column.
+                        MaughamEvent.post(.maughamPromoteCanvasSelection, to: .keyWindow)
+                    }
+                    Text("Promoting takes a copy. The card stays here with its words, "
+                         + "and changing it afterwards doesn't change what it made.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                Text("Promoting takes a copy. The card stays here with its words, "
-                     + "and changing it afterwards doesn't change what it made.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

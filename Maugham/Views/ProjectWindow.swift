@@ -5374,9 +5374,15 @@ struct CanvasPromotionModifier: ViewModifier {
     /// decision drift: enabled here and empty there is the dead sheet above,
     /// disabled here and offered there is a command greyed out over a promotion
     /// that would work. `PromotionCommandTests` drives both from one table.
+    ///
+    /// **`isReadOnly` greys it out whatever is selected** (issue #44): promoting
+    /// writes a mark into the layout file this build refused, and the artifact
+    /// would be made before the mark was refused. `PromotionPerformer` refuses
+    /// the same fact at its door.
     static func isPromotable(persona: Persona,
                              selection: CanvasSelection?,
-                             nodeKind: CanvasNodeKind?) -> Bool {
+                             nodeKind: CanvasNodeKind?,
+                             isReadOnly: Bool) -> Bool {
         // **The predicate, and this was the FOURTH site that spelled the canvas
         // check as an equality** — not one of the three the slice-2 plan named,
         // found by grepping the comparison rather than reading the list. The
@@ -5385,7 +5391,7 @@ struct CanvasPromotionModifier: ViewModifier {
         // a card the writer could see and had selected. Re-based on the persona
         // in stage 2b Task 6, which is where it stays: the board is Plan's
         // centre column, and that is the fact enablement turns on.
-        guard persona.centresTheCanvas else { return false }
+        guard persona.centresTheCanvas, !isReadOnly else { return false }
         switch selection {
         case .node:
             switch nodeKind {
@@ -5415,7 +5421,8 @@ struct CanvasPromotionModifier: ViewModifier {
                                sheet == nil
                                && Self.isPromotable(persona: persona,
                                                     selection: model.selection,
-                                                    nodeKind: selectedNodeKind))
+                                                    nodeKind: selectedNodeKind,
+                                                    isReadOnly: model.isReadOnly))
             // Reading `model.scene` HERE is safe and in `body` is not: an action
             // closure runs on a change rather than inside a view update, so the
             // scene never becomes a dependency of this modifier's body.
@@ -5463,7 +5470,8 @@ struct CanvasPromotionModifier: ViewModifier {
     private func begin() {
         guard let store, let selection = model.selection,
               Self.isPromotable(persona: persona, selection: selection,
-                                nodeKind: selectedNodeKind) else { return }
+                                nodeKind: selectedNodeKind,
+                                isReadOnly: model.isReadOnly) else { return }
         let source: PromotionSource
         switch selection {
         case .node(let id): source = .scrap(id)

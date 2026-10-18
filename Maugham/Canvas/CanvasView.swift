@@ -1444,7 +1444,9 @@ struct CanvasView: View {
         selectionWhenPressed = model.selection
         commitActiveEdit()
 
-        guard clickCount >= 2 else {
+        // A read-only canvas (issue #44) takes a double click as a single one:
+        // it selects, and makes, enters and mounts nothing.
+        guard CanvasEditGate.clickCount(clickCount, isReadOnly: model.isReadOnly) >= 2 else {
             model.selection = model.scene.selectionTarget(at: contentPoint)
             // The selection is read INSIDE the draw closure, where a model value
             // is not in SwiftUI's dependency graph — that is what this counter
@@ -1617,6 +1619,10 @@ struct CanvasView: View {
     private func handleDrop(_ payloads: [String], at viewPoint: CGPoint) -> Bool {
         guard let payload = payloads.first else { return false }
         if case .capture(let entryID) = CanvasDrop.payload(payload) {
+            // Read-only (issue #44): springs back before the send, so no asset is
+            // copied and the entry stays new; the canvas's notice says why.
+            guard CanvasEditGate.accepts(.capture, isReadOnly: model.isReadOnly)
+            else { return false }
             return handleCaptureDrop(entryID, at: viewPoint)
         }
         switch CanvasDrop.decide(payload: payload,
@@ -1626,6 +1632,10 @@ struct CanvasView: View {
             return false
 
         case .reveal(let id):
+            // Asked for symmetry; a reveal changes nothing, so it stays on a
+            // read-only canvas too.
+            guard CanvasEditGate.accepts(.reveal, isReadOnly: model.isReadOnly)
+            else { return false }
             // The item is already here. Say so by SHOWING it — a drop that
             // silently did nothing is indistinguishable from a broken surface,
             // which is this task's named failure. The card is not moved: that
@@ -1646,6 +1656,8 @@ struct CanvasView: View {
             return true
 
         case .create(let node):
+            guard CanvasEditGate.accepts(.place, isReadOnly: model.isReadOnly)
+            else { return false }
             CanvasDrop.apply(node, in: model)
             // Selected, so the right-hand column shows the reference's own arm and
             // the writer can see what landed. Outside the bracket: a snapshot
@@ -1711,6 +1723,10 @@ struct CanvasView: View {
     /// photograph belongs where the writer let go of it.
     private func handleExternalDrop(_ providers: [NSItemProvider],
                                     at viewPoint: CGPoint) -> Bool {
+        // Read-only (issue #44): refused BEFORE `ingest`, which copies into
+        // `canvas_assets/` first — a refused drop must strand no copy there.
+        guard CanvasEditGate.accepts(.external, isReadOnly: model.isReadOnly)
+        else { return false }
         let accepted = providers.filter { CanvasExternalDrop.accepts($0) }
         guard !accepted.isEmpty else { return false }
         let contentPoint = camera.contentPoint(fromView: viewPoint)
@@ -1768,6 +1784,9 @@ struct CanvasView: View {
     /// and the beep says so.
     private func deleteSelection() -> Bool {
         guard !model.isInGesture else { return false }
+        // Read-only (issue #44): the card arm's `withScene(persist: false)`
+        // would remove the card from memory, unguarded by the model.
+        guard CanvasEditGate.deletes(isReadOnly: model.isReadOnly) else { return false }
         switch model.selection {
         case .region(let id):
             guard model.scene.region(id) != nil else { return false }
@@ -2016,6 +2035,10 @@ struct CanvasView: View {
             // (`CanvasEventNSView.applyMouseDown` pins that order), so this sees
             // the focus state the click just set.
             guard editingNodeID == nil else { return }
+            // A read-only canvas (issue #44) begins no interaction, so
+            // `.changed`/`.ended` bail on `isActive` and no coast launches. Pan
+            // and zoom are scroll and magnify, and never reach this.
+            guard CanvasEditGate.dragBegins(isReadOnly: model.isReadOnly) else { return }
             // The two routes into a line, answered once, HERE — the gesture
             // layer deliberately has no opinion about what is selected.
             // `selectionWhenPressed` and NOT `model.selection`: `handleClick` has
