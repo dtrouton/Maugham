@@ -19,7 +19,7 @@ final class UpdateCheckerTests: XCTestCase {
     private func makeChecker(
         currentVersion: String = "0.1.0",
         fetch: @escaping () async throws -> GitHubRelease,
-        downloadAsset: @escaping (URL, String, @escaping @MainActor (Double) -> Void) async throws -> URL = { _, _, _ in
+        downloadAsset: @escaping (GitHubRelease.Asset, String, @escaping @MainActor (Double) -> Void) async throws -> URL = { _, _, _ in
             URL(fileURLWithPath: "/tmp/fake.zip")
         },
         stageAndVerify: @escaping (URL, String) async throws -> URL = { u, _ in u },
@@ -53,7 +53,7 @@ final class UpdateCheckerTests: XCTestCase {
         let checker = makeChecker(
             currentVersion: "0.1.0",
             fetch: { self.release(version: "0.2.0") },
-            downloadAsset: { url, _, _ in URL(fileURLWithPath: "/tmp/Maugham-0.2.0.zip") },
+            downloadAsset: { _, _, _ in URL(fileURLWithPath: "/tmp/Maugham-0.2.0.zip") },
             stageAndVerify: { _, _ in URL(fileURLWithPath: "/tmp/Maugham.app") })
         await checker.performCheck(trigger: .manual)
         if case .readyToInstall(_, let v, _) = checker.state {
@@ -129,6 +129,57 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertNil(checker.pendingQuitInstall)
     }
 
+    // MARK: - The download cap
+
+    private func release(version: String, assetSize: Int64) -> GitHubRelease {
+        let json = """
+        {"tag_name":"v\(version)","name":"x","body":"notes","draft":false,"prerelease":false,
+         "assets":[{"name":"Maugham-\(version).zip",
+                    "browser_download_url":"https://example/Maugham-\(version).zip",
+                    "size":\(assetSize)}]}
+        """
+        return try! GitHubRelease.decode(from: Data(json.utf8))
+    }
+
+    /// A release declaring more than the cap is refused before the download
+    /// closure is called at all — an error on a manual check...
+    func test_anAssetOverTheCapIsNeverDownloaded_manual() async {
+        var downloaded = false
+        let checker = makeChecker(
+            fetch: { self.release(version: "0.2.0",
+                                  assetSize: UpdateLimits.standard.maxDownloadBytes + 1) },
+            downloadAsset: { asset, _, _ in downloaded = true; return asset.browserDownloadURL })
+        await checker.performCheck(trigger: .manual)
+        XCTAssertFalse(downloaded, "nothing may be fetched for an asset over the cap")
+        guard case .error = checker.state else {
+            return XCTFail("Expected .error, got \(checker.state)")
+        }
+        XCTAssertNil(checker.pendingQuitInstall)
+    }
+
+    /// ...and quietly idle on a background poll, like a release with no asset.
+    func test_anAssetOverTheCapIsNeverDownloaded_background() async {
+        var downloaded = false
+        let checker = makeChecker(
+            fetch: { self.release(version: "0.2.0",
+                                  assetSize: UpdateLimits.standard.maxDownloadBytes + 1) },
+            downloadAsset: { asset, _, _ in downloaded = true; return asset.browserDownloadURL })
+        await checker.performCheck(trigger: .background)
+        XCTAssertFalse(downloaded)
+        XCTAssertEqual(checker.state, .idle)
+    }
+
+    /// Exactly the cap is still an update.
+    func test_anAssetAtTheCapIsDownloaded() async {
+        var downloaded = false
+        let checker = makeChecker(
+            fetch: { self.release(version: "0.2.0",
+                                  assetSize: UpdateLimits.standard.maxDownloadBytes) },
+            downloadAsset: { asset, _, _ in downloaded = true; return asset.browserDownloadURL })
+        await checker.performCheck(trigger: .manual)
+        XCTAssertTrue(downloaded)
+    }
+
     // MARK: - A build this Mac cannot run is not an update
 
     /// The release body carries the build's minimum macOS (see
@@ -140,7 +191,7 @@ final class UpdateCheckerTests: XCTestCase {
             currentVersion: "0.39.0",
             fetch: { self.release(version: "0.40.0",
                                   body: "notes<!-- maugham-minimum-macos: 27.0 -->") },
-            downloadAsset: { url, _, _ in downloaded = true; return url },
+            downloadAsset: { asset, _, _ in downloaded = true; return asset.browserDownloadURL },
             systemVersion: MinimumSystemVersion(major: 26, minor: 5))
         await checker.performCheck(trigger: .manual)
         XCTAssertEqual(checker.state, .newerBuildNeedsNewerSystem(

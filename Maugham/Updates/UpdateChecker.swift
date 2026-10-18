@@ -3,7 +3,7 @@ import Foundation
 import MaughamCore
 import SwiftUI
 
-/// Tier 1.5 updater. Polls GitHub Releases; downloads newer `.dmg` silently;
+/// Tier 1.5 updater. Polls GitHub Releases; downloads a newer `.zip` (or `.dmg`) silently;
 /// surfaces via @Published state. See spec §3.2.
 @MainActor
 public final class UpdateChecker: ObservableObject {
@@ -22,14 +22,14 @@ public final class UpdateChecker: ObservableObject {
 
     private let currentVersionString: String
     private let fetchLatest: () async throws -> GitHubRelease
-    private let downloadAsset: (URL, String, @escaping @MainActor (Double) -> Void) async throws -> URL
+    private let downloadAsset: (GitHubRelease.Asset, String, @escaping @MainActor (Double) -> Void) async throws -> URL
     private let stageAndVerify: (URL, String) async throws -> URL
     private let systemVersion: MinimumSystemVersion
 
     public init(
         currentVersionString: String,
         fetchLatest: @escaping () async throws -> GitHubRelease,
-        downloadAsset: @escaping (URL, String, @escaping @MainActor (Double) -> Void) async throws -> URL,
+        downloadAsset: @escaping (GitHubRelease.Asset, String, @escaping @MainActor (Double) -> Void) async throws -> URL,
         stageAndVerify: @escaping (URL, String) async throws -> URL,
         systemVersion: MinimumSystemVersion = .runningSystem
     ) {
@@ -80,9 +80,19 @@ public final class UpdateChecker: ObservableObject {
                     : .idle
                 return
             }
+            // A release declaring more than the cap is refused before a byte
+            // is fetched (the download also counts what actually arrives).
+            guard !UpdateDownload.exceedsCap(receivedBytes: 0, expectedBytes: Int64(asset.size)) else {
+                state = trigger == .manual
+                    ? .error(UpdateDownloadError.tooLarge(
+                        bytes: Int64(asset.size),
+                        limit: UpdateLimits.standard.maxDownloadBytes).localizedDescription)
+                    : .idle
+                return
+            }
             let versionString = newVersion.string
             state = .downloading(version: versionString, progress: 0)
-            let downloaded = try await downloadAsset(asset.browserDownloadURL, versionString) { [weak self] progress in
+            let downloaded = try await downloadAsset(asset, versionString) { [weak self] progress in
                 self?.state = .downloading(version: versionString, progress: progress)
             }
             let stagedBundle = try await stageAndVerify(downloaded, newVersion.string)
@@ -102,13 +112,17 @@ public final class UpdateChecker: ObservableObject {
         }
     }
 
-    /// Default download implementation: streams the asset into the updates
-    /// staging directory under Application Support in 64KB chunks, reporting
-    /// fractional progress (0...1) as bytes arrive. `expectedContentLength`
-    /// <= 0 (server omitted Content-Length) reports -1 once; UpdateSheet
-    /// renders that as an indeterminate spinner rather than a stuck bar.
+    /// Default download implementation: `UpdateDownload` (a download task,
+    /// one retry on a transient network error, capped at
+    /// `UpdateLimits.maxDownloadBytes`) into a `.download` temp file in the
+    /// updates folder under Application Support, then moved into place as
+    /// `Maugham-<ver>.<ext>` — so a failure never leaves a partial file at the
+    /// final path. A complete file already at that path is reused. Progress is
+    /// a fraction (0...1) as bytes arrive, or -1 once when the server omits
+    /// Content-Length (UpdateSheet draws an indeterminate spinner), and 1.0
+    /// when the file is complete.
     private static func defaultDownload(
-        from url: URL,
+        asset: GitHubRelease.Asset,
         version: String,
         progress: @escaping @MainActor (Double) -> Void
     ) async throws -> URL {
@@ -118,62 +132,29 @@ public final class UpdateChecker: ObservableObject {
             .appendingPathComponent(BuildVariant.current.supportFolderName)
             .appendingPathComponent("Updates")
         try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
-        let ext = url.pathExtension.isEmpty ? "zip" : url.pathExtension
+        let ext = UpdateDownload.fileExtension(forAssetNamed: asset.name)
         let target = stagingDir.appendingPathComponent("Maugham-\(version).\(ext)")
         if FileManager.default.fileExists(atPath: target.path) {
-            await progress(1.0)
+            progress(1.0)
             return target
         }
 
-        let (byteStream, response) = try await URLSession.shared.bytes(from: url)
-        let expectedLength = response.expectedContentLength
-
         let tmpURL = stagingDir.appendingPathComponent("Maugham-\(version).\(ext).download")
         try? FileManager.default.removeItem(at: tmpURL)
-        FileManager.default.createFile(atPath: tmpURL.path, contents: nil)
-        let fileHandle = try FileHandle(forWritingTo: tmpURL)
-
         do {
-            var chunk = Data()
-            chunk.reserveCapacity(64 * 1024)
-            var bytesWritten: Int64 = 0
-            var reportedIndeterminate = false
-
-            func flush() throws {
-                guard !chunk.isEmpty else { return }
-                try fileHandle.write(contentsOf: chunk)
-                bytesWritten += Int64(chunk.count)
-                chunk.removeAll(keepingCapacity: true)
-            }
-
-            for try await byte in byteStream {
-                chunk.append(byte)
-                guard chunk.count >= 64 * 1024 else { continue }
-                try flush()
-                if expectedLength > 0 {
-                    let fraction = min(1.0, max(0.0, Double(bytesWritten) / Double(expectedLength)))
-                    await progress(fraction)
-                } else if !reportedIndeterminate {
-                    reportedIndeterminate = true
-                    await progress(-1)
-                }
-            }
-            try flush()
-            try fileHandle.close()
-
-            if expectedLength > 0 {
-                await progress(1.0)
-            } else if !reportedIndeterminate {
-                await progress(-1)
+            // The delegate reports off the main thread; the main queue is FIFO,
+            // so the fractions arrive in the order they were measured.
+            try await UpdateDownload.download(from: asset.browserDownloadURL, to: tmpURL) { fraction in
+                DispatchQueue.main.async { progress(fraction) }
             }
         } catch {
-            try? fileHandle.close()
             try? FileManager.default.removeItem(at: tmpURL)
             throw error
         }
 
         try? FileManager.default.removeItem(at: target)
         try FileManager.default.moveItem(at: tmpURL, to: target)
+        progress(1.0)
         return target
     }
 

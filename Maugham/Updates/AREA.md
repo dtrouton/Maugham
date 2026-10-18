@@ -28,6 +28,7 @@ swapped in. There is no window between verify and install where a different bund
 be substituted.
 
 Other protections:
+- **The download is capped** at `UpdateLimits.standard.maxDownloadBytes` (512 MB, ~17× a release today): an asset DECLARING more is refused before a byte is fetched (an error on a manual check, idle on a background poll), and a download RECEIVING more is cancelled and leaves no file.
 - Strict `>` version comparison (`UpdateChecker.swift`) prevents downgrade.
 - **A build this Mac cannot launch is not an update.** `release.yml` appends
   `<!-- maugham-minimum-macos: <n> -->` to every release body, read out of the built app's own
@@ -143,6 +144,9 @@ pre-auto-update behavior. **Worst case == status quo, never worse.**
 | `atomicSwap` same-volume: destination never absent, content swapped | Yes (temp dirs) | `test_atomicSwap_sameVolume_*` |
 | `atomicSwap` missing staged path → `.sourceNotFound` | Yes | `test_atomicSwap_throwsSourceNotFound_*` |
 | `atomicSwap` cross-volume → `.crossVolume` | Yes (RAM disk via hdiutil; skipped if unavailable) | `test_atomicSwap_throwsCrossVolume_*` |
+| Download retry classifier, size cap, extension from the asset name | Yes (pure) | `UpdateDownloadTests` |
+| Download delegate path: completes into place / refused past the cap leaves nothing | Yes (`file://` source under `TestTemp.root`, no network) | `UpdateDownloadTests.test_a*` |
+| An asset declaring more than the cap is never downloaded | Yes (injected download closure) | `UpdateCheckerTests.test_anAsset*Cap*` |
 | Running-app Team ID (real signed build) | No — ad-hoc test host returns nil; proven in dry-run | `test_runningAppTeamID_doesNotCrash` (smoke only) |
 | **Detached helper actually replaces the running app and relaunches** | **NO — cannot be unit-tested** | See below |
 
@@ -167,7 +171,9 @@ and observe the swap. See `docs/superpowers/notes/feedback_dry_run_is_integratio
 | File | Purpose |
 |---|---|
 | `UpdateInstaller.swift` | Verify logic, atomic swap (`atomicSwap`/`pyAtomicSwapSource`), helper script generation, Team ID extraction |
-| `UpdateChecker.swift` | Background poll loop, download, stage-and-verify dispatch, `pendingQuitInstall` |
+| `UpdateChecker.swift` | Background poll loop, download into place (`.download` temp, then moved to `Maugham-<ver>.<ext>`; an existing complete file is reused), the pre-download size refusal, stage-and-verify dispatch, `pendingQuitInstall` |
+| `UpdateDownload.swift` | The download itself: a `URLSessionDownloadTask` on its own session (delegate `UpdateDownloadSession`, progress from `didWriteData`), one retry on a transient `URLError` resuming from its resume data, cancelled past the cap; the extension comes from the asset's name |
+| `UpdateLimits.swift` | The updater's size ceilings (`UpdateLimits.standard`; `maxDownloadBytes` 512 MB) |
 | `UpdateState.swift` | Enum of updater states (idle/checking/downloading/readyToInstall/installing/error/upToDate) |
 | `GitHubReleasesAPI.swift` | GitHub Releases JSON decode; `zipAsset` preferred over `dmgAsset` |
 | `UpdateBannerView.swift` | In-window toast ("Maugham X.Y.Z is ready") |
