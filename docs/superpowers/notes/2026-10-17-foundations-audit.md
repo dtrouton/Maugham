@@ -233,3 +233,9 @@ Every finding is either **scheduled** into one of the plans below or **dropped**
 - Reviewer A's and E's census counts differ (about 100 path reads vs 34 files and 231 pinned files). Both are right: one counts reads, the other files.
 - Three reviewers converged on `ProjectSession` and on `DocumentFormat` without seeing each other's maps; that convergence is the strongest signal in this audit.
 - The maugham-issues session was running gates during the audit. All reviewers were read-only and ran no builds.
+
+## 7. Denver's rulings (2026-10-18)
+1. **Stands, for now.** Mac only, and the existing collaboration structure (no Teams).
+2. **Broader than DOCX.** Import must cover Google Docs, Sheets and the like, and research must expand to hold those sources.
+3. **Yes.** The manuscript grammar must admit tables at least; footnotes are likely.
+4. **Yes.** A fact-checker checks against both the writer's research and the web. This is the first exception to ADR 0028's confinement, limited to web search and fetch: no file access and no execution. Assumed (not ruled): web reach is a per-project switch.
