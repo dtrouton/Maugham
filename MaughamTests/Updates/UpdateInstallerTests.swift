@@ -277,7 +277,7 @@ final class UpdateInstallerTests: XCTestCase {
             XCTFail("a garbage archive must be refused")
         } catch let error as UpdateInstaller.InstallError {
             // Unreadable totals are a refusal of their own (#67 F16), before any unpacking.
-            guard case .archiveTooLarge = error else { return XCTFail("expected .archiveTooLarge, got \(error)") }
+            guard case .archiveUnreadable = error else { return XCTFail("expected .archiveUnreadable, got \(error)") }
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: zip.path),
                        "a refused zip must not be left for the next check to reuse")
@@ -345,6 +345,8 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertNil(UpdateInstaller.parseZipinfoTotals(""))
         XCTAssertNil(UpdateInstaller.parseZipinfoTotals("hello, world"))
         XCTAssertNil(UpdateInstaller.parseZipinfoTotals("x files, y bytes uncompressed, z"))
+        XCTAssertNil(UpdateInstaller.parseZipinfoTotals("-1 files, 5 bytes uncompressed, 7 bytes compressed"))
+        XCTAssertNil(UpdateInstaller.parseZipinfoTotals("1 file, -5 bytes uncompressed, 7 bytes compressed"))
     }
 
     func test_extractionDecision_eachArm() {
@@ -407,5 +409,20 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: updates.appendingPathComponent("staged-9.9.9").path),
             "nothing may be unpacked once the gate refuses")
+    }
+
+    func test_anUnreadableArchiveSaysSoInPlainEnglish() {
+        XCTAssertEqual(UpdateInstaller.InstallError.archiveUnreadable.errorDescription,
+                       "The downloaded update couldn't be read, so it wasn't installed.")
+    }
+
+    func test_unreadableFreeSpaceIsRefusedAsUnreadable() throws {
+        let (zip, _) = try makeTinyZip(named: "Maugham-9.9.9.zip")
+        XCTAssertThrowsError(try UpdateInstaller.stageAndVerifySync(
+            zip: zip, version: "9.9.9", availableBytes: { _ in nil })) { error in
+            guard case .archiveUnreadable? = error as? UpdateInstaller.InstallError
+            else { return XCTFail("expected .archiveUnreadable, got \(error)") }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: zip.path))
     }
 }

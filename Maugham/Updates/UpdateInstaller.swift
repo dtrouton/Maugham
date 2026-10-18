@@ -264,12 +264,13 @@ extension UpdateInstaller {
 
 extension UpdateInstaller {
     enum InstallError: LocalizedError {
-        case unzipFailed, verifyFailed(String), archiveTooLarge(String)
+        case unzipFailed, verifyFailed(String), archiveTooLarge(String), archiveUnreadable
         var errorDescription: String? {
             switch self {
             case .unzipFailed: return "Couldn't unpack the update"
             case .verifyFailed(let r): return "Update failed verification: \(r)"
             case .archiveTooLarge(let r): return r
+            case .archiveUnreadable: return "The downloaded update couldn't be read, so it wasn't installed."
             }
         }
     }
@@ -288,7 +289,7 @@ extension UpdateInstaller {
             guard head.count == 2, head[1] == "file" || head[1] == "files",
                   let files = Int(head[0]),
                   second.count == 3, second[1] == "bytes", second[2] == "uncompressed",
-                  let bytes = Int64(second[0]) else { continue }
+                  let bytes = Int64(second[0]), files >= 0, bytes >= 0 else { continue }
             return (files, bytes)
         }
         return nil
@@ -378,7 +379,7 @@ extension UpdateInstaller {
     /// poll, and that version could never install. A new kind of refusal joins
     /// as an `InstallError` case and gets the same cleanup.
     static func stageAndVerifySync(zip: URL, version: String,
-                                            availableBytes: (URL) -> Int64? = UpdateInstaller.availableBytes(at:)) throws -> URL {
+                                           availableBytes: (URL) -> Int64? = UpdateInstaller.availableBytes(at:)) throws -> URL {
         let stageDir = zip.deletingLastPathComponent()
             .appendingPathComponent("staged-\(version)", isDirectory: true)
         do {
@@ -392,11 +393,14 @@ extension UpdateInstaller {
     private static func stageAndVerifyUnchecked(zip: URL, stageDir: URL,
                                                 availableBytes: (URL) -> Int64?) throws -> URL {
         guard let totals = archiveTotals(zip: zip) else {
-            throw InstallError.archiveTooLarge("The update's size couldn't be read, so it wasn't installed.")
+            throw InstallError.archiveUnreadable
+        }
+        guard let available = availableBytes(zip.deletingLastPathComponent()) else {
+            throw InstallError.archiveUnreadable
         }
         if case .reject(let reason) = extractionDecision(
             files: totals.files, uncompressedBytes: totals.uncompressedBytes,
-            availableBytes: availableBytes(zip.deletingLastPathComponent())) {
+            availableBytes: available) {
             throw InstallError.archiveTooLarge(reason)
         }
         try? FileManager.default.removeItem(at: stageDir)
