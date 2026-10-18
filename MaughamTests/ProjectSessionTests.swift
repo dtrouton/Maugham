@@ -66,6 +66,37 @@ final class ProjectSessionTests: XCTestCase {
                        "the cold-call runner forgot the window's factory")
     }
 
+    // The window's load decision: a re-run for the SAME project opens
+    // nothing new; another project's session closes before the open.
+    func test_aReRunForTheSameProjectReusesTheLiveSession() {
+        let a = TestTemp.root.appendingPathComponent("A", isDirectory: true)
+        let b = TestTemp.root.appendingPathComponent("B", isDirectory: true)
+        XCTAssertEqual(ProjectSession.loadStep(live: a, requested: a), .reuseLive)
+        XCTAssertEqual(ProjectSession.loadStep(live: a, requested: b), .closeLiveThenOpen)
+        XCTAssertEqual(ProjectSession.loadStep(live: nil, requested: a), .open)
+    }
+
+    /// …and the window's `load()` acts on it: it asks the decision, and the
+    /// previous session's close is AWAITED before the open is reached.
+    func test_theWindowsLoadAsksTheDecisionAndClosesBeforeItOpens() throws {
+        // The WINDOW's `load()` — several other windows declare one too.
+        let masked = SourceTree.mask(try SourceTree.windowSource())
+        let text = String(decoding: masked, as: UTF8.self)
+        let header = try XCTUnwrap(text.range(of: "private func load() async {"),
+                                   "ProjectWindow declares no load()")
+        let start = text.utf8.distance(from: text.startIndex, to: header.lowerBound)
+        let end = try XCTUnwrap(SourceTree.bodyEnd(in: masked, from: start))
+        let load = String(decoding: masked[start...end], as: UTF8.self)
+        let ask = try XCTUnwrap(load.range(of: "ProjectSession.loadStep("),
+                                "load() must ask the reuse/close decision")
+        let close = try XCTUnwrap(load.range(of: "await previous.close()"),
+                                  "load() must await the previous session's close")
+        let open = try XCTUnwrap(load.range(of: "ProjectSession.open("),
+                                 "load() must open through ProjectSession")
+        XCTAssertTrue(ask.lowerBound < close.lowerBound && close.lowerBound < open.lowerBound,
+                      "the decision, then the close, then the open — in that order")
+    }
+
     // (c)
     func test_aClosedSessionIsReleasedWithItsLastReference() async throws {
         weak var released: ProjectSession?

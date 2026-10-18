@@ -608,8 +608,10 @@ public final class DocumentStore {
         // the nil'd @State (`leaks --trace`: DocumentStore._openDocuments →
         // DictionaryStorage → Document). EditorHost.onDisappear also
         // closes+unregisters, but that races nested-onDisappear ordering; the
-        // single `close()` ProjectWindow.onDisappear always makes drains the
-        // registry regardless. Close each doc (idempotent — DocumentDoubleCloseTests)
+        // single `close()` the window's session makes when the window is
+        // really gone (`ProjectSession.close()`, reached from
+        // `ProjectWindow.onDisappear`'s liveness guard) drains the registry
+        // regardless. Close each doc (idempotent — DocumentDoubleCloseTests)
         // so its final burst/autosave still flush through the installed
         // presenter, THEN remove the presenter. Snapshot first so the terminal
         // close can't observe a mutating map.

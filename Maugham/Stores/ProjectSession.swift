@@ -180,6 +180,27 @@ final class ProjectSession {
                               roster: roster)
     }
 
+    /// What a window's `load()` does, given the session it already holds.
+    enum LoadStep: Equatable {
+        /// The live session is for this project: use it, open nothing.
+        case reuseLive
+        /// The live session is for another project: close it, THEN open.
+        case closeLiveThenOpen
+        /// No session yet: open.
+        case open
+    }
+
+    /// The window's load decision, pure so it can be pinned without a window.
+    /// Re-opening a project whose session is live would run a second
+    /// `DocumentStore.open` — a second presenter, and the open-time
+    /// seal/rotate sweep whose rotation deletes — under Documents the live
+    /// store still has registered; and a previous session closed alongside a
+    /// new open, rather than before it, races the two.
+    static func loadStep(live: URL?, requested: URL) -> LoadStep {
+        guard let live else { return .open }
+        return live == requested ? .reuseLive : .closeLiveThenOpen
+    }
+
     /// The window-ending teardown, in order: every roster service detaches
     /// (pipeline first — the roster's own order), THEN the `DocumentStore`
     /// flushes and drains its registry. Detaching first is the point: each

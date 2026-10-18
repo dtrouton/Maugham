@@ -475,16 +475,18 @@ struct ProjectWindow: View {
             // `.task(id: url)` won't re-fire for the same url, so a live blank
             // would stick.
             if !MaughamEvent.isLive(window) {
-                // Before the stores drop: the orchestrator's environment holds
-                // closures over both of them, so a session left configured here
-                // would keep the whole project graph alive in the husk — and
-                // its `claude` subprocess alive with it. `session.close()`
-                // detaches the roster (pipeline first: a leg parked on a
-                // translator summary has to be resolved before the translator
-                // that owed it is torn down) and THEN closes the DocumentStore.
-                // `Task { … }` captures `session` by value, so nil-ing the
-                // @State immediately after is safe — the close still runs on
-                // the captured reference.
+                // The services' environments hold closures over both stores,
+                // so a session left configured would keep the whole project
+                // graph alive in the husk — and its `claude` subprocess alive
+                // with it. `session.close()` detaches the roster (pipeline
+                // first: a leg parked on a translator summary has to be
+                // resolved before the translator that owed it is torn down)
+                // and THEN closes the DocumentStore. It runs in a queued
+                // `Task`, so the detach happens AFTER this body has nil-ed the
+                // @State below, not before: the Task captures `session` by
+                // value, so the close still runs on that reference, and
+                // nothing can reach the services in between because the
+                // window is gone.
                 if let session {
                     Task { await session.close() }
                 }
@@ -4050,6 +4052,29 @@ struct ProjectWindow: View {
     @MainActor
     private func load() async {
         do {
+            // **A re-run for the same project reuses the live session.** A
+            // spurious `.onDisappear` on a live window keeps its session (the
+            // liveness guard there), and a re-appear restarts this task:
+            // opening again would install a second presenter and run the
+            // open-time seal/rotate sweep — rotation DELETES — while the live
+            // store still has Documents registered and the editor bound to
+            // them. The window's own state survived too, so nothing is
+            // re-seeded; only the MCP registration, which that `.onDisappear`
+            // dropped unconditionally, is restored. A different project's
+            // session closes BEFORE the open, never alongside it.
+            switch ProjectSession.loadStep(live: session?.url, requested: url) {
+            case .reuseLive:
+                if let live = session {
+                    mcpRegistry.register(url: url, store: live.projectStore)
+                }
+                return
+            case .closeLiveThenOpen:
+                if let previous = session {
+                    await previous.close()
+                }
+            case .open:
+                break
+            }
             // The stores and the services are the session's (foundations
             // plan 3, Task 2): `ProjectSession.open` loads the manifest, opens
             // the DocumentStore, cross-links them, hands the store this
@@ -4123,11 +4148,6 @@ struct ProjectWindow: View {
             self.outlineLayout = ds.uiState.outlineLayout
             applyNoChrome()
 
-            // A window whose `.task(id: url)` re-ran would otherwise drop its
-            // previous session still configured — a live, billing process.
-            if let previous = self.session {
-                Task { await previous.close() }
-            }
             self.session = session
             self.store = s
             self.documentStore = ds
