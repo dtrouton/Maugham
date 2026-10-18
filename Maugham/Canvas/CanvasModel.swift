@@ -75,6 +75,29 @@ final class CanvasModel {
     /// Never bumped per frame (tripwire 30).
     private(set) var sceneRevision = 0
 
+    /// **Why this canvas may not be changed, or nil when it may** (issue #44).
+    ///
+    /// Set on EVERY `attach` from the load's own `CanvasStore.Loaded.refusal`,
+    /// so it is never re-derived by a reader: a sidecar this build refuses (a
+    /// newer build's, or damaged bytes) loads as the writer's words laid out
+    /// loose, and that scene is not their layout — writing it would replace the
+    /// arrangement the file actually holds. Holding the ERROR rather than a Bool
+    /// means a door refusing a write through this model throws exactly the
+    /// value a write with no canvas open throws.
+    ///
+    /// Observable on purpose — not `@ObservationIgnored` — because the notice
+    /// and the inspectors redraw on it. `detach` leaves it; the next `attach`
+    /// overwrites it.
+    private(set) var sidecarRefusal: CanvasStore.SidecarRefused?
+
+    /// Read-only is not frozen: selection, pan, zoom and the re-measures
+    /// (`withScene(persist: false)`) all still work. What it refuses is any
+    /// change to the scene or the scrap text — `mutate`, `mutateFromInspector`,
+    /// `setScrapText` and `removeScrapText` return without changing memory, so
+    /// nothing can appear on screen and then silently fail to persist. The
+    /// store underneath refuses every write as well (the backstop).
+    var isReadOnly: Bool { sidecarRefusal != nil }
+
     /// ⌘Z, scoped to the canvas. `@Environment(\.undoManager)` would give a
     /// window-lifetime manager shared with the manuscript editor's op-log stack
     /// (ADR 0023), and a persona switch mid-drag would leave a half-open group
@@ -328,6 +351,7 @@ final class CanvasModel {
         let repaired = Self.surfaceOrphanScraps(in: &loaded.scene, scraps: &loaded.scraps)
         scene = loaded.scene
         scraps = loaded.scraps
+        sidecarRefusal = loaded.refusal
         isAttached = true
 
         undo.readSnapshot = { [unowned self] in (scene, scraps) }
@@ -367,15 +391,13 @@ final class CanvasModel {
         // with the scraps intact — so every scrap is an orphan and the repair
         // below would otherwise stamp a current-schema sidecar over somebody's
         // whole arrangement 750 ms after the writer merely OPENED the canvas.
-        // The words are still surfaced, in memory, where they can be read; the
-        // file survives being looked at — until any write reaches THIS attached
-        // model, and not only the writer's own. `loaded.sidecar` is read here and
-        // nowhere retained, so `scheduleSave`/`flush`/`save` write unconditionally
-        // from this point on: a later edit is the writer's own act, in their own
-        // undo bracket, but `add_canvas_scraps`'s attached route and a Send to
-        // Canvas landing on a live model flush over the very same file just as
-        // readily — Claude's act and a capture's act, neither the writer's edit.
-        // Recorded as issue #44, a follow-up this branch did not build.
+        // The words are still surfaced, in memory, where they can be read. And
+        // since issue #44 the file survives everything after the open too: the
+        // model holds the refusal (`sidecarRefusal`, set above) and its verbs
+        // change nothing, and the store refuses every write once its load
+        // answered refused — so a click's debounced save, a quit's flush and
+        // `detach` write nothing either. (The store would refuse this repair
+        // write too; the explicit test keeps the repair's own rule readable.)
         if repaired && loaded.sidecar.acceptsARepairWrite { scheduleSave() }
     }
 
@@ -517,11 +539,13 @@ final class CanvasModel {
     }
 
     func setScrapText(_ text: String, for id: CanvasNodeID) {
+        guard !isReadOnly else { return }
         scraps[id] = text
         scheduleSave()
     }
 
     func removeScrapText(_ id: CanvasNodeID) {
+        guard !isReadOnly else { return }
         scraps[id] = nil
         scheduleSave()
     }
@@ -565,6 +589,8 @@ final class CanvasModel {
     func renameGesture(_ name: String) { undo.renameGesture(name) }
     func breakGesture() { undo.breakGesture() }
     func mutate(_ name: String, _ body: (inout CanvasScene) -> Void) {
+        // Before the bracket opens, so a refused change registers no undo step.
+        guard !isReadOnly else { return }
         undo.beginGesture(name)
         withScene(body)
         undo.endGesture()
@@ -608,6 +634,10 @@ final class CanvasModel {
     func mutateFromInspector(_ name: String,
                              scrapTexts: [CanvasNodeID: String] = [:],
                              _ body: (inout CanvasScene) -> Void) {
+        // Before the writer's open bracket is closed and reopened, so a refused
+        // change leaves their gesture exactly as it was. The outside doors ask
+        // `sidecarRefusal` first and refuse LOUDLY; this is the backstop.
+        guard !isReadOnly else { return }
         undo.mutateFromOutsideTheCanvas(name) {
             for (id, text) in scrapTexts { scraps[id] = text }
             withScene(body)

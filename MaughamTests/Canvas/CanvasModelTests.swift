@@ -431,6 +431,137 @@ final class CanvasModelTests: XCTestCase {
                         "so the next open finds a node rather than an orphan again")
     }
 
+    // MARK: - A canvas over a refused sidecar is read-only (issue #44)
+
+    private static let newerSidecar =
+        #"{"schemaVersion":999,"nodes":[{"id":"futr","kind":"scrap","x":10,"y":10,"width":240,"z":3}]}"#
+
+    /// The fact is the load's own, held from `attach`, and says which of the two
+    /// refusals it is — the notice and every door read it rather than re-deriving.
+    func test_attachOverEachRefusedKindHoldsTheRefusal() throws {
+        for (seed, reason) in [(Self.newerSidecar, CanvasStore.SidecarRefused.Reason.newerVersion),
+                               ("not json at all", .damaged)] {
+            try seedUnreadableSidecar(seed)
+            let model = CanvasModel()
+            model.attach(projectRoot: root)
+            XCTAssertTrue(model.isReadOnly, "\(reason)")
+            XCTAssertEqual(model.sidecarRefusal?.reason, reason)
+            XCTAssertEqual(model.sidecarRefusal?.projectName, root.lastPathComponent)
+            XCTAssertEqual(model.sidecarRefusal,
+                           CanvasStore(projectRoot: root).load().refusal,
+                           "the very value a write with no canvas open would throw")
+            model.detach()
+            XCTAssertTrue(model.isReadOnly, "detach leaves it; the next attach decides")
+        }
+    }
+
+    /// Re-evaluated on every attach: once the file is gone (or readable), the
+    /// same model is writable again — and it was not merely writable all along.
+    func test_attachOverAWritableFileClearsTheRefusal() throws {
+        try seedUnreadableSidecar("not json at all")
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        XCTAssertTrue(model.isReadOnly, "precondition: the damaged file was refused")
+        model.detach()
+
+        try FileManager.default.removeItem(at: sidecarURL)
+        model.attach(projectRoot: root)
+        XCTAssertNil(model.sidecarRefusal, "absent: nothing to lose")
+        model.detach()
+
+        XCTAssertNotNil(CanvasStore(projectRoot: root).load().scene.node(CanvasNodeID("ghst")),
+                        "precondition: the repair wrote a current-schema file")
+        model.attach(projectRoot: root)
+        XCTAssertFalse(model.isReadOnly, "decoded: writable")
+    }
+
+    /// Observable, so the notice and the inspectors redraw when an attach
+    /// changes it — not `@ObservationIgnored` like the plumbing beside it.
+    func test_theRefusalIsObservable() throws {
+        try seedUnreadableSidecar(Self.newerSidecar)
+        let model = CanvasModel()
+        var changed = false
+        withObservationTracking { _ = model.sidecarRefusal } onChange: { changed = true }
+        model.attach(projectRoot: root)
+        XCTAssertTrue(changed)
+    }
+
+    /// **Every changing verb is a no-op in memory**, so nothing appears on screen
+    /// that would then silently fail to persist — and no undo step is registered
+    /// for a change that never happened. Both files stay byte-identical through
+    /// a save and a detach.
+    func test_everyChangingVerbIsANoOpOnAReadOnlyCanvas() throws {
+        for seed in [Self.newerSidecar, "not json at all"] {
+            try seedUnreadableSidecar(seed)
+            let sidecarBefore = try Data(contentsOf: sidecarURL)
+            let scrapsBefore = try Data(contentsOf: scrapsURL)
+            let model = CanvasModel()
+            model.attach(projectRoot: root)
+            let ghost = CanvasNodeID("ghst")
+            XCTAssertNotNil(model.scene.node(ghost), "precondition: the words are shown")
+            let sceneBefore = model.scene
+            let scrapTextBefore = model.scraps
+
+            model.mutate("Move Scrap") { $0.move(ghost, to: CGPoint(x: 900, y: 900)) }
+            model.mutateFromInspector("Add Scrap",
+                                      scrapTexts: [CanvasNodeID("newx"): "Claude's words"]) {
+                $0.insert(CanvasNode(id: CanvasNodeID("newx"), kind: .scrap,
+                                     origin: .zero, width: 240, cachedHeight: 40))
+            }
+            model.setScrapText("over it", for: ghost)
+            model.removeScrapText(ghost)
+
+            XCTAssertEqual(model.scene, sceneBefore, "\(seed): the scene is unchanged")
+            XCTAssertEqual(model.scraps, scrapTextBefore, "\(seed): the words are unchanged")
+            XCTAssertFalse(model.undoManager.canUndo,
+                           "\(seed): a refused change registers no undo step")
+
+            model.scheduleSave()
+            XCTAssertFalse(model.hasPendingSave, "\(seed): nothing is queued")
+            model.flush()
+            model.detach()
+            XCTAssertEqual(try Data(contentsOf: sidecarURL), sidecarBefore, "\(seed)")
+            XCTAssertEqual(try Data(contentsOf: scrapsURL), scrapsBefore, "\(seed)")
+        }
+    }
+
+    /// Read-only is not frozen: the re-measures go through `withScene(persist:
+    /// false)` and must keep working, in memory only.
+    func test_aReMeasureStillAppliesOnAReadOnlyCanvas() throws {
+        try seedUnreadableSidecar(Self.newerSidecar)
+        let sidecarBefore = try Data(contentsOf: sidecarURL)
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        let ghost = CanvasNodeID("ghst")
+        model.withScene(persist: false) { $0.setCachedHeight(321, for: ghost) }
+        XCTAssertEqual(model.scene.node(ghost)?.cachedHeight, 321)
+        model.detach()
+        XCTAssertEqual(try Data(contentsOf: sidecarURL), sidecarBefore)
+    }
+
+    /// The control that keeps the no-op test falsifiable: over a file this
+    /// build can read, the same verbs change the model and reach disk.
+    func test_theSameVerbsChangeAWritableCanvas() throws {
+        let model = loadedModel()
+        XCTAssertFalse(model.isReadOnly)
+        model.mutate("Move Scrap") { $0.move(self.a, to: CGPoint(x: 900, y: 900)) }
+        XCTAssertEqual(model.scene.node(a)?.origin, CGPoint(x: 900, y: 900))
+        model.mutateFromInspector("Add Scrap", scrapTexts: [CanvasNodeID("newx"): "words"]) {
+            $0.insert(CanvasNode(id: CanvasNodeID("newx"), kind: .scrap,
+                                 origin: .zero, width: 240, cachedHeight: 40))
+        }
+        XCTAssertNotNil(model.scene.node(CanvasNodeID("newx")))
+        model.setScrapText("typed", for: a)
+        XCTAssertEqual(model.scraps[a], "typed")
+        model.removeScrapText(CanvasNodeID("newx"))
+        XCTAssertNil(model.scraps[CanvasNodeID("newx")])
+        XCTAssertTrue(model.undoManager.canUndo)
+        model.detach()
+        let onDisk = CanvasStore(projectRoot: root).load()
+        XCTAssertEqual(onDisk.scene.node(a)?.origin, CGPoint(x: 900, y: 900))
+        XCTAssertEqual(onDisk.scraps[a], "typed")
+    }
+
     /// **A probe, not a bound on the machine.** `@Observable` generates a
     /// `_modify` accessor, so `withScene` should mutate the stored scene in
     /// place; if it ever compiles down to get-modify-set instead, every drag
