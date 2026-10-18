@@ -41,9 +41,11 @@ public struct UpdateSheet: View {
             // URLCache-bypass fix was correct but irrelevant because the
             // fetch wasn't being invoked at all.
             switch checker.state {
-            case .idle, .upToDate, .error, .newerBuildNeedsNewerSystem:
+            case .idle, .upToDate, .error, .newerBuildNeedsNewerSystem, .installDidNotComplete:
                 // Blocked re-checks like up-to-date does: the Mac may have been
-                // upgraded since the last poll.
+                // upgraded since the last poll. A launch's install notice is
+                // replaced by the fresh check, which is the "try again" it
+                // promises.
                 await checker.checkNow()
             case .checking, .downloading, .readyToInstall, .installing:
                 break  // already doing something; don't restart it
@@ -89,6 +91,9 @@ public struct UpdateSheet: View {
             // Maugham it can run.
             Text(checker.state.systemRequirementSentence ?? "")
                 .foregroundColor(.secondary)
+        case .installDidNotComplete:
+            Text(checker.state.installNoticeSentence ?? "")
+                .foregroundColor(.secondary)
         }
     }
 
@@ -112,7 +117,7 @@ public struct UpdateSheet: View {
                 Task { await checker.checkNow() }
             }
             .keyboardShortcut(.defaultAction)
-        case .upToDate, .newerBuildNeedsNewerSystem:
+        case .upToDate, .newerBuildNeedsNewerSystem, .installDidNotComplete:
             Button("Done", action: dismiss)
                 .keyboardShortcut(.defaultAction)
         }
@@ -131,6 +136,7 @@ public struct UpdateSheet: View {
         // Up-to-date-shaped: this Mac is on the newest Maugham it can run, and
         // the sentence under the title says what the newer one needs.
         case .newerBuildNeedsNewerSystem(let v, _, _): return "Maugham \(v) is Up to Date"
+        case .installDidNotComplete(let status): return "Maugham \(status.version) Wasn't Installed"
         }
     }
 }

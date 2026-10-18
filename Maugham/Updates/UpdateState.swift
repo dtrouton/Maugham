@@ -20,6 +20,12 @@ public enum UpdateState: Equatable {
     case newerBuildNeedsNewerSystem(currentVersion: String,
                                     newerVersion: String,
                                     requiredSystem: String)
+    /// The last launch's install did not complete: the detached helper left a
+    /// line in `Updates/install-status` (a refused install-time check, or a
+    /// failed step), read and removed at this launch. Idle-shaped — nothing is
+    /// in flight — and drawn once by the update banner, until dismissed or the
+    /// next check replaces it. See `InstallStatus`.
+    case installDidNotComplete(InstallStatus)
 }
 
 extension UpdateState {
@@ -30,5 +36,12 @@ extension UpdateState {
             return nil
         }
         return "Maugham \(newer) needs macOS \(required) or later."
+    }
+
+    /// The one sentence the update banner shows after an install that did not
+    /// complete. Nil in every other state.
+    public var installNoticeSentence: String? {
+        guard case .installDidNotComplete(let status) = self else { return nil }
+        return status.sentence
     }
 }

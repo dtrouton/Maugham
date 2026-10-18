@@ -111,6 +111,14 @@ struct MaughamApp: App {
                             NSWorkspace.shared.activateFileViewerSelecting([bundleURL])
                         }
                     }
+                    // The last install's helper may have left a line saying it
+                    // was refused or failed (#67 Task 5): read and remove it, and
+                    // let the update banner say so once. Before the poll starts,
+                    // so a refused version's files are gone before any check. A
+                    // test host never touches a real Updates folder.
+                    if BuildVariant.current.updaterEnabled, !TestHost.isActive {
+                        UpdateChecker.shared.reportInstallStatus(in: UpdateChecker.updatesDirectory)
+                    }
                     // Updater is independent of MCP — start it regardless of whether
                     // the MCP socket bound successfully.
                     UpdateChecker.shared.startBackgroundLoop()

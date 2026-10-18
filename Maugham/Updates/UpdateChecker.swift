@@ -180,6 +180,46 @@ public final class UpdateChecker: ObservableObject {
         return try await UpdateInstaller.stageAndVerify(zip: downloaded, version: version)
     }
 
+    /// Read and remove the swap helper's `install-status` line from the last
+    /// install (#67 Task 5), and put its sentence in the banner. Called once
+    /// at launch, before the background poll starts.
+    ///
+    /// - `refused`: the staged copy failed the install-time check, so this
+    ///   version's `Maugham-<v>.zip` and `staged-<v>` are deleted —
+    ///   `defaultDownload` reuses a zip already at that path, and "Maugham
+    ///   will download it again" must be true. Nothing else in the folder is
+    ///   touched. (`pendingQuitInstall` is in-memory and starts nil at launch,
+    ///   so nothing else would reuse the refused bundle.)
+    /// - `failed`: the staged files are KEPT. The step that broke (`ditto`,
+    ///   `swap`, or `python3`) is about this Mac at that moment, not the
+    ///   bytes, so the next check re-stages them without a download and the
+    ///   next install tries again. Without python3, `launchSwapHelper` refuses
+    ///   up front and the install takes the Finder fallback instead.
+    ///
+    /// A line naming a version this app already is (or is newer than) is stale
+    /// — that update arrived after all — and says nothing; it is removed all
+    /// the same, as is a line that does not parse.
+    @discardableResult
+    func reportInstallStatus(in updatesDirectory: URL) -> InstallStatus? {
+        guard let status = InstallStatus.consume(in: updatesDirectory) else { return nil }
+        if case .refused(let version) = status {
+            UpdateInstaller.discardRefusedArchive(
+                zip: updatesDirectory.appendingPathComponent("Maugham-\(version).zip"),
+                stageDir: updatesDirectory.appendingPathComponent("staged-\(version)", isDirectory: true))
+        }
+        guard let reported = SemanticVersion(status.version),
+              let current = SemanticVersion(currentVersionString),
+              reported > current else { return nil }
+        state = .installDidNotComplete(status)
+        return status
+    }
+
+    /// The banner's Dismiss for an install notice: back to idle. A no-op in
+    /// any other state, so a check that already replaced the notice stands.
+    public func dismissInstallNotice() {
+        if case .installDidNotComplete = state { state = .idle }
+    }
+
     /// Set when a verified .app update is staged but the user dismissed the
     /// toast. On ordinary quit we apply it silently (no relaunch). See MaughamApp.
     public var pendingQuitInstall: (bundleURL: URL, version: String)?

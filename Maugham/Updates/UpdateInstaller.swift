@@ -269,7 +269,10 @@ public enum UpdateInstaller {
     /// `X.Y.Z`, digits and dots only — the status line the helper writes
     /// carries it, and the helper refuses anything else.
     static func isWellFormedVersion(_ version: String) -> Bool {
-        SemanticVersion(version)?.string == version
+        // The character check is not redundant: `Int("-1")` parses, so
+        // `SemanticVersion` alone would admit `-1.0.0`.
+        version.unicodeScalars.allSatisfy { ("0"..."9").contains($0) || $0 == "." }
+            && SemanticVersion(version)?.string == version
     }
 
     /// Python source for the atomic bundle swap via `renamex_np(RENAME_SWAP)`.

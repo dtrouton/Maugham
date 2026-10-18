@@ -104,7 +104,9 @@ detached helper — "Restart & Update" relaunches; dismissing applies the staged
 update on next ordinary quit (`UpdateChecker.pendingQuitInstall`). The helper checks
 the update again at install time, after the app has quit: it re-runs `codesign`
 (against our Team ID) and `spctl` on the copy it is about to swap in, and a copy that
-fails is not installed (the reason is left in `Updates/install-status`). A build with
+fails is not installed (the reason is left in `Updates/install-status`, which the next
+launch reads, removes and states once in the update banner; a refused version's
+download is deleted so the next check fetches it afresh). A build with
 no Team ID of its own (ad-hoc, unsigned) never swaps in place. If
 `/Applications` (the running app's location) is unwritable, it falls back to
 revealing the `.dmg` in Finder instead — that fallback path is **not** in-app

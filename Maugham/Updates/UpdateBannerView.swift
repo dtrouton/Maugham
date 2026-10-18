@@ -27,7 +27,24 @@ public struct UpdateBannerView: View {
     }
 
     public var body: some View {
-        if case .readyToInstall(let bundle, let v, _) = checker.state,
+        if let notice = Self.notice(for: checker.state) {
+            // The last launch's install did not complete (#67 Task 5): one
+            // sentence, once, until dismissed or a check replaces it.
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundColor(.secondary)
+                Text(notice)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button("Dismiss") { checker.dismissInstallNotice() }
+                    .buttonStyle(.borderless)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(NSColor.windowBackgroundColor).opacity(0.95))
+            .overlay(Divider(), alignment: .bottom)
+        } else if case .readyToInstall(let bundle, let v, _) = checker.state,
            Self.shouldShow(state: checker.state, dismissed: dismissedSet) {
             HStack(spacing: 12) {
                 Image(systemName: "arrow.down.circle.fill")
@@ -64,5 +81,12 @@ public struct UpdateBannerView: View {
     public static func shouldShow(state: UpdateState, dismissed: Set<String>) -> Bool {
         if case .readyToInstall(_, let v, _) = state, !dismissed.contains(v) { return true }
         return false
+    }
+
+    /// Pure decision for the install notice: the sentence to draw, or nil.
+    /// Shown iff the state is `.installDidNotComplete` — dismissal moves the
+    /// state on, so no dismissed-set is needed.
+    public static func notice(for state: UpdateState) -> String? {
+        state.installNoticeSentence
     }
 }
