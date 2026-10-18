@@ -12,8 +12,25 @@ public struct UpdateLimits: Sendable, Equatable {
     /// is the server's claim, the count is ours).
     public var maxDownloadBytes: Int64
 
-    public init(maxDownloadBytes: Int64) {
+    /// The most bytes an archive may declare it will unpack to. Checked before
+    /// `ditto` runs, from the zip's central directory (what it DECLARES; a
+    /// crafted archive can lie, which this gate does not claim to stop).
+    public var maxUncompressedBytes: Int64
+
+    /// The most entries an archive may declare.
+    public var maxFiles: Int
+
+    /// Free space kept beyond the doubled unpacked size.
+    public var freeSpaceMarginBytes: Int64
+
+    public init(maxDownloadBytes: Int64,
+                maxUncompressedBytes: Int64 = 1024 * 1024 * 1024,
+                maxFiles: Int = 20_000,
+                freeSpaceMarginBytes: Int64 = 256 * 1024 * 1024) {
         self.maxDownloadBytes = maxDownloadBytes
+        self.maxUncompressedBytes = maxUncompressedBytes
+        self.maxFiles = maxFiles
+        self.freeSpaceMarginBytes = freeSpaceMarginBytes
     }
 
     public static let standard = UpdateLimits(maxDownloadBytes: 512 * 1024 * 1024)

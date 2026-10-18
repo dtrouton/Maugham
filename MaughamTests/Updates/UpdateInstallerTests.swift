@@ -276,7 +276,8 @@ final class UpdateInstallerTests: XCTestCase {
             _ = try await UpdateInstaller.stageAndVerify(zip: zip, version: "9.9.9")
             XCTFail("a garbage archive must be refused")
         } catch let error as UpdateInstaller.InstallError {
-            guard case .unzipFailed = error else { return XCTFail("expected .unzipFailed, got \(error)") }
+            // Unreadable totals are a refusal of their own (#67 F16), before any unpacking.
+            guard case .archiveTooLarge = error else { return XCTFail("expected .archiveTooLarge, got \(error)") }
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: zip.path),
                        "a refused zip must not be left for the next check to reuse")
@@ -323,5 +324,88 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: zip.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: stage.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: other.path))
+    }
+
+    // MARK: - Size gate before unzipping (#67 F16)
+
+    func test_parsesARealZipinfoTotalsLine() {
+        let out = "82 files, 92981635 bytes uncompressed, 30647535 bytes compressed:  67.0%\n"
+        let t = UpdateInstaller.parseZipinfoTotals(out)
+        XCTAssertEqual(t?.files, 82)
+        XCTAssertEqual(t?.uncompressedBytes, 92_981_635)
+    }
+
+    func test_parsesTheSingularOneFileLine() {
+        let t = UpdateInstaller.parseZipinfoTotals("1 file, 5 bytes uncompressed, 7 bytes compressed:  -40.0%")
+        XCTAssertEqual(t?.files, 1)
+        XCTAssertEqual(t?.uncompressedBytes, 5)
+    }
+
+    func test_garbageZipinfoOutputParsesToNil() {
+        XCTAssertNil(UpdateInstaller.parseZipinfoTotals(""))
+        XCTAssertNil(UpdateInstaller.parseZipinfoTotals("hello, world"))
+        XCTAssertNil(UpdateInstaller.parseZipinfoTotals("x files, y bytes uncompressed, z"))
+    }
+
+    func test_extractionDecision_eachArm() {
+        let l = UpdateLimits.standard
+        let gb: Int64 = 1024 * 1024 * 1024
+        XCTAssertEqual(UpdateInstaller.extractionDecision(files: 82, uncompressedBytes: 93_000_000,
+                                                          availableBytes: 10 * gb), .accept)
+        guard case .reject = UpdateInstaller.extractionDecision(
+            files: 1, uncompressedBytes: l.maxUncompressedBytes + 1, availableBytes: 100 * gb)
+        else { return XCTFail("too many bytes must be refused") }
+        guard case .reject = UpdateInstaller.extractionDecision(
+            files: l.maxFiles + 1, uncompressedBytes: 1, availableBytes: 100 * gb)
+        else { return XCTFail("too many files must be refused") }
+        guard case .reject = UpdateInstaller.extractionDecision(
+            files: 1, uncompressedBytes: 100, availableBytes: nil)
+        else { return XCTFail("unreadable free space must be refused") }
+        // Boundary: exactly 2x + margin is enough, one byte less is not.
+        let need: Int64 = 1000 * 2 + l.freeSpaceMarginBytes
+        XCTAssertEqual(UpdateInstaller.extractionDecision(files: 1, uncompressedBytes: 1000, availableBytes: need), .accept)
+        guard case .reject(let why) = UpdateInstaller.extractionDecision(
+            files: 1, uncompressedBytes: 1000, availableBytes: need - 1)
+        else { return XCTFail("short on space must be refused") }
+        XCTAssertTrue(why.contains("free disk space"))
+    }
+
+    private func makeTinyZip(named name: String) throws -> (zip: URL, updates: URL) {
+        let updates = TestTemp.root.appendingPathComponent("Updates", isDirectory: true)
+        let payload = TestTemp.root.appendingPathComponent("payload", isDirectory: true)
+        try FileManager.default.createDirectory(at: updates, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: payload, withIntermediateDirectories: true)
+        try Data("hello".utf8).write(to: payload.appendingPathComponent("readme.txt"))
+        let zip = updates.appendingPathComponent(name)
+        let ditto = Process()
+        ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        ditto.arguments = ["-c", "-k", payload.path, zip.path]
+        try ditto.run()
+        ditto.waitUntilExit()
+        XCTAssertEqual(ditto.terminationStatus, 0)
+        return (zip, updates)
+    }
+
+    func test_archiveTotalsReadsARealZip() throws {
+        let (zip, _) = try makeTinyZip(named: "Maugham-9.9.9.zip")
+        let t = UpdateInstaller.archiveTotals(zip: zip)
+        // ditto adds its own entries (a folder, resource data), so read it as "at least the file".
+        XCTAssertNotNil(t)
+        XCTAssertGreaterThanOrEqual(t?.files ?? 0, 1)
+        XCTAssertGreaterThanOrEqual(t?.uncompressedBytes ?? 0, 5)
+    }
+
+    func test_aZipTooBigForTheDiskIsRefusedBeforeUnpackingAndDeleted() throws {
+        let (zip, updates) = try makeTinyZip(named: "Maugham-9.9.9.zip")
+        XCTAssertThrowsError(try UpdateInstaller.stageAndVerifySync(
+            zip: zip, version: "9.9.9", availableBytes: { _ in 0 })) { error in
+            guard case .archiveTooLarge(let why)? = error as? UpdateInstaller.InstallError
+            else { return XCTFail("expected .archiveTooLarge, got \(error)") }
+            XCTAssertTrue(why.contains("free disk space"))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: zip.path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: updates.appendingPathComponent("staged-9.9.9").path),
+            "nothing may be unpacked once the gate refuses")
     }
 }

@@ -264,13 +264,64 @@ extension UpdateInstaller {
 
 extension UpdateInstaller {
     enum InstallError: LocalizedError {
-        case unzipFailed, verifyFailed(String)
+        case unzipFailed, verifyFailed(String), archiveTooLarge(String)
         var errorDescription: String? {
             switch self {
             case .unzipFailed: return "Couldn't unpack the update"
             case .verifyFailed(let r): return "Update failed verification: \(r)"
+            case .archiveTooLarge(let r): return r
             }
         }
+    }
+
+    // MARK: Size gate (#67 F16)
+
+    /// Reads `zipinfo -t`'s totals line, e.g.
+    /// `82 files, 92981635 bytes uncompressed, 30647535 bytes compressed:  67.0%`
+    /// (singular `1 file`). Anything else is nil.
+    static func parseZipinfoTotals(_ output: String) -> (files: Int, uncompressedBytes: Int64)? {
+        for line in output.split(whereSeparator: \.isNewline) {
+            let parts = line.split(separator: ",")
+            guard parts.count >= 2 else { continue }
+            let head = parts[0].split(separator: " ")
+            let second = parts[1].split(separator: " ")
+            guard head.count == 2, head[1] == "file" || head[1] == "files",
+                  let files = Int(head[0]),
+                  second.count == 3, second[1] == "bytes", second[2] == "uncompressed",
+                  let bytes = Int64(second[0]) else { continue }
+            return (files, bytes)
+        }
+        return nil
+    }
+
+    /// What the zip's central directory declares, or nil if it can't be read.
+    static func archiveTotals(zip: URL) -> (files: Int, uncompressedBytes: Int64)? {
+        let (code, out) = run("/usr/bin/zipinfo", ["-t", zip.path])
+        guard code == 0 else { return nil }
+        return parseZipinfoTotals(out)
+    }
+
+    /// Pure: whether an archive declaring these totals may be unpacked on a
+    /// volume with this much room. The reason is plain English; it reaches the
+    /// update sheet on a manual check.
+    static func extractionDecision(files: Int, uncompressedBytes: Int64, availableBytes: Int64?,
+                                   limits: UpdateLimits = .standard) -> InstallDecision {
+        if uncompressedBytes > limits.maxUncompressedBytes || files > limits.maxFiles {
+            return .reject(reason: "The update is larger than expected, so it wasn't installed.")
+        }
+        guard let available = availableBytes else {
+            return .reject(reason: "The free disk space couldn't be read, so the update wasn't installed.")
+        }
+        // Twice the unpacked size: the helper later copies it again beside the installed app.
+        if available < uncompressedBytes * 2 + limits.freeSpaceMarginBytes {
+            return .reject(reason: "There isn't enough free disk space to install the update.")
+        }
+        return .accept
+    }
+
+    static func availableBytes(at url: URL) -> Int64? {
+        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return values?.volumeAvailableCapacityForImportantUsage
     }
 
     /// Run a tool synchronously, return (exitCode, combined stdout+stderr).
@@ -326,18 +377,28 @@ extension UpdateInstaller {
     /// re-staged and re-refused on every later check, silently on a background
     /// poll, and that version could never install. A new kind of refusal joins
     /// as an `InstallError` case and gets the same cleanup.
-    private static func stageAndVerifySync(zip: URL, version: String) throws -> URL {
+    static func stageAndVerifySync(zip: URL, version: String,
+                                            availableBytes: (URL) -> Int64? = UpdateInstaller.availableBytes(at:)) throws -> URL {
         let stageDir = zip.deletingLastPathComponent()
             .appendingPathComponent("staged-\(version)", isDirectory: true)
         do {
-            return try stageAndVerifyUnchecked(zip: zip, stageDir: stageDir)
+            return try stageAndVerifyUnchecked(zip: zip, stageDir: stageDir, availableBytes: availableBytes)
         } catch let refusal as InstallError {
             discardRefusedArchive(zip: zip, stageDir: stageDir)
             throw refusal
         }
     }
 
-    private static func stageAndVerifyUnchecked(zip: URL, stageDir: URL) throws -> URL {
+    private static func stageAndVerifyUnchecked(zip: URL, stageDir: URL,
+                                                availableBytes: (URL) -> Int64?) throws -> URL {
+        guard let totals = archiveTotals(zip: zip) else {
+            throw InstallError.archiveTooLarge("The update's size couldn't be read, so it wasn't installed.")
+        }
+        if case .reject(let reason) = extractionDecision(
+            files: totals.files, uncompressedBytes: totals.uncompressedBytes,
+            availableBytes: availableBytes(zip.deletingLastPathComponent())) {
+            throw InstallError.archiveTooLarge(reason)
+        }
         try? FileManager.default.removeItem(at: stageDir)
         try FileManager.default.createDirectory(at: stageDir, withIntermediateDirectories: true)
         let (code, _) = run("/usr/bin/ditto", ["-x", "-k", zip.path, stageDir.path])
