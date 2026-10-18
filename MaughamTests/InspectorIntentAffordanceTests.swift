@@ -246,7 +246,7 @@ final class InspectorIntentAffordanceTests: XCTestCase {
             + "sat under this piece's heading")
 
         let window = mount(AnyView(PieceInspector(
-            store: store, pieceId: piece.id, kind: .prose, posture: .author)))
+            store: store, pieceId: piece.id, format: .markdown, posture: .author)))
 
         assertAsksForTheIntentPane(
             await notesPosted(pressing: try button(labelled: IntentAffordanceRow.openTitle, in: window)))

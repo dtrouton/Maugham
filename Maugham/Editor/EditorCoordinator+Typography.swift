@@ -73,7 +73,7 @@ extension EditorCoordinator {
     /// dispatches to the correct flipper.
     func checkboxHitTest(
         atCharacterIndex index: Int
-    ) -> (paragraphId: String, offsetWithinParagraph: Int, kind: MaughamCheckboxKind)? {
+    ) -> (paragraphId: String, offsetWithinParagraph: Int, kind: DocumentFormat)? {
         guard let textView,
               let storage = textView.textStorage,
               index >= 0, index < storage.length else { return nil }

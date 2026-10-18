@@ -507,7 +507,7 @@ struct ProjectWindow: View {
                                   window: window,
                                   documentStore: documentStore))
         .sheet(isPresented: $showingSyntaxHelp) {
-            SyntaxHelpSheet(mode: currentSyntaxHelpMode)
+            SyntaxHelpSheet(format: currentSyntaxHelpFormat)
         }
         // Read the iCloud share snapshot once per project URL and again on app
         // re-activation, off the main actor's critical path; cached in @State and
@@ -1065,9 +1065,10 @@ struct ProjectWindow: View {
     // add a second spelling here — a dead copy of a load-bearing rule is a
     // copy waiting to be called (the 2026-07-02 screenplay navigate bug).
 
-    private var currentSyntaxHelpMode: SyntaxHelpMode {
-        guard let store else { return .prose }
-        return store.manifest.type == .screenplay ? .screenplay : .prose
+    /// The help the sheet opens on: the project kind's primary format
+    /// (`ProjectType.primaryFormat`) — a Collection opens on Markdown.
+    private var currentSyntaxHelpFormat: DocumentFormat {
+        store?.manifest.type.primaryFormat ?? .markdown
     }
 
     // MARK: - Column builders
@@ -2225,15 +2226,8 @@ struct ProjectWindow: View {
             if let piece = currentDoc, piece.pieceKind == .reference {
                 return .empty  // hidden for references
             }
-            if let path = currentDoc?.path, path.hasSuffix(".fountain") {
-                isScreenplay = true
-                docWordTarget = nil
-                docPageTarget = currentDoc?.pageTarget
-            } else {
-                isScreenplay = false
-                docWordTarget = currentDoc?.wordTarget
-                docPageTarget = nil
-            }
+            (isScreenplay, docWordTarget, docPageTarget) =
+                Self.collectionGoalMeasure(for: currentDoc)
         } else {
             isScreenplay = store.manifest.type == .screenplay
             docWordTarget = currentDoc?.wordTarget
@@ -2253,6 +2247,17 @@ struct ProjectWindow: View {
                 ? docPageTarget
                 : store.manifest.targets?.pageTarget,
             isScreenplay: isScreenplay)
+    }
+
+    /// The goal indicator's Collection arm: the active piece's format answers
+    /// `DocumentFormat.isScreenplay` — a page target for a screenplay piece,
+    /// a word target otherwise (a path-less or absent piece measures in words).
+    static func collectionGoalMeasure(for piece: StructureItem?)
+        -> (isScreenplay: Bool, wordTarget: Int?, pageTarget: Int?) {
+        if let path = piece?.path, DocumentFormat.ofManuscript(path: path).isScreenplay {
+            return (true, nil, piece?.pageTarget)
+        }
+        return (false, piece?.wordTarget, nil)
     }
 
     private func applyNoChrome() {

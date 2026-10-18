@@ -116,7 +116,8 @@ public struct ProseMode: WritingMode {
                 // syntax, but gains a hand cursor so the click affordance
                 // is visible.
                 let marker = MaughamCheckboxMarker(
-                    bracketLocation: token.range.location, checked: checked)
+                    bracketLocation: token.range.location, checked: checked,
+                    kind: .markdown)
                 let attrs: [NSAttributedString.Key: Any] = [
                     .foregroundColor: palette.syntaxPunctuation,
                     .cursor: NSCursor.pointingHand,

@@ -313,18 +313,21 @@ struct RightColumn: View {
             case .reference:
                 ReferencePieceInspector(store: store, pieceId: id)
             case .loose, .none:
-                if let path = piece.path, path.hasSuffix(".fountain") {
-                    PieceInspector(store: store, pieceId: id, kind: .screenplay,
-                                   posture: posture(id))
-                } else {
-                    PieceInspector(store: store, pieceId: id, kind: .prose,
-                                   posture: posture(id))
-                }
+                PieceInspector(store: store, pieceId: id,
+                               format: Self.pieceInspectorFormat(path: piece.path),
+                               posture: posture(id))
             }
         } else {
             ContentUnavailableView("Select a piece", systemImage: "doc.text")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    /// The format a loose piece is inspected as: `DocumentFormat.ofManuscript`
+    /// of its path, and prose for a path-less piece.
+    static func pieceInspectorFormat(path: String?) -> DocumentFormat {
+        guard let path else { return .markdown }
+        return DocumentFormat.ofManuscript(path: path)
     }
 
     /// The canvas's inspector arm — the selected region, or an empty state.

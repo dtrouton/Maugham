@@ -134,7 +134,7 @@ final class InspectorPassLadderTests: XCTestCase {
         defer { Task { await ds.close() } }
 
         let presets = mount(AnyView(PieceInspector(
-            store: store, pieceId: piece.id, kind: .prose, posture: .author)))
+            store: store, pieceId: piece.id, format: .markdown, posture: .author)))
         for pass in ReviewPass.presets {
             let row = try requireLadderRow(pass.id, in: presets)
             XCTAssertEqual(row.role, "AXPopUpButton",
@@ -150,7 +150,7 @@ final class InspectorPassLadderTests: XCTestCase {
             ReviewPass(id: "read-aloud", name: "Read Aloud"),
         ]
         let custom = mount(AnyView(PieceInspector(
-            store: store, pieceId: piece.id, kind: .prose, posture: .author)))
+            store: store, pieceId: piece.id, format: .markdown, posture: .author)))
         _ = try requireLadderRow("read-aloud", in: custom)
         let droppedPreset = try ladderRow("line", in: custom)
         let published = try axIdentifiers(in: custom)
@@ -175,7 +175,7 @@ final class InspectorPassLadderTests: XCTestCase {
     func test_choosingDoneInThePieceInspectorPersistsThroughAManifestRoundTrip() async throws {
         let (url, store, ds, piece) = try await collection()
         defer { Task { await ds.close() } }
-        let inspector = PieceInspector(store: store, pieceId: piece.id, kind: .prose, posture: .author)
+        let inspector = PieceInspector(store: store, pieceId: piece.id, format: .markdown, posture: .author)
         let window = mount(AnyView(inspector))
         let firstPassId = try XCTUnwrap(store.manifest.effectiveReviewPasses.first?.id)
         _ = try requireLadderRow(firstPassId, in: window)
@@ -199,7 +199,7 @@ final class InspectorPassLadderTests: XCTestCase {
     func test_choosingUntouchedClearsThePassFromTheMountedLadder() async throws {
         let (_, store, ds, piece) = try await collection()
         defer { Task { await ds.close() } }
-        let inspector = PieceInspector(store: store, pieceId: piece.id, kind: .prose, posture: .author)
+        let inspector = PieceInspector(store: store, pieceId: piece.id, format: .markdown, posture: .author)
         let window = mount(AnyView(inspector))
         let firstPassId = try XCTUnwrap(store.manifest.effectiveReviewPasses.first?.id)
 
@@ -324,7 +324,7 @@ final class InspectorPassLadderTests: XCTestCase {
         let (_, store, ds, piece) = try await collection()
         defer { Task { await ds.close() } }
         let window = mount(AnyView(PieceInspector(
-            store: store, pieceId: piece.id, kind: .prose, posture: .author)))
+            store: store, pieceId: piece.id, format: .markdown, posture: .author)))
         XCTAssertEqual(try ladderReadings(in: window, of: store),
                        Array(repeating: PassLadder.untouchedTitle,
                              count: ReviewPass.presets.count),
@@ -356,7 +356,7 @@ final class InspectorPassLadderTests: XCTestCase {
         try await store.setPassState(
             id: piece.id, passId: firstPassId, .unknown("awaiting_reader"))
 
-        let inspector = PieceInspector(store: store, pieceId: piece.id, kind: .prose, posture: .author)
+        let inspector = PieceInspector(store: store, pieceId: piece.id, format: .markdown, posture: .author)
         let window = mount(AnyView(inspector))
         XCTAssertEqual(try requireLadderRow(firstPassId, in: window).reading,
                        "awaiting_reader",

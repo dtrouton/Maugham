@@ -136,7 +136,7 @@ final class InspectorViewTests: XCTestCase {
 
     private func hostPieceInspector(_ book: PieceWriterFixture.Book) -> NSWindow {
         mount(AnyView(PieceInspector(
-            store: book.store, pieceId: book.pieceIDs[0], kind: .prose, posture: .author)))
+            store: book.store, pieceId: book.pieceIDs[0], format: .markdown, posture: .author)))
     }
 
     /// Did the row ever appear? A bounded poll because the read is a `.task`
@@ -348,7 +348,7 @@ final class InspectorViewTests: XCTestCase {
         var ladder: Ladder!
         do {
             let made = try await makeLadder(named: "C15b") { store, pieceId in
-                PieceInspector(store: store, pieceId: pieceId, kind: .prose, posture: .author)
+                PieceInspector(store: store, pieceId: pieceId, format: .markdown, posture: .author)
             }
             ladder = made.0
             inspector = made.1
