@@ -440,12 +440,23 @@ final class DesignerEnvironmentTests: XCTestCase {
         // `detachWindow` and so the designer's detach; read from masked code,
         // so a comment naming it does not count.
         let windowCode = String(decoding: SourceTree.mask(window), as: UTF8.self)
-        for token in ["Task { await sessions.release(lease) }", "designer: designer",
+        for token in ["Task { await sessions.release(lease) }", ".environment(roster)",
                       "roster.updateModel("] {
             XCTAssertTrue(windowCode.contains(token),
                           "ProjectWindow is missing \(token) — without it the "
                           + "designer is unmounted, never re-modelled, or "
                           + "outlives the window that started it")
+        }
+        // The desk's Run is mounted through the roster the window injects
+        // (foundations plan 3 Task 5): the toggle reads it and hands the
+        // designer to the desk.
+        let toggle = try SourceTree.sourceOfType("DetailPaneToggle", under: ["Maugham"])
+        let toggleCode = String(decoding: SourceTree.mask(toggle), as: UTF8.self)
+        for token in ["@Environment(AgentRoster.self)", "{ roster?.designer }",
+                      "designer: designer"] {
+            XCTAssertTrue(toggleCode.contains(token),
+                          "DetailPaneToggle is missing \(token) — without it the "
+                          + "desk never reaches the designer")
         }
         XCTAssertFalse(window.contains("designer.notARealVerb(")
                        || session.contains("designer.notARealVerb("),

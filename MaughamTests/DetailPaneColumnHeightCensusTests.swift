@@ -19,8 +19,7 @@ private struct DetailColumnCensusHarness: View {
     let probe: DetailSegmentProbe
     let documentStore: DocumentStore
     let docId: String
-    let orchestrator: CompilerOrchestrator
-    let diagnostics: DiagnosticsStore
+    let roster: AgentRoster
     let bible: BibleStore
     let world: DeclaredWorldStore
 
@@ -47,10 +46,6 @@ private struct DetailColumnCensusHarness: View {
                 docPaths: [:],
                 documentStore: documentStore,
                 editorControl: EditorControl(),
-                compilerOrchestrator: orchestrator,
-                diagnosticsStore: diagnostics,
-                bibleStore: bible,
-                declaredWorldStore: world,
                 compilerModel: .standard,
                 assistant: AssistantColumnModel()
             ) {
@@ -59,6 +54,12 @@ private struct DetailColumnCensusHarness: View {
                                                    readingMinutes: 0),
                               onOpenProjectSettings: {}, posture: .author)
             }
+            // The services arrive the way `ProjectWindow.inspectorPane`
+            // injects them (foundations plan 3, Task 5): a roster carrying
+            // this harness's compiler, and the bible and declared world.
+            .environment(roster)
+            .environment(bible)
+            .environment(world)
             .navigationSplitViewColumnWidth(
                 ProjectWindow.effectiveDetailColumnWidth(
                     persisted: UIState.defaultDetailColumnWidth,
@@ -393,13 +394,23 @@ final class DetailPaneColumnHeightCensusTests: XCTestCase {
                                                session: "s1", presenter: nil)
         documentStore.register(document: document, for: path)
 
-        // An orchestrator left UNCONFIGURED, deliberately: its `runState` is
+        // An orchestrator that never RUNS, deliberately: its `runState` is
         // `.idle`, which with no run on record is exactly the `.neverRun` the
-        // offer is drawn for, and configuring one would need a `claude` process
-        // this census has no business spawning.
+        // offer is drawn for. It is configured — with an environment whose
+        // runner is never asked for, so no `claude` process is spawned —
+        // because the toggle reads the Diagnostics arm's store off the
+        // roster's compiler (foundations plan 3, Task 5), and an unconfigured
+        // compiler holds none.
         let orchestrator = CompilerOrchestrator()
         let device = DeviceSlug.make(from: "test-mac")
         let diagnostics = DiagnosticsStore(projectRoot: url, device: device)
+        orchestrator.configure(
+            environment: Self.idleCompilerEnvironment(
+                mcpConfig: url.appendingPathComponent("compiler-mcp.json")),
+            diagnostics: diagnostics)
+        XCTAssertTrue(orchestrator.diagnostics === diagnostics,
+                      "premise: the roster's compiler carries the store the "
+                      + "Diagnostics arm reads")
         XCTAssertTrue(
             DiagnosticsPane.showsColdStartOffer(
                 state: .neverRun, liveParagraphCount: document.sequence.count,
@@ -411,11 +422,34 @@ final class DetailPaneColumnHeightCensusTests: XCTestCase {
         let window = try await host(AnyView(
             DetailColumnCensusHarness(
                 store: store, probe: probe, documentStore: documentStore,
-                docId: document.docId, orchestrator: orchestrator,
-                diagnostics: diagnostics,
+                docId: document.docId,
+                roster: AgentRoster(compiler: orchestrator),
                 bible: BibleStore(projectRoot: url, device: device),
                 world: DeclaredWorldStore(projectRoot: url, device: device))))
         return (window, try splitView(in: window), probe)
+    }
+
+    /// A compiler environment that reads nothing and is never asked to run:
+    /// enough to `configure` an orchestrator so it holds its diagnostics
+    /// store, and no more. `makeRunner` hands back a spy so that, even if a
+    /// run were somehow started, no `claude` process would be.
+    private static func idleCompilerEnvironment(mcpConfig: URL) -> CompilerOrchestrator.Environment {
+        CompilerOrchestrator.Environment(
+            projectId: "p-census",
+            model: "test-model",
+            prepareForRun: { _ in },
+            reading: { _ in nil },
+            liveParagraphText: { _, _ in nil },
+            intent: { _ in nil },
+            cachedWorld: { _ in nil },
+            deriveWorld: { _, _ in nil },
+            bibleSlice: { _ in [] },
+            recordFacts: { _ in },
+            pinnedListing: { _ in [] },
+            paletteListing: { [] },
+            writeMCPConfig: { mcpConfig },
+            makeRunner: { _, _ in ColdCallSpyRunner() },
+            onRunAcknowledged: { _ in })
     }
 
     /// The three columns with a caller-supplied right column and centre inset —

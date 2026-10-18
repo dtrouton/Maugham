@@ -27,47 +27,36 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// per-paragraph freshness entries the Translation segment reads (ADR 0017).
     /// Optional so callers that don't surface translation review can omit it.
     let editorControl: EditorControl?
-    /// The window's compiler (M2) — optional so callers that don't surface the
-    /// Diagnostics segment (the `StatementMountFixture` probes, in particular)
-    /// can omit it. `diagnosticsStore` is `orchestrator.diagnostics` at the
-    /// caller's boundary rather than re-read here, so the two cannot disagree
-    /// about which store a run replaces into.
-    let compilerOrchestrator: CompilerOrchestrator?
-    let diagnosticsStore: DiagnosticsStore?
-    /// The Intent pane's two lower strata (declared-world Task 6) — Claude's
-    /// bible entries, and the derivation cache the ruling verbs drop. Optional
-    /// for `diagnosticsStore`'s reason: a caller that surfaces no statement
-    /// pane (the `StatementMountFixture` probes) can omit them, and a nil is a
-    /// pane with the writer's two strata rather than three.
-    let bibleStore: BibleStore?
-    let declaredWorldStore: DeclaredWorldStore?
-    /// The window's translator and its record of finished rounds (publish
-    /// department P4 Task 3) — the pair the department desk's Run needs, threaded
-    /// exactly as `compilerOrchestrator`/`diagnosticsStore` are and for the same
-    /// reason: a round is started from this column while the session that answers
-    /// it belongs to the window, which is the only thing that can tear it down.
+    /// **The project's services, from the environment** (foundations plan 3,
+    /// Task 5). `ProjectWindow` injects the session's `AgentRoster` (its
+    /// unconfigured placeholder before the project is open) and the session's
+    /// bible and declared world; this view reads them here rather than taking
+    /// nine parameters threaded down from the window, so a pane that needs one
+    /// more service does not edit the window's call site.
     ///
-    /// Defaulted, so the probe callers that mount this view without a window
-    /// behind it keep compiling and get a desk that reads without acting.
-    var translator: TranslatorOrchestrator? = nil
-    var translationRuns: TranslationRunLog? = nil
-    /// The window's designer (publish department P4 Task 4) — the desk's Design
-    /// row runs it. Threaded and defaulted exactly as `translator` is; its own
-    /// record of finished rounds is the proposal it stages, which the desk
-    /// re-derives, so there is no log beside it.
-    var designer: DesignerOrchestrator? = nil
-    /// The window's translation pipeline (translation pipeline P3), threaded and
-    /// defaulted exactly as `translator` is and travelling to the same desk. The
-    /// desk needs it for the one-round-at-a-time gate: a round's cold legs hold
-    /// no translator session, so without it every row offers Run while a reader
-    /// is out.
-    var pipeline: TranslationPipeline? = nil
-    /// The window's cold-call runner (translation pipeline P4 Task 6) — the
-    /// Translation pane's two spot-checks ask through it. Threaded and
-    /// defaulted exactly as `pipeline` is, and for the same reason: it is the
-    /// window's, and a pane that made one of its own would be a second session
-    /// nothing tears down.
-    var coldCall: ColdCall? = nil
+    /// **Optional reads, on purpose.** Production always injects a roster, so
+    /// every arm below sees exactly the instance it saw when these were
+    /// parameters. The probe callers that mount this view without a window
+    /// behind it (`StatementMountFixture`, `ResearchSubjectRevealTests`, …)
+    /// inject nothing and get what a nil parameter gave them: a desk that reads
+    /// without acting, a Diagnostics arm with its placeholder, and a statement
+    /// pane with the writer's two strata rather than three — never a crash on a
+    /// missing environment object.
+    @Environment(AgentRoster.self) private var roster: AgentRoster?
+    @Environment(BibleStore.self) private var bibleStore: BibleStore?
+    @Environment(DeclaredWorldStore.self) private var declaredWorldStore: DeclaredWorldStore?
+
+    /// The roster's members under the names the arms below have always used.
+    /// `diagnosticsStore` is the compiler's own store, read through it rather
+    /// than passed beside it, so the two cannot disagree about which store a
+    /// run replaces into.
+    private var compilerOrchestrator: CompilerOrchestrator? { roster?.compiler }
+    private var diagnosticsStore: DiagnosticsStore? { roster?.compiler.diagnostics }
+    private var translator: TranslatorOrchestrator? { roster?.translator }
+    private var translationRuns: TranslationRunLog? { roster?.translationRuns }
+    private var designer: DesignerOrchestrator? { roster?.designer }
+    private var pipeline: TranslationPipeline? { roster?.pipeline }
+    private var coldCall: ColdCall? { roster?.coldCall }
     /// **Where the desk's Show sends a proposal** (publish-department P4 Task 5)
     /// — the window's centre column, which this view is not in. Threaded and
     /// defaulted exactly as `onSetActivePass`/`onSetPassState` are, and for the
@@ -152,15 +141,6 @@ struct DetailPaneToggle<Inspector: View>: View {
         docPaths: [String: String] = [:],
         documentStore: DocumentStore? = nil,
         editorControl: EditorControl? = nil,
-        compilerOrchestrator: CompilerOrchestrator? = nil,
-        diagnosticsStore: DiagnosticsStore? = nil,
-        bibleStore: BibleStore? = nil,
-        declaredWorldStore: DeclaredWorldStore? = nil,
-        translator: TranslatorOrchestrator? = nil,
-        translationRuns: TranslationRunLog? = nil,
-        designer: DesignerOrchestrator? = nil,
-        pipeline: TranslationPipeline? = nil,
-        coldCall: ColdCall? = nil,
         onShowDesignProposal: @escaping (DesignProposalStore.Proposal) -> Void = { _ in },
         onShowTranslationRound: @escaping (TranslationRound) -> Void = { _ in },
         compilerModel: CompilerModelChoice = .standard,
@@ -185,15 +165,6 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.docPaths = docPaths
         self.documentStore = documentStore
         self.editorControl = editorControl
-        self.compilerOrchestrator = compilerOrchestrator
-        self.diagnosticsStore = diagnosticsStore
-        self.bibleStore = bibleStore
-        self.declaredWorldStore = declaredWorldStore
-        self.translator = translator
-        self.translationRuns = translationRuns
-        self.designer = designer
-        self.pipeline = pipeline
-        self.coldCall = coldCall
         self.onShowDesignProposal = onShowDesignProposal
         self.onShowTranslationRound = onShowTranslationRound
         self.compilerModel = compilerModel

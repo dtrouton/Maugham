@@ -271,18 +271,19 @@ struct ProjectWindow: View {
     @State private var lease: ProjectSessionRegistry.Lease?
     private var session: ProjectSession? { lease?.session }
     /// The session's roster once the project is open. Before that (and after
-    /// the close), an unconfigured placeholder, so `CompilerRunModifier` and
-    /// the accessors below always have a roster to name: every verb on an
+    /// the close), an unconfigured placeholder, so `CompilerRunModifier`, the
+    /// right column's environment and the accessors below always have a
+    /// roster to name: every verb on an
     /// unconfigured service is a no-op, exactly as the window's own roster
     /// was before `load()` configured it.
     private var roster: AgentRoster { session?.roster ?? Self.unloadedRoster }
     private static let unloadedRoster = AgentRoster()
+    /// The two members this file's own body still reaches by name (the
+    /// footer's last run and the cockpit's Run; the desk's design gate). The
+    /// right column reads the rest off the roster in its environment
+    /// (`inspectorPane`, foundations plan 3 Task 5).
     private var compiler: CompilerOrchestrator { roster.compiler }
-    private var translator: TranslatorOrchestrator { roster.translator }
-    private var translationRuns: TranslationRunLog { roster.translationRuns }
     private var designer: DesignerOrchestrator { roster.designer }
-    private var coldCall: ColdCall { roster.coldCall }
-    private var pipeline: TranslationPipeline { roster.pipeline }
     /// The Intent pane's two lower strata (declared-world Task 6): Claude's
     /// bible of what the manuscript has established, and the per-scope cache of
     /// its readings of the writer's statements.
@@ -3193,29 +3194,7 @@ struct ProjectWindow: View {
             docPaths: Self.documentPaths(in: store.manifest.structure),
             documentStore: documentStore,
             editorControl: editorControl,
-            compilerOrchestrator: compiler,
-            diagnosticsStore: compiler.diagnostics,
-            bibleStore: bible,
-            declaredWorldStore: declaredWorld,
-            // The department desk's Run (P4 Task 3) — the window's own session
-            // and the record of what its rounds left, reached the way the
-            // compiler's pair above is.
-            translator: translator,
-            translationRuns: translationRuns,
-            // …and the Design row's Run (P4 Task 4), the third of this window's
-            // three long-lived sessions. No log beside it: what a design round
-            // leaves is a staged proposal, which the desk re-derives.
-            designer: designer,
-            // …and the pipeline, for the desk's one-round-at-a-time gate: a
-            // round's cold legs hold no translator session, so without it the
-            // rows offer Run while a reader is out (translation pipeline P3).
-            pipeline: pipeline,
-            // …and the cold-call runner, for the Translation pane's two
-            // spot-checks (translation pipeline P4 Task 6). The same runner the
-            // pipeline's cold legs use, which is what makes "a cold session is
-            // already out" a true refusal rather than a guess.
-            coldCall: coldCall,
-            // …and the desk's two Shows — the design gate's (P4 Task 5) and,
+            // The desk's two Shows — the design gate's (P4 Task 5) and,
             // as of translation pipeline P4, a round's. They are the only
             // things on that pane that reach the CENTRE column, and each is
             // one write of the window state its own arm is a function of.
@@ -3267,6 +3246,16 @@ struct ProjectWindow: View {
         ) {
             researchOrSubject(store: store)
         }
+        // **The project's services reach the panes through the environment**
+        // (foundations plan 3, Task 5) — the same roster the accessors above
+        // return (the session's, or the unconfigured placeholder before load,
+        // so the toggle always has one), and the session's bible and declared
+        // world. The toggle reads its compiler, diagnostics, translator,
+        // translation runs, designer, pipeline and cold-call runner off the
+        // roster, so a pane needing one more service never edits this call.
+        .environment(roster)
+        .environment(bible)
+        .environment(declaredWorld)
         // Entering translation review surfaces the Translation segment so the
         // source text + translator queries are one glance away. Exiting leaves
         // the segment in place (it shows a "not in review" empty state) rather

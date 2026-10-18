@@ -893,14 +893,27 @@ final class TranslatorEnvironmentTests: XCTestCase {
         // configured it — the reopened-window half of Task 3b.
         XCTAssertTrue(session.contains("onRunAcknowledged: { [weak self] in self?.flash($0) }"),
                       "the compiler's flash must forward through the session's current sink")
+        // Mounted through the environment since foundations plan 3 Task 5:
+        // the window injects the roster into the right column, and the
+        // toggle reads the roster and hands each member to its pane. Read
+        // from masked code, so a comment naming a token does not count.
         let window = try SourceTree.windowSource()
-        for token in ["translator: translator", "coldCall: coldCall", "pipeline: pipeline"] {
-            XCTAssertTrue(window.contains(token),
-                          "ProjectWindow is missing \(token) — without it a roster member "
+        let windowCode = String(decoding: SourceTree.mask(window), as: UTF8.self)
+        XCTAssertTrue(windowCode.contains(".environment(roster)"),
+                      "ProjectWindow no longer injects the roster — without it every "
+                      + "roster member is unmounted from the right column")
+        let toggle = try SourceTree.sourceOfType("DetailPaneToggle", under: ["Maugham"])
+        let toggleCode = String(decoding: SourceTree.mask(toggle), as: UTF8.self)
+        for token in ["@Environment(AgentRoster.self)",
+                      "{ roster?.translator }", "{ roster?.coldCall }", "{ roster?.pipeline }",
+                      "translator: translator", "coldCall: coldCall", "pipeline: pipeline"] {
+            XCTAssertTrue(toggleCode.contains(token),
+                          "DetailPaneToggle is missing \(token) — without it a roster member "
                           + "is unmounted")
         }
         XCTAssertFalse(window.contains("translator.notARealVerb(")
-                       || session.contains("translator.notARealVerb("),
+                       || session.contains("translator.notARealVerb(")
+                       || toggle.contains("translator.notARealVerb("),
                        "the scan reads the file rather than always answering true")
     }
 
