@@ -155,6 +155,10 @@ A typed note and a voice memo become an ordinary **scrap** carrying their words 
 
 **One ⌘Z takes the send back** — the card and its words together — but only while the canvas is the thing you are looking at. Send from another persona and there is no canvas on screen to undo on; the card is simply there when you next open Plan. Either way the Inbox row does not come back: delete the card and the capture is gone.
 
+#### When the canvas is read-only
+
+If a banner at the top of the canvas says it is read-only, Maugham could not read the layout file for this project, so it shows your words and changes nothing: you can look around, pan and zoom, but you cannot edit, add or promote anything, and neither can Claude or the Inbox. If the layout was saved by a newer version of Maugham, update Maugham to see and edit it. If the layout file is damaged, press **Start a Fresh Layout**: your words are laid out again and become editable, and the damaged file is kept beside it as `.maugham/canvas.damaged-<date>.json`. Your words are never lost.
+
 #### What Claude can put on the canvas
 
 If you have Claude connected (see [Writing with Claude](claude-desktop.md)), it can **read your canvas** and **add cards to it**. This is the one place Claude puts words on a surface of yours — and it is a scratch surface, on the far side of promoting, so nothing it adds is in your manuscript and nothing gets there without you asking.
