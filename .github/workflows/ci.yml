@@ -502,3 +502,33 @@ jobs:
             | sort | uniq -c | sort -rn \
             || echo "(none found)"
           echo "============================================="
+
+  # ---------------------------------------------------------------------------
+  # Job 6 — Action pins (SHA ↔ tag), #67 F15
+  # ---------------------------------------------------------------------------
+  # The same check cut-release.sh runs, on every push and PR, so a pin whose
+  # SHA isn't the commit its `# vX` comment names turns the run red here
+  # rather than only at release time. Runs alongside the other jobs (no
+  # `needs:` — Denver's call): it reports, it doesn't gate their start. A PR
+  # can edit this file too, so it is a gate only if branch protection marks
+  # it required and a reviewer notices the job vanishing from a diff.
+  action-pins:
+    name: Action pins (SHA ↔ tag)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Unit-test the pin checker (offline, stubbed gh)
+        run: bash scripts/tests/verify-action-pins.test.sh
+
+      - name: Verify every pinned action against its tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          source scripts/lib/verify-action-pins.sh
+          scan_and_verify_pins

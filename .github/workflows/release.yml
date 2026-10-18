@@ -130,8 +130,8 @@ jobs:
         id: channel
         # Patch number >= 90 is the reserved DRY-RUN band (e.g. v0.5.90). Such
         # builds are throwaway signing/notarization shakedowns and MUST be marked
-        # prerelease so the stable channel's /releases/latest poll (which excludes
-        # prereleases) never surfaces them to installed users. Real releases use
+        # prerelease so the stable channel's release poll (which skips
+        # prereleases, GitHubReleasesAPI.latestMacRelease) never surfaces them to installed users. Real releases use
         # normal patch numbers (0, 1, 2, …) and publish as stable. This makes the
         # safety structural — not a manual post-publish flip that could race.
         run: |

@@ -27,25 +27,48 @@ public struct UpdateBannerView: View {
     }
 
     public var body: some View {
-        if case .readyToInstall(let bundle, let v, _) = checker.state,
-           Self.shouldShow(state: checker.state, dismissed: dismissedSet) {
-            HStack(spacing: 12) {
-                Image(systemName: "arrow.down.circle.fill")
-                    .foregroundColor(.accentColor)
-                Text("Maugham \(v) is ready")
-                    .font(.callout)
-                Spacer()
-                Button("Dismiss") { dismiss(version: v) }
-                    .buttonStyle(.borderless)
-                Button("Restart & Update") {
-                    Task { await checker.installNow(bundleURL: bundle, version: v) }
+        VStack(spacing: 0) {
+            if let notice = Self.notice(for: checker.installNotice,
+                                       waitsForManualCheck: checker.installNoticeWaitsForManualCheck) {
+                // The last launch's install did not complete (#67 Task 5): one
+                // sentence, held apart from the check's state so no check replaces
+                // it — it stays until the writer dismisses it. A "ready" row may
+                // draw beneath it (a refused 0.43 then a fresh "0.43 is ready").
+                HStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundColor(.secondary)
+                    Text(notice)
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button("Dismiss") { checker.dismissInstallNotice() }
+                        .buttonStyle(.borderless)
                 }
-                .keyboardShortcut(.defaultAction)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color(NSColor.windowBackgroundColor).opacity(0.95))
+                .overlay(Divider(), alignment: .bottom)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color(NSColor.windowBackgroundColor).opacity(0.95))
-            .overlay(Divider(), alignment: .bottom)
+            if case .readyToInstall(let bundle, let v, _) = checker.state,
+               Self.shouldShow(state: checker.state, dismissed: dismissedSet) {
+                HStack(spacing: 12) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .foregroundColor(.accentColor)
+                    Text("Maugham \(v) is ready")
+                        .font(.callout)
+                    Spacer()
+                    Button("Dismiss") { dismiss(version: v) }
+                        .buttonStyle(.borderless)
+                    Button("Restart & Update") {
+                        Task { await checker.installNow(bundleURL: bundle, version: v) }
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color(NSColor.windowBackgroundColor).opacity(0.95))
+                .overlay(Divider(), alignment: .bottom)
+            }
         }
     }
 
@@ -64,5 +87,13 @@ public struct UpdateBannerView: View {
     public static func shouldShow(state: UpdateState, dismissed: Set<String>) -> Bool {
         if case .readyToInstall(_, let v, _) = state, !dismissed.contains(v) { return true }
         return false
+    }
+
+    /// Pure decision for the install notice: the sentence to draw, or nil.
+    /// Shown iff the checker holds a notice — Dismiss clears it, so no
+    /// dismissed-set is needed.
+    public static func notice(for installNotice: InstallStatus?,
+                              waitsForManualCheck: Bool = false) -> String? {
+        installNotice?.sentence(waitsForManualCheck: waitsForManualCheck)
     }
 }

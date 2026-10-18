@@ -116,4 +116,48 @@ final class GitHubReleasesAPITests: XCTestCase {
         let releases = try GitHubRelease.decodeList(from: Data(json.utf8))
         XCTAssertNil(GitHubReleasesAPI.latestMacRelease(from: releases))
     }
+
+    // MARK: - Only this repo's release URL (#67 F14)
+
+    private func asset(_ name: String, _ url: String) -> GitHubRelease.Asset {
+        let json = #"{"name":"\#(name)","browser_download_url":"\#(url)","size":1}"#
+        return try! JSONDecoder().decode(GitHubRelease.Asset.self, from: Data(json.utf8))
+    }
+
+    func test_onlyThisReposReleaseURLForThisTagAndAssetIsTrusted() {
+        let good = "https://github.com/dtrouton/Maugham/releases/download/v0.43.0/Maugham-0.43.0.zip"
+        let cases: [(String, String, Bool)] = [
+            (good, "the real shape", true),
+            ("https://GitHub.com/dtrouton/Maugham/releases/download/v0.43.0/Maugham-0.43.0.zip",
+             "host case is not significant", true),
+            ("http://github.com/dtrouton/Maugham/releases/download/v0.43.0/Maugham-0.43.0.zip", "http", false),
+            ("https://example.com/dtrouton/Maugham/releases/download/v0.43.0/Maugham-0.43.0.zip",
+             "another host", false),
+            ("https://github.com.evil.com/dtrouton/Maugham/releases/download/v0.43.0/Maugham-0.43.0.zip",
+             "a lookalike host", false),
+            ("https://github.com:8443/dtrouton/Maugham/releases/download/v0.43.0/Maugham-0.43.0.zip",
+             "a port", false),
+            ("https://someone@github.com/dtrouton/Maugham/releases/download/v0.43.0/Maugham-0.43.0.zip",
+             "a user", false),
+            ("https://github.com/evil/Maugham/releases/download/v0.43.0/Maugham-0.43.0.zip", "another owner", false),
+            ("https://github.com/dtrouton/Other/releases/download/v0.43.0/Maugham-0.43.0.zip", "another repo", false),
+            ("https://github.com/dtrouton/Maugham/releases/download/v0.42.0/Maugham-0.43.0.zip", "another tag", false),
+            ("https://github.com/dtrouton/Maugham/releases/download/v0.43.0/Other.zip", "a name mismatch", false),
+            (good + "?x=1", "a query", false),
+            ("https://github.com/dtrouton/Maugham/releases/download/v0.43.0/../v0.43.0/Maugham-0.43.0.zip",
+             "a dot-dot path", false),
+        ]
+        for (url, why, expected) in cases {
+            let a = asset("Maugham-0.43.0.zip", url)
+            XCTAssertEqual(GitHubReleasesAPI.isTrustedAssetURL(a.browserDownloadURL, for: a, tag: "v0.43.0"),
+                           expected, why)
+        }
+    }
+
+    /// The bundled fixture is a real GitHub response and must pass.
+    func test_theRealFixturesAssetIsTrusted() throws {
+        let release = try GitHubRelease.decode(from: fixtureData(name: "github-releases-latest"))
+        let asset = try XCTUnwrap(release.dmgAsset ?? release.zipAsset)
+        XCTAssertTrue(GitHubReleasesAPI.isTrustedAssetURL(asset.browserDownloadURL, for: asset, tag: release.tagName))
+    }
 }

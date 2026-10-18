@@ -101,12 +101,23 @@ setup and renewal: `docs/release-notes/SETUP-mac-signing.md` §4.
 notarized `.zip`, verifies it in-app (codesign + our Team ID via
 `UpdateInstaller.runningAppTeamID` + notarization), and swaps the running app via a
 detached helper — "Restart & Update" relaunches; dismissing applies the staged
-update on next ordinary quit (`UpdateChecker.pendingQuitInstall`). If
+update on next ordinary quit (`UpdateChecker.pendingQuitInstall`). The helper checks
+the update again at install time, after the app has quit: it re-runs `codesign`
+(against our Team ID) and `spctl` on the copy it is about to swap in, and a copy that
+fails is not installed (the reason is left in `Updates/install-status`, which the next
+launch reads, removes and states once in the update banner; a refused version's
+download is deleted so the next check fetches it afresh). A build with
+no Team ID of its own (ad-hoc, unsigned) never swaps in place. If
 `/Applications` (the running app's location) is unwritable, it falls back to
 revealing the `.dmg` in Finder instead — that fallback path is **not** in-app
 verified; the `.dmg` is Gatekeeper-verified on launch, the same as any downloaded
 app, not by `UpdateInstaller`. The verify/stage Process work runs off the main
-actor. See `docs/superpowers/specs/2026-06-01-mac-auto-update-design.md`.
+actor. The updater requests an archive only from this repo's own release URL
+(`https://github.com/dtrouton/Maugham/releases/download/<tag>/<asset>`, so asset names
+and tags must stay as `release.yml` publishes them) and refuses a non-https redirect; a
+zip that fails to unpack or verify is deleted, so the next check downloads it afresh.
+See `Maugham/Updates/AREA.md` (which supersedes
+`docs/superpowers/specs/2026-06-01-mac-auto-update-design.md`).
 
 **Release configuration — After any change to `ProjectWindow.body` (or any large SwiftUI `body`),
 run a local Release build before tagging:**
@@ -155,7 +166,7 @@ release pipelines build identically and can't drift between releases:
     as a formula *name* and errors ("No available formula"). A direct
     checksum-verified download is the least-moving-parts way to freeze the version.
 
-**Action pins are verified at cut time.** Every `uses: owner/repo@<sha> # vX`
+**Action pins are verified on every CI run and again at cut time.** Every `uses: owner/repo@<sha> # vX`
 across `.github/workflows/*.yml` is SHA-pinned (supply-chain hygiene), but a SHA
 is opaque — nothing structurally guarantees it's the commit its `# vX` comment
 claims. `cut-release.sh` (and `cut-phone-release.sh`) now dereference each tag via
@@ -163,6 +174,10 @@ the GitHub API and abort the cut on any mismatch or any unpinned action. This is
 the fabricated-SHA guard (PR #1 history). Logic lives in
 `scripts/lib/verify-action-pins.sh`; unit-tested offline with a stubbed `gh` in
 `scripts/tests/verify-action-pins.test.sh` (`bash scripts/tests/verify-action-pins.test.sh`).
+CI's `action-pins` job (`.github/workflows/ci.yml`) runs the same unit test and
+`scan_and_verify_pins` on every push and PR, alongside the other jobs (#67 F15), so a
+bad pin turns a PR red before release. It gates a merge only if branch protection marks
+it required, and a PR that edits `ci.yml` can remove it, so review the workflow diff.
 Use `--skip-pin-check` only for an offline cut where you already trust the pins.
 
 > **The dry run IS the integration test for all of the above.** The pinned Xcode

@@ -60,7 +60,8 @@ struct MaughamApp: App {
                 if let pending = UpdateChecker.shared.pendingQuitInstall,
                    pending.bundleURL.pathExtension == "app" {
                     let launched = UpdateInstaller.launchSwapHelper(
-                        stagedBundle: pending.bundleURL, relaunch: false)
+                        stagedBundle: pending.bundleURL, version: pending.version,
+                        updatesDirectory: UpdateChecker.updatesDirectory, relaunch: false)
                     if !launched {
                         // Mirror installNow's live Finder-fallback: the app is
                         // already quitting, so defer the reveal to next launch
@@ -100,12 +101,37 @@ struct MaughamApp: App {
                     // Wire the real install side-effect: swap the running bundle
                     // via the detached helper and quit (relaunch reopens it); fall
                     // back to revealing the download in Finder if not writable.
-                    UpdateChecker.performInstall = { bundleURL, relaunch in
+                    UpdateChecker.performInstall = { bundleURL, version, relaunch in
                         if bundleURL.pathExtension == "app",
-                           UpdateInstaller.launchSwapHelper(stagedBundle: bundleURL, relaunch: relaunch) {
+                           UpdateInstaller.launchSwapHelper(
+                               stagedBundle: bundleURL, version: version,
+                               updatesDirectory: UpdateChecker.updatesDirectory, relaunch: relaunch) {
                             NSApp.terminate(nil)  // willTerminate flushes autosave; helper waits for exit then swaps
                         } else {
                             NSWorkspace.shared.activateFileViewerSelecting([bundleURL])
+                        }
+                    }
+                    // The last install's helper may have left a line saying it
+                    // was refused or failed (#67 Task 5): read and remove it, and
+                    // let the update banner say so once. Before the poll starts,
+                    // so a refused version's files are gone before any check. A
+                    // test host never touches a real Updates folder.
+                    if BuildVariant.current.updaterEnabled, !TestHost.isActive {
+                        UpdateChecker.shared.reportInstallStatus(in: UpdateChecker.updatesDirectory)
+                        // Then the sweep of old downloads (#67 Task 6), off the
+                        // main thread and AFTER the refused-deletion above, so
+                        // the two never race.
+                        let running = UpdateChecker.shared.runningVersionString
+                        let updates = UpdateChecker.updatesDirectory
+                        UpdateChecker.shared.sweepAfterStage = { keep in
+                            DispatchQueue.global(qos: .utility).async {
+                                UpdateSweep.sweep(in: updates, keeping: keep, runningVersion: running,
+                                                  includingDownloads: false)
+                            }
+                        }
+                        DispatchQueue.global(qos: .utility).async {
+                            UpdateSweep.sweep(in: updates, keeping: nil, runningVersion: running,
+                                              includingDownloads: true)
                         }
                     }
                     // Updater is independent of MCP — start it regardless of whether

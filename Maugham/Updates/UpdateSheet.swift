@@ -21,6 +21,15 @@ public struct UpdateSheet: View {
             Text(Self.title(for: checker.state))
                 .font(.headline)
 
+            // The last launch's install that did not complete (#67 Task 5),
+            // above whatever the check now shows. Dismissed from the banner.
+            if let notice = UpdateBannerView.notice(for: checker.installNotice,
+                                                     waitsForManualCheck: checker.installNoticeWaitsForManualCheck) {
+                Text(notice)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             content
                 .frame(minWidth: 380)
 
