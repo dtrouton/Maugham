@@ -128,18 +128,22 @@ struct ItemInspector: View {
             if Self.promotes(reference) {
                 PromotedArtifactSection(state: provenance, subject: .picture,
                                         onOpen: onOpenResearchItem)
-                Section {
-                    Button("Promote…") {
-                        // The SAME command the File item and ⌘⇧↩ post — see
-                        // `RegionInspector` for why a closure of our own would be
-                        // a second path that can drift from the keystroke, and
-                        // why posting is safe from this column and not from
-                        // inside a sheet.
-                        MaughamEvent.post(.maughamPromoteCanvasSelection, to: .keyWindow)
+                // Read-only canvas (issue #44): what it made still shows; the
+                // way to promote it again is hidden.
+                if CanvasEditGate.offersVerbs(isReadOnly: model.isReadOnly) {
+                    Section {
+                        Button("Promote…") {
+                            // The SAME command the File item and ⌘⇧↩ post — see
+                            // `RegionInspector` for why a closure of our own would be
+                            // a second path that can drift from the keystroke, and
+                            // why posting is safe from this column and not from
+                            // inside a sheet.
+                            MaughamEvent.post(.maughamPromoteCanvasSelection, to: .keyWindow)
+                        }
+                        Text(Self.promoteFooter)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    Text(Self.promoteFooter)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             } else if let contributions = Self.referencedContributions(provenance) {
                 // **A reference cannot be promoted and CAN have contributed**

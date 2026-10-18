@@ -618,8 +618,11 @@ struct InboxPane: View {
     /// and names the file. **One is not shared** (issue #33):
     /// `CanvasStore.SidecarRefused` is a hazard unique to this route — the
     /// palette sibling never touches `.maugham/canvas.json` — and it too is a
-    /// `LocalizedError`, naming the project instead of a file. **Read the
-    /// throwing calls rather than counting here.**
+    /// `LocalizedError`, whose description is the reason's own sentence (a newer
+    /// version's layout, or a damaged one), the same words the canvas's notice
+    /// says. Raised whether or not the canvas is open (#44), before the copy and
+    /// the flip, so the row stays in the inbox. **Read the throwing calls rather
+    /// than counting here.**
     private func sendToCanvas(_ entry: InboxEntry) {
         audio.stop()
         Task {

@@ -155,6 +155,30 @@ public enum ListCanvasTool: MCPTool {
         /// One entry per piece some region on this canvas binds to, OR some
         /// card is bound to itself, in piece-id order. See the type.
         public let piece_references: [PieceReferences]
+        /// **False when this build refuses the layout file** (issue #44) — a
+        /// newer version's, or a damaged one. The scene above is then only the
+        /// writer's words laid out loose, not their arrangement, and
+        /// `add_canvas_scraps` will refuse. Without this, an unreadable canvas
+        /// reads exactly like an empty one until a write fails.
+        public let layout_readable: Bool
+        /// The writer-facing sentence saying why, present only when
+        /// `layout_readable` is false.
+        public let layout_unreadable_reason: String?
+
+        public init(read_from: String, includes_text: Bool, nodes: [Node],
+                    regions: [Region], lines: [Line],
+                    piece_references: [PieceReferences],
+                    layout_readable: Bool = true,
+                    layout_unreadable_reason: String? = nil) {
+            self.read_from = read_from
+            self.includes_text = includes_text
+            self.nodes = nodes
+            self.regions = regions
+            self.lines = lines
+            self.piece_references = piece_references
+            self.layout_readable = layout_readable
+            self.layout_unreadable_reason = layout_unreadable_reason
+        }
     }
 
     public static let method = "list_canvas"
@@ -180,7 +204,11 @@ public enum ListCanvasTool: MCPTool {
         than working the same thing out from `bound_piece_id` and the region lists \
         — a card that merely APPEARS in a region is cited there, not part of that \
         piece's context, and two regions may be bound to one piece, so a derived \
-        answer goes wrong in both directions. Pass include_text: false for the same \
+        answer goes wrong in both directions. `layout_readable` is false when this \
+        version of Maugham cannot read the canvas's layout file (saved by a newer \
+        version, or damaged): the scene is then only the writer's words laid out \
+        loose, not their arrangement, `layout_unreadable_reason` says why, and \
+        add_canvas_scraps will refuse. Pass include_text: false for the same \
         structure without the scraps' words when a canvas is too large to return \
         whole.
         """
@@ -212,7 +240,10 @@ public enum ListCanvasTool: MCPTool {
             // opinion about the order here would be a second opinion.
             regions: read.scene.regions.map(describe),
             lines: read.scene.lines.map(describe),
-            piece_references: pieceReferences(in: read.scene))
+            piece_references: pieceReferences(in: read.scene),
+            // Both routes: the live model's held refusal, or the load's own.
+            layout_readable: read.refusal == nil,
+            layout_unreadable_reason: read.refusal?.errorDescription)
 
         // Enforced HERE and not left to `MCPToolsCallHandler`'s backstop: scrap
         // text is unbounded, and the backstop only covers the `tools/call`
@@ -500,8 +531,10 @@ public enum AddCanvasScrapsTool: MCPTool {
         let connections = try validated(params.connect ?? [], against: params.scraps.count)
 
         // ---- Validation is complete. One refusal is left, and it is the write's
-        // ---- own: a sidecar this build cannot read (#33). Nothing here mutates
-        // ---- anything until `apply`, and `apply` asks before it touches the file.
+        // ---- own: a layout file this build cannot read, on BOTH routes — the
+        // ---- sidecar's (#33) and an open canvas attached over one (#44).
+        // ---- Nothing here mutates anything until `apply`, and `apply` asks
+        // ---- before it touches the scene or the file.
 
         // The shared discriminator, so a `list_canvas` and an `add_canvas_scraps` in
         // the same breath cannot address two different scenes — and so the plan is
@@ -518,20 +551,21 @@ public enum AddCanvasScrapsTool: MCPTool {
             try CanvasClaudeWrite.apply(plan, store: entry.store, projectRoot: entry.url)
         } catch let refused as CanvasStore.SidecarRefused {
             // **The one refusal this tool cannot validate for**, because it is a
-            // fact about a file rather than about the call (#33). It has to be
-            // said in the caller's own vocabulary: the read that preceded this
-            // write reported an EMPTY canvas — that is what an unreadable sidecar
-            // looks like to `list_canvas` — so a caller with no named error would
-            // reasonably read a silent failure as "the canvas is empty and adding
-            // to it is safe", which is exactly the belief that costs the writer
-            // their arrangement.
+            // fact about a file rather than about the call (#33, #44). Both
+            // routes throw the same value, so this is one payload whether or not
+            // the writer has the canvas open. It has to be said in the caller's
+            // own vocabulary: what `list_canvas` reported is only the words laid
+            // out loose (it says so with `layout_readable: false`), so a caller
+            // with no named error would reasonably read a silent failure as
+            // "adding here is safe", which is exactly the belief that costs the
+            // writer their arrangement. The hint differs by reason because the
+            // way out does: updating helps a newer file and does nothing for a
+            // damaged one.
             throw MCPError.toolError(payload: .init(
                 error: "canvas_sidecar_unreadable",
                 message: refused.errorDescription
                     ?? "The canvas layout can't be read by this version of Maugham.",
-                hint: "Update Maugham on this Mac before adding to this canvas. "
-                    + "list_canvas shows only what this version can read, so the "
-                    + "empty scene it reported is not the writer's real layout.",
+                hint: Self.unreadableHint(refused.reason),
                 fields: ["project": .string(refused.projectName)]))
         }
 
@@ -555,6 +589,20 @@ public enum AddCanvasScrapsTool: MCPTool {
             node_ids: plan.scraps.map(\.node.id.raw),
             source_node_id: plan.source?.id.raw,
             line_ids: plan.lines.map(\.id.raw)))
+    }
+
+    /// What Claude can do about a refused layout — one way out per reason (#44).
+    /// Internal so the tests read it rather than a literal.
+    static func unreadableHint(_ reason: CanvasStore.SidecarRefused.Reason) -> String {
+        let shown = "What list_canvas returned for this canvas is only the writer's "
+            + "words laid out loose, not their real layout."
+        switch reason {
+        case .newerVersion:
+            return "Update Maugham on this Mac before adding to this canvas. " + shown
+        case .damaged:
+            return "Ask the writer to press \(CanvasReadOnlyNotice.startFreshTitle) on the canvas, which "
+                + "sets the damaged layout file aside, before adding to it. " + shown
+        }
     }
 
     /// **Fail rather than drop, on every one of the four ways a pair can be wrong.**

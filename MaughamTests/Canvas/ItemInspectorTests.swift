@@ -400,7 +400,7 @@ final class ItemInspectorTests: XCTestCase {
             XCTAssertEqual(
                 CanvasPromotionModifier.isPromotable(persona: .plan,
                                                      selection: .node(id),
-                                                     nodeKind: .item(reference)),
+                                                     nodeKind: .item(reference), isReadOnly: false),
                 offered,
                 "and so must the command's enablement — \(reference)")
         }

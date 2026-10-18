@@ -75,18 +75,22 @@ final class CanvasStoreTests: XCTestCase {
                        "which is the whole point: a refused sidecar is not written over")
     }
 
-    /// Same rule, two named readers (issue #33): a repair is withheld because
-    /// nobody asked for it, a transient write is refused because somebody did
-    /// — but both stand on the one `isWritable` fact, so they can never
-    /// disagree about which `SidecarState` case is safe to write over.
-    func test_theTransientPredicateAgreesWithTheRepairPredicateOnEveryCase() {
-        for state in [CanvasStore.SidecarState.decoded, .absent, .refused] {
-            XCTAssertEqual(state.acceptsATransientWrite, state.acceptsARepairWrite,
-                           "\(state) must agree")
+    /// One fact, two shapes (issues #33 and #44): the state the repair reads and
+    /// the refusal every other route reads are produced by the same `load()`, so
+    /// they can never disagree about which file is safe to write over.
+    func test_theRefusalAndTheRepairPredicateAgreeOnEveryCase() throws {
+        func check(_ loaded: CanvasStore.Loaded, _ label: String) {
+            XCTAssertEqual(loaded.refusal == nil, loaded.sidecar.acceptsARepairWrite,
+                           "\(label): a refusal exactly when the repair is withheld")
         }
-        XCTAssertFalse(CanvasStore.SidecarState.refused.acceptsATransientWrite)
-        XCTAssertTrue(CanvasStore.SidecarState.decoded.acceptsATransientWrite)
-        XCTAssertTrue(CanvasStore.SidecarState.absent.acceptsATransientWrite)
+        check(CanvasStore(projectRoot: root).load(), "absent")
+        CanvasStore(projectRoot: root).save(scene: sampleScene(), scraps: [:])
+        check(CanvasStore(projectRoot: root).load(), "decoded")
+        try "not json at all".write(to: root.appendingPathComponent(
+            CanvasStore.sidecarRelativePath), atomically: true, encoding: .utf8)
+        let refused = CanvasStore(projectRoot: root).load()
+        check(refused, "refused")
+        XCTAssertNotNil(refused.refusal, "control: the refused arm was really reached")
     }
 
     /// `loadForTransientWrite` is the one place a write made with no canvas
@@ -103,6 +107,7 @@ final class CanvasStoreTests: XCTestCase {
                 return XCTFail("expected SidecarRefused, got \(error)")
             }
             XCTAssertEqual(refused.projectName, root.lastPathComponent)
+            XCTAssertEqual(refused.reason, .newerVersion)
         }
         XCTAssertEqual(try Data(contentsOf: file), before,
                        "a refused write must never touch the file it refused to overwrite")
@@ -114,6 +119,7 @@ final class CanvasStoreTests: XCTestCase {
                 return XCTFail("expected SidecarRefused, got \(error)")
             }
             XCTAssertEqual(refused.projectName, root.lastPathComponent)
+            XCTAssertEqual(refused.reason, .damaged)
         }
         XCTAssertEqual(try Data(contentsOf: file), before,
                        "damaged bytes are left exactly as damaged as they were found")
@@ -128,6 +134,128 @@ final class CanvasStoreTests: XCTestCase {
         let decoded = try CanvasStore(projectRoot: root).loadForTransientWrite()
         XCTAssertEqual(decoded.sidecar, .decoded)
         XCTAssertEqual(decoded.scene, sampleScene())
+    }
+
+    // MARK: - Why a sidecar was refused (issue #44)
+
+    private var sidecarFile: URL { root.appendingPathComponent(CanvasStore.sidecarRelativePath) }
+    private var scrapsFile: URL { root.appendingPathComponent(CanvasStore.scrapsRelativePath) }
+
+    private func seedSidecar(_ text: String) throws {
+        try FileManager.default.createDirectory(
+            at: sidecarFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try text.write(to: sidecarFile, atomically: true, encoding: .utf8)
+        try "\(ScrapText.banner)\n\n## ghst\n\nThe words survive.\n"
+            .write(to: scrapsFile, atomically: true, encoding: .utf8)
+    }
+
+    private func reason(of text: String) throws -> CanvasStore.SidecarRefused.Reason? {
+        try seedSidecar(text)
+        let loaded = CanvasStore(projectRoot: root).load()
+        if let refusal = loaded.refusal {
+            XCTAssertEqual(refusal.projectName, root.lastPathComponent,
+                           "the refusal names the project it is about")
+        }
+        return loaded.refusal?.reason
+    }
+
+    /// Updating Maugham helps a newer build's file and does nothing for a damaged
+    /// one, so the two get different sentences and different ways out.
+    func test_theRefusalSaysWhetherTheFileIsNewerOrDamaged() throws {
+        XCTAssertEqual(try reason(of: #"{"schemaVersion":999,"nodes":[]}"#), .newerVersion)
+        XCTAssertEqual(try reason(of: "not json at all"), .damaged)
+        XCTAssertEqual(try reason(of: #"{"schemaVersion":9,"nodes":[{"id":"#), .damaged,
+                       "a truncated file at a version this build knows is damaged")
+        XCTAssertEqual(try reason(of: #"{"nodes":[]}"#), .damaged,
+                       "a file with no readable version at all is damaged")
+        XCTAssertNil(try reason(of: #"{"schemaVersion":9,"nodes":[]}"#),
+                     "control: a current file is not refused at all")
+    }
+
+    /// **The version is asked first.** A newer build may have changed shapes this
+    /// build cannot decode; calling its file "damaged" would offer the writer a
+    /// repair that sets their real layout aside.
+    func test_aNewerFileThatAlsoFailsTheFullDecodeIsStillNewer() throws {
+        XCTAssertEqual(try reason(of: #"{"schemaVersion":999,"nodes":"a shape we never had"}"#),
+                       .newerVersion)
+        XCTAssertEqual(try reason(of: #"{"schemaVersion":999}"#), .newerVersion,
+                       "nor does it need a `nodes` key this build would require")
+    }
+
+    func test_eachReasonSaysItsOwnRulingSentence() {
+        func sentence(_ reason: CanvasStore.SidecarRefused.Reason) -> String? {
+            CanvasStore.SidecarRefused(projectName: "P", reason: reason).errorDescription
+        }
+        XCTAssertEqual(sentence(.newerVersion),
+                       "This canvas was saved by a newer version of Maugham, so only its words are shown. Update Maugham to see and edit your layout.")
+        XCTAssertEqual(sentence(.damaged),
+                       "This canvas's layout file is damaged, so only its words are shown. Start a Fresh Layout sets the damaged file aside and lays your words out again.")
+    }
+
+    /// **The backstop** (issue #44): once its load answered refused, the store is
+    /// the one object every write passes through, so nothing — a click's
+    /// debounced save, a quit's flush, a direct save, the scene-only write —
+    /// reaches either file.
+    func test_aStoreWhoseLoadWasRefusedWritesNothingThroughAnyVerb() throws {
+        for seed in [#"{"schemaVersion":999,"nodes":[]}"#, "not json at all"] {
+            try seedSidecar(seed)
+            let sidecarBefore = try Data(contentsOf: sidecarFile)
+            let scrapsBefore = try Data(contentsOf: scrapsFile)
+
+            let store = CanvasStore(projectRoot: root)
+            XCTAssertNotNil(store.load().refusal, "precondition: \(seed) is refused")
+            var foldedAtFlush = false
+            store.beforeFlush = { foldedAtFlush = true }
+
+            store.scheduleSave(scene: sampleScene(), scraps: [CanvasNodeID("s1"): "over it"])
+            XCTAssertFalse(store.hasPendingWrite, "nothing is even queued over \(seed)")
+            store.flush()
+            store.save(scene: sampleScene(), scraps: [CanvasNodeID("s1"): "over it"])
+            store.saveSceneOnly(sampleScene())
+            NotificationCenter.default.post(   // adr-0021-ok: AppKit lifecycle notification, not a maugham.* event
+                name: NSApplication.willTerminateNotification, object: NSApplication.shared)
+
+            XCTAssertFalse(store.hasPendingWrite)
+            XCTAssertFalse(foldedAtFlush,
+                           "a flush over a refused file has nothing to fold live text into")
+            XCTAssertEqual(try Data(contentsOf: sidecarFile), sidecarBefore,
+                           "the refused sidecar is byte-identical after every write verb")
+            XCTAssertEqual(try Data(contentsOf: scrapsFile), scrapsBefore,
+                           "…and so is canvas.md: the words are content")
+        }
+    }
+
+    /// The control for the test above: a store whose load found nothing, or a
+    /// file it could read, still writes through every verb.
+    func test_aStoreWhoseLoadWasWritableStillWrites() throws {
+        let absent = CanvasStore(projectRoot: root)
+        XCTAssertNil(absent.load().refusal)
+        absent.scheduleSave(scene: sampleScene(), scraps: [CanvasNodeID("s1"): "one"])
+        XCTAssertTrue(absent.hasPendingWrite)
+        absent.flush()
+        XCTAssertEqual(CanvasStore(projectRoot: root).load().scraps[CanvasNodeID("s1")], "one")
+
+        let decoded = CanvasStore(projectRoot: root)
+        XCTAssertEqual(decoded.load().sidecar, .decoded)
+        decoded.save(scene: sampleScene(), scraps: [CanvasNodeID("s1"): "two"])
+        XCTAssertEqual(CanvasStore(projectRoot: root).load().scraps[CanvasNodeID("s1")], "two")
+        var moved = sampleScene()
+        moved.insertRegion(CanvasRegion(id: CanvasRegionID("r1"), label: "Fog",
+                                        frame: CGRect(x: 0, y: 0, width: 100, height: 100)))
+        decoded.saveSceneOnly(moved)
+        XCTAssertNotNil(CanvasStore(projectRoot: root).load().scene.region(CanvasRegionID("r1")))
+    }
+
+    /// A refusal belongs to the LAST load, so a store that loads a file it can
+    /// read again — the damaged file set aside — writes again.
+    func test_aLaterWritableLoadLiftsTheRefusal() throws {
+        try seedSidecar("not json at all")
+        let store = CanvasStore(projectRoot: root)
+        XCTAssertNotNil(store.load().refusal)
+        try FileManager.default.removeItem(at: sidecarFile)
+        XCTAssertNil(store.load().refusal)
+        store.save(scene: sampleScene(), scraps: [CanvasNodeID("s1"): "again"])
+        XCTAssertEqual(CanvasStore(projectRoot: root).load().scraps[CanvasNodeID("s1")], "again")
     }
 
     func test_sidecarAndScrapsLandAtTheirDocumentedPaths() {

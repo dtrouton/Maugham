@@ -229,10 +229,11 @@ enum CanvasCapture {
     /// writer who has been told the capture left the inbox, and the canvas has no
     /// op log behind it — a quit inside the 750 ms debounce would lose it.
     ///
-    /// **Throws `CanvasStore.SidecarRefused` on the sidecar route when the file is
-    /// present and this build cannot read it** (issue #33): that empty scene is
-    /// somebody else's whole arrangement, and saving one card over it is the loss
-    /// this refusal exists to prevent.
+    /// **Throws `CanvasStore.SidecarRefused` on BOTH routes when the layout file is
+    /// present and this build cannot read it** (issue #33 on the sidecar route,
+    /// #44 on the live one): the scene loaded over it is not somebody's
+    /// arrangement, and saving one card over it is the loss this refusal exists
+    /// to prevent.
     @discardableResult
     static func send(_ content: Content,
                      _ placement: Placement,
@@ -241,6 +242,11 @@ enum CanvasCapture {
                      projectRoot: URL) throws -> CanvasNodeID {
         let model: CanvasModel? = CanvasClaudeWrite.liveModel(of: store)
         if let model {
+            // Before anything else, the retry included (issue #44): a model
+            // attached over a layout this build refuses changes nothing, and
+            // answering with a node id would flip the capture to promoted with
+            // no card anywhere. The same value the sidecar arm throws.
+            if let refused = model.sidecarRefusal { throw refused }
             let landing = plan(content, placement, captureID: captureID, in: model.scene)
             // The retry: the capture's derived node is already on the scene, so
             // there is nothing to write — the caller retries only the flip.
@@ -272,11 +278,20 @@ enum CanvasCapture {
 
     /// Asked by `InboxStore.sendToCanvas` BEFORE it copies a picture into the
     /// well: a refusal that only `send` could raise would strand that copy in
-    /// `canvas_assets/` on every attempt (issue #33). With a canvas open there is
-    /// nothing to ask — the live model is the writer's own act from this build.
+    /// `canvas_assets/` on every attempt (issue #33). **It asks with a canvas open
+    /// too** (issue #44): a model attached over a refused layout holds the
+    /// refusal, and `send`'s live arm would throw it only after the copy.
+    ///
+    /// The residue, recorded rather than built for: a model that was WRITABLE
+    /// here, then closed while `sendToCanvas` awaits the ingest, sends through the
+    /// sidecar route — whose own `loadForTransientWrite` re-check can still refuse
+    /// only if something outside this process replaced `canvas.json` with an
+    /// unreadable one inside that one suspension. The cost is one stranded copy,
+    /// never the writer's layout.
     static func refuseUnlessWritable(store: ProjectStore, projectRoot: URL) throws {
-        guard CanvasClaudeWrite.liveModel(of: store) == nil else { return }
-        _ = try CanvasStore(projectRoot: projectRoot).loadForTransientWrite()
+        if let refused = CanvasClaudeWrite.refusal(of: store, projectRoot: projectRoot) {
+            throw refused
+        }
     }
 
     // MARK: - Telling the writer

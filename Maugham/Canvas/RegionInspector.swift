@@ -232,6 +232,9 @@ struct RegionInspector: View {
                 TextField("Name", text: $draftLabel, prompt: Text(CanvasRegion.untitledLabel))
                     .focused($labelFocused)
                     .onSubmit { commitLabel(draftLabel) }
+                    // Read-only canvas (issue #44): the values still show, and
+                    // take no input. The verbs below are hidden outright.
+                    .disabled(!CanvasEditGate.editsValues(isReadOnly: model.isReadOnly))
                 // **Whose region this is**, beside its name — the region arm's half
                 // of `CanvasNode.author`'s surface, and it was missing for a round.
                 // A region carries no tint at all (no paper, no ink of its own), so
@@ -252,6 +255,7 @@ struct RegionInspector: View {
                 Toggle("Collapsed", isOn: Binding(
                     get: { region?.isCollapsed ?? false },
                     set: { commitCollapsed($0) }))
+                    .disabled(!CanvasEditGate.editsValues(isReadOnly: model.isReadOnly))
                 Picker("Piece", selection: Binding(
                     get: { region?.boundPieceID ?? Self.noPieceTag },
                     set: { commitBinding($0 == Self.noPieceTag ? nil : $0) })) {
@@ -267,6 +271,7 @@ struct RegionInspector: View {
                             Text(orphan.label).tag(orphan.id)
                         }
                     }
+                    .disabled(!CanvasEditGate.editsValues(isReadOnly: model.isReadOnly))
             } header: {
                 Text("Region")
             } footer: {
@@ -285,7 +290,7 @@ struct RegionInspector: View {
             Section("Appears here") {
                 memberRowsOrEmpty(memberRows.visitors,
                                   empty: "No cards are referenced here.")
-                citeControl
+                if CanvasEditGate.offersVerbs(isReadOnly: model.isReadOnly) { citeControl }
             }
 
             // Above the Promote section, matching the card arm's order: what it
@@ -293,29 +298,31 @@ struct RegionInspector: View {
             PromotedArtifactSection(state: provenance, subject: .region,
                                     onOpen: onOpenResearchItem)
 
-            Section {
-                Button("Promote…") {
-                    // The SAME command the menu item and ⌘⇧↩ post, so the
-                    // button and the keystroke cannot drift into behaving
-                    // differently. A closure of our own would be a second path.
-                    //
-                    // Safe from this column, and the reason is worth knowing:
-                    // a `.keyWindow` post made from inside a SHEET is dropped,
-                    // because the sheet's own window holds key status (the
-                    // v0.24.0 "enter does nothing" bug, `TranslationReviewModifier`).
-                    // This button is in the project window itself.
-                    MaughamEvent.post(.maughamPromoteCanvasSelection, to: .keyWindow)
+            if CanvasEditGate.offersVerbs(isReadOnly: model.isReadOnly) {
+                Section {
+                    Button("Promote…") {
+                        // The SAME command the menu item and ⌘⇧↩ post, so the
+                        // button and the keystroke cannot drift into behaving
+                        // differently. A closure of our own would be a second path.
+                        //
+                        // Safe from this column, and the reason is worth knowing:
+                        // a `.keyWindow` post made from inside a SHEET is dropped,
+                        // because the sheet's own window holds key status (the
+                        // v0.24.0 "enter does nothing" bug, `TranslationReviewModifier`).
+                        // This button is in the project window itself.
+                        MaughamEvent.post(.maughamPromoteCanvasSelection, to: .keyWindow)
+                    }
+                    Text(Self.promoteCaption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                Text(Self.promoteCaption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
 
-            Section {
-                Button("Delete Region", role: .destructive) { deleteRegion() }
-                Text("The cards stay on the canvas.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Section {
+                    Button("Delete Region", role: .destructive) { deleteRegion() }
+                    Text("The cards stay on the canvas.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .formStyle(.grouped)
@@ -455,20 +462,22 @@ struct RegionInspector: View {
                 HStack(spacing: 6) {
                     Text(row.title).lineLimit(1).truncationMode(.tail)
                     Spacer(minLength: 0)
-                    Button {
-                        remove(row.node)
-                    } label: {
-                        Image(systemName: "minus.circle")
+                    if CanvasEditGate.offersVerbs(isReadOnly: model.isReadOnly) {
+                        Button {
+                            remove(row.node)
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Remove from this region — the card stays on the canvas")
+                        // `.help` is a tooltip, not an accessibility label, and
+                        // this button's only content is a glyph. Without this a
+                        // VoiceOver user meets an unnamed button per row — on a
+                        // surface that owns its whole accessibility tree by hand
+                        // precisely because §7A.6 calls one non-optional in a
+                        // writing tool.
+                        .accessibilityLabel("Remove \(row.title) from this region")
                     }
-                    .buttonStyle(.borderless)
-                    .help("Remove from this region — the card stays on the canvas")
-                    // `.help` is a tooltip, not an accessibility label, and
-                    // this button's only content is a glyph. Without this a
-                    // VoiceOver user meets an unnamed button per row — on a
-                    // surface that owns its whole accessibility tree by hand
-                    // precisely because §7A.6 calls one non-optional in a
-                    // writing tool.
-                    .accessibilityLabel("Remove \(row.title) from this region")
                 }
             }
         }

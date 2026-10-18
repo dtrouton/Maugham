@@ -142,6 +142,66 @@ final class PromotionPerformerTests: XCTestCase {
 
 
 
+    // MARK: - A read-only canvas makes nothing (issue #44)
+
+    /// **The door refuses before ANY artifact is made.** Every promotion writes
+    /// a mark into the layout file this build refused, and the note would be
+    /// created before that mark came to nothing — so a plan that reaches the
+    /// performer on a read-only canvas throws the canvas's own sentence and the
+    /// project gains nothing: no research item, and both canvas files
+    /// byte-identical. The control is the same plan on the same words over a
+    /// readable file, which DOES make the note.
+    func test_aReadOnlyCanvasMakesNoArtifact() async throws {
+        for (seed, reason) in [(#"{"schemaVersion":999}"#,
+                                CanvasStore.SidecarRefused.Reason.newerVersion),
+                               ("not json", .damaged)] {
+            let (root, store) = try await makeProject()
+            let sidecar = root.appendingPathComponent(CanvasStore.sidecarRelativePath)
+            let scraps = root.appendingPathComponent(CanvasStore.scrapsRelativePath)
+            try FileManager.default.createDirectory(
+                at: sidecar.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try seed.write(to: sidecar, atomically: true, encoding: .utf8)
+            try "\(ScrapText.banner)\n\n## ghst\n\nThe falls at night\n\nSodium light.\n"
+                .write(to: scraps, atomically: true, encoding: .utf8)
+            let sidecarBefore = try Data(contentsOf: sidecar)
+            let scrapsBefore = try Data(contentsOf: scraps)
+            let researchBefore = store.manifest.research
+
+            let model = CanvasModel()
+            model.attach(projectRoot: root)
+            XCTAssertTrue(model.isReadOnly, "precondition: \(reason) was refused")
+            let ghost = CanvasNodeID("ghst")
+            XCTAssertNotNil(model.scene.node(ghost), "precondition: the words are shown")
+
+            do {
+                _ = try await PromotionPerformer(store: store, model: model)
+                    .perform(plan(.scrap(ghost), .researchNote, store: store, model: model))
+                XCTFail("\(reason): a read-only canvas promoted")
+            } catch let failure as PromotionFailure {
+                XCTAssertEqual(failure, .canvasIsReadOnly(try XCTUnwrap(model.sidecarRefusal)))
+                XCTAssertEqual(failure.errorDescription, reason.sentence,
+                               "the canvas's own sentence, one per reason")
+            }
+            XCTAssertEqual(store.manifest.research, researchBefore,
+                           "\(reason): no research item was made")
+            model.detach()
+            XCTAssertEqual(try Data(contentsOf: sidecar), sidecarBefore, "\(reason)")
+            XCTAssertEqual(try Data(contentsOf: scraps), scrapsBefore, "\(reason)")
+
+            // The control: the same words over a readable layout promote.
+            try FileManager.default.removeItem(at: sidecar)
+            let writable = CanvasModel()
+            writable.attach(projectRoot: root)
+            XCTAssertFalse(writable.isReadOnly)
+            _ = try await PromotionPerformer(store: store, model: writable)
+                .perform(plan(.scrap(ghost), .researchNote, store: store, model: writable))
+            XCTAssertNotNil(TreeWalk.first(in: store.manifest.research,
+                                           where: { $0.title == "The falls at night" }),
+                            "the control: the plan itself was promotable")
+            writable.detach()
+        }
+    }
+
     // MARK: - Scrap → research note
 
     func test_promotingAScrapCreatesARealNoteWithItsBody() async throws {

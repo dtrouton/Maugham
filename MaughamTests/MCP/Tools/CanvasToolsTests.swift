@@ -1260,4 +1260,135 @@ final class CanvasToolsTests: XCTestCase {
                        "…and canvas.md is untouched too: the words are content, and "
                        + "the sidecar's loss is meant to cost none of them")
     }
+
+    // MARK: - Both routes over a refused layout (issue #44)
+
+    /// Seed a refused layout and hand back both files' bytes.
+    private func seedRefusedLayout(_ url: URL, _ json: String) throws -> (Data, Data) {
+        let sidecar = url.appendingPathComponent(CanvasStore.sidecarRelativePath)
+        let scraps = url.appendingPathComponent(CanvasStore.scrapsRelativePath)
+        try FileManager.default.createDirectory(
+            at: sidecar.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try json.write(to: sidecar, atomically: true, encoding: .utf8)
+        try "\(ScrapText.banner)\n\n## futr\n\nA layout from a build we do not have.\n"
+            .write(to: scraps, atomically: true, encoding: .utf8)
+        return (try Data(contentsOf: sidecar), try Data(contentsOf: scraps))
+    }
+
+    private func refusalPayload(_ registry: ProjectRegistry,
+                                _ id: String) async throws -> MCPError.ToolErrorPayload? {
+        do {
+            _ = try await add(registry, id, scraps: ["a card that must not land"])
+            return nil
+        } catch let MCPError.toolError(payload) {
+            return payload
+        }
+    }
+
+    /// **Claude gets the same error on both routes.** Before #44 the live route
+    /// answered "added" with node ids for cards a read-only model never made.
+    /// Each reason's message is its own sentence, and its hint its own way out.
+    private func assertBothRoutesRefuseAlike(_ json: String,
+                                             reason: CanvasStore.SidecarRefused.Reason,
+                                             name: String) async throws {
+        let (url, store, registry, id) = try await registeredProject(name)
+        let (sidecarBefore, scrapsBefore) = try seedRefusedLayout(url, json)
+
+        XCTAssertNil(store.liveCanvas, "precondition: the sidecar route first")
+        let closedPayload = try await refusalPayload(registry, id)
+        let closed = try XCTUnwrap(closedPayload, "the sidecar route refuses")
+
+        let model = attached(to: store, at: url)
+        XCTAssertTrue(model.isReadOnly, "precondition: attached over a refused layout")
+        let sceneBefore = model.scene
+        let openPayload = try await refusalPayload(registry, id)
+        let open = try XCTUnwrap(openPayload,
+                                 "the live route refuses too — no ids for cards "
+                                 + "that were never made")
+
+        XCTAssertEqual(open, closed, "one payload, whichever canvas answered")
+        XCTAssertEqual(open.error, "canvas_sidecar_unreadable")
+        XCTAssertEqual(open.message, reason.sentence)
+        XCTAssertEqual(open.hint, AddCanvasScrapsTool.unreadableHint(reason))
+        XCTAssertEqual(open.fields["project"], .string(url.lastPathComponent))
+        XCTAssertEqual(model.scene, sceneBefore, "nothing landed in memory")
+
+        model.flush()
+        model.detach()
+        XCTAssertEqual(try Data(contentsOf: url.appendingPathComponent(
+            CanvasStore.sidecarRelativePath)), sidecarBefore)
+        XCTAssertEqual(try Data(contentsOf: url.appendingPathComponent(
+            CanvasStore.scrapsRelativePath)), scrapsBefore)
+    }
+
+    func test_addCanvasScrapsRefusesANewerLayoutAlikeOnBothRoutes() async throws {
+        try await assertBothRoutesRefuseAlike(Self.sidecarFromANewerBuild,
+                                              reason: .newerVersion, name: "BothNewer")
+    }
+
+    func test_addCanvasScrapsRefusesADamagedLayoutAlikeOnBothRoutes() async throws {
+        try await assertBothRoutesRefuseAlike("not json at all",
+                                              reason: .damaged, name: "BothDamaged")
+    }
+
+    /// The hints are right for their own reason: updating helps a newer file and
+    /// does nothing for a damaged one, which the writer can set aside. Neither
+    /// claims the earlier read was an "empty" canvas — on the live route it held
+    /// the writer's words.
+    func test_theUnreadableHintNamesEachReasonsOwnWayOut() {
+        let newer = AddCanvasScrapsTool.unreadableHint(.newerVersion)
+        let damaged = AddCanvasScrapsTool.unreadableHint(.damaged)
+        XCTAssertTrue(newer.contains("Update Maugham"), newer)
+        XCTAssertFalse(newer.contains("Start a Fresh Layout"), newer)
+        XCTAssertTrue(damaged.contains("Start a Fresh Layout"), damaged)
+        XCTAssertFalse(damaged.contains("Update Maugham"), damaged)
+        for hint in [newer, damaged] {
+            XCTAssertTrue(hint.contains("list_canvas"), hint)
+            XCTAssertFalse(hint.contains("empty"), hint)
+        }
+    }
+
+    /// **`list_canvas` says the layout isn't readable**, on both routes — before
+    /// #44 an unreadable canvas read exactly like an empty one until a write failed.
+    func test_listCanvasReportsAnUnreadableLayoutOnBothRoutes() async throws {
+        for (json, reason) in [(Self.sidecarFromANewerBuild,
+                                CanvasStore.SidecarRefused.Reason.newerVersion),
+                               ("not json at all", .damaged)] {
+            let (url, store, registry, id) = try await registeredProject(
+                "ListRefused-\(reason)")
+            _ = try seedRefusedLayout(url, json)
+
+            let closed = try await call(registry, id)
+            XCTAssertEqual(closed.read_from, "sidecar")
+            XCTAssertFalse(closed.layout_readable)
+            XCTAssertEqual(closed.layout_unreadable_reason, reason.sentence)
+
+            // Held: `liveCanvas` is weak, so a discarded model is no live canvas.
+            let model = attached(to: store, at: url)
+            let open = try await call(registry, id)
+            XCTAssertEqual(open.read_from, "open_canvas")
+            XCTAssertFalse(open.layout_readable)
+            XCTAssertEqual(open.layout_unreadable_reason, reason.sentence)
+            withExtendedLifetime(model) {}
+        }
+    }
+
+    /// Control: a readable canvas says so, and the reason key is absent on the
+    /// wire rather than null.
+    func test_listCanvasReportsAReadableLayoutWithNoReason() async throws {
+        let (url, store, registry, id) = try await registeredProject("ListReadable")
+        let closed = try await call(registry, id)
+        XCTAssertTrue(closed.layout_readable)
+        XCTAssertNil(closed.layout_unreadable_reason)
+        let rawData = try await rawCall(registry, id)
+        let raw = try XCTUnwrap(String(data: rawData, encoding: .utf8))
+        XCTAssertTrue(raw.contains("\"layout_readable\":true"), raw)
+        XCTAssertFalse(raw.contains("layout_unreadable_reason"), raw)
+
+        let model = attached(to: store, at: url)
+        let open = try await call(registry, id)
+        XCTAssertEqual(open.read_from, "open_canvas")
+        XCTAssertTrue(open.layout_readable)
+        withExtendedLifetime(model) {}
+    }
 }

@@ -499,4 +499,83 @@ final class CanvasClaudeWriteTests: XCTestCase {
 
         try assertRefusedAndUntouched(store, projectRoot, before: before)
     }
+
+    // MARK: - The live route over a refused layout (issue #44)
+
+    /// The sidecar route's own error for this fixture, captured once, so the live
+    /// route can be compared against the VALUE rather than a reconstruction of it.
+    private func sidecarRouteError(_ store: ProjectStore,
+                                   _ projectRoot: URL) throws -> CanvasStore.SidecarRefused? {
+        XCTAssertNil(CanvasClaudeWrite.liveModel(of: store), "precondition: no live canvas")
+        let read = CanvasClaudeWrite.readScene(store: store, projectRoot: projectRoot)
+        let plan = CanvasClaudePlacement.plan(request(["sidecar probe"]), in: read.scene)
+        do {
+            try CanvasClaudeWrite.apply(plan, store: store, projectRoot: projectRoot)
+            return nil
+        } catch let refused as CanvasStore.SidecarRefused {
+            return refused
+        }
+    }
+
+    /// A model attached over a refused layout used to ACCEPT the batch: its verbs
+    /// no-op, so `apply` returned and the tool reported ids for cards that do not
+    /// exist. It now throws before the bracket — the same value the sidecar route
+    /// throws — and changes nothing in memory or on disk.
+    private func assertLiveRouteRefuses(_ json: String,
+                                        reason: CanvasStore.SidecarRefused.Reason,
+                                        name: String) async throws {
+        let (store, projectRoot) = try await project(name)
+        let before = try seedUnreadableSidecar(projectRoot, json)
+        let expected = try XCTUnwrap(try sidecarRouteError(store, projectRoot),
+                                     "control: the sidecar route refuses this file")
+        XCTAssertEqual(expected.reason, reason)
+
+        let model = attached(to: store, at: projectRoot)
+        XCTAssertTrue(model.isReadOnly, "precondition: attached over a refused layout")
+        let read = CanvasClaudeWrite.readScene(store: store, projectRoot: projectRoot)
+        XCTAssertTrue(read.fromOpenCanvas, "precondition: the live route answers")
+        XCTAssertEqual(read.refusal, expected, "the read reports the same refusal")
+        let sceneBefore = model.scene
+        let scrapsBefore = model.scraps
+
+        let plan = CanvasClaudePlacement.plan(request(["a card that must not appear"]),
+                                              in: read.scene)
+        XCTAssertThrowsError(
+            try CanvasClaudeWrite.apply(plan, store: store, projectRoot: projectRoot)
+        ) { error in
+            XCTAssertEqual(error as? CanvasStore.SidecarRefused, expected,
+                           "the live route throws exactly the sidecar route's error")
+        }
+        XCTAssertEqual(model.scene, sceneBefore, "nothing landed on the live scene")
+        XCTAssertEqual(model.scraps, scrapsBefore, "nor in its words")
+        model.flush()
+        model.detach()
+        XCTAssertEqual(try Data(contentsOf: sidecarURL(projectRoot)), before.sidecar)
+        XCTAssertEqual(try Data(contentsOf: scrapsURL(projectRoot)), before.scraps)
+        XCTAssertEqual(CanvasClaudeWrite.refusal(of: store, projectRoot: projectRoot),
+                       expected, "the door's helper answers the same, open or closed")
+    }
+
+    func test_anOpenCanvasOverANewerLayoutRefusesClaudesWriteWithTheSidecarsError() async throws {
+        try await assertLiveRouteRefuses(Self.sidecarFromANewerBuild, reason: .newerVersion,
+                                         name: "LiveRefusedNewer")
+    }
+
+    func test_anOpenCanvasOverADamagedLayoutRefusesClaudesWriteWithTheSidecarsError() async throws {
+        try await assertLiveRouteRefuses("not json at all", reason: .damaged,
+                                         name: "LiveRefusedDamaged")
+    }
+
+    /// Control: an open canvas over a readable layout has no refusal and still
+    /// takes the batch.
+    func test_anOpenReadableCanvasHasNoRefusalAndTakesTheWrite() async throws {
+        let (store, projectRoot) = try await project("LiveReadable")
+        let model = attached(to: store, at: projectRoot)
+        XCTAssertNil(CanvasClaudeWrite.refusal(of: store, projectRoot: projectRoot))
+        let read = CanvasClaudeWrite.readScene(store: store, projectRoot: projectRoot)
+        XCTAssertNil(read.refusal)
+        let plan = CanvasClaudePlacement.plan(request(["kept"]), in: read.scene)
+        try CanvasClaudeWrite.apply(plan, store: store, projectRoot: projectRoot)
+        XCTAssertEqual(model.scraps[plan.scraps[0].node.id], "kept")
+    }
 }

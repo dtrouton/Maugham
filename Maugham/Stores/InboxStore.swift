@@ -853,9 +853,10 @@ final class InboxStore {
         _ entry: InboxEntry, projectStore: ProjectStore,
         placement: CanvasCapture.Placement
     ) async throws -> CanvasNodeID {
-        // **Before every mutating step, including the copy** (issue #33). A
-        // sidecar this build cannot read holds somebody's whole arrangement, and
-        // `CanvasCapture.send` would refuse it too — but by then the picture is
+        // **Before every mutating step, including the copy** (issues #33, #44 —
+        // with the canvas open or not). A layout file this build cannot read
+        // holds somebody's whole arrangement, and `CanvasCapture.send` would
+        // refuse it too — but by then the picture is
         // already in `canvas_assets/`, referenced by no node and enumerated by
         // nothing, which is a stranded file on every attempt.
         try CanvasCapture.refuseUnlessWritable(

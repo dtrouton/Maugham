@@ -19,17 +19,17 @@ final class PromotionCommandTests: XCTestCase {
         let model = CanvasModel()
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
             persona: .plan,
-            selection: model.selection, nodeKind: nil))
+            selection: model.selection, nodeKind: nil, isReadOnly: false))
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
             persona: .plan,
-            selection: .node(a), nodeKind: .scrap))
+            selection: .node(a), nodeKind: .scrap, isReadOnly: false))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
             persona: .author,
-            selection: .node(a), nodeKind: .scrap),
+            selection: .node(a), nodeKind: .scrap, isReadOnly: false),
             "the manuscript editor has no canvas selection to promote")
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
             persona: .author,
-            selection: .region(CanvasRegionID("r")), nodeKind: nil))
+            selection: .region(CanvasRegionID("r")), nodeKind: nil, isReadOnly: false))
     }
 
     /// A REFERENCED item node already exists as itself, so `Promotion.targets`
@@ -42,12 +42,12 @@ final class PromotionCommandTests: XCTestCase {
     /// selection case.
     func test_aReferencedItemNodeIsNotPromotableBecauseItAlreadyExistsAsItself() {
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
-            persona: .plan, selection: .node(a), nodeKind: .scrap))
+            persona: .plan, selection: .node(a), nodeKind: .scrap, isReadOnly: false))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
             persona: .plan, selection: .node(a),
-            nodeKind: .item(.project(id: "r-9"))))
+            nodeKind: .item(.project(id: "r-9")), isReadOnly: false))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
-            persona: .plan, selection: .node(a), nodeKind: nil),
+            persona: .plan, selection: .node(a), nodeKind: nil, isReadOnly: false),
             "a selection naming a node the scene no longer holds resolves to no "
             + "kind, and an enabled command with nothing behind it is the "
             + "condition the flag exists to prevent")
@@ -61,10 +61,10 @@ final class PromotionCommandTests: XCTestCase {
     func test_anOwnedItemNodeIsPromotable() {
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
             persona: .plan, selection: .node(a),
-            nodeKind: .item(.owned(path: "canvas_assets/image-20260730-121314.png"))))
+            nodeKind: .item(.owned(path: "canvas_assets/image-20260730-121314.png")), isReadOnly: false))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
             persona: .author, selection: .node(a),
-            nodeKind: .item(.owned(path: "canvas_assets/image-20260730-121314.png"))),
+            nodeKind: .item(.owned(path: "canvas_assets/image-20260730-121314.png")), isReadOnly: false),
             "the control: the centre-column guard still runs first — this is "
             + "not an escape hatch past it. Author's centre is the editor, and "
             + "a canvas selection there names something not on screen")
@@ -75,10 +75,10 @@ final class PromotionCommandTests: XCTestCase {
     func test_theNodeKindTermDoesNotReachARegionOrALine() {
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
             persona: .plan,
-            selection: .region(CanvasRegionID("r")), nodeKind: nil))
+            selection: .region(CanvasRegionID("r")), nodeKind: nil, isReadOnly: false))
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
             persona: .plan,
-            selection: .line(CanvasLineID("l")), nodeKind: nil))
+            selection: .line(CanvasLineID("l")), nodeKind: nil, isReadOnly: false))
     }
 
     func test_everySelectionKindIsPromotable() {
@@ -96,7 +96,7 @@ final class PromotionCommandTests: XCTestCase {
                                            .line(CanvasLineID("l"))] {
             XCTAssertTrue(CanvasPromotionModifier.isPromotable(
                 persona: .plan,
-                selection: selection, nodeKind: .scrap),
+                selection: selection, nodeKind: .scrap, isReadOnly: false),
                 "\(selection)")
         }
     }

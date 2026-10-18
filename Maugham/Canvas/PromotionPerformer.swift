@@ -137,6 +137,11 @@ enum PromotionFailure: LocalizedError, Equatable {
     /// The chosen palette card is no longer in the project. The picker was built
     /// from a snapshot taken when the sheet opened.
     case paletteCardIsGone
+    /// The canvas is read-only: this build refused its layout file (issue #44).
+    /// Every promotion writes a mark into that file, and the artifact would be
+    /// made before the mark was refused — so nothing is made at all. It carries
+    /// the refusal so the sentence is the canvas's own, one per reason.
+    case canvasIsReadOnly(CanvasStore.SidecarRefused)
 
     var errorDescription: String? {
         switch self {
@@ -208,6 +213,8 @@ enum PromotionFailure: LocalizedError, Equatable {
         case .paletteCardIsGone:
             return "That palette card is no longer in the project, so the picture "
                 + "has nowhere to go."
+        case .canvasIsReadOnly(let refused):
+            return refused.reason.sentence
         }
     }
 }
@@ -298,6 +305,12 @@ struct PromotionPerformer {
     }
 
     func perform(_ plan: PromotionPlan) async throws -> PromotionResult {
+        // FIRST, above validation and every write: a read-only canvas (issue
+        // #44) makes no artifact. `CanvasPromotionModifier.isPromotable` already
+        // greys the command; this is the door, for a plan that got here anyway.
+        if let refused = model.sidecarRefusal {
+            throw PromotionFailure.canvasIsReadOnly(refused)
+        }
         try validate(plan)
         try await precheckOfferedLinks(plan)
         switch plan.producedKind {
