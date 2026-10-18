@@ -283,7 +283,7 @@ final class CanvasCollapseTests: XCTestCase {
     /// did not simply hide the pane everywhere: the writer gets back what they
     /// had **before the wall**, which is the only value that was ever theirs.
     ///
-    /// The wall's close here is what `ProjectWindow.closePaletteWallOnPersonaChange`
+    /// The wall's close here is what `PaletteWallState.closePaletteWallOnPersonaChange`
     /// drives from `PaletteWallModifier`'s persona observer (the 2b fix wave
     /// replaced the old per-writer `clearsPaletteWallStash` with that one rule,
     /// so ANY persona write closes the wall — not only ⌘1's).
@@ -304,20 +304,20 @@ final class CanvasCollapseTests: XCTestCase {
     /// and hides, closing restores and forgets the selected card.
     func test_theWallsOwnRuleStillWorksWithNoCanvasInvolved() {
         var showInspector = true
-        var stash: Bool?
+        var wall = PaletteWallState()
         var card: String? = "card-1"
-        ProjectWindow.applyPaletteWallChange(
+        wall.applyPaletteWallChange(
             from: false, to: true, showInspector: &showInspector,
-            stash: &stash, selectedPaletteCardId: &card)
+            selectedPaletteCardId: &card)
         XCTAssertFalse(showInspector)
-        XCTAssertEqual(stash, true)
+        XCTAssertEqual(wall.inspectorWasVisibleBefore, true)
         XCTAssertEqual(card, "card-1", "the card survives opening")
 
-        ProjectWindow.applyPaletteWallChange(
+        wall.applyPaletteWallChange(
             from: true, to: false, showInspector: &showInspector,
-            stash: &stash, selectedPaletteCardId: &card)
+            selectedPaletteCardId: &card)
         XCTAssertTrue(showInspector)
-        XCTAssertNil(stash)
+        XCTAssertNil(wall.inspectorWasVisibleBefore)
         XCTAssertNil(card, "and is cleared on the way out")
     }
 
@@ -392,7 +392,7 @@ final class CanvasCollapseTests: XCTestCase {
     /// true only when the destination was Plan — so a wall opened in Author rode
     /// a Claude arrival or a wiki-link jump (neither of which reaches that
     /// handler) straight back over Author's centre. It is
-    /// `ProjectWindow.closePaletteWallOnPersonaChange` now, observed on the
+    /// `PaletteWallState.closePaletteWallOnPersonaChange` now, observed on the
     /// persona itself, and the destination is not a term at all.
     ///
     /// **Kept HERE rather than moved wholesale** because this suite's subject is
@@ -401,12 +401,10 @@ final class CanvasCollapseTests: XCTestCase {
     /// `releasesCanvasCollapse` above, and a reader comparing them wants both in
     /// one place. The wall's own behaviour is `PaletteWallDoorTests`'.
     func test_thePaletteWallStashIsDroppedByAPersonaChangeRatherThanRestored() {
-        var open = true
-        var stash: Bool? = false
-        ProjectWindow.closePaletteWallOnPersonaChange(showsPaletteWall: &open,
-                                                      stash: &stash)
-        XCTAssertFalse(open, "any persona change closes the wall now")
-        XCTAssertNil(stash,
+        var wall = PaletteWallState(showsWall: true, inspectorWasVisibleBefore: false)
+        wall.closePaletteWallOnPersonaChange()
+        XCTAssertFalse(wall.showsWall, "any persona change closes the wall now")
+        XCTAssertNil(wall.inspectorWasVisibleBefore,
                      "dropped, not restored — a live `false` here would close "
                      + "the inspector back over the switch's own force-open, "
                      + "one update pass later")
@@ -432,13 +430,13 @@ final class CanvasCollapseTests: XCTestCase {
     /// beside the thing it counts is what this slice measured eleven times.
     /// Read the fields.
     ///
-    /// Both `fold` methods call the production statics; nothing here mirrors a
+    /// Both `fold` methods call production's own folds; nothing here mirrors a
     /// rule.
     private struct WindowState: Equatable {
         var columnVisibility: NavigationSplitViewVisibility = .automatic
         var showInspector: Bool
         var canvasStash: Bool?
-        var paletteStash: Bool?
+        var paletteWall = PaletteWallState()
         var selectedPaletteCardId: String?
 
         mutating func foldCollapse(route: ProjectWindow.InspectorRoute, isNoChromeOn: Bool) {
@@ -453,10 +451,9 @@ final class CanvasCollapseTests: XCTestCase {
         }
 
         mutating func foldPalette(from old: Bool, to new: Bool) {
-            ProjectWindow.applyPaletteWallChange(
+            paletteWall.applyPaletteWallChange(
                 from: old, to: new,
                 showInspector: &showInspector,
-                stash: &paletteStash,
                 selectedPaletteCardId: &selectedPaletteCardId)
         }
     }

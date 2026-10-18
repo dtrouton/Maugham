@@ -27,18 +27,10 @@ struct ProjectWindow: View {
     @State private var window: NSWindow?
     @State private var metrics: EditorMetrics =
         EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
-    @State private var showingSaveFlash: Bool = false
-    /// The run key's own acknowledgment (M2 §3.1) — the same overlay, its own
-    /// binding, because ⌘S and ⌘R can be pressed a second apart and one flash
-    /// showing the other's word is worse than two.
-    @State private var showingCompilerFlash: Bool = false
-    /// What that capsule says — the acknowledgment's own word, not a constant,
-    /// because the second ⌘R of a double-press says something different
-    /// (`CompilerOrchestrator.Acknowledgment`).
-    @State private var compilerFlashLabel: String =
-        CompilerOrchestrator.Acknowledgment.started.flashLabel
-    /// Which flash the pending hide belongs to — see `showCompilerFlash`.
-    @State private var compilerFlashGeneration: Int = 0
+    /// **The window's flashes and its banner** — ⌘S's capsule, ⌘R's capsule
+    /// (its word and its generation) and the MCP note banner — as ONE value
+    /// (foundations plan 4 Task 6). See `WindowFlashes`.
+    @State private var flashes = WindowFlashes()
     /// The Diagnostics pane's gear menu (M2 Task 8), seeded from
     /// `UIState.compilerModel` at `load()` and written back through
     /// `updateUIState` on change — the `outlineLayout` pattern.
@@ -57,34 +49,12 @@ struct ProjectWindow: View {
     /// document?" by accident; see `BinderSubject`.
     @State private var selectedSubject: BinderSubject?
     @State private var selectedPaletteCardId: String?
-    /// The palette wall's door (shell-finish stage 2b Task 5) — the Palette
-    /// tree section's own "Open Wall" affordance opens it (through
-    /// `pressPaletteWallDoor`, which either writes this or travels — stage 3b
-    /// Task 4), and that door is what carried the wall across Task 7's deletion
-    /// of the binder strip it used to be reached through. `showsPaletteWallCentre` is what turns this (plus
-    /// the persona) into a routing decision; `PaletteWallModifier` is what
-    /// turns it into the inspector stash/restore the old `.palette` segment
-    /// used to own.
-    @State private var showsPaletteWall: Bool = false
-    /// **The travel token** (shell-finish stage 3b Task 4, Denver's 2026-08-12
-    /// ruling: the door in Plan takes the writer to Author with the wall open).
-    ///
-    /// It exists because the two halves cannot happen in one pass: a persona
-    /// change CLOSES the wall (`closePaletteWallOnPersonaChange`), so a door
-    /// that opened the wall and then switched persona would have the switch
-    /// shut it. So the press arms this, and `PaletteWallModifier`'s own persona
-    /// observer consumes it — inside that one handler, immediately after the
-    /// close — which is what "opened AFTER the switch lands" means without any
-    /// ordering resting on which modifier SwiftUI delivers first (tripwire 2).
-    ///
-    /// Window state, never persisted: it is a one-shot about a press that has
-    /// already happened, and a token surviving a relaunch would open a wall
-    /// nobody asked for.
-    @State private var wallTravelPending: Bool = false
-    /// The inspector's visibility captured on entry to the palette wall, so
-    /// leaving restores it exactly (spec: no stuck-hidden inspector). `nil`
-    /// when the wall is closed. Owned by `PaletteWallModifier`.
-    @State private var inspectorWasVisibleBeforePalette: Bool?
+    /// **The palette wall's window state** — its open flag, the door-in-Plan
+    /// travel token and the inspector stash — as ONE value (foundations plan 4
+    /// Task 6). See `PaletteWallState` for each field and the folds over them;
+    /// `PaletteWallModifier` takes a binding to the whole, `CentreColumn` a
+    /// binding to `showsWall`.
+    @State private var paletteWall = PaletteWallState()
     /// The inspector's visibility captured when `⌘\` gave the canvas the whole
     /// window (spec §8A.3), so leaving restores it exactly. `nil` when the
     /// canvas is not collapsed — which is also how `canvasCollapse` knows a
@@ -182,7 +152,6 @@ struct ProjectWindow: View {
     /// `PublishCentreModel`. `PublishPreviewModifier` keeps its books current;
     /// the static `publishCentre(…)` decides which surface draws from its values.
     @State private var publishCentre = PublishCentreModel()
-    @State private var mcpBanner = MCPBannerModel()
     @State private var showingCheckpointLabelSheet: Bool = false
     @State private var currentElement: String? = nil
     /// Control-plane model for the editor (ADR 0017). ProjectWindow is its sole
@@ -291,25 +260,25 @@ struct ProjectWindow: View {
                     detailColumn(store: store, documentStore: documentStore)
                 }
                 .overlay(alignment: .top) {
-                    SaveFlashOverlay(isShowing: $showingSaveFlash)
+                    SaveFlashOverlay(isShowing: $flashes.showingSave)
                 }
                 .overlay(alignment: .top) {
-                    SaveFlashOverlay(isShowing: $showingCompilerFlash,
-                                     label: compilerFlashLabel,
+                    SaveFlashOverlay(isShowing: $flashes.showingCompiler,
+                                     label: flashes.compilerLabel,
                                      systemImage: "text.magnifyingglass")
                 }
                 .overlay(alignment: .top) {
-                    if let title = mcpBanner.title {
+                    if let title = flashes.mcpBanner.title {
                         MCPNoteBanner(
                             title: title,
-                            count: mcpBanner.count,
+                            count: flashes.mcpBanner.count,
                             onShow: { handleShowLatestMCPNote() },
-                            onDismiss: { mcpBanner.dismiss() }
+                            onDismiss: { flashes.mcpBanner.dismiss() }
                         )
                         .transition(.move(edge: .top).combined(with: .opacity))
                     }
                 }
-                .animation(.easeInOut(duration: 0.2), value: mcpBanner.title)
+                .animation(.easeInOut(duration: 0.2), value: flashes.mcpBanner.title)
                 .navigationTitle(store.manifest.title)
                 .onChange(of: activeSheet) { _, presented in
                     // A presentation is the one moment every sheet has in
@@ -576,7 +545,7 @@ struct ProjectWindow: View {
             persona: $persona,
             restoreOutcome: $restoreOutcome,
             assistant: assistant,
-            mcpBanner: mcpBanner,
+            mcpBanner: flashes.mcpBanner,
             treeState: treeState))
         .modifier(CheckpointModifier(
             documentStore: documentStore,
@@ -644,12 +613,10 @@ struct ProjectWindow: View {
             documentStore: documentStore,
             editorControl: $editorControl))
         .modifier(PaletteWallModifier(
-            showsPaletteWall: $showsPaletteWall,
+            paletteWall: $paletteWall,
             showInspector: $showInspector,
-            inspectorWasVisibleBeforePalette: $inspectorWasVisibleBeforePalette,
             selectedPaletteCardId: $selectedPaletteCardId,
             selectedSubject: $selectedSubject,
-            wallTravelPending: $wallTravelPending,
             persona: persona))
         // A research subject arriving while the canvas holds the centre reveals
         // the column that previews it — one line, because this body has no
@@ -774,7 +741,7 @@ struct ProjectWindow: View {
         guard let store, let documentStore, let id = selectedManuscriptDocId,
               Self.showsStatusFooter(
                 persona: persona, subject: selectedSubject,
-                showsPaletteWall: showsPaletteWall,
+                showsPaletteWall: paletteWall.showsWall,
                 structure: store.manifest.structure),
               let item = TreeWalk.find(id: id, in: store.manifest.structure)
         else { return nil }
@@ -866,8 +833,8 @@ struct ProjectWindow: View {
     /// A ⌘⌥N that sets `showInspector = true` while the wall is open wins —
     /// the user explicitly asked for the pane; we don't fight it.
     ///
-    /// **Re-keyed on `showsPaletteWall` since stage 2b Task 5** — see
-    /// `applyPaletteWallChange`'s doc comment for what changed and why.
+    /// **Re-keyed on the wall's own flag since stage 2b Task 5** — see
+    /// `PaletteWallState.applyPaletteWallChange`'s doc comment for what changed and why.
     ///
     /// **The subject-change close lives here too**, rather than as a second
     /// modifier: "Esc or any subject change closes it" is the door's own
@@ -882,31 +849,29 @@ struct ProjectWindow: View {
     /// about it is whether it fires at all, so a test that re-created the
     /// observer would be testing its own copy.
     struct PaletteWallModifier: ViewModifier {
-        @Binding var showsPaletteWall: Bool
+        /// The wall's whole window state — its flag, the door-in-Plan travel
+        /// token and the inspector stash (`PaletteWallState`). The token is
+        /// consumed below, in the same handler that closes the wall and after
+        /// it, so nothing about the order depends on which modifier SwiftUI
+        /// runs first.
+        @Binding var paletteWall: PaletteWallState
         @Binding var showInspector: Bool
-        @Binding var inspectorWasVisibleBeforePalette: Bool?
         @Binding var selectedPaletteCardId: String?
         @Binding var selectedSubject: BinderSubject?
-        /// The door-in-Plan travel token — see `ProjectWindow.wallTravelPending`
-        /// and `applyWallTravelOnPersonaChange`. Consumed below, in the same
-        /// handler that closes the wall and after it, so nothing about the
-        /// order depends on which modifier SwiftUI runs first.
-        @Binding var wallTravelPending: Bool
         /// The window's working mode — watched, never written. See
-        /// `ProjectWindow.closePaletteWallOnPersonaChange`.
+        /// `PaletteWallState.closePaletteWallOnPersonaChange`.
         let persona: Persona
 
         func body(content: Content) -> some View {
             content
-                .onChange(of: showsPaletteWall) { old, new in
-                    ProjectWindow.applyPaletteWallChange(
+                .onChange(of: paletteWall.showsWall) { old, new in
+                    paletteWall.applyPaletteWallChange(
                         from: old, to: new,
                         showInspector: &showInspector,
-                        stash: &inspectorWasVisibleBeforePalette,
                         selectedPaletteCardId: &selectedPaletteCardId)
                 }
                 .onChange(of: selectedSubject) { _, _ in
-                    if showsPaletteWall { showsPaletteWall = false }
+                    if paletteWall.showsWall { paletteWall.showsWall = false }
                 }
                 // **The wall belongs to the persona it was opened in** (final
                 // review's I3). Here rather than at the three sites that write
@@ -918,12 +883,8 @@ struct ProjectWindow: View {
                 // rule about one persona change rather than two observers
                 // racing. Swap them and the wall opens and is immediately shut.
                 .onChange(of: persona) { _, _ in
-                    ProjectWindow.closePaletteWallOnPersonaChange(
-                        showsPaletteWall: &showsPaletteWall,
-                        stash: &inspectorWasVisibleBeforePalette)
-                    ProjectWindow.applyWallTravelOnPersonaChange(
-                        pending: &wallTravelPending,
-                        showsPaletteWall: &showsPaletteWall)
+                    paletteWall.closePaletteWallOnPersonaChange()
+                    paletteWall.applyWallTravelOnPersonaChange()
                 }
         }
     }
@@ -1372,8 +1333,7 @@ struct ProjectWindow: View {
         guard let change = Self.pressPaletteWallDoor(
             persona: &persona,
             detailSegment: &detailSegment,
-            showsPaletteWall: &showsPaletteWall,
-            wallTravelPending: &wallTravelPending,
+            paletteWall: &paletteWall,
             memory: documentStore?.uiState.personaMemory ?? .empty)
         else { return }
         documentStore?.updateUIState {
@@ -1397,7 +1357,7 @@ struct ProjectWindow: View {
             declaredWorld: declaredWorld, window: window,
             persona: persona, researchPreviewVisible: researchPreviewVisible,
             selectedSubject: $selectedSubject,
-            showsPaletteWall: $showsPaletteWall,
+            showsPaletteWall: $paletteWall.showsWall,
             selectedPaletteCardId: $selectedPaletteCardId,
             outlineLayout: $outlineLayout,
             showInspector: $showInspector,
@@ -1570,7 +1530,7 @@ struct ProjectWindow: View {
         guard Self.showsStatusFooter(
             persona: persona,
             subject: selectedSubject,
-            showsPaletteWall: showsPaletteWall,
+            showsPaletteWall: paletteWall.showsWall,
             structure: store?.manifest.structure ?? []) else { return false }
         if isNoChromeOn { return false }
         return true
@@ -2164,72 +2124,6 @@ struct ProjectWindow: View {
         return projectType == .collection ? .collectionPiece : .document
     }
 
-    /// The palette wall's own inspector rule, as a fold rather than a closure
-    /// body — behaviour unchanged in shape, extracted so a test can drive it.
-    ///
-    /// **Re-keyed on `showsPaletteWall` in stage 2b Task 5**, rather than on a
-    /// `.palette` binder segment. The old key shared an update pass with
-    /// `CanvasCollapseModifier`, which watched the same segment — Plan's binder
-    /// offered Palette and Canvas side by side, so a one-click palette → canvas
-    /// move in focus mode ran both folds in the same pass, in an order neither
-    /// could depend on. The wall's door touches no shared key, and Task 7 took
-    /// the strip that was the other half of the race: the wall cannot be open in
-    /// Plan at all (`showsPaletteWallCentre` refuses to draw it there, and
-    /// `closePaletteWallOnPersonaChange` closes it on any persona change), so
-    /// the two folds can no longer meet.
-    /// **A persona change closes the wall — ANY persona change** (stage 2b
-    /// final review's I3).
-    ///
-    /// The rule used to live in `PersonaModifier`, keyed on the destination
-    /// being Plan, and it was reachable only from the ⌘1–⌘4 handler. Two other
-    /// writers move the persona: `CanvasClaudeArrivalModifier.show` writes
-    /// `persona = .plan` directly (deliberately — its own doc comment argues
-    /// down going through the notification), and `ManuscriptNavigation.go`
-    /// writes it for a wiki-link jump. So a wall open over Author's centre
-    /// survived a Show, hid itself in Plan (`showsPaletteWallCentre` refuses
-    /// there), and was back over the manuscript the moment the writer pressed
-    /// ⌘2 — with a visibility stash still armed to close their inspector on the
-    /// way out.
-    ///
-    /// **An observer of the persona rather than a call at each writer.** A
-    /// census of three call sites is one refactor away from being a census of
-    /// two; the wall is window state and the question is about the state.
-    ///
-    /// **It drops the stash rather than restoring it**, which is what makes the
-    /// order-independence argument hold: a persona switch opens the right column
-    /// (`PersonaModifier` writes `showInspector = true`), and
-    /// `applyPaletteWallChange`'s exit arm — which runs a pass later — would
-    /// restore the pre-wall visibility over it and land a writer who had closed
-    /// their inspector in the new persona with it closed, unlike every other
-    /// switch. A `nil` stash makes that restore a no-op in either order, which
-    /// is tripwire 2's whole lesson.
-    static func closePaletteWallOnPersonaChange(showsPaletteWall: inout Bool,
-                                                stash: inout Bool?) {
-        guard showsPaletteWall else { return }
-        stash = nil
-        showsPaletteWall = false
-    }
-
-    /// **The other half of the same persona change** (shell-finish stage 3b
-    /// Task 4): the wall the writer asked for in Plan, opened now that the
-    /// switch to Author has landed.
-    ///
-    /// Called from `PaletteWallModifier`'s `.onChange(of: persona)` and only
-    /// there, AFTER `closePaletteWallOnPersonaChange`. The order is the whole
-    /// point: the close is unconditional, so a travel consumed first would open
-    /// a wall the close then shuts, and the writer would arrive in Author with
-    /// the same nothing the disabled door used to give them.
-    ///
-    /// **A one-shot.** Clearing the token before opening is what keeps the wall
-    /// from following the writer around — ⌘1 back to Plan closes it, and ⌘2 must
-    /// not bring it back.
-    static func applyWallTravelOnPersonaChange(pending: inout Bool,
-                                               showsPaletteWall: inout Bool) {
-        guard pending else { return }
-        pending = false
-        showsPaletteWall = true
-    }
-
     /// Whether the Palette section's "Open Wall" door travels from this persona
     /// rather than opening the wall where the writer already is.
     ///
@@ -2258,19 +2152,25 @@ struct ProjectWindow: View {
     /// (`PaletteWallModifier`'s second observer), so either would undo the very
     /// thing the press asked for. What crosses the switch is the token.
     @discardableResult
+    ///
+    /// **A `ProjectWindow` static rather than a `PaletteWallState` method,
+    /// though it writes the wall's state** (foundations plan 4 Task 6): it
+    /// also writes the PERSONA, and the window is one of the closed set of
+    /// persona decision sites
+    /// (`TripwireGrepTests.personaDecisionSites`); moving it would have made
+    /// the wall's value a sixth.
     static func pressPaletteWallDoor(
         persona: inout Persona,
         detailSegment: inout DetailSegment,
-        showsPaletteWall: inout Bool,
-        wallTravelPending: inout Bool,
+        paletteWall: inout PaletteWallState,
         memory: PersonaMemory
     ) -> PersonaModifier.Change? {
         guard let destination = TreeTravel.treeTravelDestination(persona: persona)
         else {
-            showsPaletteWall = true
+            paletteWall.showsWall = true
             return nil
         }
-        wallTravelPending = true
+        paletteWall.travelPending = true
         // The same discipline every deliberate persona move uses (`TreeTravel
         // Modifier`, `ManuscriptNavigation.go`): the departing position is
         // recorded, so ⌘1 brings the writer back to the board they left.
@@ -2282,31 +2182,13 @@ struct ProjectWindow: View {
         return change
     }
 
-    static func applyPaletteWallChange(from old: Bool,
-                                       to new: Bool,
-                                       showInspector: inout Bool,
-                                       stash: inout Bool?,
-                                       selectedPaletteCardId: inout String?) {
-        if new && !old {
-            stash = showInspector
-            showInspector = false
-        } else if old && !new {
-            // A `nil` stash is a real state and means "someone else has already
-            // taken this memory over" — see `canvasCollapse`'s takeover. It has
-            // always been written as a conditional restore; that is now
-            // load-bearing rather than merely defensive.
-            if let prior = stash { showInspector = prior }
-            stash = nil
-            selectedPaletteCardId = nil
-        }
-    }
-
     /// Whether the palette wall takes the centre column — `showsPaletteWall`
-    /// AND the persona is not Plan, whose centre is the canvas (stage 2b Task
-    /// 5's contract). Pure and named so `editorPane`'s guard and a test can
-    /// share one answer rather than two copies of `persona != .plan` drifting.
+    /// AND the persona is one the wall may cover (`Persona.showsPaletteWall`:
+    /// not Plan, whose centre is the canvas — stage 2b Task 5's contract). Pure
+    /// and named so `editorPane`'s guard and a test can share one answer rather
+    /// than two copies of the persona rule drifting.
     static func showsPaletteWallCentre(showsPaletteWall: Bool, persona: Persona) -> Bool {
-        showsPaletteWall && persona != .plan
+        showsPaletteWall && persona.showsPaletteWall
     }
 
     // MARK: - ⌘\ collapses to the canvas (spec §8A.3)
@@ -2949,10 +2831,10 @@ struct ProjectWindow: View {
 
     @MainActor
     private func showSaveFlash() {
-        showingSaveFlash = true
+        flashes.showingSave = true
         Task {
             try? await Task.sleep(for: .milliseconds(1200))
-            await MainActor.run { showingSaveFlash = false }
+            await MainActor.run { flashes.showingSave = false }
         }
     }
 
@@ -3018,9 +2900,9 @@ struct ProjectWindow: View {
     /// re-implementing the generation dance.
     private var compilerFlash: CompilerFlashSink {
         CompilerFlashSink(
-            label: $compilerFlashLabel,
-            generation: $compilerFlashGeneration,
-            showing: $showingCompilerFlash)
+            label: $flashes.compilerLabel,
+            generation: $flashes.compilerGeneration,
+            showing: $flashes.showingCompiler)
     }
 
     /// **Show**, on the banner that says Claude added a research note.
@@ -3100,7 +2982,7 @@ struct ProjectWindow: View {
     }
 
     private func handleShowLatestMCPNote() {
-        guard let id = mcpBanner.latestId else { return }
+        guard let id = flashes.mcpBanner.latestId else { return }
         selectedSubject = .research(id)
         // The tree opens far enough to draw the note's row — `openResearchItem`
         // carries why this is a call here and not an observer of the subject.
@@ -3115,7 +2997,7 @@ struct ProjectWindow: View {
         Self.revealResearchColumn(persona: persona, subject: selectedSubject,
                                   showInspector: &showInspector,
                                   detailSegment: &detailSegment)
-        mcpBanner.dismiss()
+        flashes.mcpBanner.dismiss()
     }
 
     @MainActor

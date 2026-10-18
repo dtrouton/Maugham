@@ -131,7 +131,7 @@ final class PersonaModifierTests: XCTestCase {
     // I3). The predicate lived here, asked of this handler, and this handler is
     // one of THREE writers of `persona` — the other two (a Claude arrival, a
     // wiki-link jump) never reach it, so a wall opened in Author survived them
-    // both. Its successor is `ProjectWindow.closePaletteWallOnPersonaChange`,
+    // both. Its successor is `PaletteWallState.closePaletteWallOnPersonaChange`,
     // observed on the persona in `PaletteWallModifier`, and the ordering
     // argument these tests pinned is pinned there instead: the stash is
     // dropped, so the exit arm's conditional restore cannot fight the

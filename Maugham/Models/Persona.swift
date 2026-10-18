@@ -658,4 +658,48 @@ public extension Persona {
         case .plan, .publish: return false
         }
     }
+
+    // MARK: - Three gates that were persona names (foundations plan 4 Task 6)
+
+    /// **Whether the palette wall may take this persona's centre column.**
+    /// Everywhere but Plan, whose centre is the board — the wall is force-closed
+    /// on every persona change and refused there (stage 2b Task 5). It was
+    /// `persona != .plan` in `ProjectWindow.showsPaletteWallCentre`.
+    ///
+    /// Deliberately NOT derived from `centresTheCanvas`, though today the two
+    /// are complements: the wall is refused in Plan because Plan's centre is
+    /// where a writer arranges, and a later persona whose centre is neither the
+    /// board nor the manuscript has to decide the wall for itself rather than
+    /// inherit an answer from the canvas. Exhaustive with no `default:` for the
+    /// same reason.
+    var showsPaletteWall: Bool {
+        switch self {
+        case .author, .review, .publish: return true
+        case .plan: return false
+        }
+    }
+
+    /// **Whether the intent strip — the writing surface's running head —
+    /// is mounted in this persona.** Author alone: the other three are not
+    /// writing (`IntentStrip.line`'s own doc comment). It was
+    /// `persona == .author`, twice, in `IntentStrip`.
+    var showsIntentStrip: Bool {
+        switch self {
+        case .author: return true
+        case .plan, .review, .publish: return false
+        }
+    }
+
+    /// **Whether the left column carries the Exports footer** (the compiled
+    /// outputs list) in this persona. Everywhere but Plan: a compile-output list
+    /// is not part of arranging structure. It was `persona != .plan` in both
+    /// binder toggles — see `BinderPaneToggle`'s note for why this gate is
+    /// about what the writer is DOING rather than about any column, which is
+    /// also why it is not derived from `centresTheCanvas`.
+    var showsExports: Bool {
+        switch self {
+        case .author, .review, .publish: return true
+        case .plan: return false
+        }
+    }
 }

@@ -370,8 +370,8 @@ final class PromotionCommandTests: XCTestCase {
               ".modifier(CanvasCollapseModifier(",
               "NavigationSplitView(columnVisibility: $columnVisibility)",
               "Self.releasesCanvasCollapse(",
-              "ProjectWindow.closePaletteWallOnPersonaChange(",
-              "ProjectWindow.applyPaletteWallChange("],
+              "paletteWall.closePaletteWallOnPersonaChange(",
+              "paletteWall.applyPaletteWallChange("],
              // **Numbered by what each token IS, never by its position in the
              // array above** (1C-d Task 12a, review Important 1). This read
              // "The FIFTH is…", "The SIXTH is…" and so on; Task 12a inserted a
@@ -499,7 +499,7 @@ final class PromotionCommandTests: XCTestCase {
              + "`CanvasCollapseTests` assertion stays green while a writer who "
              + "closed the inspector before collapsing lands in the next "
              + "persona with it closed, which is the exact defect the predicate "
-             + "exists to prevent. **`ProjectWindow.closePaletteWallOnPersonaChange(` "
+             + "exists to prevent. **`paletteWall.closePaletteWallOnPersonaChange(` "
              + "is the same hazard on the WALL, and it had the identical gap "
              + "until the 1C-d whole-branch review (M3)** — Task 13 measured "
              + "the hazard on the collapse's predicate and censused that one, "
@@ -516,7 +516,7 @@ final class PromotionCommandTests: XCTestCase {
              + "visibility over the switch's unconditional `showInspector = "
              + "true` — and, one surface further, carries the wall itself into "
              + "the persona they never opened it in. "
-             + "`ProjectWindow.applyPaletteWallChange(` is the wall's own "
+             + "`paletteWall.applyPaletteWallChange(` is the wall's own "
              + "fold, and it is that shape one surface over: the fold is a "
              + "static with its own tests, so deleting the single line that "
              + "calls it from `PaletteWallModifier` compiles, warns nothing, "
@@ -747,18 +747,18 @@ final class PromotionCommandTests: XCTestCase {
         // writer of it — so the token names the observer's call.
         XCTAssertEqual(
             try missingTokens(in: Self.window,
-                              required: ["ProjectWindow.closePaletteWallOnPersonaChange(",
-                                         "ProjectWindow.closesNothingReal("]),
-            ["ProjectWindow.closesNothingReal("],
+                              required: ["paletteWall.closePaletteWallOnPersonaChange(",
+                                         "paletteWall.closesNothingReal("]),
+            ["paletteWall.closesNothingReal("],
             "the census reports the ABSENT palette-stash-call-site token and not "
             + "the present one")
         // And the wall's fold, the same shape one surface over: a static with
         // its own tests, called from exactly one line.
         XCTAssertEqual(
             try missingTokens(in: Self.window,
-                              required: ["ProjectWindow.applyPaletteWallChange(",
-                                         "ProjectWindow.applyNotARealSegmentChange("]),
-            ["ProjectWindow.applyNotARealSegmentChange("],
+                              required: ["paletteWall.applyPaletteWallChange(",
+                                         "paletteWall.applyNotARealSegmentChange("]),
+            ["paletteWall.applyNotARealSegmentChange("],
             "the census reports the ABSENT palette-fold token and not the present one")
         // And 1C-c3's provenance line in the card arm: `Origin` and its sentences
         // are fully testable with nothing in `body` reading them.

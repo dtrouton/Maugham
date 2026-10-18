@@ -127,20 +127,28 @@ final class PersonaKeyspaceTests: XCTestCase {
                       "Toggle Inspector should be ⌘⌥0, freeing ⌘⌥I for the Inspector pane")
     }
 
+    /// **⌘1–⌘4 are derived from `Persona.shortcutKey`** (foundations plan 4
+    /// Task 6): one `ForEach` over `Persona.allCases`, so the menu, the
+    /// persona bar's tooltip and its accessibility label read one key per
+    /// persona rather than the menu restating four literals.
+    /// `PersonaTests.test_shortcutKeys_areOneThroughFourInOrder` pins the keys.
     func test_personaShortcutsAreBound() throws {
         let app = try source("Maugham/MaughamApp.swift")
+        XCTAssertTrue(app.contains("ForEach(Persona.allCases, id: \\.self) { persona in"),
+                      "the persona items are no longer one ForEach over every persona")
+        XCTAssertTrue(
+            app.contains(".keyboardShortcut(KeyEquivalent(persona.shortcutKey), modifiers: .command)"),
+            "the persona items' key is not `Persona.shortcutKey`")
         for persona in Persona.allCases {
-            XCTAssertTrue(
+            XCTAssertFalse(
                 app.contains(#"keyboardShortcut("\#(persona.shortcutKey)", modifiers: .command)"#),
-                "⌘\(persona.shortcutKey) is not bound for \(persona.displayName)")
+                "⌘\(persona.shortcutKey) is restated as a literal beside the derived binding")
         }
     }
 
     func test_everyPersonaHasAMenuItem() throws {
         let app = try source("Maugham/MaughamApp.swift")
-        for persona in Persona.allCases {
-            XCTAssertTrue(app.contains("postPersona(.\(persona.rawValue))"),
-                          "no View-menu item posts \(persona.rawValue)")
-        }
+        XCTAssertTrue(app.contains("Button(persona.displayName) { postPersona(persona) }"),
+                      "the ForEach's item no longer posts the persona it names")
     }
 }

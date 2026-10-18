@@ -6694,6 +6694,138 @@ final class TripwireGrepTests: XCTestCase {
             + "test is what allows it, not this census")
     }
 
+    // MARK: - A view asks a persona predicate, never a persona name (foundations plan 4 Task 6)
+
+    /// One allowance: a FILE and the exact SPELLING that may compare a persona
+    /// there, with the reason it is not a gate a predicate should answer.
+    struct PersonaComparisonAllowance {
+        let file: String
+        let spelling: String
+        let reason: String
+    }
+
+    /// **File plus spelling, an array with a reason each — count the array,
+    /// never a prose number about it.** Every other persona comparison in
+    /// `Maugham/Views` is a gate, and a gate asks a named `Persona` predicate
+    /// (`centresTheCanvas`, `showsPaletteWall`, `showsIntentStrip`,
+    /// `showsExports`, …), because a name compared at four sites reads the same
+    /// at all four and drifts at the fifth.
+    static let personaComparisonAllowed: [PersonaComparisonAllowance] = [
+        PersonaComparisonAllowance(
+            file: "AssistantColumn.swift",
+            spelling: "old.persona == new.persona",
+            reason: "compares two SNAPSHOTS of the window's persona to tell a "
+                + "pane change from a persona switch (`paneChangeEndsTheStudy`); "
+                + "it names no persona, so there is no predicate it could ask"),
+    ]
+
+    /// `persona ==` and `persona != .` — the two shapes a name-gate takes.
+    /// `candidate == persona` (the picker's own selection test) is not a gate
+    /// and is not matched; nor is a persona compared from the other side
+    /// (`.plan == persona`), which is this census's stated limit.
+    static let personaComparisonPattern = try! NSRegularExpression(
+        pattern: #"\bpersona\s*==|\bpersona\s*!=\s*\."#)
+
+    /// Every persona comparison under `root`'s `Maugham/Views` that no
+    /// allowance admits, as `"<path>: <line>"`, plus every allowance that
+    /// admitted nothing (a stale entry is a hole someone can walk through).
+    /// Read through the source mask, so a comment or a string naming
+    /// `persona == .plan` is not a hit.
+    static func personaComparisonOffenders(
+        base: URL = SourceTree.repoRoot,
+        allowed: [PersonaComparisonAllowance] = personaComparisonAllowed
+    ) throws -> (offenders: [String], unused: [String]) {
+        var used = Set<Int>()
+        var offenders: [String] = []
+        for file in try SourceTree.maskedSources(under: "Maugham/Views", base: base) {
+            let name = (file.path as NSString).lastPathComponent
+            let masked = String(decoding: file.masked, as: UTF8.self)
+                .split(separator: "\n", omittingEmptySubsequences: false)
+            let raw = file.text.split(separator: "\n", omittingEmptySubsequences: false)
+            for index in masked.indices {
+                let line = String(masked[index])
+                let range = NSRange(line.startIndex..., in: line)
+                guard personaComparisonPattern.firstMatch(in: line, range: range) != nil
+                else { continue }
+                let rawLine = raw[index].trimmingCharacters(in: .whitespaces)
+                if let hit = allowed.indices.first(where: {
+                    allowed[$0].file == name && rawLine.contains(allowed[$0].spelling)
+                }) {
+                    used.insert(hit)
+                    continue
+                }
+                offenders.append("\(file.path): \(rawLine)")
+            }
+        }
+        let unused = allowed.indices.filter { !used.contains($0) }
+            .map { "\(allowed[$0].file): \(allowed[$0].spelling)" }
+        return (offenders, unused)
+    }
+
+    /// **No view gates on a persona's NAME.** Before this census the window
+    /// asked `persona != .plan` for the palette wall, `IntentStrip` asked
+    /// `persona == .author` twice and both binder toggles asked `persona !=
+    /// .plan` for the Exports footer; each is a named predicate now
+    /// (`Persona.showsPaletteWall`, `.showsIntentStrip`, `.showsExports`).
+    func test_noViewComparesAPersonaByName() throws {
+        let result = try Self.personaComparisonOffenders()
+        XCTAssertTrue(result.offenders.isEmpty,
+            "A view compares the persona by name. Ask a named `Persona` predicate "
+            + "(an exhaustive switch in `Persona.swift`) instead, or — if the "
+            + "comparison is not a gate — add a FILE plus SPELLING allowance "
+            + "with its reason. Offenders:\n" + result.offenders.joined(separator: "\n"))
+        XCTAssertTrue(result.unused.isEmpty,
+            "An allowance admits nothing any more — remove it: \(result.unused)")
+        for allowance in Self.personaComparisonAllowed {
+            XCTAssertFalse(allowance.reason.isEmpty, "\(allowance.file) carries no reason")
+        }
+    }
+
+    /// The control: planted name-gates of both shapes fire; a comment, a
+    /// string, the picker's `candidate == persona` and a predicate do not; the
+    /// allowed spelling passes in its own FILE and fires under any other name;
+    /// and an allowance whose spelling is gone is reported as unused.
+    func test_thePersonaComparisonCensusFiresOnPlantedOffenders() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/RogueStrip.swift": """
+            struct RogueStrip {
+                // persona == .author would be the old gate, in prose.
+                let label = "persona != .plan"
+                func a(persona: Persona) -> Bool { persona == .author }
+                func b(persona: Persona) -> Bool { persona != .plan }
+                func c(box: Box) -> Bool { box.persona==.review }
+                func d(candidate: Persona, persona: Persona) -> Bool { candidate == persona }
+                func e(persona: Persona) -> Bool { persona.showsExports }
+            }
+            """,
+            "Maugham/Views/AssistantColumn.swift": """
+            struct AssistantColumn {
+                static func f(old: S, new: S) -> Bool { old.persona == new.persona }
+            }
+            """,
+            "Maugham/Views/Elsewhere/NotTheAssistant.swift": """
+            struct NotTheAssistant {
+                static func f(old: S, new: S) -> Bool { old.persona == new.persona }
+            }
+            """,
+        ])
+        let planted = try Self.personaComparisonOffenders(base: base)
+        XCTAssertEqual(planted.offenders.sorted(), [
+            "Maugham/Views/Elsewhere/NotTheAssistant.swift: static func f(old: S, new: S) -> Bool { old.persona == new.persona }",
+            "Maugham/Views/RogueStrip.swift: func a(persona: Persona) -> Bool { persona == .author }",
+            "Maugham/Views/RogueStrip.swift: func b(persona: Persona) -> Bool { persona != .plan }",
+            "Maugham/Views/RogueStrip.swift: func c(box: Box) -> Bool { box.persona==.review }",
+        ].sorted(), "both shapes fire, nothing else does, and the allowance is by FILE")
+        XCTAssertEqual(planted.unused, [], "the planted AssistantColumn used its allowance")
+
+        let stale = try Self.personaComparisonOffenders(
+            base: base,
+            allowed: Self.personaComparisonAllowed + [PersonaComparisonAllowance(
+                file: "RogueStrip.swift", spelling: "persona == .gone", reason: "planted")])
+        XCTAssertEqual(stale.unused, ["RogueStrip.swift: persona == .gone"],
+                       "an allowance that admits nothing is reported")
+    }
+
     // MARK: - Canvas zoom rendering guard (tripwire 25, ADR 0026)
 
     /// The forbidden zoom-rendering call shapes. `.scaleEffect(` blurs text,

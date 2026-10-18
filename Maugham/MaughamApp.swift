@@ -212,14 +212,13 @@ struct MaughamApp: App {
             // NavigationSplitView is in use) rather than creating a second one
             // via CommandMenu("View").
             CommandGroup(after: .toolbar) {
-                Button("Plan") { postPersona(.plan) }
-                    .keyboardShortcut("1", modifiers: .command)
-                Button("Author") { postPersona(.author) }
-                    .keyboardShortcut("2", modifiers: .command)
-                Button("Review") { postPersona(.review) }
-                    .keyboardShortcut("3", modifiers: .command)
-                Button("Publish") { postPersona(.publish) }
-                    .keyboardShortcut("4", modifiers: .command)
+                // ⌘1–⌘4, one item per persona in stage order, the key read off
+                // `Persona.shortcutKey` — the same key the persona bar's tooltip
+                // and accessibility label say, so the three cannot disagree.
+                ForEach(Persona.allCases, id: \.self) { persona in
+                    Button(persona.displayName) { postPersona(persona) }
+                        .keyboardShortcut(KeyEquivalent(persona.shortcutKey), modifiers: .command)
+                }
 
                 Divider()
                 Button("Toggle Focus Mode") {

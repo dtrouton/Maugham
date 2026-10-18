@@ -97,7 +97,7 @@ final class ManuscriptForceCensusTests: XCTestCase {
         for path in ["Maugham/Views/BinderPaneToggle.swift",
                      "Maugham/Views/CollectionBinderPaneToggle.swift"] {
             let text = try source(path)
-            XCTAssertTrue(text.contains("if persona != .plan"),
+            XCTAssertTrue(text.contains("if persona.showsExports"),
                           "\(path): the Exports footer no longer gates on the "
                           + "persona — a compile-output list under Plan's tree "
                           + "is not what a writer arranging structure is doing")

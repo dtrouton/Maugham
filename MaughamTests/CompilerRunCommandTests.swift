@@ -647,7 +647,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // comment naming it does not count.
         let windowCode = String(decoding: SourceTree.mask(window), as: UTF8.self)
         for token in ["CompilerRunModifier(", "Task { await sessions.release(lease) }",
-                      "SaveFlashOverlay(isShowing: $showingCompilerFlash"] {
+                      "SaveFlashOverlay(isShowing: $flashes.showingCompiler"] {
             XCTAssertTrue(windowCode.contains(token),
                           "ProjectWindow is missing \(token) — without the first the "
                           + "modifier is never mounted, without the second a closed "

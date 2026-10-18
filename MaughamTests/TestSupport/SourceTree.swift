@@ -791,6 +791,10 @@ extension SourceTree {
     /// environment — whose builders were `ProjectWindow` members until then.
     /// The width censuses, the environment censuses and the pane-wiring
     /// censuses read "the window's code" and must still find them there.
+    ///
+    /// `PaletteWallState` and `WindowFlashes` (plan 4 Task 6) are the window's
+    /// own `@State`, bundled: the wall's folds were `ProjectWindow` statics
+    /// until then, and a census naming them reads the window's code.
     static let windowFamilyTypes = [
         "ProjectActiveSheet", "CheckpointFlashDecision", "CheckpointModifier",
         "RewindModifier", "FocusPostureModifier", "CanvasCollapseModifier",
@@ -798,6 +802,7 @@ extension SourceTree {
         "EditorControlMirror", "EditorControlMirrorModifier",
         "TranslationReviewModifier", "CanvasPromotionModifier",
         "CompilerFlashSink", "NoteOutcomeAlert", "CentreColumn", "RightColumn",
+        "PaletteWallState", "WindowFlashes",
     ]
 
     /// Every file declaring `ProjectWindow` or a window-family type, each its

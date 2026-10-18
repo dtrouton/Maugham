@@ -12,7 +12,7 @@ struct PersonaModifier: ViewModifier {
     // **No wall bindings here since the final review's I3 fix.** They were
     // written by one arm of the ⌘1–⌘4 handler and nothing else; leaving them
     // threaded in would invite a second wall rule beside the one observer that
-    // now owns the question (`ProjectWindow.closePaletteWallOnPersonaChange`).
+    // now owns the question (`PaletteWallState.closePaletteWallOnPersonaChange`).
     /// `CanvasCollapseModifier`'s pre-collapse visibility stash. Written here
     /// only to DROP it — see `releasesCanvasCollapse(from:to:stash:)`.
     @Binding var inspectorWasVisibleBeforeCanvasCollapse: Bool?
@@ -71,7 +71,7 @@ struct PersonaModifier: ViewModifier {
     // handler — while two other writers move the persona without passing
     // through it (`CanvasClaudeArrivalModifier.show`,
     // `ManuscriptNavigation.go`). Its successor is
-    // `ProjectWindow.closePaletteWallOnPersonaChange`, observed on the persona
+    // `PaletteWallState.closePaletteWallOnPersonaChange`, observed on the persona
     // itself in `PaletteWallModifier`, which covers all three by construction
     // and every destination rather than Plan alone. It drops the stash for the
     // same ordering reason this one did — see its doc comment.
