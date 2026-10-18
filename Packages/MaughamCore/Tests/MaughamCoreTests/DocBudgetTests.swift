@@ -14,7 +14,7 @@ final class DocBudgetTests: XCTestCase {
         "docs/tripwires.md": 6_791,  // ratchet: actual size; +485 at the foundations merge: rows 54–56, the census-key paragraph, rows 17/24/39/46 name the OpLogStore split's homes
         "docs/testing/TROUBLESHOOTING.md": 4_406,  // ratchet: actual size; +28 over 4,378 for the line naming the old CLAUDE.md phrases comments still cite
         "docs/INDEX.md": 417,  // ratchet: actual size (Core and Publish guides and the recipes line added); +6: Stores line names the project session; +15: the docs/history line (plan 5)
-        "Maugham/Canvas/AREA.md": 7_681,  // plan 5: re-templated (47,971 → this); the narrative is in docs/history/canvas.md
+        "Maugham/Canvas/AREA.md": 7_952,  // plan 5: re-templated, +271 review fixes (47,971 → 7,681 → this; tripwire 33, split bullets, narrative-only rules); the narrative is in docs/history/canvas.md
         "Maugham/OpLog/AREA.md": 7_759,  // plan 5: re-templated (30,412 → this); the narrative is in docs/history/oplog.md
         "Maugham/Views/AREA.md": 28_289,  // + residue from CLAUDE.md; PersonaMemory claim corrected, 2026-10-17; +572 at the foundations merge: the window family, CentreColumn/CentreRoute/RightColumn/PaletteWallState/PublishCentreModel rows, the session pointer
         "Maugham/Compiler/AREA.md": 23_782,  // + residue from CLAUDE.md, 2026-10-17; +396 at the foundations merge: main's additions since the plans branched and the AgentRoster paragraph
