@@ -5,6 +5,14 @@
 #   ./scripts/test.sh full     # core package + full Mac scheme (pre-merge/tag gate)
 #   ./scripts/test.sh phone    # the iOS simulator run (slow; CI runs it on every push)
 #   ./scripts/test.sh core     # MaughamCore's package tests alone, behind the same lock
+#   ./scripts/test.sh only Foo Bar   # just those MaughamTests classes, behind the same lock
+#                                    # (a name containing / passes through: MaughamTests/Foo/test_bar)
+#
+# Every Mac/phone mode regenerates Maugham.xcodeproj first when it is stale: project.yml
+# newer than the pbxproj, the set of .swift files (tracked or not yet added) differs from
+# the one recorded in Maugham.xcodeproj/.maugham-fileset, or the project is missing.
+# MAUGHAM_TEST_DRY_RUN=1 prints the test commands instead of running them (the guard
+# still runs; it is what the self-test exercises).
 #
 # RUN CORE THROUGH `core`, NOT A BARE `swift test`, WHILE ANY OTHER GATE MAY
 # BE UP (2026-09-25, P3c plan 2 Task 9). Every `xcodebuild test` — Mac or
@@ -60,11 +68,6 @@ cd "$(dirname "$0")/.."
 
 MODE="${1:-fast}"
 
-if [[ ! -d Maugham.xcodeproj ]]; then
-  echo "Maugham.xcodeproj missing — running ./gen.sh first"
-  ./gen.sh
-fi
-
 # ---- cross-session gate lock -------------------------------------------------
 # Several Claude sessions share this Mac, and two overlapping full gates host
 # 14+ app processes: starvation-shaped failures land on a DIFFERENT victim each
@@ -93,9 +96,49 @@ acquire_gate_lock() {
 }
 acquire_gate_lock
 
+# ---- stale-project guard -----------------------------------------------------
+# The project is generated from globs, so a new test file with no ./gen.sh runs 0
+# times and nothing fails. Editing a file is not adding one: only project.yml's
+# mtime and the file SET (a hash of the names) trigger a regeneration.
+PBXPROJ="Maugham.xcodeproj/project.pbxproj"
+FILESET_STAMP="Maugham.xcodeproj/.maugham-fileset"
+fileset_hash() {
+  git ls-files --cached --others --exclude-standard '*.swift' | LC_ALL=C sort | shasum | cut -d' ' -f1
+}
+ensure_project_fresh() {
+  local now stale=0
+  now=$(fileset_hash)
+  if [[ ! -f "$PBXPROJ" ]]; then
+    stale=1
+  elif [[ project.yml -nt "$PBXPROJ" ]]; then
+    stale=1
+  elif [[ -f "$FILESET_STAMP" && "$(cat "$FILESET_STAMP")" != "$now" ]]; then
+    stale=1
+  fi
+  if [[ "$stale" -eq 1 ]]; then
+    echo "▸ project.yml or the file set changed — regenerating"
+    ./gen.sh
+    fileset_hash > "$FILESET_STAMP"
+  elif [[ ! -f "$FILESET_STAMP" ]]; then
+    echo "$now" > "$FILESET_STAMP"   # first run on an existing project: record, don't regenerate
+  fi
+}
+if [[ "$MODE" != "core" ]]; then
+  ensure_project_fresh
+fi
+
+# Run a command, or under MAUGHAM_TEST_DRY_RUN=1 print it (and that the lock is held).
+run_cmd() {
+  if [[ -n "${MAUGHAM_TEST_DRY_RUN:-}" ]]; then
+    echo "DRYRUN [lock held: $([[ -d "$GATE_LOCK" ]] && echo yes || echo no)] $*"
+  else
+    "$@"
+  fi
+}
+
 run_core() {
   echo "▸ MaughamCore package tests (swift test --parallel)"
-  swift test --parallel --package-path Packages/MaughamCore
+  run_cmd swift test --parallel --package-path Packages/MaughamCore
 }
 
 # A PARKED TEST MUST BE KILLED AND NAMED, not left to eat the gate.
@@ -114,7 +157,7 @@ case "$MODE" in
     run_core
     echo "▸ Mac scheme (skipping the CanvasViewMounting* family)"
     # shellcheck disable=SC2086
-    xcodebuild -project Maugham.xcodeproj -scheme Maugham test \
+    run_cmd xcodebuild -project Maugham.xcodeproj -scheme Maugham test \
       CODE_SIGNING_ALLOWED=NO $TIMEOUTS \
       -skip-testing:MaughamTests/CanvasViewMountingSurfaceTests \
       -skip-testing:MaughamTests/CanvasViewMountingEditingTests \
@@ -129,7 +172,7 @@ case "$MODE" in
     BUNDLE="${TMPDIR:-/tmp}/maugham-full-$(date +%Y%m%d-%H%M%S).xcresult"
     echo "▸ Mac scheme, full — no skips (result bundle: $BUNDLE)"
     # shellcheck disable=SC2086
-    xcodebuild -project Maugham.xcodeproj -scheme Maugham test \
+    run_cmd xcodebuild -project Maugham.xcodeproj -scheme Maugham test \
       CODE_SIGNING_ALLOWED=NO $TIMEOUTS \
       -resultBundlePath "$BUNDLE"
     ;;
@@ -138,12 +181,27 @@ case "$MODE" in
     ;;
   phone)
     echo "▸ Phone scheme (iOS Simulator)"
-    xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
+    run_cmd xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
       -destination 'platform=iOS Simulator,name=iPhone 17' test \
       CODE_SIGNING_ALLOWED=NO
     ;;
+  only)
+    shift
+    if [[ $# -eq 0 ]]; then
+      echo "usage: $0 only <Class>…" >&2
+      exit 64
+    fi
+    ONLY_ARGS=()
+    for cls in "$@"; do
+      if [[ "$cls" == */* ]]; then ONLY_ARGS+=("-only-testing:$cls"); else ONLY_ARGS+=("-only-testing:MaughamTests/$cls"); fi
+    done
+    echo "▸ Mac scheme, only: $*"
+    # shellcheck disable=SC2086
+    run_cmd xcodebuild -project Maugham.xcodeproj -scheme Maugham test \
+      CODE_SIGNING_ALLOWED=NO $TIMEOUTS "${ONLY_ARGS[@]}"
+    ;;
   *)
-    echo "usage: $0 [fast|full|phone|core]" >&2
+    echo "usage: $0 [fast|full|phone|core|only <Class>…]" >&2
     exit 64
     ;;
 esac
