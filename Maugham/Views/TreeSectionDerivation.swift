@@ -29,7 +29,7 @@ enum TreeSectionDerivation {
         let paletteGroupId = PaletteLookup.paletteGroup(in: research)?.id
         return research.filter { item in
             guard item.id != paletteGroupId else { return false }
-            guard projectType == .collection, let path = item.path else { return true }
+            guard projectType.holdsPieces, let path = item.path else { return true }
             return !path.hasPrefix("pieces/")
         }
     }

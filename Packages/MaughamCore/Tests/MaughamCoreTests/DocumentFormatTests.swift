@@ -80,6 +80,7 @@ final class DocumentFormatTests: XCTestCase {
         XCTAssertEqual(DocumentFormat.ofManuscript(path: "Draft.FOUNTAIN"), .fountain)
         XCTAssertEqual(DocumentFormat.ofManuscript(path: "notes.txt"), .markdown)
         XCTAssertEqual(DocumentFormat.ofManuscript(path: "README"), .markdown)
+        XCTAssertEqual(DocumentFormat.ofManuscript(path: nil), .markdown, "a path-less manuscript is prose")
         // Ruling P9: a file literally named ".fountain" has no extension.
         XCTAssertEqual(DocumentFormat.ofManuscript(path: ".fountain"), .markdown)
     }

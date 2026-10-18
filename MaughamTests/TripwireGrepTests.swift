@@ -11687,4 +11687,64 @@ extension TripwireGrepTests {
         XCTAssertTrue(allowed.first?.hasPrefix("DocumentFormat.swift:1:") == true,
                       "a file NAMED DocumentFormat.swift earns nothing: \(allowed)")
     }
+
+    // MARK: - Kind and format are asked by capability (foundations plan 7, Task 8)
+
+    /// Equality (or a `case … =` match) against a `ProjectType` or
+    /// `DocumentFormat` case name. Word-bounded, so `.fountainBoneyard` and
+    /// `.collectionPiece` are not caught.
+    static let kindEqualityPattern = try! NSRegularExpression(pattern:
+        #"(==|!=)\s*\.(screenplay|collection|novel|shortStory|fountain|markdown)\b"#
+        + #"|case\s+\.(screenplay|collection|novel|shortStory|fountain|markdown)\s*="#)
+
+    /// Where equality on kind or format is allowed, and why. Empty: a future
+    /// exception adds a key (`type:<Type>` or a file name) and its reason.
+    static let kindEqualityAllowed: [String: String] = [:]
+
+    private func kindEqualityOffenders(in roots: [URL], allowed: Set<String>) throws -> [String] {
+        try grepSwift(
+            in: roots, patterns: [], allowed: allowed,
+            excludeLine: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") },
+            extraOffender: { line in
+                Self.kindEqualityPattern.firstMatch(
+                    in: line, range: NSRange(line.startIndex..., in: line)) != nil
+            })
+    }
+
+    /// **A project's kind and a document's format are asked by capability,
+    /// never by equality.** `type == .collection` is `holdsPieces`;
+    /// `type == .screenplay` is `primaryFormat.isScreenplay`; a format decision
+    /// is an exhaustive `switch` or a `DocumentFormat` property. An equality is
+    /// a second answer that a new case (`.unknown` today, a new kind tomorrow)
+    /// silently falls through. Mac, phone and Core are all scanned.
+    func test_projectKindAndFormatAreAskedByCapabilityNotByEquality() throws {
+        let offenders = try kindEqualityOffenders(
+            in: SourceTree.productionRootURLs, allowed: Set(Self.kindEqualityAllowed.keys))
+        XCTAssertEqual(offenders, [],
+            "equality on a ProjectType or DocumentFormat case — ask `holdsPieces`, "
+            + "`primaryFormat.isScreenplay` or a `DocumentFormat` property, or switch "
+            + "exhaustively:\n" + offenders.joined(separator: "\n"))
+    }
+
+    /// The control: the four code spellings are caught; a word-bounded
+    /// lookalike (`.fountainBoneyard`) and a comment are not.
+    func test_theKindEqualityCensusFiresOnPlantedOffenders() throws {
+        let dir = TestTemp.root
+            .appendingPathComponent("kind-equality-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try """
+        let a = store.manifest.type == .collection
+        let b = projectType != .screenplay
+        if case .novel = type {}
+        let d = format == .fountain
+        let e = task.kind == .fountainBoneyard
+        // type == .screenplay
+        """.write(to: dir.appendingPathComponent("Planted.swift"), atomically: true, encoding: .utf8)
+
+        let offenders = try kindEqualityOffenders(
+            in: [dir], allowed: Set(Self.kindEqualityAllowed.keys))
+        XCTAssertEqual(offenders.map { SourceTree.Hit(offender: $0)?.line }, [1, 2, 3, 4],
+                       "exactly the four code spellings:\n" + offenders.joined(separator: "\n"))
+    }
 }

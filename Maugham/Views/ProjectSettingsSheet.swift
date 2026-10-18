@@ -281,9 +281,19 @@ struct ProjectSettingsSheet: View {
     }
 
     private func curatedFonts() -> [TypographySettings.CuratedFont] {
-        store.manifest.type == .screenplay
+        Self.curatedFonts(for: store.manifest.type)
+    }
+
+    /// The font list the sheet offers for a project of `type`.
+    static func curatedFonts(for type: ProjectType) -> [TypographySettings.CuratedFont] {
+        type.primaryFormat.isScreenplay
             ? TypographySettings.curatedScreenplayFonts
             : TypographySettings.curatedFonts
+    }
+
+    /// Whether the sheet shows its Screenplay section for a project of `type`.
+    static func showsScreenplaySection(for type: ProjectType) -> Bool {
+        type.primaryFormat.isScreenplay
     }
 
     private func initializeDraft() {
@@ -316,7 +326,7 @@ struct ProjectSettingsSheet: View {
 
     @ViewBuilder
     private func screenplaySection() -> some View {
-        if store.manifest.type == .screenplay {
+        if Self.showsScreenplaySection(for: store.manifest.type) {
             Section("Screenplay") {
                 Toggle("Show element gutter", isOn: Binding(
                     get: { store.manifest.showElementGutter ?? true },

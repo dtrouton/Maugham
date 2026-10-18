@@ -76,9 +76,9 @@ struct ProjectPractice: Equatable, Sendable {
     /// Documents skipped because their op log could not be read. Named rather
     /// than swallowed, so the section can say the book's numbers are short.
     let unreadableDocIds: [String]
-    /// `manifest.type == .screenplay` — the one question that makes the section
-    /// screenplay-shaped (spec §5: the existing stats render novel-shaped and
-    /// the Practice section does not repeat that).
+    /// `manifest.type.primaryFormat.isScreenplay` — the one question that
+    /// makes the section screenplay-shaped (spec §5: the existing stats render
+    /// novel-shaped and the Practice section does not repeat that).
     let isScreenplay: Bool
 
     /// How many characters of a paragraph stand in for it in a row. Characters
@@ -325,7 +325,7 @@ extension ProjectPractice.Plan {
             ).map {
                 Document(id: $0.id, title: $0.title, path: $0.path)
             },
-            isScreenplay: store.manifest.type == .screenplay,
+            isScreenplay: store.manifest.type.primaryFormat.isScreenplay,
             statements: store.manifest.statements)
     }
 }

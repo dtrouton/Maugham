@@ -67,24 +67,24 @@ final class EditorStatusFooterTests: XCTestCase {
     }
 
     func test_collectionGoalMeasure_fountainPiece_measuresInPages() {
-        let m = ProjectWindow.collectionGoalMeasure(for: piece(path: "pieces/scene.fountain"))
+        let m = GoalIndicatorState.collectionGoalMeasure(for: piece(path: "pieces/scene.fountain"))
         XCTAssertTrue(m.isScreenplay)
         XCTAssertNil(m.wordTarget)
         XCTAssertEqual(m.pageTarget, 30)
     }
 
     func test_collectionGoalMeasure_markdownPiece_measuresInWords() {
-        let m = ProjectWindow.collectionGoalMeasure(for: piece(path: "pieces/story.md"))
+        let m = GoalIndicatorState.collectionGoalMeasure(for: piece(path: "pieces/story.md"))
         XCTAssertFalse(m.isScreenplay)
         XCTAssertEqual(m.wordTarget, 1200)
         XCTAssertNil(m.pageTarget)
     }
 
     func test_collectionGoalMeasure_noPathOrNoPiece_measuresInWords() {
-        let pathless = ProjectWindow.collectionGoalMeasure(for: piece(path: nil))
+        let pathless = GoalIndicatorState.collectionGoalMeasure(for: piece(path: nil))
         XCTAssertFalse(pathless.isScreenplay)
         XCTAssertEqual(pathless.wordTarget, 1200)
-        let absent = ProjectWindow.collectionGoalMeasure(for: nil)
+        let absent = GoalIndicatorState.collectionGoalMeasure(for: nil)
         XCTAssertFalse(absent.isScreenplay)
         XCTAssertNil(absent.wordTarget)
         XCTAssertNil(absent.pageTarget)
@@ -93,7 +93,7 @@ final class EditorStatusFooterTests: XCTestCase {
     /// Exception 1 (plan 7): a hand-imported upper-case `.FOUNTAIN` piece,
     /// which the op log already parses as Fountain, measures in pages too.
     func test_collectionGoalMeasure_upperCaseFountainPiece_measuresInPages() {
-        let m = ProjectWindow.collectionGoalMeasure(for: piece(path: "pieces/SCENE.FOUNTAIN"))
+        let m = GoalIndicatorState.collectionGoalMeasure(for: piece(path: "pieces/SCENE.FOUNTAIN"))
         XCTAssertTrue(m.isScreenplay)
         XCTAssertEqual(m.pageTarget, 30)
     }

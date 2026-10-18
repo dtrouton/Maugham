@@ -333,7 +333,7 @@ enum ResearchSelectionSync {
         }
         walkGroups(manifest.research, prefix: "")
         // Loose pieces (collections).
-        if manifest.type == .collection {
+        if manifest.type.holdsPieces {
             for piece in manifest.structure
                 where piece.type == .document && piece.pieceKind == .loose {
                 targets.append(.init(

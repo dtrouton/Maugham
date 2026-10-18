@@ -990,7 +990,7 @@ struct ProjectWindow: View {
                 // pieces pane.
                 .focusedSceneValue(\.mayStartAPiece, StartAPieceDoor.published(store: store))
                 .onKeyWindowCommand(.maughamAddLoosePiece, window: window) { _ in
-                    guard let store, store.manifest.type == .collection else { return }
+                    guard let store, store.manifest.type.holdsPieces else { return }
                     Task {
                         guard await StartAPieceDoor.admits(store: store) else { return }
                         let piece = try? await store.addLoosePiece(
@@ -1002,7 +1002,7 @@ struct ProjectWindow: View {
                     }
                 }
                 .onKeyWindowCommand(.maughamAddScreenplayPiece, window: window) { _ in
-                    guard let store, store.manifest.type == .collection else { return }
+                    guard let store, store.manifest.type.holdsPieces else { return }
                     Task {
                         guard await StartAPieceDoor.admits(store: store) else { return }
                         let piece = try? await store.addLoosePiece(
@@ -1014,7 +1014,7 @@ struct ProjectWindow: View {
                     }
                 }
                 .onKeyWindowCommand(.maughamLinkProject, window: window) { _ in
-                    guard let store, store.manifest.type == .collection else { return }
+                    guard let store, store.manifest.type.holdsPieces else { return }
                     Task {
                         guard await StartAPieceDoor.admits(store: store) else { return }
                         let panel = NSOpenPanel()
@@ -1032,7 +1032,7 @@ struct ProjectWindow: View {
                     }
                 }
                 .onKeyWindowCommand(.maughamPromotePiece, window: window) { note in
-                    guard let store, store.manifest.type == .collection,
+                    guard let store, store.manifest.type.holdsPieces,
                           let info = note.userInfo,
                           let pieceId = info["piece_id"] as? String,
                           let piece = store.manifest.structure.first(where: { $0.id == pieceId }) else { return }
@@ -1092,7 +1092,7 @@ struct ProjectWindow: View {
         case collection
 
         static func shell(for type: ProjectType) -> BinderShell {
-            type == .collection ? .collection : .standard
+            type.holdsPieces ? .collection : .standard
         }
     }
 
@@ -1737,7 +1737,7 @@ struct ProjectWindow: View {
         // inspector belongs to a persona rather than to the column that draws the
         // board — the equality cost the inspector its reachability from Plan's tree.
         if persona.centresTheCanvas { return .canvas }
-        return projectType == .collection ? .collectionPiece : .document
+        return projectType.holdsPieces ? .collectionPiece : .document
     }
 
     /// Whether the Palette section's "Open Wall" door travels from this persona
@@ -1895,7 +1895,7 @@ struct ProjectWindow: View {
         // selected across a persona switch, so without this the centre shows the
         // placeholder and the canvas never appears.
         if persona.centresTheCanvas { return .canvas }
-        return projectType == .collection && selectedPieceIsReference
+        return projectType.holdsPieces && selectedPieceIsReference
             ? .collectionReference : .editor
     }
 
@@ -2217,19 +2217,19 @@ struct ProjectWindow: View {
             TreeWalk.find(id: $0, in: store.manifest.structure)
         }
 
-        // For a Collection, derive isScreenplay from the active piece, not the
-        // project. Reference pieces hide the goal indicator entirely.
+        // A project that `holdsPieces` derives isScreenplay from the active
+        // piece, not the project. Reference pieces hide the goal indicator.
         let isScreenplay: Bool
         let docWordTarget: Int?
         let docPageTarget: Int?
-        if store.manifest.type == .collection {
+        if store.manifest.type.holdsPieces {
             if let piece = currentDoc, piece.pieceKind == .reference {
                 return .empty  // hidden for references
             }
             (isScreenplay, docWordTarget, docPageTarget) =
-                Self.collectionGoalMeasure(for: currentDoc)
+                GoalIndicatorState.collectionGoalMeasure(for: currentDoc)
         } else {
-            isScreenplay = store.manifest.type == .screenplay
+            isScreenplay = store.manifest.type.primaryFormat.isScreenplay
             docWordTarget = currentDoc?.wordTarget
             docPageTarget = nil
         }
@@ -2243,21 +2243,10 @@ struct ProjectWindow: View {
                 + (documentStore?.liveSessionWordsNet ?? 0),
             readingMinutes: metrics.readingMinutes,
             pageCount: metrics.pageCount,
-            pageTarget: store.manifest.type == .collection
+            pageTarget: store.manifest.type.holdsPieces
                 ? docPageTarget
                 : store.manifest.targets?.pageTarget,
             isScreenplay: isScreenplay)
-    }
-
-    /// The goal indicator's Collection arm: the active piece's format answers
-    /// `DocumentFormat.isScreenplay` — a page target for a screenplay piece,
-    /// a word target otherwise (a path-less or absent piece measures in words).
-    static func collectionGoalMeasure(for piece: StructureItem?)
-        -> (isScreenplay: Bool, wordTarget: Int?, pageTarget: Int?) {
-        if let path = piece?.path, DocumentFormat.ofManuscript(path: path).isScreenplay {
-            return (true, nil, piece?.pageTarget)
-        }
-        return (false, piece?.wordTarget, nil)
     }
 
     private func applyNoChrome() {

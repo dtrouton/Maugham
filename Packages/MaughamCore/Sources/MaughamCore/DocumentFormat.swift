@@ -44,12 +44,23 @@ public enum DocumentFormat: CaseIterable, Sendable, Hashable {
     /// (case-insensitive), otherwise `.markdown` — the default every
     /// manuscript site has always used.
     public static func ofManuscript(url: URL) -> DocumentFormat {
-        DocumentFormat(url: url) == .fountain ? .fountain : .markdown
+        manuscriptFormat(recognised: DocumentFormat(url: url))
     }
 
-    /// `ofManuscript(url:)` for a path string.
-    public static func ofManuscript(path: String) -> DocumentFormat {
-        DocumentFormat(path: path) == .fountain ? .fountain : .markdown
+    /// `ofManuscript(url:)` for a path string; a path-less manuscript (`nil`)
+    /// is prose.
+    public static func ofManuscript(path: String?) -> DocumentFormat {
+        guard let path else { return .markdown }
+        return manuscriptFormat(recognised: DocumentFormat(path: path))
+    }
+
+    /// The manuscript default over a recognised (or unrecognised) extension.
+    /// Exhaustive, so a new format decides here whether it is a manuscript.
+    private static func manuscriptFormat(recognised: DocumentFormat?) -> DocumentFormat {
+        switch recognised {
+        case .fountain?: return .fountain
+        case .markdown?, nil: return .markdown
+        }
     }
 
     /// Whether a whitespace-only line is held content inside its paragraph

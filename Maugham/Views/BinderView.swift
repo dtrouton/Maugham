@@ -427,7 +427,7 @@ struct BinderView: View {
             Text("No documents yet")
                 .font(.headline)
             Text(
-                store.manifest.type == .screenplay
+                store.manifest.type.primaryFormat.isScreenplay
                 ? "Add your first screenplay."
                 : "Add your first chapter or scene.")
                 .font(.callout)

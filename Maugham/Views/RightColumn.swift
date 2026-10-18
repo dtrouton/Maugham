@@ -324,10 +324,9 @@ struct RightColumn: View {
     }
 
     /// The format a loose piece is inspected as: `DocumentFormat.ofManuscript`
-    /// of its path, and prose for a path-less piece.
+    /// of its path (prose for a path-less piece).
     static func pieceInspectorFormat(path: String?) -> DocumentFormat {
-        guard let path else { return .markdown }
-        return DocumentFormat.ofManuscript(path: path)
+        DocumentFormat.ofManuscript(path: path)
     }
 
     /// The canvas's inspector arm — the selected region, or an empty state.

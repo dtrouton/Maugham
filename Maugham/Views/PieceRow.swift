@@ -127,8 +127,7 @@ struct PieceRow: View {
         case .reference:
             return "link"
         case .loose, .none:
-            guard let path = piece.path else { return "doc.text" }
-            return DocumentFormat.ofManuscript(path: path).symbolName
+            return DocumentFormat.ofManuscript(path: piece.path).symbolName
         }
     }
 

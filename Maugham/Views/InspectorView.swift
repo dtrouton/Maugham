@@ -252,7 +252,7 @@ struct InspectorView: View {
 
     @ViewBuilder
     private func pageTargetRow() -> some View {
-        if store.manifest.type == .screenplay {
+        if store.manifest.type.primaryFormat.isScreenplay {
             LabeledContent("Page target") {
                 HStack(spacing: 6) {
                     TextField("",

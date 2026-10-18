@@ -22,7 +22,7 @@ public enum ListScenesTool: MCPTool {
         let params = try decodeParams(Params.self, from: paramsJSON)
         let entry = try resolveProject(params.project_id, in: registry)
         let store = entry.store
-        guard store.manifest.type == .screenplay else {
+        guard store.manifest.type.primaryFormat.isScreenplay else {
             return try JSONEncoder().encode([Scene]())
         }
 

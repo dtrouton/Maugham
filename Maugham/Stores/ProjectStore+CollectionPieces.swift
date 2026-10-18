@@ -26,7 +26,7 @@ extension ProjectStore {
     public func addLoosePiece(
         title: String, format: DocumentFormat
     ) async throws -> StructureItem {
-        guard manifest.type == .collection else {
+        guard manifest.type.holdsPieces else {
             throw ProjectStoreError.fileSystemError(
                 "addLoosePiece only valid for Collection projects")
         }
@@ -104,7 +104,7 @@ extension ProjectStore {
     /// seed, generates a security-scoped bookmark, writes .maugham-link.json
     /// inside pieces/<NN>-<slug>/.
     public func addProjectReference(targetURL: URL) async throws -> StructureItem {
-        guard manifest.type == .collection else {
+        guard manifest.type.holdsPieces else {
             throw ProjectStoreError.fileSystemError(
                 "addProjectReference only valid for Collection projects")
         }
@@ -216,7 +216,7 @@ extension ProjectStore {
     func promotePieceToProject(
         pieceId: String, destination: URL, afterStaging: (() -> Void)?
     ) async throws -> URL {
-        guard manifest.type == .collection else {
+        guard manifest.type.holdsPieces else {
             throw ProjectStoreError.fileSystemError(
                 "promotePieceToProject only valid for Collection projects")
         }
@@ -685,7 +685,7 @@ extension ProjectStore {
     /// `.piece` move target's research folder through the same validated path.
     func resolveLoosePiece(_ pieceId: String) throws
         -> (piece: StructureItem, pieceFolder: String, researchFolder: String) {
-        guard manifest.type == .collection else {
+        guard manifest.type.holdsPieces else {
             throw ProjectStoreError.fileSystemError(
                 "Operation only valid for Collection projects")
         }
@@ -833,7 +833,7 @@ extension ProjectStore {
     /// research item paths whose prefix changed.
     public func movePiece(pieceId: String, toIndex destIndex: Int) async throws {
         beginStructuralVerb(); defer { endStructuralVerb() }
-        guard manifest.type == .collection else {
+        guard manifest.type.holdsPieces else {
             throw ProjectStoreError.fileSystemError(
                 "movePiece only valid for Collection projects")
         }
@@ -958,7 +958,7 @@ extension ProjectStore {
     /// existing sibling piece folders.
     public func renamePiece(pieceId: String, newTitle: String) async throws {
         beginStructuralVerb(); defer { endStructuralVerb() }
-        guard manifest.type == .collection else {
+        guard manifest.type.holdsPieces else {
             throw ProjectStoreError.fileSystemError(
                 "renamePiece only valid for Collection projects")
         }

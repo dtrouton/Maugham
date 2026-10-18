@@ -30,6 +30,18 @@ final class ProjectTypeCapabilityTests: XCTestCase {
         }
     }
 
+    /// The two rewrites plan 7 Task 8 made at every kind site, stated as the
+    /// identities they rely on: `holdsPieces` is exactly "is a collection", and
+    /// `primaryFormat.isScreenplay` is exactly "is a screenplay" — for every
+    /// case, `.unknown` included.
+    func test_theCapabilityPredicatesAnswerExactlyWhatTheEqualitiesDid() {
+        for type in ProjectType.allCases + [.unknown] {
+            XCTAssertEqual(type.holdsPieces, type == .collection, "\(type).holdsPieces")
+            XCTAssertEqual(type.primaryFormat.isScreenplay, type == .screenplay,
+                           "\(type).primaryFormat.isScreenplay")
+        }
+    }
+
     func test_forPromotedPiece_mapsEachFormatToItsKind() {
         XCTAssertEqual(ProjectType.forPromotedPiece(format: .fountain), .screenplay)
         XCTAssertEqual(ProjectType.forPromotedPiece(format: .markdown), .shortStory)
