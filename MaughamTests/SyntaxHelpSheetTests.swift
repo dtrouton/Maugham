@@ -1,5 +1,6 @@
 import XCTest
 @testable import Maugham
+import MaughamCore
 
 final class SyntaxHelpSheetTests: XCTestCase {
 
@@ -56,5 +57,24 @@ final class SyntaxHelpSheetTests: XCTestCase {
         // In practice they will differ in heading text so this is a safe check.
         XCTAssertFalse(prose.isEmpty)
         XCTAssertFalse(screenplay.isEmpty)
+    }
+
+    /// Smoke 2026-10-18: a screenplay piece in a Collection opened the sheet
+    /// on Markdown, because the tab followed the project kind.
+    func test_aScreenplayPieceInACollectionOpensOnFountain() {
+        let format = ProjectWindow.syntaxHelpFormat(type: .collection, activePath: "pieces/Big Shots.fountain")
+        XCTAssertEqual(SyntaxHelpSheet.Tab.opening(for: format), .fountain)
+    }
+
+    func test_aProsePieceInACollectionOpensOnMarkdown() {
+        let format = ProjectWindow.syntaxHelpFormat(type: .collection, activePath: "pieces/Essay.md")
+        XCTAssertEqual(SyntaxHelpSheet.Tab.opening(for: format), .markdown)
+    }
+
+    func test_withNothingOpenTheSheetFollowsTheProjectKind() {
+        XCTAssertEqual(SyntaxHelpSheet.Tab.opening(
+            for: ProjectWindow.syntaxHelpFormat(type: .screenplay, activePath: nil)), .fountain)
+        XCTAssertEqual(SyntaxHelpSheet.Tab.opening(
+            for: ProjectWindow.syntaxHelpFormat(type: .novel, activePath: nil)), .markdown)
     }
 }

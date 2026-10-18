@@ -1065,10 +1065,21 @@ struct ProjectWindow: View {
     // add a second spelling here — a dead copy of a load-bearing rule is a
     // copy waiting to be called (the 2026-07-02 screenplay navigate bug).
 
-    /// The help the sheet opens on: the project kind's primary format
-    /// (`ProjectType.primaryFormat`) — a Collection opens on Markdown.
+    /// The help the sheet opens on: the open document's format, so a
+    /// screenplay piece in a Collection opens on Fountain.
     private var currentSyntaxHelpFormat: DocumentFormat {
-        store?.manifest.type.primaryFormat ?? .markdown
+        guard let store else { return .markdown }
+        let activePath = activeItemID
+            .flatMap { TreeWalk.find(id: $0, in: store.manifest.structure) }?
+            .path
+        return Self.syntaxHelpFormat(type: store.manifest.type, activePath: activePath)
+    }
+
+    /// The format of the document at `activePath`; with nothing open, the
+    /// project kind's primary format.
+    static func syntaxHelpFormat(type: ProjectType, activePath: String?) -> DocumentFormat {
+        guard let activePath else { return type.primaryFormat }
+        return DocumentFormat.ofManuscript(path: activePath)
     }
 
     // MARK: - Column builders
