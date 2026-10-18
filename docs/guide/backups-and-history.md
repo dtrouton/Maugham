@@ -14,7 +14,7 @@ A checkpoint helps when you want last Tuesday's version of a chapter back. A bac
 
 **⌘⇧S (File → Save Checkpoint As…) makes a checkpoint with a name you choose.** A small sheet asks you to **Name this checkpoint**, with *e.g. end of draft 2* as a hint, and **Save** stays off until you've typed something. It runs your backups too, exactly as ⌘S does.
 
-In a piece you may not change (see [People & Devices](people-and-devices.md#what-their-mac-shows-them)), ⌘⇧S doesn't open the sheet. It says why instead: *"This text isn’t yours to change, so a checkpoint here would mark nothing of yours."* Your backups still run.
+In a piece you may not change (see [People & Devices](people-and-devices.md#what-their-mac-shows-them)), ⌘⇧S doesn't open the sheet. It says why instead: *"This text isn’t yours to change, so a checkpoint here would mark nothing of yours."* If you've set a backup destination, your backups still run.
 
 ## The History pane (⌘⌥H)
 
