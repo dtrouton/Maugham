@@ -29,51 +29,114 @@ final class UpdateInstallerTests: XCTestCase {
                        .reject(reason: "Invalid code signature"))
     }
 
-    // MARK: - helperScript: shape
+    // MARK: - helperScript: shape (#67 F12, F13)
 
-    func test_helperScript_relaunch_containsWaitDittoAndOpen() {
-        let script = UpdateInstaller.helperScript(
-            pid: 4242, stagedBundle: "/staged/Maugham.app",
-            installedBundle: "/Applications/Maugham.app", relaunch: true)
-        XCTAssertTrue(script.contains("kill -0 4242"))
-        XCTAssertTrue(script.contains("ditto"))
-        XCTAssertTrue(script.contains("/staged/Maugham.app"))
-        XCTAssertTrue(script.contains("/Applications/Maugham.app"))
-        XCTAssertTrue(script.contains("open \"/Applications/Maugham.app\""))
+    private func args(pid: Int32 = 4242, staged: String = "/staged/Maugham.app",
+                      installed: String = "/Applications/Maugham.app",
+                      team: String = "ABCDE12345", relaunch: Bool = false,
+                      version: String = "0.43.0", updates: String = "/Updates") -> [String] {
+        UpdateInstaller.helperArguments(
+            scriptPath: "/script.sh", pid: pid, stagedBundle: staged, installedBundle: installed,
+            expectedTeamID: team, relaunch: relaunch, version: version, updatesDirectory: updates)
     }
 
-    func test_helperScript_noRelaunch_omitsOpen() {
-        let script = UpdateInstaller.helperScript(
-            pid: 4242, stagedBundle: "/staged/Maugham.app",
-            installedBundle: "/Applications/Maugham.app", relaunch: false)
-        XCTAssertFalse(script.contains("open \""))
-        XCTAssertTrue(script.contains("ditto"))
+    func test_helperArguments_areInTheOrderTheScriptReadsThem() {
+        XCTAssertEqual(args(relaunch: true),
+                       ["/script.sh", "4242", "/staged/Maugham.app", "/Applications/Maugham.app",
+                        "ABCDE12345", "1", "0.43.0", "/Updates"])
+        XCTAssertEqual(args(relaunch: false)[5], "0")
+        let script = UpdateInstaller.helperScript()
+        for (n, name) in ["PID", "STAGED", "INSTALLED", "TEAM", "RELAUNCH", "VERSION", "UPDATES"].enumerated() {
+            XCTAssertTrue(script.contains("\(name)=\"$\(n + 1)\"\n"), "\(name) must be read from $\(n + 1)")
+        }
+    }
+
+    /// F13: nothing the caller passes reaches the script text, so no path can
+    /// be parsed as bash. The text is the same whatever the arguments are.
+    func test_helperScript_isFixedTextThatCarriesNoArgument() {
+        let hostile = args(pid: 77, staged: "/s/Mau\"g$(touch PWNED)`id`ham/Maugham.app",
+                           installed: "/i/$(touch PWNED)/Maugham.app", team: "ZZZZZ99999",
+                           relaunch: true, version: "9.9.9", updates: "/u/\"x\"")
+        let plain = args()
+        let script = UpdateInstaller.helperScript()
+        XCTAssertEqual(script, UpdateInstaller.helperScript(tools: .system))
+        for value in Set(hostile.dropFirst() + plain.dropFirst()) where value.count > 3 {
+            XCTAssertFalse(script.contains(value), "argument \(value) must not be in the script")
+        }
+        XCTAssertFalse(script.contains("PWNED"))
+    }
+
+    func test_helperScript_relaunchIsGatedOnTheArgument() {
+        let script = UpdateInstaller.helperScript()
+        XCTAssertTrue(script.contains("while kill -0 \"$PID\""))
+        XCTAssertTrue(script.contains("\"/usr/bin/ditto\" \"$STAGED\" \"$INFLIGHT\""))
+        XCTAssertTrue(script.contains("if [ \"$RELAUNCH\" = 1 ]; then\n  open \"$INSTALLED\"\nfi\n"))
+        XCTAssertEqual(script.components(separatedBy: "open \"").count, 2, "exactly one open")
     }
 
     /// Ensure the script uses the atomic swap mechanism, not the bricking rm+mv pattern.
     func test_helperScript_usesAtomicSwap_notRmMv() {
-        let script = UpdateInstaller.helperScript(
-            pid: 1, stagedBundle: "/a.app", installedBundle: "/b.app", relaunch: false)
-        // Must use renamex_np (via the Python helper) — never bare rm+mv on installed.
+        let script = UpdateInstaller.helperScript()
         XCTAssertTrue(script.contains("renamex_np"),
                       "Script must use renamex_np for the atomic swap")
-        XCTAssertTrue(script.contains("python3"),
+        XCTAssertTrue(script.contains("python3 \"$PY_TMP\" \"$INFLIGHT\" \"$INSTALLED\""),
                       "Script must invoke python3 for the atomic swap")
-        // Must NOT contain the bricking pattern: rm -rf "<installed>" followed by mv.
-        // The inflight sibling cleanup (rm -rf .inflight) IS allowed — that's before ditto.
-        // The installed bundle itself must never be rm'd.
-        let installedBundle = "/b.app"
-        XCTAssertFalse(script.contains("rm -rf \"\(installedBundle)\""),
+        // The inflight sibling may be removed; the installed bundle never is.
+        XCTAssertFalse(script.contains("rm -rf \"$INSTALLED\""),
                        "Script must not rm -rf the installed bundle — that leaves it missing on crash")
+        XCTAssertFalse(script.contains("mv \"$INFLIGHT\""))
+    }
+
+    /// F12: the re-check sits after the app has gone and the copy is made, and
+    /// before the swap; it names the team and runs spctl; a refusal removes
+    /// the copy, records itself, and exits before python.
+    func test_helperScript_reChecksTheInflightCopyBetweenTheWaitAndTheSwap() {
+        let script = UpdateInstaller.helperScript()
+        func at(_ needle: String) -> String.Index {
+            guard let r = script.range(of: needle) else {
+                XCTFail("expected \(needle) in script"); return script.endIndex
+            }
+            return r.lowerBound
+        }
+        let requirement = #"--test-requirement="=anchor apple generic and certificate leaf[subject.OU] = \"$TEAM\"" "$INFLIGHT""#
+        let wait = at("while kill -0"), copy = at("\"/usr/bin/ditto\" \"$STAGED\"")
+        let codesign = at("\"/usr/bin/codesign\" --verify --deep --strict " + requirement)
+        let spctl = at("\"/usr/sbin/spctl\" -a -t exec \"$INFLIGHT\"")
+        let refused = at("record \"refused $VERSION\"")
+        let swap = at("python3 \"$PY_TMP\"")
+        XCTAssertTrue(wait < copy && copy < codesign && codesign < spctl && spctl < refused && refused < swap)
+        let refusalBlock = String(script[refused...]).components(separatedBy: "\nfi\n")[0]
+        XCTAssertTrue(refusalBlock.hasSuffix("exit 1"), refusalBlock)
+        XCTAssertTrue(script[spctl..<refused].contains("rm -rf \"$INFLIGHT\""))
+    }
+
+    /// The tool paths are the only interpolated values; they must be inert.
+    func test_helperToolPaths_arePlainAbsolutePaths() {
+        let system = UpdateInstaller.HelperTools.system
+        for path in [system.codesign, system.spctl, system.ditto] {
+            XCTAssertTrue(UpdateInstaller.HelperTools.isSafePath(path), path)
+        }
+        for bad in ["usr/bin/x", "/a b", "/a\"b", "/a$(b)", "/a`b`", "/a;b", ""] {
+            XCTAssertFalse(UpdateInstaller.HelperTools.isSafePath(bad), bad)
+        }
+    }
+
+    func test_teamIDAndVersionValidation() {
+        XCTAssertTrue(UpdateInstaller.isWellFormedTeamID("FF3XH4ZJ45"))
+        for bad in ["", "FF3XH4ZJ4", "FF3XH4ZJ456", "ff3xh4zj45", "FF3XH4ZJ4\"", "FF3XH4ZJ4É"] {
+            XCTAssertFalse(UpdateInstaller.isWellFormedTeamID(bad), bad)
+        }
+        XCTAssertTrue(UpdateInstaller.isWellFormedVersion("0.43.0"))
+        for bad in ["", "v0.43.0", "0.43", "0.43.0\nrefused 1.0.0", "0.43.0 x"] {
+            XCTAssertFalse(UpdateInstaller.isWellFormedVersion(bad), bad)
+        }
     }
 
     /// Audit N2: the script must probe `python3` and bail BEFORE any destructive
     /// step (and before the quit-wait), so a CLT-less Mac aborts with the running
     /// app untouched rather than dying mid-swap after the app has quit.
     func test_helperScript_python3GuardPrecedesFirstDestructiveStep() {
-        let script = UpdateInstaller.helperScript(
-            pid: 9, stagedBundle: "/staged/Maugham.app",
-            installedBundle: "/Applications/Maugham.app", relaunch: false)
+        let script = UpdateInstaller.helperScript()
 
         // The guard exists.
         let guardIdx = script.range(of: "command -v python3")
@@ -90,7 +153,8 @@ final class UpdateInstallerTests: XCTestCase {
                     "python3 guard must come before `\(destructive)`")
             }
         }
-        // And it exits non-zero on the missing case.
+        // And it records itself and exits non-zero on the missing case.
+        XCTAssertTrue(script.contains("record \"failed $VERSION python3\""))
         XCTAssertTrue(script.contains("exit 1"))
     }
 
@@ -127,6 +191,13 @@ final class UpdateInstallerTests: XCTestCase {
     func test_installMode_finderFallbackWhenNotWritable() {
         XCTAssertEqual(UpdateInstaller.installMode(installedBundlePath: "/Applications/Maugham.app",
                                                    isWritable: { _ in false }), .finderFallback)
+    }
+
+    /// New-4: the helper creates `.inflight` beside the bundle, so a writable
+    /// bundle in an unwritable folder is not installable in place.
+    func test_installMode_finderFallbackWhenTheFolderIsNotWritable() {
+        XCTAssertEqual(UpdateInstaller.installMode(installedBundlePath: "/Applications/Maugham.app",
+                                                   isWritable: { $0 != "/Applications" }), .finderFallback)
     }
 
     func test_runningAppTeamID_doesNotCrash() {

@@ -56,9 +56,30 @@ final class PendingUpdateRevealTests: XCTestCase {
         let staged = URL(fileURLWithPath: "/tmp/does-not-matter/Maugham.app")
         let unwritableInstalled = "/nonexistent-\(UUID().uuidString)/Maugham.app"
         let launched = UpdateInstaller.launchSwapHelper(
-            stagedBundle: staged, relaunch: false,
-            installedBundlePath: unwritableInstalled)
+            stagedBundle: staged, version: "0.43.0", updatesDirectory: TestTemp.root,
+            relaunch: false, installedBundlePath: unwritableInstalled,
+            expectedTeamID: "ABCDE12345", python3Available: { true })
         XCTAssertFalse(launched)
+    }
+
+    /// #67 F12: the helper re-checks the update against the running app's
+    /// team. With no team (an ad-hoc build, this test host) or a malformed one
+    /// there is nothing to check against, so no helper is launched — even
+    /// where the install location is writable and python3 is present.
+    func test_launchSwapHelper_returnsFalse_withoutAWellFormedTeam() throws {
+        let installed = TestTemp.root.appendingPathComponent("Maugham.app")
+        try FileManager.default.createDirectory(at: installed, withIntermediateDirectories: true)
+        let staged = URL(fileURLWithPath: "/tmp/does-not-matter/Maugham.app")
+        for team in [nil, "", "abcde12345", "ABCDE1234\"", "ABCDE123456"] as [String?] {
+            XCTAssertFalse(UpdateInstaller.launchSwapHelper(
+                stagedBundle: staged, version: "0.43.0", updatesDirectory: TestTemp.root,
+                relaunch: false, installedBundlePath: installed.path,
+                expectedTeamID: team, python3Available: { true }), "\(team ?? "nil")")
+        }
+        XCTAssertFalse(UpdateInstaller.launchSwapHelper(
+            stagedBundle: staged, version: "0.43.0\nrefused 1.0.0", updatesDirectory: TestTemp.root,
+            relaunch: false, installedBundlePath: installed.path,
+            expectedTeamID: "ABCDE12345", python3Available: { true }), "a malformed version")
     }
 
     /// End-to-end of the fallback shape (minus the real terminate window):
@@ -68,7 +89,8 @@ final class PendingUpdateRevealTests: XCTestCase {
         let defaults = freshDefaults()
         let staged = URL(fileURLWithPath: "/tmp/does-not-matter/Maugham.app")
         let launched = UpdateInstaller.launchSwapHelper(
-            stagedBundle: staged, relaunch: false,
+            stagedBundle: staged, version: "0.43.0", updatesDirectory: TestTemp.root,
+            relaunch: false,
             installedBundlePath: "/nonexistent-\(UUID().uuidString)/Maugham.app")
         if !launched {
             PendingUpdateReveal.markPending(bundleURL: staged, defaults: defaults)

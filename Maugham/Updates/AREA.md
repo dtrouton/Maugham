@@ -7,14 +7,17 @@ this before editing any file in this directory.
 
 ## Verification chain
 
-Every staged bundle goes through three checks **on the same staged bytes**, in this order,
-before anything is swapped in:
+Every update is checked **twice**: once when it is staged (in-app, `stageAndVerifySync`), and
+again by the detached helper **at install time**, on the `.inflight` copy — the exact bytes the
+swap moves — after the app has exited. Only the second check decides what is installed.
 
-| Step | What | Why |
-|---|---|---|
-| `codesign --verify --deep --strict` | Valid Developer ID signature throughout the bundle | Catches tampered or unsigned bundles |
-| `spctl -a -t exec` | Apple notarization present (Gatekeeper would accept it) | Catches sideloaded or un-notarized builds |
-| Team ID == running app's Team ID | The staged bundle is from **our** team | Prevents a validly-signed-but-wrong-team bundle from replacing the app |
+| When | Step | What | Why |
+|---|---|---|---|
+| Staging | `codesign --verify --deep --strict` | Valid Developer ID signature throughout the bundle | Catches tampered or unsigned bundles |
+| Staging | `spctl -a -t exec` | Apple notarization present (Gatekeeper would accept it) | Catches sideloaded or un-notarized builds |
+| Staging | Team ID == running app's Team ID | The staged bundle is from **our** team | Prevents a validly-signed-but-wrong-team bundle from replacing the app |
+| Install (helper, on `.inflight`) | `codesign --verify --deep --strict --test-requirement="=anchor apple generic and certificate leaf[subject.OU] = \"<team>\""` | Validity AND our team in one call (exit 3 on a wrong team, measured) | The staged copy waited hours or days in a user-writable folder |
+| Install (helper, on `.inflight`) | `spctl -a -t exec` | Notarization, again | As above |
 
 The Team ID is read from the **running app's own code signature** at runtime
 (`UpdateInstaller.runningAppTeamID()` via `SecCodeCopySelf`), never hardcoded. This is
@@ -22,10 +25,31 @@ self-anchoring: any signed release of Maugham can verify a future update without
 edit, and a developer-team change requires both the installed app and the update to carry
 the new ID simultaneously.
 
-**No TOCTOU.** The verified path (returned by `stageAndVerifySync`) is exactly the path
-passed to the helper script. Verification runs on the staged bytes; the same bytes are
-swapped in. There is no window between verify and install where a different bundle could
-be substituted.
+**The install-time re-check (#67 F12).** The staging verdict is taken once, and the staged
+bundle then sits in `~/Library/Application Support/<variant>/Updates/staged-<ver>/` — a plain
+user-owned folder — until "Restart & Update" or the next quit, which can be days. Anything that
+could write that folder could have substituted the bundle, and the helper (running as Maugham's
+child, which macOS lets update itself) would have laundered it into `/Applications`. So the
+helper re-checks: after the app has exited it copies the staged bundle to `<installed>.inflight`
+(same volume as the install location), runs the codesign requirement check and `spctl` on that
+copy, and only then swaps. On a refusal it removes `.inflight`, writes `refused <version>` to
+`Updates/install-status`, and exits — the installed app is untouched and nothing relaunches. The
+gap left is `verify → renamex_np` on `.inflight`, milliseconds, inside the install folder.
+There is deliberately **no second verifier in-process**: in `willTerminate` spctl could hang the
+quit on the network with nothing on screen; in the helper the app is already gone. **Stated
+limit:** spctl can fail offline, so a quit-time install offline is refused (and recorded), and
+the update installs on a later quit. The team the helper checks against is
+`runningAppTeamID()`; with none (ad-hoc, unsigned, the test host) or a malformed one,
+`launchSwapHelper` launches nothing and the caller takes the Finder fallback.
+
+**The helper takes its paths as arguments (#67 F13).** `helperScript(tools:)` is fixed text: the
+pid, both bundle paths, the team, the relaunch flag, the version and the Updates folder arrive as
+`$1`…`$7` (`helperArguments`), every use is double-quoted, and the script re-validates each (team
+ten of `A-Z0-9`, version digits and dots, paths absolute, the installed path ending `.app`) and
+exits 2 before touching anything if one is wrong. A bundle path containing `"`, `$(…)` or a
+backtick is data. The only interpolated values are `HelperTools`' constant tool paths
+(`codesign`, `spctl`, `ditto`), which a precondition restricts to `^[A-Za-z0-9/._-]+$` and which
+tests replace with stubs.
 
 Other protections:
 - **Only this repo's release URL is requested.** `GitHubReleasesAPI.isTrustedAssetURL` admits exactly `https://github.com/dtrouton/Maugham/releases/download/<tag>/<asset.name>` (the release's own `tag_name`; no port, user, query or fragment), checked in `performCheck` after the asset guard and before the size check — a failure is `.untrustedAssetURL`, an error on a manual check and idle on a background poll. GitHub answers with a redirect to its asset CDN; that host is **not** allow-listed (it changed in 2025, and TLS plus the signature chain gate the bytes), but a redirect to a non-https URL is refused (`UpdateDownload.followsRedirect`, applied in `UpdateDownloadSession`) and fails as `.insecureRedirect`. For a zip-less release the `.dmg` is not verified in-app at all, so for it this URL check is the only in-app gate.
@@ -108,15 +132,31 @@ is designed for file-level replacement, not directory/bundle swaps. `renamex_np`
 
 The app cannot replace its own running bundle. The proven pattern:
 
-1. **Swift side**: writes a small bash script to `$TMPDIR/maugham-update-<uuid>.sh`,
-   launches it detached (`/bin/bash script.sh` via `Process` without waiting).
+1. **Swift side** (`launchSwapHelper(stagedBundle:version:updatesDirectory:relaunch:…)`): refuses
+   (returns false → Finder fallback) unless the bundle AND its folder are writable, the running
+   app has a well-formed team ID, the version is `X.Y.Z` and `python3` is on PATH; writes the
+   fixed `helperScript()` to `$TMPDIR/maugham-update-<uuid>.sh` and launches it detached
+   (`/bin/bash script.sh <pid> <staged> <installed> <team> <1|0> <version> <Updates dir>` via
+   `Process` without waiting).
 2. **App terminates.** The child process reparents to launchd (it survives the parent's
    exit because it has no controlling TTY and launchd adopts orphans).
-3. **Bash helper**: polls `kill -0 <pid>` until the app is fully gone, then:
-   - `rm -rf .inflight && ditto staged .inflight` — copies new bundle to same-volume sibling
-   - Python `renamex_np(RENAME_SWAP)` — atomic exchange
-   - `rm -rf .inflight` — cleanup old bundle
-   - (if relaunch) `open "/Applications/Maugham.app"`
+3. **Bash helper** (`set -e`; every failure path below is an explicit `if !`, so it records):
+   - validates its seven arguments (exit 2, nothing touched, nothing recorded)
+   - `command -v python3`, before the wait — missing: records `failed <v> python3`, exits
+   - polls `kill -0 "$PID"` until the app is fully gone
+   - `rm -rf .inflight && ditto staged .inflight` — failure: removes `.inflight`, records
+     `failed <v> ditto`
+   - `codesign --verify --deep --strict --test-requirement=…team…` then `spctl -a -t exec`, both on
+     `.inflight` — failure: removes `.inflight`, records `refused <v>`, exits before the swap
+   - Python `renamex_np(RENAME_SWAP)` — atomic exchange; it then removes `.inflight` (the old
+     bundle). Failure (including making or writing its source file): records `failed <v> swap`, and leaves
+     `.inflight`, which on the fallback path may hold the only copy of the new app
+   - (if `$RELAUNCH` is `1`) `open "$INSTALLED"`
+
+**The status file.** `Updates/install-status` holds ONE line, overwritten (written to
+`install-status.tmp`, then `mv`): `refused <version>` or `failed <version> <step>`, the step one
+of `UpdateInstaller.HelperFailureStep` (`python3`, `ditto`, `swap`). Success writes nothing. The
+next launch reads and removes it (#67 Task 5).
 
 **Debug caveat.** When launched from Xcode/lldb, the debugger kills the process group on
 app exit, so the helper is killed with it. The in-place swap will not apply in debug
@@ -127,7 +167,8 @@ sessions — only in production (Finder/Dock) launches where the child is truly 
 ## Unwritable `/Applications` fallback
 
 Before offering "Restart & Update," the installer checks
-`FileManager.default.isWritableFile(atPath: installedBundlePath)`. If the path is not
+`FileManager.default.isWritableFile(atPath:)` on the installed bundle AND on the folder holding it
+(the helper creates `.inflight` there). If either is not
 writable (non-admin user, unusual permissions), `installMode(installedBundlePath:)` returns
 `.finderFallback` and the caller reveals the `.dmg` in Finder — identical to the
 pre-auto-update behavior. **Worst case == status quo, never worse.**
@@ -140,9 +181,11 @@ pre-auto-update behavior. **Worst case == status quo, never worse.**
 |---|---|---|
 | Verify decision logic (accept/reject/team-mismatch/...) | Yes | `UpdateInstallerTests.test_accepts_*` / `test_rejects_*` |
 | Minimum-macOS block (above → no update + sentence; at/below → offered; no fact → offered) | Yes (injected `systemVersion`) | `MinimumSystemVersionTests`; `UpdateCheckerTests.test_aBuild*System*` |
-| Install mode (writable → inPlace, not writable → finderFallback) | Yes (injected predicate) | `test_installMode_*` |
-| Helper script shape (pid-wait, ditto, open presence) | Yes (string inspection) | `test_helperScript_*` |
+| Install mode (bundle and folder writable → inPlace, either not → finderFallback) | Yes (injected predicate) | `test_installMode_*` |
+| No helper without a well-formed team or version | Yes | `PendingUpdateRevealTests.test_launchSwapHelper_returnsFalse_*` |
+| Helper script shape: argv order, fixed text carrying no argument, re-check between the wait and the swap, python3 guard first | Yes (string inspection) | `test_helperArguments_*`, `test_helperScript_*`, `test_helperToolPaths_*` |
 | No rm+mv on installed bundle (brick-prevention assertion) | Yes | `test_helperScript_usesAtomicSwap_notRmMv` |
+| **The helper end to end**: accept swaps in (no `.inflight`, no status); a codesign or spctl refusal leaves the installed bundle byte-identical, no `.inflight`, `refused <v>`; a failed copy records `failed <v> ditto` over an older line; a malformed team stops it before codesign; directory names carrying `"`, `$(touch PWNED)` and a backtick install and run nothing | Yes (real `/bin/bash`, `ditto`, `python3`; stub `codesign`/`spctl` under `TestTemp.root`; an exited pid; skipped without python3) | `UpdateSwapHelperEndToEndTests` |
 | Python swap source is flush-left (no IndentationError) | Yes | `test_pyAtomicSwapSource_noLeadingSpacesOnTopLevelLines` |
 | `atomicSwap` same-volume: destination never absent, content swapped | Yes (temp dirs) | `test_atomicSwap_sameVolume_*` |
 | `atomicSwap` missing staged path → `.sourceNotFound` | Yes | `test_atomicSwap_throwsSourceNotFound_*` |
@@ -155,7 +198,7 @@ pre-auto-update behavior. **Worst case == status quo, never worse.**
 | Zip totals parse; each size/space refusal arm; a real tiny zip is read by `zipinfo`; a zip with no room is refused before unpacking and deleted | Yes (pure + injected free space + real `ditto -c -k` under `TestTemp.root`) | `UpdateInstallerTests.test_*Zipinfo*`, `test_extractionDecision_*`, `test_archiveTotals*`, `test_aZipTooBig*` |
 | A refused zip is deleted with its stage folder | Yes (garbage / app-less zip under `TestTemp.root`, real `ditto`) | `UpdateInstallerTests.test_aZip*IsDeleted*` |
 | Running-app Team ID (real signed build) | No — ad-hoc test host returns nil; proven in dry-run | `test_runningAppTeamID_doesNotCrash` (smoke only) |
-| **Detached helper actually replaces the running app and relaunches** | **NO — cannot be unit-tested** | See below |
+| **Detached helper survives the app's exit (launchd adoption), real codesign/spctl on a real notarized build, relaunch** | **NO — cannot be unit-tested** | See below |
 
 **The running-app self-replace path requires a real update smoke test.** The only way to
 verify the full install cycle (codesign + notarize + download + verify + swap + relaunch)
@@ -177,7 +220,7 @@ and observe the swap. See `docs/superpowers/notes/feedback_dry_run_is_integratio
 
 | File | Purpose |
 |---|---|
-| `UpdateInstaller.swift` | Stage-and-verify (every refusal deletes the zip too, `discardRefusedArchive`), verify logic, atomic swap (`atomicSwap`/`pyAtomicSwapSource`), helper script generation, Team ID extraction |
+| `UpdateInstaller.swift` | Stage-and-verify (every refusal deletes the zip too, `discardRefusedArchive`), verify logic, atomic swap (`atomicSwap`/`pyAtomicSwapSource`), the helper (`helperScript`/`helperArguments`/`HelperTools`/`HelperFailureStep`, the install-time re-check), Team ID extraction |
 | `UpdateChecker.swift` | Background poll loop, download into place (`.download` temp, then moved to `Maugham-<ver>.<ext>`; an existing complete file is reused), the trusted-URL check and the pre-download size refusal, stage-and-verify dispatch, `pendingQuitInstall` |
 | `UpdateDownload.swift` | The download itself: a `URLSessionDownloadTask` on its own session (delegate `UpdateDownloadSession`, progress from `didWriteData`), one retry on a transient `URLError` (resuming from its resume data) or an HTTP 5xx, progress kept monotonic across it, cancelled past the cap (a Swift-Task cancel that lands before the task exists cancels it instead of resuming it), a non-https redirect refused; the extension comes from the asset's name |
 | `UpdateLimits.swift` | The updater's size ceilings (`UpdateLimits.standard`; `maxDownloadBytes` 512 MB, `maxUncompressedBytes` 1 GB, `maxFiles` 20 000) |

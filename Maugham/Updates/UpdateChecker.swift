@@ -121,6 +121,15 @@ public final class UpdateChecker: ObservableObject {
         }
     }
 
+    /// `~/Library/Application Support/<variant>/Updates`: downloads, staged
+    /// bundles, and the swap helper's `install-status` line all live here.
+    nonisolated static var updatesDirectory: URL {
+        FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Application Support")
+            .appendingPathComponent(BuildVariant.current.supportFolderName)
+            .appendingPathComponent("Updates")
+    }
+
     /// Default download implementation: `UpdateDownload` (a download task,
     /// one retry on a transient network error, capped at
     /// `UpdateLimits.maxDownloadBytes`) into a `.download` temp file in the
@@ -135,11 +144,7 @@ public final class UpdateChecker: ObservableObject {
         version: String,
         progress: @escaping @MainActor (Double) -> Void
     ) async throws -> URL {
-        let lib = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-        let stagingDir = lib
-            .appendingPathComponent("Application Support")
-            .appendingPathComponent(BuildVariant.current.supportFolderName)
-            .appendingPathComponent("Updates")
+        let stagingDir = updatesDirectory
         try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
         let ext = UpdateDownload.fileExtension(forAssetNamed: asset.name)
         let target = stagingDir.appendingPathComponent("Maugham-\(version).\(ext)")
@@ -184,13 +189,14 @@ public final class UpdateChecker: ObservableObject {
     public func installNow(bundleURL: URL, version: String, relaunch: Bool = true) async {
         pendingQuitInstall = nil
         state = .installing(version: version)
-        await UpdateChecker.performInstall?(bundleURL, relaunch)
+        await UpdateChecker.performInstall?(bundleURL, version, relaunch)
     }
 
     /// Injected real installer side-effect (set in Task 8). Nil in tests.
     /// Set once at app startup (MaughamApp's Window .task runs once per window
     /// appearance). Production-only; unit tests reset it to nil in setUp/tearDown.
-    @MainActor public static var performInstall: ((URL, Bool) async -> Void)?
+    /// Arguments: the staged bundle, its version, and whether to relaunch.
+    @MainActor public static var performInstall: ((URL, String, Bool) async -> Void)?
 
     private var backgroundTask: Task<Void, Never>?
     private static let initialDelaySeconds: UInt64 = 60

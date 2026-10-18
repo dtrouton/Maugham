@@ -101,7 +101,11 @@ setup and renewal: `docs/release-notes/SETUP-mac-signing.md` §4.
 notarized `.zip`, verifies it in-app (codesign + our Team ID via
 `UpdateInstaller.runningAppTeamID` + notarization), and swaps the running app via a
 detached helper — "Restart & Update" relaunches; dismissing applies the staged
-update on next ordinary quit (`UpdateChecker.pendingQuitInstall`). If
+update on next ordinary quit (`UpdateChecker.pendingQuitInstall`). The helper checks
+the update again at install time, after the app has quit: it re-runs `codesign`
+(against our Team ID) and `spctl` on the copy it is about to swap in, and a copy that
+fails is not installed (the reason is left in `Updates/install-status`). A build with
+no Team ID of its own (ad-hoc, unsigned) never swaps in place. If
 `/Applications` (the running app's location) is unwritable, it falls back to
 revealing the `.dmg` in Finder instead — that fallback path is **not** in-app
 verified; the `.dmg` is Gatekeeper-verified on launch, the same as any downloaded
