@@ -76,8 +76,11 @@ final class ProjectSessionTests: XCTestCase {
         XCTAssertEqual(ProjectSession.loadStep(live: nil, requested: a), .open)
     }
 
-    /// …and the window's `load()` acts on it: it asks the decision, and the
-    /// previous session's close is AWAITED before the open is reached.
+    /// …and the window's `load()` acts on it, borrowing through the registry
+    /// (Task 3): it asks the decision, gives the previous project's borrow
+    /// back (AWAITED) before it acquires, opens through `ProjectSession`
+    /// inside that ONE acquire, and gives back a borrow it will not keep
+    /// before it adopts one.
     func test_theWindowsLoadAsksTheDecisionAndClosesBeforeItOpens() throws {
         // The WINDOW's `load()` — several other windows declare one too.
         let masked = SourceTree.mask(try SourceTree.windowSource())
@@ -89,12 +92,37 @@ final class ProjectSessionTests: XCTestCase {
         let load = String(decoding: masked[start...end], as: UTF8.self)
         let ask = try XCTUnwrap(load.range(of: "ProjectSession.loadStep("),
                                 "load() must ask the reuse/close decision")
-        let close = try XCTUnwrap(load.range(of: "await previous.close()"),
-                                  "load() must await the previous session's close")
+        let giveBackPrevious = try XCTUnwrap(load.range(of: "await sessions.release(previous.url)"),
+                                             "load() must await the previous project's release")
+        let acquire = try XCTUnwrap(load.range(of: "sessions.acquire("),
+                                    "load() must borrow its session from the registry")
         let open = try XCTUnwrap(load.range(of: "ProjectSession.open("),
                                  "load() must open through ProjectSession")
-        XCTAssertTrue(ask.lowerBound < close.lowerBound && close.lowerBound < open.lowerBound,
-                      "the decision, then the close, then the open — in that order")
+        XCTAssertTrue(ask.lowerBound < giveBackPrevious.lowerBound
+                      && giveBackPrevious.lowerBound < acquire.lowerBound
+                      && acquire.lowerBound < open.lowerBound,
+                      "the decision, then the release, then the acquire that opens — in that order")
+        XCTAssertEqual(load.components(separatedBy: "sessions.acquire(").count - 1, 1,
+                       "load() acquires in exactly one place — a second acquire (the "
+                       + "reuse arm included) is a borrow nobody gives back")
+        XCTAssertEqual(load.components(separatedBy: "ProjectSession.open(").count - 1, 1,
+                       "load() opens only inside the registry's acquire")
+        XCTAssertFalse(load.contains(".close()"),
+                       "load() closes a session it only borrowed — give it back instead")
+        // A borrow this window will not keep (cancelled, or another run of
+        // load() already adopted one) goes back before the adoption.
+        let unkept = try XCTUnwrap(load.range(of: "if Task.isCancelled || self.session != nil {"),
+                                   "load() must check whether it can keep the borrow")
+        let adopt = try XCTUnwrap(load.range(of: "self.session = session"),
+                                  "load() never adopts the session")
+        XCTAssertTrue(acquire.upperBound < unkept.lowerBound && unkept.upperBound < adopt.lowerBound,
+                      "the keep-check sits between the acquire and the adoption")
+        let between = load[unkept.upperBound..<adopt.lowerBound]
+        XCTAssertTrue(between.contains("await sessions.release(url)"),
+                      "an unkept borrow must be released")
+        XCTAssertEqual(between.components(separatedBy: "await").count - 1, 1,
+                       "nothing may suspend between the keep-check and the adoption "
+                       + "except the unkept borrow's own release")
     }
 
     // (c)

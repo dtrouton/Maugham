@@ -9,6 +9,9 @@ struct MaughamApp: App {
     @State private var recents = RecentsStore()
     @State private var mcpRouter = MCPRouter()
     @State private var mcpRegistry = ProjectRegistry()
+    /// One `ProjectSession` per open project, borrowed by every window on it
+    /// (foundations plan 3, Task 3).
+    @State private var projectSessions = ProjectSessionRegistry()
     @State private var mcpServer: MCPServer?
     @State private var onboarding = OnboardingModel()
 
@@ -365,6 +368,7 @@ struct MaughamApp: App {
                     .environment(backupCoordinator)
                     .environment(recents)
                     .environment(mcpRegistry)
+                    .environment(projectSessions)
             } else {
                 Text("No project URL").foregroundStyle(.secondary)
             }

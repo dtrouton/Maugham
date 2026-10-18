@@ -320,6 +320,11 @@ struct ProjectWindow: View {
     private let shareReader: ShareMetadataReading = ICloudShareMetadataReader()
     @Environment(UserPreferences.self) private var userPreferences
     @Environment(ProjectRegistry.self) private var mcpRegistry
+    /// The app's one session per project (foundations plan 3, Task 3): this
+    /// window BORROWS its project's session from it — `load()` acquires, the
+    /// window-ending `.onDisappear` releases — so a second window on the same
+    /// project never runs `DocumentStore.open` a second time.
+    @Environment(ProjectSessionRegistry.self) private var sessions
     @Environment(\.openWindow) private var openWindow
 
     let url: URL
@@ -478,17 +483,20 @@ struct ProjectWindow: View {
                 // The services' environments hold closures over both stores,
                 // so a session left configured would keep the whole project
                 // graph alive in the husk — and its `claude` subprocess alive
-                // with it. `session.close()` detaches the roster (pipeline
-                // first: a leg parked on a translator summary has to be
-                // resolved before the translator that owed it is torn down)
-                // and THEN closes the DocumentStore. It runs in a queued
-                // `Task`, so the detach happens AFTER this body has nil-ed the
-                // @State below, not before: the Task captures `session` by
-                // value, so the close still runs on that reference, and
-                // nothing can reach the services in between because the
-                // window is gone.
+                // with it. The session is BORROWED (Task 3), so this window
+                // gives its borrow back rather than closing it: another
+                // window on the same project may still hold it, and the
+                // registry's LAST release is what runs `ProjectSession`'s
+                // close (the roster detaches, pipeline first, THEN the
+                // DocumentStore drains). It runs in a queued `Task`, after
+                // this body has nil-ed the @State below: the Task captures
+                // the URL the borrow was taken under, and nil-ing `session`
+                // here is what keeps a later `.onDisappear` or `load()` from
+                // giving the same borrow back twice.
                 if let session {
-                    Task { await session.close() }
+                    let sessions = self.sessions
+                    let borrowed = session.url
+                    Task { await sessions.release(borrowed) }
                 }
                 session = nil
                 store = nil
@@ -4062,6 +4070,12 @@ struct ProjectWindow: View {
             // re-seeded; only the MCP registration, which that `.onDisappear`
             // dropped unconditionally, is restored. A different project's
             // session closes BEFORE the open, never alongside it.
+            //
+            // **The window holds at most ONE borrow, and it is `session`**
+            // (Task 3). `.reuseLive` acquires nothing — this window already
+            // holds the borrow — and a different project's borrow is given
+            // back (and `session` cleared, so nothing gives it back twice)
+            // BEFORE the new acquire.
             switch ProjectSession.loadStep(live: session?.url, requested: url) {
             case .reuseLive:
                 if let live = session {
@@ -4070,22 +4084,41 @@ struct ProjectWindow: View {
                 return
             case .closeLiveThenOpen:
                 if let previous = session {
-                    await previous.close()
+                    self.session = nil
+                    await sessions.release(previous.url)
                 }
             case .open:
                 break
             }
             // The stores and the services are the session's (foundations
-            // plan 3, Task 2): `ProjectSession.open` loads the manifest, opens
-            // the DocumentStore, cross-links them, hands the store this
-            // window's canvas model, builds the bible and the declared world
-            // and configures every roster service. What stays here is the
+            // plan 3, Task 2), and the session is the project's rather than
+            // the window's (Task 3): the registry opens it once — through
+            // `ProjectSession.open`, which loads the manifest, opens the
+            // DocumentStore, cross-links them, hands the store this window's
+            // canvas model, builds the bible and the declared world and
+            // configures every roster service — and every other window on
+            // the project borrows that same session. What stays here is the
             // window's own: seeding its UI state, publishing the stores, the
             // MCP registration and the session log.
-            let session = try await ProjectSession.open(
-                url: url, preferences: userPreferences,
-                liveCanvas: canvasModel,
-                onCompilerFlash: { showCompilerFlash($0) })
+            let session = try await sessions.acquire(url) {
+                try await ProjectSession.open(
+                    url: url, preferences: userPreferences,
+                    liveCanvas: canvasModel,
+                    onCompilerFlash: { showCompilerFlash($0) })
+            }
+            // **A borrow this window will not keep goes straight back.** Two
+            // ways to get here holding one: this load was cancelled while it
+            // waited (the window closed — its `.onDisappear` saw no session
+            // and released nothing — or the task restarted), or another run
+            // of `load()` for this window finished first and already holds
+            // one. Keeping it would be a borrow nobody gives back, and the
+            // project would stay open after its last window. From here to
+            // `self.session = session` below there is no suspension point, so
+            // nothing can slip in between this check and the adoption.
+            if Task.isCancelled || self.session != nil {
+                await sessions.release(url)
+                return
+            }
             let s = session.projectStore
             let ds = session.documentStore
 

@@ -793,8 +793,9 @@ final class TranslatorEnvironmentTests: XCTestCase {
     ///
     /// - every window-ending arm hands the roster its teardown —
     ///   `CompilerRunModifier`'s two arms (app quit, the AI toggle) each call
-    ///   `roster.shutdownAll()`, and the window's `.onDisappear` calls
-    ///   `roster.detachAll()`;
+    ///   `roster.shutdownAll()`, and the window's `.onDisappear` gives its
+    ///   session back to `ProjectSessionRegistry`, whose last release runs
+    ///   `ProjectSession.close()` and so `roster.detachAll()`;
     /// - every production class that HOLDS a session runner is a roster
     ///   member — derived from the code, never a list of names, so a sixth
     ///   orchestrator that spawns its own `claude` and is not in the roster
@@ -813,14 +814,23 @@ final class TranslatorEnvironmentTests: XCTestCase {
                           + "service it misses is a billing process outliving the window")
         }
 
-        // (b) The window closing closes its session (foundations plan 3,
-        // Task 2)…
+        // (b) The window closing gives its session back (foundations plan 3,
+        // Task 2, borrowed since Task 3) — code, not a comment naming it…
         let onDisappears = try SourceTree.windowSources().flatMap { text in
             Self.closureBodies(after: ".onDisappear", in: text)
-        }
-        XCTAssertTrue(onDisappears.contains { $0.contains("session.close()") },
-                      "ProjectWindow's .onDisappear must close its session — otherwise "
-                      + "a closed window keeps its sessions and its stores alive")
+        }.map { String(decoding: SourceTree.mask($0), as: UTF8.self) }
+        XCTAssertTrue(onDisappears.contains { $0.contains("sessions.release(") },
+                      "ProjectWindow's .onDisappear must give its session back to the "
+                      + "registry — otherwise a closed window keeps its sessions and its "
+                      + "stores alive")
+        // …and never closes it itself: the session is borrowed, and another
+        // window on the same project may still be working in it.
+        XCTAssertFalse(onDisappears.contains { $0.contains("session.close()") },
+                       "ProjectWindow's .onDisappear closes a session it only borrowed — "
+                       + "the registry's last release is what closes it")
+        // …the registry's LAST release closes the session…
+        let release = try Self.registryReleaseReport(base: SourceTree.repoRoot)
+        XCTAssertTrue(release.isEmpty, release.joined(separator: "\n"))
         // …and the session's close detaches every service BEFORE the
         // DocumentStore closes.
         let close = try Self.sessionCloseReport(base: SourceTree.repoRoot)
@@ -902,6 +912,41 @@ final class TranslatorEnvironmentTests: XCTestCase {
         XCTAssertEqual(commentedReport.count, 1, commentedReport.joined(separator: "\n"))
         XCTAssertTrue(commentedReport.contains { $0.contains("never calls roster.detachAll()") },
                       commentedReport.joined(separator: "\n"))
+    }
+
+    /// CONTROL for (b)'s registry half: a registry whose `release` only
+    /// drops its entry — or names the close in a comment — is reported.
+    func test_theRegistryReleaseCensusFiresOnAPlantedForgottenClose() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Stores/ProjectSessionRegistry.swift": """
+                @MainActor @Observable
+                final class ProjectSessionRegistry {
+                    func release(_ url: URL) async {
+                        // await session.close()
+                        entries[url] = nil
+                    }
+                }
+                """,
+        ])
+        let report = try Self.registryReleaseReport(base: base)
+        XCTAssertEqual(report.count, 1, report.joined(separator: "\n"))
+    }
+
+    /// Whether `ProjectSessionRegistry.release` closes the session it gives
+    /// up — the one place a window-ending path reaches `ProjectSession`'s
+    /// close since windows borrow (Task 3). Empty when it does.
+    private static func registryReleaseReport(base: URL) throws -> [String] {
+        let text = try SourceTree.sourceOfType("ProjectSessionRegistry", under: ["Maugham"],
+                                               base: base)
+        guard let body = closureBody(after: "func release(", in: text) else {
+            return ["ProjectSessionRegistry declares no release(_:)"]
+        }
+        let code = String(decoding: SourceTree.mask(body), as: UTF8.self)
+        guard code.contains("session.close()") else {
+            return ["ProjectSessionRegistry.release never closes the session — the last "
+                    + "window on a project would leave its services and stores alive"]
+        }
+        return []
     }
 
     /// Whether `ProjectSession.close()` detaches the roster and THEN closes
