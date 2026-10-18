@@ -1043,13 +1043,11 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// in the mount is two places that can disagree about which pass a piece
     /// is in, and the RUN reads only one of them.
     func test_theProductionMountWiresThePickerToTheWindowsOneWriter() throws {
-        let window = try SourceTree.windowSource()
-        XCTAssertTrue(window.contains("onSetActivePass:"),
-                      "the window must supply the strip's pass writer")
-        let arm = try XCTUnwrap(
-            window.range(of: "onSetActivePass:"),
-            "the mount must name the closure")
-        let after = String(window[arm.upperBound...].prefix(320))
+        // Sliced inside the one window file holding the arm, never across a
+        // file boundary.
+        let after = try XCTUnwrap(
+            SourceTree.windowText(after: "onSetActivePass:", length: 320),
+            "the window must supply the strip's pass writer, and name the closure")
         XCTAssertTrue(after.contains("recordActivePass(forPiece:"),
                       "\u{2026}and it must be the existing private writer, not a "
                       + "second `updateUIState` in the mount \u{2014} got: \(after)")

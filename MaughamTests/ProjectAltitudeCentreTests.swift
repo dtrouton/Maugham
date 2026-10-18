@@ -1025,7 +1025,7 @@ final class ProjectAltitudeCentreTests: XCTestCase {
     /// extensions put it — bounded, or a scan over it is really a scan over the
     /// rest of the file (see the control above). Throws when it is gone.
     private static func editorArm(base: URL = SourceTree.repoRoot) throws -> String {
-        try SourceTree.declaration(named: "private func manuscriptEditor(",
+        try SourceTree.declaration(named: "func manuscriptEditor(",
                                    under: "Maugham", base: base)
     }
 

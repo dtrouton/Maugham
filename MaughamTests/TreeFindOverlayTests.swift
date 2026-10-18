@@ -344,8 +344,8 @@ final class TreeFindOverlayTests: XCTestCase {
     /// — *does opening find move anything but find?* — and it is asked of the
     /// handler's own body rather than of a spelling.
     func test_theFindCommandsHandlerWritesNothingButTheOverlayFlag() throws {
-        let text = try SourceTree.windowSource()
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = try XCTUnwrap(Self.windowFileLines(containing: "(.maughamFindInProject,"),
+                                  "no receiver for the Find command at all in ProjectWindow")
         let start = try XCTUnwrap(
             lines.firstIndex(where: { $0.contains("(.maughamFindInProject,") }),
             "no receiver for the Find command at all in ProjectWindow")
@@ -365,14 +365,21 @@ final class TreeFindOverlayTests: XCTestCase {
     /// wrong spelling for any census to find — `⌘⌥F` would simply stop doing
     /// anything.
     func test_theCommandsHandlerOpensTheOverlay() throws {
-        let text = try SourceTree.windowSource()
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = try XCTUnwrap(Self.windowFileLines(containing: "(.maughamFindInProject,"),
+                                  "no receiver for ⌘⌥F at all in ProjectWindow")
         let start = try XCTUnwrap(
             lines.firstIndex(where: { $0.contains("(.maughamFindInProject,") }),
             "no receiver for ⌘⌥F at all in ProjectWindow")
         let body = lines[start..<min(start + 5, lines.count)].joined(separator: "\n")
         XCTAssertTrue(body.contains("treeFindActive = true"),
                       "⌘⌥F no longer opens the find overlay")
+    }
+
+    /// The lines of the ONE window file (by type, `SourceTree.windowSources`)
+    /// holding `token`, so a slice after it never runs into another file.
+    private static func windowFileLines(containing token: String) throws -> [Substring]? {
+        try SourceTree.windowSources().first { $0.contains(token) }
+            .map { $0.split(separator: "\n", omittingEmptySubsequences: false) }
     }
 
     /// The ✕ and Escape are ONE route. Both live in `ProjectSearchView`, and

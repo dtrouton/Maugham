@@ -471,7 +471,7 @@ final class ReviewPassEditorTests: XCTestCase {
             window.contains("onDismiss: openFirstReaderIfRequested"),
             "the presenter acts from the sheet's own dismissal hook")
         let handoff = try SourceTree.declaration(
-            named: "private func openFirstReaderIfRequested() {", under: "Maugham")
+            named: "func openFirstReaderIfRequested() {", under: "Maugham")
         XCTAssertFalse(handoff.contains("postDetailSegment"),
                        "a key-window post is dropped while the sheet's window "
                        + "still holds key. Got:\n\(handoff)")

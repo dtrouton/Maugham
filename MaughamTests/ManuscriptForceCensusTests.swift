@@ -51,21 +51,31 @@ final class ManuscriptForceCensusTests: XCTestCase {
 
     /// `location` is a repo-relative path or a `type:` key.
     private func text(of location: String, base: URL = SourceTree.repoRoot) throws -> String {
-        if let type = SourceTree.typeName(ofKey: location) {
-            return try SourceTree.sourceOfType(type, under: ["Maugham"], base: base)
-        }
-        return try SourceTree.read(location, base: base)
+        try texts(of: location, base: base).joined(separator: "\n")
     }
 
-    /// The 25 lines from `receiver`'s RECEIVE site in `text`, or nil when
-    /// there is none. See the loop below for why `window:` picks the receive
-    /// site out from a post.
-    private static func receiverBody(_ receiver: String, in text: String) -> String? {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        guard let start = lines.firstIndex(where: {
-            $0.contains("(\(receiver),") && $0.contains("window:")
-        }) else { return nil }
-        return lines[start..<min(start + 25, lines.count)].joined(separator: "\n")
+    /// `location`'s files, each its own text: a type key's every declaring
+    /// file, or the one path. The receiver census slices 25 lines, and a slice
+    /// over a JOIN could run off one file's end into the next file's text.
+    private func texts(of location: String, base: URL = SourceTree.repoRoot) throws -> [String] {
+        if let type = SourceTree.typeName(ofKey: location) {
+            return try SourceTree.sourcesOfType(type, under: ["Maugham"], base: base).map(\.text)
+        }
+        return [try SourceTree.read(location, base: base)]
+    }
+
+    /// The 25 lines from `receiver`'s RECEIVE site, sliced inside the one file
+    /// of `texts` that holds it, or nil when none does. See the loop below for
+    /// why `window:` picks the receive site out from a post.
+    private static func receiverBody(_ receiver: String, in texts: [String]) -> String? {
+        for text in texts {
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            guard let start = lines.firstIndex(where: {
+                $0.contains("(\(receiver),") && $0.contains("window:")
+            }) else { continue }
+            return lines[start..<min(start + 25, lines.count)].joined(separator: "\n")
+        }
+        return nil
     }
 
     /// **Deleting the Exports condition outright leaves no wrong spelling
@@ -140,7 +150,7 @@ final class ManuscriptForceCensusTests: XCTestCase {
                        call: "PersonaModifier.applyPersonaChange("),
         ]
         for expectation in expectations {
-            let fileText = try text(of: expectation.file)
+            let fileTexts = try texts(of: expectation.file)
             // The RECEIVE site, not any POST site in the same file — every
             // `.onKeyWindowCommand`/`.onProjectEvent`/`.onDocumentEvent`
             // registration takes a `window:` argument on the same line and a
@@ -151,7 +161,7 @@ final class ManuscriptForceCensusTests: XCTestCase {
             // caught by this test itself failing against its own new entry
             // before this line existed.
             let body = try XCTUnwrap(
-                Self.receiverBody(expectation.receiver, in: fileText),
+                Self.receiverBody(expectation.receiver, in: fileTexts),
                 "\(expectation.receiver): no receiver for it at all in "
                 + "\(expectation.file)")
             XCTAssertTrue(body.contains(expectation.call),
@@ -198,12 +208,40 @@ final class ManuscriptForceCensusTests: XCTestCase {
             }
             """,
         ])
-        let windowText = try text(of: Self.window, base: base)
+        let windowText = try texts(of: Self.window, base: base)
         let body = try XCTUnwrap(Self.receiverBody(".maughamNavigateToDocument", in: windowText),
                                  "the receiver in the extension is the window's")
         XCTAssertTrue(body.contains("ManuscriptNavigation.go("))
         XCTAssertNil(Self.receiverBody(".maughamNavigateToScene", in: windowText),
                      "a post is not a receiver")
         XCTAssertThrowsError(try self.text(of: "type:NotAWindow", base: base))
+    }
+
+    /// **The 25-line slice stays inside its file** (plan 2 final review, M2):
+    /// a receiver near the END of one window file must not borrow the routing
+    /// call from the next file's text.
+    func test_theReceiverSliceNeverRunsIntoTheNextFile() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow+A.swift": """
+            extension ProjectWindow {
+                func receivers(_ v: some View) -> some View {
+                    v.onKeyWindowCommand(.maughamNavigateToDocument, window: window) { _ in }
+                }
+            }
+            """,
+            "Maugham/Views/ProjectWindow+B.swift": """
+            extension ProjectWindow {
+                func elsewhere() { ManuscriptNavigation.go(to: destination) }
+            }
+            """,
+        ])
+        let body = try XCTUnwrap(Self.receiverBody(".maughamNavigateToDocument",
+                                                   in: try texts(of: Self.window, base: base)))
+        XCTAssertFalse(body.contains("ManuscriptNavigation.go("),
+                       "the next file's call must not answer for this receiver: \(body)")
+        XCTAssertTrue(Self.receiverBody(".maughamNavigateToDocument",
+                                        in: [try text(of: Self.window, base: base)])?
+                        .contains("ManuscriptNavigation.go(") ?? false,
+                      "precondition: over the JOIN it would have")
     }
 }

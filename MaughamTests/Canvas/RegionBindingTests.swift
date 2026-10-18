@@ -1096,7 +1096,7 @@ final class RegionBindingTests: XCTestCase {
     /// reading it from `ProjectWindow.body` puts the largest body in the app on
     /// the drag loop.
     func test_theCanvasInspectorArmReadsNothingOffTheModel() throws {
-        let arm = try SourceTree.declaration(named: "private func canvasInspector(",
+        let arm = try SourceTree.declaration(named: "func canvasInspector(",
                                              under: "Maugham")
         XCTAssertTrue(arm.contains("RegionInspectorPane("))
         XCTAssertFalse(arm.contains("canvasModel."),
@@ -1403,7 +1403,7 @@ final class RegionBindingTests: XCTestCase {
             }
             """,
         ])
-        let arm = try SourceTree.declaration(named: "private func canvasInspector(",
+        let arm = try SourceTree.declaration(named: "func canvasInspector(",
                                              under: "Maugham", base: base)
         XCTAssertTrue(arm.contains("RegionInspectorPane("), "the arm is found in the extension")
         XCTAssertFalse(arm.contains("canvasModel.scene"), "…and bounded to itself")

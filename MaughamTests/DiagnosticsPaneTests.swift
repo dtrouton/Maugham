@@ -1335,7 +1335,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                       + "nothing. Got:\n\(change)")
 
         let dismiss = try SourceTree.declaration(
-            named: "private func openFirstReaderIfRequested() {", under: "Maugham")
+            named: "func openFirstReaderIfRequested() {", under: "Maugham")
         XCTAssertTrue(dismiss.contains("Self.opensFirstReader("),
                       "the dismissal asks the one decision. Got:\n\(dismiss)")
     }

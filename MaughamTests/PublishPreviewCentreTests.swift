@@ -1449,7 +1449,7 @@ final class PublishPreviewCentreTests: XCTestCase {
     func test_theBookIsAThirdLayerOfTheSameZStackAndNotAFourthArm() throws {
         let source = try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"])
         let arm = try SourceTree.declaration(
-            named: "private func manuscriptEditor(", under: "Maugham")
+            named: "func manuscriptEditor(", under: "Maugham")
 
         XCTAssertTrue(arm.contains("ZStack"), "still one stack, not a choice")
         XCTAssertTrue(arm.contains("EditorHost("),
@@ -1622,7 +1622,7 @@ final class PublishPreviewCentreTests: XCTestCase {
         XCTAssertTrue(rule.contains("previewsThePublishedBook"))
         XCTAssertFalse(rule.contains("EditorHost("), "the rule is bounded to itself")
         let arm = try SourceTree.declaration(
-            named: "private func manuscriptEditor(", under: "Maugham", base: base)
+            named: "func manuscriptEditor(", under: "Maugham", base: base)
         XCTAssertTrue(arm.contains("PublishPreviewCentre("), "the arm is found in the extension")
         XCTAssertEqual(
             Self.occurrences(

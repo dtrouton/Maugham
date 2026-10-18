@@ -617,7 +617,7 @@ final class DesignGateTests: XCTestCase {
     /// `manuscriptEditor`'s own code lines, found by symbol.
     private static func manuscriptEditorCodeLines(base: URL = SourceTree.repoRoot) throws -> [String] {
         SourceScan.codeLines(of: try SourceTree.declaration(
-            named: "private func manuscriptEditor(", under: "Maugham", base: base))
+            named: "func manuscriptEditor(", under: "Maugham", base: base))
     }
 
     /// Whether `code` mounts `DesignGateView(` within 40 lines after the

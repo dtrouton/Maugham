@@ -3825,7 +3825,7 @@ final class CompilerRunCommandTests: XCTestCase {
         // stopped asserting once when a comment above the call grew (this
         // branch's own fix wave). Throws when the declaration is gone.
         let body = try SourceTree.declaration(
-            named: "private func runRoundWhenPieceOpens(", under: "Maugham")
+            named: "func runRoundWhenPieceOpens(", under: "Maugham")
         XCTAssertTrue(body.contains("onTimedOut:"),
                       "the mount must supply the expiry's sentence. Got:\n\(body)")
         XCTAssertTrue(body.contains(".show(.pieceWouldNotOpen)"),

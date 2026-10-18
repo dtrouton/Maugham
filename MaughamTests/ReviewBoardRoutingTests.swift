@@ -263,6 +263,15 @@ final class ReviewBoardRoutingTests: XCTestCase {
             + "the question has stopped deciding")
     }
 
+    /// Every review-name gate under `root`, file by file (`reviewNameGates`).
+    private static func reviewNameGateOffenders(
+        under root: String, base: URL = SourceTree.repoRoot
+    ) throws -> [String] {
+        try SourceTree.sources(under: root, base: base).flatMap { file in
+            reviewNameGates(in: file.text).map { "\(file.path): \($0)" }
+        }
+    }
+
     /// **Comments stripped, and the case name read WHOLE.**
     ///
     /// Two ways the naive spelling (`line.contains("== .review")` over raw
@@ -272,14 +281,6 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// comment quotes the forbidden shape while explaining why it is forbidden.
     /// A census that fires on its own explanation gets silenced, which is worse
     /// than not having it.
-    private static func reviewNameGateOffenders(
-        under root: String, base: URL = SourceTree.repoRoot
-    ) throws -> [String] {
-        try SourceTree.sources(under: root, base: base).flatMap { file in
-            reviewNameGates(in: file.text).map { "\(file.path): \($0)" }
-        }
-    }
-
     private static func reviewNameGates(in source: String) -> [String] {
         SourceScan.codeLines(of: source)
             .filter { line in
@@ -700,7 +701,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
     func test_theBoardIsALayerOfTheSameZStackAndNotAnArmOfItsOwn() throws {
         let source = try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"])
         let arm = try SourceTree.declaration(
-            named: "private func manuscriptEditor(", under: "Maugham")
+            named: "func manuscriptEditor(", under: "Maugham")
 
         XCTAssertTrue(arm.contains("ZStack"), "still one stack, not a choice")
         XCTAssertTrue(arm.contains("EditorHost("),
@@ -740,7 +741,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
     func test_theArmScanReadsTheArmAndNotTheWholeFile() throws {
         let source = try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"])
         let arm = try SourceTree.declaration(
-            named: "private func manuscriptEditor(", under: "Maugham")
+            named: "func manuscriptEditor(", under: "Maugham")
         XCTAssertTrue(source.contains("CanvasView("),
                       "premise: the file really does mount the canvas")
         XCTAssertFalse(arm.contains("CanvasView("),
@@ -776,7 +777,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
             """,
         ])
         let arm = try SourceTree.declaration(
-            named: "private func manuscriptEditor(", under: "Maugham", base: base)
+            named: "func manuscriptEditor(", under: "Maugham", base: base)
         XCTAssertTrue(arm.contains("ReviewBoardPane("), "the arm is found in the extension")
         XCTAssertFalse(arm.contains("CanvasView("), "…and bounded to itself")
 
@@ -816,7 +817,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// this covers the closures the pane is handed, which live here.
     func test_theBoardsChipsAreWiredToTheWindowsSubjectAndTheStore() throws {
         let arm = try SourceTree.declaration(
-            named: "private func manuscriptEditor(", under: "Maugham")
+            named: "func manuscriptEditor(", under: "Maugham")
         let call = try XCTUnwrap(Self.argumentList(after: "ReviewBoardPane(", in: arm),
                                  "the board's mount must still be a call with "
                                  + "arguments this scan can read")
@@ -854,7 +855,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// the scope) and neither the subject nor the persona.
     func test_theCountIsWiredToTheQueueAndMovesNeitherSubjectNorPersona() throws {
         let arm = try SourceTree.declaration(
-            named: "private func manuscriptEditor(", under: "Maugham")
+            named: "func manuscriptEditor(", under: "Maugham")
         let call = try XCTUnwrap(Self.argumentList(after: "ReviewBoardPane(", in: arm))
         let code = SourceScan.codeLines(of: call).joined(separator: "\n")
         let closure = try XCTUnwrap(
@@ -905,7 +906,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// closed piece's synced-in note reach the number on screen.
     func test_theCountsAreRecomputedOffTheBodyPathAndOnTheEvent() throws {
         let arm = try SourceTree.declaration(
-            named: "private func manuscriptEditor(", under: "Maugham")
+            named: "func manuscriptEditor(", under: "Maugham")
 
         XCTAssertTrue(arm.contains(".task { refreshOpenNotes(store: store) }"),
                       "the board must recount when it appears")
@@ -915,7 +916,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
                       + "closed-window liveness guard (ADR 0021)")
 
         let refresh = try SourceTree.declaration(
-            named: "private func refreshOpenNotes(", under: "Maugham")
+            named: "func refreshOpenNotes(", under: "Maugham")
         XCTAssertEqual(
             Self.occurrences(of: "listAnnotationsAcrossProject()", in: refresh), 1,
             "ONE walk per refresh: the aggregation is cached, but its cache key "
@@ -941,7 +942,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// board's — or the scan is really reading the arm again and cannot fail.
     func test_theBoardsArgumentScanStopsAtItsOwnCall() throws {
         let arm = try SourceTree.declaration(
-            named: "private func manuscriptEditor(", under: "Maugham")
+            named: "func manuscriptEditor(", under: "Maugham")
         let call = try XCTUnwrap(Self.argumentList(after: "ReviewBoardPane(", in: arm))
 
         XCTAssertTrue(arm.contains("ProjectAltitudePane("),

@@ -921,10 +921,10 @@ final class ReviewBoardPaneTests: XCTestCase {
     /// `CompilerRunCommandTests`; this is what keeps the mount on the far side
     /// of it.
     func test_theProductionMountDefersTheChipsRunUntilThePieceIsOpen() throws {
-        let window = try SourceTree.windowSource()
-        let arm = try XCTUnwrap(window.range(of: "onRunRound:"),
-                                "the mount must supply the chip's run closure")
-        let after = String(window[arm.upperBound...].prefix(600))
+        // Sliced inside the one window file holding the arm, never across a
+        // file boundary.
+        let after = try XCTUnwrap(SourceTree.windowText(after: "onRunRound:", length: 600),
+                                  "the mount must supply the chip's run closure")
 
         XCTAssertTrue(after.contains("recordActivePass(forPiece:"),
                       "the round's lane is recorded through the window's one "
@@ -948,7 +948,7 @@ final class ReviewBoardPaneTests: XCTestCase {
         // when the deferral's one production caller is not a readable
         // declaration, so this census always has a subject.
         let helper = try SourceTree.declaration(
-            named: "private func runRoundWhenPieceOpens(", under: "Maugham")
+            named: "func runRoundWhenPieceOpens(", under: "Maugham")
         XCTAssertTrue(helper.contains("RunWhenDocumentOpens.start("),
                       "the helper must go through the bounded wait rather than "
                       + "run outright. Got:\n\(helper)")

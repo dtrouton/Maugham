@@ -1075,7 +1075,7 @@ final class AssistantColumnTests: XCTestCase {
     /// census. The planted offender below is what keeps it honest.
     func test_theKeystrokeEndsAStudyEvenWhenItNamesThePaneAlreadyShowing() throws {
         XCTAssertTrue(
-            Self.setDetailSegmentHandlerDismissesTheStudy(in: try Self.projectWindowSource()),
+            Self.setDetailSegmentHandlerDismissesTheStudy(in: try Self.projectWindowSources()),
             "the `.maughamSetDetailSegment` handler must reach an act that calls "
             + "`assistant.dismiss()`: "
             + "it writes a segment that is often the one already selected, so "
@@ -1085,17 +1085,18 @@ final class AssistantColumnTests: XCTestCase {
 
     /// The planted offender: without it the census could be reading nothing.
     func test_theKeystrokeCensusCanSeeTheHandlerLoseItsDismiss() throws {
-        let stripped = try Self.projectWindowSource()
-            .replacingOccurrences(of: "assistant.dismiss()", with: "// removed")
+        let stripped = try Self.projectWindowSources()
+            .map { $0.replacingOccurrences(of: "assistant.dismiss()", with: "// removed") }
         XCTAssertFalse(Self.setDetailSegmentHandlerDismissesTheStudy(in: stripped),
                        "the census cannot see the dismiss go — it is not reading "
                        + "the handler")
     }
 
-    /// The window's code by TYPE — every file declaring `ProjectWindow` — so a
-    /// split of the window moves the handler out of nobody's sight.
-    private static func projectWindowSource() throws -> String {
-        try SourceTree.windowSource()
+    /// The window's code by TYPE — every file declaring `ProjectWindow`, each
+    /// its own text — so a split of the window moves the handler out of
+    /// nobody's sight, and the handler's slice never runs into the next file.
+    private static func projectWindowSources() throws -> [String] {
+        try SourceTree.windowSources()
     }
 
     /// Does the `.maughamSetDetailSegment` handler dismiss? Read in two hops
@@ -1107,16 +1108,23 @@ final class AssistantColumnTests: XCTestCase {
     /// now, shared with the Describe… hand-off, which needs the same act
     /// and cannot use the post (a `.keyWindow` post is dropped while the
     /// sheet's window still holds key).
-    private static func setDetailSegmentHandlerDismissesTheStudy(in source: String) -> Bool {
-        guard let start = source.range(of: ".onKeyWindowCommand(.maughamSetDetailSegment") else {
-            return false
+    private static func setDetailSegmentHandlerDismissesTheStudy(in sources: [String]) -> Bool {
+        // The handler's slice, inside the one file holding it (it ends at that
+        // file's end at the latest, never in the next file's text)…
+        let handlerReachesTheAct = sources.contains { source in
+            guard let start = source.range(of: ".onKeyWindowCommand(.maughamSetDetailSegment") else {
+                return false
+            }
+            let rest = source[start.upperBound...]
+            let end = rest.range(of: ".onKeyWindowCommand(")?.lowerBound ?? rest.endIndex
+            return rest[..<end].contains("ProjectWindow.selectDetailSegment(")
         }
-        let rest = source[start.upperBound...]
-        let end = rest.range(of: ".onKeyWindowCommand(")?.lowerBound ?? rest.endIndex
-        guard rest[..<end].contains("ProjectWindow.selectDetailSegment(") else { return false }
-        guard let act = declaration(named: "static func selectDetailSegment(", in: source)
-        else { return false }
-        return act.contains("assistant.dismiss()")
+        // …and the act, in whichever window file declares it.
+        let actDismisses = sources.contains { source in
+            declaration(named: "static func selectDetailSegment(", in: source)?
+                .contains("assistant.dismiss()") ?? false
+        }
+        return handlerReachesTheAct && actDismisses
     }
 
     /// A brace-balanced read of one declaration — a per-suite copy, as
