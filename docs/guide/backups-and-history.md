@@ -97,7 +97,9 @@ Before every backup, Maugham checks that the project's history is whole. If it i
 - a green seal — *"Integrity verified"*: this backup checks out.
 - an orange triangle — *"This generation failed verification"*: something in this copy is damaged. Choose another one.
 
-If there aren't any yet, the window says **No backups found**: *"No backup generations exist for this project yet."*
+If none are found, the window says **No backups found** and offers **Show All Backups**, which lists every backup in your backup folders by its project's title, so you can pick the right one yourself. This helps when a project's settings file was lost and its own backups can't be matched to it.
+
+If a project's settings file (`project.maugham.json`) goes missing but Maugham's safety copy of it is intact, the project still opens. Maugham puts the file back and says once: *"This project's settings file was missing, so Maugham put it back from its safety copy."*
 
 Choose a backup and press **Restore a Copy…**. Maugham asks *"Choose where to restore a copy of this project."* It suggests the name *<project> (restored)*, next to your original, and shows you the copy in Finder when it's done. **A restore never replaces your project in place.** Your current project stays exactly as it is, and you open the restored copy alongside it to take what you need. If you choose a name that's already taken, Maugham restores nothing — even if you pressed **Replace**, the window says *Restore failed:* and explains: *"Something named “<name>” is already there, so nothing was restored. Choose a new name — a restore never replaces anything."*
 

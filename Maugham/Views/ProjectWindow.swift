@@ -302,6 +302,7 @@ struct ProjectWindow: View {
         .modifier(ContainerWidthReporter(onWidth: noteContainerWidth))
         .modifier(TopChromeModifier(
             projectURL: url,
+            store: store,
             persona: persona,
             isNoChromeOn: isNoChromeOn,
             onSelectPersona: Self.postPersona))
@@ -684,7 +685,8 @@ struct ProjectWindow: View {
         }
     }
 
-    /// The persona bar, the top banners (software-update + backups-paused), and
+    /// The persona bar, the top banners (software-update, backups-paused,
+    /// settings-file-restored), and
     /// the focused project URL, pulled off `body` for the Release type-check
     /// ceiling.
     ///
@@ -700,6 +702,7 @@ struct ProjectWindow: View {
     /// stays the single predicate.
     private struct TopChromeModifier: ViewModifier {
         let projectURL: URL
+        let store: ProjectStore?
         let persona: Persona
         let isNoChromeOn: Bool
         let onSelectPersona: (Persona) -> Void
@@ -714,6 +717,7 @@ struct ProjectWindow: View {
                     VStack(spacing: 0) {
                         UpdateBannerView()
                         BackupRecoveryBanner(projectURL: projectURL)
+                        ManifestRestoredBanner(store: store)
                     }
                 }
                 .toolbar {

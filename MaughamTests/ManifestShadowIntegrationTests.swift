@@ -50,4 +50,79 @@ final class ManifestShadowIntegrationTests: XCTestCase {
             // expected
         }
     }
+
+    // MARK: - #92: a MISSING manifest comes back from its shadow
+
+    private func manifestURL(_ url: URL) -> URL { url.appendingPathComponent(ProjectManifest.fileName) }
+
+    /// A project whose shadow mirrors its manifest, as every save leaves it.
+    private func shadowedProject(_ name: String) async throws -> URL {
+        let url = try await ProjectFactory.createShortStoryProject(named: name, in: temp.url)
+        try ManifestShadow.write(try Data(contentsOf: manifestURL(url)), in: url)
+        return url
+    }
+
+    func test_aMissingManifestIsPutBackFromAGoodShadowAndSaysSoOnce() async throws {
+        let url = try await shadowedProject("Lost")
+        try FileManager.default.removeItem(at: manifestURL(url))
+
+        let store = try await ProjectStore.load(from: url)
+
+        XCTAssertEqual(store.manifest.title, "Lost")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: manifestURL(url).path))
+        XCTAssertEqual(store.manifestRestoredNotice,
+            "This project's settings file was missing, so Maugham put it back from its safety copy.")
+        // The file is back, so the next open has nothing to say.
+        let again = try await ProjectStore.load(from: url)
+        XCTAssertNil(again.manifestRestoredNotice)
+    }
+
+    func test_aMissingManifestWithNoShadowStillRefuses() async throws {
+        let url = try await ProjectFactory.createShortStoryProject(named: "Gone", in: temp.url)
+        try FileManager.default.removeItem(at: manifestURL(url))
+        do {
+            _ = try await ProjectStore.load(from: url)
+            XCTFail("expected manifestNotFound")
+        } catch ProjectStoreError.manifestNotFound {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: manifestURL(url).path))
+        }
+    }
+
+    func test_aMissingManifestWithACorruptShadowStillRefuses() async throws {
+        let url = try await shadowedProject("BadShadow")
+        try FileManager.default.removeItem(at: manifestURL(url))
+        // The checksum no longer matches: `recover` refuses the shadow.
+        try Data("{ tampered".utf8).write(
+            to: url.appendingPathComponent(".maugham/manifest.shadow.json"), options: .atomic)
+        do {
+            _ = try await ProjectStore.load(from: url)
+            XCTFail("expected manifestNotFound")
+        } catch ProjectStoreError.manifestNotFound {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: manifestURL(url).path))
+        }
+    }
+
+    func test_aPresentManifestIsNeverReplacedByTheShadow() async throws {
+        let url = try await shadowedProject("Present")
+        let present = try Data(contentsOf: manifestURL(url))
+        // A shadow that disagrees with the live file (a different title).
+        var other = try ProjectManifest.makeDecoder().decode(ProjectManifest.self, from: present)
+        other.title = "Shadow Title"
+        try ManifestShadow.write(try ProjectManifest.makeEncoder().encode(other), in: url)
+
+        XCTAssertFalse(ProjectStore.restoreMissingManifest(at: manifestURL(url), projectURL: url))
+        XCTAssertEqual(try Data(contentsOf: manifestURL(url)), present)
+
+        let store = try await ProjectStore.load(from: url)
+        XCTAssertEqual(store.manifest.title, "Present")
+        XCTAssertNil(store.manifestRestoredNotice)
+    }
+
+    func test_aCorruptManifestSelfHealsAsBeforeWithNoMissingFileNotice() async throws {
+        let url = try await shadowedProject("Corrupt")
+        try Data("{ broken".utf8).write(to: manifestURL(url), options: .atomic)
+        let store = try await ProjectStore.load(from: url)
+        XCTAssertEqual(store.manifest.title, "Corrupt")
+        XCTAssertNil(store.manifestRestoredNotice)
+    }
 }

@@ -17,6 +17,13 @@ struct RestoreWindow: View {
     /// every destination — so the list keys on `directory`, not `id`.
     @State private var selection: URL?
     @State private var error: String?
+    /// **The last resort** (#92): every generation in every backup folder,
+    /// whatever book it belongs to, offered only when none were found for this
+    /// project. The writer picks by title — nothing matches a book to a
+    /// generation by title or folder name, because titles collide.
+    @State private var showingAll = false
+    /// Each listed generation's own title, read once with the list.
+    @State private var titles: [URL: String] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -24,14 +31,25 @@ struct RestoreWindow: View {
                 .padding(12)
             Divider()
             if generations.isEmpty {
-                ContentUnavailableView("No backups found",
-                    systemImage: "externaldrive.badge.questionmark",
-                    description: Text("No backup generations exist for this project yet."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ContentUnavailableView {
+                    Label("No backups found", systemImage: "externaldrive.badge.questionmark")
+                } description: {
+                    Text(showingAll
+                         ? "Your backup folders hold no backups."
+                         : "No backups were found for this project. If its settings file was lost, its backups may be filed under another name.")
+                } actions: {
+                    if !showingAll {
+                        Button("Show All Backups") { Task { await load(all: true) } }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(generations, id: \.directory, selection: $selection) { gen in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
+                            if showingAll {
+                                Text(titles[gen.directory] ?? "Untitled")
+                            }
                             Text(gen.builtAt.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? gen.id)
                             Text(gen.destination.deletingLastPathComponent().lastPathComponent)
                                 .font(.caption).foregroundStyle(.secondary)
@@ -61,10 +79,18 @@ struct RestoreWindow: View {
         .task { await load() }
     }
 
-    private func load() async {
-        let gens = backupCoordinator.generations(forProject: projectURL)
+    private func load(all: Bool = false) async {
+        let gens = all
+            ? backupCoordinator.allGenerations()
+            : backupCoordinator.generations(forProject: projectURL)
         var ok: Set<URL> = []
-        for gen in gens where BackupRestore.verify(gen).isEmpty { ok.insert(gen.directory) }
+        var named: [URL: String] = [:]
+        for gen in gens {
+            if BackupRestore.verify(gen).isEmpty { ok.insert(gen.directory) }
+            if all, let title = BackupCoordinator.title(of: gen) { named[gen.directory] = title }
+        }
+        showingAll = all
+        titles = named
         generations = gens
         intact = ok
     }
