@@ -86,12 +86,16 @@ struct ProjectStatisticsWindow: View {
 
     private func load() async {
         do {
-            let window = self.window
             guard let s = try await source.load(projectURL, from: sessions, keep: {
                 // `ProjectWindow.load()`'s keep-check: a cancelled load on a
                 // window already known closed hands its borrow back — its
-                // `.onDisappear` saw no lease and released nothing.
-                !(Task.isCancelled && window != nil && !MaughamEvent.isLive(window))
+                // `.onDisappear` saw no lease and released nothing. The LIVE
+                // `self.window`, read here after the acquire and never
+                // snapshotted before it: `WindowAccessor` fills it on a later
+                // main-queue turn, so a copy taken when the task starts is
+                // routinely nil and would keep every borrow.
+                ProjectStatisticsSource.keepsBorrow(
+                    cancelled: Task.isCancelled, window: self.window)
             }) else { return }
             self.sessionLog = await source.loadSessionLog() ?? .empty
             rederivePractice(store: s)
@@ -133,7 +137,6 @@ struct ProjectStatisticsWindow: View {
         }
     }
 }
-
 
 /// **The Statistics window's data source: the project's session, borrowed as
 /// a READER** (foundations plan 3, Task 4).
@@ -183,6 +186,14 @@ final class ProjectStatisticsSource {
     func loadSessionLog() async -> SessionLog? {
         guard let documentStore = lease?.session.documentStore else { return nil }
         return (try? await documentStore.loadSessionLog()) ?? .empty
+    }
+
+    /// Whether a load keeps the borrow it just acquired — `ProjectWindow.load()`'s
+    /// rule: hand it back only when the load was cancelled AND the window is
+    /// known gone. A cancelled load on a live window (or one not yet known)
+    /// keeps it, since nothing promises the task re-runs.
+    static func keepsBorrow(cancelled: Bool, window: NSWindow?) -> Bool {
+        !(cancelled && window != nil && !MaughamEvent.isLive(window))
     }
 
     /// Hands the borrow over to be released and forgets it, synchronously.

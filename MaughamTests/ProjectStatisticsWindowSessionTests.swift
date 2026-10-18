@@ -156,4 +156,54 @@ final class ProjectStatisticsWindowSessionTests: XCTestCase {
         if let lease = source.relinquish() { await registry.release(lease) }
         XCTAssertEqual(registry.openCount, 0)
     }
+
+    // MARK: - The keep-check
+
+    /// The keep rule itself: only a cancelled load on a window known gone
+    /// hands its borrow back.
+    func test_theKeepRuleReleasesOnlyACancelledLoadOnAWindowKnownGone() {
+        let gone = NSWindow()   // never shown: not visible, not miniaturised
+        XCTAssertFalse(MaughamEvent.isLive(gone), "premise: the handle is not live")
+        XCTAssertFalse(ProjectStatisticsSource.keepsBorrow(cancelled: true, window: gone))
+        XCTAssertTrue(ProjectStatisticsSource.keepsBorrow(cancelled: false, window: gone))
+        XCTAssertTrue(ProjectStatisticsSource.keepsBorrow(cancelled: true, window: nil),
+                      "a window not yet known keeps the borrow")
+        XCTAssertTrue(ProjectStatisticsSource.keepsBorrow(cancelled: false, window: nil))
+    }
+
+    /// A REALLY cancelled load whose window handle is gone by the time the
+    /// keep-check runs hands its borrow back — the handle arriving only after
+    /// the load began, as `WindowAccessor`'s does.
+    func test_aCancelledLoadOnAWindowGoneByTheKeepCheckHandsItsBorrowBack() async throws {
+        let url = try await makeProject()
+        let registry = ProjectSessionRegistry()
+        let source = ProjectStatisticsSource()
+        @MainActor final class Handle { var window: NSWindow? }
+        let handle = Handle()   // nil when the load starts
+
+        let loading = Task { @MainActor in
+            try await source.load(url, from: registry, keep: {
+                ProjectStatisticsSource.keepsBorrow(
+                    cancelled: Task.isCancelled, window: handle.window)
+            })
+        }
+        handle.window = NSWindow()   // filled after the task began, then closed
+        loading.cancel()
+        let store = try await loading.value
+
+        XCTAssertNil(store)
+        XCTAssertNil(source.lease)
+        XCTAssertEqual(registry.openCount, 0,
+                       "a borrow kept for a closed window would hold the project open for good")
+    }
+
+    /// The view's keep-check reads the LIVE window after the acquire, never a
+    /// copy taken before it (a copy is routinely nil when `.task` starts).
+    func test_theViewsKeepCheckReadsTheLiveWindow() throws {
+        let source = try SourceTree.sourceOfType("ProjectStatisticsWindow", under: ["Maugham"])
+        XCTAssertTrue(source.contains("cancelled: Task.isCancelled, window: self.window"),
+                      "load()'s keep-check must read self.window inside the closure")
+        XCTAssertFalse(source.contains("let window = self.window"),
+                       "load() must not snapshot the window before the acquire")
+    }
 }

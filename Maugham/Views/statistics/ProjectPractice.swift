@@ -15,7 +15,7 @@ import MaughamCore
 /// own scene borrowing the project's session as a reader
 /// (`ProjectStatisticsWindow.load`), and nothing here consults a live
 /// `Document`: every row derives through `OpLogStore.loadSyncMerged` +
-/// `Deriver.deriveWithSequenceFallback`, the walk
+/// `Deriver.deriveWithSequenceFallback`, the walk that
 /// `ProjectStore.projectAnnotations` already uses. A document whose log cannot
 /// be read is skipped and NAMED (RULING-54 lenient — a section that refused the
 /// whole book over one file would tell the writer nothing at all).
