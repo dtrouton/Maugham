@@ -120,16 +120,3 @@ struct ProjectPickerSheet: View {
         .buttonStyle(.plain)
     }
 }
-
-extension ProjectType {
-    /// SF Symbol shown dimmed next to a project title in the picker.
-    var symbolName: String {
-        switch self {
-        case .shortStory: return "doc.text"
-        case .novel: return "book.closed"
-        case .screenplay: return "film"
-        case .collection: return "books.vertical"
-        case .unknown: return "questionmark.folder"   // newer-build project type (ADR 0015)
-        }
-    }
-}

@@ -7,10 +7,11 @@ import MaughamCore
 final class ReadIconsTests: XCTestCase {
 
     func test_projectSymbol_perType() {
-        XCTAssertEqual(ReadIcons.projectSymbol(.shortStory), "doc.text")
-        XCTAssertEqual(ReadIcons.projectSymbol(.novel), "book.closed")
-        XCTAssertEqual(ReadIcons.projectSymbol(.screenplay), "film")
-        XCTAssertEqual(ReadIcons.projectSymbol(.collection), "books.vertical")
+        XCTAssertEqual(ProjectType.shortStory.symbolName, "doc.text")
+        XCTAssertEqual(ProjectType.novel.symbolName, "book.closed")
+        XCTAssertEqual(ProjectType.screenplay.symbolName, "film")
+        XCTAssertEqual(ProjectType.collection.symbolName, "books.vertical")
+        XCTAssertEqual(ProjectType.unknown.symbolName, "questionmark.folder")
     }
 
     func test_structureSymbol_group_isFolder() {
@@ -23,6 +24,10 @@ final class ReadIconsTests: XCTestCase {
         let fountain = StructureItem(id: "d_2", title: "Scene", type: .document, path: "script.fountain")
         XCTAssertEqual(ReadIcons.structureSymbol(md), "doc.text")
         XCTAssertEqual(ReadIcons.structureSymbol(fountain), "film")
+        let upper = StructureItem(id: "d_4", title: "Scene", type: .document, path: "script.FOUNTAIN")
+        let txt = StructureItem(id: "d_5", title: "Raw", type: .document, path: "notes.txt")
+        XCTAssertEqual(ReadIcons.structureSymbol(upper), "film")
+        XCTAssertEqual(ReadIcons.structureSymbol(txt), "doc")
     }
 
     func test_structureSymbol_pathlessDocument_fallsBackToGenericPage() {

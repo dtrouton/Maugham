@@ -285,7 +285,7 @@ struct DocumentReaderView: View {
 
         // Branch on extension. Parse Fountain exactly ONCE here and cache the
         // script in @State (tripwire 4); the renderer never re-parses.
-        switch BinderRouting.kind(of: docURL) {
+        switch DocumentFormat(url: docURL) {
         case .markdown:
             // Shared display strip (paragraph + task anchors) — the same
             // MarkdownDisplayFilter the Mac editor's RenderFilter uses, so the
@@ -296,7 +296,7 @@ struct DocumentReaderView: View {
             state = .markdown(MarkdownBlocks.parse(MarkdownDisplayFilter.stripAnchors(text)))
         case .fountain:
             state = .fountain(Self.parseFountain(text))
-        case .other:
+        case nil:
             // Render raw text plain — friendlier than a hard failure.
             state = .plain(text)
         }

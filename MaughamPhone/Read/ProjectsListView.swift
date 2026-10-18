@@ -89,7 +89,7 @@ private struct ProjectRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: ReadIcons.projectSymbol(project.manifest.type))
+            Image(systemName: project.manifest.type.symbolName)
                 .foregroundStyle(.secondary)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
