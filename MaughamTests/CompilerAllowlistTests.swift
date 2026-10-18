@@ -148,7 +148,7 @@ final class CompilerAllowlistTests: XCTestCase {
     /// `read_visual_language`) and must never be able to write it: a model that
     /// could edit the standard it is judged against can quietly move the
     /// standard until nothing it wrote is ever flagged again. That is the
-    /// planning plane's line (`Maugham/MCP/AREA.md` tripwire 4) arriving on the
+    /// planning plane's line (`Maugham/MCP/AREA.md`, Rules → "The membrane") arriving on the
     /// surface M2 built.
     ///
     /// **Asserted twice over, because the allowlist is the weaker half.** The

@@ -1,0 +1,347 @@
+# MaughamPhone — history
+
+Moved from `MaughamPhone/AREA.md` on 2026-10-18 by foundations plan 5. History and rationale; not required reading. The guide is the current truth.
+
+This is the whole guide as it stood at `aadac856`, word for word under its original headings (its first heading is demoted one level beneath this one); only relative links were re-pointed so they resolve from `docs/history/`.
+
+## `MaughamPhone/` — the iOS companion app
+
+Read this before editing anything under `MaughamPhone/`. The iOS app (Phases D0–F
+of `docs/superpowers/plans/2026-05-24-iphone-companion-v1.md`, merged `3fff8b5`)
+is a four-tab SwiftUI app — **Capture / Read / Annotations / Settings** — that
+reads/writes a security-scoped-bookmarked iCloud-Drive projects folder. It shares
+`Packages/MaughamCore` with the Mac; **AppKit-bound code never reaches here.**
+
+## Build & test
+
+```
+./gen.sh                                                                       # after project.yml / asset-catalog changes
+xcodebuild -project Maugham.xcodeproj -scheme MaughamPhone \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -configuration Debug test CODE_SIGNING_ALLOWED=NO
+```
+
+- Tests `@testable import MaughamPhone` + `import MaughamCore`. `MaughamPhoneTests`
+  hosts into the app target (like `MaughamTests` into Maugham).
+- **Transient simulator "Busy / failed preflight checks" on a test run is a flake**
+  — just re-run the command. Do **NOT** `simctl shutdown all` right before a launch;
+  that *causes* the Busy state.
+- Dev/stable variants: `com.Maugham.MaughamPhone[.dev]` (capital "M" — matches the
+  registered App ID; diverges from the Mac's `com.maugham.Maugham` on purpose, see
+  CLAUDE.md → phone bundle-id note); iOS knobs live on
+  `BuildVariantPhone.swift` (the one sanctioned home for the bundle-id literals —
+  tripwire 13; `TripwirePhoneGrepTest` enforces zero `"maugham"`/`"Maugham"`
+  literals elsewhere). **WhisperKit is a Mac-target-only dep — never add it here.**
+
+## Layout
+
+- **`Storage/`** — the substrate. `DownloadCoordinator` (actor: per-URL state +
+  dedup + 50 MB cold-launch budget + `observe` AsyncStream), `CoordinatedFileIO`
+  (`UbiquitousDownloader` conformer: download/poll + NSFileCoordinator read/
+  write/ensureDirectory — **no append primitive**, since every JSONL append the
+  phone makes is chained through MaughamCore's `JSONLAppendStore`) over the
+  `UbiquitousFileSystem` seam, `ProjectsRoot` (bookmark
+  lifecycle), `ProjectsBrowser` (id→manifest), `RecentsTracker`,
+  `ColdLaunchDownloader`. The device id is NOT here: it is MaughamCore's
+  `DeviceIdentity.author.deviceId`, the same one the Mac's writer reads (signed
+  op log P1) — never a `phone:<uuid>` of the phone's own, and `PhoneDeviceID` is
+  deleted. The phone is the `author` and holds that ONE key — and it
+  needs no code of its own to be. `LocalIdentities` is LAZY (signed op log P1b,
+  whole-branch review C1): its enumerating members (`all`, `fingerprints`,
+  `identity(forDeviceId:)`) answer over the actors whose key already exists on
+  disk and mint nothing, and only naming an actor (`subscript`, or one of the
+  four named properties) mints. The phone's writers name `.author`; nothing on
+  it ever names the other three, so nothing mints them, however many
+  `OpLogStore`s it constructs. **That last clause is the whole finding**: this
+  file used to say the phone "reaches for no other `DeviceActor`", which was
+  true as a grep and false as a fact — `OpLogStore(projectURL:)` defaults its
+  `identities:` argument, three phone sites take the default, and the eager
+  quartet minted three enclave keys on the main actor the moment the
+  Annotations tab opened. The guard is now a measurement:
+  `PhoneOneKeyTests.test_openingTheAnnotationsPathMintsNoKeyThePhoneWillNeverSignWith`
+  (`PhoneDeviceIdentityTests.swift`) runs the real read path and then asks
+  `DeviceState.directory` what is in it. The grep census it replaced is gone,
+  with the reason in its place in `TripwirePhoneGrepTest`. The key that id is derived from is an enclave key whose
+  `dataRepresentation` blob the app persists itself, under
+  `~/Library/Application Support/<supportFolderName>/device/` — outside every
+  project folder, because it must never sync (`DeviceState.directory`; no
+  keychain item — the app's one entitlement, the person key's keychain group,
+  has nothing to do with the device key). **The Apple Silicon simulator exposes the
+  host's enclave**, so `PhoneDeviceIdentityTests` mints and reloads a real key
+  there rather than skipping; its skip is a MEASUREMENT of
+  `SecureEnclave.isAvailable`, and if it ever fires the simulator has changed.
+- **`Capture/`** — `InboxCaptureWriter` (text/photo/voice → `.maugham/inbox/`) +
+  the capture UI + project pill/picker. **There is no capture aim** — the
+  palette-aim row and its picker went in signed op log P1 (see below). The
+  writer takes a `DeviceIdentity`, not a device id
+  string — the id, the manifest's filename slug and the key that signs a
+  capture's seal are one name, injectable for tests. **Manifest rows go
+  through `JSONLAppendStore` with a `ChainPolicy`** (`docId:
+  InboxManifest.chainDocId`, the project as `projectURL`), so a row is chained
+  onto the head this phone verified and sealed on the spot — one signature per
+  capture, because captures are rare; an unsigned phone writes the row and no
+  seal, which is a state and not a failure. The store owns the encoding, so the
+  phone cannot drift from the Mac's reader. Only the ASSET writes still use
+  `CoordinatedFileIO`.
+- **`Read/`** — `DocumentReaderView` (download-gated), `MarkdownBlocks` (block split
+  so paragraphs/headings survive), `FountainStyler`/`FountainSemanticRenderer`,
+  `BinderRouting`, `PaletteCardView`/`PaletteLoading` (read-only palette section,
+  see below), `StatementLoading` (the Craft Intent row's statement-first lookup,
+  see below), `PhoneImageLoader` (eviction-safe image seam). (The anchor-strip
+  itself is shared: `MarkdownDisplayFilter` in MaughamCore.)
+  Read tab displays the on-disk clean `.md` — a contracted Tier-2 divergence from
+  ADR 0018 (registry row: cross-surface-contracts.md); annotations derive from the
+  op log, so the two can briefly disagree while iCloud syncs. This is designed
+  behavior.
+- **`Annotations/`** — a project → chapter → notes **drill-down** (phone-v0.2.0):
+  `AnnotationsStore` (`@Observable` load + grouped tree, the one source of truth) →
+  `AnnotationsListView` (Projects root + Open/All toggle + single-doc skip) →
+  `ProjectChaptersView` (chapters, binder-order, group-header sections) →
+  `ChapterAnnotationsView` (a chapter's OPEN + dimmed RESOLVED notes) →
+  `AnnotationDetailView`. Pure/testable core in `AnnotationLoading`
+  (`groupByChapter`/`allAnnotations`/`AnnotationsMode`+visibility filters, all
+  table-tested), `AnnotationStatusChip`, and `ResolvedEntryDecision` (the
+  race-vs-review decision — see tripwire below). `AnnotationWriter` (lifecycle
+  ops) + `AnnotationsBanner`. **The writer takes a `DeviceIdentity`, not a
+  device id string, and appends through `JSONLAppendStore` with a `ChainPolicy`**
+  (`docId:` the annotation's own document, the project as `projectURL`) — the
+  same store and the same chain as the inbox manifest, sealed after every op
+  because a lifecycle decision is rare. That identity is the **`author`'s**
+  (signed op log P1b, 2026-09-08): an accept or a reject on the phone is the
+  writer's own decision, so the phone signs as the writer and mints
+  none of the Mac's other three actor keys — nothing on the phone names them,
+  and under the lazy `LocalIdentities` a key exists only once a writer has. An unsigned phone writes chained ops and
+  no seals, which is a state and not a failure. **`store.projects` holds ALL statuses**
+  (mode-filtering is a pure view-layer step); the leaf/middle **re-slice from the
+  store by id** so mid-stack counts stay fresh after a resolve.
+  **Resolved-note review is read-only:** `AnnotationDetailView` gates on the
+  note's status *at open time* (`openedResolved`) — an already-resolved note shows
+  its recorded outcome and calls neither the Race-2 collapse nor `onResolved()`;
+  only a note that was OPEN at load and became resolved triggers the cross-device
+  race guard (`ResolvedEntryDecision`, spec §5.3). Don't collapse those two cases
+  back together. Reopen / Reopen & Revert shipped phone-v0.5.0 (ADR 0023, schema
+  v3): rejected/archived → `annotationReopen`; accepted → full `claudeAcceptRevert`
+  with drift-confirm.
+  **Every annotation read is JUDGED (signed op log P3c plan 2, Task 5).**
+  `AnnotationLoading.loadJudged` is the phone's one op-log read for notes:
+  the Mac's own pair of Core calls (`OpLogStore.loadDiagnosed(docId:
+  amendmentPermits:)`, then `annotationAmendments(from:documentClass:)`),
+  returning a `JudgedOps` — the ops and the ownership rule they are read
+  under, together. The list, the detail's re-derive and the accept guard
+  (`AnnotationWriter.makeAccept(…verifyingAgainst: JudgedOps)`) all take it, so in a narrowed
+  book a reviewer's edit, Delete or reopen of somebody else's note is not
+  honoured on the phone either, and her own restore made on a Mac is. An
+  un-narrowed book reads exactly as before (`annotationAmendments` answers
+  `.honourEverything` with no register). No phone derive has a permissive
+  default — the bare-op wrappers take `amendments:` as a required argument,
+  so a caller wanting the un-narrowed answer names `.honourEverything`.
+  `TripwirePhoneGrepTest.
+  test_everyAnnotationReadOnThePhoneIsJudged` keeps a second, unjudged read
+  out. The two writers' `ChainPolicy` keeps the default single-signer trust
+  because those stores only WRITE, and a write asks nothing but *is this key
+  mine* (`PhoneChainPolicyTests`; `test_thePhonesChainedStoresOnlyWrite`).
+  Since P3 plan 3 Task 7 that census also closes the escape: neither writer
+  file may declare or return a `JSONLAppendStore` (each builds a function-local
+  `let store`), and no other phone file may reach a `.store` member (`.store(`,
+  the `OpLogStore` method, is left alone). Its control plants both.
+  **What the detail OFFERS is the posture's (signed op log P3c plan 2, Task
+  6).** `Annotations/PhonePosture.swift` is the phone's one door: a per-load
+  cache over MaughamCore's `PostureDoor` (tripwires 19, 46, 51), the table
+  warmed off the main actor (`OpLogStore.prepareTrust`) before the permit is
+  asked. It keeps ONE `OpLogStore` per project for the load (built through an
+  injectable `makeStore`), and ONE warm-up in flight per project
+  (`warming: [URL: Task<OpLogStore, Never>]`, P3 plan 3 Task 7): a second ask
+  arriving while the first prepares awaits that task instead of preparing
+  again. The phone keeps no signature of its own — the store's `trust()`
+  already returns its resolved table while `TrustResolution.signature(of:)` is
+  unchanged — so a re-ask over an unchanged register verifies nothing, and a
+  permit change or revocation (which writes a record) is seen at the next ask,
+  off the main actor. `refresh()` drops the in-flight warm-ups too, so an ask
+  after a refresh never piggybacks on one that started before it.
+  `AnnotationsStore.reload()` (pull-to-refresh) makes a new `PhonePosture`;
+  returning to the front calls `refresh()` on the SAME instance, which forgets
+  the answers and invalidates every store's trust, so a detail view already
+  holding it sees the refresh too. Accept / Mark answered, Reject… / Reply… and Reopen &
+  Revert follow `Posture.Verb.acceptOrReject`; Archive and Reopen follow
+  `.dispose` (the phone has no withdraw, so its Reopen is `.dispose` alone —
+  controller Ruling A). A refused verb is HIDDEN, never disabled; until the
+  door answers, `PhonePosture.unanswered` (the door's `settling`) offers no
+  disposition. Every perform re-asks (`askAgain`) before it writes and SAYS a
+  refusal (`PhonePosture.refusal`), and hands the re-asked answer to the view
+  BEFORE the write (`perform(…onAnswer:write:)`, P3 plan 3 Task 7), so a write
+  that throws cannot leave drawn a verb the fresh answer refuses
+  (`test_aWriteThatThrowsStillHandsBackTheFreshAnswer`). **Capture is on every rung** — an inbox row
+  is the reviewer row — so nothing under `Capture/` consults a posture
+  (`TripwirePhoneGrepTest.test_captureNeverAsksAPosture`), and nothing but
+  `PhonePosture.swift` names `PostureDoor.` or `Posture.settling`
+  (`test_thePhoneAsksItsPostureInOnePlace`; the Mac's
+  `test_postureIsAskedOfThePermitInOnePlace` scans this target too, and reads
+  any `…Posture(` as a posture being BUILT — which is why the cache is made by
+  `PhonePosture.forANewLoad()`). The verb decisions are pure functions over a
+  `Posture` (`PhonePostureTests`), and the Mac↔phone round trips are
+  `PhonePostureRoundTripTests`. **One asymmetry, stated** (whole-branch
+  review of P3c plan 2): the builder's `unownedPiece` walk skips an op-log
+  file iCloud has not downloaded (`readCoordinated` answers nil → `continue`),
+  so her phone can answer `.waitingToBeClaimed` over a piece her Mac already
+  calls *not your piece* (a book author's text has arrived there). The
+  phone DOES write manuscript text — Accept, Reject and Reopen & Revert write
+  `claudeAccept`/`claudeReject`/`claudeAcceptRevert` — so in that window her
+  phone may offer an Accept or Reject her Mac refuses. Dispositions are refused
+  either way, and a line she writes there is judged by the partition like any
+  other: a line her permit does not cover is set aside, and it moves nobody
+  else's words. **A book author's phone LOCKS in a piece somebody else started
+  that nobody has claimed** (Ruling W). A book author's manuscript-text line
+  there — even a Reject that changes nothing — claims the piece and sets the
+  starter's words aside on every Mac (§4.5), so `PhonePosture` asks Core's
+  `PostureDoor.postureYieldingToItsStarter`, which yields wherever the permit
+  carries `unsettledStarter`. The Mac lifts that yield with *Edit Anyway*; the
+  phone has none, so it is a lock. Accept, Reject and Reopen & Revert are
+  hidden, and every write goes through `PhonePosture.perform`, which re-asks
+  and refuses with *<Sam> started this piece and it isn't settled whose it is
+  yet, so nothing was written — settle it from your Mac.* The note is settled
+  from a Mac (*Theirs*, or *Edit Anyway*). Pinned on real disk by
+  `PhonePostureRoundTripTests.
+  test_aBookAuthorsPhoneOffersNoDispositionInAPieceSomebodyElseStarted`.
+- **`Auth/`** — `LaunchAuthGate` (opt-in Face ID).
+- `MaughamPhoneApp.swift` owns the shared stores (`ProjectsRoot`/`RecentsTracker`/
+  one `DownloadCoordinator`/`ProjectsBrowser`/`LaunchAuthGate`) and runs the §3.13
+  cold-launch sequence. All four tabs get the SAME instances.
+
+## The testability pattern (why everything has a seam)
+
+UI / OS primitives can't run in a unit test, so the logic sits behind injected
+seams and the views are build-verified:
+
+- **Two download seams, two layers:** `DownloadCoordinator` is tested against a fake
+  `UbiquitousDownloader`; `CoordinatedFileIO`'s poll loop against a fake
+  `UbiquitousFileSystem`. Neither test touches real iCloud.
+- **`@Observable` + injected deps, NOT `@AppStorage`** — `@AppStorage` is a SwiftUI
+  `DynamicProperty` whose change-tracking only fires in a `View` and can't be
+  retargeted to a test `UserDefaults` suite. `RecentsTracker` / `ProjectsRoot` /
+  `LaunchAuthGate` are plain `@Observable` classes with an injected `UserDefaults`
+  (+ a `now: () -> Date` clock where time matters, + a `BookmarkResolving` /
+  `BiometricEvaluating` seam). Copy this shape for any new store.
+
+## Palette: capture aim + read (2026-07-11)
+
+The phone can now feed and read the Mac's sensory-palette wall (`docs/superpowers/specs/2026-07-10-palette-phone-and-role-identity-design.md`), built entirely on the already-decoded manifest plus one new eviction-safe image seam — no new download infrastructure.
+
+- **Capture aim row — REMOVED (signed op log P1, 2026-09-07).** `PaletteAimPicker` and the aim row on `CaptureView` are gone, and `InboxCaptureWriter`'s `paletteSubject:`/`sense:` parameters with them: a capture lands in the inbox plain, and the Mac aims it at a palette card when the writer promotes it. `InboxEntry.paletteSubject`/`sense` remain on the wire — decoded and tolerated, so rows already on disk keep their aim and the Mac's `InboxPane`/`PalettePickerSheet` still read it — but nothing writes them. `TripwirePhoneGrepTest.test_noPaletteAimWriterOnThePhone` keeps a writer from coming back.
+- **Read-tab Palette section (`Read/PaletteCardView.swift`, `Read/PaletteLoading.swift`).** `BinderView` gains a `Section("Palette")` (only shown when non-empty) listing the palette group's cards plus a project-scope Craft Intent row (per-piece intent display is deferred — the drill's per-piece context isn't uniform across project types yet). `PaletteLoading` is the pure logic half: `paletteCards(in:)` mirrors the Mac's `ProjectStore.paletteCardItems()`; `excludingPalette(_:research:statements:)` strips palette-group descendants — and the legacy craft-intent note *when that note is what the Craft Intent row shows* — out of the ordinary Research section so they don't show twice (the bug this task fixed — palette cards used to flatten into Research); `groupedNotes(_:)` is the phone-local twin of the Mac's `PaletteCardReadView.groupedNotes` (moved there from `PalettePane` when shell-finish stage 3a Task 6 deleted that view) — same grouping rule (one bucket per `PaletteCard.Sense.allCases` member, non-empty only, untagged last), reimplemented rather than shared because the logic sits in each platform's app target (`Maugham`/`MaughamPhone`), not MaughamCore, and those two targets never compile into the same test binary (macOS+AppKit vs iOS Simulator destinations) — tripwire 19 discipline: shared shape, separately-owned code. **Correction (2026-07-13): this is not actually parity-tested.** What exists is `PaletteCardReadViewTests.test_groupedNotes_ordersTaggedBySenseThenUntagged` (MaughamTests) and `PaletteLoadingTests.test_groupedNotes_*` (MaughamPhoneTests), each hand-typing its own input/expected-output pairs and asserting independently — both surfaces are tested against the same *intended* ordering, but no test proves the two implementations agree, so a drift in one side's rule would not fail the other side's suite. A genuine parity test would need `groupedNotes` promoted into MaughamCore as a real Tier-1 choke-point (a `PaletteLookup`-shaped fix, not a test-only one) — that's a production-code change, filed as a known gap rather than done here. Card detail renders swatches, sense-grouped notes, freeform body, and images. Row icons stay generic (`ReadIcons.paletteRowSymbol`) because a card's `kind` lives inside the file, not the manifest — a per-row kind icon would force a per-row parse (tripwire 4); kind-specific icons only appear in card detail, where the file is already parsed.
+- **`PhoneImageLoader` (`Read/PhoneImageLoader.swift`).** The phone's first image-rendering path — the Read tab rendered zero images before this. `PhoneImageLoader.load(_:downloads:io:)` is `downloads.ensureDownloaded(url)` then `io.coordinatedRead(at:)` then `UIImage(data:)`: the same two-step iOS tripwire-6 sequence every phone read follows, just with a decode step on the end. Eviction-tolerant by contract — a thrown error or nil image means the caller shows a placeholder, never an error screen, because a card's text must render even when an image can't.
+- **Strictly read-only.** No card editing on the phone: cards are plain files, not op-logged, and concurrent phone/Mac writes through iCloud would be conflict-twin territory (tripwire 17's cousin). Phone card editing is a future op-logging bet.
+
+## The Craft Intent row reads statements (M1A, 2026-08-01)
+
+`Read/StatementLoading.swift` is the whole of it: `intentRow(statements:research:)` returns what the binder's Craft Intent row draws — origin, title, project-relative path — or nil.
+
+- **Statement-first with the legacy note as fallback, and the fallback is load-bearing.** M1A moved intent out of the research tree into `ProjectManifest.statements`, with the content at the project root (`intent.md`). But **adoption is Mac-only** — `ProjectStore+StatementAdoption.swift` runs from `ProjectStore.load`, and the phone has no `ProjectStore` and never writes a manifest, so it cannot migrate anything itself. A writer who has updated the phone but has not yet opened that project on the Mac still holds a schema-3 manifest, a `research/craft-intent.md` note and no `statements` section at all. **Reading only the statements section shows that writer nothing** — which is the second of the two reasons M1A is a paired Mac+phone release (spec §2.5), re-created by the fix for it. `PhoneStatementReadTests.test_theReadTabStillShowsAnUnadoptedNote` is the assertion that swap falsifies; don't "simplify" the fallback away until every shipped project has been opened on a Mac, which is not a thing anyone can know.
+- **Both arms are shared MaughamCore lookups** (tripwire 19): `StatementLookup.statement(in:kind:scope:)` and `PaletteLookup.craftIntentItem(in:researchPrefix:)`. No phone-local path constant, filename test or scope parser — that shape is what shipped phone-v0.1.1's "No open annotations". Registry row: `docs/superpowers/notes/cross-surface-contracts.md`.
+- **Project scope only, both arms.** A document-scoped statement and a Collection piece's own craft-intent note are each somebody else's; per-piece intent display stays deferred for the reason the palette section already gives.
+- **The Research-section exclusion follows the ROW, not the note's existence.** `PaletteLoading.excludingPalette` hides the legacy note only when that note is what the Craft Intent row shows; an adopted project whose note survived (adoption could not read it, or one was written since) keeps it visible in Research, because it is drawn nowhere else.
+- **Read-only, like the palette.** The phone shows a statement; it does not edit one.
+
+## This phone declares itself, and says where it stands (signed op log P2, 2026-09-10)
+
+`Storage/PhoneDeviceRecord.swift` and the **This Device** section of `Settings/SettingsView.swift` are the whole of the phone's half of admission. The phone decides nothing: it writes a record saying who it is, and it reads back what the Mac decided.
+
+- **The record is written by MaughamCore, never here** (tripwire 19). `PhoneDeviceRecord.ensure` calls `RegistryPresence.ensureDeviceRecord`, and both phone writers (`InboxCaptureWriter`, `AnnotationWriter`) reach it on every write. Its `name` parameter defaults to nil and the body reads `UIDevice.current.name` (P3 plan 3 Task 7): a default argument is evaluated in the caller's isolation, which is what made the two main-actor warnings at that line. No path under `.maugham/`, no fingerprint, no signature is spelled in this target — `TripwirePhoneGrepTest.test_noTrustDecisionOrRegistryWriteOnThePhone` fails on any of them.
+- **And it says whose it is** (your devices are you, plan 2 Task 1). `ensure` is `async` now: it FINDS the writer's person key off the main actor (`Task.detached` → `PhoneDeviceRecord.findPersonKey(canSign:)` → `PersonKey.finding(in:)`, which never creates and never names an item — **the phone never mints a person key**, because a phone-minted item crossing a Mac's in iCloud Keychain would fork the person; a phone whose key has not synced makes no claim, and claims on a later write once it arrives). The claim rule is Core's and the Mac's too (tripwire 19): `RegistryPresence.claimIntent` (a key → `.set`, no key → `.keep`, never `.remove`) and `RegistryPresence.declareDevice` (re-writes the record with `.keep` when it refuses the claim); the phone keeps only its log line. The claim's facts (key fingerprint, item name) are part of the memo, so a key that syncs in mid-run is declared once. A phone that cannot sign never looks for the key. **The store is `Storage/PhonePersonKeyAccess.swift`**, the phone's one construction site of a `PersonKeyStore` (tripwire 53's census names it and `PhoneDeviceRecord.swift`'s `.store` read and `PersonKey.find` under `MaughamPhone/<file>`); which arm it builds is Core's `PersonKeyStoreChoice` (injected wins; an XCTest host with nothing injected gets an in-memory store that refuses to create — the simulator may not enforce access groups, so this guard is what keeps a test off the developer's keychain; production is `KeychainPersonKeyStore` in the team's group). The name follows P2-2 (`PhoneDeviceRecord.deviceName`): the system name stands unless it is exactly the model (`"iPhone"`, what iOS 16+ hands an app), in which case, with a person name on the key, it is *"<first name>'s <model>"*. The round trip is pinned twice: in-process on the simulator (`PhonePersonClaimTests.test_thePhonesClaimIsRecognisedByTheRootsMac`) and cross-platform, from phone-written bytes checked into `MaughamCore`'s `PhoneClaimRoundTripTests` (regenerated by the opt-in `PhoneClaimFixtureDump` — a **standing skip** in every phone gate unless `MAUGHAM_PHONE_CLAIM_FIXTURE_DIR` is set, because it writes outside `TestTemp`; one skip from it in a phone run's skip list is expected).
+- **And Settings says what that means** (plan 2 Task 2). *This Device* draws one device-wide line after Code — `Settings/PersonKeyLine.swift`, a pure model over `PersonKeyFinding`, every sentence pinned in `PersonKeyLineTests` — read through the SAME `findPersonKey` the claim takes (so the line says what the next write will find, and tripwire 53 still counts one phone reader), inside the standings' detached task, so it re-reads on `scenePhase == .active` and on pull (tripwire #5). Because the phone never mints, *no key* is told apart from *keychain unreachable*: found → *Recognised as <name> on your other devices.*; absent → *Not recognised yet. Your Mac makes the key…*; unavailable, an item that is not a key, and a phone that cannot sign each say so, and that the Mac asks who this phone is instead.
+- **Only the Release build can reach the key** (plan 2 Task 5). `MaughamPhone/MaughamPhone.entitlements` carries `keychain-access-groups` = `$(AppIdentifierPrefix)com.maugham.person` (Xcode signs the phone, so the prefix expands to `FF3XH4ZJ45.`, the same group as the Mac's literal), wired in `project.yml` under the Release configuration only, and granted by the existing *Maugham Phone App Store* profile (`FF3XH4ZJ45.*`; `docs/release-notes/phone/SETUP.md` §1 says how to check). A Debug device build, the simulator and the gate carry no entitlement: the keychain reads as unavailable (Settings says *isn't reachable*) and the phone makes no claim — the gate cannot tell the difference (`CODE_SIGNING_ALLOWED=NO`), so the TestFlight dry run is where the entitlement is proven.
+- **The phone never writes a root.** A root record is the Mac's; a phone that made itself one would be a second claimant on a book it can only see through the share (spec §3).
+- **The per-write memo** (P2b). `ensureDeviceRecord` is idempotent but not free: it READS and verifies the whole registry folder before deciding it has nothing to add, on every capture and every annotation. `PhoneDeviceRecord` memoizes the FACTS it declared per project — this phone's key, the actors it holds (`existingActors`, which enumerates and never mints), the name it goes by — and a second write into the same book touches the disk not at all. In-process and per-project, so a relaunch declares again; a declaration that THREW is not remembered, or a transient iCloud fault would leave the phone undeclared for the rest of the run. The seam is the `declare` closure, and `PhoneDeviceRecordTests` pins the second write reading nothing, a minted actor and a renamed phone each invalidating it, and the failed attempt being retried.
+- **Settings shows facts and offers no control** (spec §4.11). This phone's four-character **code** (`DeviceCode.short`) on its own line, because its whole job is to be compared with the code on the Mac's admission sheet; then one line per book this phone has been in — *Denver on Denver's MacBook's chain since 9 Sep*, or *Not yet admitted — the Mac will ask*. Admission is a Mac act in this milestone, so there is nothing here to press; a pull-to-refresh re-reads, since the state changes on the other machine.
+- **The sentence is `DeviceStanding`'s, in MaughamCore**, so the Mac's People & Devices draws the same fact for itself in the same words — two spellings would break the one comparison the writer is asked to make. A registry record that is present and unreadable answers with the READ's own sentence (RULING-54), never *not yet admitted*.
+- **A retired phone is told so, in the Mac's own words with the phone's own noun.** `DeviceStanding.retiredAt` is read from this device's own record BEFORE the chain guard, because a retirement is the device's word about itself, signed by its own key, and it is true whether or not anybody admitted it. `retirementNotice(device: "iPhone")` draws under the standing sentence: the machine keeps applying what it writes locally (a key removes its own future AUTHORITY, not its ability to write) while every peer quarantines it, which is a divergence visible from nowhere else. The Mac's People & Devices says the same thing about itself from the same function with `"Mac"` in it — tripwire 19, and the reason the noun is an argument. **There is no un-retire on either surface**; a device that retired comes back only as a new key.
+- **What this phone may write in each book** (P3c plan 2, Task 6). Each row
+  also carries a role line: `DeviceStanding.permit` (`table.myTimeline.current`,
+  nil where there is no admission — no register, not yet admitted, revoked)
+  said through `DeviceStanding.permitSentence` → Core's `PermitWords`, the same
+  words the Mac's People & Devices draws, with the pieces named by this book's
+  titles. A book with no register draws no role line. The pure half is
+  `Settings/BookStandingRow.swift`; it resolves through
+  `TrustResolution.resolveVerified` (the reconciled register every phone op-log
+  read already uses, so a deleted register is read from this phone's memory,
+  not as never-was). **C5:** Settings re-reads on `scenePhase == .active` and on
+  pull-to-refresh — the phone still has no file presenter (tripwire 5). An
+  admitted phone in a rooted book that narrows nobody reads *Author of the
+  whole book* — true, and People & Devices' own words (controller Ruling O).
+  Whether this phone is in the book at all asks `TrustTable.myChain` (my root's
+  chain plus every adopted root's; P3c plan 2 Task 7), so a phone admitted by a
+  root its Mac adopted is in the book.
+- **Which books.** A chain is a project's, not a device's, so the rows are per project: the ones `RecentsTracker` calls recent (opened or captured into), intersected with what `ProjectsBrowser` has manifests for. Listing every folder under the root would be a wall of *not yet admitted* for books this phone has never opened.
+
+## iOS tripwires / gotchas (most from the 2026-05-30 smoke; each broke something)
+
+1. **The download gate must treat already-local + non-ubiquitous files as ready —
+   only an evicted placeholder (`.notDownloaded`) fetches.** `CoordinatedFileIO`'s
+   `isLocallyReady`: `.current`/`.downloaded`, or a nil-status file that *exists*,
+   is readable now. Assuming every file is an evicted iCloud placeholder made
+   `startDownloadingUbiquitousItem` throw on local files and broke browsing entirely.
+2. **`startAccessingSecurityScopedResource() == false` is NOT a denial.** It means
+   "no security scope needed" (already-accessible URL, e.g. the app's own container).
+   `ProjectsRoot` adopts the folder regardless; only a thrown resolve / stale bookmark
+   re-prompts.
+3. **Op-log filenames: the `docId` already carries its own prefix — `doc-<hex>` /
+   `scene-<hex>` (ADR 0008), NOT `d_<ULID>`.** Write `<docId>.<deviceSlug>.jsonl`
+   and never prepend another prefix; the docId is just the filename component
+   before the first `.` (it contains no dot), and the only non-doc stream in
+   `.maugham/ops/` is the synthetic `__project__` (tasks/checkpoints, no
+   annotations). Match `OpLogStore.store(forDocId:deviceSlug:)` — which, like the
+   Mac reader, never format-validates the id. **Do not invent a stricter id
+   predicate** (e.g. `hasPrefix("d_")` or a 26-char-ULID check): it matches zero
+   real files and silently shows "No open annotations" / prefetches nothing. This
+   bit both `AnnotationLoading.isDocId` and `ColdLaunchDownloader.liveEnumerateOpLogs`.
+4. **`claudeAccept` on a `suggestedChange` must carry the FULL resulting paragraph
+   as `next`** (`AnnotationWriter.makeAccept`), or the Mac's `Deriver` replay
+   materializes nothing on next load. The op stores the BARE suggested text (so the
+   review UI shows just the replacement); `makeAccept` produces the full paragraph
+   via the shared `SuggestionSplice.apply` — splicing the bare text into
+   `annotation.span` against the live `currentParagraph` (passed by the detail view)
+   so a one-word span suggestion replaces one word, not the paragraph. A
+   paragraph-level suggestion (no span) replaces the whole paragraph. SAME
+   `SuggestionSplice` the Mac's `Document.acceptAnnotation` uses (cross-surface
+   contract). Other kinds carry empty `changes`. A malformed suggestedChange
+   **throws** (fail-loud) rather than emitting a no-op accept.
+5. **No live cross-device updates in v1 (no `NSFilePresenter`).** Lists reflect
+   remote (Mac) changes only on appear / pull-to-refresh / after a phone-side resolve
+   / when a detail's re-derive discovers a remote resolution. Don't assume a list
+   auto-updates for Mac writes; the detail's re-derive-on-appear is the guard that
+   stops a phone clobbering a resolution another device made.
+6. **Every read inside the bookmarked folder routes through `ensureDownloaded` then
+   `coordinatedRead`** (iCloud eviction); every write is coordinated and only ever
+   into `.maugham/inbox/*` or `.maugham/ops/*.jsonl`. The phone never writes a `.md`.
+7. **Phone-written ops/inbox rows must be byte-compatible with the Mac reader** —
+   encode with `JSONLAppendStore.dateEncoding`; inbox `writtenAt` is monotonic
+   `max(now, createdAt+1ms)` (tripwire 17). Prove it by round-tripping through the
+   Mac's `JSONLAppendStore`/`OpLogStore` in a test, not by eyeballing JSON.
+8. Mac tripwires that recur on iOS: **4** (no per-row Fountain parse — cache the
+   `FountainScript` in `.task`), **13** (no hardcoded identity strings), **15**
+   (empty-state needs both `.frame(maxWidth:.infinity,maxHeight:.infinity[,alignment:.top])`).
+- **Cross-surface contracts:** if you touch op-log/inbox filenames, ids, formats, or Fountain rendering, you may be in shared phone↔Mac territory — the reach-around tripwires will tell you. Registry: `docs/superpowers/notes/cross-surface-contracts.md`.
+
+## Cross-surface contract
+
+`MaughamPhone`'s `FountainStyler` and the Mac's `ScreenplayMode` are two independent
+Fountain renderers; their bold/italic emphasis is pinned by `ScreenplayEmphasis`
+(MaughamCore) + `ScreenplayEmphasisContractTests` in both targets. See CLAUDE.md →
+Editor pointer.
+
+## Releasing to TestFlight / App Store
+
+See `docs/RELEASING.md` → "Phone releases" for the full pipeline. Key facts here for quick reference:
+
+- Cut script: `scripts/cut-phone-release.sh` (mirrors Mac; `phone-v*` tags).
+- **Dry run = integration test.** Five on-device bugs surfaced that were invisible to `xcodebuild test` and debug builds. Cut throwaway `phone-v0.0.x` tags to prove a fix on device.
+- **Bundle id is `com.Maugham.MaughamPhone` — capital "M".** The App ID was registered with a capital M; Apple namespaces IDs case-insensitively so the lowercase form can't be re-registered without deleting the App ID. Codesign is case-sensitive, so `PRODUCT_BUNDLE_IDENTIFIER` in `project.yml` and `provisioningProfiles` in `ExportOptions.plist` MUST stay capital-M and in sync.
+- App icon: editable SVG sources + `render.sh` in `scripts/phone-icon/`.
+- Phase-G forensics: `docs/superpowers/notes/2026-05-31-phone-testflight-status.md` + `memory/project_milestone_iphone_companion_phase_g.md`.
+
+## The smoke lesson
+
+Manual smoke on a running build found **six** real bugs a green unit suite hid
+(gotchas 1–5 above + a Markdown wall-of-text). They all lived at cross-process /
+iCloud / OS-primitive seams the unit tests mocked away. **For anything touching
+iCloud, the op log, or a system primitive: test through the real I/O path on a
+running build, not the in-memory shortcut.** See `[[feedback_smoke_finds_seam_bugs]]`.

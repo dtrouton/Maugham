@@ -1,296 +1,290 @@
-# MCP — Area guide
+# MCP — area guide
 
-The local MCP server that lets Claude Desktop read and contribute to projects. Read this before editing anything in `Maugham/MCP/`. Also read the project root `CLAUDE.md` for cross-cutting invariants, and `docs/adr/0003-mcp-live-only-unix-socket.md` + `docs/adr/0004-mcp-foundation-scope.md` for the canonical transport and scope decisions.
+The in-app MCP server that lets Claude Desktop, Claude Code and the app's own `claude` sessions read and contribute to open projects: the Unix-socket transport, JSON-RPC dispatch, the tool catalogue, the SEP-2640 skills surface, the dev-only test catalogue, and the stdio bridge (`maugham-mcp/`). Claude reads projects, annotates manuscripts in a parallel layer, writes into the planning plane (`research/`, the canvas) and stages statement drafts the writer adopts. The one rule from CLAUDE.md: **one catalogue, `MCPToolCatalog.all`; MCP never writes manuscript text.** The area carries tripwires 10, 13, 20, 21 and 38. The narrative and history behind the rules below are in `docs/history/mcp.md`.
 
-## What this area owns
+## Map
 
-The in-app MCP server: tool registration, JSON-RPC handling, the read/search/discover surface for projects, the **two write paths into the planning plane** — `add_note` under `research/`, and (1C-c3) `add_canvas_scraps` onto the planning canvas — plus **two tools that stage rather than write**: `propose_edition_brief`/`propose_visual_language` (translation pipeline P5) drop a draft into `StatementProposalStore` that only the writer's own click at `StatementPane`'s gate turns into a statement — the annotation layer (paragraph-anchored comments from Claude), and the bridge between Claude Desktop's stdio and Maugham's Unix socket. **Manuscript text is never one of them**; see tripwire 4, which is where that half of the rule is stated and where it does not soften.
+Every source file in `Maugham/MCP/` appears once, by file or by family.
 
-**This layer IS the `assistant` actor** (signed op log P1b, 2026-09-08, [ADR 0032](../../docs/adr/0032-the-signed-op-log.md)'s Actors addendum). A device holds one enclave key per `DeviceActor`, and everything arriving through MCP is signed with the assistant's: `AnnotationToolHelpers.withAnnotationDocument` and `TaskReadTools` both call `Document.load(url:actor:.assistant,…)`, so Claude's annotations, comments, queries and task reads land in `<doc>.assistant-<hex>-<8hex>.jsonl` and are sealed by a key the writer's own hand does not hold (the hex run is shorter than the author's: `DeviceSlug.make` caps its sanitized prefix at 24 characters, and `assistant-` spends ten of them). Under P1 these two sites passed the literal `device: "mcp"`, which named no key at all — every annotation Claude wrote appended unchained and unsigned. `write_translation` is the one MCP tool that is NOT the assistant: it loads `.translator`, because a translation record is the pipeline's work rather than the annotation layer's. Never hand-build a device string at a `Document.load` here (CLAUDE.md tripwire 38, `TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad`) — name the actor and let `LocalIdentities` answer with the id. **Both of `withAnnotationDocument`'s arms yield assistant-signed notes, and only one of them does it by loading as the assistant.** The closed-document arm transient-loads `.assistant`, so its ops carry that actor by construction. The OPEN-document arm writes through the live `Document` the editor loaded as `.author`, and until Denver's smoke of this slice (2026-09-08) its notes carried the writer's device id and the writer's key — Claude's note signed as the writer's. `Document.addAnnotation` now stamps the actor off the annotation's AUTHOR (`deviceFor(author:)`: a `sourceKind` that is not `.human` is the assistant's), so an open chapter's `add_comment` lands in the assistant's file like a closed one's. The writer's own dispositions of those notes stay the writer's — see `Maugham/OpLog/AREA.md`'s "Chained and sealed" section for the rule and what it deliberately leaves alone.
+### Server and protocol
+- `MCPServer.swift` — the Unix-socket server, connection lifecycle, and the idempotent process-wide SIGPIPE ignore.
+- `MCPRouter.swift` — pure dispatch: method name → handler (`MCPRouterError.methodNotFound`).
+- `MCPProtocol.swift` — JSON-RPC 2.0 request/response types (`MCPRequestId`, `MCPRequest`); params stay raw JSON so each tool decodes its own shape.
+- `MCPInitializeHandler.swift` — the `initialize` handshake; declares the skills extension capability.
+- `MCPToolsListHandler.swift` — `tools/list`, iterating `MCPToolCatalog.all`; it never names a tool.
+- `MCPToolsCallHandler.swift` — `tools/call`: unwraps `{name, arguments}`, dispatches through the router, turns every tool failure into an `isError: true` result with a structured payload, and holds the central text-budget backstop.
+- `MCPTool.swift` — the `MCPTool` protocol and `MCPToolCatalog.all`, the single list of tools; `MCPToolCatalog.register(router:registry:)` is the one registration path, used by `MaughamApp.registerTools` and `MCPCatalogConsistencyTests`.
+- `MCPToolHelpers.swift` — shared `MCPTool` boilerplate: typed param decoding and `project_id` resolution, with the one "unknown project" failure (`unknownProjectID`).
+- `MCPError.swift` — Maugham's error codes (`maughamNotRunning` -32001, `projectNotOpen` -32002, `mcpDisabled` -32003, `invalidArgument`, `internalError`, `toolError(payload:)`).
+- `MCPResponseBudget.swift` — the text byte budget (`maxTextBytes` 900 KB, `enforce(_:hint:)`). Tripwire 10.
+- `ImageResponseBuilder.swift` — crop-on-demand JPEG responses under a 720 KB raw budget. Tripwire 10.
+- `ProjectRegistry.swift` — the open projects by id (`register`, `unregister`, `lookup`).
+- `ProjectIdentifier.swift` — a project's stable id, derived from its on-disk path.
+- `SkillsExtension.swift` — the SEP-2640 surface: `skills/list`, `skills/get`, `resources/read` for `skill://` URIs.
+- `ClaudeCodeSkillInstall.swift` — the Claude Code bootstrap-skill installer and the copyable `claude mcp add` command (variant-aware through `BuildVariant`).
+- `ClaudeDesktopConfig.swift` — detects and edits Claude Desktop's config file for the "Set up Claude Desktop…" flow (variant-aware server key).
+
+### `Tools/` — one family per file
+- `ProjectTools.swift` — `list_projects`, `get_metadata`, `get_outline`.
+- `ListMaughamToolsTool.swift` — `list_maugham_tools`. `GetHelpTool.swift` — `get_help`.
+- `DocumentTools.swift` — `read_document`, `search_text`; `ReadDocumentTool` is the model for a polymorphic image-or-text response with crop-on-demand.
+- `ReferenceTools.swift` — `list_scenes`, `find_references`, `get_session_stats`.
+- `ListDocumentsByTagTool.swift` — `list_documents_by_tag`.
+- `AddNoteTool.swift` — `add_note`. `ListResearchTool.swift` — `list_research`. `ResearchLinkTools.swift` — `link_research`, `unlink_research`. `ListAllLinksTool.swift` — `list_all_links`. `MoveResearchItemTool.swift` — `move_research_item`.
+- `CraftIntentTools.swift`, `VisualLanguageTools.swift`, `EditionBriefTools.swift`, `LessonsTools.swift`, `FirstReaderTools.swift` — the five statement readers (`read_craft_intent`, `read_visual_language`, `read_edition_brief`, `read_lessons`, `read_first_reader`). Tripwire 20.
+- `StatementProposalTools.swift` — `propose_edition_brief`, `propose_visual_language`.
+- `PaletteTools.swift` — `list_palette_cards`, `read_palette_card`.
+- `AnnotationCreationTools.swift` — `add_comment`, `add_suggested_change`, `add_query`, `add_craft_note`. `AnnotationReadTools.swift` — `list_annotations`, `get_annotation`. `AnnotationToolHelpers.swift` — `withAnnotationDocument` (the open-or-transient-load door) and `activeReviewPassId`. Tripwire 38.
+- `TaskReadTools.swift` — `list_tasks`, `get_task`. Tripwire 38.
+- `InitializePublishTemplateTool.swift`, `PublishConfigTools.swift` (`get_publish_config`, `set_publish_config`), `PublishFileTools.swift` (`list_publish_files`, `read_publish_file`, `read_publish_image`, `write_publish_file`, `delete_publish_file`), `CompileTools.swift` (`compile`, `preview_compile`, `compile_status`, `compile_cancel`), `PublicationTools.swift` (`list_publications`, `read_publication_page`, `republish`), `ReadPreviewPageTool.swift` (`read_preview_page`), `PieceStyleTools.swift` (`set_piece_style`, `clear_piece_style`) — publishing.
+- `TranslationTools.swift` — `write_translation`, `read_translation`, `translation_status`, and `currentParagraphState`. `TranslationWritePipeline.swift` — validation, record building and the one append, shared with the translator loop. Tripwires 20, 38.
+- `CanvasTools.swift` — `list_canvas`, `add_canvas_scraps`.
+- `InboxTools.swift` — `list_inbox`, `read_inbox_entry`, `promote_inbox_entry`.
+
+### `Test/` — the dev-only catalogue
+- `Maugham/MCP/Test/TestMCPToolCatalog.swift` — `TestMCPToolCatalog`, registered only under `#if MAUGHAM_DEV_BUILD`; every method is `test_`-prefixed.
+- `Maugham/MCP/Test/TestOpenBridge.swift` — the dev-only notification that asks the Welcome window to open a project.
+- `Test/Tools/` — `TestProjectTools.swift`, `TestDocumentTools.swift`, `TestEditTool.swift`, `TestLifecycleTools.swift`, `TestPingTool.swift`, `TestInspectTools.swift`.
+
+### Outside the folder
+- `maugham-mcp/` (repo root) — the standalone CLI bridging Claude Desktop's stdio to the app's socket (`maugham-mcp/JSONRPCBridge.swift`, `maugham-mcp/main.swift`); a separate Swift package bundled in `Maugham.app/Contents/MacOS/`.
+- `Maugham/Help/SkillIndex.swift` — loads the bundled skills (mirrors `HelpTopicIndex`; lives in `Help/` because `get_help` also serves it).
+- `Maugham/Views/HelpClaudeDesktopSheet.swift` — the "Set up Claude Desktop…" flow and its Claude Code section; `Maugham/Views/SettingsTabs/GeneralSettingsTab.swift` — the "Allow Claude to connect (MCP)" toggle.
 
 ## Tool catalogue (60)
 
+The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading against it. Contracts beyond one line are under Rules → Tool contracts.
+
 **Discovery / identity**
-- `list_projects` — enumerate all open Maugham projects
-- `list_maugham_tools` — flat, authoritative list of every tool + server identity block
-- `get_help` — read Maugham's bundled user documentation by topic (read-only); topic `"skills"` lists Maugham's agent skills, a skill's name as topic loads its full procedure (see "SEP-2640 skills extension" below)
+- `list_projects` — every open project.
+- `list_maugham_tools` — every tool plus a server identity block.
+- `get_help` — Maugham's bundled user documentation by topic; topic `"skills"` lists the agent skills, a skill's name loads its procedure.
 
 **Project read**
-- `get_metadata` — title, type, tags, word targets, session stats for a project
-- `get_outline` — hierarchical binder structure (groups + documents). **As of M3 P3 a document node reports the DERIVED review status** (`review_status`, `ReviewStatus.derived` over the piece's states — the same projection every in-app status dot draws) plus `pass_states`, the per-pass map keyed by `ReviewPass.id`, and the outline's top level carries `review_passes` in ladder order because a JSON object's key order is `Dictionary` iteration order and a reader otherwise cannot order the map. The passes come from `ProjectManifest.effectiveReviewPasses`, never the raw stored array. The legacy free-string `status` STAYS on the wire — removing a shipped field is a breaking change — but the disagreement window M3 P1's whole-branch review opened (seam 1) is **closed**: `review_status` is the truth, `status` is history nothing writes. A GROUP node reports both new fields as `null`, the uniform-schema rule `Node`'s hand-written encoder exists for (a group is not a piece and is ruled on nowhere). **As of M4 P2 each entry in `review_passes` also carries `brief`** (`PassInfo.brief`, resolved through `ReviewPass.effectiveBrief` — never `$0.brief` raw, so a stored preset-id pass with no brief of its own still serves the preset's), the pass's editorial doctrine rather than any editor persona (spec §4: the wire serves doctrine, not personas — `editorName` stays off it); `null` only for a briefless custom pass, emitted as the JSON literal, not an omitted key. Another widening of an existing read — **the tool count is unchanged**
-- `list_scenes` — slugline-level scene list for screenplay projects
-- `get_session_stats` — per-doc session word-count and activity stats
+- `get_metadata` — title, type, tags, word targets, session stats.
+- `get_outline` — the binder tree, with derived review status, pass states and each pass's brief.
+- `list_scenes` — sluglines of a screenplay.
+- `get_session_stats` — per-document session word counts and activity.
 
 **Document read**
-- `read_document` — full manuscript text (or image with crop-on-demand for images)
-- `search_text` — cross-document full-text search within a project
-- `find_references` — wiki-link back-references to a document or research item; scans manuscript documents, research note bodies (canvas promotion writes `[[…]]` into research notes) and statements (M1A moved craft intent into one). Also resolves a statement's composed title (`"Craft Intent · <doc>"`) as a `[[…]]` target, lowest precedence (2026-08-09, issue #24) — a widening of an existing read, tool count unchanged
-- `list_documents_by_tag` — filter binder documents by tag
+- `read_document` — a manuscript's text, or an image (crop-on-demand).
+- `search_text` — full-text search across a project's manuscript documents.
+- `find_references` — wiki-link back-references to a document, research item or statement.
+- `list_documents_by_tag` — binder documents by tag.
 
 **Research / links**
-- `add_note` — write a new research note under `research/` (one of two write tools; the other is `add_canvas_scraps`, under Planning canvas below)
-- `list_research` — enumerate research items in a project
-- `link_research` — create a research ↔ manuscript link
-- `unlink_research` — remove a research ↔ manuscript link
-- `list_all_links` — all research–manuscript links for a project, incl. `piece_research` edges (a collection piece's own research, no explicit link needed); wiki-link scanning covers manuscript documents, research note bodies and statements. Also resolves a statement's composed title as a `[[…]]` target, lowest precedence (2026-08-09, issue #24) — a widening of an existing read, tool count unchanged
-- `move_research_item` — batch-move research items (including whole groups) between shared research, a research group, and a collection piece's research folder; exactly one of `target: "shared"` / `target_group_id` / `target_document_id`. Cross-scope moves leave explicit links (`linkedResearchIds`) untouched — association is containment-based (2026-07-17): a manual link goes dormant while the item lives in a piece's research and resurfaces on move-out; a containment-only association severs on move-out with no auto-link minted. Wraps `ProjectStore.moveResearchItems` (`Maugham/Stores/ProjectStore+ResearchMove.swift`) — read that file's header before touching this tool's validation shape.
+- `add_note` — a new research note under `research/` (a write tool).
+- `list_research` — research items.
+- `link_research` / `unlink_research` — create or remove a research ↔ manuscript link.
+- `list_all_links` — every research–manuscript link, `piece_research` edges included.
+- `move_research_item` — batch-move research items between shared research, a group and a piece's research folder.
 
-**Palette / the spine (intent + visual language)**
-- `read_craft_intent` — the writer's optional freeform statement of what a piece needs sensorially; absence returns `exists: false`, never an error. Since M1A it answers off a `Statement` and `item_id` names **any manuscript document**, not a Collection loose piece alone (a widening of an existing read, so the tool count did not move); the read derives from the op log — the open pane's `Document` through `ProjectStore.openStatementDocument(id:)`, else `derivedCache` — never the `.md`
-- `read_visual_language` — the book's look: the writer's freeform prose about typography and feel, plus `image_paths`, the images it references. **M1A's second named protection** (spec §10) — visual language gets a consumer in the milestone that builds it, and the other half of that protection is the section in `docs/skills/maugham-bootstrap/SKILL.md` telling a Claude authoring a template to read this first; a tool nobody is told to call leaves it unmet. **Project scope only, and the schema says so by taking `project_id` and nothing else**: `StatementConvention.newPath` has no row for `(.visualLanguage, .document)`, so an `item_id` would promise a scope the store refuses to create. Absence is `exists: false`, never an error, and mints nothing. The prose derives from the op log through `ProjectStore.statementText(of:)` — the ONE spelling of ADR 0018's two branches for statements, shared with `read_craft_intent` so the two readers cannot disagree about which text is real — and the images are scanned out of that same text (`MarkdownBlockParser.findInlineImages`, unanchored, so an image referenced mid-paragraph counts) and resolved through `ProjectStore.resolveImageRef`. **Paths, not pixels, deliberately**, exactly as `list_canvas` reports no path: nothing in this catalogue reads a file by project-relative path, so the field says WHICH images the look is built on and the description tells Claude to ask the writer about any it needs to see. The edge, stated rather than implied: `read_document` is the only image reader here and it takes a research item id, so a visual-language image that is also a research item is reachable and a loose file at the project root is not. **Paragraph anchors got their own consumer in the milestone that built them** (imprints P3, 2026-08-28): `\hypertarget`/`id="p-<tag>-<¶id>"` on every emitted paragraph, and `\MaughamCrossLink`/`<a href>` linking a slugline to its counterpart in another compiled body. `docs/skills/maugham-bootstrap/SKILL.md` names the anchor form and the cross-link command for a template-authoring Claude, the same protection `read_visual_language` got above. **No MCP tool reads an anchor or a cross-link, and that is deliberate** — they exist for a template and for a reader following a link inside the compiled artifact, not for Claude to look up a paragraph's rendered position.
-- `read_edition_brief` — the third `Statement.Kind`, alongside intent and visual language: the writer's doctrine for one translated edition (register, idiom policy, and any rulings a translation session has settled there — `RulingPerformer` can write a `## Rulings` section into it, `StatementEssay.carriesRulings` says so). Mirrors `read_visual_language`'s shape exactly — resolve the project, look the statement up through `StatementLookup`, derive its prose through `ProjectStore.statementText(of:)` (never the `.md`, tripwire 20) — but keyed by `language` (`Statement.Kind.editionBrief(String)`) rather than being a singleton, since a book can have many editions. Project scope only, same reasoning as visual language: `StatementConvention.newPath` has no row for `(.editionBrief, .document)`. Absence is `exists: false` with empty `markdown`, never an error, and mints nothing — the read exists so an outside translator finds a prior session's rulings instead of re-deciding register from scratch.
-- `read_lessons` — the fourth `Statement.Kind` and the fourth spine reader, on `read_craft_intent`'s exact shape minus `item_id`: the project's lessons ledger, the writer's own record of what they are working on as a writer (open lessons, choices they've made deliberately and don't want raised again, and retired lessons), under `## Rulings` in the writer's own prose. Project scope only — `StatementConvention.newPath` has no row for `(.lessons, .document)`, because what a writer is working on is one ledger for the book, not a chapter's private copy. Derives through the same `ProjectStore.statementText(of:)` every statement reader shares (tripwire 20); absence is `exists: false`, never an error, and mints nothing. The description tells Claude to read this before the piece and to cite a habit by its heading verbatim — and that Claude never writes it: the ledger moves only through the writer's own verbs in Maugham (Keep as lesson / These are all choices / retire).
-- `read_first_reader` — the fifth `Statement.Kind` and the fifth spine reader, on `read_lessons`'s exact shape plus a `name` field sourced from `ProjectManifest.firstReaderName` rather than the statement — naming her is cheaper than describing her, so `name` can be present while `exists` is still `false`. The statement itself is the writer's own description of who she is, what she reads, and what she will not sit through, with her standing instructions under `## Rulings`. Project scope only, the lessons ledger's reasoning: a first reader reads the whole book, not a chapter's private copy. Derives through `ProjectStore.statementText(of:)` (tripwire 20); absence of the statement is `exists: false`, never an error, and mints nothing. Claude never writes it — same membrane rule as the lessons ledger, craft intent and visual language.
-- `propose_edition_brief` — STAGE a draft brief for one language (`language`, `markdown`, `rationale?`), mirroring `read_edition_brief`'s shape. Writes nothing to a statement: validates (project, tag, and a `## Rulings` section that may hold only glossary-shaped lines — `StatementProposalStore.validate`), overwrites the one slot at `.maugham/statements/proposals/edition-brief-<tag>.json`, posts `.maughamStatementProposalsChanged` (project scope). The desk's Edition Brief door presents `StatementPane`, where the gate draws (`StatementProposalGate.adopt` — the only write, a click) — the writer adopts it there or discards it. Neither propose tool is in `CompilerAllowlist`; `CompilerAllowlistTests.statementWriters` catches `write_edition_brief` and `propose_craft_intent` and passes these two by name. Translation pipeline spec §10; ADR 0030 §7.
-- `propose_visual_language` — the same, for the book's look (`markdown`, `rationale?`), slot `visual-language.json`; a `## Rulings` section is refused because visual language has no strata. Adopted in the Visual Language pane (⌘⌥V), whose picker segment carries a "proposed" badge while a slot stands.
-- `list_palette_cards` — summaries of the project's sensory-palette cards (subject-keyed research assets: locations, characters, motifs)
-- `read_palette_card` — a card's full markdown plus image thumbnails (crop-on-demand for a single image via `image`)
+**The spine (statements) and the palette**
+- `read_craft_intent` — a manuscript document's or the project's craft intent.
+- `read_visual_language` — the book's look: the prose and `image_paths`.
+- `read_edition_brief` — one translated edition's doctrine, by `language`.
+- `read_lessons` — the project's lessons ledger.
+- `read_first_reader` — the writer's first reader: `name` and her description.
+- `propose_edition_brief` / `propose_visual_language` — STAGE a draft statement the writer adopts or discards.
+- `list_palette_cards` / `read_palette_card` — sensory-palette card summaries; one card's markdown and thumbnails.
 
-**Annotations (parallel comment layer)**
-- `add_comment` — paragraph-anchored general comment
-- `add_suggested_change` — paragraph-anchored suggested edit
-- `add_query` — paragraph-anchored open question
-- `add_craft_note` — paragraph-anchored craft/technique observation
-- `list_annotations` — read annotations for a document (filtered by kind/status). **As of M3 P3 it reports the writer's own two marks back**: `triage` (`do`/`decline`/`discuss`, or null) and `review_pass_id` (or null). Both emit as JSON `null` rather than vanishing — "untriaged" and "belongs to every pass" are facts, and an absent key would read as "this tool does not report triage". Input-side is unchanged: no filter parameter was added, so the pass semantics stay `AnnotationPassFilter`'s and Claude still cannot set either mark
-- `get_annotation` — fetch a single annotation by ID; carries the same `triage` + `review_pass_id` pair as `list_annotations`, key for key
+**Annotations (the parallel comment layer)**
+- `add_comment`, `add_suggested_change`, `add_query`, `add_craft_note` — paragraph-anchored notes.
+- `list_annotations` / `get_annotation` — a document's notes (filter by kind/status) or one by id, with `triage` and `review_pass_id`.
 
 **Tasks**
-- `list_tasks` — enumerate task annotations for a project
-- `get_task` — fetch a single task by ID
+- `list_tasks` / `get_task` — task annotations.
 
 **Publishing**
-- `initialize_publish_template` — scaffold a LaTeX/EPUB template for a project
-- `get_publish_config` — read publish config (`config.json`); includes per-piece `sections.<docId>.include` (default true — set false to omit a piece from the edition, F1)
-- `set_publish_config` — write publish config fields (e.g. patch `sections.<docId>.include: false` to ship a subset edition — the excluded piece drops out of compile/republish output and the translation coverage gate)
-- `list_publish_files` — enumerate files under `.maugham/publish/`
-- `read_publish_file` — read a publish template or config file
-- `read_publish_image` — read a publish image with crop-on-demand
-- `write_publish_file` — write a template or config file
-- `delete_publish_file` — delete a publish file
-- `compile` — compile a project to PDF or EPUB via bundled tectonic. A Publication is keyed on `(imprint, version, language, format)` (spec 2026-07-23, widened by 2026-08-27's imprints): a source compile (no `language`) takes its version from `next_version` and bumps it; a `language` edition renders an EXISTING source version — pin it with `version` (requires `language`; refused without) or omit `version` to target the latest source publication's version, and it never bumps `next_version`. No source publication yet → a language compile fails loudly ("compile the source edition first"). The collision guard refuses only an exact `(imprint, version, language, format)` match. `language`/`allow_stale` select a translated edition (behind the coverage gate); `dry_run: true` runs the same resolution + version-collision guard + coverage gate and returns the verdict (`{status: dry_run_passed, warnings}` or the failed/gate-blocked shape) with NO output, NO Publication, NO version bump (F2). `imprint` names an imprint from `config.json`'s `imprints` — its own template, rendered set, metadata and version counter — and is resolved at the orchestrator's DOOR (`PublishConfig.resolved(imprint:pieceIDs:)`), so nothing below it takes an imprint parameter; omit it for the book. An unknown name refuses through the ordinary failed shape (`{status: failed, errors, log_excerpt: "unknown_imprint: <name>"}`), never a thrown `MCPError`, and nothing is compiled, recorded or bumped
-- `preview_compile` — fast subset compile, no output/Publication/version bump. `section_ids` scopes the pieces; `language`/`allow_stale` mirror compile to preview a translated edition behind the SAME coverage gate, scoped to exactly the pieces this preview renders (F2); `imprint` mirrors compile too, resolved by a two-line twin of the orchestrator's door (the failure differs — a preview's job is already registered, so the refusal fails it) and carrying the same `unknown_imprint:` excerpt. The preview's own `filename_template` names no `{imprint}`, so an imprint preview lands as `preview-<version>-<ext>-<imprint>.<ext>` through the collision guard and never replaces the book's, which matters because the preview directory is last-write-wins by design
-- `compile_status` — poll an in-progress compile job
-- `compile_cancel` — cancel an in-progress compile job
-- `list_publications` — enumerate past publication outputs; optional `language` filter (exact tag, e.g. `"es"`; sentinel `"source"` selects the untagged source-language rows) — every row surfaces `language` explicitly (`null` for source), so a version's language family (spec 2026-07-23) can be enumerated with one call. Optional `imprint` filter is its sibling (exact name, e.g. `"special"`; sentinel `"book"` selects the rows no imprint compiled) and every row surfaces `imprint` explicitly the same way — the key is `(imprint, version, language, format)`, so the book's 0.1 and an imprint's 0.1 are different publications
-- `read_publication_page` — read a page from a compiled PDF; optional `language` disambiguates a `version` shared across a language family (exact tag or the `"source"` sentinel); with `publication_id` it must agree with that publication's language, mirroring the existing `publication_id`+`version` agreement rule. Optional `imprint` disambiguates the same way (exact name or the `"book"` sentinel): with `version` it narrows the family, with `publication_id` it must agree. Version-only addressing is untouched — still first-write-wins
-- `read_preview_page` — rasterize a page of the LATEST preview PDF (newest `.pdf` by mtime in `.maugham/publish/build/preview/`), closing the visual loop for `preview_compile`. No id/version addressing — always reads whatever was previewed last (incl. a language edition, F2, or an imprint's, which wears a filename of its own); response carries `preview_filename` + `preview_mtime` so staleness is self-evident. Fails loudly when no preview exists; EPUB previews error (PDF-only)
-- `republish` — re-run the last successful compile
-
-**Piece style**
-- `set_piece_style` — attach per-piece LaTeX style overrides
-- `clear_piece_style` — remove per-piece style overrides
+- `initialize_publish_template` — scaffold a LaTeX/EPUB template.
+- `get_publish_config` / `set_publish_config` — read or patch the publish config (`<project>/.maugham/publish/config.json`) (per-piece `sections.<docId>.include`, default true; false drops the piece from compile, republish and the translation coverage gate).
+- `list_publish_files`, `read_publish_file`, `read_publish_image`, `write_publish_file`, `delete_publish_file` — files under `.maugham/publish/`.
+- `compile` — compile to PDF or EPUB through bundled tectonic.
+- `preview_compile` — a fast subset compile: no output, Publication or version bump.
+- `compile_status` / `compile_cancel` — poll or cancel a job.
+- `list_publications` — past outputs, filterable by `language` and `imprint`.
+- `read_publication_page` — a page of a compiled PDF.
+- `read_preview_page` — a page of the latest preview PDF.
+- `republish` — re-run the last successful compile.
+- `set_piece_style` / `clear_piece_style` — per-piece LaTeX style overrides.
 
 **Translation**
-- `write_translation` — record per-paragraph translations of a document into a language, in a parallel translation layer (the manuscript is never mutated). Each entry supplies exactly one of three forms: `text`, `verbatim: true` (copy source chrome unchanged), or `delete: true` (tombstone the paragraph's translation — the way an orphan, one whose source paragraph is gone from the manuscript, gets purged). A `text` that is empty or whitespace-only counts as ABSENT — the pipeline ingest's own `ReportJSON.nonEmptyString` discipline — so it meets the same exactly-one-form refusal, naming the paragraph, rather than storing `""` that coverage and publishing would read as translated (#77 F9). A `text`/`verbatim` entry naming an unknown paragraph id rejects the whole batch; a `delete` entry is exempt from that check — an orphaned id is exactly what a purge names, and tombstoning an id that was never translated is an idempotent no-op — but the exemption is per-entry, not per-batch: one non-delete entry with an unknown id still rejects the batch, its delete siblings included. The server stamps every record with a hash of the current source paragraph for downstream staleness detection (a tombstone carries one too — meaningless there, and cheaper than a special case); non-verbatim entries surface structural-drift warnings plus an advisory (never blocking) when the translated text is identical to the source — a nudge to mark it `verbatim: true` instead. The whole batch persists through one `TranslationStore.appendBatch` call — every record is built before any is written, so a rejected or failed batch writes nothing. A batch of nothing BUT tombstones for a language that has no records anywhere writes nothing either, and still reports the entries written: acceptance is not persistence, and a tombstones-only file would put a language nobody translated into in `languages(forDocId:)` — and so in `translation_status` and the review picker — permanently, with nothing in it to purge (`TranslationStore.appendBatch`'s guard). **And the permit refuses first** (signed op log P3c Task 8): before anything is built, `TranslationWritePipeline.refuseUnlessTranslatable` asks the one builder (`OpLogStore.localWritePermit`, as the TRANSLATOR actor that signs the lines, in the `.translation(piece:)` class the reader constructs) whether this Mac may write a translation of that piece at all, and a refusal is a `translation_not_permitted` tool error naming the piece that appends nothing — a reviewer translates nothing, an author of some pieces translates hers. The orphan purge (the writer's own tombstones, signed as the author) asks the same door under the author's key. Reads current paragraph state via the shared `currentParagraphState` helper (open doc → live `Document`; closed → `DerivedManuscriptCache`, never the on-disk `.md`, tripwire 20). **None of that lives in the tool.** Validation, record building and the single append are `TranslationWritePipeline.perform` (`Tools/TranslationWritePipeline.swift`), which the translator-loop ingest path shares; the tool keeps only the wire form on either side — decode, the language gate ahead of the registry lookup, the project-scoped `maughamTranslationDidUpdate` post, the response. `TripwireGrepTests.test_theTranslationWritePipelineIsTheOnlyPlaceAWriteBatchIsAppended` is the census: a second production `appendBatch` site is a second pipeline, and two pipelines drift on which batches are legal and which source hashes are trustworthy. The one sanctioned second site is `TranslationReviewPaneLogic.purgeOrphans`, which appends tombstones only and builds no translated text.
-- `read_translation` — read a document's translation into a language, paragraph by paragraph in manuscript order; each entry pairs source with translated text and a freshness `status` (`fresh`/`stale`/`missing`). Unknown language reads as all-`missing` (not an error) — which is exactly why a translation file that is PRESENT and unreadable fails the call by name instead (P2a D0, `OpLogStore.ReadError.unreadableFile`): since P1b a document's translation is one file per (device, actor), and skipping the one that will not open would answer identically to the not-started case, sending Claude off to re-translate a chapter that is already translated on disk. Optional `status` filter narrows to matching entries (`status=stale`+`status=missing` = the retranslation worklist). Whole-doc payload, so it self-enforces the 900 KB `MCPResponseBudget`.
-- `translation_status` — summarise translation progress; with `document_id` one doc, without it every manuscript doc (skipping collection references, same walk as `ProjectStoreASTSource`). One row per (document, language) with `fresh`/`stale`/`missing`/`verbatim`/`orphans` counts plus `open_queries` (unresolved translator questions for that language; wired in the annotation-language pass — **language-tagged craft notes as well as `.query`s as of P2's final wave**, because a whole-document question like "tú or usted throughout?" cannot be a `.query` at all: `addAnnotation` refuses an anchorless one, so it mints as a tagged craft note, and counting `.query` alone reported zero over a translator who was waiting on an answer. The tag discriminates — an ordinary craft note carries no `language` and is counted for no edition). The row set is the UNION of THREE sources: languages with translation files, languages named on an open query, and — as of cast-management (2026-08-21) — languages the manifest holds a stored `.translator` role for. A translator can ask a question against a language before any file for it exists, and the writer can name one on the department desk (**Add Language…**) before either; both of those rows report coverage as all-zero (not "every paragraph missing," which would conflate not-started with started-and-incomplete) with `open_queries` real. **The role source is a fact about the BOOK rather than about a document**, so a freshly named edition reports one zero row per manuscript document — which is what lets the department desk sum it into a row at all, and the honest reading either way: every chapter is untranslated into it. The union is `EditionStatus`' (`Maugham/Publish/EditionStatus.swift`), which is this tool's own body and the desk's, so neither can report an edition the other cannot see; a stored tag joins it lowercased, because a manifest spelling it `ES` while the files spell it `es` is one edition and must not become two rows. Reading the query half means the project-wide walk now opens EVERY manuscript document through `withAnnotationDocument` (a transient load per closed doc), where it used to skip a doc with no translation file before touching it — an accepted cost of the union, recorded here so it is not rediscovered as a mystery in a profile — and as of #43 one unreadable chapter degrades to a named entry in `unreadable_documents` rather than failing the call — the same fact the desk draws as a Couldn't-read line, one derivation. The field is always present (empty over a book that reads cleanly), and a skipped document's rows are ABSENT rather than zero, so a reader that ignores it will read an unreadable chapter as an untranslated one. **The degrade is for a document the MANIFEST lists that will not open, and nothing else**: a caller-supplied `document_id` the manifest does not hold still fails loudly with `invalid_argument` before the walk begins (the catalogue's unknown-id rule, unchanged), because a typo reported as an unreadable chapter would send its author off to repair a file that was never there. **Provenance, since a sweep has already got it wrong once**: the unconditional per-document open is the QUERY widening's, not the role union's. **P3 widens the row three more ways, and the tool count does not move for any of them**: `reader` and `collator` name the edition's blind reader and its collator the same way `translator` already did — `EditionStatus.readerName`/`collatorName`, stored-role-then-preset-then-omitted, and never minting one just to answer a read — and `last_round` carries the newest `TranslationRoundStore` round for that exact `(document, language)` pair (`TranslationRoundStore.latest`, omitted until a pipeline round has run there): its number, both readers' verdicts (`leg2_verdict`/`leg4_verdict`), its note/departure/declined counts, its summary, and the leg it `stopped_at` when it failed or was cancelled. `TranslationStatusToolTests.test_rowsNameTheReaderAndCollatorWithoutMinting` pins the omission when no round exists (and that naming never mints); `test_theLastRoundIsThisPairsNewestAndAnotherChaptersIsNotReported` pins the shape when one does, and that it is this `(document, language)` pair's own newest round, never another document's round for the same language. **P4 surfaced that same ledger in the app and added nothing here**: the department desk's Show and its trend read `TranslationRoundStore` directly, so this tool and the desk report one round from one store — a reader who asks `translation_status` what the last round said and a writer looking at the desk cannot be told two different things.
+- `write_translation` — per-paragraph translations into a language, in the parallel translation layer.
+- `read_translation` — a document's translation, paragraph by paragraph, with freshness.
+- `translation_status` — coverage per (document, language), open queries, the cast and the last round.
 
 **Planning canvas**
-- `list_canvas` — the project's planning canvas read whole: every card (scrap or item node), every region with its home members and its appearances, every line, and the marks the inspector shows (`promoted_item_id`, `contributed_to_item_ids` — plural since RULING-51, every artifact the card's content fed — `bound_piece_id`). **It reads the OPEN canvas when there is one and the sidecar otherwise, which is this surface's version of tripwire 20** — a derived file is not read as truth while the thing it was derived from is in memory. `read_from` says which answered — `"open_canvas"` (the attached `CanvasModel`, live and possibly mid-sentence, because the mounted editor folds every keystroke) or `"sidecar"` (`.maugham/canvas.json` + `canvas.md`) — and it is reported rather than inferable, for the reason `read_preview_page` returns the preview's filename and mtime. The discriminator is `CanvasModel.isAttached` and it is spelled once, in the shared `CanvasClaudeWrite.readScene`, never by a reader of its own: the read and the write must not come to different conclusions about which canvas is real. `author` is absent for the writer's own cards and lines, `"claude"` for ones added through this server. **`provenance` (1C-d Task 11) says which sort of item node a card is** — `"project"` for research the canvas points at and never writes to, whose `reference_id` names it, or `"owned"` for a photograph the canvas ingested. **The path is deliberately nowhere on the wire**: nothing in this catalogue reads a file by project-relative path, so it would dangle in exactly the field a reader would most reasonably feed to another tool. What the field buys a reader is telling a picture apart from a reference whose research item has been deleted, which otherwise look identical (an `"item"` with no `reference_id`). It is a widening of an existing read — **the tool count is unchanged**. **`piece_references` (M1A Task 10) reports the REFERENCE PROJECTION rather than the fields it is computed from** — one entry per piece some region binds to, listing the cards that *live* in those regions, in piece-id order. `bound_piece_id`, `home_node_ids` and `appearance_node_ids` have been on the wire since 1C-c3 with nothing saying which to use, so a reader working a piece's context out for itself gets `home ∪ appearances` and picks up a *visitor* — a card cited in a region, not owned by it, which two regions may cite at once. The two rules (**residents only**, **unioned across regions**) live in `RegionBinding.references(forPiece:in:)` and this tool **calls** it rather than restating them; `RegionBindingTests.test_theProjectionHasAProductionCaller` is the census that keeps this the one call site, and before this task that census would have come back empty. Keyed on the REGIONS' bindings only: a card's own `bound_piece_id` is §6.2's association (where a promotion from it lands), a different relationship. A bound region with nothing in it reports an empty list rather than no entry — "bound and not filled yet" is something a writer can act on. An array of entries and not an object keyed by piece id, because a JSON object's key order comes from `Dictionary` iteration and two reads of an unchanged canvas must not differ. **And (#44) it says whether the layout could be read**: `layout_readable` (false when the sidecar is refused) and `layout_unreadable_reason` (the reason's sentence), on both routes, because a refused file loads as every card loose and looks like an ordinary canvas. Another widening — **still no count change**. Scrap text is unbounded, so the tool calls `MCPResponseBudget.enforce` itself; `include_text: false` is the narrower read its refusal names.
-- `add_canvas_scraps` — **the second write tool in the catalogue.** Adds cards to the planning canvas: each string in `scraps` becomes one card marked `author: claude`, and they all land together in one labelled region (nothing Claude adds is loose, §8A.2). **The signature expresses no position, no node id and no region id** — where the cards go is `CanvasClaudePlacement`'s decision, and `connect` indexes *this call's own `scraps` array* (`[[0, 2]]`), so Claude can draw the arrows it read off a page and can reach nothing the writer made. `source_item_id` is the RESEARCH ITEM the words came off; it is placed above them in the same region (the reproduction corollary — reading and source checkable side by side) and carries no author, because the photograph is the writer's. Validates fully before writing anything: an empty or blank scrap, an unknown source id, and a `connect` pair that is not two in-range distinct indices are all refusals, as is a repeated or reversed pair (a line is undirected, so `[0,1]` and `[1,0]` are one line and two coincident lines read as one). **`canvas_sidecar_unreadable` is the one refusal that is not about the call** (#33; on BOTH routes since #44, with a hint per reason — newer version vs damaged — because an attached read-only canvas refuses too): a `.maugham/canvas.json` from a newer build or with damaged bytes loads as an EMPTY scene — so the tool used to save that emptiness back over another build's whole arrangement and answer "added". It is raised before any mutation, through `CanvasStore.loadForTransientWrite()`, and its hint names `list_canvas` because that read shows only the words laid out loose — and since #44 it flags the file with `layout_readable: false` and `layout_unreadable_reason`. Writes `canvas.md` and `.maugham/canvas.json` and nothing else; membrane reasoning in ADR 0026 and spec §8A.2. Persistence is `CanvasClaudeWrite.apply`, so the batch is one undo step whether the Plan persona is open or not.
+- `list_canvas` — the canvas read whole: cards, regions, lines, marks, piece references.
+- `add_canvas_scraps` — cards marked `author: claude`, in one labelled region (a write tool).
 
 **Inbox / capture**
-- `list_inbox` — enumerate capture inbox entries (voice/text/photo); summaries include the phone's optional `palette_subject`/`sense` aim fields when present
-- `read_inbox_entry` — read the content of a single inbox entry
-- `promote_inbox_entry` — promote an inbox entry to research, or into an existing sensory-palette card via `palette_card_id` (by id) or `palette_subject` (by case-insensitive card-title match; no match fails rather than minting a card). `target_document_id`, `palette_card_id`, and `palette_subject` are mutually exclusive destinations — at most one. `title` is honored for research promotes only; palette-card promotes ignore it (the card's own title is unaffected by a promoted capture).
+- `list_inbox` — capture inbox entries (voice/text/photo), with the optional `palette_subject`/`sense` aim fields when present.
+- `read_inbox_entry` — one entry's content.
+- `promote_inbox_entry` — promote an entry to research or into an existing palette card.
 
-## Dev-only Test MCP (`Maugham/MCP/Test/`)
+## Rules
 
-A **separate** catalog, `TestMCPToolCatalog`, that mirrors `MCPToolCatalog`'s shape
-(`register(router:registry:)`) but is registered onto the **same dev-build Unix socket**
-only inside `#if MAUGHAM_DEV_BUILD` in `MaughamApp.registerTools` — absent from the stable
-binary entirely (enforced by `TripwireGrepTests.test_testMCPCatalog_registeredOnlyUnderDevFlag`).
-It exists for **Claude Code**, not Claude Desktop, and is not part of the production 60-tool
-count above — the "Tool catalogue (60)" heading is unaffected by these tools.
+### The membrane
+- **MCP never writes manuscript text, full stop**: the manuscript is the writer's, and Claude reaches it only through the parallel annotation layer. Even a tool that "feels safe" does not soften this; violating it loses the writer's trust in the whole integration (ADR 0004).
+- **A write tool may touch only the planning plane, and today that is three destinations**: `research/` (`add_note`), the annotation and translation layers, and the planning canvas (`canvas.md` plus `<project>/.maugham/canvas.json`, `add_canvas_scraps`; ADR 0026). What they write reaches a manuscript only through a deliberate writer act (`promote_inbox_entry`, the canvas's own Promote…). A fourth destination needs its own ADR-level argument, not this list as precedent.
+- **Think about the membrane before adding a tool**: a read tool is low-risk; a write tool needs ADR-level justification; an annotation tool belongs to the annotation layer.
+- **No tool writes a statement.** The two propose tools stage a draft that only the writer's click at `StatementPane`'s gate turns into a statement (`StatementProposalGate.adopt`). `CompilerAllowlistTests.test_noStatementWritingToolExistsAnywhereClaudeCanReach` fails on a statement writer in the catalogue as well as the compiler's allowlist; its predicate passes the two propose tools by name and catches `write_edition_brief`, `propose_craft_intent` and the like.
+- **Claude never writes the lessons ledger, the first reader, craft intent or visual language**: the ledger moves only through the writer's own verbs in Maugham (Keep as lesson / These are all choices / retire).
 
-Purpose: let Claude Code drive the full create → edit → autosave → checkpoint → quit →
-relaunch → verify loop end to end without the owner acting as a human tester, so the
-canonical smoke's real value — verifying *invisible* internal state (op log, autosave,
-cursor restore, checkpoints, clean `.md` on disk) — can run unattended. It deliberately does
-**not** cover UI fidelity (typing feel, rendering, focus-dim); that stays a manual, eyes-on
-pass. See `docs/superpowers/specs/2026-07-01-test-mcp-design.md` and ADR 0020.
+### Actors and the op log
+- **This layer IS the `assistant` actor** (ADR 0032): `withAnnotationDocument` and `TaskReadTools` call `Document.load(url:actor: .assistant, …)`, so Claude's notes land in `<doc>.assistant-<hex>-<8hex>.jsonl`, sealed by a key the writer's hand does not hold. (The hex run is shorter than the author's: `DeviceSlug.make` caps its prefix at 24 characters.)
+- **`write_translation` is the one tool that is not the assistant**: it loads `.translator`, because a translation record is the pipeline's work.
+- **Never hand-build a device string at a `Document.load` here**: name the actor and let `LocalIdentities` answer (tripwire 38, `TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad`).
+- **Both of `withAnnotationDocument`'s arms yield assistant-signed notes, and only one loads as the assistant.** The closed-document arm transient-loads `.assistant`. The OPEN-document arm writes through the live `Document` the editor loaded as `.author`, so `Document.addAnnotation` stamps the actor off the annotation's AUTHOR (`deviceFor(author:)`: a `sourceKind` that is not `.human` is the assistant's). The writer's own dispositions of those notes stay the writer's (`Maugham/OpLog/AREA.md`).
+- **Reads derive from the op log, never the `.md`** (tripwire 20): an open document through its live `Document`, a closed one through `DerivedManuscriptCache`/`derivedCache` (`currentParagraphState`), a statement through `ProjectStore.statementText(of:)`.
+- **Post through `MaughamEvent`** (tripwire 21), project-scoped: `maughamStatementProposalsChanged`, `maughamTranslationDidUpdate`.
 
-Safety model — mutation is fenced to a throwaway workspace, never the owner's real projects:
-- **Compile gate:** the whole catalog and its tool implementations only exist in dev builds.
-- **Runtime guard:** every mutating tool resolves its target project URL through
-  `TestWorkspace.require(url:)` (MaughamCore), which throws unless the path is under
-  `~/Library/Application Support/Maugham Dev/TestWorkspace/`. Read-only inspect tools are not
-  workspace-restricted. (Under XCTest the workspace root gains a per-worker
-  `xctest-worker-<pid>` leaf — `reset()` deletes the whole tree and seven parallel
-  workers share the machine, so a shared root meant one worker's reset ate another's
-  live fixture mid-test; see `TestWorkspace.swift` and `TestWorkspaceIsolationTests`.
-  The live app keeps the bare root described above.)
+### The catalogue and dispatch
+- **`MCPToolCatalog.all` is the only list of tools.** `MCPToolsListHandler` and `MaughamApp.registerTools` both derive from it; if you find yourself editing `MCPToolsListHandler` to add a tool, stop (`MCPCatalogConsistencyTests`: catalogue ↔ `tools/list`, catalogue ↔ router, schema validity).
+- **The tool count is the catalogue's, never a number elsewhere**: the `## Tool catalogue (NN)` heading is checked by `DocSyncTests.test_toolCountSyncedAcrossDocsAndCatalog`, which also fails if CLAUDE.md states a count again.
+- **The protocol methods are not tools**: `initialize`, `tools/list`, `tools/call` and the three skills methods are registered directly on the router and add nothing to the count.
+- **Tools fail loudly on unknown ids**: an id the manifest does not hold is a caller error, never a degraded answer.
+- **A tool failure is a tool result, not a JSON-RPC error**: `MCPToolsCallHandler` turns every handler failure into `isError: true` with `{error, message, hint?}`; only protocol failures (`methodNotFound`, malformed `tools/call` params) throw.
+- **Widening an existing read changes no count**: a new field on an existing tool is a widening; only a new tool moves the heading. Never remove a shipped wire field; that is a breaking change.
+- **A JSON field whose value is a fact emits `null` rather than vanishing** (`triage`, `review_pass_id`, a group node's review fields, a briefless pass's `brief`): an absent key reads as "this tool does not report it".
+- **An ordered list is a JSON array, never an object keyed by id**: a JSON object's key order is `Dictionary` iteration order, and two reads of unchanged state must not differ.
 
-Driving semantics: `test_apply_edit` routes through the **same** `Document` op-recording entry
-point the editor uses (`setFullText` + `recordEditorTextWrite`, mirroring `EditorHost`) — not a
-parallel mutation path, not faked keystrokes into `NSTextView`. This keeps a single manuscript
-write path (tripwires 6/7) and exercises the real op log → materializer → autosave → clean
-`.md` pipeline.
+### Transport and lifecycle
+- **The trust boundary is same-user, filesystem-enforced.** The socket carries no auth: it lives under `~/Library/…` with user-only permissions, so anything that can reach it could read the project files anyway. Don't add socket-level auth; under this threat model it defends nothing (ADR 0003).
+- **The transport is a live-only Unix socket; no stdio inside the app.** The standalone `maugham-mcp` CLI is the only stdio surface (ADR 0003).
+- **The server runs only while Maugham runs**: no daemon, no LaunchAgent. Settings → General → "Allow Claude to connect (MCP)" toggles it; default on.
+- **SIGPIPE handling is idempotent and required**: don't simplify it away.
+- **Socket paths come from `BuildVariant`** (tripwire 13); `MaughamApp.swift` binds `TestHost.mcpSocketPath`, never `BuildVariant.current.mcpSocketPath`.
+- **A test host binds a socket of its own, never the variant's.** The app starts an `MCPServer` from the Welcome scene's `.task` on every launch, and `start()`, `stop()` and `willTerminate` each unlink the path, so a gate run used to delete the socket the open dev app was listening on: every later `claude -p` reported `mcp_servers: [{maugham-dev, failed}]` and the writer saw a compiler check that "couldn't be read as notes". `TestHost.mcpSocketPath` is the one decision: the variant's path for a writer's launch, `<temp>/maugham-host-<pid>.sock` for a host (`TripwireGrepTests.test_theAppBindsTheEffectiveSocketPathAndNotTheVariantsOwn` and its planted-offender companion). The `*Environment+Project` files and `HelpClaudeDesktopSheet` name the variant's path on purpose: they tell an OUTSIDE process where the real app listens.
+- **Socket tests bind isolated paths of their own** (`MCPServerLifecycleTests`, `MCPColdStartTests`, `MCPBinaryIntegrationTests`); nothing connects to a host's socket.
+- **The bridge runs one bounded poll loop for both reconnect cases** (`handleStdinLine`; budget `MAUGHAM_MCP_RECONNECT_BUDGET_MS`, default 15 s, low in tests). Never reintroduce a `hadPriorConnection` fast-fail branch: "no prior connection" is exactly the first call after a cold launch. Pinned by `MCPColdStartTests`. The cost: a genuinely absent app takes the whole budget to answer `maugham_not_running`.
 
-Connection: a repo-root `.mcp.json` plus `scripts/maugham-test-mcp.sh`, which points
-`MAUGHAM_MCP_SOCKET` at the dev socket and execs the existing `maugham-mcp` bridge against the
-built `Maugham Dev.app`, surfacing the tools to Claude Code as `mcp__maugham_test__*`.
+### The response budget (tripwire 10)
+- **No tool response over ~1 MB, and the cap is enforced, not just documented.** The figure is inferred from a real incident (ADR 0004), not a measured constant; treat it as the working ceiling. The limit belongs to the JSON-RPC *line*, so enforcement is layered.
+- **Text: `MCPResponseBudget.enforce(_:hint:)`** (`maxTextBytes` = 900 KB) fails with a structured `payload_too_large` tool error carrying a section-scoped hint.
+- **Per-tool `enforce` calls hold on every invocation path**, on the unbounded readers: `read_document` (manuscript and research), `read_publish_file`, `read_inbox_entry`, the five statement readers, `read_translation`, `list_canvas`, and `read_palette_card`'s markdown block (which returns a `content` envelope and bypasses the default wrap).
+- **The central backstop in `MCPToolsCallHandler`'s default text-wrap branch covers only `tools/call`.** Each `tool.method` is also registered as a top-level JSON-RPC method, which bypasses `MCPToolsCallHandler`, so a backstop-only tool called that way is unguarded. Don't rely on the backstop for end-to-end coverage; a new unbounded reader calls `enforce` itself.
+- **Why 900 KB**: the payload is re-escaped as the string value of a `text` block and wrapped in two envelopes, so content around 11–15% literal `"`/`\` at 900 KB can pass 1 MB (compile logs, code or JSON samples). Prose is under 1%. Lower the single constant if a real case bites.
+- **Bounded-by-construction tools** (`get_help`, `list_maugham_tools`, status and id responses) never trip it.
+- **Images: `ImageResponseBuilder`** (720 KB raw-JPEG budget, base64 plus envelope headroom) with crop-on-demand step-down; these return the `content` array and pass the text backstop untouched.
+- **Image responses always use crop-on-demand**: `max_dimension` (default 2048), `quality` (default 85), `region` (an optional crop rect). Never return raw images.
+- **`read_palette_card` composes independent budgets** (its markdown through `MCPResponseBudget`, its thumbnails through `combinedThumbnailByteBudget`, 720 KB), so a worst-case card can in principle pass 1 MB. Documented, not fixed.
+- **The guard is a dead end for the caller**: for anything that scales with the project (listings, cross-document search), paginate, filter or summarize so the response fits before it reaches the guard.
 
-**Drive** (mutating, `TestWorkspace`-fenced, dev-only):
-- `test_create_project` — create + open a project under TestWorkspace via the real
-  `Document.load`→`Bootstrap` path
-- `test_open_project` — open an existing TestWorkspace project
-- `test_apply_edit` — insert/edit/delete a paragraph via the real `Document` edit API
-- `test_checkpoint` — fire a labeled project-scope checkpoint
-- `test_reset_workspace` — delete everything under (and only under) TestWorkspace
+### Tool contracts
 
-**Lifecycle:**
-- `test_ping` — cheap readiness probe; the loop polls it after relaunch to absorb the
-  cold-launch window before asserting
-- `test_flush_autosave` — force the 750ms debounced write to happen now
-- `test_quit` — acks ("terminating") first, then flushes and cleanly terminates ~100ms later
+**Project and document reads**
+- **`get_outline` reports the DERIVED review status**: `review_status` (`ReviewStatus.derived` over the piece's states, the projection every in-app dot draws) and `pass_states` keyed by `ReviewPass.id`, with `review_passes` at the top level in ladder order. The passes come from `ProjectManifest.effectiveReviewPasses`, never the raw stored array.
+- **`get_outline`'s legacy `status` stays on the wire and nothing writes it**: `review_status` is the truth. A GROUP node reports both new fields as `null` (`Node`'s hand-written encoder keeps the schema uniform).
+- **Each `review_passes` entry carries `brief`** (`PassInfo.brief`), resolved through `ReviewPass.effectiveBrief`, never the raw `brief`, so a preset pass serves the preset's. The wire serves doctrine, never an editor persona: `editorName` stays off it. `null` only for a briefless custom pass.
+- **`search_text` filters to `.manuscript`; ⌘⌥F does not reach a statement**, and that is a stop, not an omission.
+- **`find_references` and `list_all_links` scan manuscript documents, research note bodies (canvas promotion writes `[[…]]` into notes) and statements**, and resolve a statement's composed title (`"Craft Intent · <doc>"`) as a `[[…]]` target at lowest precedence.
+- **`move_research_item` takes exactly one of `target: "shared"`, `target_group_id`, `target_document_id`**, and wraps `ProjectStore.moveResearchItems` (`Maugham/Stores/ProjectStore+ResearchMove.swift`; read its header before touching the validation).
+- **A cross-scope move leaves explicit links (`linkedResearchIds`) untouched**: association is containment-based. A manual link goes dormant while the item lives in a piece's research and resurfaces on move-out; a containment-only association severs on move-out and no link is minted.
 
-**Inspect** (read-only, not workspace-fenced):
-- `test_dump_document` — in-memory `Document`: paragraphs by `sequence`, `¶id`+text, cursor,
-  `lastDiskEcho`, pending sweep
-- `test_dump_oplog` — raw ops for a doc: sequence, kind, paragraphId, payload
-- `test_autosave_status` — pending debounced write / echo state
-- `test_pending_buffer` — `PendingBuffer` durable sequence (crash-recovery / clean-`.md`
-  domain, ADR 0019)
-- `test_list_checkpoints` — checkpoints + metadata
+**Statements and the palette**
+- **Every statement reader looks its statement up through `StatementLookup` and derives through `ProjectStore.statementText(of:)`** (the open pane's `Document` through `ProjectStore.openStatementDocument(id:)`, else `derivedCache`), so no two readers disagree about which text is real. Absence is `exists: false` (with empty `markdown`), never an error, and a read mints nothing.
+- **`read_craft_intent`'s `item_id` names any manuscript document**; the other four are project scope only, and their schemas take no `item_id`, because `StatementConvention.newPath` has no document row for visual language, an edition brief, the lessons ledger or the first reader.
+- **`read_edition_brief` is keyed by `language`** (`Statement.Kind.editionBrief(String)`) and returns any `## Rulings` a translation session settled (`RulingPerformer`, `StatementEssay.carriesRulings`), so an outside translator finds them instead of re-deciding register.
+- **`read_lessons`' description tells Claude to read it before the piece and to cite a habit by its heading verbatim.**
+- **`read_first_reader`'s `name` comes from `ProjectManifest.firstReaderName`**, not the statement, so `name` can be present while `exists` is false.
+- **`read_visual_language` returns paths, not pixels.** The images are scanned out of the statement text (`MarkdownBlockParser.findInlineImages`, unanchored, so a mid-paragraph image counts) and resolved through `ProjectStore.resolveImageRef`. Nothing in this catalogue reads a file by project-relative path, so the description tells Claude to ask the writer about any image it needs; `read_document` reaches one only if it is also a research item.
+- **A reader the skills do not tell Claude to call leaves its consumer unmet**: `docs/skills/maugham-bootstrap/SKILL.md` tells a template-authoring Claude to read visual language first, and names the paragraph anchors and cross-link command. No tool reads an anchor or a cross-link, deliberately.
+- **The propose tools write nothing to a statement.** `propose_edition_brief` (`language`, `markdown`, `rationale?`) validates through `StatementProposalStore.validate` (project, tag, and a `## Rulings` section holding only glossary-shaped lines), overwrites the one slot `.maugham/statements/proposals/edition-brief-<tag>.json`, and posts `maughamStatementProposalsChanged`; the desk's Edition Brief door presents `StatementPane`, where the writer adopts or discards it.
+- **`propose_visual_language` refuses a `## Rulings` section** (visual language has no strata); its slot is `<project>/.maugham/statements/proposals/visual-language.json`, adopted in the Visual Language pane (⌘⌥V), whose picker carries a "proposed" badge while a slot stands.
+- **Neither propose tool is in `CompilerAllowlist`.**
+- **`promote_inbox_entry`'s destinations are exclusive**: at most one of `target_document_id`, `palette_card_id`, `palette_subject` (a case-insensitive title match; no match fails, never mints a card). `title` is honoured for research promotes only.
 
-## SEP-2640 skills extension (protocol methods, not tools)
+**Annotations**
+- **The four creation tools stamp the review pass the writer is working that piece through, on the open-document arm only** (`activeReviewPassId`, validated through `ActivePassMemory.validatedActivePass`, so a retired pass stamps nothing). The closed-document arm has no window and no active pass, so it writes unstamped by design; an unstamped note appears in EVERY pass's queue.
+- **Claude never chooses the pass or the triage**: no tool schema takes either; `list_annotations` and `get_annotation` report `triage` (`do`/`decline`/`discuss` or null) and `review_pass_id` back, key for key, and no filter parameter exists, so pass semantics stay `AnnotationPassFilter`'s.
+- **The orphan-annotation sweep is edge-triggered**: `Document._pendingSweep: SweepReason?` carries the removed paragraph ids, and the sweep archives only annotations on `reason.removed` (ADR 0010; `PresenterRoutingTests`, including MCP annotation on a live doc minting no spurious `claude_archive`). If annotations vanish, suspect the reason's population at the call site (`setFullText`, `deleteParagraph`, `handleExternalLogChange`), not the sweep.
 
-`Maugham/MCP/SkillsExtension.swift` implements the draft **Skills Over MCP** extension
-(SEP-2640, Extensions Track) on top of the existing `resources/read` primitive:
-`initialize` capabilities declare `capabilities.extensions["io.modelcontextprotocol/skills"] = {}`;
-`skills/list` enumerates bundled skills (`name`/`description`/`uri`/`frontmatter`/`resources`,
-each resource carrying a `sha256:<hex>` digest); `skills/get` resolves a single skill **by
-URI** (per the draft, names aren't unique identifiers) and fails loudly (protocol error
-`-32602`) on an unknown URI; `resources/read` is implemented narrowly for `skill://` URIs
-only — any other URI fails loudly too (Maugham's server has no general resources support).
-These three are **protocol methods**, registered directly on the router in
-`MaughamApp.registerTools` alongside `initialize`/`tools/list`/`tools/call` — not tools,
-so **they add nothing to the tool catalogue** whether or not a connecting client speaks
-the extension — the catalogue is `MCPToolCatalog.all` and its size is that array's,
-never a number in this file (audit PR #65, F10: this sentence said 56 for four
-milestones after the catalogue had passed it).
+**Publishing**
+- **A Publication is keyed on `(imprint, version, language, format)`.** A source `compile` (no `language`) takes its version from `next_version` and bumps it; a `language` edition renders an EXISTING source version (pin it with `version`, which requires `language`, or omit it for the latest source publication) and never bumps. With no source publication, a language compile fails loudly ("compile the source edition first"). The collision guard refuses only an exact four-part match.
+- **`compile`'s `dry_run: true` runs the same resolution, collision guard and coverage gate and returns the verdict** (`{status: dry_run_passed, warnings}` or the failed shape) with no output, Publication or bump. `language`/`allow_stale` select a translated edition behind the coverage gate.
+- **`imprint` is resolved at the orchestrator's door** (`PublishConfig.resolved(imprint:pieceIDs:)`), so nothing below takes an imprint; omit it for the book. An unknown name refuses through the ordinary failed shape (`{status: failed, errors, log_excerpt: "unknown_imprint: <name>"}`), never a thrown `MCPError`, and nothing is compiled, recorded or bumped.
+- **`preview_compile` scopes its pieces with `section_ids`, and mirrors `compile`'s `language`/`allow_stale` behind the SAME gate, scoped to the pieces it renders**, and resolves `imprint` through a two-line twin of the door (the refusal fails the already-registered job, with the same excerpt). The preview's `filename_template` names no `{imprint}`, so an imprint preview lands as `preview-<version>-<ext>-<imprint>.<ext>` through the collision guard and never replaces the book's: the preview directory is last-write-wins.
+- **`list_publications` surfaces `language` and `imprint` on every row** (`null` for source / the book), filterable by exact value or the sentinels `"source"` and `"book"`.
+- **`read_publication_page`'s `language` and `imprint` narrow a shared `version`, and with `publication_id` they must agree with it**; version-only addressing stays first-write-wins.
+- **`read_preview_page` reads the newest `.pdf` by mtime in `.maugham/publish/build/preview/`** with no id addressing, and returns `preview_filename` and `preview_mtime` so staleness is visible. It fails loudly with no preview; an EPUB preview errors.
 
-**Content source:** `docs/skills/<name>/SKILL.md` (agentskills.io flat-frontmatter format:
-`name`, `description`, markdown body) is bundled as a `folder` resource in `project.yml`
-and loaded by `Maugham/Help/SkillIndex.swift` (modeled on `HelpTopicIndex`; strict/throwing
-load in dev builds, skip-with-log in release so one malformed skill can't take the server
-down). It's a fourth bundled content root alongside `docs/guide/` (help topics) and
-`Maugham/Resources/Samples/` (sample projects) — same discipline: edit the bundled file,
-don't add a second copy. Five skills are served today: `edition-brief`,
-`editing-pass`, `transcribing-notebooks`, `translation-pass`, `visual-language`
-(the first and last are the translation pipeline P5 interviews; each ends by
-calling its propose tool; `editing-pass` opens with the two-loops split —
-a check's reader vs. a round's editor — so a Claude following it plays
-the right one). A sixth folder, `maugham-bootstrap` (frontmatter `name: maugham`), is the
-Claude Code router template — `SkillIndex` loads it but `skills/list`/`skills/get`/`get_help`
-never serve it; it reaches the world only via `ClaudeCodeSkillInstall`'s installer, wired
-into `Views/HelpClaudeDesktopSheet.swift`'s Claude Code section (copyable variant-aware
-`claude mcp add …` command + an install/update button that writes/refreshes
-`~/.claude/skills/maugham/SKILL.md`, byte-compared for staleness).
+**Translation**
+- **Each `write_translation` entry supplies exactly one of `text`, `verbatim: true` or `delete: true`**: `verbatim` copies source chrome unchanged; `delete` is a tombstone, how an orphan (a translation whose source paragraph is gone) is purged. An empty or whitespace-only `text` counts as ABSENT (`ReportJSON.nonEmptyString`), so it meets the exactly-one refusal rather than storing `""` that coverage would read as translated.
+- **A `text`/`verbatim` entry naming an unknown paragraph rejects the whole batch; a `delete` entry is exempt**, per entry, not per batch. Tombstoning an id never translated is an idempotent no-op.
+- **The server stamps every record with a hash of the current source paragraph**; non-verbatim entries surface structural-drift warnings and an advisory (never blocking) when the text equals the source.
+- **The batch persists through one `TranslationStore.appendBatch`, every record built first**, so a rejected or failed batch writes nothing. A tombstones-only batch for a language with no records writes nothing and still reports the entries (otherwise the language would appear in `languages(forDocId:)` forever).
+- **The permit refuses first**: `TranslationWritePipeline.refuseUnlessTranslatable` asks `OpLogStore.localWritePermit` (as the translator, in the `.translation(piece:)` class) before anything is built; a refusal is a `translation_not_permitted` tool error naming the piece. The orphan purge asks the same door under the author's key.
+- **None of that lives in the tool**: validation, record building and the single append are `TranslationWritePipeline.perform`, shared with the translator loop; the tool keeps the wire form (decode, the language gate ahead of the registry lookup, the project-scoped post, the response). `TripwireGrepTests.test_theTranslationWritePipelineIsTheOnlyPlaceAWriteBatchIsAppended` counts `appendBatch` sites; the one sanctioned second is `TranslationReviewPaneLogic.purgeOrphans`, tombstones only.
+- **`read_translation` reads an unknown language as all-`missing`, but a translation file that is PRESENT and unreadable fails the call by name** (`OpLogStore.ReadError.unreadableFile`): skipping it would answer like not-started and send Claude to re-translate a chapter already on disk. `status` filters entries (`stale` + `missing` is the retranslation worklist).
+- **`translation_status` reports one row per (document, language)** with `fresh`/`stale`/`missing`/`verbatim`/`orphans` counts and `open_queries`; `document_id` narrows it to one document, and the whole-project walk skips collection references (the `ProjectStoreASTSource` walk).
+- **`translation_status`'s rows are the UNION of three sources**: languages with translation files, languages named on an open query, and languages the manifest holds a `.translator` role for. The union is `EditionStatus`' (`Maugham/Publish/EditionStatus.swift`), the tool's body and the desk's, so neither reports an edition the other cannot see; a stored tag joins lowercased.
+- **A row with no translation file reports coverage as all-zero, not every paragraph missing**, and a role-only edition reports one zero row per manuscript document.
+- **`open_queries` counts language-tagged craft notes as well as `.query`s**: a whole-document question cannot be an anchorless `.query`, so it mints as a tagged craft note.
+- **The walk opens EVERY manuscript document through `withAnnotationDocument`** (an accepted cost of the query half), and an unreadable chapter degrades to an entry in `unreadable_documents`, always present; its rows are ABSENT, not zero. A caller-supplied `document_id` the manifest does not hold still fails loudly with `invalid_argument` before the walk.
+- **`reader`, `collator` and `translator` name the edition's cast** (`EditionStatus.readerName`/`collatorName`: stored role, then preset, then omitted; a read never mints a role). `last_round` carries the newest `TranslationRoundStore.latest` round for that exact `(document, language)` pair, omitted until one has run: its number, `leg2_verdict`/`leg4_verdict`, its note/departure/declined counts, its summary, and the leg it `stopped_at` when it failed or was cancelled (`TranslationStatusToolTests.test_rowsNameTheReaderAndCollatorWithoutMinting`, `test_theLastRoundIsThisPairsNewestAndAnotherChaptersIsNotReported`). The department desk reads the same store, so the tool and the desk report one round.
 
-**Today-compat surface:** no shipping MCP client speaks SEP-2640 yet, so `get_help` also
-serves skills through the same `SkillIndex` — topic id `"skills"` returns the index (name +
-one-line description per skill), a skill's own name as topic returns its full body.
-`read_document` and `add_comment` each gained one nudge sentence pointing at the relevant
-skill topic, so clients with only tools (today's Claude Desktop and Claude Code) still find
-the procedure.
+**The planning canvas**
+- **`list_canvas` reads the OPEN canvas when there is one and the sidecar otherwise**: a derived file is not read as truth while its source is in memory. `read_from` says which (`"open_canvas"`, live and possibly mid-sentence, or `"sidecar"`).
+- **The discriminator is `CanvasModel.isAttached`, spelled once in the shared `CanvasClaudeWrite.readScene`**: the read and the write must not disagree about which canvas is real.
+- **`list_canvas` reports every card, region (its home members and appearances), line and inspector mark** (`promoted_item_id`, `contributed_to_item_ids` — every artifact the card's content fed — and `bound_piece_id`).
+- **`author` is absent for the writer's cards and lines and `"claude"` for ones added here; `provenance` is `"project"` (research the canvas points at, named by `reference_id`) or `"owned"` (an ingested photograph).** No path is on the wire, since nothing here reads one; `provenance` is what tells a picture from an `"item"` whose research was deleted.
+- **`piece_references` reports the projection, not its inputs**: a reader computing `home ∪ appearances` from `home_node_ids`/`appearance_node_ids` picks up a *visitor* (a card cited in a region, not owned by it). Residents only, unioned across regions, through `RegionBinding.references(forPiece:in:)`, which the tool calls rather than restates (`RegionBindingTests.test_theProjectionHasAProductionCaller`). It is keyed on the regions' bindings only (a card's own `bound_piece_id` is where a promotion from it lands, a different relationship), an array in piece-id order, and a bound empty region reports an empty list.
+- **`list_canvas` says whether the layout could be read** (`layout_readable`, `layout_unreadable_reason`) on both routes, because a refused file loads as every card loose. Scrap text is unbounded, so it calls `MCPResponseBudget.enforce` itself; `include_text: false` is the narrower read its refusal names.
+- **`add_canvas_scraps` takes no position, node id or region id**: placement is `CanvasClaudePlacement`'s, and `connect` indexes this call's own `scraps` array (`[[0, 2]]`), so Claude can reach nothing the writer made. Everything lands in one labelled region; nothing Claude adds is loose.
+- **`source_item_id` is the research item the words came off**, placed above them in the same region and carrying no author.
+- **`add_canvas_scraps` validates fully before writing**: a blank scrap, an unknown source id, an out-of-range or self `connect` pair, and a repeated or reversed pair (a line is undirected: `[0,1]` and `[1,0]` are one line) are each refusals.
+- **`canvas_sidecar_unreadable` refuses before any mutation** (through `CanvasStore.loadForTransientWrite()`, on both routes): a newer-build or damaged `<project>/.maugham/canvas.json` loads as an EMPTY scene, and saving that would overwrite the whole arrangement. Its hint is per reason (newer version or damaged; an attached read-only canvas refuses too) and names `list_canvas`, which flags the file with `layout_readable: false`.
+- **It writes `canvas.md` and `<project>/.maugham/canvas.json` and nothing else, through `CanvasClaudeWrite.apply`**, so the batch is one undo step whether or not the Plan persona is open.
 
-**Drift risk:** SEP-2640 is unmerged; all shapes live in `SkillsExtension.swift` with a
-revision pin (`// SEP-2640 pin: PR #2640 diff fetched 2026-07-18`) — check the SEP on next
-touch. One documented, deliberate deviation from the pinned diff: `skills/list` entries
-carry top-level `name`/`description` in addition to the diff's `frontmatter`-nested copy —
-a compatible superset (extra fields only), not a rename.
+### Skills (SEP-2640)
+- **The skills methods are protocol methods on top of `resources/read`, not tools**: `initialize` declares `capabilities.extensions["io.modelcontextprotocol/skills"] = {}`; `skills/list` enumerates bundled skills (`name`/`description`/`uri`/`frontmatter`/`resources`, each resource with a `sha256:<hex>` digest); `skills/get` resolves **by URI** and fails with `-32602` on an unknown one; `resources/read` serves `skill://` URIs only and fails loudly on any other.
+- **Content is `docs/skills/<name>/SKILL.md`**, flat frontmatter (`name`, `description`), bundled as a folder resource in `project.yml` and loaded by `SkillIndex` (strict and throwing in dev builds, skip-with-log in release). Edit the bundled file; never add a second copy.
+- **Served skills**: `edition-brief`, `editing-pass`, `transcribing-notebooks`, `translation-pass`, `visual-language`. The two interview skills end by calling their propose tool; `editing-pass` opens with the two-loops split (a check's reader versus a round's editor).
+- **`maugham-bootstrap` (frontmatter `name: maugham`) is never served** by `skills/list`, `skills/get` or `get_help`; it reaches the world only through `ClaudeCodeSkillInstall`, which writes and refreshes `~/.claude/skills/maugham/SKILL.md` from `HelpClaudeDesktopSheet`'s Claude Code section.
+- **`get_help` also serves skills**, because no shipping client speaks SEP-2640 yet: topic `"skills"` is the index; a skill's name returns its body. `read_document` and `add_comment` each carry one nudge sentence pointing at the relevant skill topic.
+- **`get_help` serves the bundled `docs/guide/` topics**, the same single source as Help → Maugham Help (`HelpWindow`) and GitHub, loaded by `HelpTopicIndex`; edit `docs/guide/`, never a second copy. The skills are a fourth bundled content root beside `docs/guide/` and `Maugham/Resources/Samples/`, under the same discipline.
+- **SEP-2640 is unmerged; every shape lives in `SkillsExtension.swift` under its revision pin** (`// SEP-2640 pin: PR #2640 diff fetched 2026-07-18`): check the SEP on next touch. The one deliberate deviation is a superset: `skills/list` entries carry top-level `name`/`description` beside the `frontmatter` copy.
+- **The installer has four states keyed on `managedMarker`** (`<!-- maugham:managed`): notInstalled, installedCurrent, stale, userModified (byte-compared). A marker-less file is `.userModified` and needs an explicit confirmed Replace, never the one-click Update a `.stale` copy gets.
+- **Maugham never shells out to `claude`**: the `claude mcp add` command is copyable text.
 
-## Layout
+### The dev-only test catalogue
+- **`TestMCPToolCatalog` is registered only under `#if MAUGHAM_DEV_BUILD`, on the same dev socket**, and is absent from the stable binary (`TripwireGrepTests.test_testMCPCatalog_registeredOnlyUnderDevFlag`). It is for Claude Code and outside the production count.
+- **It drives the full create → edit → autosave → checkpoint → quit → relaunch → verify loop** to check invisible state (op log, autosave, cursor restore, checkpoints, the clean `.md`); it does not cover UI fidelity, which stays a manual pass (ADR 0020).
+- **Every mutating test tool resolves its project through `TestWorkspace.require(_:)`** (MaughamCore), which throws unless the path is under `~/Library/Application Support/Maugham Dev/TestWorkspace/`. Inspect tools are not fenced. Under XCTest the root gains a per-worker `xctest-worker-<pid>` leaf, because `reset()` deletes the whole tree (`TestWorkspaceIsolationTests`).
+- **`test_apply_edit` writes through the editor's own entry point** (`setFullText` + `recordEditorTextWrite`, mirroring `EditorHost`), never a parallel mutation path or faked keystrokes, so there is one manuscript write path (tripwires 6/7).
+- **The tools**: drive (`test_create_project`, `test_open_project`, `test_add_document`, `test_open_document`, `test_close_document`, `test_apply_edit`, `test_checkpoint`, `test_reset_workspace`); lifecycle (`test_ping`, the readiness probe after relaunch; `test_flush_autosave`; `test_quit`, which acks first and terminates ~100 ms later); inspect (`test_dump_document`: paragraphs by `sequence`, `¶id` and text, cursor, `lastDiskEcho`, the pending sweep; `test_dump_oplog`; `test_autosave_status`; `test_pending_buffer`, the `PendingBuffer` durable sequence; `test_list_checkpoints`).
+- **Connection**: the repo-root `.mcp.json` and `scripts/maugham-test-mcp.sh` point `MAUGHAM_MCP_SOCKET` at the dev socket and exec the `maugham-mcp` bridge, surfacing the tools as `mcp__maugham_test__*`.
 
-- `MCPServer.swift` — Unix socket server, connection lifecycle, SIGPIPE handling. **SIGPIPE handling is idempotent and required** — don't simplify it away.
-- `MCPToolsListHandler.swift` — tool list response. Iterates `MCPToolCatalog.all` to advertise tools; never touches them directly.
-- `MCPTool.swift` — the `MCPTool` protocol (every tool conforms) and `MCPToolCatalog.all` (the single source of truth for the tool list). `MCPToolCatalog.register(router:registry:)` is the shared registration path used by both production (`MaughamApp.registerTools`) and the seam test (`MCPCatalogConsistencyTests`).
-- `Tools/` — one file per tool. Read tools are pure. **Two tools write, and both write into the planning plane and nowhere else**: `add_note` under `research/`, and `add_canvas_scraps` (1C-c3, `Tools/CanvasTools.swift`) to `canvas.md` plus its `.maugham/canvas.json` sidecar. `add_note` was the only one for the whole of foundation scope, and the sentence that said so has been widened rather than qualified — a count is what a reader checks against the catalogue. The **manuscript** half is unchanged and unchangeable (tripwire 4): neither writer can reach manuscript text, and what they write reaches a manuscript only through a deliberate writer act (`promote_inbox_entry`, or the canvas's own `Promote…`).
-- Paragraph-anchored annotations live in `Tools/AnnotationCreationTools.swift` (add_comment / add_suggested_change / add_query / add_craft_note), `Tools/AnnotationReadTools.swift` (list_annotations / get_annotation), and `Tools/AnnotationToolHelpers.swift` (`withAnnotationDocument` — transient-load fallback when the doc isn't open in the editor). The parallel comment layer that lets Claude annotate the manuscript without mutating it. **As of M3 P2 all four creation tools STAMP the note with the review pass the writer is working that piece through** (`AnnotationToolHelpers.activeReviewPassId`, validated through `ActivePassMemory.validatedActivePass` so a retired pass stamps nothing) — **the open-document arm only**. `withAnnotationDocument`'s closed-doc arm transient-loads a document nobody is looking at, and there is no window and so no active pass to attribute the note to: that arm writes UNSTAMPED **by design**, which is what keeps M5-AN-048 (a craft note appended to a CLOSED document) working exactly as it did, its note simply belonging to no pass. An unstamped note appears in EVERY pass's queue, so the nil hides nothing. This is **input-side only**: no tool schema gained a parameter — Claude does not choose the pass, the writer's own board click does — and the catalogue count is unmoved. **P3 closed the loop on the READ side**: `list_annotations` and `get_annotation` report `review_pass_id` (and `triage`) back, still with no schema parameter on either — the stamp is reportable without becoming choosable.
-- `../maugham-mcp/` — the standalone CLI binary that bridges Claude Desktop's stdio to the app's Unix socket. Lives outside this directory but is conceptually part of this area. Main entry: `JSONRPCBridge.swift`.
-- `SkillsExtension.swift` — SEP-2640 skills extension surface (`skills/list`/`skills/get`/`resources/read` for `skill://`); see the section above. `MCPInitializeHandler.swift` declares the extension capability.
-- `ClaudeCodeSkillInstall.swift` — Claude Code bootstrap-skill installer: detect/install for `~/.claude/skills/maugham/SKILL.md` across four states — notInstalled/installedCurrent/stale/userModified — keyed on the `managedMarker` (`<!-- maugham:managed`) ownership prefix: a marker-less on-disk skill is `.userModified` (diverged, hand-edited) and needs an explicit confirmed Replace, not the one-click Update a marked `.stale` copy gets. Plus the copyable `claude mcp add` CLI command string (variant-aware via `BuildVariant`). Consumed by `Views/HelpClaudeDesktopSheet.swift`'s Claude Code section, not executed — Maugham never shells out to `claude`.
+## Recipes
 
-## Hard rules
+### Add a tool
+1. Implement it in `Tools/<Family>.swift`: an enum conforming to `MCPTool` with `method`, `description`, `inputSchemaJSON` and `handle(paramsJSON:registry:)`; decode params and resolve `project_id` through `MCPToolHelpers.swift`.
+2. Decide its side of the membrane (Rules → The membrane). A write tool needs an ADR, and goes into `writeTools` in `MaughamTests/CompilerAllowlistTests.swift` (`test_noWriteToolIsAllowed`). A name that writes a statement fails `test_noStatementWritingToolExistsAnywhereClaudeCanReach`.
+3. Add the type to `MCPToolCatalog.all` in `MCPTool.swift`; that is the only registration.
+4. Add its method to the expected set in `MaughamTests/MCP/MCPProtocolHandlersTests.swift` (`test_toolsList_returnsAllExpectedTools`).
+5. If the compiler's session should reach it, add `mcp__maugham__<method>` to `Maugham/Compiler/CompilerAllowlist.swift` (reads only; `test_everyEntryNamesACatalogTool`).
+6. Images: use the crop-on-demand parameters through `ImageResponseBuilder.swift`. Unbounded text: call `MCPResponseBudget.enforce` with a section-scoped hint (mirror `read_document`), and paginate or filter anything that scales with the project.
+7. Load documents only through `withAnnotationDocument` or with a named `DeviceActor` (tripwire 38); derive from the op log (tripwire 20).
+8. List it under `## Tool catalogue (NN)` above, bump NN (`DocSyncTests`), and add its contract to Rules → Tool contracts.
+9. If a procedure should call it, name it in that skill's `docs/skills/<name>/SKILL.md` and in the router `docs/skills/maugham-bootstrap/SKILL.md`; if writers see it, in `docs/guide/claude-desktop.md`. A tool nobody is told to call has no consumer.
+10. Tests in `MaughamTests/MCP/Tools/`; then try it from Claude Desktop (Settings → Help → "Set up Claude Desktop…").
 
-- **Trust boundary: same-user only, filesystem-enforced.** The socket carries no auth of its own — anything that can connect to it can call every tool. That's an explicit assumption of ADR 0003, not an oversight: the socket file lives under `~/Library/…` with standard user-only permissions, so the only processes that can reach it are already running as the same user, who could read/write the project files directly anyway. Don't add socket-level auth on the theory that it "defends" anything — it doesn't, under this threat model.
-- **Transport is live-only Unix socket.** No stdio inside the app. The standalone `maugham-mcp` CLI is the stdio adapter for Claude Desktop. (ADR 0003)
-- **A test host binds a socket of its own, never the variant's (2026-09-06).** The app starts an `MCPServer` from the Welcome scene's `.task` on *every* launch, and the Mac gate hosts the same binary in seven parallel XCTest workers. `MCPServer.start()` unlinks its path before `bind`, `stop()` unlinks it again, and `MaughamApp`'s `willTerminate` observer unlinks it a third time — so a `./scripts/test.sh` run while the developer had the dev app open **deleted the socket file that app was listening on**, and nothing anywhere went red. The running app keeps its listening descriptor and serves whoever is already connected; every `claude -p` spawned afterwards finds nothing at the advertised path, reports `mcp_servers: [{maugham-dev, failed}]`, and the writer sees a compiler check that "couldn't be read as notes". Diagnosed from Denver's smoke of the two-loops milestone. The decision now lives in ONE place, `TestHost.mcpSocketPath`: the variant's path for a writer's launch, `<temp>/maugham-host-<pid>.sock` for a host. Nothing connects to a host's socket — `MCPServerLifecycleTests`, `MCPColdStartTests` and `MCPBinaryIntegrationTests` each bind an isolated `/tmp` path of their own — it exists so the scene's `.task` still runs the real start path rather than being branched around. `TripwireGrepTests.test_theAppBindsTheEffectiveSocketPathAndNotTheVariantsOwn` (plus its planted-offender companion) keeps `BuildVariant.current.mcpSocketPath` out of `MaughamApp.swift`; the three `*Environment+Project` files and `HelpClaudeDesktopSheet` still name it on purpose, because they tell an OUTSIDE process where the *real* app listens.
-- **The server only runs while Maugham is running.** No background daemon, no LaunchAgent. Settings → General → "Allow Claude to connect (MCP)" toggles it; default on.
-- **Foundation scope: read tools + `add_note`.** `add_note` only writes under `research/`. **Manuscript text is never mutated via MCP** — that's the annotation layer's job (or no-op, in foundation scope). The user's framing: *"the manuscript is yours, full stop. Claude operates in a parallel annotation layer."* (ADR 0004)
-- **Tool responses are capped at ~1MB, and the cap is enforced — not just documented.** (The ~1 MB figure is *inferred* from the ADR-0004 incident, not a measured Claude Desktop / transport constant — treat it as the working ceiling, not a guarantee.) The limit is a property of the JSON-RPC *line*, so enforcement is layered rather than per-tool-by-hope:
-  - **Text:** `MCPResponseBudget.enforce(_:hint:)` (`MCPResponseBudget.swift`, `maxTextBytes = 900_000` — 900 KB). It fails loudly with a structured `payload_too_large` tool error carrying a section-scoped hint. Two layers, and the distinction matters:
-    - **Per-tool `enforce` calls** on the unbounded single-value file readers (`read_document` manuscript + research, `read_publish_file`, `read_inbox_entry`, `read_craft_intent`, `read_visual_language`, and `read_palette_card`'s markdown block — the last bypasses the default wrap because it returns a `content` envelope). These fire **regardless of how the tool was invoked**, including the top-level-JSON-RPC-method path.
-    - A **central backstop** in `MCPToolsCallHandler`'s default text-wrap branch (generic hint) catches every *other* plain-JSON tool so a new text tool can't silently reintroduce the gap — **but it only covers the `tools/call` dispatch path.** Tool methods invoked as **top-level JSON-RPC methods bypass `MCPToolsCallHandler` entirely** (`MaughamApp.swift` registers each `tool.method` directly on the router; this is the audit's known Low finding, Task 26 territory), so a backstop-only tool called that way is *unguarded*. Don't rely on the backstop for end-to-end coverage that path doesn't have; the per-tool `enforce` calls are the only ones that hold universally.
-    - Why 900 KB and not nearer 1 MB: the enforced payload is re-escaped as the string value of a `text` block (a second JSON escape) then wrapped in the tool-result + JSON-RPC envelopes. The real constraint is **backslash/quote density** — content around **~11–15%** literal `"`/`\` at 900 KB can push the escaped line past 1 MB. That's not hypothetical: compile logs and code/JSON samples (via `read_publish_file` / research notes) are realistic high-density cases. Ordinary prose is <1% density and sits far under. Lower the single constant if a real case bites.
-    - Bounded-by-construction tools (`get_help`, `list_maugham_tools`, status/id responses) never trip it.
-  - **Images:** `ImageResponseBuilder` (720 KB raw-JPEG budget, base64 + envelope headroom) with crop-on-demand step-down. These return the `content`-array envelope and pass through `MCPToolsCallHandler` untouched by the text backstop. Note `read_palette_card` composes **independent** budgets — its markdown text (`MCPResponseBudget`) and its combined thumbnails (`combinedThumbnailByteBudget`, 720 KB) are checked separately, so a worst-case card (a full 900 KB of notes *plus* six near-budget thumbnails) can in principle exceed the 1 MB line. Realistic cards are nowhere near either ceiling; documented, not fixed (reviewer Minor).
-- **Image responses use crop-on-demand.** Parameters: `max_dimension` (default 2048), `quality` (default 85), `region` (optional crop rect). Default output: JPEG q=85, max 2048px on the long side. Don't return raw images.
+### Add a skill
+1. Write `docs/skills/<name>/SKILL.md` with `name` and `description` frontmatter; the `docs/skills` folder resource in `project.yml` bundles it.
+2. `Maugham/Help/SkillIndex.swift` loads it; a malformed or duplicate frontmatter throws in dev (`SkillIndexTests`), and a skill name must not collide with a `docs/guide/` slug (`GetHelpToolTests.test_bundledGuideSlugsAndSkillNames_areDisjoint`).
+3. Add it to the served-skills list under Rules → Skills, and point the router `docs/skills/maugham-bootstrap/SKILL.md` at it if Claude Code should reach for it.
 
-## Tripwires
+### Add a dev-only test tool
+1. Implement it in `Test/Tools/`, `test_`-prefixed, under `#if MAUGHAM_DEV_BUILD`; a mutating tool resolves its project through `TestWorkspace.require(_:)`.
+2. Add it to `TestMCPToolCatalog.all` in `Maugham/MCP/Test/TestMCPToolCatalog.swift`; `TestMCPCatalogConsistencyTests` covers it. The production heading does not move.
 
-1. **Adding a tool: implement `MCPTool` on it, then add the type to `MCPToolCatalog.all`.** That's the only place to list tools. `MCPToolsListHandler` and `MaughamApp.registerTools` both derive from the catalog, so they can't drift. `MCPCatalogConsistencyTests` asserts the contract holds (catalog ↔ tools/list, catalog ↔ router, schema validity). If you find yourself editing `MCPToolsListHandler` to add a tool entry, stop — you're working against the protocol.
+## Pointers
 
-2. **First MCP call after (re)start: fixed 2026-07-12 — keep the two reconnect paths unified.** The old bridge polled 15s for the socket when it had a *prior* connection but fast-failed (~1.5s) when it had *none* — and "no prior connection" is exactly the first call after the app launches (Claude Desktop spawned the bridge while Maugham was closed). A cold launch slower than ~1.5s lost its first call; a retry succeeded. Fix: `handleStdinLine` runs one bounded poll loop for **both** cases (budget `MAUGHAM_MCP_RECONNECT_BUDGET_MS`, default 15s; tests set it low). Don't reintroduce a `hadPriorConnection` fast-fail branch. Pinned by `MCPColdStartTests` (real-binary harness with an in-process stub listener; RED against pre-fix). Trade-off: a genuinely-absent app now takes the full budget (15s) to synthesize `maugham_not_running` instead of ~1.5s — same as the already-shipped after-restart path.
-
-3. **Orphan-annotation sweep is now edge-triggered via `Document._pendingSweep: SweepReason?`** carrying the observed removed-paragraph-id set; sweep archives only annotations on `reason.removed`. The earlier 1–2s auto-archive bug (sweep firing on any sequence mismatch from the live Document's view) is fixed via the SweepReason refactor (ADR 0010). `PresenterRoutingTests` covers the contract. If annotations vanish, suspect sweep-reason population at the call site (setFullText / deleteParagraph / handleExternalLogChange), not the sweep itself.
-
-4. **Don't write to manuscripts from MCP, full stop.** Even if a future tool design "feels safe," the membrane principle is the hard rule, and *this* half of it never softens: manuscript text is the writer's, and Claude reaches it only through the parallel annotation layer. What a write tool may touch is the **planning plane** — the surfaces that are explicitly not manuscript and whose contents reach one only by a deliberate writer act. Today that is three destinations and no others: `research/` (`add_note`), the annotation/translation layers, and the planning canvas — `canvas.md` at the project root plus its `.maugham/canvas.json` sidecar (`add_canvas_scraps`), which reaches a manuscript only through promotion, a writer act (spec §8A.2 reasons this through against must-not #1; ADR 0026). A fourth destination needs the same ADR-level argument, not this list as precedent. Violating the manuscript rule loses the user's trust in the whole MCP integration.
-
-5. **Don't return tool payloads >1MB.** Transport will choke. The byte budget is enforced (`MCPResponseBudget` for text, `ImageResponseBuilder` for images — see "Hard rules") so an overrun surfaces as a structured `payload_too_large` error rather than a silent truncation, but that error is a dead-end for the caller: for anything that scales with project size (listings, cross-doc search), still paginate, filter, or summarize so the response fits *before* it hits the guard.
-
-6. **Don't add a tool without thinking about the membrane.** Read tools: low-risk, generally fine. Write tools: needs explicit ADR-level justification. Annotation tools: belong to the annotation layer, not direct manuscript mutation.
-
-7. **Don't reach for stdio inside the app.** The Unix socket is the contract. The standalone CLI is the only stdio surface.
-
-## How tools are wired (end to end)
-
-```
-Claude Desktop  ──stdio──>  maugham-mcp CLI  ──Unix socket──>  MCPServer  ──>  tool handler in Tools/
-                                                                      │
-                                                                      └──>  reads/writes via Stores/MCPServices
-```
-
-Adding a new tool:
-
-1. Implement the handler in `Tools/<ToolName>.swift`. Conform the enum to `MCPTool` and declare `method`, `description`, `inputSchemaJSON`, `handle(paramsJSON:registry:)` on it.
-2. Add the type to `MCPToolCatalog.all` in `MCPTool.swift`. That's the only registration step — `MCPToolsListHandler` and `MaughamApp.registerTools` derive from this list.
-3. If it returns images, use the crop-on-demand parameters (`max_dimension`, `quality`, `region`).
-4. If it could return >1MB: the `MCPResponseBudget` central backstop already fails such a response loudly, but a `payload_too_large` error is a poor experience — add pagination, filtering, or summarization so it fits. For a single unbounded file read, call `MCPResponseBudget.enforce` directly with a hint naming a section-scoped alternative (mirror `read_document`).
-5. Add the tool under `## Tool catalogue (N)` above and bump N (`DocSyncTests` checks it).
-6. Test from Claude Desktop with the configure-flow (Settings → Help → "Set up Claude Desktop…").
-
-`MCPCatalogConsistencyTests` will catch a missing catalog entry, a malformed schema, or any drift between advertisement and dispatch at test time.
-
-## What to read before editing
-
-- For transport / connection lifecycle / SIGPIPE: `MCPServer.swift` + `docs/adr/0003-mcp-live-only-unix-socket.md`.
-- For the tool surface and scope decisions: `docs/adr/0004-mcp-foundation-scope.md`.
-- For the bridge (stdio ↔ socket): `../maugham-mcp/JSONRPCBridge.swift`.
-- For annotation behavior (especially auto-archive): grep for `paragraph_id` in this area and `Maugham/Stores/`.
-- For an example of a well-shaped read tool: `Tools/DocumentTools.swift` (contains both `ReadDocumentTool` and `SearchTextTool` — `ReadDocumentTool` is the model for polymorphic responses on images vs text, with crop-on-demand parameters).
-
-## Tests worth knowing about
-
-- `MaughamTests/MCP/` — unit tests per tool handler.
-- `MaughamTests/MCP/MCPCatalogConsistencyTests.swift` — enforces the catalog-as-single-source-of-truth rule (every method in `MCPToolCatalog.all` is advertised by `tools/list`, is dispatchable through the router, and has a parseable object schema). This is what catches "added a tool but forgot to register it" at test time, not at user time.
-- The annotation auto-archive contract is covered by `MaughamTests/Integration/PresenterRoutingTests.swift` — specifically the test asserting MCP `add_annotation` on a live doc doesn't synthesize spurious `claude_archive` ops.
-
-End-to-end-through-the-bridge coverage lives in `MaughamTests/MCP/MCPBinaryIntegrationTests.swift` (drives the real `maugham-mcp` binary against bogus/absent sockets) and `MaughamTests/MCP/MCPColdStartTests.swift` (drives the binary against an in-process stub Unix-socket listener to control cold-launch / restart timing — the regression pin for the first-call-after-restart flake, now fixed).
-
-## What's intentionally NOT here
-
-- Manuscript persistence — `Maugham/Stores/DocumentStore.swift`.
-- The op log that MCP read tools read against — `Maugham/OpLog/`.
-- Settings UI for the "Allow Claude to connect" toggle — `Maugham/Views/SettingsTabs/`.
-- The "Set up Claude Desktop…" flow — `Maugham/Views/` (Help menu wiring; also hosts the Claude Code section, `HelpClaudeDesktopSheet.swift`).
-- Skill content loading — `Maugham/Help/SkillIndex.swift` (mirrors `HelpTopicIndex`'s pattern but lives in `Help/`, not `MCP/`, since it's also consumed by `get_help`; this area only implements the SEP-2640 protocol surface and the Claude Code installer on top of it).
-- The standalone `maugham-mcp` CLI source — `../maugham-mcp/` (separate Swift package, ships bundled inside `Maugham.app/Contents/MacOS/`).
-
-## From CLAUDE.md's area table (2026-10-17)
-
-- **⌘⌥F still does not reach a statement** and that is a stop rather than an omission — see the roadmap's 1A entry for why (`search_text` is unaffected: it filters to `.manuscript`).
-- `get_help`, which serves the bundled `docs/guide/` topic files — the SAME single docs source shown in-app via **Help → Maugham Help** (`HelpWindow`) and rendered on GitHub. `HelpTopicIndex` is the shared loader; edit docs in `docs/guide/`, don't add a second copy.
-- Tools fail loudly on unknown ids.
+- ADRs: 0003 (live-only Unix socket), 0004 (foundation scope, the 1 MB incident), 0010 (typed seams, the sweep reason), 0020 (the test MCP), 0026 (the canvas write), 0032 (the signed op log, actors); ADR 0030 §7 and the translation pipeline spec for the propose tools.
+- `docs/superpowers/specs/2026-07-01-test-mcp-design.md`.
+- `docs/tripwires.md` rows 10, 13, 20, 21, 38.
+- Tests: `MCPCatalogConsistencyTests`, `MCPProtocolHandlersTests`, `DocSyncTests`, `CompilerAllowlistTests`, `MCPBinaryIntegrationTests` (the real bridge against bogus or absent sockets), `MCPColdStartTests` (the bridge against a stub listener; the cold-launch pin), `MCPServerLifecycleTests`, `PresenterRoutingTests`, `TestMCPCatalogConsistencyTests`, and per-tool tests under `MaughamTests/MCP/`.
+- Elsewhere: manuscript persistence in `Maugham/Stores/DocumentStore.swift`; the op log in `Maugham/OpLog/`.
+- Neighbouring guides: `Maugham/OpLog/AREA.md` (actors, chained and sealed), `Maugham/Canvas/AREA.md` (`CanvasClaudeWrite`, placement), `Maugham/Compiler/AREA.md` (the allowlist, the statement gate), `Maugham/Stores/AREA.md` (the research mover, statements).
+- History: `docs/history/mcp.md`.

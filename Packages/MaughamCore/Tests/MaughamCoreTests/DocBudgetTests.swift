@@ -19,10 +19,10 @@ final class DocBudgetTests: XCTestCase {
         "Maugham/Views/AREA.md": 7_987,  // plan 5: re-templated, +115 review fixes (28,289 → 7,872 → this; queue filters, Publish ordering, statement host, desk rules); the narrative is in docs/history/views.md
         "Maugham/Compiler/AREA.md": 7_858,  // plan 5: re-templated, +117 review fixes (23,782 → 7,741 → this; confinement of a raw spawn, the cross-lane count's one site, window hand-off); the narrative is in docs/history/compiler.md
         "Maugham/Stores/AREA.md": 7_343,  // plan 5: re-templated (16,389 → this); the narrative is in docs/history/stores.md
-        "Maugham/MCP/AREA.md": 8_687,  // + residue from CLAUDE.md, 2026-10-17; +16: the bump-the-catalogue-heading step; +95: main's #44 refused-layout text, merged at the foundations integration
-        "MaughamPhone/AREA.md": 5_007,
+        "Maugham/MCP/AREA.md": 5_651,  // plan 5: re-templated (8,687 → this); the narrative is in docs/history/mcp.md
+        "MaughamPhone/AREA.md": 4_033,  // plan 5: re-templated (5,007 → this); the narrative is in docs/history/phone.md
         "Maugham/Editor/AREA.md": 3_673,
-        "Maugham/Updates/AREA.md": 4_089,  // +2,467: main's updater hardening (#67, #87), merged at the foundations integration
+        "Maugham/Updates/AREA.md": 3_992,  // plan 5: re-templated (4,089 → this); the narrative is in docs/history/updates.md
         "Maugham/Publish/AREA.md": 1_073,  // new: the Publish cell of CLAUDE.md's area table, 2026-10-17; +38: the pointer to Core's block-kind recipe; +96: the unproducible-format door (foundations plan 7)
         "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 3_085,  // +28: Statement.Kind recipe gains the Persona.panes and one-writer-census steps; +206: the OpLogStore split's six files, DocumentFormat, ProjectType+Capabilities, the ProjectType recipe rewritten for capabilities
     ]
@@ -45,6 +45,9 @@ final class DocBudgetTests: XCTestCase {
         "Maugham/OpLog/AREA.md",
         "Maugham/Views/AREA.md",
         "Maugham/Compiler/AREA.md",
+        "Maugham/MCP/AREA.md",
+        "MaughamPhone/AREA.md",
+        "Maugham/Updates/AREA.md",
     ]
 
     /// Docs that must carry no milestone tag (a rule outlives the milestone
@@ -58,6 +61,9 @@ final class DocBudgetTests: XCTestCase {
         "Maugham/Views/AREA.md",
         "Maugham/Compiler/AREA.md",
         "Maugham/Stores/AREA.md",
+        "Maugham/MCP/AREA.md",
+        "MaughamPhone/AREA.md",
+        "Maugham/Updates/AREA.md",
     ]
 
     /// Guides already in the template (Map / Rules / Recipes / Pointers).
@@ -69,14 +75,15 @@ final class DocBudgetTests: XCTestCase {
         "Maugham/Views/AREA.md",
         "Maugham/Compiler/AREA.md",
         "Maugham/Stores/AREA.md",
+        "Maugham/MCP/AREA.md",
+        "MaughamPhone/AREA.md",
+        "Maugham/Updates/AREA.md",
     ]
 
     /// Guides still over the hard cap, awaiting their re-template. Shrinks to
     /// empty by the end of plan 5; a member at or under the cap fails the
     /// census so the set cannot go stale.
-    static let notYetTemplated: Set<String> = [
-        "Maugham/MCP/AREA.md",
-    ]
+    static let notYetTemplated: Set<String> = []
 
     static let areaGuideHardCap = 8_000
 
