@@ -531,10 +531,11 @@ enum CentreRouteSource {
     /// hop a wiring census needs now that the centre's closures call a verb
     /// the WINDOW owns — `recordActivePass`, the round deferral — through a
     /// closure the column was handed.
-    static func windowArgument(_ label: String, base: URL = SourceTree.repoRoot) throws -> String? {
+    static func windowArgument(_ label: String, of mountCall: String = "CentreColumn(",
+                               base: URL = SourceTree.repoRoot) throws -> String? {
         let code = SourceScan.codeLines(
             of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"], base: base))
-        guard let mount = code.firstIndex(where: { $0.contains("CentreColumn(") }) else { return nil }
+        guard let mount = code.firstIndex(where: { $0.contains(mountCall) }) else { return nil }
         var depth = 0
         for line in code[mount...] {
             if line.trimmingCharacters(in: .whitespaces).hasPrefix("\(label):") { return line }

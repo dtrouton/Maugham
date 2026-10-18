@@ -335,15 +335,20 @@ final class PersonaPaneRegistryTests: XCTestCase {
     ///
     /// **Since foundations plan 4 Task 4 the board's host is `CentreColumn`**,
     /// the window's centre column as a view of its own, keyed by its type for
-    /// the same reason — the same host, moved, not a new writer. The window
-    /// stays a member under its own key for the queue's pass-order nudge
-    /// (`onSetPassState`, handed to `AnnotationsPane`), which it hosted beside
-    /// the board all along.
+    /// the same reason — the same host, moved, not a new writer.
+    ///
+    /// **Since Task 5 the queue's pass-order nudge is `RightColumn`'s**
+    /// (`onSetPassState`, handed to `AnnotationsPane` through
+    /// `DetailPaneToggle`), which the window hosted beside the board all along
+    /// until its right column became a view of its own — again the same host,
+    /// moved. `ProjectWindow` itself is no longer a member, but it stays a TYPE
+    /// KEY in the census (`passStateWriters`), so a write that comes back into
+    /// the window folds under `type:ProjectWindow` and fails the comparison.
     static let passStateWritingFiles: Set<String> = [
         "InspectorView.swift",
         "PieceInspector.swift",
-        "type:ProjectWindow",
         "type:CentreColumn",
+        "type:RightColumn",
     ]
 
     /// Where `setPassState` is DECLARED. Excluded from the census because a
@@ -384,7 +389,8 @@ final class PersonaPaneRegistryTests: XCTestCase {
     private func passStateWriters(base: URL = SourceTree.repoRoot) throws -> Set<String> {
         try SourceTree.keyedByType(
             try callers(of: "setPassState(", excluding: Self.passStateWriteDefiner, base: base),
-            typeKeys: Set(Self.passStateWritingFiles.filter { SourceTree.typeName(ofKey: $0) != nil }),
+            typeKeys: Set(Self.passStateWritingFiles.filter { SourceTree.typeName(ofKey: $0) != nil })
+                .union(["type:ProjectWindow"]),
             in: [base.appendingPathComponent("Maugham", isDirectory: true)])
     }
 
@@ -401,12 +407,20 @@ final class PersonaPaneRegistryTests: XCTestCase {
             "Maugham/Views/CentreColumn.swift": """
             struct CentreColumn: View { func h() { store.setPassState(p, s) } }
             """,
+            "Maugham/Views/RightColumn.swift": """
+            struct RightColumn: View { func n() { store.setPassState(p, s) } }
+            """,
             "Maugham/Views/SomeNewPane.swift": """
             struct SomeNewPane { func g() { store.setPassState(p, s) } }
             """,
         ])
-        XCTAssertEqual(try passStateWriters(base: base),
-                       ["type:ProjectWindow", "type:CentreColumn", "SomeNewPane.swift"])
+        let writers = try passStateWriters(base: base)
+        XCTAssertEqual(writers,
+                       ["type:ProjectWindow", "type:CentreColumn", "type:RightColumn",
+                        "SomeNewPane.swift"])
+        XCTAssertFalse(writers.isSubset(of: Self.passStateWritingFiles),
+                       "a write back in the window folds under its key and is "
+                       + "not a member any more")
     }
 
     /// **…and only its DECLARATIONS** (plan 2 final review, I1): a write in a
@@ -417,6 +431,7 @@ final class PersonaPaneRegistryTests: XCTestCase {
         let base = try SourceTree.plantedTree([
             "Maugham/Views/ProjectWindow.swift": "struct ProjectWindow: View { }",
             "Maugham/Views/CentreColumn.swift": "struct CentreColumn: View { }",
+            "Maugham/Views/RightColumn.swift": "struct RightColumn: View { }",
             "Maugham/Views/ResearchSubjectColumns.swift": """
             extension ProjectWindow {
                 func f() { store.setPassState(p, s) }
@@ -522,7 +537,8 @@ final class PersonaPaneRegistryTests: XCTestCase {
             + "routes — are the only ruling surfaces there. The other members are "
             + "`CentreColumn`, hosting the Review board's chips at project level "
             + "(M3 P1 Task 8; moved out of `ProjectWindow` by foundations plan 4 "
-            + "Task 4), and `ProjectWindow`, hosting the queue's pass-order nudge.\n\n"
+            + "Task 4), and `RightColumn`, hosting the queue's pass-order nudge "
+            + "(moved out of `ProjectWindow` by Task 5).\n\n"
             + "If you have added a writer somewhere else, re-make that argument at "
             + "the `.review` case; do not just add a name to the expectation above.")
     }

@@ -784,13 +784,20 @@ extension SourceTree {
     /// whose builders were `ProjectWindow` members until plan 4 Task 4. Its
     /// wiring — the board's closures, the gate's write-back — is the window's
     /// wiring, so a census reading "what the window passes" must still see it.
+    ///
+    /// `RightColumn` is a member for the same reason (plan 4 Task 5): it is the
+    /// window's own detail column — the resize handle and its drag, the study
+    /// arm, `DetailPaneToggle`'s wiring and the services injected into its
+    /// environment — whose builders were `ProjectWindow` members until then.
+    /// The width censuses, the environment censuses and the pane-wiring
+    /// censuses read "the window's code" and must still find them there.
     static let windowFamilyTypes = [
         "ProjectActiveSheet", "CheckpointFlashDecision", "CheckpointModifier",
         "RewindModifier", "FocusPostureModifier", "CanvasCollapseModifier",
         "ContainerWidthReporter", "PersonaModifier", "ParagraphNavModifier",
         "EditorControlMirror", "EditorControlMirrorModifier",
         "TranslationReviewModifier", "CanvasPromotionModifier",
-        "CompilerFlashSink", "NoteOutcomeAlert", "CentreColumn",
+        "CompilerFlashSink", "NoteOutcomeAlert", "CentreColumn", "RightColumn",
     ]
 
     /// Every file declaring `ProjectWindow` or a window-family type, each its

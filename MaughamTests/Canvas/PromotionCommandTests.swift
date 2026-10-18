@@ -360,8 +360,8 @@ final class PromotionCommandTests: XCTestCase {
               "PromotionPiece.resolve(",
               "items: ProjectWindow.canvasItemIndex(in: store)",
               ".modifier(CanvasClaudeArrivalModifier(",
-              "itemIndex: Self.canvasItemIndex(in: store)",
-              "itemIndex: ProjectWindow.canvasItemIndex(in: store)",
+              "itemIndex: ProjectWindow.canvasItemIndex(in: store))",
+              "itemIndex: ProjectWindow.canvasItemIndex(in: store),",
               "subject: CanvasSubject.resolve(",
               "pieceTitles: ProjectWindow.canvasPieceTitles(in: store)",
               "selectTheProjectRow: { selectedSubject = .project }",
@@ -415,8 +415,10 @@ final class PromotionCommandTests: XCTestCase {
              + "told that Claude added anything. "
              + "`itemIndex: ProjectWindow.canvasItemIndex(in: store)` is 1C-d's item "
              + "index on the CANVAS (spelled through the window's type since the "
-             + "canvas mount moved into `CentreColumn`, foundations plan 4 Task 4; "
-             + "the `Self.` spelling beside it is the region inspector's), and it "
+             + "canvas mount moved into `CentreColumn`, foundations plan 4 Task 4, "
+             + "and ending in a comma as a middle argument; the spelling beside it "
+             + "ending in `))` is the region inspector's LAST argument, spelled the "
+             + "same way since that arm moved into `RightColumn` in Task 5), and it "
              + "is the first token here that guards "
              + "a DEFAULT rather than a call: `CanvasView.itemIndex` and "
              + "`RegionInspectorPane.itemIndex` both default to `.empty`, which "
@@ -604,9 +606,9 @@ final class PromotionCommandTests: XCTestCase {
         // runs, and is invisible to every other test.
         XCTAssertEqual(
             try missingTokens(in: Self.window,
-                              required: ["itemIndex: Self.canvasItemIndex(in: store)",
-                                         "itemIndex: Self.canvasNotAnItemIndex(in: store)"]),
-            ["itemIndex: Self.canvasNotAnItemIndex(in: store)"],
+                              required: ["itemIndex: ProjectWindow.canvasItemIndex(in: store))",
+                                         "itemIndex: ProjectWindow.canvasNotAnItemIndex(in: store))"]),
+            ["itemIndex: ProjectWindow.canvasNotAnItemIndex(in: store))"],
             "the census reports the ABSENT item-index token and not the present one")
         // And the piece token. `piece: .none` at the call site compiles and every
         // performer test still passes, while the sheet's whole destination half

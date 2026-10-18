@@ -440,7 +440,7 @@ final class CanvasBoundPieceTests: XCTestCase {
     func test_theInspectorsTitleLookupReadsTheSameTable() throws {
         let src = CanvasSourceCensus.commentsStripped(
             try SourceTree.windowSource())
-        XCTAssertTrue(src.contains("pieceTitle: { Self.canvasPieceTitles(in: store).title(of: $0) }"),
+        XCTAssertTrue(src.contains("pieceTitle: { ProjectWindow.canvasPieceTitles(in: store).title(of: $0) }"),
                       "the region inspector walks the structure on its own, so the "
                       + "canvas and the pane hold two answers to \"does this piece "
                       + "still exist\" and nothing keeps them together")

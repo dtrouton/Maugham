@@ -92,6 +92,19 @@ final class DetailColumnProbe {
     let spelling: Spelling
 }
 
+/// The detail column's root the way production mounts it: ONE custom view
+/// (`RightColumn`) whose body holds the `if showInspector` conditional and
+/// applies the width — the hidden arm production's own static.
+@MainActor
+private struct DetailColumnRoot<Column: View>: View {
+    let mounted: Bool
+    @ViewBuilder let column: Column
+
+    var body: some View {
+        if mounted { column } else { ProjectWindow.hiddenDetailColumn }
+    }
+}
+
 /// The right column composed the way `ProjectWindow.detailColumn` composes it:
 /// a three-column `NavigationSplitView`, the detail column mounted behind a
 /// `if showInspector`, and the pane's content swapped underneath.
@@ -123,13 +136,19 @@ private struct DetailColumnHarness: View {
             // The hidden arm is production's own static, not a copy of it —
             // this is the whole subject of the two collapse cases below, and a
             // second spelling here would measure a column the app does not have.
-            if probe.mounted { detailColumn } else { ProjectWindow.hiddenDetailColumn }
+            //
+            // **One custom view at the column's root, as in production**
+            // (`RightColumn`, foundations plan 4 Task 5): the conditional and
+            // the width are applied INSIDE its body, so every mounted test here
+            // also measures the width trait travelling up through a custom view
+            // node to the split item.
+            DetailColumnRoot(mounted: probe.mounted) { detailColumn }
         }
         .modifier(ContainerWidthReporter(onWidth: { probe.noteContainerWidth($0) }))
     }
 
     /// **Production's spelling, and it has two halves** — see
-    /// `ProjectWindow.detailColumn`, which this mirrors. The width is bound
+    /// `RightColumn.body`, which this mirrors. The width is bound
     /// once and applied to the content's `.frame(width:)` as well as to the
     /// column modifier, because on macOS 27 the modifier alone does not hold
     /// the column against a pane with a minimum of its own.
@@ -1289,12 +1308,18 @@ final class DetailColumnWidthTests: XCTestCase {
     /// Binding once rather than calling twice keeps the count in
     /// `test_theRightColumnAsksForAWidthAndNotARange` at one, and is the honest
     /// shape regardless: two calls are two chances to pass different arguments.
+    ///
+    /// Since foundations plan 4 Task 5 the shape spans two types: the window
+    /// binds the effective width once and hands THAT binding to `RightColumn`
+    /// as its `width`, and the column applies its `width` to both.
     func test_theRightColumnFramesItsContentToTheWidthItDeclares() throws {
-        let code = try SourceTree.windowCodeLines()
         XCTAssertTrue(
-            Self.framesItsContentToItsDeclaredWidth(code),
+            Self.framesItsContentToItsDeclaredWidth(
+                window: try Self.typeCodeLines("ProjectWindow"),
+                column: try Self.typeCodeLines("RightColumn")),
             "`ProjectWindow.detailColumn` must bind the effective width once "
-            + "and apply it to BOTH the content's `.frame(width:)` and "
+            + "and hand it to `RightColumn`, which applies it to BOTH the "
+            + "content's `.frame(width:)` and "
             + "`.navigationSplitViewColumnWidth` — on macOS 27 the column "
             + "modifier alone does not hold the column against a pane with a "
             + "minimum of its own, and every mounted test in this file would "
@@ -1305,9 +1330,16 @@ final class DetailColumnWidthTests: XCTestCase {
     /// above is worth nothing unless it says no to the three ways this gets
     /// undone, and yes to the shape it is looking for.
     func test_theFrameCensusSeesEachWayTheColumnLosesItsFrame() {
-        let compliant = [
+        let window = [
             "let width = Self.effectiveDetailColumnWidth(persisted: detailColumnWidth,",
             "                                            containerWidth: containerWidth)",
+            "RightColumn(",
+            "    store: store,",
+            "    width: width, containerWidth: containerWidth,",
+            "    detailColumnWidth: $detailColumnWidth)"
+        ]
+        let column = [
+            "let width: Double",
             "HStack(spacing: 0) {",
             "    detailResizeHandle(documentStore: documentStore)",
             "    inspectorPane(store: store, documentStore: documentStore)",
@@ -1316,13 +1348,14 @@ final class DetailColumnWidthTests: XCTestCase {
             ".clipped()",
             ".navigationSplitViewColumnWidth(width)"
         ]
-        XCTAssertTrue(Self.framesItsContentToItsDeclaredWidth(compliant),
+        XCTAssertTrue(Self.framesItsContentToItsDeclaredWidth(window: window, column: column),
                       "the control: the scan says yes to the shape it wants")
 
         // 1. The frame simply gone — the spelling that shipped until 27.
         XCTAssertFalse(
             Self.framesItsContentToItsDeclaredWidth(
-                compliant.filter { !$0.contains(".frame(width:") }),
+                window: window,
+                column: column.filter { !$0.contains(".frame(width:") }),
             "a column that declares a width and does not frame its content is "
             + "the regression itself")
 
@@ -1330,7 +1363,8 @@ final class DetailColumnWidthTests: XCTestCase {
         //    reaches for when they want the pane inset from the divider.
         XCTAssertFalse(
             Self.framesItsContentToItsDeclaredWidth(
-                compliant.map {
+                window: window,
+                column: column.map {
                     $0 == ".frame(width: width)" ? ".frame(width: 320)" : $0
                 }),
             "a frame on some other width is not the column's width, and the "
@@ -1339,14 +1373,37 @@ final class DetailColumnWidthTests: XCTestCase {
         // 3. Called twice instead of bound once — which lays out correctly
         //    today and is one edit away from two different widths.
         XCTAssertFalse(
-            Self.framesItsContentToItsDeclaredWidth([
-                "HStack(spacing: 0) { }",
-                ".frame(width: Self.effectiveDetailColumnWidth(persisted: detailColumnWidth,",
-                "                                              containerWidth: containerWidth))",
-                ".navigationSplitViewColumnWidth(Self.effectiveDetailColumnWidth(",
-                "    persisted: detailColumnWidth, containerWidth: containerWidth))"
-            ]),
+            Self.framesItsContentToItsDeclaredWidth(
+                window: ["RightColumn(store: store, width: 1)"],
+                column: [
+                    "HStack(spacing: 0) { }",
+                    ".frame(width: ProjectWindow.effectiveDetailColumnWidth(persisted: detailColumnWidth,",
+                    "                                              containerWidth: containerWidth))",
+                    ".navigationSplitViewColumnWidth(ProjectWindow.effectiveDetailColumnWidth(",
+                    "    persisted: detailColumnWidth, containerWidth: containerWidth))"
+                ]),
             "bound once, applied twice — not called twice")
+
+        // 4. Bound once, but the column handed the STORED wish instead of it —
+        //    a width the window cannot afford grows the window.
+        XCTAssertFalse(
+            Self.framesItsContentToItsDeclaredWidth(
+                window: window.map {
+                    $0.contains("width: width,")
+                        ? "    width: detailColumnWidth, containerWidth: containerWidth," : $0
+                },
+                column: column),
+            "the column must be handed the binding, not the stored width")
+
+        // 5. The column computing a width of its own beside the one it was
+        //    handed — a second computation is a second chance to disagree.
+        XCTAssertFalse(
+            Self.framesItsContentToItsDeclaredWidth(
+                window: window,
+                column: column + [
+                    "let mine = ProjectWindow.effectiveDetailColumnWidth(persisted: 1,"
+                ]),
+            "the column lays out with the width it was handed and no other")
     }
 
     /// **The rules above are only the writer's rules if the gesture calls
@@ -1364,14 +1421,19 @@ final class DetailColumnWidthTests: XCTestCase {
         let code = try SourceTree.windowCodeLines()
 
         XCTAssertTrue(
-            Self.resizeGestureOnChanged(calls: "Self.draggedDetailColumnWidth(",
+            Self.resizeGestureOnChanged(calls: "ProjectWindow.draggedDetailColumnWidth(",
                                         in: try Self.resizeHandleCodeLines()),
             "the handle's drag must land through `draggedDetailColumnWidth` — "
             + "the sign, the range and the window's affordability are that "
             + "function's, and a gesture doing its own arithmetic is a second "
             + "set of rules with no test on it")
+        // Either spelling counts — `Self.` inside the window, `ProjectWindow.`
+        // from the column — so a second drag site cannot hide behind the other.
         XCTAssertEqual(
-            code.filter { $0.contains("Self.draggedDetailColumnWidth(") }.count, 1,
+            code.filter {
+                $0.contains("draggedDetailColumnWidth(")
+                    && !$0.contains("func draggedDetailColumnWidth(")
+            }.count, 1,
             "and it is called once: a second drag site is a second place for "
             + "the ceiling to go missing")
     }
@@ -1484,8 +1546,9 @@ final class DetailColumnWidthTests: XCTestCase {
     /// stored — the shape `memory/feedback_census_over_warning.md` asks for on
     /// anything a second author could plausibly add a second writer to.
     func test_theWidthIsWrittenFromExactlyOneProductionSite() throws {
+        // The handle lives in `RightColumn` since foundations plan 4 Task 5.
         XCTAssertEqual(try Self.filesWritingTheWidth(),
-                       ["type:ProjectWindow"],
+                       ["type:RightColumn"],
                        "only the column's own drag handle may persist this "
                        + "width; anything else is a second author of the "
                        + "writer's layout")
@@ -1498,7 +1561,7 @@ final class DetailColumnWidthTests: XCTestCase {
             try Self.filesWritingTheWidth(
                 plus: ["SomeNewModifier.swift":
                         "documentStore.updateUIState { $0.detailColumnWidth = 280 }"]),
-            ["type:ProjectWindow", "SomeNewModifier.swift"])
+            ["type:RightColumn", "SomeNewModifier.swift"])
     }
 
     /// And the control on the control: prose quoting the write is not a write.
@@ -1507,7 +1570,7 @@ final class DetailColumnWidthTests: XCTestCase {
             try Self.filesWritingTheWidth(
                 plus: ["CommentedOnly.swift":
                         "/// written as `$0.detailColumnWidth = width`, once."]),
-            ["type:ProjectWindow"])
+            ["type:RightColumn"])
     }
 
     // MARK: - Census helpers
@@ -1553,8 +1616,9 @@ final class DetailColumnWidthTests: XCTestCase {
     /// does catch is every way the frame goes MISSING, which is the regression
     /// — and a `ProjectWindow` with a second `.frame(width: width)` on an
     /// unrelated view would be a different review problem.
-    static func framesItsContentToItsDeclaredWidth(_ code: [String]) -> Bool {
-        let bindings = code.compactMap { line -> String? in
+    static func framesItsContentToItsDeclaredWidth(window: [String],
+                                                   column: [String]) -> Bool {
+        let bindings = window.compactMap { line -> String? in
             guard line.contains("Self.effectiveDetailColumnWidth(persisted: detailColumnWidth,"),
                   let let_ = line.range(of: "let "),
                   let equals = line.range(of: " = ", range: let_.upperBound..<line.endIndex)
@@ -1562,11 +1626,27 @@ final class DetailColumnWidthTests: XCTestCase {
             return String(line[let_.upperBound..<equals.lowerBound])
                 .trimmingCharacters(in: .whitespaces)
         }
-        guard bindings.count == 1, let name = bindings.first, !name.isEmpty else {
+        guard bindings.count == 1, let name = bindings.first, !name.isEmpty,
+              window.contains(where: { $0.contains("RightColumn(") }) else {
             return false
         }
-        return code.contains { $0.contains(".frame(width: \(name))") }
-            && code.contains { $0.contains(".navigationSplitViewColumnWidth(\(name))") }
+        // The window hands THAT binding to the column as its `width`.
+        let handed = window.contains { line in
+            line.range(of: "(^|[\\s(,])width: \(name)[,)]",
+                       options: .regularExpression) != nil
+        }
+        return handed
+            && column.contains { $0.contains("let width: Double") }
+            && !column.contains { $0.contains("effectiveDetailColumnWidth(") }
+            && column.contains { $0.contains(".frame(width: width)") }
+            && column.contains { $0.contains(".navigationSplitViewColumnWidth(width)") }
+    }
+
+    /// The code lines of every file declaring `type` — the frame census reads
+    /// the window and the column separately, so a binding in one cannot satisfy
+    /// a frame expected in the other.
+    private static func typeCodeLines(_ type: String) throws -> [String] {
+        SourceScan.codeLines(of: try SourceTree.sourceOfType(type, under: ["Maugham"]))
     }
 
     /// The resize handle's own body, found by symbol — the scope the gesture's
@@ -1584,7 +1664,8 @@ final class DetailColumnWidthTests: XCTestCase {
     /// child view sharing a window file answers under that file.
     private static func filesWritingTheWidth(
         plus injected: [String: String] = [:],
-        root: URL? = nil
+        root: URL? = nil,
+        typeKeys: Set<String> = ["type:ProjectWindow", "type:RightColumn"]
     ) throws -> Set<String> {
         let root = root ?? appSourceDir
         var sources: [(name: String, text: String)] = []
@@ -1603,7 +1684,7 @@ final class DetailColumnWidthTests: XCTestCase {
                 .filter { $0.text.contains("$0.detailColumnWidth =") }
                 .map { SourceTree.Hit(file: source.name, line: $0.number) }
         }
-        return try SourceTree.keyedByType(hits, typeKeys: ["type:ProjectWindow"], in: [root])
+        return try SourceTree.keyedByType(hits, typeKeys: typeKeys, in: [root])
     }
 
     /// The control for the type key: a write in a child view that shares a
@@ -1624,7 +1705,8 @@ final class DetailColumnWidthTests: XCTestCase {
             }
             """,
         ]).appendingPathComponent("Maugham")
-        XCTAssertEqual(try Self.filesWritingTheWidth(root: root),
+        XCTAssertEqual(try Self.filesWritingTheWidth(root: root,
+                                                     typeKeys: ["type:ProjectWindow"]),
                        ["type:ProjectWindow", "ProjectWindow+Columns.swift"])
     }
 
