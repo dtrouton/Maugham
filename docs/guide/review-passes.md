@@ -64,7 +64,8 @@ decision made in the wrong window.
 
 Answering what the board only counts is the **Annotations pane** (⌘⌥A) — see
 [Annotations & Suggestions](annotations-and-suggestions.md) for triage marks,
-Stet, bulk actions, and cross-document scope. The one thing worth knowing
+Stet, [answering a batch at once](annotations-and-suggestions.md#working-a-batch),
+and cross-document scope. The one thing worth knowing
 here: the queue carries a **pass filter** alongside its others. Choosing a
 pass shows every note stamped with it *plus* every unstamped note — a note
 only carries a pass if one was active when it was written, so "unstamped"
