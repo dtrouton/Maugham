@@ -1158,9 +1158,10 @@ struct ProjectSettingsSheet: View {
 /// question is whether ANY opening is on disk, and presence is exactly the
 /// test the load asks before it refuses (`Document.load`'s `needsBootstrap`:
 /// no file for the doc id). `unownedPiece` answers a different question —
-/// *has a book author written this piece's text* — which is `.nobodyHasWrittenItsText` for a
-/// piece whose starter's opening HAS arrived as well as for one with no file
-/// at all, and it classifies every file it finds to say so.
+/// *has a book author written this piece's text* — which is
+/// `.nobodyHasWrittenItsText` for a piece whose starter's opening HAS arrived
+/// as well as for one with no file at all, and it classifies every file it
+/// finds to say so.
 enum StrandedPieces {
     /// The ids, among the pieces that record a starter, with no op-log file
     /// in `.maugham/ops/`. One listing, matched through

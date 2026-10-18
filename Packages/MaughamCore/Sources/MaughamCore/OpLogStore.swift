@@ -268,7 +268,9 @@ public final class OpLogStore {
         as actor: DeviceActor = .author,
         placement: ManifestPlacement
     ) -> LocalWritePermit {
-        LocalWritePermitBuilder.permit(as: actor, placement: placement, table: registerTable(), in: projectURL)
+        LocalWritePermitBuilder.permit(
+            as: actor, placement: placement,
+            table: registerTable(), in: projectURL)
     }
 
     /// **May this device's own hand write here, and what?** — the ONE question
@@ -300,7 +302,9 @@ public final class OpLogStore {
         documentClass: () -> DocumentClass,
         startedBy: ((String) -> String?)? = nil
     ) -> LocalWritePermit {
-        LocalWritePermitBuilder.permit(as: actor, documentClass: documentClass, startedBy: startedBy, table: registerTable(), in: projectURL)
+        LocalWritePermitBuilder.permit(
+            as: actor, documentClass: documentClass, startedBy: startedBy,
+            table: registerTable(), in: projectURL)
     }
 
     /// **The verified table, or nil where this project has never had a
@@ -349,7 +353,9 @@ public final class OpLogStore {
         from amendments: AmendmentPermits? = nil,
         documentClass: @escaping @Sendable () -> DocumentClass
     ) -> AnnotationAmendments {
-        LocalWritePermitBuilder.annotationAmendments(table: registerTable(), from: amendments, documentClass: documentClass)
+        LocalWritePermitBuilder.annotationAmendments(
+            table: registerTable(), from: amendments,
+            documentClass: documentClass)
     }
 
     /// Lines this device has appended to each file since that file's last seal.

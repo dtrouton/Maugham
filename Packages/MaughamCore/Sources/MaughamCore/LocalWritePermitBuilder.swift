@@ -158,7 +158,7 @@ public enum LocalWritePermitBuilder {
     /// travels through `PermitContext`; this reads it whole.
     static func annotationAmendments(
         table: TrustTable?,
-        from amendments: AmendmentPermits? = nil,
+        from amendments: AmendmentPermits?,
         documentClass: @escaping @Sendable () -> DocumentClass
     ) -> AnnotationAmendments {
         guard let table else { return .honourEverything }

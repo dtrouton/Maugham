@@ -9372,7 +9372,15 @@ final class TripwireGrepTests: XCTestCase {
     /// comes in. Fabricating a `LocalWritePermit` anywhere else is answering
     /// that question by hand — and the shape it takes is
     /// `LocalWritePermit(permit: .bookAuthor, …)`, which never refuses.
-    static let localWritePermitPatterns = ["LocalWritePermit(", "func localWritePermit("]
+    ///
+    /// The builder's two entries are counted too (foundations plan 6): they
+    /// take the table as an ARGUMENT, so a Core caller passing `table: nil`
+    /// gets `.bookAuthor` without `registerTable`'s remembered fallback — a
+    /// second route to a permit round the door.
+    static let localWritePermitPatterns = [
+        "LocalWritePermit(", "func localWritePermit(",
+        "LocalWritePermitBuilder.permit(", "LocalWritePermitBuilder.annotationAmendments(",
+    ]
 
     /// `OpLogStore` declares the one function (the door, never throwing and
     /// never suspending); `LocalWritePermitBuilder` mints the value behind it
@@ -9380,9 +9388,13 @@ final class TripwireGrepTests: XCTestCase {
     /// construction out of the store, so the store is no longer allowed to
     /// spell one); `LocalWritePermit.swift` is its own file and holds the
     /// `.unrestricted` value every keyless reader and every P1/P2-era test
-    /// path gets.
+    /// path gets. Only the store's forwarders call the builder, each passing
+    /// `registerTable()`.
     static let localWritePermitAllowed: [String: Set<String>] = [
-        "type:OpLogStore": ["func localWritePermit("],
+        "type:OpLogStore": [
+            "func localWritePermit(",
+            "LocalWritePermitBuilder.permit(", "LocalWritePermitBuilder.annotationAmendments(",
+        ],
         "type:LocalWritePermitBuilder": ["LocalWritePermit("],
         "LocalWritePermit.swift": ["LocalWritePermit("],
     ]
@@ -9403,8 +9415,9 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
-    /// **The two whole-type allowances (over `OpLogClassifier` and
-    /// `LocalWritePermitBuilder`), bounded by count.**
+    /// **The whole-type allowances (over `OpLogClassifier`,
+    /// `LocalWritePermitBuilder` and the door on `OpLogStore`), bounded by
+    /// count.**
     ///
     /// `trustClosureAllowedSpellings` and `localWritePermitAllowed` key the
     /// classifier and the permit builder by TYPE, so the allowance reaches
@@ -9423,9 +9436,20 @@ final class TripwireGrepTests: XCTestCase {
     ///   `OpLogStore.localWritePermit(as:documentClass:)` (foundations plan 6
     ///   moved all five out of the store), plus `LocalWritePermit.swift`'s own
     ///   `.unrestricted` value.
+    /// - `func localWritePermit(` — the door's two overloads on `OpLogStore`
+    ///   (`as:placement:` and `as:documentClass:startedBy:`). A third is a
+    ///   second door.
+    /// - `LocalWritePermitBuilder.permit(` — those two forwarders, each
+    ///   passing `registerTable()`; the builder's own placement overload calls
+    ///   `permit(` unqualified and is not counted.
+    /// - `LocalWritePermitBuilder.annotationAmendments(` — the store's one
+    ///   `annotationAmendments` forwarder.
     static let typeAllowanceBounds: [String: [String: Int]] = [
         "trusted: { _ in false }": ["type:OpLogClassifier": 1],
         "LocalWritePermit(": ["type:LocalWritePermitBuilder": 5, "LocalWritePermit.swift": 1],
+        "func localWritePermit(": ["type:OpLogStore": 2],
+        "LocalWritePermitBuilder.permit(": ["type:OpLogStore": 2],
+        "LocalWritePermitBuilder.annotationAmendments(": ["type:OpLogStore": 1],
     ]
 
     func test_theTypeKeyedOpLogStoreAllowancesAreBoundedByCount() throws {
@@ -9912,6 +9936,12 @@ final class TripwireGrepTests: XCTestCase {
         func minted() -> LocalWritePermit { LocalWritePermit(permit: p, actor: a, documentClass: nil) }
         """.write(to: storeFile, atomically: true, encoding: .utf8)
         try Self.declare("OpLogStore", in: storeFile)
+        // A Core file that reaches the builder round the door, either entry.
+        let roundTheDoor = keyed.appendingPathComponent("PostureDoor.swift")
+        try """
+        let p = LocalWritePermitBuilder.permit(as: .author, documentClass: { c }, startedBy: nil, table: nil, in: url)
+        let a = LocalWritePermitBuilder.annotationAmendments(table: nil, from: nil, documentClass: { c })
+        """.write(to: roundTheDoor, atomically: true, encoding: .utf8)
         let shadowFile = keyed.appendingPathComponent("LocalWritePermitBuilderShadow.swift")
         try """
         func shadow() -> LocalWritePermit { LocalWritePermit(permit: p, actor: a, documentClass: nil) }
@@ -9922,16 +9952,63 @@ final class TripwireGrepTests: XCTestCase {
             patterns: Self.localWritePermitPatterns,
             allowedSpellings: Self.localWritePermitAllowed,
             excludeLine: Self.admissionExcludeLine)
-        XCTAssertEqual(keyedHits.count, 3,
-            "Self-check: the builder's second door, the store's own mint and the "
-            + "lookalike's mint are caught; the builder's mint and the store's "
-            + "door are not. Caught:\n" + keyedHits.joined(separator: "\n"))
+        XCTAssertEqual(keyedHits.count, 5,
+            "Self-check: the builder's second door, the store's own mint, the "
+            + "lookalike's mint and both calls round the door are caught; the "
+            + "builder's mint and the store's door are not. Caught:\n"
+            + keyedHits.joined(separator: "\n"))
+        XCTAssertTrue(keyedHits.contains(where: {
+            $0.contains("PostureDoor.swift") && $0.contains("LocalWritePermitBuilder.permit(") }))
+        XCTAssertTrue(keyedHits.contains(where: {
+            $0.contains("PostureDoor.swift")
+                && $0.contains("LocalWritePermitBuilder.annotationAmendments(") }))
         XCTAssertTrue(keyedHits.contains(where: {
             $0.contains("LocalWritePermitBuilder.swift") && $0.contains("func localWritePermit(") }))
         XCTAssertTrue(keyedHits.contains(where: {
             $0.contains("OpLogStore.swift") && $0.contains("func minted") }))
         XCTAssertTrue(keyedHits.contains(where: {
             $0.contains("LocalWritePermitBuilderShadow.swift") }))
+
+        // -- 4c. The door and the builder's entries are bounded by count: the
+        // sanctioned shape matches `typeAllowanceBounds`, and a third overload
+        // or a third call round the forwarders moves the count.
+        let bounded = tmp.appendingPathComponent("write-bounded")
+        try fm.createDirectory(at: bounded, withIntermediateDirectories: true)
+        let boundedStore = bounded.appendingPathComponent("OpLogStore.swift")
+        let sanctioned = """
+        // A comment may name func localWritePermit( and LocalWritePermitBuilder.permit(.
+        public func localWritePermit(as a: DeviceActor, placement: ManifestPlacement) -> LocalWritePermit {
+            LocalWritePermitBuilder.permit(as: a, placement: placement, table: registerTable(), in: url) }
+        public func localWritePermit(as a: DeviceActor, documentClass: () -> DocumentClass) -> LocalWritePermit {
+            LocalWritePermitBuilder.permit(as: a, documentClass: documentClass, startedBy: nil, table: registerTable(), in: url) }
+        public func annotationAmendments() -> AnnotationAmendments {
+            LocalWritePermitBuilder.annotationAmendments(table: registerTable(), from: nil, documentClass: { c }) }
+        """
+        try sanctioned.write(to: boundedStore, atomically: true, encoding: .utf8)
+        try Self.declare("OpLogStore", in: boundedStore)
+        let doorBounds = ["func localWritePermit(", "LocalWritePermitBuilder.permit(",
+                          "LocalWritePermitBuilder.annotationAmendments("]
+        for pattern in doorBounds {
+            let expected = try XCTUnwrap(Self.typeAllowanceBounds[pattern])
+            let (found, unresolved) = try countedListFound(
+                of: pattern, keyedLike: expected, in: [bounded])
+            XCTAssertTrue(unresolved.isEmpty, "\(unresolved)")
+            XCTAssertEqual(found, expected,
+                "Self-check: the sanctioned shape matches the bound for “\(pattern)”")
+        }
+        try (sanctioned + """
+
+        public func localWritePermit(as a: DeviceActor) -> LocalWritePermit {
+            LocalWritePermitBuilder.permit(as: a, documentClass: { c }, startedBy: nil, table: nil, in: url) }
+        """).write(to: boundedStore, atomically: true, encoding: .utf8)
+        try Self.declare("OpLogStore", in: boundedStore)
+        for pattern in ["func localWritePermit(", "LocalWritePermitBuilder.permit("] {
+            let expected = try XCTUnwrap(Self.typeAllowanceBounds[pattern])
+            let (found, _) = try countedListFound(of: pattern, keyedLike: expected, in: [bounded])
+            XCTAssertEqual(found["type:OpLogStore"], 3,
+                "Self-check: a third overload / call round the door moves “\(pattern)”: \(found)")
+            XCTAssertNotEqual(found, expected)
+        }
 
         let rungHits = try grepSwift(
             in: [write],
