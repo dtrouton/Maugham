@@ -6,7 +6,7 @@ import MaughamCore
 /// are build-verified; this pins the branching logic the rows depend on.
 final class ReadIconsTests: XCTestCase {
 
-    func test_projectSymbol_perType() {
+    func test_projectTypeSymbol_perType() {
         XCTAssertEqual(ProjectType.shortStory.symbolName, "doc.text")
         XCTAssertEqual(ProjectType.novel.symbolName, "book.closed")
         XCTAssertEqual(ProjectType.screenplay.symbolName, "film")

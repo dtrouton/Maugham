@@ -48,7 +48,7 @@ final class BinderRoutingTests: XCTestCase {
 
     func test_format_caseInsensitiveExtension() {
         XCTAssertEqual(DocumentFormat(url: URL(fileURLWithPath: "/a/B.MD")), .markdown)
-        // Plan 7 exception 1: an upper-case Fountain extension now reads as Fountain.
+        // The phone already folded case before Core owned this; Core keeps it so.
         XCTAssertEqual(DocumentFormat(url: URL(fileURLWithPath: "/a/X.FOUNTAIN")), .fountain)
     }
 }
