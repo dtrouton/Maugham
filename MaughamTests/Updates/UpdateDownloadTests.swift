@@ -24,9 +24,17 @@ final class UpdateDownloadTests: XCTestCase {
         }
         XCTAssertFalse(UpdateDownload.isTransient(
             UpdateDownloadError.tooLarge(bytes: 10, limit: 5)), "a refused size is never retried")
-        XCTAssertFalse(UpdateDownload.isTransient(UpdateDownloadError.badStatus(404)))
         struct Other: Error {}
         XCTAssertFalse(UpdateDownload.isTransient(Other()))
+    }
+
+    func test_aServerErrorIsTransientAndAClientErrorIsNot() {
+        for code in [500, 502, 503, 599] {
+            XCTAssertTrue(UpdateDownload.isTransient(UpdateDownloadError.badStatus(code)), "\(code) earns the retry")
+        }
+        for code in [404, 403, 400, 499, 600] {
+            XCTAssertFalse(UpdateDownload.isTransient(UpdateDownloadError.badStatus(code)), "\(code) must not be retried")
+        }
     }
 
     func test_theRetryIsExactlyOne() {
@@ -49,6 +57,45 @@ final class UpdateDownloadTests: XCTestCase {
                       "a declared size past the cap refuses before a byte arrives")
         XCTAssertFalse(UpdateDownload.exceedsCap(receivedBytes: 500, expectedBytes: -1, limits: limits),
                        "an unknown size is never a refusal on its own")
+    }
+
+    // MARK: - The in-flight decision (what one didWriteData does)
+
+    func test_inFlightRefusesPastTheCapOnReceivedOrDeclaredBytes() {
+        let limits = UpdateLimits(maxDownloadBytes: 1000)
+        XCTAssertEqual(UpdateDownload.inFlight(written: 1001, expected: -1, lastReported: -2, limits: limits),
+                       .refuse(bytes: 1001))
+        XCTAssertEqual(UpdateDownload.inFlight(written: 10, expected: 5000, lastReported: -2, limits: limits),
+                       .refuse(bytes: 5000), "a declared size past the cap refuses on the first packet")
+    }
+
+    func test_inFlightReportsWholePercentStepsAndUnknownSizeOnce() {
+        let limits = UpdateLimits(maxDownloadBytes: 1_000_000)
+        XCTAssertEqual(UpdateDownload.inFlight(written: 500, expected: 1000, lastReported: -2, limits: limits),
+                       .report(0.5))
+        XCTAssertEqual(UpdateDownload.inFlight(written: 505, expected: 1000, lastReported: 0.5, limits: limits),
+                       .none, "under one percent is throttled")
+        XCTAssertEqual(UpdateDownload.inFlight(written: 510, expected: 1000, lastReported: 0.5, limits: limits),
+                       .report(0.51))
+        XCTAssertEqual(UpdateDownload.inFlight(written: 1000, expected: 1000, lastReported: 0.995, limits: limits),
+                       .report(1.0), "completion is always reported")
+        XCTAssertEqual(UpdateDownload.inFlight(written: 100, expected: -1, lastReported: -2, limits: limits),
+                       .report(-1))
+        XCTAssertEqual(UpdateDownload.inFlight(written: 200, expected: -1, lastReported: -1, limits: limits),
+                       .none, "an unknown size is reported once")
+    }
+
+    // MARK: - Progress never moves backwards across a retry
+
+    func test_theHighWaterMarkDropsAnythingBelowWhatWasShown() {
+        let mark = UpdateDownload.HighWater()
+        XCTAssertTrue(mark.admit(-1), "an unknown size may be shown first")
+        XCTAssertTrue(mark.admit(0.4))
+        XCTAssertTrue(mark.admit(0.6))
+        XCTAssertFalse(mark.admit(0.1), "a retry's first fractions are below where the bar got to")
+        XCTAssertFalse(mark.admit(-1), "and an unknown size never replaces a fraction")
+        XCTAssertTrue(mark.admit(0.6))
+        XCTAssertTrue(mark.admit(1.0))
     }
 
     // MARK: - The extension comes from the asset's name
@@ -91,5 +138,23 @@ final class UpdateDownloadTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: dest.path),
                        "a refused download leaves no file a later check could reuse")
+    }
+
+    /// A cancel that lands before the download task exists must still stop
+    /// it: the task is cancelled instead of resumed and nothing lands.
+    func test_aDownloadCancelledBeforeItStartsNeverRuns() async throws {
+        let src = try source(bytes: 200_000)
+        let dest = TestTemp.root.appendingPathComponent("Maugham-9.9.9.zip.download")
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            try await UpdateDownload.download(from: src, to: dest) { _ in }
+        }
+        do {
+            try await task.value
+            XCTFail("a cancelled download must throw")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .cancelled)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dest.path))
     }
 }

@@ -172,7 +172,7 @@ and observe the swap. See `docs/superpowers/notes/feedback_dry_run_is_integratio
 |---|---|
 | `UpdateInstaller.swift` | Verify logic, atomic swap (`atomicSwap`/`pyAtomicSwapSource`), helper script generation, Team ID extraction |
 | `UpdateChecker.swift` | Background poll loop, download into place (`.download` temp, then moved to `Maugham-<ver>.<ext>`; an existing complete file is reused), the pre-download size refusal, stage-and-verify dispatch, `pendingQuitInstall` |
-| `UpdateDownload.swift` | The download itself: a `URLSessionDownloadTask` on its own session (delegate `UpdateDownloadSession`, progress from `didWriteData`), one retry on a transient `URLError` resuming from its resume data, cancelled past the cap; the extension comes from the asset's name |
+| `UpdateDownload.swift` | The download itself: a `URLSessionDownloadTask` on its own session (delegate `UpdateDownloadSession`, progress from `didWriteData`), one retry on a transient `URLError` (resuming from its resume data) or an HTTP 5xx, progress kept monotonic across it, cancelled past the cap (a Swift-Task cancel that lands before the task exists cancels it instead of resuming it); the extension comes from the asset's name |
 | `UpdateLimits.swift` | The updater's size ceilings (`UpdateLimits.standard`; `maxDownloadBytes` 512 MB) |
 | `UpdateState.swift` | Enum of updater states (idle/checking/downloading/readyToInstall/installing/error/upToDate) |
 | `GitHubReleasesAPI.swift` | GitHub Releases JSON decode; `zipAsset` preferred over `dmgAsset` |

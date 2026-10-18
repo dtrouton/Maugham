@@ -39,10 +39,14 @@ public enum UpdateDownload {
     /// How many attempts in all: the first, plus one retry.
     public static let maxAttempts = 2
 
-    /// Errors worth one more try: the connection dropped or never came up.
-    /// Everything else (a refused size, a bad status, a cancellation, a TLS
-    /// failure, an unwritable disk) fails at once.
+    /// Errors worth one more try: the connection dropped or never came up, or
+    /// the server answered 5xx (its own trouble, often momentary). Everything
+    /// else (a refused size, a 4xx, a cancellation, a TLS failure, an
+    /// unwritable disk) fails at once.
     public static func isTransient(_ error: Error) -> Bool {
+        if case UpdateDownloadError.badStatus(let code)? = error as? UpdateDownloadError {
+            return (500...599).contains(code)
+        }
         guard let urlError = error as? URLError else { return false }
         switch urlError.code {
         case .networkConnectionLost, .timedOut, .cannotConnectToHost, .notConnectedToInternet:
@@ -57,6 +61,44 @@ public enum UpdateDownload {
     /// `receivedBytes` is what has actually arrived.
     public static func exceedsCap(receivedBytes: Int64, expectedBytes: Int64, limits: UpdateLimits = .standard) -> Bool {
         receivedBytes > limits.maxDownloadBytes || expectedBytes > limits.maxDownloadBytes
+    }
+
+    /// What one `didWriteData` callback does, pure: refuse past the cap, or
+    /// report a progress value, or nothing (the throttle). `lastReported`
+    /// starts at -2 (nothing reported yet).
+    enum InFlight: Equatable {
+        case refuse(bytes: Int64)
+        case report(Double)
+        case none
+    }
+
+    static func inFlight(written: Int64, expected: Int64, lastReported: Double,
+                         limits: UpdateLimits = .standard) -> InFlight {
+        if exceedsCap(receivedBytes: written, expectedBytes: expected, limits: limits) {
+            return .refuse(bytes: max(written, expected))
+        }
+        guard expected > 0 else {
+            return lastReported == -1 ? .none : .report(-1)
+        }
+        let fraction = min(1.0, max(0.0, Double(written) / Double(expected)))
+        // Whole-percent steps: enough for a bar to move smoothly, few enough
+        // that SwiftUI is not asked to redraw for every network packet.
+        guard fraction - lastReported >= 0.01 || (fraction >= 1.0 && lastReported < 1.0) else { return .none }
+        return .report(fraction)
+    }
+
+    /// Keeps the progress a caller sees from ever moving backwards — a retry
+    /// starts a fresh attempt whose first fractions may be below where the
+    /// last one got to. -1 (size unknown) passes only before any fraction.
+    final class HighWater: @unchecked Sendable {
+        private let lock = NSLock()
+        private var mark: Double = -2
+        func admit(_ value: Double) -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            guard value >= mark else { return false }
+            mark = value
+            return true
+        }
     }
 
     /// The archive's extension, from the asset's NAME (the URL path is the
@@ -77,11 +119,15 @@ public enum UpdateDownload {
     ) async throws {
         var resumeData: Data?
         var attempt = 1
+        let highWater = HighWater()
+        let forward: @Sendable (Double) -> Void = { value in
+            if highWater.admit(value) { progress(value) }
+        }
         while true {
             do {
                 try await UpdateDownloadSession.run(
                     url: url, resumeData: resumeData, destination: destination,
-                    limits: limits, progress: progress)
+                    limits: limits, progress: forward)
                 return
             } catch {
                 guard attempt < maxAttempts, isTransient(error), !Task.isCancelled else { throw error }
@@ -108,6 +154,7 @@ final class UpdateDownloadSession: NSObject, URLSessionDownloadDelegate, @unchec
     private var refusal: Error?
     private var finishError: Error?
     private var finished = false
+    private var cancelled = false
 
     // Delegate queue only (serial).
     private var lastReported: Double = -2
@@ -139,11 +186,16 @@ final class UpdateDownloadSession: NSObject, URLSessionDownloadDelegate, @unchec
                 attempt.lock.lock()
                 attempt.continuation = continuation
                 attempt.task = task
+                // A cancel that arrived before the task existed found nothing
+                // to cancel; honour it here, in the same lock, so the
+                // download never starts.
+                let cancelNow = attempt.cancelled || Task.isCancelled
                 attempt.lock.unlock()
-                task.resume()
+                if cancelNow { task.cancel() } else { task.resume() }
             }
         } onCancel: {
             attempt.lock.lock()
+            attempt.cancelled = true
             let task = attempt.task
             attempt.lock.unlock()
             task?.cancel()
@@ -159,13 +211,16 @@ final class UpdateDownloadSession: NSObject, URLSessionDownloadDelegate, @unchec
         totalBytesWritten: Int64,
         totalBytesExpectedToWrite: Int64
     ) {
-        if UpdateDownload.exceedsCap(receivedBytes: totalBytesWritten,
-                                     expectedBytes: totalBytesExpectedToWrite,
-                                     limits: limits) {
-            refuse(bytes: max(totalBytesWritten, totalBytesExpectedToWrite), task: downloadTask)
-            return
+        switch UpdateDownload.inFlight(written: totalBytesWritten, expected: totalBytesExpectedToWrite,
+                                       lastReported: lastReported, limits: limits) {
+        case .refuse(let bytes):
+            refuse(bytes: bytes, task: downloadTask)
+        case .report(let value):
+            lastReported = value
+            progress(value)
+        case .none:
+            break
         }
-        report(written: totalBytesWritten, expected: totalBytesExpectedToWrite)
     }
 
     func urlSession(
@@ -174,7 +229,11 @@ final class UpdateDownloadSession: NSObject, URLSessionDownloadDelegate, @unchec
         didResumeAtOffset fileOffset: Int64,
         expectedTotalBytes: Int64
     ) {
-        report(written: fileOffset, expected: expectedTotalBytes)
+        if case .report(let value) = UpdateDownload.inFlight(
+            written: fileOffset, expected: expectedTotalBytes, lastReported: lastReported, limits: limits) {
+            lastReported = value
+            progress(value)
+        }
     }
 
     func urlSession(
@@ -236,21 +295,5 @@ final class UpdateDownloadSession: NSObject, URLSessionDownloadDelegate, @unchec
         if first { refusal = UpdateDownloadError.tooLarge(bytes: bytes, limit: limits.maxDownloadBytes) }
         lock.unlock()
         if first { task.cancel() }
-    }
-
-    private func report(written: Int64, expected: Int64) {
-        guard expected > 0 else {
-            if lastReported != -1 {
-                lastReported = -1
-                progress(-1)
-            }
-            return
-        }
-        let fraction = min(1.0, max(0.0, Double(written) / Double(expected)))
-        // Whole-percent steps: enough for a bar to move smoothly, few enough
-        // that SwiftUI is not asked to redraw for every network packet.
-        guard fraction - lastReported >= 0.01 || (fraction >= 1.0 && lastReported < 1.0) else { return }
-        lastReported = fraction
-        progress(fraction)
     }
 }
