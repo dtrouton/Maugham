@@ -60,6 +60,33 @@ final class ProjectStoreASTSourceTests: XCTestCase {
         XCTAssertTrue(pieces.first?.displayText.contains("INT. ROOM") ?? false)
     }
 
+    /// A hand-imported `scene.FOUNTAIN` is built as Fountain: the mode is
+    /// `ProjectAST.Mode(DocumentFormat.ofManuscript(path:))`, whose extension
+    /// match is case-insensitive.
+    func testUppercaseFOUNTAINPiece_picksFountainMode() async throws {
+        let docPath = "scene.FOUNTAIN"
+        try "INT. ROOM - DAY\n\nA character.".write(
+            to: tmp.appendingPathComponent(docPath), atomically: true, encoding: .utf8)
+        let manifest = ProjectManifest(
+            type: .screenplay, title: "T", author: "A",
+            created: Date(), modified: Date(),
+            structure: [StructureItem(id: "doc-up", title: "Scene", type: .document, path: docPath)],
+            research: [])
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        try enc.encode(manifest).write(to: tmp.appendingPathComponent("project.maugham.json"))
+        let store = try await ProjectStore.load(from: tmp)
+        _ = try await Document.load(
+            url: tmp.appendingPathComponent(docPath),
+            device: "test", session: "test", presenter: nil)
+
+        let pieces = try ProjectStoreASTSource(projectStore: store).orderedPieces()
+
+        XCTAssertEqual(pieces.count, 1)
+        XCTAssertEqual(pieces.first?.mode, .fountain)
+        XCTAssertTrue(pieces.first?.displayText.contains("INT. ROOM") ?? false)
+    }
+
     func testEmptyStructure_yieldsNoPieces() async throws {
         let url = try await ProjectFactory.createCollectionProject(
             named: "Empty", in: tmp)

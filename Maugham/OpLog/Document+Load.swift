@@ -335,7 +335,10 @@ extension Document {
         let storedBytes = (try? String(contentsOf: url, encoding: .utf8)) ?? ""  // adr-0018-ok: sanctioned manuscript site — stored bytes as bootstrap-import / divergence reference; op log is authoritative
         // The held-blank rule (E1) is the format's: `DocumentFormat
         // .preservesHeldBlankLines`, the same question Bootstrap and
-        // `setFullText` ask.
+        // `setFullText` ask. This parse only gates emptiness (`!parsed.isEmpty`
+        // below) and the parser holds a blank only inside a non-empty
+        // paragraph, so here the flag is for one spelling at all three sites,
+        // not for behaviour; the split itself is Bootstrap's.
         let parsed = ParagraphParser.parse(
             storedBytes,
             preservesHeldBlankLines: DocumentFormat.ofManuscript(url: url).preservesHeldBlankLines)

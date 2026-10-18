@@ -3,13 +3,15 @@ import XCTest
 import MaughamCore
 @testable import Maugham
 
-/// Pins the held-blank rule on the op-log truth path, per extension: the three
-/// sites that parse manuscript text into paragraphs (`Bootstrap.run`,
-/// `Document.load`, `Document.setFullText`) must agree on the ¶ split for the
-/// same file. Each asks `DocumentFormat.ofManuscript(url:)
-/// .preservesHeldBlankLines` — a Fountain file (any extension case) keeps a
-/// two-space held blank inside its dialogue paragraph (E1); a prose file
-/// splits on it.
+/// Pins the held-blank rule on the op-log truth path, per extension. Each site
+/// asks `DocumentFormat.ofManuscript(url:).preservesHeldBlankLines` — a
+/// Fountain file (any extension case) keeps a two-space held blank inside its
+/// dialogue paragraph (E1); a prose file splits on it. The legs:
+///   1. `Bootstrap.run` called directly;
+///   2. Bootstrap as reached through `Document.load` — the load's own parse
+///      only gates emptiness, so its flag is inert and this leg pins the
+///      split Bootstrap mints on the production load path;
+///   3. `Document.setFullText`, whose per-keystroke parse must keep the split.
 @MainActor
 final class FormatTruthPathTests: XCTestCase {
 
@@ -75,14 +77,14 @@ final class FormatTruthPathTests: XCTestCase {
         XCTAssertEqual(bootOps.first?.changes.map(\.next), expected.map { Optional($0) },
             "Bootstrap.run paragraph texts for \(fileName)", file: file, line: line)
 
-        // 2. Document.load derives the same split from its own bootstrap.
+        // 2. Bootstrap as reached through Document.load: the same split.
         let project = try makeProject(fileName: fileName)
         let doc = try await Document.load(
             url: project, device: "m", session: "s", presenter: nil)
         XCTAssertEqual(doc.sequence.count, expected.count,
-            "Document.load split for \(fileName)", file: file, line: line)
+            "Bootstrap-through-Document.load split for \(fileName)", file: file, line: line)
         XCTAssertEqual(doc.sequence.map { doc.paragraphs[$0] }, expected.map { Optional($0) },
-            "Document.load paragraph texts for \(fileName)", file: file, line: line)
+            "Bootstrap-through-Document.load paragraph texts for \(fileName)", file: file, line: line)
         XCTAssertEqual(Set(doc.sequence).count, expected.count, file: file, line: line)
 
         // 3. A setFullText edit keeps every id and the split.
