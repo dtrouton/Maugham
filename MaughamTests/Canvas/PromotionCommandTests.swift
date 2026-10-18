@@ -243,6 +243,9 @@ final class PromotionCommandTests: XCTestCase {
 
     private static func text(of location: String, base: URL = SourceTree.repoRoot) throws -> String {
         if let type = SourceTree.typeName(ofKey: location) {
+            // The window's modifiers moved to files of their own (plan 4): the
+            // window's code is the family, by type.
+            if type == "ProjectWindow" { return try SourceTree.windowSource(base: base) }
             return try SourceTree.sourceOfType(type, under: ["Maugham"], base: base)
         }
         return try SourceTree.read(location, base: base)

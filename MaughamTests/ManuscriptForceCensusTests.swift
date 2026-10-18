@@ -59,6 +59,9 @@ final class ManuscriptForceCensusTests: XCTestCase {
     /// over a JOIN could run off one file's end into the next file's text.
     private func texts(of location: String, base: URL = SourceTree.repoRoot) throws -> [String] {
         if let type = SourceTree.typeName(ofKey: location) {
+            // The window's modifiers moved to files of their own (plan 4): the
+            // window's code is the family, by type.
+            if type == "ProjectWindow" { return try SourceTree.windowSources(base: base) }
             return try SourceTree.sourcesOfType(type, under: ["Maugham"], base: base).map(\.text)
         }
         return [try SourceTree.read(location, base: base)]

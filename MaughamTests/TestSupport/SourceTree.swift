@@ -764,15 +764,37 @@ extension SourceTree {
     /// Every file under `Maugham/` that declares `ProjectWindow`, joined — the
     /// window's code wherever its extensions live. Throws when nothing declares it.
     static func windowSource(base: URL = repoRoot) throws -> String {
-        try sourceOfType("ProjectWindow", under: ["Maugham"], base: base)
+        try windowSources(base: base).joined(separator: "\n")
     }
+
+    /// The window's free-standing modifiers and decisions, which lived in
+    /// `ProjectWindow.swift` until foundations plan 4 gave each its own file.
+    /// A census reading "the window's code" reads these too, BY TYPE, so it
+    /// does not care which file a modifier lives in. A type nothing declares
+    /// is skipped (a planted tree names only what it plants); `ProjectWindow`
+    /// itself still throws when absent.
+    static let windowFamilyTypes = [
+        "ProjectActiveSheet", "CheckpointFlashDecision", "CheckpointModifier",
+        "RewindModifier", "FocusPostureModifier", "CanvasCollapseModifier",
+        "ContainerWidthReporter", "PersonaModifier", "ParagraphNavModifier",
+        "EditorControlMirror", "EditorControlMirrorModifier",
+        "TranslationReviewModifier", "CanvasPromotionModifier",
+        "CompilerFlashSink", "NoteOutcomeAlert",
+    ]
 
     /// Every file declaring `ProjectWindow`, each its own text, in path
     /// order — for a census that SLICES (the N characters or lines after a
     /// token), so a slice can never run off the end of one file into the
     /// next file's text the way it could over `windowSource`'s join.
     static func windowSources(base: URL = repoRoot) throws -> [String] {
-        try sourcesOfType("ProjectWindow", under: ["Maugham"], base: base).map(\.text)
+        let window = try sourcesOfType("ProjectWindow", under: ["Maugham"], base: base)
+        var seen = Set(window.map(\.path))
+        var all = window.map(\.text)
+        for type in windowFamilyTypes {
+            guard let found = try? sourcesOfType(type, under: ["Maugham"], base: base) else { continue }
+            for file in found where seen.insert(file.path).inserted { all.append(file.text) }
+        }
+        return all
     }
 
     /// The `length` characters after the first `token` in the window's code,
