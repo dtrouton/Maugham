@@ -68,6 +68,14 @@ final class PublishFormatToleranceTests: XCTestCase {
         XCTAssertEqual(PublishConfig.Format.epub.rawValue, "epub")
     }
 
+    /// Equality and hashing compare CASES, never `rawValue`: a hand-built
+    /// `.unknown("pdf")` is not the PDF format.
+    func test_anUnknownNeverEqualsAKnownFormat() {
+        XCTAssertNotEqual(PublishConfig.Format.unknown("pdf"), .pdf)
+        XCTAssertNotEqual(PublishConfig.Format.unknown("epub"), .epub)
+        XCTAssertEqual(Set<PublishConfig.Format>([.pdf, .unknown("pdf")]).count, 2)
+    }
+
     func test_allCasesIsWhatThisBuildCanProduce() {
         XCTAssertEqual(PublishConfig.Format.allCases, [.pdf, .epub])
     }
@@ -128,6 +136,8 @@ final class PublishFormatToleranceTests: XCTestCase {
         XCTAssertEqual(reloaded.count, 2)
         XCTAssertEqual(reloaded.first { $0.publicationID == "pub-docx" }?.format,
                        .unknown("docx"))
+        // Guards the APPEND (it must not rewrite earlier lines); the old
+        // symptom — the row read as a PDF — is pinned by the load assertions.
         let raw = try String(contentsOf: file, encoding: .utf8)
         XCTAssertTrue(raw.contains(#""format":"docx""#), raw)
     }

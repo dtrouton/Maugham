@@ -138,8 +138,10 @@ public struct PublishConfig: Codable, Equatable, Sendable {
     /// config — but compiling one is refused with `PublishFormatRefusal`.
     ///
     /// `allCases` is the formats this build can PRODUCE, so `.unknown` never
-    /// reaches a picker.
-    public enum Format: Codable, Equatable, Hashable, Sendable, CaseIterable, RawRepresentable {
+    /// reaches a picker. Deliberately NOT `RawRepresentable`: its stdlib
+    /// `==`/hash compare `rawValue`, which would make `.unknown("pdf") == .pdf`;
+    /// the synthesized ones compare cases.
+    public enum Format: Codable, Equatable, Hashable, Sendable, CaseIterable {
         case pdf
         case epub
         case unknown(String)
