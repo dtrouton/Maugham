@@ -607,13 +607,13 @@ final class DesignGateTests: XCTestCase {
     /// The mount is asked of the window by TYPE; the arm is read inside
     /// `manuscriptEditor`'s own body, found by symbol (foundations plan 2), and
     /// since foundations plan 4 Task 3 it is the `.designGate` arm of the ONE
-    /// switch over `CentreRoute`'s overlay — whose precedence (the gate over
+    /// switch over `CentreRoute`'s cover — whose precedence (the gate over
     /// the book, the round over the gate) `CentreRouteTests` pins as values.
     func test_theGateIsAFourthLayerOfTheSameStackAndNotANewArm() throws {
         XCTAssertTrue(try SourceTree.windowCodeLines().contains { $0.contains("DesignGateView(") },
                       "production must mount the gate somewhere")
         XCTAssertTrue(Self.gateIsAnArmOfTheCentreSwitch(try Self.manuscriptEditorSource()),
-                      "the gate is the `.designGate` arm of the overlay switch "
+                      "the gate is the `.designGate` arm of the cover switch "
                       + "inside manuscriptEditor's ZStack, beside the book's")
     }
 
@@ -623,9 +623,9 @@ final class DesignGateTests: XCTestCase {
     }
 
     /// Whether `source` mounts `DesignGateView(` in the `.designGate` arm of its
-    /// `switch overlay`, after the host — false when either is gone.
+    /// `switch cover`, after the host — false when either is gone.
     private static func gateIsAnArmOfTheCentreSwitch(_ source: String) -> Bool {
-        guard let overlay = CentreRouteSource.switchArms(in: source, over: "switch overlay")
+        guard let overlay = CentreRouteSource.switchArms(in: source, over: "switch cover")
         else { return false }
         return overlay.arm("designGate").contains("DesignGateView(")
             && !overlay.outside.contains { $0.contains("DesignGateView(") }
@@ -659,7 +659,7 @@ final class DesignGateTests: XCTestCase {
                 private func manuscriptEditor(store: ProjectStore) -> some View {
                     ZStack {
                         EditorHost()
-                        switch overlay {
+                        switch cover {
                         case .designGate(let proposal):
                             DesignGateView(proposal: proposal)
                         default: EmptyView()
@@ -678,16 +678,16 @@ final class DesignGateTests: XCTestCase {
         XCTAssertTrue(Self.gateIsAnArmOfTheCentreSwitch(
             try Self.manuscriptEditorSource(base: base)),
             "the arm is found in the extension, switch and gate both")
-        XCTAssertFalse(Self.gateIsAnArmOfTheCentreSwitch("switch overlay {\n}"),
+        XCTAssertFalse(Self.gateIsAnArmOfTheCentreSwitch("switch cover {\n}"),
                        "a switch with no gate is not compliant")
         XCTAssertFalse(Self.gateIsAnArmOfTheCentreSwitch("""
             if showsGate { DesignGateView() }
-            switch overlay {
+            switch cover {
             case .designGate(let proposal): EmptyView()
             }
             """), "a gate layered beside the switch, decided by z-order, is not compliant")
         XCTAssertFalse(Self.gateIsAnArmOfTheCentreSwitch("""
-            switch overlay {
+            switch cover {
             case .books(let publications): DesignGateView()
             }
             """), "nor is a gate in another surface's arm")

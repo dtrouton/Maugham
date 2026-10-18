@@ -10,14 +10,15 @@ import MaughamCore
 /// arm's `ZStack` (altitude, Review's board, then the publish switch), where
 /// which surface the writer saw was decided by layer ORDER. Now
 /// `ProjectWindow.centreRoute(…)` answers the whole question once, as a value,
-/// and the window renders it with one `switch`.
+/// and the window renders it with one `switch` per level.
 ///
 /// **The cases are in the old chain's order, and the order is load-bearing for
 /// view identity**: SwiftUI builds a `switch` as nested conditional content in
 /// case order, so the canvas stays the third branch it always was — ONE mount
-/// (tripwire 27/30) — and every overlay change happens INSIDE `.editor`, whose
-/// associated value is not part of the branch's identity. That is what keeps
-/// `EditorHost` mounted across a project ↔ chapter hop (tripwire 6).
+/// (tripwires 27/30) — and every altitude or cover change happens INSIDE
+/// `.editor`, whose associated values are not part of the branch's identity.
+/// That is what keeps `EditorHost` mounted across a project ↔ chapter hop
+/// (tripwire 6).
 enum CentreRoute: Equatable {
     /// The palette wall, deliberately entered, over everything else.
     case paletteWall
@@ -27,32 +28,33 @@ enum CentreRoute: Equatable {
     case canvas
     /// A Collection's placeholder for a linked-project reference piece.
     case reference(piece: StructureItem)
-    /// The manuscript editor, with at most ONE surface drawn over it.
-    case editor(overlay: CentreOverlay?)
+    /// The manuscript editor; over it, the project at altitude when the subject
+    /// names no document (`subjectShowsAltitude`); over both, at most one
+    /// cover.
+    ///
+    /// **Altitude is its own layer rather than a cover**, because the old stack
+    /// kept it mounted beneath the board, the book, the gate and the round, and
+    /// what it holds survives that way: `OutlineTable`'s writers (a verified
+    /// registry read on `.task`), its scroll position and its column widths.
+    /// A cover coming or going must not remount it.
+    case editor(altitude: Bool, cover: CentreCover?)
 }
 
-/// **The one surface drawn over the editor**, or none. The editor stays mounted
-/// beneath every one of them; only this value changes.
-///
-/// Each case is opaque and fills the column, so exactly one is ever drawn —
-/// where the old stack layered the board or the book OVER a still-mounted
-/// corkboard, the winner is now chosen here rather than by z-order.
-enum CentreOverlay: Equatable {
-    /// The project at altitude (stage 3a) — and, in Publish with no book to
-    /// show, the banner saying WHICH kind of nothing it is. The notice is not an
-    /// overlay of its own: it is translucent, takes no clicks, and exists only
-    /// to explain the corkboard under it (`PublishCentreNoticeBanner`), and
-    /// `publishCentre` only ever answers `.notice` where altitude is already
-    /// true. Carrying it here makes "a notice over nothing" unrepresentable and
-    /// keeps the corkboard's identity when a notice comes or goes.
-    case altitude(notice: PublishCentreNotice?)
+/// **The one surface drawn over the editor and altitude**, or none — the top
+/// layer of the old stack, chosen here rather than by z-order. Every case but
+/// `.notice` is opaque and fills the column.
+enum CentreCover: Equatable {
+    /// Publish with no book: a banner saying WHICH kind of nothing it is,
+    /// standing over the corkboard and taking no clicks. Only ever offered
+    /// where altitude is true (`publishCentre` guards on it).
+    case notice(PublishCentreNotice)
     /// Review's passes board (M3 P1 Task 6).
     case reviewBoard
     /// The compiled book, newest first (stage 3b Task 5).
     case books([Publication])
     /// The design gate over a proposal the writer pressed Show on (P4 Task 5).
     case designGate(DesignProposalStore.Proposal)
-    /// A translation round's report — the one overlay that also draws over a
+    /// A translation round's report — the one cover that also draws over a
     /// chapter (Denver's 2026-09-02 ruling).
     case translationRound(TranslationRound)
 }
@@ -65,10 +67,10 @@ extension ProjectWindow {
     /// The precedence is the old chain's, then the old stack's top layer:
     /// the palette wall (`showsPaletteWallCentre`), a research subject that
     /// takes the centre (`researchSubjectPlacement`), the canvas and the
-    /// Collection reference (`editorRoute`), and otherwise the editor with the
-    /// surface that USED to be the top of its stack: Publish's
-    /// (`publishCentre`), else Review's board (`reviewCentreShowsBoard`), else
-    /// altitude (`subjectShowsAltitude`). The board and Publish's surface are
+    /// Collection reference (`editorRoute`), and otherwise the editor, with
+    /// altitude beneath (`subjectShowsAltitude`) and the cover that USED to be
+    /// the top of its stack: Publish's (`publishCentre`), else Review's board
+    /// (`reviewCentreShowsBoard`). The board and Publish's surface are
     /// never both offered (each predicate is true of one persona), which
     /// `CentreRouteTests` asserts over the whole product rather than leaving to
     /// this comment.
@@ -98,25 +100,23 @@ extension ProjectWindow {
         case .editor:
             break
         }
-        // The editor's one overlay: the surface that was the TOP of the old
-        // stack. Publish's answer first (it was the last layer), then the
-        // board, then altitude; a `.notice` folds into altitude, which it only
-        // ever stood over.
+        // The editor's layers: altitude where the subject names no document,
+        // and the cover that was the TOP of the old stack — Publish's answer
+        // first (it was the last layer), then the board.
+        let altitude = subjectShowsAltitude(persona: persona, subject: subject,
+                                            structure: structure)
+        let cover: CentreCover?
         switch publishCentre(persona: persona, subject: subject, structure: structure,
                              preview: preview, proposal: proposal, round: round) {
-        case .translationRound(let round): return .editor(overlay: .translationRound(round))
-        case .designProposal(let proposal): return .editor(overlay: .designGate(proposal))
-        case .books(let publications): return .editor(overlay: .books(publications))
-        case .notice(let notice): return .editor(overlay: .altitude(notice: notice))
-        case .none: break
+        case .translationRound(let round): cover = .translationRound(round)
+        case .designProposal(let proposal): cover = .designGate(proposal)
+        case .books(let publications): cover = .books(publications)
+        case .notice(let notice): cover = .notice(notice)
+        case .none:
+            cover = reviewCentreShowsBoard(persona: persona, subject: subject,
+                                           structure: structure) ? .reviewBoard : nil
         }
-        if reviewCentreShowsBoard(persona: persona, subject: subject, structure: structure) {
-            return .editor(overlay: .reviewBoard)
-        }
-        if subjectShowsAltitude(persona: persona, subject: subject, structure: structure) {
-            return .editor(overlay: .altitude(notice: nil))
-        }
-        return .editor(overlay: nil)
+        return .editor(altitude: altitude, cover: cover)
     }
 
     /// The selected piece when it is a Collection's reference piece. A

@@ -695,18 +695,14 @@ final class PublishPreviewCentreTests: XCTestCase {
         XCTAssertFalse(pdfViews(in: mount.window).isEmpty,
                        "the centre column mounted no PDF at all. Views: "
                        + "\(viewNames(in: mount.window))")
-        // **The project's subject answers `subjectShowsAltitude` too**, and
-        // until foundations plan 4 Task 3 altitude stayed mounted under the
-        // book with z-order deciding. Now the route names ONE overlay: the
-        // corkboard is not in the stack, and the book is what the middle of
-        // the column hit-tests to, measured the way the OS measures it.
-        XCTAssertTrue(ProjectWindow.subjectShowsAltitude(
-            persona: .publish, subject: .project, structure: store.manifest.structure),
-            "premise: altitude was offered too, so this is a test about which "
-            + "surface WINS rather than about which one exists")
-        XCTAssertNil(altitudeTable(in: mount.window),
-                     "the overlay is one surface: the book replaces the "
-                     + "corkboard rather than covering it")
+        // **Altitude is still mounted — that is the layered shape working, not a
+        // bug.** The project's subject answers `subjectShowsAltitude` too, so
+        // both layers are in the stack; what says which one the writer sees is
+        // z-order, measured the way the OS measures it.
+        XCTAssertNotNil(altitudeTable(in: mount.window),
+                        "premise: the project subject really does put altitude "
+                        + "in the stack, so this is a test about which layer is "
+                        + "in FRONT rather than about which one exists")
         let hit = try middleOfTheColumn(in: mount.window)
         let pdf = try XCTUnwrap(pdfViews(in: mount.window).first)
         XCTAssertTrue(hit === pdf || hit.isDescendant(of: pdf),
@@ -1471,14 +1467,14 @@ final class PublishPreviewCentreTests: XCTestCase {
         let arm = try SourceTree.declaration(
             named: "func manuscriptEditor(", under: "Maugham")
 
-        // Still one stack, the host mounted unconditionally underneath, and the
-        // book in the overlay switch's `.books` arm with the notice standing in
-        // the `.altitude` arm when there is no book — both gated on the ROUTE,
+        // Still one stack, the host mounted unconditionally underneath, altitude
+        // over it, and the book in the cover switch's `.books` arm with the
+        // notice in the `.notice` arm when there is no book — both gated on the ROUTE,
         // which asks the ONE named rule, rather than on a second spelling here
         // (a second gate is how a "nothing published yet" banner ends up over a
         // compiled book). The planted control is
         // `CentreRouteTests.test_theShapeCensusesFireOnPlantedOffenders`.
-        XCTAssertEqual(CentreRouteSource.overlayFaults(in: arm), [])
+        XCTAssertEqual(CentreRouteSource.stackFaults(in: arm), [])
         XCTAssertTrue(try CentreRouteSource.rule().contains("publishCentre("),
                       "the route asks the ONE named rule for Publish's surface")
 
@@ -1495,13 +1491,13 @@ final class PublishPreviewCentreTests: XCTestCase {
                 persona: .publish, subject: .project, projectType: .novel,
                 structure: Self.oneDocument, showsPaletteWall: false,
                 preview: .ready(newestFirst: [Self.aBook])),
-            .editor(overlay: .books([Self.aBook])),
+            .editor(altitude: true, cover: .books([Self.aBook])),
             "the book must WIN over altitude — a corkboard drawn over a "
             + "compiled book is the truth table read upside down")
 
         XCTAssertEqual(
             Self.occurrences(of: "PublishPreviewCentre(", in: source), 1,
-            "one mount for the book, in the centre column's overlay. A second "
+            "one mount for the book, in the centre column's cover. A second "
             + "is a surface nobody decided to add")
         XCTAssertEqual(
             Self.occurrences(of: "PublishCentreNoticeBanner(", in: source), 1,
@@ -2036,36 +2032,37 @@ struct PublishCentreProbeView: View {
                        paletteSwatchHexes: { [] })
         case .reference(let piece):
             ReferencePlaceholderCard(piece: piece, onOpen: {})
-        case .editor(let overlay):
-            manuscriptCentre(overlay)
+        case .editor(let showsAltitude, let cover):
+            manuscriptCentre(showsAltitude: showsAltitude, cover: cover)
         }
     }
 
     @ViewBuilder
-    private func manuscriptCentre(_ overlay: CentreOverlay?) -> some View {
+    private func manuscriptCentre(showsAltitude: Bool, cover: CentreCover?) -> some View {
         switch shape {
         case .layered:
             ZStack {
                 editor
-                overlayView(overlay)
+                if showsAltitude { altitude }
+                coverView(cover)
             }
         case .ownArm:
-            switch overlay {
-            case .books(let publications): book(publications)
-            case .altitude: altitude
-            default: editor
+            if case .books(let publications) = cover {
+                book(publications)
+            } else if showsAltitude {
+                altitude
+            } else {
+                editor
             }
         }
     }
 
-    /// Production's overlay switch, arm for arm. Review's board is not
-    /// modelled: nothing here is Review, and `ReviewBoardRoutingTests` owns it.
+    /// Production's cover switch, arm for arm. Review's board is not modelled:
+    /// nothing here is Review, and `ReviewBoardRoutingTests` owns it.
     @ViewBuilder
-    private func overlayView(_ overlay: CentreOverlay?) -> some View {
-        switch overlay {
-        case .altitude(let notice):
-            altitude
-            if let notice { PublishCentreNoticeBanner(notice: notice) }
+    private func coverView(_ cover: CentreCover?) -> some View {
+        switch cover {
+        case .notice(let notice): PublishCentreNoticeBanner(notice: notice)
         // The round report (translation pipeline P4 Task 3).
         case .translationRound(let round):
             TranslationRoundReportHost(

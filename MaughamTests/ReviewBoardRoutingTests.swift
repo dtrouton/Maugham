@@ -351,12 +351,10 @@ final class ReviewBoardRoutingTests: XCTestCase {
 
     // MARK: - Mounted: the board takes the centre
 
-    /// **The project's own subject in Review draws the board, not the
-    /// corkboard.** The subject answers altitude too, and until foundations
-    /// plan 4 Task 3 altitude stayed mounted underneath and z-order decided;
-    /// now the route names ONE overlay, so the corkboard is not in the stack at
-    /// all — and the board is still what the middle of the column hit-tests
-    /// to, measured the way the OS measures it.
+    /// **The project's own subject in Review draws the board, over the
+    /// corkboard.** Altitude is still mounted underneath — that is the layered
+    /// shape working, not a bug — so what says which one the reviewer sees is
+    /// z-order, measured the way the OS measures it.
     func test_theProjectSubjectInReviewShowsTheBoardOverTheCorkboard() async throws {
         let store = try await novel()
         let mount = try await host(store: store, subject: .project)
@@ -366,15 +364,12 @@ final class ReviewBoardRoutingTests: XCTestCase {
             boardScroller(in: mount.window),
             "Review's centre column mounted no board. Views: "
             + "\(viewNames(in: mount.window))")
-        XCTAssertTrue(ProjectWindow.subjectShowsAltitude(
-            persona: .review, subject: .project, structure: store.manifest.structure),
-            "premise: the project subject answers altitude too, so this is a "
-            + "test about which surface WINS rather than about which one exists")
-        XCTAssertNil(altitudeTable(in: mount.window),
-                     "the overlay is one surface: the board replaces the "
-                     + "corkboard rather than covering it")
+        XCTAssertNotNil(altitudeTable(in: mount.window),
+                        "premise: the project subject really does put altitude "
+                        + "in the stack, so this is a test about which layer is "
+                        + "in FRONT rather than about which one exists")
         XCTAssertTrue(textViews(in: mount.window).isEmpty,
-                      "and no editor is open under it")
+                      "and no editor is open under either of them")
 
         let hit = try middleOfTheColumn(in: mount.window)
         XCTAssertTrue(hit === board || hit.isDescendant(of: board),
@@ -708,13 +703,13 @@ final class ReviewBoardRoutingTests: XCTestCase {
         let arm = try SourceTree.declaration(
             named: "func manuscriptEditor(", under: "Maugham")
 
-        // Still one stack with the host mounted unconditionally underneath, and
-        // the board in the overlay switch's `.reviewBoard` arm — gated on the
+        // Still one stack with the host mounted unconditionally underneath,
+        // altitude over it, and the board in the cover switch's `.reviewBoard` arm — gated on the
         // route rather than on a second spelling written out here (a second
         // gate is how a board ends up over the chapter a reviewer is reading).
         // `CentreRouteTests.test_theShapeCensusesFireOnPlantedOffenders` plants
         // the board as a free layer beside the switch and sees it caught.
-        XCTAssertEqual(CentreRouteSource.overlayFaults(in: arm), [])
+        XCTAssertEqual(CentreRouteSource.stackFaults(in: arm), [])
         let route = try CentreRouteSource.rule()
         XCTAssertTrue(route.contains("reviewCentreShowsBoard("),
                       "the route asks the ONE named rule for the board")
@@ -731,13 +726,13 @@ final class ReviewBoardRoutingTests: XCTestCase {
                 persona: .review, subject: .project, projectType: .novel,
                 structure: ProjectAltitudeCentreTests.structure,
                 showsPaletteWall: false, preview: .nothingCompiled),
-            .editor(overlay: .reviewBoard),
+            .editor(altitude: true, cover: .reviewBoard),
             "the board must WIN over altitude — a corkboard over the board is "
             + "the truth table read upside down")
 
         XCTAssertEqual(
             Self.occurrences(of: "ReviewBoardPane(", in: source), 1,
-            "one mount for the board, in the centre column's overlay. A second "
+            "one mount for the board, in the centre column's cover. A second "
             + "is a surface nobody decided to add")
         XCTAssertEqual(
             Self.occurrences(of: "manuscriptEditor(", in: source), 2,
@@ -1309,7 +1304,7 @@ struct ReviewCentreProbeView: View {
     /// The route is production's own (`ProjectWindow.centreRoute`), switched
     /// over in production's case order. The wall is never open here; Publish
     /// is reached only by a persona hop, with nothing compiled, so it shows
-    /// altitude and the probe models no publish surface.
+    /// altitude and the probe models no publish cover.
     @ViewBuilder
     private var centre: some View {
         switch ProjectWindow.centreRoute(
@@ -1327,28 +1322,30 @@ struct ReviewCentreProbeView: View {
                        paletteSwatchHexes: { [] })
         case .reference(let piece):
             ReferencePlaceholderCard(piece: piece, onOpen: {})
-        case .editor(let overlay):
-            manuscriptCentre(overlay)
+        case .editor(let showsAltitude, let cover):
+            manuscriptCentre(showsAltitude: showsAltitude, cover: cover)
         }
     }
 
     @ViewBuilder
-    private func manuscriptCentre(_ overlay: CentreOverlay?) -> some View {
+    private func manuscriptCentre(showsAltitude: Bool, cover: CentreCover?) -> some View {
         switch shape {
         case .layered:
             ZStack {
                 editor
-                switch overlay {
-                case .altitude: altitude
+                if showsAltitude { altitude }
+                switch cover {
                 case .reviewBoard: board
                 default: EmptyView()
                 }
             }
         case .ownArm:
-            switch overlay {
-            case .reviewBoard: board
-            case .altitude: altitude
-            default: editor
+            if case .reviewBoard = cover {
+                board
+            } else if showsAltitude {
+                altitude
+            } else {
+                editor
             }
         }
     }

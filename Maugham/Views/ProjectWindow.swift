@@ -1921,7 +1921,7 @@ struct ProjectWindow: View {
         // a research subject that takes the centre (in Plan it resolves to
         // `.besideTheCanvas` and never reaches here, so the board keeps its
         // identity), the canvas, the Collection reference, then the editor with
-        // its one overlay. The cases are in the old chain's order, so the canvas
+        // altitude and one cover. The cases are in the old chain's order, so the canvas
         // is still the third branch and still its only mount.
         switch Self.centreRoute(persona: persona,
                                 subject: selectedSubject,
@@ -1944,8 +1944,9 @@ struct ProjectWindow: View {
             ReferencePlaceholderCard(piece: piece) {
                 openReferenceInWindow(piece: piece, store: store)
             }
-        case .editor(let overlay):
-            manuscriptEditor(store: store, documentStore: documentStore, overlay: overlay)
+        case .editor(let altitude, let cover):
+            manuscriptEditor(store: store, documentStore: documentStore,
+                             altitude: altitude, cover: cover)
         }
     }
 
@@ -1965,27 +1966,30 @@ struct ProjectWindow: View {
     /// It was `existingEditorSwitch` — a `switch` over `BinderSegment` — until
     /// shell-finish stage 2b Task 7 took the enum. What is left mounts the
     /// editor on whatever document the tree names (a screenplay's `.fountain`
-    /// included), with `CentreRoute`'s overlay over it: the project at altitude
-    /// (stage 3a Task 2, with Publish's no-book notice standing on it), Review's
-    /// passes board (M3 P1 Task 6), or one of Publish's surfaces — the round
+    /// included), with `CentreRoute`'s layers over it: the project at altitude
+    /// (stage 3a Task 2), then one cover — Publish's no-book notice, Review's
+    /// passes board (M3 P1 Task 6), or one of Publish's surfaces: the round
     /// report, the design gate, the compiled book (stage 3b Task 5, P4).
     ///
-    /// **The host is the ZStack's FIRST child and present whatever the overlay
-    /// is** (tripwire 6). Until foundations plan 4 Task 3 the surfaces were
-    /// independent `if` layers here and the writer saw whichever came last; now
-    /// `centreRoute` names the one on top and this body draws it with ONE
-    /// switch. Neither shape would have survived as a branch of `editorPane`:
+    /// **The host is the ZStack's FIRST child and present whatever covers it**
+    /// (tripwire 6), and altitude is the SECOND, present whenever the subject
+    /// names no document, whatever covers it. Until foundations plan 4 Task 3
+    /// the covers were independent `if` layers here and the writer saw
+    /// whichever came last; now `centreRoute` names the one on top and this
+    /// body draws it with ONE switch. Neither shape would have survived as a branch of `editorPane`:
     /// two ViewBuilder branches are two view identities, so every project ↔
     /// chapter hop would unmount `EditorHost`, whose `.onDisappear` is
     /// `doc.close()` + `documentStore.unregister(path:)` + `loads.abandon()`,
-    /// not a cleanup. Here the overlay is the only thing that comes and goes.
+    /// not a cleanup. Here the layers over it are the only things that come and go.
     /// `ProjectAltitudeCentreTests` counts the host's lifetimes over the round
     /// trip, and drives the rejected shape as its control.
     ///
-    /// Every overlay is opaque and fills the column on purpose: the host's
-    /// "Select a document." placeholder is still mounted underneath it.
+    /// Altitude and every cover but the notice are opaque and fill the column on
+    /// purpose: the host's "Select a document." placeholder is still mounted
+    /// underneath them.
     private func manuscriptEditor(
-        store: ProjectStore, documentStore: DocumentStore, overlay: CentreOverlay?
+        store: ProjectStore, documentStore: DocumentStore,
+        altitude: Bool, cover: CentreCover?
     ) -> some View {
         ZStack {
             EditorHost(
@@ -2027,21 +2031,13 @@ struct ProjectWindow: View {
                         in: store.manifest.effectiveReviewPasses)
                 }
             )
-            // **The one overlay, ONE switch** (foundations plan 4, Task 3).
-            // Which surface draws is `centreRoute`'s answer, never a layer
-            // order: each arm is opaque and fills the column, so exactly one is
-            // drawn and the editor is still mounted beneath it. Every arm is a
-            // case of this switch rather than a branch of `editorPane` for
-            // stage 3a's reason: two ViewBuilder branches are two view
-            // identities, and `EditorHost.onDisappear` is `doc.close()` +
-            // `unregister(path:)` + `loads.abandon()`.
-            switch overlay {
             // **The project at altitude** (stage 3a Task 2) — opaque, because
             // the host's "Select a document." placeholder is still mounted
-            // underneath. In Publish with no book, the notice says WHICH kind
-            // of nothing it is (Denver's 2026-08-12 rulings 2 and 3), standing
-            // over the corkboard — it takes no clicks — rather than replacing it.
-            case .altitude(let notice):
+            // underneath. Its own layer, ALWAYS at this position whatever covers
+            // it, so a cover coming or going never remounts it: `OutlineTable`
+            // holds the writers it read from the registry, its scroll position
+            // and its column widths.
+            if altitude {
                 ProjectAltitudePane(
                     store: store,
                     layout: $outlineLayout,
@@ -2049,11 +2045,21 @@ struct ProjectWindow: View {
                     title: store.manifest.title)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(nsColor: .windowBackgroundColor))
-                if let notice {
-                    PublishCentreNoticeBanner(notice: notice)
-                }
+            }
+            // **The one cover, ONE switch** (foundations plan 4, Task 3). Which
+            // surface is on top is `centreRoute`'s answer, never a layer
+            // order. Every cover is a case of this switch rather than a branch
+            // of `editorPane` for stage 3a's reason: two ViewBuilder branches
+            // are two view identities, and `EditorHost.onDisappear` is
+            // `doc.close()` + `unregister(path:)` + `loads.abandon()`.
+            switch cover {
+            // In Publish with no book, the notice says WHICH kind of nothing it
+            // is (Denver's 2026-08-12 rulings 2 and 3), standing over the
+            // corkboard — it takes no clicks — rather than replacing it.
+            case .notice(let notice):
+                PublishCentreNoticeBanner(notice: notice)
             // **Review's passes board** (M3 P1 Task 6) — the project level of
-            // Review. A chapter subject reaches neither this arm nor altitude:
+            // Review, over altitude. A chapter subject reaches neither:
             // `reviewCentreShowsBoard` composes `subjectShowsAltitude`.
             case .reviewBoard:
                 // Values, not the store (tripwire 4): the board reads

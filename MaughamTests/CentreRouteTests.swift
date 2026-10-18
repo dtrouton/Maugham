@@ -95,38 +95,42 @@ final class CentreRouteTests: XCTestCase {
     ///   was the layer over altitude).
     /// - Publish: a research subject falls through (`.nothingMoves`); a round
     ///   draws over anything, the chapter included; at project level the gate,
-    ///   then the book, then altitude under a notice saying which nothing it is;
-    ///   over a chapter, nothing.
+    ///   then the book, then a notice saying which nothing it is; over a
+    ///   chapter, nothing.
+    /// - Altitude stays a layer beneath every cover wherever the subject names
+    ///   no document, exactly as the old stack mounted it.
     static func expected(_ persona: Persona, _ shape: Shape, wall: Bool,
                          _ publish: PublishState) -> CentreRoute {
         if wall && persona != .plan { return .paletteWall }
+        // Altitude is the layer that was mounted for every manuscript persona
+        // whenever the subject named no document — a research subject in
+        // Publish included, since Publish hands it to neither column.
+        let altitude = shape != .document
         switch persona {
         case .plan:
             return .canvas
         case .author:
-            switch shape {
-            case .research: return .research(id: "res-1")
-            case .document: return .editor(overlay: nil)
-            case .none, .project, .group: return .editor(overlay: .altitude(notice: nil))
-            }
+            if shape == .research { return .research(id: "res-1") }
+            return .editor(altitude: altitude, cover: nil)
         case .review:
-            switch shape {
-            case .research: return .research(id: "res-1")
-            case .document: return .editor(overlay: nil)
-            case .none, .project, .group: return .editor(overlay: .reviewBoard)
-            }
+            if shape == .research { return .research(id: "res-1") }
+            return .editor(altitude: altitude, cover: altitude ? .reviewBoard : nil)
         case .publish:
-            if publish.round != nil { return .editor(overlay: .translationRound(round)) }
-            if shape == .document { return .editor(overlay: nil) }
-            if let proposal = publish.proposal { return .editor(overlay: .designGate(proposal)) }
+            if publish.round != nil {
+                return .editor(altitude: altitude, cover: .translationRound(round))
+            }
+            if shape == .document { return .editor(altitude: false, cover: nil) }
+            if let proposal = publish.proposal {
+                return .editor(altitude: true, cover: .designGate(proposal))
+            }
             switch publish {
             case .nothingCompiled:
-                return .editor(overlay: .altitude(notice: .neverCompiled))
+                return .editor(altitude: true, cover: .notice(.neverCompiled))
             case .unreadable:
-                return .editor(overlay: .altitude(notice: .unreadableCatalog(
+                return .editor(altitude: true, cover: .notice(.unreadableCatalog(
                     reason: PublishPreviewCentreTests.unreadableReason)))
             default:
-                return .editor(overlay: .books([book]))
+                return .editor(altitude: true, cover: .books([book]))
             }
         }
     }
@@ -151,7 +155,7 @@ final class CentreRouteTests: XCTestCase {
 
     // MARK: - What the old stack decided by z-order, now a fact
 
-    /// **Two overlays are never both offered.** The old stack's comment said
+    /// **Two covers are never both offered.** The old stack's comment said
     /// so ("the two are never both offered") and nothing checked it: the board
     /// and Publish's surface were layered one over the other, and only the
     /// persona predicates kept them apart. Over the whole product: the board's
@@ -174,22 +178,41 @@ final class CentreRouteTests: XCTestCase {
         }
     }
 
-    /// **A notice only ever stood over altitude**, which is why it is carried
-    /// by `.altitude(notice:)` rather than being an overlay of its own: the
-    /// publish rule answers `.notice` only where `subjectShowsAltitude` is
-    /// true, so folding the two loses nothing.
-    func test_aNoticeOnlyEverStandsOverAltitude() {
+    /// **Every project-level cover stands on altitude.** The notice, the
+    /// board, the book and the gate only ever appear where the altitude layer
+    /// is mounted beneath them — so the notice explains a corkboard that is
+    /// really there, and a cover coming or going never decides whether altitude
+    /// is mounted. The round alone may cover a chapter.
+    func test_everyProjectLevelCoverStandsOnAltitude() {
+        for persona in Persona.allCases {
+            for shape in Shape.allCases {
+                for wall in [false, true] {
+                    for publish in PublishState.allCases {
+                        guard case .editor(let altitude, let cover?) =
+                                Self.route(persona, shape, wall: wall, publish)
+                        else { continue }
+                        if case .translationRound = cover { continue }
+                        XCTAssertTrue(altitude,
+                                      "\(persona), \(shape), \(publish): \(cover) with "
+                                      + "no corkboard under it")
+                    }
+                }
+            }
+        }
+    }
+
+    /// **The altitude layer is the rule's answer whatever covers it** — the
+    /// fact the layer's identity rests on.
+    func test_theAltitudeLayerIsTheRulesAnswerWhateverCoversIt() {
         for persona in Persona.allCases {
             for shape in Shape.allCases {
                 for publish in PublishState.allCases {
-                    guard case .notice = ProjectWindow.publishCentre(
-                        persona: persona, subject: shape.subject, structure: Self.structure,
-                        preview: publish.preview, proposal: publish.proposal,
-                        round: publish.round) else { continue }
-                    XCTAssertTrue(ProjectWindow.subjectShowsAltitude(
+                    guard case .editor(let altitude, _) =
+                            Self.route(persona, shape, wall: false, publish)
+                    else { continue }
+                    XCTAssertEqual(altitude, ProjectWindow.subjectShowsAltitude(
                         persona: persona, subject: shape.subject, structure: Self.structure),
-                        "\(persona), \(shape), \(publish): a notice with no "
-                        + "corkboard under it")
+                        "\(persona), \(shape), \(publish)")
                 }
             }
         }
@@ -205,17 +228,17 @@ final class CentreRouteTests: XCTestCase {
         }
         XCTAssertTrue(altitude(.review), "premise: Review's project row answers altitude too")
         XCTAssertEqual(Self.route(.review, .project, wall: false, .nothingCompiled),
-                       .editor(overlay: .reviewBoard),
+                       .editor(altitude: true, cover: .reviewBoard),
                        "the board was the layer OVER the corkboard")
         XCTAssertTrue(altitude(.publish), "premise: so does Publish's")
         XCTAssertEqual(Self.route(.publish, .project, wall: false, .compiled),
-                       .editor(overlay: .books([Self.book])),
+                       .editor(altitude: true, cover: .books([Self.book])),
                        "the book was the LAST layer")
         XCTAssertEqual(Self.route(.publish, .project, wall: false, .proposal),
-                       .editor(overlay: .designGate(Self.proposal)),
+                       .editor(altitude: true, cover: .designGate(Self.proposal)),
                        "the gate outranks the book")
         XCTAssertEqual(Self.route(.publish, .project, wall: false, .proposalAndRound),
-                       .editor(overlay: .translationRound(Self.round)),
+                       .editor(altitude: true, cover: .translationRound(Self.round)),
                        "the round outranks the gate")
         XCTAssertNotNil(ProjectWindow.researchSubjectPlacement(
             persona: .review, subject: .research("res-1")).centreItemID,
@@ -257,8 +280,7 @@ final class CentreRouteTests: XCTestCase {
                 ProjectWindow.centreRoute(
                     persona: .author, subject: .item(piece.id), projectType: .novel,
                     structure: [piece], showsPaletteWall: false, preview: .nothingCompiled),
-                piece.path == nil ? .editor(overlay: .altitude(notice: nil))
-                                  : .editor(overlay: nil),
+                .editor(altitude: piece.path == nil, cover: nil),
                 "only a COLLECTION's reference piece takes the arm")
         }
     }
@@ -273,13 +295,13 @@ final class CentreRouteTests: XCTestCase {
     }
 
     /// **`editorPane` is one switch over the route, and `manuscriptEditor`'s
-    /// stack is the host FIRST and one switch over the overlay** — every
-    /// surface in its own arm and none layered beside the switch, so which one
-    /// shows is the route's answer and never a z-order. Neither builder asks a
-    /// routing rule of its own.
+    /// stack is the host FIRST, altitude SECOND, and one switch over the
+    /// cover** — every cover in its own arm and none layered beside the
+    /// switch, so which one shows is the route's answer and never a z-order.
+    /// Neither builder asks a routing rule of its own.
     func test_theCentreIsRenderedByOneSwitchPerLevel() throws {
         XCTAssertEqual(CentreRouteSource.paneFaults(in: try CentreRouteSource.pane()), [])
-        XCTAssertEqual(CentreRouteSource.overlayFaults(in: try CentreRouteSource.editorArm()), [])
+        XCTAssertEqual(CentreRouteSource.stackFaults(in: try CentreRouteSource.editorArm()), [])
     }
 
     /// **The planted controls**: each census above fires on the shape it bans.
@@ -289,7 +311,7 @@ final class CentreRouteTests: XCTestCase {
         static func centreRoute() -> CentreRoute {
             showsPaletteWallCentre(); researchSubjectPlacement(); editorRoute()
             publishCentre(); reviewCentreShowsBoard()
-            if !selectionIsDocument(subject, in: structure) { return .editor(overlay: .altitude(notice: nil)) }
+            return .editor(altitude: !selectionIsDocument(subject, in: structure), cover: nil)
         }
         """
         XCTAssertEqual(CentreRouteSource.compositionFaults(in: restating),
@@ -303,7 +325,7 @@ final class CentreRouteTests: XCTestCase {
             switch Self.centreRoute(persona: persona,
                                     subject: subject) {
             case .canvas: canvasCentre(store: store)
-            case .editor(let overlay): manuscriptEditor(overlay: overlay)
+            case .editor(let altitude, let cover): manuscriptEditor(altitude: altitude, cover: cover)
             }
         }
         """
@@ -324,41 +346,96 @@ final class CentreRouteTests: XCTestCase {
                         "has no switch over the route",
                         "asks Self.showsPaletteWallCentre( itself"])
 
-        // The old stack: a surface layered beside the switch, decided by z-order.
-        let layered = """
+        // The compliant stack, as production spells it: no fault.
+        let compliant = """
         private func manuscriptEditor() -> some View {
             ZStack {
                 EditorHost()
-                if Self.reviewCentreShowsBoard(persona: p) { ReviewBoardPane() }
-                switch overlay {
-                case .altitude(let notice):
-                    ProjectAltitudePane().background(Color.white)
+                if altitude {
+                    ProjectAltitudePane()
+                    .background(Color.white)
+                }
+                switch cover {
+                case .notice(let notice): PublishCentreNoticeBanner()
+                case .reviewBoard: ReviewBoardPane()
                 case .books(let publications): PublishPreviewCentre()
                 case .designGate(let proposal): DesignGateView()
                 case .translationRound(let round): TranslationRoundReportHost()
-                case .reviewBoard: EmptyView()
                 case .none: EmptyView()
                 }
             }
         }
         """
-        XCTAssertEqual(CentreRouteSource.overlayFaults(in: layered),
+        XCTAssertEqual(CentreRouteSource.stackFaults(in: compliant), [])
+
+        // The old stack: a cover layered beside the switch, decided by z-order,
+        // and the notice moved into another arm.
+        let layered = """
+        private func manuscriptEditor() -> some View {
+            ZStack {
+                EditorHost()
+                if altitude {
+                    ProjectAltitudePane()
+                    .background(Color.white)
+                }
+                if Self.reviewCentreShowsBoard(persona: p) { ReviewBoardPane() }
+                switch cover {
+                case .notice(let notice): EmptyView()
+                case .reviewBoard: EmptyView()
+                case .books(let publications):
+                    PublishPreviewCentre()
+                    PublishCentreNoticeBanner()
+                case .designGate(let proposal): DesignGateView()
+                case .translationRound(let round): TranslationRoundReportHost()
+                case .none: EmptyView()
+                }
+            }
+        }
+        """
+        XCTAssertEqual(CentreRouteSource.stackFaults(in: layered),
                        ["asks Self.reviewCentreShowsBoard( itself",
-                        "PublishCentreNoticeBanner( is mounted outside the `.altitude` arm",
+                        "PublishCentreNoticeBanner( is not mounted in the `.notice` arm",
+                        "PublishCentreNoticeBanner( is mounted outside the `.notice` arm",
+                        "ReviewBoardPane( is not mounted in the `.reviewBoard` arm",
                         "ReviewBoardPane( is mounted outside the `.reviewBoard` arm"])
 
-        // The host inside the switch: its identity would follow the overlay.
+        // Altitude moved into the cover switch: its identity would follow the
+        // cover, which is the remount this layer exists to avoid — and a
+        // second altitude mount beside it is caught too.
+        let altitudeInside = """
+        private func manuscriptEditor() -> some View {
+            ZStack {
+                EditorHost()
+                switch cover {
+                case .notice(let notice):
+                    ProjectAltitudePane().background(Color.white)
+                    PublishCentreNoticeBanner()
+                case .reviewBoard: ReviewBoardPane()
+                case .books(let publications): PublishPreviewCentre()
+                case .designGate(let proposal): DesignGateView()
+                case .translationRound(let round): TranslationRoundReportHost()
+                case .none: ProjectAltitudePane()
+                }
+            }
+        }
+        """
+        XCTAssertEqual(CentreRouteSource.stackFaults(in: altitudeInside),
+                       ["the altitude layer is not gated on `if altitude` between "
+                        + "EditorHost( and the cover switch",
+                        "ProjectAltitudePane( is mounted outside the altitude layer"])
+
+        // The host inside the switch: its identity would follow the cover.
         let hostInside = """
         private func manuscriptEditor() -> some View {
             ZStack {
-                switch overlay {
+                switch cover {
                 case .none: EditorHost()
                 }
             }
         }
         """
-        XCTAssertTrue(CentreRouteSource.overlayFaults(in: hostInside)
-            .contains("EditorHost( is not mounted before the overlay switch"))
+        XCTAssertTrue(CentreRouteSource.stackFaults(in: hostInside)
+            .contains("EditorHost( is not mounted before the cover switch"))
     }
 }
 
@@ -384,10 +461,9 @@ enum CentreRouteSource {
         try SourceTree.declaration(named: "func manuscriptEditor(", under: "Maugham", base: base)
     }
 
-    /// Each overlay case, and the surface its arm must mount.
-    static let surfaces: [(overlay: String, view: String)] = [
-        ("altitude", "ProjectAltitudePane("),
-        ("altitude", "PublishCentreNoticeBanner("),
+    /// Each cover case, and the surface its arm must mount.
+    static let covers: [(cover: String, view: String)] = [
+        ("notice", "PublishCentreNoticeBanner("),
         ("reviewBoard", "ReviewBoardPane("),
         ("books", "PublishPreviewCentre("),
         ("designGate", "DesignGateView("),
@@ -478,28 +554,48 @@ enum CentreRouteSource {
         return faults
     }
 
-    /// What is wrong with `manuscriptEditor`: `EditorHost` must come before the
-    /// one switch over the overlay and outside it, every surface must be in its
-    /// own arm (the altitude arm opaque), and no routing rule is asked here.
-    static func overlayFaults(in arm: String) -> [String] {
+    /// What is wrong with `manuscriptEditor`: `EditorHost` first and outside
+    /// the one switch over the cover; then the altitude layer, gated on
+    /// `if altitude`, opaque, and mounted nowhere else; then each cover in its
+    /// own arm and nowhere else; and no routing rule asked here.
+    static func stackFaults(in arm: String) -> [String] {
         var faults: [String] = []
         let code = SourceScan.codeLines(of: arm)
         let joined = code.joined(separator: "\n")
         for gate in gates where joined.contains(gate) { faults.append("asks \(gate) itself") }
         guard joined.contains("ZStack") else { return faults + ["has no ZStack"] }
-        guard let overlay = switchArms(in: arm, over: "switch overlay") else {
-            return faults + ["has no switch over the overlay"]
+        guard let cover = switchArms(in: arm, over: "switch cover") else {
+            return faults + ["has no switch over the cover"]
+        }
+        func count(_ token: String, in lines: [String]) -> Int {
+            lines.reduce(0) { $0 + $1.components(separatedBy: token).count - 1 }
         }
         let host = code.firstIndex(where: { $0.contains("EditorHost(") })
-        if host == nil || host! > overlay.line
-            || overlay.arms.values.joined().contains(where: { $0.contains("EditorHost(") }) {
-            faults.append("EditorHost( is not mounted before the overlay switch")
+        if host == nil || host! > cover.line
+            || cover.arms.values.joined().contains(where: { $0.contains("EditorHost(") }) {
+            faults.append("EditorHost( is not mounted before the cover switch")
         }
-        for (name, view) in surfaces where !overlay.arm(name).contains(view) {
-            faults.append("\(view) is mounted outside the `.\(name)` arm")
+        // The altitude layer: from `if altitude {` (after the host) up to the
+        // switch, holding the one altitude mount and its opaque background.
+        let start = (host ?? 0)
+        let gate = code.indices.first { $0 > start && $0 < cover.line
+            && code[$0].contains("if altitude {") }
+        let layer = gate.map { Array(code[$0..<cover.line]) } ?? []
+        if count("ProjectAltitudePane(", in: layer) != 1 {
+            faults.append("the altitude layer is not gated on `if altitude` between "
+                          + "EditorHost( and the cover switch")
+        } else if !layer.contains(where: { $0.contains(".background(") }) {
+            faults.append("the altitude layer is not opaque")
         }
-        if !overlay.arm("altitude").contains(".background(") {
-            faults.append("the altitude arm is not opaque")
+        if count("ProjectAltitudePane(", in: code) > count("ProjectAltitudePane(", in: layer) {
+            faults.append("ProjectAltitudePane( is mounted outside the altitude layer")
+        }
+        for (name, view) in covers {
+            let inArm = count(view, in: cover.arms[name] ?? [])
+            if inArm == 0 { faults.append("\(view) is not mounted in the `.\(name)` arm") }
+            if count(view, in: code) > inArm {
+                faults.append("\(view) is mounted outside the `.\(name)` arm")
+            }
         }
         return faults
     }
