@@ -7,7 +7,7 @@ The `claude -p` runs Maugham spawns and everything they read and answer. ⌘R (�
 Every file in `Maugham/Compiler/` appears once.
 
 ### Sessions and their lifetime
-- `AgentRoster.swift` — the project session's `claude` services (compiler, translator, designer, `ColdCall`, the pipeline, the translation-run log) and the one teardown order: `shutdownAll()`, `detachAll()`, `updateModel(_:)`, pipeline first.
+- `AgentRoster.swift` — the project session's `claude` services (compiler, translator, designer, `ColdCall`, the pipeline, the translation-run log) and the one teardown order: `shutdownAll()` and `detachAll()`, pipeline first; `updateModel(_:)` reaches every spawner but `ColdCall`.
 - `ClaudeCLISession.swift` — the warm subprocess: `arguments`, `Confinement` (`.bridged`/`.sealed`), `writeMCPConfig`, `generation`, the idle, silence and run budgets, the death join.
 - `CompilerRunner.swift` — the protocol every orchestrator holds: `send(message:systemPreamble:) -> CompilerRunEvent`, `sessionEpoch`, every way a run fails (`CompilerRunFailure`, `.Stall`).
 - `CompilerAllowlist.swift` — the enumerated read-only MCP tools, passed as `--allowedTools`.
@@ -142,7 +142,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **Entering Author never starts a session; only the first run does**: `CompilerOrchestrator.ensureRunner`, called only from `beginRun` (the continuation `runRequested` hands off to).
 - **The AI toggle going off kills every service**: `CompilerRunModifier`'s `.onChange(of: mcpEnabled)` calls `roster.shutdownAll()`, and `ClaudeCLISession` re-reads the toggle before every spawn.
 - **App quit kills every project's services**: `CompilerRunModifier`'s `.maughamAppWillTerminate` arm and `MaughamApp`'s observer through `ProjectSessionRegistry.shutdownAll()`, which reaches rosters no window holds.
-- **A window closing gives its session back, never closes it**: `.onDisappear` calls `sessions.release(`, which runs `ProjectSession.detachWindow` (`roster.detachAll()`); the last release closes the session, detaching services BEFORE the `DocumentStore` closes.
+- **A window closing gives its session back, never closes it**: `.onDisappear` calls `sessions.release(`, which hands the attachment to the newest other live window, else runs `ProjectSession.detachWindow` (`roster.detachAll()`), so closing one of two windows ends nothing; the last release closes the session, detaching services BEFORE the `DocumentStore` closes.
 - **Idle death after ~10 min** (`idleTimeout`, 600 s; `idleDidExpire` refuses mid-turn). The per-turn budget is a SILENCE budget, `defaultSilenceTimeout` (180 s, reset by every line, thinking included), under `defaultRunTimeout` (1,200 s) for every session type. A stall carries `CompilerRunFailure.Stall`, worded by `RoundNarrative.stallCopy`.
 - **Death mid-run fails that run once; the next keystroke starts fresh**: `finish`'s `.failed` arm leaves the marker and the intent hash where they were.
 - **The ⌘⇧R lifetime row: Fresh Eyes kills and replaces the session in one act** (`beginRun`'s `if freshEyes { retireSession() }`), BELOW the in-flight refusal, the generation check and the empty-delta guard, so a refused or empty press costs nothing (`CompilerRunCommandTests.test_freshEyesWithNothingToReadKeepsTheWarmSession`).
@@ -155,7 +155,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **`writeMCPConfig` sweeps configs older than a day** (`StaleFileSweep`); never shorter, or it deletes a warm session's live config.
 - **A test fixture over a `production` environment inherits every closure it does not replace**, machine-global ones included; replace `writeMCPConfig` too (`test_theFixtureWritesItsBridgeConfigInsideItsOwnProject`). Never count the shared directory.
 - **The death verdict is a JOIN of stdout's EOF and the process's exit**, bounded by `defaultDeathReapGrace` (2 s), in either order. A verdict for a retired generation is ignored, so a send inside the grace spawns fresh.
-- **`--resume` is pre-authorized and not built** (ADR 0028 §4; check `ClaudeCLISession.arguments`). It would be a second `CompilerRunner` conformer plus one line in `CompilerEnvironment+Project.swift`, and must still answer `sessionEpoch`, which `previousHash` uses to elide an unchanged intent.
+- **`--resume` is pre-authorized and not built** (ADR 0028 §4; check `ClaudeCLISession.arguments`): a second `CompilerRunner` conformer that must still answer `sessionEpoch`.
 
 ### The delta, the stage and the process
 - **The delta marker is the CHECK's; a round neither reads nor moves it.** A round is built `since: nil`; the empty-delta arm advances the marker for a `.check` only (`test_anEmptyDeltaStillAdvancesTheMarker`, `test_anEmptyPieceMovesNoMarkerForARound`).
@@ -216,7 +216,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **`latestRound(forPass:docId:)` reads the round slot directly, never the shadow** (its readers want the round in flight), then walks the ring newest-first. A lane aged out of the ring answers `nil` and mints round 1.
 - **`RoundFingerprint` is the one round-over-round join key** (section + clause quote + anchor + reader category, never prose); its `stringValue` is the dedupe key and a synced format. `RoundRecord.fingerprints` is written empty.
 - **The mint refuses a finding already open in ANY lane** (one finding is one note), keyed on `compilerFingerprint`. A re-punctuated continuity cite can slip past; it gets no machinery.
-- **The mint answers `MintOutcome` (`minted`, `openInOtherLanes`)**: distinct findings refused where NO lane holding them is the round's own. The mint loop's `taken` map is fingerprint → SET of lanes, because one fingerprint can be held by two open notes.
+- **The mint answers `MintOutcome` (`minted`, `openInOtherLanes`)**: distinct findings refused where NO lane holding them is the round's own. The mint loop's `taken` map is fingerprint → SET of lanes, because one fingerprint can be held by two open notes. The count is taken there and nowhere else (a second scan could disagree with what the mint refused), because `SinceLastRound.compute` is lane-local by design. It rides `CompilerRun` as an optional field.
 - **`reopenAnnotation` has no fingerprint-collision guard and must not grow one**: reopening takes a note back; it claims nothing about any other note.
 - **The cross-lane wording lives only in `RoundNarrative.openInOtherLanes(_:)`**, PAST tense (a snapshot at the mint), for `sinceLastRoundLine`, `freshEyesHeader` and the pane. An own-lane match is persisting, never counted twice; it counts NOTES only.
 - **Neither round sentence draws in Author's pane**: `sinceLastRoundLine` refuses a check, and both sentences live in the cockpit (`AnnotationsPane.cockpitReportLine`) (`DiagnosticsPaneTests.test_neitherRoundSentenceIsDrawnOverAColdCheck`).
@@ -326,13 +326,13 @@ Every file in `Maugham/Compiler/` appears once.
 ## Recipes
 
 ### Add a compiler role (a new `claude` service)
-1. Put the orchestrator in `Maugham/Compiler/<Name>Orchestrator.swift` on the rails: a closure `Environment`, a runner minted through `Environment.makeRunner` (a `CompilerRunner`), `runGeneration` checked after every suspension, `shutdown()` (ends the session, stays usable), `detach()` (also drops the environment), `updateModel(_:)` if it spawns on the depth menu's model.
-2. Pick confinement. Bridged: `writeMCPConfig` + `CompilerAllowlist`, and add any read it needs to `CompilerAllowlist.swift` (the allowlist census still finds no writer). Sealed: go through `ColdCall`, never your own `.sealed` session (`test_theOnlySealedSpawnerIsColdCall`).
+1. Put the orchestrator in `Maugham/Compiler/<Name>Orchestrator.swift` on the rails: a closure `Environment`, a runner minted through `Environment.makeRunner` (a `CompilerRunner`), `runGeneration` checked after every suspension, `shutdown()` (ends the session, stays usable), `detach()` (also drops the environment), `updateModel(_:)` if it spawns on the depth menu's model (lazily: `ensureRunner` compares at the next spawn; never kill a turn in flight).
+2. Pick confinement, and spawn through `ClaudeCLISession`. Bridged: `writeMCPConfig` + `CompilerAllowlist`, and add any read it needs to `CompilerAllowlist.swift` (the allowlist census still finds no writer). Sealed: go through `ColdCall`, never your own `.sealed` session (`test_theOnlySealedSpawnerIsColdCall`). A raw one-shot `Process` (the `ClaudeWorldDeriver` precedent) copies its argv whole (`--tools ""`, `--setting-sources ""`, `--system-prompt`, an explicit `--effort`, never `--bare`) and drains stdout while it runs. The censuses catch only a missing `--setting-sources` and an `--append-system-prompt`, so a dropped `--tools ""` lets the model read any file without anything turning red.
 3. Write the production factory as a peer, `Maugham/Compiler/<Name>Environment+Project.swift`, every capture weak. If it writes, write through the writer's existing doors, from one arm reachable only with a parsed report.
 4. Join the roster in `Maugham/Compiler/AgentRoster.swift`: a stored property and an `init` parameter; its `shutdown()` in `shutdownAll()` and `detach()` in `detachAll()`, after the pipeline; `updateModel` if step 1 added it.
 5. A member holding no runner gets a `nonHoldingMembers` entry (and `noTeardownMembers` if it has no teardown) in `MaughamTests/TranslatorEnvironmentTests.swift`. Hold the runner directly: a collection of runners is invisible to the census.
 6. Wire it in `Maugham/Stores/ProjectSession.swift`'s `attachWindow` (never `open`), and add its `configure(` token to the list in `test_everyWindowEndingPathShutsEverySessionDown`.
-7. If a pane needs it, read it in `Maugham/Views/DetailPaneToggle.swift` through `@Environment(AgentRoster.self)`.
+7. If a pane needs it, read it in `Maugham/Views/DetailPaneToggle.swift` through `@Environment(AgentRoster.self)`, and add its tokens to that test's `DetailPaneToggle` list.
 8. Test fixtures over `.production` replace `writeMCPConfig` too.
 
 Checks: `TranslatorEnvironmentTests`, `AgentRosterTests`, `ClaudeCLISessionTests`, the spawn-flag censuses in `TripwireGrepTests`.

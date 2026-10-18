@@ -1055,7 +1055,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// can establish either. A run that reads the amended prose and phrases the
     /// candidate the way the writer already ruled it would invite them to bless
     /// their own decision a second time, and `RulingsSection.appending` does
-    /// not dedupe: that is door 3's duplicate ruling row (AREA.md), reached
+    /// not dedupe: that is door 3's duplicate ruling row (`docs/history/compiler.md`), reached
     /// through correction instead of bless.
     ///
     /// Its other half is the test above it,

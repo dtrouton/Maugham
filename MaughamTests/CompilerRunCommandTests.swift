@@ -2493,7 +2493,7 @@ final class CompilerRunCommandTests: XCTestCase {
         """
 
     /// **The bible loop, across three runs, with a bless in the middle** — the
-    /// composition nothing walked until now (`Maugham/Compiler/AREA.md`, "the
+    /// composition nothing walked until now (`docs/history/compiler.md`, "the
     /// third door": *"no test walks the bible loop across two runs at all"*).
     ///
     /// Production the whole way but the two subprocesses: the real orchestrator
