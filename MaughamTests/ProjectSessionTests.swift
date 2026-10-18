@@ -121,6 +121,27 @@ final class ProjectSessionTests: XCTestCase {
         XCTAssertEqual(ProjectSession.loadStep(live: nil, requested: a), .open)
     }
 
+    /// The live session's `url` is its first opener's spelling; another
+    /// window's spelling of the SAME folder must reuse it, not churn its
+    /// borrow (final review M3) — the registry's own key decides.
+    func test_anotherSpellingOfTheLiveFolderReusesTheLiveSession() throws {
+        let folder = TestTemp.root.appendingPathComponent("Book", isDirectory: false)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let link = TestTemp.root.appendingPathComponent("BookLink")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: folder)
+        let slashed = URL(fileURLWithPath: folder.path + "/")
+        let detour = folder.appendingPathComponent("..", isDirectory: true)
+            .appendingPathComponent("Book", isDirectory: true)
+
+        XCTAssertNotEqual(folder, slashed, "premise: URL equality tells the spellings apart")
+        for spelling in [slashed, link, detour] {
+            XCTAssertEqual(ProjectSession.loadStep(live: folder, requested: spelling), .reuseLive,
+                           "\(spelling.path) is the live folder")
+            XCTAssertEqual(ProjectSession.loadStep(live: spelling, requested: folder), .reuseLive,
+                           "\(spelling.path) is the live folder")
+        }
+    }
+
     /// …and the window's `load()` acts on it, borrowing through the registry
     /// (Task 3): it asks the decision, gives the previous project's borrow
     /// back (AWAITED) before it acquires, opens through `ProjectSession`

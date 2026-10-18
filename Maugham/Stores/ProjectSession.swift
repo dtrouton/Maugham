@@ -262,9 +262,16 @@ final class ProjectSession {
     /// seal/rotate sweep whose rotation deletes — under Documents the live
     /// store still has registered; and a previous session closed alongside a
     /// new open, rather than before it, races the two.
+    ///
+    /// Compared by `ProjectSessionRegistry.key(for:)`, never by `URL`
+    /// equality: the live session's `url` is its FIRST opener's spelling, and
+    /// a window that reached the same folder by another (a symlink, a
+    /// trailing `/`) would otherwise read as a different project and give its
+    /// borrow back only to take it again.
     static func loadStep(live: URL?, requested: URL) -> LoadStep {
         guard let live else { return .open }
-        return live == requested ? .reuseLive : .closeLiveThenOpen
+        return ProjectSessionRegistry.key(for: live) == ProjectSessionRegistry.key(for: requested)
+            ? .reuseLive : .closeLiveThenOpen
     }
 
     /// The stores' end — `ProjectSessionRegistry`'s last release of any kind
