@@ -271,16 +271,89 @@ final class SourceTreeTests: XCTestCase {
                              "a count over a Swift-less root must fail, never read zero")
     }
 
-    func test_keyedByTypeFoldsTheTypesFilesAndThrowsOnAnUnresolvedKey() throws {
+    func test_keyedByTypeFoldsTheTypesDeclarationsAndThrowsOnAnUnresolvedKey() throws {
         try plant("Maugham/Views/ProjectWindow.swift", "struct ProjectWindow {}\n")
-        try plant("Maugham/Views/ProjectWindow+X.swift", "extension ProjectWindow {}\n")
+        try plant("Maugham/Views/ProjectWindow+X.swift", """
+        extension ProjectWindow {
+            func a() {}
+        }
+        struct Child {
+            func b() {}
+        }
+        """)
         let roots = [base.appendingPathComponent("Maugham", isDirectory: true)]
         XCTAssertEqual(
-            try SourceTree.keyedByType(["ProjectWindow+X.swift", "Other.swift"],
+            try SourceTree.keyedByType([SourceTree.Hit(file: "ProjectWindow+X.swift", line: 2),
+                                        SourceTree.Hit(file: "Other.swift", line: 1)],
                                        typeKeys: ["type:ProjectWindow"], in: roots),
             ["type:ProjectWindow", "Other.swift"])
-        XCTAssertThrowsError(try SourceTree.keyedByType(["Other.swift"],
+        XCTAssertEqual(
+            try SourceTree.keyedByType([SourceTree.Hit(file: "ProjectWindow+X.swift", line: 5)],
+                                       typeKeys: ["type:ProjectWindow"], in: roots),
+            ["ProjectWindow+X.swift"],
+            "a hit in a child view sharing the file is the file's own, not the type's")
+        XCTAssertThrowsError(try SourceTree.keyedByType([SourceTree.Hit(file: "Other.swift", line: 1)],
                                                         typeKeys: ["type:NoSuchType"], in: roots))
+    }
+
+    // Plan 2 final review, I1: a type key claims DECLARATIONS, not files.
+    func test_declarationRangesAreHeaderThroughBraceMatchedClose() throws {
+        try plant("App/Mixed.swift", """
+        import SwiftUI
+
+        @MainActor
+        extension Widget where T: Equatable {
+            func a() { let s = "}" }
+        }
+
+        struct ChildView {
+            func b() {}
+        }
+
+        private extension Widget {
+            var c: Int { 1 }
+        }
+        // extension Widget { — a comment never declares
+        """)
+        let ranges = try SourceTree.declarationRanges(of: "Widget", under: ["App"], base: base)
+        XCTAssertEqual(ranges, ["App/Mixed.swift": [4...6, 12...14]])
+    }
+
+    // Plan 2 final review, I2: access modifiers are not part of a header.
+    func test_declarationIgnoresAccessModifiersOnBothSides() throws {
+        try plant("App/A.swift", "struct A {\n    func f() { 1 }\n}\n")
+        try plant("App/B.swift", "extension B {\n    fileprivate static func g() { 2 }\n}\n")
+        XCTAssertEqual(try SourceTree.declaration(named: "private func f(", under: "App", base: base),
+                       "    func f() { 1 }",
+                       "a private header finds the declaration a split made internal")
+        XCTAssertEqual(try SourceTree.declaration(named: "static func g(", under: "App", base: base),
+                       "    fileprivate static func g() { 2 }")
+        XCTAssertEqual(try SourceTree.declaration(named: "private static func g(", under: "App", base: base),
+                       "    fileprivate static func g() { 2 }")
+        // Uniqueness still holds across modifiers.
+        try plant("App/C.swift", "struct C {\n    private func f() { 3 }\n}\n")
+        XCTAssertThrowsError(try SourceTree.declaration(named: "func f(", under: "App", base: base))
+        XCTAssertThrowsError(try SourceTree.declaration(named: "private func f(", under: "App", base: base))
+        XCTAssertEqual(SourceTree.withoutAccessModifiers("@MainActor public final func h("),
+                       "@MainActor final func h(")
+    }
+
+    // Plan 2 final review, M5: a file ending inside a string or comment is a
+    // masker that lost its place, and is reported rather than read blind.
+    func test_aFileEndingInsideAStringOrCommentIsReported() throws {
+        try plant("Maugham/Views/Fine.swift", "let a = \"x\" // ok\n")
+        XCTAssertNoThrow(try SourceTree.sources(under: "Maugham/Views", base: base))
+        for (name, text) in [("Open.swift", "let a = 1\n/* never closed\nbanned()\n"),
+                             ("String.swift", "let r = /\"/\nbanned()\n"),
+                             ("Multiline.swift", "let s = \"\"\"\nbanned()\n")] {
+            try plant("Maugham/Views/\(name)", text)
+            XCTAssertThrowsError(try SourceTree.sources(under: "Maugham/Views", base: base)) { error in
+                XCTAssertTrue(String(describing: error).contains(name), "\(error)")
+            }
+            XCTAssertThrowsError(try SourceTree.codeLines(containing: "banned(", base: base),
+                                 "\(name): a ban must not read past the lost place")
+            try FileManager.default.removeItem(at: base.appendingPathComponent("Maugham/Views/\(name)"))
+        }
     }
 
     // (g)

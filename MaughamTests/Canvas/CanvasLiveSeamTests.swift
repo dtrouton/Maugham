@@ -227,10 +227,9 @@ final class CanvasLiveSeamTests: XCTestCase {
                        + "and draw as empty rectangles until the writer clicks")
         // Keyed by TYPE: every file declaring `ProjectWindow` answers as
         // `type:ProjectWindow`, so a split of the window moves nothing here.
-        XCTAssertEqual(try SourceTree.keyedByType(
-                           try assigners(of: "liveCanvas", excluding: "ProjectStore.swift"),
-                           typeKeys: ["type:ProjectWindow"],
-                           in: [CanvasSourceCensus.repoRoot.appendingPathComponent("Maugham")]),
+        XCTAssertEqual(try liveCanvasAssignerSites(
+                           in: CanvasSourceCensus.productionFiles(),
+                           root: CanvasSourceCensus.repoRoot.appendingPathComponent("Maugham")),
                        ["type:ProjectWindow"],
                        "if this is empty, the store's reference is never set and "
                        + "every tool sees nil — so every write goes to the sidecar "
@@ -412,6 +411,45 @@ final class CanvasLiveSeamTests: XCTestCase {
             .filter { $0.name != definer && assigns(token, in: $0.source) }
             .map(\.name)
             .sorted()
+    }
+
+    /// Who assigns `liveCanvas` in `files` (all under `root`), per LINE and
+    /// keyed by type: an assignment inside `ProjectWindow`'s declarations is
+    /// `type:ProjectWindow`; one in a child view sharing a window file is that
+    /// file's own (plan 2 final review, I1).
+    private func liveCanvasAssignerSites(in files: [(name: String, source: String)],
+                                         root: URL) throws -> Set<String> {
+        var hits: [SourceTree.Hit] = []
+        for file in files where file.name != "ProjectStore.swift" {
+            let lines = CanvasSourceCensus.commentsStripped(file.source).components(separatedBy: "\n")
+            for (index, line) in lines.enumerated() where assigns("liveCanvas", in: line) {
+                hits.append(SourceTree.Hit(file: file.name, line: index + 1))
+            }
+        }
+        return try SourceTree.keyedByType(hits, typeKeys: ["type:ProjectWindow"], in: [root])
+    }
+
+    /// The control for the type key.
+    func test_aLiveCanvasAssignmentInAChildViewSharingTheWindowsFileIsCaught() throws {
+        let files = [
+            ("ProjectWindow.swift", "struct ProjectWindow {\n    func a() { store.liveCanvas = m }\n}\n"),
+            ("ProjectWindow+Canvas.swift", """
+            /* a block comment
+               spanning lines, so line numbers must survive the strip */
+            extension ProjectWindow {
+                func b() { store.liveCanvas = m }
+            }
+            struct ChildCanvasHost {
+                func c() { store.liveCanvas = other }
+            }
+            """),
+        ]
+        let root = try SourceTree.plantedTree(
+            Dictionary(uniqueKeysWithValues: files.map { ("Maugham/\($0.0)", $0.1) }))
+            .appendingPathComponent("Maugham")
+        XCTAssertEqual(try liveCanvasAssignerSites(in: files.map { (name: $0.0, source: $0.1) },
+                                                   root: root),
+                       ["type:ProjectWindow", "ProjectWindow+Canvas.swift"])
     }
 
     /// Whether `source` contains `token = …` — an assignment, not a comparison

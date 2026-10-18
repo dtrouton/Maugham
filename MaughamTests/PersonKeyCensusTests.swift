@@ -130,7 +130,9 @@ final class PersonKeyCensusTests: XCTestCase {
         // claim's all go through it. A new caller is a new verifier.
         Site(pattern: #"credentialsVerify\("#,
              sample: "OpLogChain.credentialsVerify(c, over: d)",
-             expected: ["type:OpLogChain": 2, "type:OpLogStore": 1,
+             // `SegmentSignature`'s seal check, in `OpLogStore.swift` beside
+             // (not inside) the store: a type key claims declarations.
+             expected: ["type:OpLogChain": 2, "type:SegmentSignature": 1,
                         "RegistryReader.swift": 2]),
     ]
 
@@ -360,13 +362,15 @@ final class PersonKeyCensusTests: XCTestCase {
     /// `MaughamPhone/<file>`, never by the bare name a Mac entry uses.
     static let phoneRootName = SourceTree.phoneRootName
 
-    /// Occurrences of each site's pattern per file under `roots`, counted over
-    /// comment-stripped code lines. Keyed by pattern; a pattern found nowhere
-    /// maps to `[:]`.
-    static func counts(of sites: [Site], in roots: [URL]) throws -> [String: [String: Int]] {
+    /// Occurrences of each site's pattern under `roots`, one entry per
+    /// comment-stripped code LINE that carries any (the line a `type:` key's
+    /// declaration ranges are asked about). Keyed by pattern; a pattern found
+    /// nowhere maps to `[]`. A phone file's hit is keyed `MaughamPhone/<file>`.
+    static func hits(of sites: [Site], in roots: [URL])
+        throws -> [String: [(hit: SourceTree.Hit, value: Int)]] {
         let regexes = try sites.map { ($0.pattern, try NSRegularExpression(pattern: $0.pattern)) }
-        var result: [String: [String: Int]] = [:]
-        for (pattern, _) in regexes { result[pattern] = [:] }
+        var result: [String: [(hit: SourceTree.Hit, value: Int)]] = [:]
+        for (pattern, _) in regexes { result[pattern] = [] }
         for root in roots {
             guard let walker = FileManager.default.enumerator(
                 at: root, includingPropertiesForKeys: nil) else { continue }
@@ -380,34 +384,35 @@ final class PersonKeyCensusTests: XCTestCase {
                 let isPhone = rootIsPhone || between.contains(phoneRootName)
                 let key = (isPhone ? phoneRootName + "/" : "") + url.lastPathComponent
                 let text = try String(contentsOf: url, encoding: .utf8)
-                let lines = SourceScan.codeLines(of: text)
+                let lines = SourceScan.numberedCodeLines(of: text)
                 for (pattern, regex) in regexes {
-                    var n = 0
                     for line in lines {
-                        n += regex.numberOfMatches(
-                            in: line, range: NSRange(line.startIndex..., in: line))
+                        let n = regex.numberOfMatches(
+                            in: line.text, range: NSRange(line.text.startIndex..., in: line.text))
+                        if n > 0 {
+                            result[pattern]!.append((SourceTree.Hit(file: key, line: line.number), n))
+                        }
                     }
-                    if n > 0 { result[pattern]![key, default: 0] += n }
                 }
             }
         }
         return result
     }
 
-    /// `counts`, each site's map re-keyed the way its `expected` is: a Mac or
-    /// Core file a `type:` key claims is counted under that key (the sum over
-    /// the type's files). `SourceTree` never resolves a type into a
+    /// `hits`, each site's re-keyed the way its `expected` is: a Mac or Core
+    /// hit inside a declaration a `type:` key claims is counted under that key
+    /// (the sum over the type's declarations); any other hit under its file. `SourceTree` never resolves a type into a
     /// `MaughamPhone` root, so a phone file is never claimed. `offenders` lists every type key that
     /// resolved to no file.
     static func foldedCounts(
         of sites: [Site], in roots: [URL]
     ) throws -> (counts: [String: [String: Int]], offenders: [String]) {
-        let raw = try counts(of: sites, in: roots)
+        let raw = try hits(of: sites, in: roots)
         var folded: [String: [String: Int]] = [:]
         var offenders: [String] = []
         for site in sites {
             let (byKey, unresolved) = SourceTree.foldingIntoTypeKeys(
-                raw[site.pattern] ?? [:], keyedLike: site.expected.keys,
+                raw[site.pattern] ?? [], keyedLike: site.expected.keys,
                 in: roots, combine: +)
             folded[site.pattern] = byKey
             offenders += unresolved
@@ -421,13 +426,16 @@ final class PersonKeyCensusTests: XCTestCase {
         SourceTree.typeName(ofKey: key).map { "\($0).swift" } ?? key
     }
 
-    /// `sample` × `count` (after `prefix`), declaring the key's type first when
-    /// the key is a `type:` key — the census claims the file by its declaration.
+    /// `sample` × `count` (after `prefix`), wrapped in `extension <Type> { … }`
+    /// when the key is a `type:` key — the census claims the DECLARATION's
+    /// lines, so the sites must sit inside it.
     static func plantedBody(forKey key: String, prefix: [String] = [],
                             repeating sample: String, count: Int) -> String {
-        let declaration = SourceTree.typeName(ofKey: key).map { ["extension \($0) {}"] } ?? []
-        return (declaration + prefix + Array(repeating: sample, count: count))
-            .joined(separator: "\n")
+        let body = prefix + Array(repeating: sample, count: count)
+        guard let type = SourceTree.typeName(ofKey: key) else {
+            return body.joined(separator: "\n")
+        }
+        return (["extension \(type) {"] + body + ["}"]).joined(separator: "\n")
     }
 
     private func assertCensus(_ sites: [Site], named name: String,
@@ -502,7 +510,8 @@ final class PersonKeyCensusTests: XCTestCase {
             // 3a. Appeared under an allow-listed name.
             let allowed = try XCTUnwrap(site.expected.keys.sorted().first)
             let url = dir.appendingPathComponent(Self.plantedName(forKey: allowed))
-            try (try String(contentsOf: url, encoding: .utf8) + "\n" + site.sample)
+            try Self.plantedBody(forKey: allowed, prefix: ["// \(site.sample) — prose only"],
+                                 repeating: site.sample, count: site.expected[allowed]! + 1)
                 .write(to: url, atomically: true, encoding: .utf8)
             var widened = site.expected
             widened[allowed, default: 0] += 1
@@ -511,6 +520,29 @@ final class PersonKeyCensusTests: XCTestCase {
             XCTAssertNotEqual(inAllowed, site.expected,
                 "a second `\(site.pattern)` inside \(allowed) must fail the census",
                 file: file, line: line)
+
+            // 3a′. For a type key: the same file, but OUTSIDE the type's
+            // declaration (a child type sharing the file) is the file's own
+            // site, not the key's (plan 2 final review, I1).
+            if let typeKey = site.expected.keys.sorted()
+                .first(where: { SourceTree.typeName(ofKey: $0) != nil }) {
+                let typeURL = dir.appendingPathComponent(Self.plantedName(forKey: typeKey))
+                let restored = Self.plantedBody(forKey: typeKey, repeating: site.sample,
+                                                count: site.expected[typeKey]!)
+                try (restored + "\nstruct ChildSharingTheFile {\n" + site.sample + "\n}\n")
+                    .write(to: typeURL, atomically: true, encoding: .utf8)
+                let outside = try Self.foldedCounts(of: [site], in: [dir]).counts[site.pattern]
+                XCTAssertEqual(outside?[typeKey], site.expected[typeKey],
+                    "a site outside \(typeKey)'s declaration is not the key's",
+                    file: file, line: line)
+                XCTAssertEqual(outside?[Self.plantedName(forKey: typeKey)], 1,
+                    "it is counted under its own file", file: file, line: line)
+                XCTAssertNotEqual(outside, site.expected,
+                    "and fails the census", file: file, line: line)
+                if typeKey != allowed {
+                    try restored.write(to: typeURL, atomically: true, encoding: .utf8)
+                }
+            }
 
             // 3b. Appeared in a file the site does not name (the allowed file
             // restored first, so this is the only difference).

@@ -344,27 +344,28 @@ final class PersonaPaneRegistryTests: XCTestCase {
     /// rather than pattern-matched so moving the declaration fails loudly here.
     static let passStateWriteDefiner = "ProjectStore+Metadata.swift"
 
-    /// Every production file under `Maugham/` that calls `needle`, by file
-    /// name, ignoring comment-only lines.
+    /// Every line of a production file under `Maugham/` that calls `needle`,
+    /// as a (file name, line number) hit, ignoring comment-only lines.
     ///
-    /// One walker for both censuses below. Comment-only lines are dropped
-    /// first so a doc comment naming a call is never a hit — several of the
-    /// comments in this very milestone name `setPassState` in prose.
+    /// Comment-only lines are dropped first so a doc comment naming a call is
+    /// never a hit — several of the comments in this very milestone name
+    /// `setPassState` in prose. Per LINE, because `type:ProjectWindow` claims
+    /// the window's declarations rather than the files holding them.
     private func callers(of needle: String, excluding excluded: String? = nil,
-                         base: URL = SourceTree.repoRoot) throws -> Set<String> {
+                         base: URL = SourceTree.repoRoot) throws -> [SourceTree.Hit] {
         let sourceDir = base.appendingPathComponent("Maugham", isDirectory: true)
         let fm = FileManager.default
         guard let walker = fm.enumerator(at: sourceDir, includingPropertiesForKeys: nil) else {
             return []
         }
-        var found: Set<String> = []
+        var found: [SourceTree.Hit] = []
         for case let url as URL in walker where url.pathExtension == "swift" {
             if let excluded, url.lastPathComponent == excluded { continue }
             let text = try String(contentsOf: url, encoding: .utf8)
-            let code = text.split(separator: "\n", omittingEmptySubsequences: false)
-                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-                .joined(separator: "\n")
-            if code.contains(needle) { found.insert(url.lastPathComponent) }
+            for (index, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated()
+            where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") && line.contains(needle) {
+                found.append(SourceTree.Hit(file: url.lastPathComponent, line: index + 1))
+            }
         }
         return found
     }
@@ -393,6 +394,29 @@ final class PersonaPaneRegistryTests: XCTestCase {
             """,
         ])
         XCTAssertEqual(try passStateWriters(base: base), ["type:ProjectWindow", "SomeNewPane.swift"])
+    }
+
+    /// **…and only its DECLARATIONS** (plan 2 final review, I1): a write in a
+    /// child view sharing a file with `extension ProjectWindow` answers under
+    /// that FILE, which is not a member — the shape that let a planted
+    /// `setPassState(` in `ResearchSubjectInspector` stay green.
+    func test_thePassStateCensusCatchesAWriteInAChildViewSharingTheWindowsFile() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/ProjectWindow.swift": "struct ProjectWindow: View { }",
+            "Maugham/Views/ResearchSubjectColumns.swift": """
+            extension ProjectWindow {
+                func f() { store.setPassState(p, s) }
+            }
+
+            struct ResearchSubjectInspector: View {
+                func g() { store.setPassState(p, s) }
+            }
+            """,
+        ])
+        let writers = try passStateWriters(base: base)
+        XCTAssertEqual(writers, ["type:ProjectWindow", "ResearchSubjectColumns.swift"])
+        XCTAssertFalse(writers.isSubset(of: Self.passStateWritingFiles),
+                       "the child view's write fails the census")
     }
 
     /// Every production file that still passes a `status:` argument to

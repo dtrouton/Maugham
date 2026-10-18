@@ -92,7 +92,9 @@ enum CanvasSourceCensus {
         for line in source.components(separatedBy: "\n") {
             var line = Substring(line)
             if inBlock {
-                guard let end = line.range(of: "*/") else { continue }
+                // An empty line, not none, so line N of the result is line N
+                // of the source (a type-keyed census asks by line number).
+                guard let end = line.range(of: "*/") else { out += "\n"; continue }
                 line = line[end.upperBound...]
                 inBlock = false
             }

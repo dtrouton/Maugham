@@ -1485,7 +1485,7 @@ final class DetailColumnWidthTests: XCTestCase {
     /// anything a second author could plausibly add a second writer to.
     func test_theWidthIsWrittenFromExactlyOneProductionSite() throws {
         XCTAssertEqual(try Self.filesWritingTheWidth(),
-                       ["ProjectWindow.swift"],
+                       ["type:ProjectWindow"],
                        "only the column's own drag handle may persist this "
                        + "width; anything else is a second author of the "
                        + "writer's layout")
@@ -1498,7 +1498,7 @@ final class DetailColumnWidthTests: XCTestCase {
             try Self.filesWritingTheWidth(
                 plus: ["SomeNewModifier.swift":
                         "documentStore.updateUIState { $0.detailColumnWidth = 280 }"]),
-            ["ProjectWindow.swift", "SomeNewModifier.swift"])
+            ["type:ProjectWindow", "SomeNewModifier.swift"])
     }
 
     /// And the control on the control: prose quoting the write is not a write.
@@ -1507,7 +1507,7 @@ final class DetailColumnWidthTests: XCTestCase {
             try Self.filesWritingTheWidth(
                 plus: ["CommentedOnly.swift":
                         "/// written as `$0.detailColumnWidth = width`, once."]),
-            ["ProjectWindow.swift"])
+            ["type:ProjectWindow"])
     }
 
     // MARK: - Census helpers
@@ -1573,18 +1573,24 @@ final class DetailColumnWidthTests: XCTestCase {
     /// ORDER check reads, wherever the handle lives.
     private static func resizeHandleCodeLines(base: URL = SourceTree.repoRoot) throws -> [String] {
         SourceScan.codeLines(of: try SourceTree.declaration(
-            named: "private func detailResizeHandle(", under: "Maugham", base: base))
+            named: "func detailResizeHandle(", under: "Maugham", base: base))
     }
 
     /// `plus` runs synthetic sources through the identical predicate, so the
     /// two companions above test *this* scan rather than a second copy of it.
+    ///
+    /// Keyed by TYPE, per line: a write inside `ProjectWindow`'s declarations
+    /// answers as `type:ProjectWindow` wherever a split moves it; a write in a
+    /// child view sharing a window file answers under that file.
     private static func filesWritingTheWidth(
-        plus injected: [String: String] = [:]
-    ) throws -> [String] {
+        plus injected: [String: String] = [:],
+        root: URL? = nil
+    ) throws -> Set<String> {
+        let root = root ?? appSourceDir
         var sources: [(name: String, text: String)] = []
         let fm = FileManager.default
         let walker = try XCTUnwrap(
-            fm.enumerator(at: appSourceDir, includingPropertiesForKeys: nil))
+            fm.enumerator(at: root, includingPropertiesForKeys: nil))
         for case let url as URL in walker where url.pathExtension == "swift" {
             sources.append((url.lastPathComponent,
                             try String(contentsOf: url, encoding: .utf8)))
@@ -1592,11 +1598,34 @@ final class DetailColumnWidthTests: XCTestCase {
         sources.append(contentsOf: injected.map { ($0.key, $0.value) }
             .sorted { $0.0 < $1.0 })
 
-        return sources.filter { source in
-            SourceScan.codeLines(of: source.text).contains {
-                $0.contains("$0.detailColumnWidth =")
+        let hits = sources.flatMap { source in
+            SourceScan.numberedCodeLines(of: source.text)
+                .filter { $0.text.contains("$0.detailColumnWidth =") }
+                .map { SourceTree.Hit(file: source.name, line: $0.number) }
+        }
+        return try SourceTree.keyedByType(hits, typeKeys: ["type:ProjectWindow"], in: [root])
+    }
+
+    /// The control for the type key: a write in a child view that shares a
+    /// file with `extension ProjectWindow` is a second writer.
+    func test_theWriteCensusSeesAWriterInAChildViewSharingTheWindowsFile() throws {
+        let root = try SourceTree.plantedTree([
+            "Maugham/ProjectWindow.swift": """
+            struct ProjectWindow {
+                func handle() { documentStore.updateUIState { $0.detailColumnWidth = w } }
             }
-        }.map(\.name)
+            """,
+            "Maugham/ProjectWindow+Columns.swift": """
+            extension ProjectWindow {
+                var x: Int { 1 }
+            }
+            struct ChildColumn {
+                func g() { documentStore.updateUIState { $0.detailColumnWidth = 9 } }
+            }
+            """,
+        ]).appendingPathComponent("Maugham")
+        XCTAssertEqual(try Self.filesWritingTheWidth(root: root),
+                       ["type:ProjectWindow", "ProjectWindow+Columns.swift"])
     }
 
     // MARK: - Hosting

@@ -85,9 +85,12 @@ enum SourceTree {
     }
 
     /// The brace-matched body (header through closing brace) of the ONE declaration
-    /// whose line contains `header` (e.g. "private func manuscriptEditor(",
+    /// whose line contains `header` (e.g. "func manuscriptEditor(",
     /// "static func reviewCentreShowsBoard("), searched across every .swift file
-    /// under `root`. Throws if zero matches or more than one.
+    /// under `root`. Access modifiers are ignored on both sides — `"private func
+    /// f("` finds `func f(` and `fileprivate func f(` — because a split that
+    /// moves a declaration into an extension file must drop `private`. Throws
+    /// if zero matches or more than one. Memoised for the repo's own tree.
     static func declaration(named header: String, under root: String) throws -> String {
         try declaration(named: header, under: root, base: repoRoot)
     }
@@ -123,6 +126,23 @@ enum SourceTree {
     }
 
     static func filesDeclaring(_ typeName: String, under roots: [String], base: URL) throws -> [String] {
+        let memoKey = memoKey(base: base, "filesDeclaring", roots.joined(separator: "|"), typeName)
+        if let memoKey, let known = lookupMemo.withLock({ $0[memoKey] }) { return known }
+        let found = try declarationRanges(of: typeName, under: roots, base: base)
+            .keys.sorted()
+        guard !found.isEmpty else {
+            throw LookupError(description:
+                "SourceTree: no file declares type '\(typeName)' under roots \(roots).")
+        }
+        if let memoKey { lookupMemo.withLock { $0[memoKey] = found } }
+        return found
+    }
+
+    /// The declaration-header pattern for `typeName`: a line whose code (after
+    /// attributes and access/final/@MainActor modifiers) begins
+    /// `class|struct|enum|actor|protocol|extension <typeName>` followed by a
+    /// non-identifier character.
+    private static func declarationPattern(for typeName: String) throws -> NSRegularExpression {
         // An attribute's arguments may nest one level of parens: `@Wrap(f(1))`.
         // Leading space is `[ \t]*`, not `\s*`: a `\s*` that can cross lines
         // backtracks over every blank line and made this regex ~10× slower.
@@ -131,35 +151,80 @@ enum SourceTree {
             + #"(?:class|struct|enum|actor|protocol|extension)\s+"#
             + NSRegularExpression.escapedPattern(for: typeName)
             + #"(?![A-Za-z0-9_])"#
-        let regex = try NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines])
+        return try NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines])
+    }
 
-        var found: [String] = []
+    /// **Where each declaration of `typeName` is**, per repo-relative file
+    /// under `roots`: the 1-based, inclusive LINE range of every
+    /// `class|struct|enum|actor|protocol|extension <typeName>` declaration,
+    /// header through its brace-matched close. Files declaring nothing are
+    /// left out. A `type:` key claims these ranges and nothing else in the
+    /// file — a child view sharing the file is that file's own code.
+    static func declarationRanges(of typeName: String, under roots: [String],
+                                  base: URL) throws -> [String: [ClosedRange<Int>]] {
+        let regex = try declarationPattern(for: typeName)
+        var found: [String: [ClosedRange<Int>]] = [:]
         for root in roots {
             for file in try swiftFiles(under: root, base: base) {
                 let text = try read(file, base: base)
                 // Masking only blanks characters, so a file whose raw text never
                 // names the type cannot declare it; skipping it spares the mask.
                 guard text.contains(typeName) else { continue }
-                let masked = String(decoding: mask(text), as: UTF8.self)
+                let maskedBytes = try checkedMask(text, path: file)
+                let masked = String(decoding: maskedBytes, as: UTF8.self)
                 guard masked.contains(typeName) else { continue }   // named only in comments
-                let range = NSRange(masked.startIndex..., in: masked)
-                if regex.firstMatch(in: masked, range: range) != nil { found.append(file) }
+                let ranges = declarationRanges(matching: regex, masked: masked, bytes: maskedBytes)
+                if !ranges.isEmpty { found[file] = ranges }
             }
-        }
-        guard !found.isEmpty else {
-            throw LookupError(description:
-                "SourceTree: no file declares type '\(typeName)' under roots \(roots).")
         }
         return found
     }
 
+    /// The line ranges of every `regex` match's declaration in one masked file.
+    private static func declarationRanges(matching regex: NSRegularExpression, masked: String,
+                                          bytes: [UInt8]) -> [ClosedRange<Int>] {
+        // Line number of each byte offset, by counting newlines up to it.
+        var lineStarts: [Int] = [0]
+        for (offset, byte) in bytes.enumerated() where byte == newline { lineStarts.append(offset + 1) }
+        func line(ofByte offset: Int) -> Int {
+            var lo = 0, hi = lineStarts.count - 1
+            while lo < hi {
+                let mid = (lo + hi + 1) / 2
+                if lineStarts[mid] <= offset { lo = mid } else { hi = mid - 1 }
+            }
+            return lo + 1
+        }
+        let matches = regex.matches(in: masked, range: NSRange(masked.startIndex..., in: masked))
+        return matches.compactMap { match in
+            guard let range = Range(match.range, in: masked) else { return nil }
+            let start = masked.utf8.distance(from: masked.startIndex, to: range.lowerBound)
+            let end = masked.utf8.distance(from: masked.startIndex, to: range.upperBound)
+            let close = bodyEnd(in: bytes, from: end) ?? end
+            return line(ofByte: start)...line(ofByte: close)
+        }
+    }
+
     static func sourceOfType(_ typeName: String, under roots: [String], base: URL) throws -> String {
-        try filesDeclaring(typeName, under: roots, base: base)
-            .map { try read($0, base: base) }
+        try sourcesOfType(typeName, under: roots, base: base)
+            .map(\.text)
             .joined(separator: "\n")
     }
 
+    /// Every file declaring `typeName`, each with its own text — for a census
+    /// that slices a window of lines and must never let one file's slice run
+    /// on into the next file's text.
+    static func sourcesOfType(_ typeName: String, under roots: [String],
+                              base: URL = repoRoot) throws -> [(path: String, text: String)] {
+        try filesDeclaring(typeName, under: roots, base: base).map { ($0, try read($0, base: base)) }
+    }
+
     static func declaration(named header: String, under root: String, base: URL) throws -> String {
+        let needleText = withoutAccessModifiers(header)
+        let memoKey = memoKey(base: base, "declaration", root, needleText)
+        if let memoKey, let known = lookupMemo.withLock({ $0[memoKey] }) {
+            return known.first ?? ""
+        }
+
         struct Match {
             let file: String
             let text: [UInt8]
@@ -168,13 +233,18 @@ enum SourceTree {
             let lineStart: Int
         }
 
-        let needle = Array(header.utf8)
+        // Access modifiers are not part of what a declaration IS: a split that
+        // moves `private func f(` into an extension file has to drop the
+        // `private` (it does not cross files), and the header must still find
+        // it. So the needle carries none, and a line matches whatever access
+        // modifiers precede the rest.
+        let needle = Array(needleText.utf8)
         var matches: [Match] = []
         for file in try swiftFiles(under: root, base: base) {
             let raw = try read(file, base: base)
-            guard raw.contains(header) else { continue }   // necessary, and cheap
+            guard raw.contains(needleText) else { continue }   // necessary, and cheap
             let text = Array(raw.utf8)
-            let masked = mask(raw)
+            let masked = try checkedMask(raw, path: file)
             var lineStart = 0
             while lineStart <= masked.count {
                 let lineEnd = masked[lineStart...].firstIndex(of: newline) ?? masked.count
@@ -188,23 +258,58 @@ enum SourceTree {
 
         guard let match = matches.first else {
             throw LookupError(description:
-                "SourceTree: no declaration whose line contains '\(header)' under root '\(root)'.")
+                "SourceTree: no declaration whose line contains '\(needleText)' under root '\(root)'.")
         }
         guard matches.count == 1 else {
             let sites = matches.map(\.file)
             throw LookupError(description:
-                "SourceTree: \(matches.count) declarations contain '\(header)' under root '\(root)' "
+                "SourceTree: \(matches.count) declarations contain '\(needleText)' under root '\(root)' "
                 + "— expected exactly one: \(sites).")
         }
+        guard let close = bodyEnd(in: match.masked, from: match.headerAt) else {
+            throw LookupError(description:
+                "SourceTree: the declaration containing '\(needleText)' in '\(match.file)' "
+                + "(root '\(root)') has no brace-matched body.")
+        }
+        let body = String(decoding: match.text[match.lineStart...close], as: UTF8.self)
+        if let memoKey { lookupMemo.withLock { $0[memoKey] = [body] } }
+        return body
+    }
 
-        // The body opens on the first `{` OUTSIDE any parens or brackets: a `{`
-        // inside the parameter list is a default closure (`now: () -> Date =
-        // { Date() }`), and opening there would return a header cut short.
-        let masked = match.masked
+    /// The access modifiers `declaration(named:)` ignores. `static`, `final`,
+    /// `override` and the rest stay meaningful: they say WHICH declaration.
+    static let accessModifiers: Set<String> = [
+        "private", "fileprivate", "internal", "public", "open", "package",
+    ]
+
+    /// `header` with every access-modifier WORD removed (`private func f(` →
+    /// `func f(`; `static private func g(` → `static func g(`).
+    static func withoutAccessModifiers(_ header: String) -> String {
+        let leading = header.prefix(while: { $0 == " " || $0 == "\t" })
+        let words = header.dropFirst(leading.count)
+            .split(separator: " ", omittingEmptySubsequences: false)
+        var kept: [Substring] = []
+        var stripping = true
+        for word in words {
+            if stripping, accessModifiers.contains(String(word)) { continue }
+            if !word.isEmpty, !word.hasPrefix("@"), word != "static", word != "final",
+               word != "override", word != "nonisolated" {
+                stripping = false
+            }
+            kept.append(word)
+        }
+        return String(leading) + kept.joined(separator: " ")
+    }
+
+    /// The index of the `}` closing the body that opens after `from` in
+    /// `masked`, or nil. The body opens on the first `{` OUTSIDE any parens or
+    /// brackets: a `{` inside the parameter list is a default closure (`now: ()
+    /// -> Date = { Date() }`), and opening there would return a header cut short.
+    static func bodyEnd(in masked: [UInt8], from: Int) -> Int? {
         var depth = 0
         var nesting = 0          // ( and [ depth; read only until the body opens
         var opened = false
-        var index = match.headerAt
+        var index = from
         while index < masked.count {
             switch masked[index] {
             case UInt8(ascii: "("), UInt8(ascii: "["):
@@ -218,18 +323,30 @@ enum SourceTree {
                 opened = true
             case UInt8(ascii: "}") where opened:
                 depth -= 1
-                if depth == 0 {
-                    return String(decoding: match.text[match.lineStart...index], as: UTF8.self)
-                }
+                if depth == 0 { return index }
             default:
                 break
             }
             index += 1
         }
-        throw LookupError(description:
-            "SourceTree: the declaration containing '\(header)' in '\(match.file)' "
-            + "(root '\(root)') has no brace-matched body.")
+        return nil
     }
+
+    // MARK: - Memo
+
+    /// The memo key for a lookup against `base`, or nil when `base` is not the
+    /// repo (or inside it). The production tree does not change under a
+    /// running test, so its lookups are memoised for the life of the process;
+    /// a planted base (under `TestTemp`, outside the repo) is read fresh every
+    /// time, because its controls rename and rewrite files between calls.
+    static func memoKey(base: URL, _ parts: String...) -> String? {
+        let path = base.standardizedFileURL.path
+        let repo = repoRoot.standardizedFileURL.path
+        guard path == repo || path.hasPrefix(repo + "/") else { return nil }
+        return ([path] + parts).joined(separator: "\u{0}")
+    }
+
+    private static let lookupMemo = OSAllocatedUnfairLock<[String: [String]]>(initialState: [:])
 
     // MARK: - Masking
 
@@ -246,8 +363,32 @@ enum SourceTree {
     /// (`#"…"#`, any number of `#`), escapes, and interpolation (which may
     /// itself hold strings). It does not know regex literals: a `"`, `//` or
     /// `/*` inside `/…/` would be read as opening a string or comment, blanking
-    /// code after it (none exist in this repo today).
+    /// code after it (none exist in this repo today). Such a mis-scan almost
+    /// always leaves the file ENDING inside a string or comment, which
+    /// `checkedMask` — the mask every lookup and `sources(under:)` reads
+    /// through — reports by throwing.
     static func mask(_ text: String) -> [UInt8] {
+        maskScan(text).bytes
+    }
+
+    /// `mask`, throwing when `text` ENDS inside a string literal, an
+    /// interpolation or a block comment. A Swift file that compiles cannot, so
+    /// such an end means the scan lost its place — a regex literal it read as
+    /// opening a string, say — and everything after that point was blanked as
+    /// non-code. A census reading a file through that mask would pass over
+    /// whatever was hidden; this says so instead.
+    static func checkedMask(_ text: String, path: String) throws -> [UInt8] {
+        let scan = maskScan(text)
+        guard !scan.endsInside else {
+            throw LookupError(description:
+                "SourceTree: '\(path)' ends inside a string or a comment — the masker "
+                + "lost its place (a regex literal?), so every line after that point "
+                + "would be invisible to a census.")
+        }
+        return scan.bytes
+    }
+
+    private static func maskScan(_ text: String) -> (bytes: [UInt8], endsInside: Bool) {
         enum Context {
             case code(parens: Int)          // parens: depth inside an interpolation
             case string(multiline: Bool, hashes: Int)
@@ -260,6 +401,7 @@ enum SourceTree {
         var out = chars
         var stack: [Context] = [.code(parens: 0)]
         var i = 0
+        var unclosedBlock = false
 
         func at(_ offset: Int, _ c: UInt8) -> Bool {
             i + offset < chars.count && chars[i + offset] == c
@@ -285,6 +427,7 @@ enum SourceTree {
                         else if at(0, star) && at(1, slash) { depth -= 1; blank(i); blank(i + 1); i += 2 }
                         else { blank(i); i += 1 }
                     } while depth > 0 && i < chars.count
+                    if depth > 0 { unclosedBlock = true }
                 } else if chars[i] == hash || chars[i] == quote {
                     let hashes = run(of: hash, from: i)
                     guard i + hashes < chars.count, chars[i + hashes] == quote else { i += max(hashes, 1); continue }
@@ -326,7 +469,7 @@ enum SourceTree {
                 }
             }
         }
-        return out
+        return (out, unclosedBlock || stack.count > 1)
     }
 
     /// The first index in `haystack[from..<to]` where `needle` begins.
@@ -352,12 +495,20 @@ enum SourceTree {
 
 /// **An allow-list or counted-list key may name a TYPE instead of a file.**
 ///
-/// `"type:OpLogStore"` means *every file that declares `OpLogStore`* —
+/// `"type:OpLogStore"` means *the declarations of `OpLogStore`* —
 /// `class|struct|enum|actor|protocol|extension OpLogStore`, as
-/// `SourceTree.filesDeclaring` reads it. A census keyed by a file name has to
-/// be hand-edited the day that file is split; one keyed by the type follows
-/// the code into the extension files, and a line moved into an unrelated file
-/// is still caught. Plain file keys keep their old meaning.
+/// `SourceTree.declarationRanges` reads them, header through brace-matched
+/// close. A census keyed by a file name has to be hand-edited the day that
+/// file is split; one keyed by the type follows the code into the extension
+/// files, and a line moved into an unrelated file is still caught.
+///
+/// **A type key claims DECLARATIONS, never whole files.** A file holding
+/// `extension ProjectWindow` and a child view `struct ResearchSubjectInspector`
+/// gives `type:ProjectWindow` the extension's lines only; a hit in the child
+/// view is judged as the file's own (plain-key) hit — allowed only if the file
+/// is named itself, and counted under its own name. Otherwise a type key would
+/// quietly allow everything that happened to share a file with its type.
+/// Plain file keys keep their old meaning.
 ///
 /// The keys are resolved against the roots the census itself walks — so a
 /// planted tree resolves against its own declarations, never the repo's —
@@ -367,16 +518,17 @@ enum SourceTree {
 /// `type:OpLogStore`'s allowances (most of those censuses have no phone twin).
 /// A type key that resolves to no file is an OFFENDER (*type key `type:X`
 /// names no file*): a key that matches nothing would otherwise allow nothing
-/// and count nothing, and say neither. So is a plain key naming a file a type
-/// key in the same map also claims — one rule for every map shape: in a count
-/// map the file would be counted twice over or not at all, and in an
-/// allow-list two entries would silently merge.
+/// and count nothing, and say neither. So is a declaration two type keys both
+/// claim (one nested in the other), and a plain key naming a file a type key
+/// claims anything in — one rule for every map shape: in a count map the file
+/// would be split between two entries, and in an allow-list two entries would
+/// silently merge.
 ///
-/// - An allow-list (`[file: spellings]` or a `Set` of files) EXPANDS: each
-///   declaring file's basename gets the type key's spellings, merged with any
-///   plain entry of its own.
-/// - A count map FOLDS: a found file's count is added to the type key that
-///   claims it, so the key's expected count is the SUM over its files.
+/// - An allow-list (`[file: spellings]` or a `Set` of files) is asked per line
+///   (`TypeKeyAllowance`): inside a claimed declaration the type key's
+///   spellings apply, merged with any plain entry of the file's own.
+/// - A count map FOLDS per hit: a hit inside a claimed declaration is added to
+///   the type key, so the key's expected count is the SUM over its declarations.
 extension SourceTree {
 
     static let typeKeyPrefix = "type:"
@@ -389,18 +541,33 @@ extension SourceTree {
         key.hasPrefix(typeKeyPrefix) ? String(key.dropFirst(typeKeyPrefix.count)) : nil
     }
 
-    /// The type keys among some keys, resolved to the basenames that declare each.
+    /// One declaration a type key claims: its lines in one file.
+    struct Claim: Equatable {
+        let key: String
+        let lines: ClosedRange<Int>
+    }
+
+    /// The type keys among some keys, resolved to the DECLARATIONS of each.
     struct TypeKeyResolution {
-        /// Basename → the type key that claims it.
-        var keyForFile: [String: String] = [:]
+        /// Basename → the declarations type keys claim in it.
+        var claims: [String: [Claim]] = [:]
         /// Type key → the basenames that declare its type.
         var filesForKey: [String: Set<String>] = [:]
-        /// Unresolved keys, basenames two type keys both claim, and plain keys
-        /// naming a file a type key claims.
+        /// Unresolved keys, declarations two type keys both claim, and plain
+        /// keys naming a file a type key claims.
         var offenders: [String] = []
 
-        /// The key a found file is counted under: its type key, else itself.
-        func key(for basename: String) -> String { keyForFile[basename] ?? basename }
+        /// The type key whose declaration holds `line` of `basename`, or nil:
+        /// a line outside every claimed declaration — a child view sharing the
+        /// file, say — is the file's own.
+        func typeKey(for basename: String, line: Int) -> String? {
+            claims[basename]?.first { $0.lines.contains(line) }?.key
+        }
+
+        /// The key a hit is counted under: the claiming type key, else its file.
+        func key(for basename: String, line: Int) -> String {
+            typeKey(for: basename, line: line) ?? basename
+        }
     }
 
     /// Resolve every `type:` key in `keys` against the Swift files under
@@ -414,93 +581,134 @@ extension SourceTree {
         let typeRoots = roots.filter { $0.lastPathComponent != phoneRootName }
         for key in allKeys {
             guard let type = typeName(ofKey: key) else { continue }
-            var files: Set<String> = []
+            var ranges: [String: [ClosedRange<Int>]] = [:]
             for root in typeRoots {
-                files.formUnion(basenamesDeclaring(type, in: root))
+                ranges.merge(declarationRanges(of: type, in: root), uniquingKeysWith: +)
             }
-            guard !files.isEmpty else {
+            guard !ranges.isEmpty else {
                 resolution.offenders.append("type key `\(key)` names no file")
                 continue
             }
-            resolution.filesForKey[key] = files
-            for file in files {
-                if let other = resolution.keyForFile[file] {
-                    resolution.offenders.append(
-                        "\(file) is claimed by two type keys, `\(other)` and `\(key)`")
-                } else {
-                    resolution.keyForFile[file] = key
+            resolution.filesForKey[key] = Set(ranges.keys)
+            for (file, lines) in ranges.sorted(by: { $0.key < $1.key }) {
+                for range in lines {
+                    if let other = resolution.claims[file]?.first(where: {
+                        $0.key != key && $0.lines.overlaps(range)
+                    }) {
+                        resolution.offenders.append(
+                            "\(file):\(range.lowerBound) is claimed by two type keys, "
+                            + "`\(other.key)` and `\(key)`")
+                    }
+                    resolution.claims[file, default: []].append(Claim(key: key, lines: range))
                 }
             }
         }
         for key in allKeys where typeName(ofKey: key) == nil {
-            if let claimer = resolution.keyForFile[key] {
+            if let claimer = resolution.claims[key]?.first?.key {
                 resolution.offenders.append("\(key) is named by itself and by `\(claimer)`")
             }
         }
         return resolution
     }
 
-    /// `allowed` with every type key replaced by its declaring files, each
-    /// carrying the key's spellings (merged with a plain entry of the same name).
+    /// **An allow-list with its type keys resolved, asked per LINE.** A plain
+    /// key allows its whole file; a type key allows the lines of its type's
+    /// declarations, and nothing else in the files holding them.
+    struct TypeKeyAllowance {
+        let resolution: TypeKeyResolution
+        /// Plain file key → its spellings.
+        let plain: [String: Set<String>]
+        /// Type key → its spellings.
+        let byKey: [String: Set<String>]
+
+        /// The spellings allowed at `line` of `basename`.
+        func spellings(file basename: String, line: Int) -> Set<String> {
+            var allowed = plain[basename] ?? []
+            if let key = resolution.typeKey(for: basename, line: line) {
+                allowed.formUnion(byKey[key] ?? [])
+            }
+            return allowed
+        }
+
+        /// Whether a whole-file allow-list (a `Set` of keys) lets `line` of
+        /// `basename` through.
+        func allows(file basename: String, line: Int) -> Bool {
+            plain[basename] != nil || resolution.typeKey(for: basename, line: line) != nil
+        }
+    }
+
+    /// `allowed` (`[key: spellings]`) resolved: each type key allows its
+    /// spellings inside its type's declarations only.
     static func expandingTypeKeys(
         _ allowed: [String: Set<String>], in roots: [URL]
-    ) -> (allowed: [String: Set<String>], offenders: [String]) {
+    ) -> (allowance: TypeKeyAllowance, offenders: [String]) {
         let resolution = resolveTypeKeys(allowed.keys, in: roots)
-        var expanded: [String: Set<String>] = [:]
-        for (key, spellings) in allowed {
-            let files = typeName(ofKey: key) == nil ? [key] : (resolution.filesForKey[key] ?? [])
-            for file in files { expanded[file, default: []].formUnion(spellings) }
-        }
-        return (expanded, resolution.offenders)
+        let plain = allowed.filter { typeName(ofKey: $0.key) == nil }
+        let byKey = allowed.filter { typeName(ofKey: $0.key) != nil }
+        return (TypeKeyAllowance(resolution: resolution, plain: plain, byKey: byKey),
+                resolution.offenders)
     }
 
-    /// A set of file names with every type key replaced by its declaring files.
+    /// A whole-file allow-list (a set of keys) resolved: ask `allows(file:line:)`.
     static func expandingTypeKeys(
         _ files: Set<String>, in roots: [URL]
-    ) -> (files: Set<String>, offenders: [String]) {
-        let resolution = resolveTypeKeys(files, in: roots)
-        var expanded: Set<String> = []
-        for key in files {
-            if typeName(ofKey: key) == nil { expanded.insert(key) }
-            else { expanded.formUnion(resolution.filesForKey[key] ?? []) }
-        }
-        return (expanded, resolution.offenders)
+    ) -> (allowance: TypeKeyAllowance, offenders: [String]) {
+        expandingTypeKeys(Dictionary(uniqueKeysWithValues: files.map { ($0, Set<String>()) }),
+                          in: roots)
     }
 
-    /// `found` (per basename) re-keyed the way `expectedKeys` is: a file a
-    /// type key claims is folded into that key with `combine`.
+    /// One census hit: a file's basename and the 1-based line it is on.
+    struct Hit: Hashable {
+        let file: String
+        let line: Int
+        init(file: String, line: Int) { self.file = file; self.line = line }
+        /// From a census offender string, `"<basename>:<line>: <text>"`.
+        init?(offender: String) {
+            let parts = offender.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+            guard parts.count >= 2, let line = Int(parts[1]) else { return nil }
+            self.init(file: String(parts[0]), line: line)
+        }
+    }
+
+    /// `found` (per hit) keyed the way `expectedKeys` is: a hit inside a
+    /// declaration a type key claims is folded into that key with `combine`,
+    /// and every other hit — including one elsewhere in the same file — under
+    /// its own file name.
     static func foldingIntoTypeKeys<Value, Keys: Sequence>(
-        _ found: [String: Value], keyedLike expectedKeys: Keys, in roots: [URL],
+        _ found: [(hit: Hit, value: Value)], keyedLike expectedKeys: Keys, in roots: [URL],
         combine: (Value, Value) -> Value
     ) -> (folded: [String: Value], offenders: [String]) where Keys.Element == String {
-        let keys = Set(expectedKeys)
-        let resolution = resolveTypeKeys(keys, in: roots)
+        let resolution = resolveTypeKeys(Set(expectedKeys), in: roots)
         var folded: [String: Value] = [:]
-        for (file, value) in found {
-            let key = resolution.key(for: file)
+        for (hit, value) in found {
+            let key = resolution.key(for: hit.file, line: hit.line)
             folded[key] = folded[key].map { combine($0, value) } ?? value
         }
         return (folded, resolution.offenders)
     }
 
-    /// Basenames of the files under `root` declaring `type`; empty when none
-    /// do (or `root` is not a directory). A root inside the repo is memoised
-    /// for the life of the process — the production tree does not change under
-    /// a running test, and one resolution walks every file — while a planted
-    /// root (under `TestTemp`, outside the repo) is read fresh each time,
-    /// because its controls rename and rewrite files between calls.
-    private static func basenamesDeclaring(_ type: String, in root: URL) -> Set<String> {
+    /// The declaration line ranges of `type` per basename under `root`; empty
+    /// when none (or `root` is not a directory). A root inside the repo is
+    /// memoised for the life of the process — the production tree does not
+    /// change under a running test, and one resolution walks every file —
+    /// while a planted root (under `TestTemp`, outside the repo) is read fresh
+    /// each time, because its controls rename and rewrite files between calls.
+    private static func declarationRanges(of type: String, in root: URL) -> [String: [ClosedRange<Int>]] {
         let memoise = root.standardizedFileURL.path.hasPrefix(repoRoot.standardizedFileURL.path + "/")
         let memoKey = root.standardizedFileURL.path + "\u{0}" + type
         if memoise, let known = typeKeyMemo.withLock({ $0[memoKey] }) { return known }
         let base = root.deletingLastPathComponent()
-        let files = (try? filesDeclaring(type, under: [root.lastPathComponent], base: base)) ?? []
-        let names = Set(files.map { ($0 as NSString).lastPathComponent })
-        if memoise { typeKeyMemo.withLock { $0[memoKey] = names } }
-        return names
+        let byPath = (try? declarationRanges(of: type, under: [root.lastPathComponent], base: base)) ?? [:]
+        var byName: [String: [ClosedRange<Int>]] = [:]
+        for (path, ranges) in byPath {
+            byName[(path as NSString).lastPathComponent, default: []] += ranges
+        }
+        if memoise { typeKeyMemo.withLock { $0[memoKey] = byName } }
+        return byName
     }
 
-    private static let typeKeyMemo = OSAllocatedUnfairLock<[String: Set<String>]>(initialState: [:])
+    private static let typeKeyMemo =
+        OSAllocatedUnfairLock<[String: [String: [ClosedRange<Int>]]]>(initialState: [:])
 }
 
 // MARK: - Planted trees and per-file reads (foundations plan 2, Task 4)
@@ -527,13 +735,25 @@ extension SourceTree {
     /// so an ABSENCE ban scans file by file and one file's unclosed `/*` (see
     /// `SourceScan`) cannot hide an offender in the next. Throws, like
     /// `swiftFiles(under:)`, when `root` is not a directory, and when it holds
-    /// no Swift file at all: a ban over nothing passes over anything.
+    /// no Swift file at all: a ban over nothing passes over anything. And
+    /// throws when a file ENDS inside a string or comment (`checkedMask`): the
+    /// masker lost its place in it, and a ban reading it would be blind past
+    /// that point.
     static func sources(under root: String, base: URL = repoRoot) throws -> [(path: String, text: String)] {
+        try maskedSources(under: root, base: base).map { ($0.path, $0.text) }
+    }
+
+    /// `sources(under:)`, each file with its `checkedMask` alongside.
+    static func maskedSources(under root: String, base: URL = repoRoot)
+        throws -> [(path: String, text: String, masked: [UInt8])] {
         let files = try swiftFiles(under: root, base: base)
         guard !files.isEmpty else {
             throw LookupError(description: "SourceTree: root '\(root)' holds no .swift file.")
         }
-        return try files.map { ($0, try read($0, base: base)) }
+        return try files.map { file in
+            let text = try read(file, base: base)
+            return (file, text, try checkedMask(text, path: file))
+        }
     }
 }
 
@@ -545,6 +765,24 @@ extension SourceTree {
     /// window's code wherever its extensions live. Throws when nothing declares it.
     static func windowSource(base: URL = repoRoot) throws -> String {
         try sourceOfType("ProjectWindow", under: ["Maugham"], base: base)
+    }
+
+    /// Every file declaring `ProjectWindow`, each its own text, in path
+    /// order — for a census that SLICES (the N characters or lines after a
+    /// token), so a slice can never run off the end of one file into the
+    /// next file's text the way it could over `windowSource`'s join.
+    static func windowSources(base: URL = repoRoot) throws -> [String] {
+        try sourcesOfType("ProjectWindow", under: ["Maugham"], base: base).map(\.text)
+    }
+
+    /// The `length` characters after the first `token` in the window's code,
+    /// sliced inside the ONE file that holds it (files in path order). Nil
+    /// when no window file has the token.
+    static func windowText(after token: String, length: Int, base: URL = repoRoot) throws -> String? {
+        for text in try windowSources(base: base) {
+            if let hit = text.range(of: token) { return String(text[hit.upperBound...].prefix(length)) }
+        }
+        return nil
     }
 
     /// `windowSource`'s code lines, comments stripped (`SourceScan.codeLines`).
@@ -559,8 +797,8 @@ extension SourceTree {
     /// ban: it throws, like `sources(under:)`, on a missing or Swift-less root.
     static func codeLines(containing token: String, under root: String = "Maugham/Views",
                           base: URL = repoRoot) throws -> [String] {
-        try sources(under: root, base: base).flatMap { file -> [String] in
-            let masked = String(decoding: mask(file.text), as: UTF8.self)
+        try maskedSources(under: root, base: base).flatMap { file -> [String] in
+            let masked = String(decoding: file.masked, as: UTF8.self)
                 .split(separator: "\n", omittingEmptySubsequences: false)
             let raw = file.text.split(separator: "\n", omittingEmptySubsequences: false)
             return masked.indices
@@ -581,8 +819,8 @@ extension SourceTree {
         let needle = Array(token.utf8)
         let checksBoundary = needle.first.map(isIdentifierByte) ?? false
         var counts: [String: Int] = [:]
-        for file in try sources(under: root, base: base) where file.text.contains(token) {
-            let masked = mask(file.text)
+        for file in try maskedSources(under: root, base: base) where file.text.contains(token) {
+            let masked = file.masked
             var count = 0
             var from = 0
             while let hit = firstIndex(of: needle, in: masked, from: from, to: masked.count) {
@@ -594,19 +832,32 @@ extension SourceTree {
         return counts
     }
 
-    /// `basenames` with every file a type key claims replaced by that key, the
-    /// rest left as they are — how a file-SET census keyed `"type:ProjectWindow"`
-    /// compares what it found. Throws on any offender `resolveTypeKeys` reports
+    /// `hits` with every hit inside a declaration a type key claims replaced
+    /// by that key, and every other hit by its own file name — how a file-SET
+    /// census keyed `"type:ProjectWindow"` compares what it found. A hit in a
+    /// child view sharing a file with `extension ProjectWindow` answers under
+    /// the FILE, not the type. Throws on any offender `resolveTypeKeys` reports
     /// (a type key naming no file, above all), so a fold can never pass empty.
-    static func keyedByType<Names: Sequence>(
-        _ basenames: Names, typeKeys: Set<String>, in roots: [URL]
-    ) throws -> Set<String> where Names.Element == String {
+    static func keyedByType<Hits: Sequence>(
+        _ hits: Hits, typeKeys: Set<String>, in roots: [URL]
+    ) throws -> Set<String> where Hits.Element == Hit {
         let resolution = resolveTypeKeys(typeKeys, in: roots)
         guard resolution.offenders.isEmpty else {
             throw LookupError(description:
                 "SourceTree: type keys \(typeKeys.sorted()) did not resolve: \(resolution.offenders)")
         }
-        return Set(basenames.map(resolution.key(for:)))
+        return Set(hits.map { resolution.key(for: $0.file, line: $0.line) })
+    }
+
+    /// The 1-based numbers of the lines of `text` whose CODE (comments and
+    /// string contents masked) satisfies `predicate` — the per-line hits a
+    /// type-keyed census needs.
+    static func codeLineNumbers(in text: String, where predicate: (String) -> Bool) -> [Int] {
+        String(decoding: mask(text), as: UTF8.self)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .enumerated()
+            .filter { predicate(String($0.element)) }
+            .map { $0.offset + 1 }
     }
 
     private static func isIdentifierByte(_ byte: UInt8) -> Bool {

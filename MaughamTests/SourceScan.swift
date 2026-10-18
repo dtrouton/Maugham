@@ -48,6 +48,13 @@ enum SourceScan {
     /// Every line of `text` with its comments stripped. Lines that were entirely
     /// comment are dropped; the rest keep their code.
     static func codeLines(of text: String) -> [String] {
+        scan(text).lines.map(\.text)
+    }
+
+    /// `codeLines`, each with its 1-based line number in `text` — what a
+    /// census keyed by TYPE needs, since a `type:` key claims declarations
+    /// (line ranges) rather than files.
+    static func numberedCodeLines(of text: String) -> [(number: Int, text: String)] {
         scan(text).lines
     }
 
@@ -61,10 +68,11 @@ enum SourceScan {
         scan(text).endedInsideBlock
     }
 
-    private static func scan(_ text: String) -> (lines: [String], endedInsideBlock: Bool) {
-        var out: [String] = []
+    private static func scan(_ text: String)
+        -> (lines: [(number: Int, text: String)], endedInsideBlock: Bool) {
+        var out: [(number: Int, text: String)] = []
         var inBlock = false
-        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+        for (index, raw) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
             var line = String(raw)
 
             if inBlock {
@@ -91,7 +99,7 @@ enum SourceScan {
                 line = String(line[..<comment.lowerBound])
             }
             if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
-            out.append(line)
+            out.append((index + 1, line))
         }
         return (out, inBlock)
     }
