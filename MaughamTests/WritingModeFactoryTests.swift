@@ -29,4 +29,28 @@ final class WritingModeFactoryTests: XCTestCase {
             for: "manuscript/01-scene-1.fountain")
         XCTAssertEqual(typography.fontFamily, "JetBrains Mono")
     }
+
+    // MARK: - Extension case and the unknown extension (DocumentFormat)
+
+    func test_uppercaseFOUNTAINFile_returnsScreenplayMode() {
+        let mode = WritingModeFactory.mode(for: "manuscript/01-scene-1.FOUNTAIN")
+        XCTAssertTrue(mode is ScreenplayMode)
+    }
+
+    func test_typographyFor_uppercaseFOUNTAINFile_usesScreenplayDefaults() {
+        let typography = WritingModeFactory.defaultTypography(
+            for: "manuscript/01-scene-1.FOUNTAIN")
+        XCTAssertEqual(typography, .screenplayDefaults)
+    }
+
+    func test_typographyFor_unknownExtension_usesProseDefaults() {
+        let typography = WritingModeFactory.defaultTypography(for: "manuscript/notes.txt")
+        XCTAssertEqual(typography, .defaults)
+    }
+
+    func test_typographyFor_md_and_fountain_areTheWholeDefaults() {
+        XCTAssertEqual(WritingModeFactory.defaultTypography(for: "x.md"), .defaults)
+        XCTAssertEqual(WritingModeFactory.defaultTypography(for: "x.fountain"),
+                       .screenplayDefaults)
+    }
 }

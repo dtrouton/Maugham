@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Target-agnostic representation of a compilable project. Built by
 /// `ProjectASTBuilder` from a project's pieces in binder order; consumed
@@ -42,6 +43,14 @@ public struct ProjectAST: Equatable, Sendable {
     public enum Mode: String, Equatable, Sendable {
         case prose
         case fountain
+
+        /// The AST shape a manuscript of `format` is built into.
+        public init(_ format: DocumentFormat) {
+            switch format {
+            case .markdown: self = .prose
+            case .fountain: self = .fountain
+            }
+        }
     }
 
     /// Inline or block node. Each section's nodes are exhaustively in one of the

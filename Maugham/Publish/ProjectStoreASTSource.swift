@@ -92,9 +92,7 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
         for item: StructureItem, trust: TrustTable?
     ) throws -> ProjectASTBuilder.PieceRef? {
         guard let path = item.path else { return nil }
-        let mode: ProjectAST.Mode = path.lowercased().hasSuffix(".fountain")
-            ? .fountain
-            : .prose
+        let mode = ProjectAST.Mode(DocumentFormat.ofManuscript(path: path))
         // Both paths hand the builder the SAME `(¶id, text)` pairs they build
         // their display text out of, so every paragraph's anchor can ride the
         // first AST node it produces (P3 Task 1). The text itself is unchanged

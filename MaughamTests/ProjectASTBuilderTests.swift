@@ -11,6 +11,13 @@ final class ProjectASTBuilderTests: XCTestCase {
         }
     }
 
+    // MARK: - Mode is chosen by DocumentFormat
+
+    func test_mode_fromDocumentFormat() {
+        XCTAssertEqual(ProjectAST.Mode(.markdown), .prose)
+        XCTAssertEqual(ProjectAST.Mode(.fountain), .fountain)
+    }
+
     func testBuilds_emptyAST_fromNoPieces() throws {
         let src = FixtureSource(pieces: [])
         let ast = try ProjectASTBuilder.build(from: src)
