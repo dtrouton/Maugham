@@ -47,7 +47,8 @@ ambient:
 - Death mid-run fails that run visibly, once. The next keystroke starts a fresh session,
   with no state to repair.
 
-**Read the enforcing site for each rule off `Maugham/Compiler/AREA.md`'s table rather than
+**Read the enforcing site for each rule off `Maugham/Compiler/AREA.md`'s table (now the bullets under Rules → "The session's
+lifetime"; the table itself is in `docs/history/compiler.md`) rather than
 from a list here** — a prose copy of a wiring table drifts, and this one is spread across
 `CompilerOrchestrator`, `CompilerRunModifier`, `ProjectWindow` and `ClaudeCLISession`,
 with one rule enforced in two of them at once.
@@ -236,4 +237,5 @@ how small or how helpful the leak is.
 - [ADR 0003](0003-mcp-live-only-unix-socket.md) — the inbound transport this inverts
 - [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) — the other half of this
   milestone's constitutional accounting: where the answer is allowed to appear
-- `Maugham/Compiler/AREA.md` — the lifetime table, and the shutdown contract in full
+- `Maugham/Compiler/AREA.md` — the lifetime table, and the shutdown contract in full (now
+  Rules → "The session's lifetime"; the full text is in `docs/history/compiler.md`)

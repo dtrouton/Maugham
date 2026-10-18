@@ -199,4 +199,4 @@ stratum of the writer's own statement document.
 - [ADR 0025](0025-persona-shell.md) — the Author persona and the pane registry the
   Diagnostics pane joins
 - `Maugham/Compiler/AREA.md` — the enforcing sites for "the keystroke is the only
-  trigger"
+  trigger" (now Rules → "The two sentences, and the membrane" and "The session's lifetime")

@@ -153,7 +153,8 @@ reopens the same ⌘Z corruption class ADR 0023's D1 rule exists to prevent). Th
 lesson, worth stating for future control flags: **any control flag whose flip changes
 which text buffer the editor is showing must flip synchronously, before the swap
 decision is made** — an async or reordered flip is a race, not an implementation detail.
-See `Maugham/Editor/AREA.md`'s tripwire list for the pinned version of this rule.
+See `Maugham/Editor/AREA.md`'s Rules → "Appearance, teardown and the control plane" (the
+buffer-swap bullet) for the pinned version of this rule.
 
 ## Consequences
 

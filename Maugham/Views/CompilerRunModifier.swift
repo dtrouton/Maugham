@@ -16,8 +16,11 @@ import AppKit
 /// started it.
 ///
 /// The fourth moment — the window closing — is `ProjectWindow`'s own
-/// `.onDisappear`, because it also has to drop the services' hold on the
-/// project's stores (`roster.detachAll()`), and that scorch already lives there.
+/// `.onDisappear`, which gives its lease back (`sessions.release`). The
+/// registry re-attaches the newest other live window on the project first,
+/// then calls `ProjectSession.detachWindow`, which runs `roster.detachAll()`
+/// only if the closing window was still the attached one
+/// (`Maugham/Compiler/AREA.md`, Rules → "The session's lifetime").
 ///
 /// **The services that die here are the roster's** (foundations plan 3,
 /// Task 1). The compiler, the translator's and the designer's loops each own a

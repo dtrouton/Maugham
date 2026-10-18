@@ -86,8 +86,8 @@ public protocol WritingMode: Sendable {
     /// deferral means that state never gets painted. Screenplay paints live:
     /// nearly every line is a *different element* (slug / character / dialogue /
     /// action / transition), so a ~300ms classification lag reads as pervasive
-    /// sluggishness, and its inline emphasis is comparatively rare. See the
-    /// Editor AREA guide (tripwire 9). Defaults to `true` (defer) — the safe,
+    /// sluggishness, and its inline emphasis is comparatively rare. See
+    /// `Maugham/Editor/AREA.md`, Rules → "Restyle, scroll and typewriter". Defaults to `true` (defer) — the safe,
     /// flicker-free posture for any new prose-like mode.
     var defersRestyleWhileTyping: Bool { get }
 }
@@ -96,7 +96,8 @@ public extension WritingMode {
     /// Default: defer the restyle to the typing-burst settle (flicker-free).
     /// Modes whose styling is element-classification heavy (screenplay)
     /// override this to `false` so the restyle stays live. See the protocol
-    /// requirement's doc comment and the Editor AREA guide (tripwire 9).
+    /// requirement's doc comment and `Maugham/Editor/AREA.md`,
+    /// Rules → "Restyle, scroll and typewriter".
     var defersRestyleWhileTyping: Bool { true }
 
     /// Word count alone, WITHOUT the full `metrics(_:)` computation. Both

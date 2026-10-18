@@ -286,7 +286,7 @@ Checks: `TripwireGrepTests.test_everyGuardedDocumentMutatorIsClassified`, `test_
 Checks: `BootstrapWiringTests`, `TripwireGrepTests.test_noDeviceStringAtAProductionDocumentLoad`, `DocumentWaitingTests`.
 
 ## Pointers
-- `docs/history/oplog.md` — the old guide, word for word: every rule's why, the measurements, the defects each rule came from, and the numbered area tripwires `docs/tripwires.md` cites.
+- `docs/history/oplog.md` — the old guide, word for word: every rule's why, the measurements, the defects each rule came from, and the old numbered area tripwires.
 - ADR 0032 (`docs/adr/0032-the-signed-op-log.md`): §1–§8 for the chain, identity, head, seals, segments and verification states; its addenda for actors, admission, the permit, scope's lifecycle, the posture, a piece of her own, the carries, and the person key.
 - ADR 0010 (typed seams: `EchoState`, `SweepReason`), ADR 0011 (task anchors), ADR 0012 (per-device JSONL), ADR 0016 (segments), ADR 0018 and 0019 (reads derive from the op log; clean `.md`), ADR 0023 (undo conventions).
 - `docs/tripwires.md` rows 17, 20, 23, 24, 35–53, 56.

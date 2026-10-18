@@ -42,6 +42,6 @@ Each directory with an `AREA.md` asks you to read it before editing anything the
 - [`Maugham/MCP/AREA.md`](../Maugham/MCP/AREA.md) — the MCP server and its tool catalogue.
 - [`Maugham/Views/AREA.md`](../Maugham/Views/AREA.md) — the window, personas, the binder tree, posture surfaces.
 - [`Maugham/Updates/AREA.md`](../Maugham/Updates/AREA.md) — the in-place updater.
-- [`MaughamPhone/AREA.md`](../MaughamPhone/AREA.md) — the iPhone companion: build command, seam injection, iOS tripwires, releases.
+- [`MaughamPhone/AREA.md`](../MaughamPhone/AREA.md) — the iPhone companion: storage seams, capture, reading, annotations, tripwires, releases.
 
 Recipes — add a block kind, a Statement.Kind or a ProjectType: the Core area guide's Recipes section.

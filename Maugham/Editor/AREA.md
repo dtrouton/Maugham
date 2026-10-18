@@ -80,7 +80,6 @@ debounced burst flush → op log + autosave → eventual disk write → Document
 - **A surface with an `imagePasteHandler` owns pasteboard images**: `MaughamTextView.paste(_:)` never falls through to `super` for an image. `readablePasteboardTypes` advertises images, so `super` would insert an attachment character (`U+FFFC`) into the op log. A nil from the handler means *handled, nothing to insert here*, never *not mine* (`StatementImageIngestTests.test_pastingAPictureLeavesNoAttachmentCharacterBehind`, which catches the defect only with no statement created up front).
 
 ### Restyle, scroll and typewriter
-Code comments cite this section as "Editor AREA tripwire 9", the old guide's local number for the scroll rules; it is not `docs/tripwires.md` row 9.
 - **A whole-document `setAttributes` snaps a long scrolled document toward the top**: it invalidates all layout, which AppKit re-lays out from the top. Each path below either avoids it (a local window) or re-asserts caret and scroll itself.
 - **Don't add work inside `applyTypography`** on either path. It takes a `restyleWindow`, and window ≡ whole document is pinned by `WindowedTypographyEquivalenceTests`.
 - **The typing path is mode-gated on `WritingMode.defersRestyleWhileTyping`.** Both branches restyle only the changed paragraphs found by a character diff (`changedParagraphWindow`), never a token diff: plain prose has no tokens, so a token window falls back to whole-document and snaps scroll. A local `setAttributes` does not move scroll, so AppKit's caret-following autoscroll is left alone.

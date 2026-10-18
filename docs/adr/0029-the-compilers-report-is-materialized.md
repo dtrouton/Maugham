@@ -147,7 +147,7 @@ and what this decision says must never become possible.
 
 ## Consequences
 
-- `Maugham/Compiler/AREA.md`'s "four fates" section, written when every finding was
+- `Maugham/Compiler/AREA.md`'s "four fates" section (now Rules → "A strain's four fates"), written when every finding was
   a `Diagnostic`, is amended in the same commit as this ADR: a conformance strain
   still has the four fates as described (superseded / stale / promoted / answered);
   a continuity question and a reader's report no longer reach the sidecar at all,

@@ -189,7 +189,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// every whole-doc paint (attach / applyExternalText / theme) so the next
     /// live keystroke diffs against the correct baseline. nil until the first
     /// whole-doc paint of a freshly-attached document. Unused on the deferred
-    /// (prose) path. See `paintLiveWindowed` and Editor AREA tripwire 9.
+    /// (prose) path. See `paintLiveWindowed` and `Maugham/Editor/AREA.md`,
+    /// Rules → "Restyle, scroll and typewriter".
     var liveRestyleBaseline: String?
 
     /// Observer token for `maughamNavigateToScene` notifications.
@@ -1029,17 +1030,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // cycle() will reset it before the async block fires.
         let skipCursorRestore = isApplyingTabCycle
         let postEditSelection = textView.selectedRange()
-        // NOTE: the typing fast path no longer paints on the keystroke (the
-        // structural restyle is deferred to the burst-settle — see
-        // `scheduleDeferredRestyle`). With no per-keystroke whole-range
-        // setAttributes there is no layout invalidation to snap the scroll
-        // origin toward the top, so the old capture-and-restore-the-origin
-        // workaround (Editor AREA tripwire 9) is gone from here — it was
+        // NOTE: the typing fast path never paints the whole document on the
+        // keystroke (prose defers to the burst-settle — `scheduleDeferredRestyle`;
+        // screenplay paints live but windowed — `paintLiveWindowed`). With no
+        // per-keystroke whole-range setAttributes there is no layout
+        // invalidation to snap the scroll origin toward the top, so the old
+        // capture-and-restore-the-origin workaround is gone from here — it was
         // actively fighting AppKit's own caret-following autoscroll (the
         // "recoil on the last line" + "caret runs off the bottom" bugs). The
-        // origin is now preserved by `performDeferredRestyle` around the settle
-        // paint instead, which is the only place a whole-doc relayout happens
-        // on the typing path.
+        // settle paint is windowed too; only `performDeferredRestyle`'s
+        // no-baseline fallback relayouts the whole document, and it guards the
+        // origin itself (`Maugham/Editor/AREA.md`, Rules → "Restyle, scroll and
+        // typewriter").
         // Notify the host of the post-edit caret position so Document's
         // V2 task-anchor alignment can read it inside the immediately-
         // following setFullText call. Must fire BEFORE binding-set so the

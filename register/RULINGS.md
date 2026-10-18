@@ -122,7 +122,7 @@ The boundary is PRACTICAL ECONOMICS: images, voice notes and PDFs are large, and
 
 *consequence:* The phone reader's uppercase is ratified, not accidental. The Mac editor's as-typed rendering has a stated reason (the caret). Export gains an option it does not have today.
 
-*provenance:* Recovered from commit de1b69d7 + Maugham/Editor/AREA.md: display-time uppercase was BUILT and REJECTED for cursor-positioning reasons; a dead ScreenplayLayoutManager relic was deleted 2026-06-10. The split was considered, not cheap.
+*provenance:* Recovered from commit de1b69d7 + Maugham/Editor/AREA.md (that text now in docs/history/editor.md): display-time uppercase was BUILT and REJECTED for cursor-positioning reasons; a dead ScreenplayLayoutManager relic was deleted 2026-06-10. The split was considered, not cheap.
 
 ### RULING-7 — B — A failure must be reported as what it is  `RATIFIED_BY_DEFAULT`
 

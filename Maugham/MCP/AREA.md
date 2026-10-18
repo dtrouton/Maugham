@@ -287,5 +287,5 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 - `docs/tripwires.md` rows 10, 13, 20, 21, 38, 51, 52, 54.
 - Tests: `MCPCatalogConsistencyTests`, `MCPProtocolHandlersTests`, `DocSyncTests`, `CompilerAllowlistTests`, `MCPBinaryIntegrationTests` (the real bridge against bogus or absent sockets), `MCPColdStartTests` (the bridge against a stub listener; the cold-launch pin), `MCPServerLifecycleTests`, `PresenterRoutingTests`, `TestMCPCatalogConsistencyTests`, and per-tool tests under `MaughamTests/MCP/`.
 - Elsewhere: manuscript persistence in `Maugham/Stores/DocumentStore.swift`; the op log in `Maugham/OpLog/`.
-- Neighbouring guides: `Maugham/OpLog/AREA.md` (actors, chained and sealed), `Maugham/Canvas/AREA.md` (`CanvasClaudeWrite`, placement), `Maugham/Compiler/AREA.md` (the allowlist, the statement gate), `Maugham/Stores/AREA.md` (the research mover, statements).
+- Neighbouring guides: `Maugham/OpLog/AREA.md` (actors; "Chain, identity and seals"), `Maugham/Canvas/AREA.md` (`CanvasClaudeWrite`, placement), `Maugham/Compiler/AREA.md` (the allowlist, the statement gate), `Maugham/Stores/AREA.md` (the research mover, statements).
 - History: `docs/history/mcp.md`.

@@ -2263,7 +2263,7 @@ one `AnnotationAmendments` policy.
 - **Settings says what this phone may write** in each book, in `PermitWords`'
   words, through `DeviceStanding.permit`. A book with no register draws no role
   line. It re-reads on foreground and on pull (C5). There is no file presenter
-  (iOS tripwire 5).
+  (iOS tripwire 5, now in `docs/history/phone.md`).
 - **The phone signs nothing new.** It signs its own device record, as before,
   and no person record, event or claim. Its refusal sentences are its own,
   because the Mac has no per-verb refusal to share (Ruling P of this plan).
@@ -3113,7 +3113,7 @@ may WRITE: recognition decides only who is ADMITTED.
   stands, whatever the key says, and with no person name the system name
   stands. It is a DEVICE name — the record's `name`, beside the label — and
   never a label.
-- **The round trip** (iOS tripwire #7). In-process on the simulator, a phone
+- **The round trip** (iOS tripwire #7, now in `docs/history/phone.md`). In-process on the simulator, a phone
   capture through the real writer is read by `RegistryReader`, answers
   `Recognition.recognise == .ownDevice`, and is admitted by `admitRecognised`
   (`PhonePersonClaimTests`). Across platforms, device-record bytes the phone
@@ -3355,7 +3355,8 @@ may WRITE: recognition decides only who is ADMITTED.
   formatter, and the head persist is not coalesced (§3's crash window). Full
   tables in `docs/superpowers/notes/2026-09-09-perf-step-measurements.md`; the
   whole must-not-undo list with its reasons — count it there, not here — in
-  `Maugham/OpLog/AREA.md`'s "Where the time goes".
+  `docs/history/oplog.md`'s "Where the time goes" (the guide's rules are now
+  `Maugham/OpLog/AREA.md`'s "Sealed segments and cost").
 - **The project stream is signed AND rotated, at the same 512 KB as every other
   tail** (Denver, 2026-09-09; one constant, `OpLogStore.segmentSealThreshold`,
   not two). `__project__` seals like any other stream now that `ProjectStore`
@@ -3495,8 +3496,9 @@ may WRITE: recognition decides only who is ADMITTED.
 - [ADR 0018](0018-manuscript-reads-derive-from-oplog.md) /
   [ADR 0019](0019-clean-md-on-disk.md) — why a line appended by something else
   would otherwise become the writer's words.
-- `Maugham/OpLog/AREA.md` ("Chained and sealed", "Sealed segments"),
-  `Maugham/Stores/AREA.md` (the inbox manifest; the `.maugham/` layout),
+- `Maugham/OpLog/AREA.md` ("Chain, identity and seals", "Sealed segments and cost";
+  the old "Chained and sealed" and "Sealed segments" are in `docs/history/oplog.md`),
+  `Maugham/Stores/AREA.md` (Rules → "The inbox"; Map → "The `.maugham/` layout"),
   `MaughamPhone/AREA.md` (the phone's writers and the aim's removal).
 - CLAUDE.md tripwires 35, 36, 37 and 38; and 51, the posture census (P3c).
 - `docs/superpowers/specs/2026-09-27-your-devices-are-you-design.md` and

@@ -118,4 +118,5 @@ an OPEN doc.
   keyed on the doc's op-log file set + mtimes + sizes, fronting `DerivedManuscript`
   for closed docs. Adopted by search / compile / the link+reference+scenes tools /
   wiki-rename pre-check / word counts; open docs bypass it (they read live). See
-  `Maugham/Stores/AREA.md` for the owner and rationale.
+  `Maugham/Stores/AREA.md` (Rules → "Word counts and the session") for the owner,
+  and `docs/history/stores.md` ("Derived-manuscript cache + async word counts") for the rationale.

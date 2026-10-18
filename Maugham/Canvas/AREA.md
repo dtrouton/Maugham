@@ -361,6 +361,6 @@ Checks: `DocSyncTests.test_theCalibrationFiguresInTheCanvasAreaFileMatchTheirCon
 - ADR 0026 (`docs/adr/0026-planning-canvas-rendering.md`): rendering, membership (§8), promotion (§9), the ADR 0018 exception. ADR 0023 for the op-log undo the canvas does not use.
 - Measurements: `docs/superpowers/notes/2026-07-25-canvas-rendering-spike.md`.
 - `docs/tripwires.md` rows 25–33.
-- Neighbouring guides: `Maugham/Stores/AREA.md` (the asset well, the Inbox → canvas seam), `Maugham/MCP/AREA.md` (`list_canvas`, `add_canvas_scraps`), `Maugham/Views/AREA.md` (the window, personas).
+- Neighbouring guides: `Maugham/Stores/AREA.md` (Rules → "Statement and canvas asset wells"; `sendToCanvas` under "The inbox"), `Maugham/MCP/AREA.md` (`list_canvas`, `add_canvas_scraps`), `Maugham/Views/AREA.md` (the window, personas).
 - Tests worth knowing: `CanvasMembershipTests`, `CanvasCompositionTests`, `RegionBindingTests`, `PromotionCommandTests`, `CanvasLiveSeamTests`, `CanvasEditGateTests`, the `CanvasViewMounting*` family.
 - History, rationale and every measurement behind these rules: `docs/history/canvas.md`.

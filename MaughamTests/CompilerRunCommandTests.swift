@@ -5177,7 +5177,8 @@ final class CompilerRunCommandTests: XCTestCase {
     /// warm process is the expensive thing in this design, and a keystroke
     /// that turns out to have no prose behind it must not have killed it on
     /// the way past. The ordering was asserted in three prose comments
-    /// (`beginRun`'s own, and `Maugham/Compiler/AREA.md`'s lifetime row) and
+    /// (`beginRun`'s own, and `Maugham/Compiler/AREA.md`'s lifetime row, now
+    /// Rules → "The session's lifetime") and
     /// pinned by nothing.
     ///
     /// Falsification: hoist `if freshEyes { retireSession() }` above the

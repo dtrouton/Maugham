@@ -217,8 +217,8 @@ extension ProjectWindow {
 }
 
 /// **The centre column for a research subject** — the one mount of the three
-/// research editors, reached from both `editorPane`'s subject arm and
-/// `existingEditorSwitch`'s `.research` segment arm.
+/// research editors, reached from `CentreColumn`'s `.research` route
+/// (`ProjectWindow.centreRoute`).
 ///
 /// A view rather than a `@ViewBuilder` method on `ProjectWindow` for two
 /// reasons: `ProjectWindow.body` has no expression budget to spare (the Release

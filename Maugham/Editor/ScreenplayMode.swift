@@ -21,7 +21,8 @@ public struct ScreenplayMode: WritingMode {
     /// Screenplay paints the restyle LIVE (windowed) on each keystroke rather
     /// than deferring it: almost every line is a different element, so the
     /// burst-settle delay used for prose reads as constant classification lag
-    /// here. See `WritingMode.defersRestyleWhileTyping` and Editor AREA tripwire 9.
+    /// here. See `WritingMode.defersRestyleWhileTyping` and `Maugham/Editor/AREA.md`,
+    /// Rules → "Restyle, scroll and typewriter".
     public var defersRestyleWhileTyping: Bool { false }
 
     public func tokenize(_ text: String) -> [Token] {
@@ -35,7 +36,8 @@ public struct ScreenplayMode: WritingMode {
     /// it's needed for the boneyard discriminator's NSString substring work.
     /// `retokenizeAndStyle` parses once and threads the script through both this
     /// and `applyTypography(parsedScript:)`, avoiding the redundant per-keystroke
-    /// re-parses (see CLAUDE.md P1-editor / Editor AREA.md).
+    /// re-parses (see `Maugham/Editor/AREA.md`, Rules → "Restyle, scroll and
+    /// typewriter": the screenplay parser is one pass over `LineRecord`).
     func tokens(from script: FountainScript, text: String) -> [Token] {
         guard !text.isEmpty else { return [] }
         var tokens: [Token] = script.lines.map { line in

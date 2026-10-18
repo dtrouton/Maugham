@@ -724,8 +724,8 @@ writer drags a card. It is bounded by the **region** count rather than the node 
 text, and it is not the leading term in its own body; the gate exists one file over
 (`RegionInspector`'s `(sceneRevision, regionID)` cache) and would be correct here, since
 every writer of the value bumps that counter. Nothing has measured it, and this ADR does not
-use that word without a figure and a date beside it. `Maugham/Canvas/AREA.md` carries the
-same note in full.
+use that word without a figure and a date beside it. `Maugham/Canvas/AREA.md` carried the
+same note in full (now `docs/history/canvas.md`).
 
 > **Amendment, 2026-07-29 (plan 1C-c2b, after the 1C-c2a smoke).** Spec §6.3 is the
 > authority; what follows is what was built against it. This is the same slice corrected
@@ -866,7 +866,7 @@ and `.maugham/canvas.json` are not manuscript: they are scratch, derived (decisi
 reach a manuscript only through **promotion** — a deliberate writer act with a preview
 (decision 9). So `add_canvas_scraps` joins `add_note` as the second write tool in the
 catalogue and the destination list stays three (research, the annotation/translation layers,
-the canvas). `MCP/AREA.md` tripwire 4 is where that rule lives; its manuscript half does not
+the canvas). `MCP/AREA.md` tripwire 4 (now its Rules → "The membrane") is where that rule lives; its manuscript half does not
 soften, and **a fourth destination needs an argument at this level rather than this list as
 precedent.**
 
@@ -1015,7 +1015,7 @@ not render for an item node. The only route from the batch back to the page is t
 **This is recorded as a decision so 1C-d meets one rather than a bug.** An item-node inspector
 arm — the reference's title, an **Open in Research** button, the provenance row — belongs with
 the thumbnail and the drag-in route, which are the rest of what an item node is *for*, and it is
-in `Maugham/Canvas/AREA.md`'s "Not built" list because that is where the next slice looks. What
+in `Maugham/Canvas/AREA.md`'s "Not built" list (now `docs/history/canvas.md`) because that is where the next slice looks. What
 was fixed in the fix wave is only the record: the comment in `RegionInspector.swift` that
 justified the empty state with "nothing creates item nodes yet" said something this branch had
 made false.

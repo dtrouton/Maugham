@@ -190,7 +190,7 @@ AI assist for drafting, transcription, and project understanding.
   wanted, not a copied 120s); and `ClaudeWorldDeriver.derivationSchemaDescription` quotes a
   clause from the statement's essay as readily as from a Rulings line, so a real derivation
   can still double-brief a sentence through a second door the atomic switch above does not
-  close (`Maugham/Compiler/AREA.md`'s "atomic switch" section names the exact paragraph to
+  close (`docs/history/compiler.md`'s "atomic switch" section names the exact paragraph to
   re-read before touching the derivation schema). Streaming stays a **named** follow-on
   rather than a silent gap: Stage 2's ingest was built section-at-a-time
   (`parseSection`/`parseAll` as a fold) for exactly this upgrade, but the session still
@@ -230,7 +230,8 @@ AI assist for drafting, transcription, and project understanding.
   `nil` through the same EOF-and-exit resolution every other unreadable answer already goes
   through, not a new forced-resume case. *Left open, on the record:* the `--resume` fallback
   remains pre-authorized and unbuilt; the essay-sourced-clause double-brief door
-  (`Maugham/Compiler/AREA.md`'s "the atomic switch") is unchanged from Stage 2 — a real
+  (`docs/history/compiler.md`'s "the atomic switch"; the guide's open-door bullet is in Rules →
+  "The derivation trigger and the bible") is unchanged from Stage 2 — a real
   derivation can still quote a sentence of the essay as a clause and double-brief it, and
   nothing today measures it. **The second draft is closed as of this stage** — all three
   stages are on local main; the outstanding gate is one full-loop smoke covering the whole

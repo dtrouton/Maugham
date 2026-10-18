@@ -197,7 +197,7 @@ final class EditorIntegrationHarnessTests: XCTestCase {
     }
 
     func test_typingCaretIntoCharacterCue_doesNotFireApplyExternalText() {
-        // Regression net for dual-dialogue cue entry (Editor AREA.md tripwire 7).
+        // Regression net for dual-dialogue cue entry (CLAUDE.md tripwire 7).
         // Typing "^" after a character name produces a dual-dialogue cue; the
         // tokenizer strips the caret from content but must not trigger
         // applyExternalText (which is reserved for cloud-conflict resolution).

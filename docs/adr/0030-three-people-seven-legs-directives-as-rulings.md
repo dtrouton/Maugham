@@ -241,5 +241,6 @@ Any one of these means this decision has been violated:
 - `docs/constitution.md` must-not #1 (*AI is never the author* — *identity*): the
   manuscript is unreachable from every session added here, and what they produce
   reaches the writer's own prose only as a line the writer typed
-- `Maugham/Compiler/AREA.md` — "Cold calls", "The pipeline — seven legs"
+- `Maugham/Compiler/AREA.md` — "Cold calls", "The pipeline — seven legs" (now Rules → "Cold
+  calls, spot-checks and the pipeline"; the leg table is in `docs/history/compiler.md`)
 - `Maugham/Views/AREA.md` — the department desk, the round report, the reveal

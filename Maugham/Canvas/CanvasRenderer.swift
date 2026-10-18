@@ -640,7 +640,7 @@ enum CanvasRenderer {
     /// rule `visibleNodes` and `visibleRegions` follow, and the reason the
     /// 2,000-node probe passes. Lines are the one collection nothing bounds: a
     /// writer can draw one for every card, so "there are fewer lines than nodes"
-    /// is not an argument. AREA.md's Scale section already names tethers and
+    /// is not an argument. AREA.md's "Scale and tests" rules already name tethers and
     /// chips as the known unbounded per-frame work; lines joining that list
     /// uncounted would be a regression on the one number this surface defends.
     ///

@@ -148,7 +148,7 @@ extension EditorCoordinator {
         // Notify subscribers (e.g., scene navigator) that the script changed.
         // On the typing fast path, coalesce to a trailing edge so the scene
         // navigator's per-keystroke deep-compare + per-row walks don't run on
-        // every key. Whole-doc callers post immediately. See AREA tripwire 4
+        // every key. Whole-doc callers post immediately. See CLAUDE.md tripwire 4
         // and `scriptUpdateNotifyTask`.
         if let script = lastParsedScript {
             postScriptDidUpdate(script, debounced: windowedTyping)
@@ -226,8 +226,8 @@ extension EditorCoordinator {
     /// on every keystroke — but WINDOWED to the changed paragraph(s), diffed
     /// against `liveRestyleBaseline` (the text as of the last paint) — so a
     /// local `setAttributes` never invalidates whole-doc layout or snaps the
-    /// scroll origin (Editor AREA tripwire 9). The first paint after attach has
-    /// no baseline and paints whole-doc. Cursor restore is handled by the caller
+    /// scroll origin (`Maugham/Editor/AREA.md`, Rules → "Restyle, scroll and typewriter").
+    /// The first paint after attach has no baseline and paints whole-doc. Cursor restore is handled by the caller
     /// (`textDidChange`) after `retokenizeAndStyle` returns, so none is needed
     /// here. `liveRestyleBaseline` is advanced to the new text on the way out.
     private func paintLiveWindowed(
@@ -254,12 +254,13 @@ extension EditorCoordinator {
 
     /// Schedule the deferred (settle) repaint for the typing fast path. Cancel-
     /// and-reschedule on every keystroke so it fires once, ~`restyleSettleDelayMs`
-    /// after the last key. The paint is whole-document (the burst's window-diff
-    /// baseline is stale by settle time) and preserves the caret + scroll
-    /// position itself, since a whole-doc `setAttributes` invalidates layout and
-    /// would otherwise snap a long scrolled document toward the top (Editor AREA
-    /// tripwire 9). During the burst no paint happens, so the existing emphasis
-    /// attributes simply shift with the text (NSTextStorage) and nothing flips.
+    /// after the last key. The paint is windowed to the paragraphs the burst
+    /// changed (`performDeferredRestyle` diffs against `burstBaselineText`), so
+    /// it leaves the scroll position alone; only its no-baseline fallback paints
+    /// whole-document and guards the scroll origin (`Maugham/Editor/AREA.md`,
+    /// Rules → "Restyle, scroll and typewriter"). During the burst no paint
+    /// happens, so the existing emphasis attributes simply shift with the text
+    /// (NSTextStorage) and nothing flips.
     private func scheduleDeferredRestyle() {
         deferredRestyleTask?.cancel()
         let delay = restyleSettleDelayMs
@@ -279,7 +280,8 @@ extension EditorCoordinator {
     /// document's layout — and the scroll position AppKit settled on while
     /// following the caret — untouched, so no scroll handling is needed. Only
     /// the rare no-baseline fallback paints whole-doc, and only it captures /
-    /// restores the scroll origin (the snap-to-top guard, Editor AREA tripwire 9).
+    /// restores the scroll origin (the snap-to-top guard,
+    /// `Maugham/Editor/AREA.md`, Rules → "Restyle, scroll and typewriter").
     private func performDeferredRestyle() {
         guard let textView, let storage = textView.textStorage else { return }
         let baseline = burstBaselineText
