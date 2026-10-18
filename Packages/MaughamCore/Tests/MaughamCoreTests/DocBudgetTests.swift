@@ -21,9 +21,9 @@ final class DocBudgetTests: XCTestCase {
         "Maugham/Stores/AREA.md": 7_628,  // plan 5: re-templated, +285 review fixes (16,389 → 7,343 → this; tripwires 49/50, inbox promote order, backup-signature step); the narrative is in docs/history/stores.md
         "Maugham/MCP/AREA.md": 5_844,  // plan 5: re-templated, +193 review fixes (8,687 → 5,651 → this; permit via PostureDoor, tripwire test names, task-op and tripwire 52 censuses); the narrative is in docs/history/mcp.md
         "MaughamPhone/AREA.md": 4_163,  // plan 5: re-templated, +130 review fixes (5,007 → 4,033 → this; tripwires 37–41, 54, 55); the narrative is in docs/history/phone.md
-        "Maugham/Editor/AREA.md": 3_012,  // plan 5: re-templated (3,673 → this); the narrative is in docs/history/editor.md
+        "Maugham/Editor/AREA.md": 3_163,  // plan 5: re-templated, +151 review fixes (3,673 → 3,012 → this; TokenRestyleWindow is test-only, ResearchNoteEditor owns an EditorControl, the scroll-snap premise); the narrative is in docs/history/editor.md
         "Maugham/Updates/AREA.md": 3_997,  // plan 5: re-templated, +5 review fixes (4,089 → 3,992 → this); the narrative is in docs/history/updates.md
-        "Maugham/Publish/AREA.md": 2_097,  // plan 5: re-templated (1,073 → this: the Map names all 54 files, two recipes added); the narrative is in docs/history/publish.md
+        "Maugham/Publish/AREA.md": 2_127,  // plan 5: re-templated, +30 review fixes (1,073 → 2,097 → this: the Map names all 54 files, two recipes added; tripwire bullets name their tests); the narrative is in docs/history/publish.md
         "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 3_193,  // plan 5: +108, Pointers filled (tripwire rows, tests, neighbours); +28: Statement.Kind recipe gains the Persona.panes and one-writer-census steps; +206: the OpLogStore split's six files, DocumentFormat, ProjectType+Capabilities, the ProjectType recipe rewritten for capabilities
     ]
 

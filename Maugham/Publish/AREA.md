@@ -24,7 +24,7 @@ Every source file in `Maugham/Publish/` appears once, by family.
 
 ### Config, imprints and languages
 - `PublishConfig.swift` — the per-project config (`<project>/.maugham/publish/config.json`): metadata, outputs, cover, sections, `Format` (with `.unknown(raw)`), `PublishFormatRefusal`, `encodeAlways`.
-- `PublishConfig+Imprints.swift` — `resolved(imprint:pieceIDs:)`, the one imprint door.
+- `PublishConfig+Imprints.swift` — `resolved(imprint:pieceIDs:)`, the one imprint door. An imprint (`config.imprints`) declares its own template, rendered set, metadata, cover and version counter.
 - `PublishConfigStore.swift` — reads and writes the config atomically; `applyPatch` for `set_publish_config`.
 - `PublishConfigValidator.swift` — schema, paths, imprints, languages, template existence, `formatError`, `bumpedNextVersion`.
 - `JSONMergePatch.swift` — RFC 7396, the one merger for `set_publish_config` and imprint fragments.
@@ -36,7 +36,7 @@ Every source file in `Maugham/Publish/` appears once, by family.
 - `EditionStatus.swift` — where a book's language editions stand; the one derivation behind `translation_status` and the desk's language rows.
 
 ### Compiling and the catalogue
-- `CompileOrchestrator.swift` — the one compile path: refuse, resolve, gate, mint, compile, snapshot, record; `dry_run`; the durable-progress ledger a partial failure reports.
+- `CompileOrchestrator.swift` — the one compile path: refuse, resolve, gate, mint, compile, snapshot, record; `dry_run`; the durable-progress ledger a partial failure reports. Output lands under the project's `Exports/`.
 - `PDFCompiler.swift` — the PDF compile through tectonic, under the `MaughamBody` wrapper per body.
 - `EPUBCompiler.swift` — the EPUB compile, one sectioned XHTML per body.
 - `EPUBPackage.swift`, `EPUBOPFWriter.swift`, `EPUBContainerWriter.swift`, `EPUBZipPackager.swift` — the EPUB model, its OPF, `container.xml` and the zip.
@@ -71,7 +71,7 @@ Every source file in `Maugham/Publish/` appears once, by family.
 - **A per-piece `style_file` stays inside a scoped `\begingroup…\endgroup` — don't hoist the `\input` out**, or one piece's style leaks into the next. The name passes through `LaTeXSafeFilename` first; an unsafe one emits a deliberate undefined command rather than the `\input`.
 - **Every emitted paragraph is anchored**: `\hypertarget{p-<tag>-<¶id>}{}` in LaTeX and `id="p-<tag>-<¶id>"` in XHTML on every node a paragraph produced. A slugline cross-links to the same slugline in each other rendered body (`\MaughamCrossLink` / `<a href>`). Every body's prologue carries `\providecommand` fallbacks, so a hyperref-less preamble still compiles.
 - **Aesthetics live in `template.tex` / `styles.css`, never in the config**: the config cannot drive the engine into generic output.
-- **Manuscript text is read from the op log**, never the `.md` (tripwire 20): `ProjectStoreASTSource` derives each piece.
+- **Manuscript text is read from the op log**, never the `.md` (tripwire 20): `ProjectStoreASTSource` derives each piece (`TripwireGrepTests.test_noManuscriptFileReadsOutsideReconciler`; a non-manuscript read carries `// adr-0018-ok:`).
 
 ### Formats
 - **A format this build cannot produce is refused at the door.** `PublishConfig.Format` decodes a name a newer build wrote as `.unknown(raw)`, kept verbatim so the config re-encodes unchanged (ADR 0015). `allCases` is only what this build produces, so `.unknown` never reaches a picker.
@@ -86,8 +86,8 @@ Every source file in `Maugham/Publish/` appears once, by family.
 - **One composition names a compiled book**: `PublishPreviewCentre.parts(for:)`, read by the preview centre, the desk's status line and the Exports footer, so none of them can disagree.
 - **`JSONMergePatch` is the one merger**: `set_publish_config` and imprint fragments (`metadata`, `outputs`, `cover`) share its null-deletes-a-key rules.
 - **The config keeps its shape across writes**: optional fields encode through `encodeAlways` as explicit `null`.
-- **The catalogue is partitioned per device** (tripwire 17): this device writes only its own `publications.<deviceSlug>.jsonl`.
-- **The tectonic cache's folder name comes from `BuildVariant`** (tripwire 13), so dev and stable builds keep separate caches.
+- **The catalogue is partitioned per device** (tripwire 17): this device writes only its own `publications.<deviceSlug>.jsonl` (`CheckpointPartitioningTests.test_publications_appendWritesPerDevice_andLoadMergesChronologically`, `test_publications_legacyFileIsReadAndNeverWritten`).
+- **The tectonic cache's folder name comes from `BuildVariant`** (tripwire 13), so dev and stable builds keep separate caches (`TripwireGrepTests.test_noHardcodedIdentityStringsInMacSources`).
 
 ### The desk, the gate and translation
 - **The department's people run on the compiler's rails, not here**: the desk (`DetailSegment.department`, ⌘⌥K) runs a named translator per language (`ProductionRole`, with a blind reader and a collator beside each) and a named designer (Tschichold) as confined `claude -p` sessions through `TranslatorOrchestrator`/`DesignerOrchestrator`, conformers over `CompilerOrchestrator`'s shape (`Maugham/Compiler/AREA.md`). A translation Run drives a seven-leg round per piece or for the whole book in binder order; its report (`PublishCentre.translationRound`) and the design gate (`.designProposal`) are arms of the one `publishCentre` switch (`Maugham/Views/AREA.md`).

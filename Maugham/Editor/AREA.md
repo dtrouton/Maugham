@@ -24,7 +24,7 @@ Every source file in `Maugham/Editor/` appears once.
 - `ProseMode.swift` — the Markdown mode.
 - `ScreenplayMode.swift` — the Fountain mode: tokens from the shared parser, per-element paragraph styling, page count.
 - `Token.swift` — `Token` and `Token.Kind`, including `taskBody` and `invisibleAnchor`.
-- `TokenRestyleWindow.swift` — the attribute-application window for a keystroke restyle.
+- `TokenRestyleWindow.swift` — a `(kind, length)` token-diff window. Production no longer calls it: the typing path windows by character diff (`changedParagraphWindow`), and a token diff is forbidden below. It is kept as the oracle for `WindowedTypographyEquivalenceTests` and `TypingLatencyProbeTests`.
 - `Maugham/Editor/Tokenizer/MarkdownTokenizer.swift` — the prose tokenizer; emphasis is paragraph-scoped through the shared `InlineEmphasisScanner`.
 - `Maugham/Editor/Tokenizer/BlankLineBlocks.swift` — blank-line-delimited blocks, so emphasis scans per paragraph.
 - `Maugham/Editor/Tokenizer/SmartTypography.swift` — em dash, ellipsis and curly-quote substitution.
@@ -51,6 +51,7 @@ Every source file in `Maugham/Editor/` appears once.
 - `Maugham/Views/EditorHost.swift` — binds the per-document `Document` to `EditorSurface`; the binding contract lives here. Tripwires 2, 3, 6, 7.
 - `Maugham/Views/EditorControlMirror.swift` — `EditorControlMirror.membrane(posture:manualReview:shareIsReadOnly:)`, which composes `lockEditing`.
 - `Maugham/Views/StatementEditorHost.swift` — the statement panes, the second editor in a window.
+- `Maugham/Views/ResearchNoteEditor.swift` — a research note in the centre column; a primary editor that owns its own `EditorControl`.
 - `FountainTokenizer.swift`, `FountainScript.swift` and `FountainLine.swift` — the screenplay parser and its model, in MaughamCore (`Packages/MaughamCore/Sources/MaughamCore/AREA.md`).
 
 ## Rules
@@ -80,6 +81,7 @@ debounced burst flush → op log + autosave → eventual disk write → Document
 
 ### Restyle, scroll and typewriter
 Code comments cite this section as "Editor AREA tripwire 9", the old guide's local number for the scroll rules; it is not `docs/tripwires.md` row 9.
+- **A whole-document `setAttributes` snaps a long scrolled document toward the top**: it invalidates all layout, which AppKit re-lays out from the top. Each path below either avoids it (a local window) or re-asserts caret and scroll itself.
 - **Don't add work inside `applyTypography`** on either path. It takes a `restyleWindow`, and window ≡ whole document is pinned by `WindowedTypographyEquivalenceTests`.
 - **The typing path is mode-gated on `WritingMode.defersRestyleWhileTyping`.** Both branches restyle only the changed paragraphs found by a character diff (`changedParagraphWindow`), never a token diff: plain prose has no tokens, so a token window falls back to whole-document and snaps scroll. A local `setAttributes` does not move scroll, so AppKit's caret-following autoscroll is left alone.
   - Prose defers the repaint to the burst's trailing edge (`scheduleDeferredRestyle` → `performDeferredRestyle`, `restyleSettleDelayMs` = 300 ms), diffing against `burstBaselineText`, snapshotted in `shouldChangeTextIn`. Deferral is what stops emphasis flicker. The whole-document branch survives only as a no-baseline fallback.
@@ -95,7 +97,7 @@ Code comments cite this section as "Editor AREA tripwire 9", the old guide's loc
 
 ### Appearance, teardown and the control plane
 - **An OS light/dark change is a direct per-view call, not a broadcast**: `MaughamTextView.viewDidChangeEffectiveAppearance` calls `coordinator?.effectiveAppearanceDidChange()`. That no-ops when the appearance name is unchanged since the last handled one (baseline seeded in `attach`). AppKit also fires it on first mount, so a broadcast restyled every live coordinator (`EditorAppearanceChangeTests`). The no-op guard lives there, not in `applyAppearance`, which theme and typography changes share.
-- **`detach()` runs on every teardown and is idempotent** (`guard !isDetached`). It runs from `EditorSurface.dismantleNSView` on an in-window teardown, and from `MaughamTextView.viewWillMove(toWindow: nil)` on window close, where `dismantleNSView` never runs. It releases the text-view graph, cancels the async tasks, drops the observer tokens and clears the native undo stack before the text view goes (stale actions are the `⌘Z EXC_BAD_ACCESS` class).
+- **`detach()` runs on every teardown and is idempotent** (`guard !isDetached`). It runs from `EditorSurface.dismantleNSView` on an in-window teardown, and from `MaughamTextView.viewWillMove(toWindow: nil)` on window close, where `dismantleNSView` never runs. It releases the text-view graph, cancels the async tasks, drops the observer tokens and clears the native undo stack before the text view goes (stale actions are the `⌘Z EXC_BAD_ACCESS` class). It also flips `isDetached`, so a coordinator SwiftUI has not yet released does no restyle work and `receiverContext` drops its deliveries. The guard exists because a piece flip fires both hooks.
 - **The coordinator has no internal ARC cycle**: every back-reference (delegate, `textView`, overlay and gutter `coordinator`, observers, tasks) is weak or `[weak self]`. SwiftUI's scene retention after a window closes is neutralised by `detach()` and the `.onDisappear` scorch in `ProjectWindow`/`EditorHost` (`WindowTeardownScorchTests`).
 - **Control state flows through `EditorControl`, observed with `withObservationTracking`** (ADR 0017). It does not ride `updateNSView`, which is text, frame, gutter and provider wiring only, and it gets no new notification.
   - D1: `EditorControl` holds only control state, never text- or cursor-derived values, or observation fires on the typing hot path.
@@ -103,7 +105,7 @@ Code comments cite this section as "Editor AREA tripwire 9", the old guide's loc
   - **`armControlObservation` runs `applyControl` outside the tracking closure, and the closure reads only `control.*` properties.** `applyControl` reads through `Document` and `UserPreferences` in review posture, and a tracked read re-fired the whole-document restyle in every review window. Keep the tracked set equal to the consumed set (`EditorControlBridgeTests.test_reviewObservation_ignoresSharedPreferencesMutation`, `test_reviewObservation_stillFiresOnControlPropertyChange`, via `applyControlCount`).
   - The ⌘⌥⇧R `maughamToggleReviewMode` observer is kept deliberately (Bug B): it flips the review membrane synchronously, where a `control.*` mirror would land a frame later.
 - **A control flag that swaps which buffer the editor shows flips the membrane synchronously, before the buffer-swap decision.** `EditorSurface.reconcileTextBuffer` calls `coordinator.setTranslationReview(...)` first, then compares `textView.string` to decide a replace. A swap across a translation render always drops the native undo stack (ADR 0023's D1 corruption class; `EditorUndoStackClearTests`).
-- **The script post is project-scoped** (ADR 0021): `postScriptDidUpdate` posts `.maughamScriptDidUpdate` to `.project(id: scriptOriginProjectId)`, and receivers adopt it through `.onProjectEvent` only when the id is their own. It is not a key-window guard: a background window's own re-parse must still reach its navigator. A nil origin skips only the post; the debounce bookkeeping stays unconditional (`ScriptUpdateScopingTests`).
+- **The script post is project-scoped** (ADR 0021): `postScriptDidUpdate` posts `.maughamScriptDidUpdate` to `.project(id: scriptOriginProjectId)`, and receivers adopt it through `.onProjectEvent` only when the id is their own. It is not a key-window guard: a background window's own re-parse must still reach its navigator. A nil origin skips only the post; the debounce bookkeeping stays unconditional (`ScriptUpdateScopingTests`). `scriptOriginProjectId` is wired by `EditorSurface` from `EditorHost` (`ProjectIdentifier.id(for: store.url)`).
 
 ### The membrane reads the posture
 - **What the editor refuses is decided in `shouldChangeTextIn` alone**, by `EditorEditPolicy.allowsTextMutation`. The editor stays selectable, scrollable and copyable, and `isEditable` is never touched.
@@ -132,7 +134,7 @@ A statement pane in the right column holds a second `EditorSurface` while the ma
 ### Add a control-plane input
 1. `EditorControl.swift` — add the property. It must be control state, never derived from text or the cursor (D1).
 2. `EditorCoordinator.swift` — read it in `armControlObservation`'s tracking closure, and apply it in `applyControl` behind a no-op guard (D2). The two lists stay equal.
-3. `Maugham/Views/EditorControlMirror.swift`, or the host that owns the `EditorControl` (such as `Maugham/Views/StatementEditorHost.swift`) — write it one-way; the coordinator never writes back.
+3. Write it one-way from every host that owns an `EditorControl` (`grep 'EditorControl()' Maugham/Views`): `Maugham/Views/EditorControlMirror.swift` (`EditorControlMirrorModifier`, which `ProjectWindow` applies), `Maugham/Views/ResearchNoteEditor.swift` and `Maugham/Views/StatementEditorHost.swift`. Decide per host whether it applies. The coordinator never writes back.
 4. If it changes which buffer is shown, flip the membrane before the buffer decision in `EditorSurface.reconcileTextBuffer`.
 5. Tests: `EditorControlBridgeTests` (a property change re-applies; an unrelated `UserPreferences` mutation does not).
 
@@ -145,7 +147,7 @@ A statement pane in the right column holds a second `EditorSurface` while the ma
 ### Mount another `EditorSurface`
 1. Decide whether it can be on screen beside another editor; if so, set `isSecondEditorInItsWindow: true` in its `EditorSurfaceConfiguration`.
 2. Add its file to `TripwireGrepTests.editorSurfaceMountSites`, saying which it is.
-3. Bind it with the sanctioned binding shape; don't mount `EditorHost`, which is the manuscript editor's.
+3. Bind it with a single `Binding(get:set:)` onto its owning model's text that writes once per set, the shape in *The binding contract*; don't mount `EditorHost`, which is the manuscript editor's.
 4. Test the pair in one window, as `StatementEditorMountTests` does.
 
 ## Pointers
